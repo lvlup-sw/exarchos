@@ -51,6 +51,7 @@ import {
   findIgnoredParameters,
   buildIgnoredParameterError,
 } from '../undeclared-parameters.js';
+import type { ToolAction } from '../../registry.js';
 import type { EventSourcedTaskStore } from '../../projections/task-store/event-sourced-task-store.js';
 
 // NOTE: `../telemetry/middleware.js` is intentionally NOT imported at module
@@ -364,16 +365,41 @@ function isFreshnessGateExempt(tool: string, action: string): boolean {
  * The roots-based workspace-discovery branch in `dispatch()` skips its
  * synchronous filesystem walk for actions in this set so high-frequency
  * introspection calls (catalog reads, runbook fetches, agent-spec
- * lookups) don't pay the discovery cost. Adding an action here is a
- * "this surface MUST NOT ever take a featureId" assertion — pair the
- * addition with a registry-side check that the action's schema does not
- * declare a `featureId` field.
+ * lookups) don't pay the discovery cost.
+ *
+ * This list is a LATENCY shortcut and nothing more. It is deliberately NOT
+ * load-bearing for correctness: {@link actionAcceptsInferredFeatureId} decides
+ * whether inference may run at all, reading the receiving action's own schema.
+ * A name missing from this set costs a filesystem walk; it can no longer cost
+ * a rejected call.
  */
 const NO_WORKSPACE_RESOLUTION_ACTIONS: ReadonlySet<string> = new Set([
   'describe',
   'runbook',
   'agent_spec',
 ]);
+
+/**
+ * May the roots/cwd resolver hand this action an inferred `featureId`?
+ *
+ * Only when the action's OWN schema declares the field. Every composite tool
+ * flattens its actions into one registration schema, so the wire accepts the
+ * union of every action's fields — but routing hands the payload to a single
+ * strict schema that knows only its own. Injecting into an action that does
+ * not declare `featureId` therefore manufactures the exact refusal
+ * `undeclared-parameters.ts` exists to raise, naming a parameter the caller
+ * never sent and the server itself added.
+ *
+ * The predicate reads the same `schema.shape` that builds that refusal, so the
+ * two can no longer disagree: a newly-added action is classified correctly the
+ * moment it is declared, with no list to keep in step.
+ *
+ * Exported for the regression guard, which asserts this over the whole
+ * registry rather than executing 59 handlers to discover it.
+ */
+export function actionAcceptsInferredFeatureId(action: ToolAction): boolean {
+  return action.schema.shape['featureId'] !== undefined;
+}
 
 /**
  * Apply the readonly capability gate. Returns a structured CAPABILITY_DENIED
@@ -790,10 +816,20 @@ export async function dispatch(
     // to every CLI hot-path dispatch (telemetry view, doctor checks, etc.)
     // that happens to omit a featureId. Roots+cwd inference is purely an
     // MCP-client convenience for callers that DID declare roots.
+    //
+    // The receiving action's schema is consulted FIRST. Inference is a
+    // convenience for actions that take a featureId; for an action that does
+    // not declare one there is nothing to infer, and injecting anyway turns a
+    // successful resolution into an INVALID_INPUT naming a field the caller
+    // never sent. That inverted failure hit 59 of the 124 registered actions
+    // — including `doctor`, so the diagnostic of record broke exactly when an
+    // operator reached for it — and it reproduced only where roots resolution
+    // SUCCEEDS, which is why the repo's own suite never saw it.
     if (
       rest.featureId === undefined
       && ctx.capabilityResolver !== undefined
       && ctx.rootsClient !== undefined
+      && actionAcceptsInferredFeatureId(matchingAction)
       && !NO_WORKSPACE_RESOLUTION_ACTIONS.has(actionName)
     ) {
       try {
