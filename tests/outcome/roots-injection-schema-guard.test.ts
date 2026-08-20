@@ -22,10 +22,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { TOOL_REGISTRY } from '../../src/registry.js';
+import { dispatch } from '../../src/dispatch/core/dispatch.js';
 import {
-  dispatch,
-  actionAcceptsInferredFeatureId,
-} from '../../src/dispatch/core/dispatch.js';
+  actionAcceptsInferredValue,
+  INFERRABLE_FIELDS,
+} from '../../src/dispatch/core/inferred-values.js';
 import { EventStore } from '../../src/events/store.js';
 import { handleInit } from '../../src/workflow/tools.js';
 import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
@@ -48,7 +49,9 @@ afterEach(async () => {
 });
 
 /** The live latency shortcut in `dispatch.ts`. Skipped names never reach inference at all. */
-const LATENCY_SKIP = new Set(['describe', 'runbook', 'agent_spec']);
+const LATENCY_SKIP =
+  INFERRABLE_FIELDS.find((f) => f.field === 'featureId')?.skipActions ??
+  new Set<string>();
 
 interface ActionRef {
   readonly tool: string;
@@ -64,7 +67,7 @@ function partitionRegistry(): {
   for (const tool of TOOL_REGISTRY) {
     for (const action of tool.actions) {
       const ref = { tool: tool.name, action: action.name };
-      if (actionAcceptsInferredFeatureId(action)) declaring.push(ref);
+      if (actionAcceptsInferredValue(action, 'featureId')) declaring.push(ref);
       else omitting.push(ref);
     }
   }
@@ -96,7 +99,7 @@ describe('Roots featureId inference is gated on the receiving schema (#1838)', (
       const action = tool?.actions.find((a) => a.name === ref.action);
       expect(action, `${ref.tool}.${ref.action} missing from registry`).toBeDefined();
       expect(
-        actionAcceptsInferredFeatureId(action!),
+        actionAcceptsInferredValue(action!, 'featureId'),
         `${ref.tool}.${ref.action} omits featureId but is eligible for injection`,
       ).toBe(false);
     }
@@ -120,7 +123,7 @@ describe('Roots featureId inference is gated on the receiving schema (#1838)', (
       );
       expect(action, `${v.tool}.${v.action} not found`).toBeDefined();
       expect(
-        actionAcceptsInferredFeatureId(action!),
+        actionAcceptsInferredValue(action!, 'featureId'),
         `${v.tool}.${v.action} must not receive an inferred featureId`,
       ).toBe(false);
     }
@@ -131,7 +134,7 @@ describe('Roots featureId inference is gated on the receiving schema (#1838)', (
       (a) => a.name === 'get',
     );
     expect(beneficiary).toBeDefined();
-    expect(actionAcceptsInferredFeatureId(beneficiary!)).toBe(true);
+    expect(actionAcceptsInferredValue(beneficiary!, 'featureId')).toBe(true);
   });
 
   it('Dispatch_EveryReadOnlyVictimUnderResolvingRoots_IsNotRefusedForInjectedFeatureId', async () => {
@@ -178,7 +181,7 @@ describe('Roots featureId inference is gated on the receiving schema (#1838)', (
     const viewTool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_view');
     expect(viewTool).toBeDefined();
     const victims = viewTool!.actions
-      .filter((a) => !actionAcceptsInferredFeatureId(a) && !LATENCY_SKIP.has(a.name))
+      .filter((a) => !actionAcceptsInferredValue(a, 'featureId') && !LATENCY_SKIP.has(a.name))
       .map((a) => a.name);
 
     // Denominator: if this population ever empties, the loop below proves

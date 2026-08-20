@@ -1,7 +1,7 @@
 {
-  "capturedAt": "2026-08-15",
-  "trackedFiles": 2920,
-  "scannedFiles": 2817,
+  "capturedAt": "2026-08-20",
+  "trackedFiles": 2971,
+  "scannedFiles": 2868,
   "namedFilesIncluded": [
     ".github/CODEOWNERS",
     ".gitattributes",
@@ -88,16 +88,16 @@
     "docs/research": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 28,
+      "externalReferrers": 29,
       "referrersByKind": {
         "code": 20,
         "config": 1,
         "snapshot": 1,
-        "markdownLive": 6,
+        "markdownLive": 7,
         "markdownArchival": 0,
         "other": 0
       },
-      "liveReferrers": 28,
+      "liveReferrers": 29,
       "sampleReferrers": [
         ".exarchos/invariants.md",
         "CHANGELOG.md",
@@ -221,16 +221,16 @@
     "docs/guides": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 25,
+      "externalReferrers": 27,
       "referrersByKind": {
-        "code": 16,
+        "code": 17,
         "config": 2,
         "snapshot": 0,
-        "markdownLive": 6,
+        "markdownLive": 7,
         "markdownArchival": 0,
         "other": 1
       },
-      "liveReferrers": 25,
+      "liveReferrers": 27,
       "sampleReferrers": [
         ".exarchos.yml",
         ".exarchos/invariants.md",
@@ -416,22 +416,31 @@
     },
     "docs/migrations": {
       "disposition": "delete",
-      "ownFiles": 0,
-      "externalReferrers": 1,
+      "ownFiles": 1,
+      "externalReferrers": 6,
       "referrersByKind": {
-        "code": 1,
+        "code": 5,
         "config": 0,
         "snapshot": 0,
-        "markdownLive": 0,
+        "markdownLive": 1,
         "markdownArchival": 0,
         "other": 0
       },
-      "liveReferrers": 1,
+      "liveReferrers": 6,
       "sampleReferrers": [
-        "tests/scripts/migration-followups.test.ts"
+        "src/events/event-name.ts",
+        "src/events/schemas.ts",
+        "tests/scripts/migration-followups.test.ts",
+        "tests/unit/events/event-name.test.ts",
+        "tools/audit/prose-manifest.ts",
+        "tools/audit/test-fixtures/measured-premises/internal-mechanics-overhaul.md"
       ],
       "sampleLiveCodeReferrers": [
-        "tests/scripts/migration-followups.test.ts"
+        "src/events/event-name.ts",
+        "src/events/schemas.ts",
+        "tests/scripts/migration-followups.test.ts",
+        "tests/unit/events/event-name.test.ts",
+        "tools/audit/prose-manifest.ts"
       ]
     },
     "docs/evals": {
@@ -507,16 +516,16 @@
     "docs/architecture": {
       "disposition": "re-home",
       "ownFiles": 0,
-      "externalReferrers": 37,
+      "externalReferrers": 38,
       "referrersByKind": {
-        "code": 27,
+        "code": 28,
         "config": 7,
         "snapshot": 0,
         "markdownLive": 3,
         "markdownArchival": 0,
         "other": 0
       },
-      "liveReferrers": 37,
+      "liveReferrers": 38,
       "sampleReferrers": [
         ".exarchos/invariants.md",
         ".github/workflows/ci.yml",
