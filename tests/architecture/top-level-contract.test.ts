@@ -51,6 +51,7 @@ const ALLOWED_DOT_DIRS: Record<string, string> = {
   '.cursor': 'Cursor harness config.',
   '.opencode': 'OpenCode harness config.',
   '.exarchos': 'Exarchos dev catalog: invariants, comment policy, topology.',
+  '.lavish': 'Lavish Editor review sessions and their artifacts. Gitignored, tool-created.',
 };
 
 /**
