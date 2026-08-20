@@ -359,3 +359,37 @@ export function resolveTasksDir(): string {
 export function resolveCacheDir(inputs?: StorePathResolutionInputs): string {
   return resolveDir('EXARCHOS_CACHE_DIR', 'cache', 'cache', inputs);
 }
+
+/**
+ * Resolve the directory holding the recorded install-identity lock.
+ *
+ * Deliberately does NOT go through {@link resolveDir}: install freshness is a
+ * property of the INSTALLED ARTIFACTS — which binary, which plugin, which
+ * cache — and must not vary with `WORKFLOW_STATE_DIR`, which steers where
+ * workflow state lives and has no stated relationship to installation identity.
+ *
+ * Recording the lock inside the resolved event store made the same install
+ * simultaneously "fresh" (in the store where TOFU happened to bootstrap) and
+ * "stale or mixed" (in any other), so the freshness gate blocked precisely the
+ * configuration an operator adopts to collapse a store-path divergence. Pinning
+ * the store was the documented remedy, and taking it tripped the gate.
+ *
+ * Plugin mode is excluded from the cascade for the same reason: the verdict
+ * must not depend on which surface asks.
+ */
+export function resolveInstallIdentityDir(
+  inputs?: Omit<StorePathResolutionInputs, 'pluginMode'>,
+): string {
+  const env = inputs?.env ?? process.env;
+  const home = inputs?.homedir ?? os.homedir();
+
+  const explicit = env['EXARCHOS_INSTALL_STATE_DIR'];
+  if (explicit) return toPosix(expandTilde(explicit, home));
+
+  const xdgStateHome = env['XDG_STATE_HOME'];
+  if (xdgStateHome) {
+    return toPosix(path.join(expandTilde(xdgStateHome, home), 'exarchos', 'install'));
+  }
+
+  return toPosix(path.join(home, '.exarchos', 'install'));
+}

@@ -22,13 +22,14 @@
  * pass only the required `pluginRoot` / `stateDir` and the live defaults apply.
  */
 
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 import { SCHEMA_VERSION } from '../storage/sqlite-backend.js';
 import { atomicWriteFile } from '../utils/atomic-write.js';
-import { resolveCacheDir } from '../utils/paths.js';
+import { resolveCacheDir, resolveInstallIdentityDir } from '../utils/paths.js';
 import {
   buildInstallIdentity,
   InstallIdentitySchema,
@@ -236,9 +237,32 @@ export function collectInstallIdentity(pluginRoot: string, deps: IdentityDeps = 
   });
 }
 
-/** Absolute path of the recorded install-identity lock for a given state dir. */
-export function installIdentityLockPath(stateDir: string): string {
-  return path.join(stateDir, INSTALL_IDENTITY_LOCK_FILENAME);
+/**
+ * Absolute path of the recorded install-identity lock for a given installation.
+ *
+ * Keyed on `pluginRoot`, NOT on the event-store state dir. The lock records
+ * what is INSTALLED, so its location must not move when `WORKFLOW_STATE_DIR`
+ * does — otherwise one installation carries a different recorded identity per
+ * store and reports two different freshness verdicts, which is what made
+ * `doctor` self-contradictory and blocked the very configuration that collapses
+ * a store divergence.
+ *
+ * The `pluginRoot` digest keeps two installs on one machine from sharing a
+ * lock; the directory itself comes from {@link resolveInstallIdentityDir},
+ * which never consults the store env var.
+ *
+ * Migration: an existing lock under the old state-dir location is NOT read
+ * back. Reading it would reintroduce exactly the `WORKFLOW_STATE_DIR` variance
+ * being removed. The absent lock re-bootstraps through the designed TOFU path
+ * (record and proceed, never block).
+ */
+export function installIdentityLockPath(pluginRoot: string, deps: IdentityDeps = {}): string {
+  const dir = resolveInstallIdentityDir({
+    ...(deps.env !== undefined ? { env: deps.env } : {}),
+    ...(deps.homedir !== undefined ? { homedir: deps.homedir } : {}),
+  });
+  const key = createHash('sha256').update(path.resolve(pluginRoot)).digest('hex').slice(0, 12);
+  return path.join(dir, `install-identity-${key}.json`);
 }
 
 /**
@@ -248,11 +272,11 @@ export function installIdentityLockPath(stateDir: string): string {
  * wedging the gate).
  */
 export function readRecordedIdentity(
-  stateDir: string,
+  pluginRoot: string,
   deps: IdentityDeps = {},
 ): InstallIdentity | undefined {
   const readFileText = deps.readFileText ?? defaultReadFileText;
-  const text = readFileText(installIdentityLockPath(stateDir));
+  const text = readFileText(installIdentityLockPath(pluginRoot, deps));
   if (text === undefined) return undefined;
   let parsed: unknown;
   try {
@@ -266,12 +290,13 @@ export function readRecordedIdentity(
 
 /** Persist the expected install identity as the lock (install / first-run TOFU). */
 export function writeRecordedIdentity(
-  stateDir: string,
+  pluginRoot: string,
   identity: InstallIdentity,
   deps: IdentityDeps = {},
 ): void {
   const writeFileText = deps.writeFileText ?? defaultWriteFileText;
   const mkdirp = deps.mkdirp ?? defaultMkdirp;
-  mkdirp(stateDir);
-  writeFileText(installIdentityLockPath(stateDir), `${JSON.stringify(identity, null, 2)}\n`);
+  const lockPath = installIdentityLockPath(pluginRoot, deps);
+  mkdirp(path.dirname(lockPath));
+  writeFileText(lockPath, `${JSON.stringify(identity, null, 2)}\n`);
 }

@@ -40,10 +40,13 @@ import {
   type IdentityDeps,
 } from './collect-identity.js';
 
-export interface FreshnessGateDeps extends IdentityDeps {
-  /** State directory holding the recorded install-identity lock. */
-  readonly stateDir: string;
-}
+/**
+ * Deps for the gate. Note what is ABSENT: there is no `stateDir`. Install
+ * freshness is a property of the installed artifacts, and the field's removal
+ * is what makes that structural — the event store cannot be folded back into
+ * the verdict by a future caller, because there is nowhere to put it.
+ */
+export type FreshnessGateDeps = IdentityDeps;
 
 /** Outcome of a freshness evaluation — discriminated on `status`. */
 export type FreshnessGateOutcome =
@@ -82,11 +85,16 @@ function computeOutcome(deps: FreshnessGateDeps): FreshnessGateOutcome {
     return { status: 'degraded', reason: `install-identity collection failed: ${errorMessage(err)}` };
   }
 
-  const recorded = readRecordedIdentity(deps.stateDir, deps);
+  // The lock is keyed to the INSTALLATION, not to `deps.stateDir`. Recording it
+  // per event store made the verdict a function of `WORKFLOW_STATE_DIR`, so the
+  // same install read "fresh" in one store and "stale or mixed" in another —
+  // and the gate blocked precisely the store-pinning an operator adopts to
+  // collapse a divergence.
+  const recorded = readRecordedIdentity(posture.pluginRoot, deps);
   if (recorded === undefined) {
     // First run — Trust-On-First-Use: record the current identity, do not block.
     try {
-      writeRecordedIdentity(deps.stateDir, observed, deps);
+      writeRecordedIdentity(posture.pluginRoot, observed, deps);
     } catch (err) {
       return { status: 'degraded', reason: `failed to record install identity: ${errorMessage(err)}` };
     }
@@ -96,6 +104,12 @@ function computeOutcome(deps: FreshnessGateDeps): FreshnessGateOutcome {
   const result = verifyInstallFreshness(recorded, observed);
   if (result.fresh) {
     return { status: 'fresh' };
+  }
+  // Cannot-tell is reported as cannot-tell. Mapping it onto the existing
+  // non-blocking `degraded` status keeps an unreadable install from becoming a
+  // new outage class, while refusing to report it as a match.
+  if ('indeterminate' in result) {
+    return { status: 'degraded', reason: result.reason };
   }
   const error = new InstallFreshnessError(result.mismatches);
   return { status: 'blocked', mismatches: result.mismatches, message: error.message };

@@ -31,7 +31,8 @@ const MUTATING_ARGS = { action: 'init', featureId: 'p05-freshness', workflowType
 
 let root: string; // temp "plugin root" (installed layout)
 let cacheDir: string; // temp cache dir
-let stateDir: string; // temp state dir (holds the lock + event store)
+let stateDir: string; // temp state dir (event store only — the lock no longer lives here)
+let installDir: string; // temp install-identity dir (holds the TOFU lock)
 let eventStore: EventStore;
 
 function seedCoherentInstall(overrides?: Partial<{ pkg: string; manifest: string; skill: string; cache: string }>): void {
@@ -50,9 +51,19 @@ function seedCoherentInstall(overrides?: Partial<{ pkg: string; manifest: string
   fs.writeFileSync(path.join(cacheDir, CACHE_DESCRIPTOR_FILENAME), cache);
 }
 
-/** Record the current on-disk state as the expected lock (a coherent install). */
+/**
+ * Record the current on-disk state as the expected lock (a coherent install).
+ *
+ * The lock is keyed to the INSTALLATION, not the state dir, so freshness stays
+ * invariant under WORKFLOW_STATE_DIR. `EXARCHOS_INSTALL_STATE_DIR` redirects it
+ * into the temp tree here — without it the gate would write to the real `~`.
+ */
 function recordCoherentLock(): void {
-  writeRecordedIdentity(stateDir, collectInstallIdentity(root));
+  writeRecordedIdentity(root, collectInstallIdentity(root));
+}
+
+function lockPath(): string {
+  return installIdentityLockPath(root);
 }
 
 function ctx(): DispatchContext {
@@ -65,11 +76,14 @@ beforeEach(async () => {
   root = path.join(base, 'plugin');
   cacheDir = path.join(base, 'cache');
   stateDir = path.join(base, 'state');
+  installDir = path.join(base, 'install');
   fs.mkdirSync(stateDir, { recursive: true });
+  fs.mkdirSync(installDir, { recursive: true });
   // Installed posture, deterministically, via env — the gate reads process.env.
   vi.stubEnv('EXARCHOS_PLUGIN_ROOT', root);
   vi.stubEnv('EXARCHOS_CACHE_DIR', cacheDir);
   vi.stubEnv('CLAUDE_PLUGIN_ROOT', '');
+  vi.stubEnv('EXARCHOS_INSTALL_STATE_DIR', installDir);
   eventStore = new EventStore(stateDir);
   await eventStore.initialize();
 });
@@ -91,11 +105,11 @@ describe('P05-04 dispatch chokepoint — matching install proceeds', () => {
 
   it('first run with NO recorded lock BOOTSTRAPS (records, does not block)', async () => {
     seedCoherentInstall();
-    expect(fs.existsSync(installIdentityLockPath(stateDir))).toBe(false);
+    expect(fs.existsSync(lockPath())).toBe(false);
     const result = await dispatch(MUTATING_TOOL, MUTATING_ARGS, ctx());
     expect(result.error?.code).not.toBe('INSTALL_FRESHNESS_MISMATCH');
     // The gate recorded the lock so subsequent runs have a baseline.
-    expect(fs.existsSync(installIdentityLockPath(stateDir))).toBe(true);
+    expect(fs.existsSync(lockPath())).toBe(true);
   });
 
   it('a read-only action is exempt even when the install is stale', async () => {

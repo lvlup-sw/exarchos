@@ -1055,7 +1055,7 @@ export async function dispatch(
     // is a no-op for source-run / in-process tests and adds a single one-time
     // filesystem read on the first mutating action of a real install.
     if (!isFreshnessGateExempt(tool, actionName)) {
-      const freshness = evaluateInstallFreshness({ stateDir: ctx.stateDir });
+      const freshness = evaluateInstallFreshness({});
       if (freshness.status === 'blocked') {
         logger.child({ subsystem: 'install-freshness' }).warn(
           {

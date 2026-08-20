@@ -48,10 +48,40 @@ export interface FreshnessMismatch {
   readonly remediation: string;
 }
 
-/** Result of a freshness verification — discriminated on `fresh`. */
+/**
+ * The sentinel substituted when the binary version cannot be read off the
+ * install's `package.json`. It is a placeholder for an ABSENT observation, not
+ * a version — so it must never satisfy an equality comparison against another
+ * copy of itself.
+ */
+export const UNKNOWN_VERSION_SENTINEL = '0.0.0-unknown';
+
+/**
+ * Result of a freshness verification.
+ *
+ * `indeterminate` is the third state, and its absence was a defect: the binary
+ * version falls back to {@link UNKNOWN_VERSION_SENTINEL} when it cannot be
+ * read, and comparing two unknowns by equality reported the dimension as
+ * MATCHING. `doctor` then printed "binary, plugin, skill, schema, and cache
+ * match the recorded identity" while separately warning it could not determine
+ * the running plugin version — an absent observation converted into positive
+ * assurance.
+ *
+ * An undetermined dimension now yields `indeterminate`, which callers surface
+ * as a non-assertion. It is deliberately NOT a mismatch: blocking on an
+ * unreadable `package.json` would turn the freshness gate into a new outage
+ * class, which this module's robustness policy exists to prevent. The trade is
+ * a false pass for an honest "cannot tell", not for a block.
+ */
 export type FreshnessResult =
   | { readonly fresh: true }
+  | { readonly fresh: false; readonly indeterminate: true; readonly dimensions: readonly FreshnessDimension[]; readonly reason: string }
   | { readonly fresh: false; readonly mismatches: readonly FreshnessMismatch[] };
+
+/** True when a recorded/observed version pair cannot support a match verdict. */
+function isIndeterminateVersion(value: string): boolean {
+  return value === UNKNOWN_VERSION_SENTINEL || value.trim() === '';
+}
 
 /**
  * Thrown by {@link assertInstallFreshness} when one or more install dimensions
@@ -109,6 +139,24 @@ export function verifyInstallFreshness(
   observed: InstallIdentity,
 ): FreshnessResult {
   const mismatches: FreshnessMismatch[] = [];
+
+  // Indeterminate dimensions are settled BEFORE any equality comparison, so an
+  // unknown can never be folded into a pass by matching another unknown.
+  const undetermined: FreshnessDimension[] = [];
+  if (isIndeterminateVersion(expected.binary.version) || isIndeterminateVersion(observed.binary.version)) {
+    undetermined.push('binary');
+  }
+  if (undetermined.length > 0) {
+    return {
+      fresh: false,
+      indeterminate: true,
+      dimensions: undetermined,
+      reason:
+        `Undetermined dimension(s): ${undetermined.join(', ')} — the version could not be read, ` +
+        `so freshness cannot be asserted either way. An unreadable install is reported as ` +
+        `unknown rather than counted as a match.`,
+    };
+  }
 
   // binary — exact match on version AND artifact digest.
   if (
@@ -181,7 +229,9 @@ export function assertInstallFreshness(
   observed: InstallIdentity,
 ): void {
   const result = verifyInstallFreshness(expected, observed);
-  if (!result.fresh) {
-    throw new InstallFreshnessError(result.mismatches);
-  }
+  if (result.fresh) return;
+  // An undetermined dimension is not a confirmed mismatch — only a CONFIRMED
+  // mismatch blocks. See the `indeterminate` note on FreshnessResult.
+  if ('indeterminate' in result) return;
+  throw new InstallFreshnessError(result.mismatches);
 }
