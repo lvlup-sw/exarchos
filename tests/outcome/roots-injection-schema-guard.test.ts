@@ -118,6 +118,74 @@ describe('Roots featureId inference is gated on the receiving schema (#1838)', (
     expect(actionAcceptsInferredFeatureId(beneficiary!)).toBe(true);
   });
 
+  it('Dispatch_EveryReadOnlyVictimUnderResolvingRoots_IsNotRefusedForInjectedFeatureId', async () => {
+    // ─── the wiring, not just the predicate ─────────────────────────────────
+    //
+    // The registry assertions above prove `actionAcceptsInferredFeatureId`
+    // classifies correctly. They do NOT prove dispatch consults it: delete the
+    // call in `dispatch()` and every one of them still passes, because the
+    // predicate remains correct while nothing asks it. A control that is not
+    // reachable in the shipped composition is not a control.
+    //
+    // So this dispatches the victims for real. It is restricted to the
+    // READ-ONLY ones — `exarchos_view` is declared `'*'` read-only by
+    // READ_ONLY_ACTIONS, so executing them mutates nothing — which is what
+    // makes exercising the whole population safe. The mutating victims
+    // (`merge_pr`, `create_pr`, `create_issue`) stay excluded on purpose: a
+    // guard must not perform the side effects it guards.
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'outcome-1838-wiring-'));
+    const stateDir = path.join(workspace, 'docs', 'workflow-state');
+    await fs.mkdir(stateDir, { recursive: true });
+    await fs.writeFile(path.join(workspace, '.exarchos.yml'), '', 'utf8');
+
+    const featureId = 'outcome-1838-wiring';
+    const eventStore = new EventStore(stateDir);
+    await eventStore.initialize();
+    expect((await handleInit({ featureId, workflowType: 'feature' }, stateDir, eventStore)).success).toBe(true);
+
+    const resolver = createInMemoryResolver([]);
+    resolver.snapshot({ capabilities: { roots: { listChanged: true } } });
+    const rootsClient: RootsClient = {
+      async list() {
+        return [{ uri: `file://${workspace}` }];
+      },
+    };
+    const ctx = {
+      stateDir,
+      eventStore,
+      enableTelemetry: false,
+      capabilityResolver: resolver,
+      rootsClient,
+      cwd: workspace,
+    };
+
+    const viewTool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_view');
+    expect(viewTool).toBeDefined();
+    const victims = viewTool!.actions
+      .filter((a) => !actionAcceptsInferredFeatureId(a) && !LATENCY_SKIP.has(a.name))
+      .map((a) => a.name);
+
+    // Denominator: if this population ever empties, the loop below proves
+    // nothing and would pass in silence.
+    expect(victims.length).toBeGreaterThanOrEqual(20);
+
+    const refused: string[] = [];
+    for (const action of victims) {
+      const result = await dispatch('exarchos_view', { action }, ctx);
+      // The assertion is NOT that the call succeeds — several of these need
+      // arguments or external state. It is that whatever goes wrong, it is
+      // never dispatch refusing a parameter it injected itself.
+      if (/unrecognized parameter\(s\).*featureId/.test(result.error?.message ?? '')) {
+        refused.push(action);
+      }
+    }
+
+    expect(
+      refused,
+      `dispatch injected featureId into ${refused.length} action(s) whose schema forbids it`,
+    ).toEqual([]);
+  }, 60_000);
+
   it('Dispatch_EventAppendUnderResolvingRoots_IsNotRefusedForInjectedFeatureId', async () => {
     const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'outcome-1838-'));
     const stateDir = path.join(workspace, 'docs', 'workflow-state');

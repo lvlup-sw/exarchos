@@ -81,6 +81,23 @@ export function digestTree(entries: ReadonlyArray<DigestEntry>): string {
 
 // ─── Install-identity record ─────────────────────────────────────────────────
 
+/**
+ * Substituted when the binary version cannot be read off the install's
+ * `package.json`.
+ *
+ * It stands for an ABSENT observation, not a version, so it must never satisfy
+ * an equality comparison against another copy of itself — see the
+ * `indeterminate` verdict in `freshness-check.ts`.
+ *
+ * Declared HERE, beside the identity shape, because both the producer that
+ * substitutes it (`collect-identity.ts`) and the consumer that must refuse to
+ * match on it (`freshness-check.ts`) already import this module. It previously
+ * lived as a bare literal in the producer and a separate constant in the
+ * consumer — two authorities for one value, so changing the producer would have
+ * left the consumer's check silently matching nothing.
+ */
+export const UNKNOWN_VERSION_SENTINEL = '0.0.0-unknown';
+
 export const BinaryIdentitySchema = z.object({
   version: z.string().min(1),
   digest: DigestSchema,

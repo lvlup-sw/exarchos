@@ -7,7 +7,7 @@
     "testFiles": 1192,
     "parsedFiles": 1147,
     "shellFiles": 45,
-    "cases": 13286,
+    "cases": 13287,
     "dynamicTitles": 144,
     "unparseableFiles": 0
   },
@@ -8619,6 +8619,11 @@
         {
           "suite": "Roots featureId inference is gated on the receiving schema (#1838)",
           "name": "RootsInference_NamedRegressionVictims_AreIneligible",
+          "dynamic": false
+        },
+        {
+          "suite": "Roots featureId inference is gated on the receiving schema (#1838)",
+          "name": "Dispatch_EveryReadOnlyVictimUnderResolvingRoots_IsNotRefusedForInjectedFeatureId",
           "dynamic": false
         },
         {

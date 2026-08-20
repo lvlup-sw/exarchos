@@ -26,7 +26,7 @@
  *     own open path enforces the same rule via `SchemaVersionTooNewError`).
  */
 
-import type { InstallIdentity } from './install-identity.js';
+import { UNKNOWN_VERSION_SENTINEL, type InstallIdentity } from './install-identity.js';
 
 /** The five independently-seedable, independently-blocking mismatch dimensions. */
 export type FreshnessDimension = 'binary' | 'plugin' | 'skill' | 'schema' | 'cache';
@@ -47,14 +47,6 @@ export interface FreshnessMismatch {
   readonly observed: string;
   readonly remediation: string;
 }
-
-/**
- * The sentinel substituted when the binary version cannot be read off the
- * install's `package.json`. It is a placeholder for an ABSENT observation, not
- * a version — so it must never satisfy an equality comparison against another
- * copy of itself.
- */
-export const UNKNOWN_VERSION_SENTINEL = '0.0.0-unknown';
 
 /**
  * Result of a freshness verification.

@@ -33,6 +33,7 @@ import { resolveCacheDir, resolveInstallIdentityDir } from '../utils/paths.js';
 import {
   buildInstallIdentity,
   InstallIdentitySchema,
+  UNKNOWN_VERSION_SENTINEL,
   type DigestEntry,
   type InstallIdentity,
 } from './install-identity.js';
@@ -207,7 +208,7 @@ export function collectInstallIdentity(pluginRoot: string, deps: IdentityDeps = 
   // binary — version + a descriptor digest over package.json (pins version +
   // dependency graph; a swapped bundle without a version bump still diverges).
   const pkgText = readFileText(path.join(pluginRoot, 'package.json'));
-  const binaryVersion = extractPackageVersion(pkgText) ?? '0.0.0-unknown';
+  const binaryVersion = extractPackageVersion(pkgText) ?? UNKNOWN_VERSION_SENTINEL;
   const binaryEntries: DigestEntry[] =
     pkgText !== undefined ? [{ path: 'package.json', content: pkgText }] : [];
 

@@ -27,12 +27,12 @@ import {
   CACHE_DESCRIPTOR_FILENAME,
   type IdentityDeps,
 } from '../../../src/install/collect-identity.js';
-import {
-  verifyInstallFreshness,
-  UNKNOWN_VERSION_SENTINEL,
-} from '../../../src/install/freshness-check.js';
+import { verifyInstallFreshness } from '../../../src/install/freshness-check.js';
 import { resolveCacheDir, resolveInstallIdentityDir } from '../../../src/utils/paths.js';
-import type { InstallIdentity } from '../../../src/install/install-identity.js';
+import {
+  UNKNOWN_VERSION_SENTINEL,
+  type InstallIdentity,
+} from '../../../src/install/install-identity.js';
 
 const PLUGIN_ROOT = '/opt/exarchos';
 const HOME = '/home/u';
