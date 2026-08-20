@@ -1,5 +1,5 @@
 /**
- * DR-3 — a handler that effects without committing its event fails the BUILD.
+ * A handler that effects without committing its event fails the BUILD.
  *
  * ## Why this file exists, and what it does NOT carry
  *
@@ -42,8 +42,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.join(here, '../..');
 const CARRIER = path.join(packageRoot, 'src/dispatch/core/effect-carrier.ts');
 
-/** Where the carrier's DR-1/DR-2 compile claims begin. */
-const PROOF_BLOCK_MARKER = '// ─── DR-1 / DR-2 compile claims';
+/** Where the carrier's emission-declaration compile claims begin. */
+const PROOF_BLOCK_MARKER = '// ─── Emission-declaration compile claims';
 
 /**
  * Resolved rather than path-joined.
@@ -141,7 +141,7 @@ function materializeCarrier(dir: string, relax: boolean): void {
 const OMITTING_FIXTURE = `
 import type { EffectPlan } from './effect-carrier.js';
 
-// The pre-DR-1 shape: an owner, an idempotency boundary, a compensation
+// The older shape: an owner, an idempotency boundary, a compensation
 // contract — and no statement of what running this records.
 export const plan: EffectPlan = {
   effectClass: 'filesystem',
@@ -151,7 +151,7 @@ export const plan: EffectPlan = {
 };
 `;
 
-describe('DR-3 — omission fails the build, not the run', () => {
+describe('omission fails the build, not the run', () => {
   let dir: string;
 
   beforeEach(() => {

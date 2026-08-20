@@ -1,5 +1,5 @@
 /**
- * DR-5 — every gate this slice adds is killed on purpose and observed to fail.
+ * Every gate this slice adds is killed on purpose and observed to fail.
  *
  * ## What this file is for
  *
@@ -12,10 +12,10 @@
  * Four gates land here, and each is relaxed in a COPY of the carrier before
  * being asserted to stop failing:
  *
- *   1. `emits` required                — the DR-1 closure
- *   2. evidence on the success arm     — DR-2's flagship, unprobed until now
- *   3. the branded replay witness      — DR-2's second arm
- *   4. the recorder required in live   — DR-2's unconditional demand
+ *   1. `emits` required
+ *   2. evidence on the success arm
+ *   3. the branded replay witness
+ *   4. the recorder required in live mode
  *
  * The fifth gate — the compile fixture itself — is probed by the harness that
  * owns it (`effect-carrier-compile-gate.test.ts`, second case) and is
@@ -135,7 +135,7 @@ interface Relaxation {
  * Where the carrier's compile-time proofs begin.
  *
  * The EARLIER of the two proof blocks, deliberately. The module has two — the
- * original capability proofs and the DR-1/DR-2 claims appended after them — and
+ * original capability proofs and the emission-declaration claims appended after
  * truncating at the later marker leaves the first block asserting a property the
  * probe is trying to relax, so the copy fails for the right reason and the probe
  * reads as the guard holding.
@@ -303,7 +303,7 @@ function write(dir: string, fixture: string): void {
   fs.writeFileSync(path.join(dir, fixture), body, 'utf8');
 }
 
-describe('DR-5 — kill probes: every gate is shown to fail', () => {
+describe('kill probes: every gate is shown to fail', () => {
   let dir: string;
 
   beforeEach(() => {
@@ -399,7 +399,8 @@ describe('DR-5 — kill probes: every gate is shown to fail', () => {
     // condition leaves the PARAMETER required, so the compile probe above stays
     // green and the type-level proof stays true — while a `records-nothing`
     // plan silently stops needing a capability at all. That is the abstention
-    // hole DR-2 closed, and only running the code can see it reopen.
+    // hole the unconditional demand closed, and only running the code can see
+    // it reopen.
     const refused = runLiveWithNoRecorder(dir, []);
     expect(refused, 'the REAL carrier committed a live run with no capability').toMatch(
       /^OUTCOME:refused:/,
@@ -437,6 +438,6 @@ describe('DR-5 — kill probes: every gate is shown to fail', () => {
     expect(live).toContain('  readonly emits: PlanEmissions;');
     expect(live).toContain('  recorder: EmissionRecorder,');
     expect(live).toContain('readonly [EMISSION_EVIDENCE_BRAND]: true;');
-    expect(live).toContain('// ─── DR-1 / DR-2 compile claims');
+    expect(live).toContain('// ─── Emission-declaration compile claims');
   });
 });

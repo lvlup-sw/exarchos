@@ -147,7 +147,7 @@ export interface RecordsEmissions {
 /**
  * What a plan promises to record. Required on every {@link EffectPlan}: an
  * effect that cannot say what records it is a state mutation that is not an
- * event, which is the hole INV-1 names.
+ * event — a change to the world that the event log does not know happened.
  */
 export type PlanEmissions = RecordsEmissions | RecordsNothing;
 
@@ -202,8 +202,9 @@ export interface EffectPlan {
    * distinction that says whether an interrupted run needs convergence.
    *
    * REQUIRED. A plan cannot be built without saying what records it, because a
-   * plan that records nothing by saying nothing is the INV-1 hole: an effect
-   * that lands without its event is a state mutation that is not an event.
+   * plan that records nothing by saying nothing is the hole this closes: an
+   * effect that lands without its event is a state mutation that is not an
+   * event, and nothing downstream can replay or reconcile it.
    *
    * An effect that genuinely records nothing is still expressible — it declares
    * {@link recordsNothing} and carries its reason. What is no longer
@@ -241,8 +242,8 @@ export type EffectOutcome<T> =
 /**
  * Construct a `success` carrier.
  *
- * Evidence is REQUIRED, which is the whole of DR-2: a success carrier cannot be
- * built without something that says the record exists, so obtaining `T` from
+ * Evidence is REQUIRED, and that is the whole point: a success carrier cannot
+ * be built without something that says the record exists, so obtaining `T` from
  * one means the append already happened.
  */
 export function succeeded<T>(value: T, evidence: EmissionEvidence): EffectOutcome<T> {
@@ -811,7 +812,7 @@ export type _EffectCarrier_Constructor_MintsTheCapability = Expect<
   ReturnType<typeof emissionRecorder> extends EmissionRecorder ? true : false
 >;
 
-// ─── DR-1 / DR-2 compile claims ──────────────────────────────────────────────
+// ─── Emission-declaration compile claims ─────────────────────────────────────
 //
 // These live HERE, in a `src/` module, for the reason the block above already
 // states: the root `tsconfig.json` includes only `src/**` and excludes
@@ -821,13 +822,12 @@ export type _EffectCarrier_Constructor_MintsTheCapability = Expect<
 // checked, which is the failure mode these claims exist to prevent.
 
 /**
- * **A plan cannot omit what records it.** The pre-DR-1 shape — everything a
- * plan needs except the emission declaration — is no longer an
- * {@link EffectPlan}.
+ * **A plan cannot omit what records it.** The older shape — everything a plan
+ * needs except the emission declaration — is no longer an {@link EffectPlan}.
  *
- * This is the compile-time half of INV-1: an effect that lands without naming
- * its record is a state mutation that is not an event, and the omission is a
- * build failure rather than a runtime discovery.
+ * This is the compile-time half of the guarantee: an effect that lands without
+ * naming its record is a state mutation that is not an event, and the omission
+ * is a build failure rather than a runtime discovery.
  *
  * Falsifier: make `emits` optional again and this alias stops being `true`.
  * @proof

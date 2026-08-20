@@ -7,15 +7,23 @@
 // whether the report reads "created", "already exists", or "failed".
 
 import { describe, it, expect } from 'vitest';
-import { failed, plannedDryRun, succeeded, replayedEvidence } from '../../../src/dispatch/core/effect-carrier.js';
+import {
+  failed,
+  plannedDryRun,
+  succeeded,
+  replayedEvidence,
+  records,
+  type EffectPlan,
+} from '../../../src/dispatch/core/effect-carrier.js';
 import type { WorktreeCreateResult } from '../../../src/vcs/mutation-owner.js';
 import { mapWorktreeOutcome } from '../../../src/vcs/worktree-provisioner.js';
 
-const plan = {
-  effectClass: 'vcs' as const,
+const plan: EffectPlan = {
+  effectClass: 'vcs',
   owner: 'vcs-mutation-owner',
   description: 'create worktree',
   idempotent: true,
+  emits: records({ event: 'vcs.executed', when: 'on-success' }),
 };
 
 describe('mapWorktreeOutcome', () => {

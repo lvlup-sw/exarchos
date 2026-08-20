@@ -436,7 +436,7 @@ describe('toEffectError', () => {
   });
 });
 
-describe('DR-5 — the edges that universal declaration puts pressure on', () => {
+describe('the edges that universal declaration puts pressure on', () => {
   it('DryRun_EveryPlanDeclares_StillRecordsNothing', async () => {
     // Declaration is universal now, so the arm that must record NOTHING is the
     // one carrying the new pressure: a dry-run holds a plan that declares three
