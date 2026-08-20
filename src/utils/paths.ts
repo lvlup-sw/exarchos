@@ -331,6 +331,84 @@ export function computeStorePathDivergence(
   return { cliPath, pluginPath, diverges: cliPath !== pluginPath };
 }
 
+/** Env var by which an operator accepts a divergent store deliberately. */
+export const ALLOW_STORE_DIVERGENCE_ENV = 'EXARCHOS_ALLOW_STORE_DIVERGENCE';
+
+/** A divergence that is actually splitting live state, with the evidence for saying so. */
+export interface ActiveStoreDivergence extends StorePathDivergence {
+  /** The store THIS process will read and write. */
+  readonly activePath: string;
+  /** The store the OTHER surface resolves. */
+  readonly otherPath: string;
+  /** Does the other surface's store exist on disk? */
+  readonly otherExists: boolean;
+  /** Has the operator opted into running two stores? */
+  readonly acknowledged: boolean;
+  /**
+   * True when state is genuinely splitting: the surfaces diverge, the other
+   * store EXISTS, and the operator has not opted in.
+   */
+  readonly active: boolean;
+}
+
+/**
+ * Decide whether this process is writing into a store the other surface will
+ * never read — the condition worth refusing on.
+ *
+ * Bare divergence is NOT that condition, and the distinction is the whole
+ * design. `WORKFLOW_STATE_DIR` unset in non-plugin mode resolves
+ * `~/.exarchos/state` for the CLI and `~/.claude/workflow-state` for the
+ * plugin, so {@link computeStorePathDivergence} reports `diverges: true` for
+ * EVERY standalone CLI invocation on the machine, including for users who have
+ * never installed the plugin. Refusing on that alone would break them all.
+ *
+ * Requiring the other store to EXIST is what turns an always-true structural
+ * fact into evidence that two stores are really in play. Setting
+ * `WORKFLOW_STATE_DIR` collapses the divergence outright (the env var wins in
+ * both modes), which is why it is the remedy the refusal names.
+ */
+export function detectActiveStoreDivergence(
+  inputs?: StorePathResolutionInputs & { readonly storeExists?: (p: string) => boolean },
+): ActiveStoreDivergence {
+  const env = inputs?.env ?? process.env;
+  const pluginMode = inputs?.pluginMode ?? isClaudeCodePlugin(env);
+  const exists = inputs?.storeExists ?? ((p: string): boolean => fs.existsSync(p));
+
+  const base = computeStorePathDivergence({
+    ...(inputs?.env !== undefined ? { env: inputs.env } : {}),
+    ...(inputs?.homedir !== undefined ? { homedir: inputs.homedir } : {}),
+  });
+
+  const activePath = pluginMode ? base.pluginPath : base.cliPath;
+  const otherPath = pluginMode ? base.cliPath : base.pluginPath;
+  const otherExists = base.diverges && exists(otherPath);
+  const acknowledged = (env[ALLOW_STORE_DIVERGENCE_ENV] ?? '').trim() !== '';
+
+  return {
+    ...base,
+    activePath,
+    otherPath,
+    otherExists,
+    acknowledged,
+    active: base.diverges && otherExists && !acknowledged,
+  };
+}
+
+/**
+ * The operator-facing account of a live split: which store is being used,
+ * which one is being ignored, and the one line that collapses the two.
+ */
+export function describeStoreDivergence(d: ActiveStoreDivergence): string {
+  return (
+    `Event-store divergence: this surface resolves ${d.activePath} but the other ` +
+    `resolves ${d.otherPath}, and that store exists. Workflow state written here is ` +
+    `invisible there — reads answer from a different store and downstream gates ` +
+    `return confident, wrong verdicts. Set WORKFLOW_STATE_DIR to pin both surfaces ` +
+    `to one store (it wins in plugin and non-plugin mode alike), or set ` +
+    `${ALLOW_STORE_DIVERGENCE_ENV}=1 to proceed deliberately with two.`
+  );
+}
+
 /**
  * Resolve the teams directory.
  * Env: `EXARCHOS_TEAMS_DIR` | Claude: `~/.claude/teams` | Default: `~/.exarchos/teams`

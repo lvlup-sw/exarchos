@@ -52,6 +52,14 @@ import {
   buildIgnoredParameterError,
 } from '../undeclared-parameters.js';
 import type { ToolAction } from '../../registry.js';
+import path from 'node:path';
+import {
+  detectActiveStoreDivergence,
+  describeStoreDivergence,
+  resolveStateDir,
+  toPosix,
+  ALLOW_STORE_DIVERGENCE_ENV,
+} from '../../utils/paths.js';
 import type { EventSourcedTaskStore } from '../../projections/task-store/event-sourced-task-store.js';
 
 // NOTE: `../telemetry/middleware.js` is intentionally NOT imported at module
@@ -357,6 +365,17 @@ function isFreshnessGateExempt(tool: string, action: string): boolean {
   if (allowed === '*') return true;
   if (allowed !== undefined && allowed.includes(action)) return true;
   return FRESHNESS_GATE_DIAGNOSTIC_EXEMPT.has(action);
+}
+
+/**
+ * True when `action` on `tool` only reads. Same source of truth as the
+ * freshness gate, minus the diagnostic carve-out: a divergence WARNING is
+ * exactly what `doctor` should carry, so `doctor` is not exempted here.
+ */
+function isReadOnlyAction(tool: string, action: string): boolean {
+  const allowed = (READ_ONLY_ACTIONS as Record<string, readonly string[] | '*'>)[tool];
+  if (allowed === '*') return true;
+  return allowed !== undefined && allowed.includes(action);
 }
 
 /**
@@ -737,6 +756,23 @@ export async function dispatch(
     ? undefined
     : snapshotCallerAuthorization(ctx.callerIdentity, ctx.capabilityResolver);
   const dispatchCtx = mintDispatchContextFromRequest(args, authorization);
+
+  // Computed once per dispatch and reused by both the read-side warning and
+  // the write-side refusal below, so the existence probe runs at most once on
+  // the hot path.
+  //
+  // Scoped to a context whose store came from the AMBIENT cascade. When a
+  // caller supplied an explicit state dir — `--state-dir`, an embedding host,
+  // every in-process test — there is no ambiguity about which store was meant,
+  // so there is nothing to warn about and nothing to refuse. Without this the
+  // verdict would depend on which stores happen to exist under the invoking
+  // user's home, making dispatch behave differently on a developer machine
+  // than in CI.
+  const storeCameFromAmbientCascade = toPosix(path.resolve(ctx.stateDir)) === resolveStateDir();
+  const storeDivergence = storeCameFromAmbientCascade
+    ? detectActiveStoreDivergence()
+    : undefined;
+
   const attachMeta = (result: ToolResult): ToolResult => {
     const existingMeta =
       typeof (result as { _meta?: unknown })._meta === 'object' &&
@@ -754,7 +790,19 @@ export async function dispatch(
     const mergedMeta = existingMeta
       ? { ...correlationMeta, ...existingMeta }
       : correlationMeta;
-    return { ...result, _meta: mergedMeta } as ToolResult;
+    // A read answered from a store the other surface never sees carries the
+    // caveat INLINE. The `prepare_delegation` envelope that made this issue
+    // expensive was internally consistent and wrong, with nothing in it
+    // hinting that two stores existed; a separate `doctor` run was the only
+    // way to learn that, and by then the reader trusted the verdict.
+    const warnings = storeDivergence?.otherExists === true
+      ? [...(result.warnings ?? []), describeStoreDivergence(storeDivergence)]
+      : result.warnings;
+    return {
+      ...result,
+      ...(warnings !== undefined ? { warnings } : {}),
+      _meta: mergedMeta,
+    } as ToolResult;
   };
 
   return runWithDispatchContext(dispatchCtx, async () => {
@@ -1054,6 +1102,43 @@ export async function dispatch(
     // memoized once per process and SKIPS entirely on a dev checkout, so this
     // is a no-op for source-run / in-process tests and adds a single one-time
     // filesystem read on the first mutating action of a real install.
+    // ─── Store-path divergence — refuse a write into a ghost store ───────
+    // The detector already existed (`computeStorePathDivergence`, DR-11 B-5)
+    // but its only consumer was the doctor check, so mutations landed in the
+    // non-plugin store and reported SUCCESS while the orchestrator read a
+    // different one. The tell surfaced steps later as STATE_NOT_FOUND, and
+    // gates like `prepare_delegation` answered from the ghost store with a
+    // self-consistent, entirely wrong verdict. Every symptom pointed away
+    // from the cause.
+    //
+    // Refusal is scoped to an ACTIVE divergence — the other store must exist —
+    // because bare divergence is true for every standalone CLI invocation and
+    // refusing on it would break users who never installed the plugin.
+    if (!isReadOnlyAction(tool, actionName) && storeDivergence !== undefined) {
+      const divergence = storeDivergence;
+      if (divergence.active) {
+        logger.child({ subsystem: 'store-divergence' }).warn(
+          { tool, action: actionName, activePath: divergence.activePath, otherPath: divergence.otherPath },
+          'refusing mutating action: the resolved event store diverges from the other surface',
+        );
+        return attachMeta({
+          success: false,
+          error: {
+            code: 'STORE_PATH_DIVERGENCE',
+            message: describeStoreDivergence(divergence),
+            tool,
+            action: actionName,
+            expectedShape: {
+              activePath: divergence.activePath,
+              otherPath: divergence.otherPath,
+              remedy: `WORKFLOW_STATE_DIR=${path.dirname(divergence.otherPath)}`,
+              override: `${ALLOW_STORE_DIVERGENCE_ENV}=1`,
+            },
+          },
+        });
+      }
+    }
+
     if (!isFreshnessGateExempt(tool, actionName)) {
       const freshness = evaluateInstallFreshness({});
       if (freshness.status === 'blocked') {
