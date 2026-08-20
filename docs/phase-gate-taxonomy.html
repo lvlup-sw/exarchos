@@ -1,0 +1,2049 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exarchos Phase-Gate Taxonomy</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :where(.grid, .flex, .kpi-row, .cards, .spine) > * { min-width: 0; }
+  :where(p, h1, h2, h3, h4, li, dd, td, th, code, .tag) { overflow-wrap: anywhere; }
+  :where(img, svg) { max-width: 100%; }
+
+  :root {
+    color-scheme: light;
+    --page:        #f9f9f7;
+    --surface-1:   #fcfcfb;
+    --surface-2:   #f2f1ed;
+    --ink-1:       #0b0b0b;
+    --ink-2:       #52514e;
+    --ink-muted:   #898781;
+    --grid:        #e1e0d9;
+    --axis:        #c3c2b7;
+    --border:      rgba(11,11,11,0.10);
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+    --o1: #86b6ef; --o2: #5598e7; --o3: #2a78d6; --o4: #104281;
+    --h1: #86b6ef; --h2: #5598e7; --h3: #2a78d6; --h4: #1c5cab; --h5: #104281;
+    --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+    --success-text: #006300;
+    --on-dark-fill: #fcfcfb;
+    --on-light-fill: #0b0b0b;
+    --shadow: 0 1px 2px rgba(11,11,11,.04), 0 8px 24px rgba(11,11,11,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page:      #0d0d0d;
+      --surface-1: #1a1a19;
+      --surface-2: #222221;
+      --ink-1:     #ffffff;
+      --ink-2:     #c3c2b7;
+      --ink-muted: #898781;
+      --grid:      #2c2c2a;
+      --axis:      #383835;
+      --border:    rgba(255,255,255,0.10);
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+      --o1: #cde2fb; --o2: #9ec5f4; --o3: #3987e5; --o4: #184f95;
+      --h1: #cde2fb; --h2: #9ec5f4; --h3: #6da7ec; --h4: #3987e5; --h5: #184f95;
+      --success-text: #0ca30c;
+      --shadow: 0 1px 2px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page:      #0d0d0d;
+    --surface-1: #1a1a19;
+    --surface-2: #222221;
+    --ink-1:     #ffffff;
+    --ink-2:     #c3c2b7;
+    --ink-muted: #898781;
+    --grid:      #2c2c2a;
+    --axis:      #383835;
+    --border:    rgba(255,255,255,0.10);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --o1: #cde2fb; --o2: #9ec5f4; --o3: #3987e5; --o4: #184f95;
+    --h1: #cde2fb; --h2: #9ec5f4; --h3: #6da7ec; --h4: #3987e5; --h5: #184f95;
+    --success-text: #0ca30c;
+    --shadow: 0 1px 2px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.35);
+  }
+
+  html { background: var(--page); }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink-1);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 40px 24px 96px; }
+
+  header.masthead { margin-bottom: 8px; }
+  .eyebrow {
+    font-size: 11px; font-weight: 650; letter-spacing: .13em; text-transform: uppercase;
+    color: var(--ink-muted); margin: 0 0 10px;
+  }
+  h1 {
+    font-size: clamp(30px, 4.4vw, 44px); line-height: 1.1; letter-spacing: -.022em;
+    font-weight: 700; margin: 0 0 12px;
+  }
+  .standfirst { font-size: 17px; color: var(--ink-2); margin: 0 0 20px; max-width: 74ch; }
+  .provenance {
+    display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center;
+    font-size: 12.5px; color: var(--ink-muted);
+    border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+    padding: 12px 0; margin-bottom: 32px;
+  }
+  .provenance code { font-size: 12px; }
+
+  .kpi-row {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr));
+    gap: 12px; margin-bottom: 44px;
+  }
+  .kpi {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 18px 16px; box-shadow: var(--shadow);
+  }
+  .kpi-label { font-size: 12px; color: var(--ink-muted); margin: 0 0 8px; font-weight: 500; }
+  .kpi-value { font-size: 34px; font-weight: 680; line-height: 1; letter-spacing: -.02em; margin: 0 0 8px; }
+  .kpi-value .of { font-size: 16px; font-weight: 500; color: var(--ink-muted); letter-spacing: 0; }
+  .kpi-note { font-size: 12.5px; color: var(--ink-2); margin: 0; line-height: 1.45; }
+  .kpi.alarm .kpi-value { color: var(--critical); }
+
+  section { margin-bottom: 60px; scroll-margin-top: 24px; }
+  h2 {
+    font-size: 13px; font-weight: 660; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--ink-muted); margin: 0 0 6px;
+    display: flex; align-items: baseline; gap: 10px;
+  }
+  h2 .num { color: var(--s1); font-variant-numeric: tabular-nums; }
+  .section-title { font-size: clamp(21px, 2.7vw, 27px); font-weight: 660; letter-spacing: -.018em; margin: 0 0 10px; line-height: 1.22; }
+  .lede { font-size: 15.5px; color: var(--ink-2); margin: 0 0 26px; max-width: 78ch; }
+  h3 { font-size: 16.5px; font-weight: 640; margin: 34px 0 10px; letter-spacing: -.01em; }
+  h4 { font-size: 13.5px; font-weight: 640; margin: 0 0 10px; color: var(--ink-2); }
+  p { margin: 0 0 14px; max-width: 82ch; }
+
+  code {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: .875em; background: var(--surface-2); padding: .1em .38em;
+    border-radius: 4px; border: 1px solid var(--border);
+  }
+  td code, .chain code, .spine-list code { background: transparent; border: 0; padding: 0; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(285px,100%), 1fr)); gap: 14px; margin: 18px 0 8px; }
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px; box-shadow: var(--shadow);
+  }
+  .card p:last-child { margin-bottom: 0; }
+  .card ul { margin: 0; padding-left: 18px; }
+  .card li { margin-bottom: 6px; font-size: 13.5px; color: var(--ink-2); }
+  .card li:last-child { margin-bottom: 0; }
+  .card li strong { color: var(--ink-1); font-weight: 620; }
+  .card-kicker { font-size: 11px; font-weight: 640; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-muted); margin: 0 0 8px; }
+
+  .callout {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-left: 3px solid var(--s1); border-radius: 10px;
+    padding: 16px 18px; margin: 22px 0;
+  }
+  .callout.warn { border-left-color: var(--warning); }
+  .callout.crit { border-left-color: var(--critical); }
+  .callout-title {
+    font-size: 13px; font-weight: 650; margin: 0 0 6px;
+    display: flex; align-items: center; gap: 7px; color: var(--ink-1);
+  }
+  .callout p { margin: 0; font-size: 14px; color: var(--ink-2); }
+  .callout p + p { margin-top: 10px; }
+  .ico { font-size: 12px; line-height: 1; }
+  .callout.warn .ico { color: var(--serious); }
+  .callout.crit .ico { color: var(--critical); }
+  .callout .ico { color: var(--s1); }
+
+  figure { margin: 0 0 10px; background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 20px; box-shadow: var(--shadow); }
+  figcaption { font-size: 12.5px; color: var(--ink-muted); margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--grid); }
+  .chart-title { font-size: 15px; font-weight: 640; margin: 0 0 3px; color: var(--ink-1); }
+  .chart-sub { font-size: 12.5px; color: var(--ink-muted); margin: 0 0 18px; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 16px; font-size: 12.5px; color: var(--ink-2); }
+  .legend .key { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 11px; height: 11px; border-radius: 3px; flex: 0 0 auto; }
+
+  .sbar-row { display: grid; grid-template-columns: minmax(110px, 165px) minmax(0,1fr) 46px; gap: 14px; align-items: center; margin-bottom: 12px; }
+  .sbar-label { font-size: 13px; color: var(--ink-1); font-weight: 560; text-align: right; }
+  .sbar-label small { display: block; font-size: 11px; color: var(--ink-muted); font-weight: 400; }
+  .sbar { display: flex; height: 22px; gap: 2px; }
+  .seg { position: relative; display: flex; align-items: center; justify-content: center; min-width: 4px; border-radius: 3px; overflow: visible; }
+  .seg b { font-size: 11.5px; font-weight: 640; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .seg.hollow { border: 1.5px dashed var(--critical); }
+  .sbar-total { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+  .bar-row { display: grid; grid-template-columns: minmax(115px, 175px) minmax(0,1fr) 40px; gap: 14px; align-items: center; margin-bottom: 10px; }
+  .bar-label { font-size: 13px; text-align: right; color: var(--ink-1); }
+  .bar-track { height: 18px; }
+  .bar-fill { height: 100%; background: var(--s1); border-radius: 0 4px 4px 0; }
+  .bar-val { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+  .heat { display: grid; grid-template-columns: minmax(96px,132px) repeat(2, minmax(0,1fr)); gap: 2px; max-width: 560px; }
+  .heat-h { font-size: 12px; color: var(--ink-muted); padding: 0 0 6px; text-align: center; font-weight: 560; }
+  .heat-rh { font-size: 12.5px; color: var(--ink-1); display: flex; align-items: center; justify-content: flex-end; padding-right: 12px; text-align: right; }
+  .heat-rh small { color: var(--ink-muted); }
+  .heat-cell {
+    min-height: 54px; border-radius: 3px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 1px; cursor: default;
+  }
+  .heat-cell b { font-size: 18px; font-weight: 660; line-height: 1; font-variant-numeric: tabular-nums; }
+  .heat-cell span { font-size: 10.5px; opacity: .92; }
+  .heat-scale { display: flex; align-items: center; gap: 8px; margin-top: 16px; font-size: 12px; color: var(--ink-muted); }
+  .heat-scale i { display: flex; gap: 2px; }
+  .heat-scale i b { width: 22px; height: 10px; border-radius: 2px; }
+
+  .tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-1); box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th {
+    text-align: left; font-size: 11px; font-weight: 640; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--ink-muted);
+    padding: 11px 13px; border-bottom: 1px solid var(--axis); white-space: nowrap;
+    background: var(--surface-1);
+  }
+  td { padding: 9px 13px; border-bottom: 1px solid var(--grid); vertical-align: top; color: var(--ink-2); }
+  tbody tr:last-child td { border-bottom: 0; }
+  td:first-child { color: var(--ink-1); }
+  /* Identifiers and enum names must not break mid-word; the wrapper scrolls instead. */
+  .tablewrap td:first-child code,
+  .tablewrap td:nth-child(4) code { white-space: nowrap; }
+  .tablewrap td:nth-child(5) { white-space: nowrap; }
+  /* Short ordinal cells (R1, R2 …) must not break between letter and digit. */
+  .tablewrap td:first-child strong { white-space: nowrap; }
+  td.emits code { display: inline-block; margin: 0 6px 2px 0; font-size: 11.5px; color: var(--ink-2); }
+  .dim-none { color: var(--ink-muted); }
+
+  .sev { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 12.5px; }
+  .sev-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+  .sev-block .sev-dot { background: var(--critical); }
+  .sev-adv .sev-dot { background: var(--axis); }
+  .sev-block { color: var(--ink-1); font-weight: 560; }
+
+  .rec { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 12.5px; }
+  .rec-chip { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
+  .rec-durable .rec-chip { background: var(--o4); }
+  .rec-signal .rec-chip { background: var(--o3); }
+  .rec-other .rec-chip { background: var(--o2); }
+  .rec-silent .rec-chip { background: transparent; border: 1.5px dashed var(--critical); }
+  .rec-silent { color: var(--critical); font-weight: 560; }
+
+  .tag {
+    display: inline-block; font-size: 10px; font-weight: 620; letter-spacing: .04em;
+    text-transform: uppercase; padding: 1px 6px; border-radius: 4px;
+    background: var(--surface-2); color: var(--ink-muted); border: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  .tag-dep { color: var(--serious); }
+
+  .chain { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .step, .stepx {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px;
+    padding: 3px 7px; border-radius: 5px; white-space: nowrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .stepx { color: var(--ink-muted); background: var(--surface-2); border: 1px solid var(--border); }
+  .step { color: var(--ink-1); background: var(--surface-2); border: 1px solid var(--axis); font-weight: 550; }
+  .step .of { font-size: 9.5px; font-weight: 660; letter-spacing: .05em; text-transform: uppercase; padding: 0 4px; border-radius: 3px; }
+  .step-stop .of { background: var(--critical); color: #fcfcfb; }
+  .step-continue .of { background: var(--axis); color: var(--ink-1); }
+  .arrow { color: var(--ink-muted); font-size: 11px; }
+
+  .spine { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(225px,100%),1fr)); gap: 12px; margin: 18px 0; }
+  .spine-col { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px; box-shadow: var(--shadow); }
+  .spine-col > h4 { display: flex; align-items: center; gap: 8px; color: var(--ink-1); }
+  .fam-dot { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
+  .spine-meta { font-size: 11.5px; color: var(--ink-muted); margin: 0 0 12px; }
+  .spine-list { list-style: none; margin: 0; padding: 0; }
+  .spine-list li {
+    font-size: 11.5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    padding: 5px 8px; border-radius: 5px; background: var(--surface-2);
+    margin-bottom: 4px; color: var(--ink-2); border: 1px solid var(--border);
+    display: flex; justify-content: space-between; gap: 8px; align-items: center;
+  }
+  .spine-list li .mk { font-size: 9.5px; letter-spacing: .04em; text-transform: uppercase; font-weight: 660; font-family: system-ui, sans-serif; flex: 0 0 auto; color: var(--ink-muted); }
+  .spine-list li.nrec { border-color: var(--critical); }
+  .spine-list li.nrec .mk { color: var(--critical); }
+  .spine-list li.dur .mk { color: var(--success-text); }
+  .vocab { font-size: 11.5px; color: var(--ink-2); margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--grid); }
+  .vocab b { color: var(--ink-1); font-weight: 620; }
+
+  /* ── Diagrams: hand-authored inline SVG, no external renderer ─────────── */
+  .dg-fig {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px; margin: 18px 0; box-shadow: var(--shadow); overflow-x: auto;
+  }
+  .dg-fig > svg { display: block; width: 100%; height: auto; min-width: 720px; }
+  .dg-cap { font-size: 12.5px; color: var(--ink-muted); margin: 14px 0 0; padding-top: 12px; border-top: 1px solid var(--grid); }
+
+  .dg text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--ink-1); }
+  .dg .t-sub { fill: var(--ink-muted); }
+  .dg .t-msg { fill: var(--ink-2); }
+  .dg .t-hi  { fill: var(--ink-1); font-weight: 600; }
+  .dg .t-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .dg .box { fill: var(--surface-2); stroke: var(--axis); stroke-width: 1; }
+  .dg .box-null { fill: var(--surface-2); stroke: var(--axis); stroke-width: 1; stroke-dasharray: 4 3; }
+  .dg .edge { stroke: var(--axis); stroke-width: 1.4; fill: none; }
+  .dg .edge-dash { stroke: var(--axis); stroke-width: 1.4; fill: none; stroke-dasharray: 5 4; }
+  .dg .edge-hi { stroke: var(--s1); stroke-width: 1.8; fill: none; }
+  .dg .life { stroke: var(--grid); stroke-width: 1; stroke-dasharray: 3 4; }
+  .dg .head { fill: var(--axis); }
+  .dg .head-hi { fill: var(--s1); }
+
+  ol.findings { list-style: none; counter-reset: f; margin: 0; padding: 0; }
+  ol.findings > li {
+    counter-increment: f; position: relative; padding: 18px 18px 18px 56px;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+    margin-bottom: 12px; box-shadow: var(--shadow);
+  }
+  ol.findings > li::before {
+    content: counter(f, decimal-leading-zero);
+    position: absolute; left: 18px; top: 19px;
+    font-size: 13px; font-weight: 680; color: var(--s1); font-variant-numeric: tabular-nums;
+  }
+  ol.findings h4 { font-size: 15px; color: var(--ink-1); margin: 0 0 6px; font-weight: 640; }
+  ol.findings p { font-size: 14px; color: var(--ink-2); margin: 0 0 8px; }
+  ol.findings p:last-child { margin-bottom: 0; }
+  .evidence { font-size: 11.5px; color: var(--ink-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .sev-pill {
+    display: inline-block; font-size: 10px; font-weight: 660; letter-spacing: .05em;
+    text-transform: uppercase; padding: 2px 7px; border-radius: 4px; margin-left: 8px; vertical-align: 2px;
+    white-space: nowrap;
+  }
+  .p-struct { background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--border); }
+  .p-gap { background: var(--surface-2); color: var(--critical); border: 1px solid var(--critical); }
+  .p-note { background: var(--surface-2); color: var(--serious); border: 1px solid var(--border); }
+
+  details.tableview { margin: 8px 0 0; }
+  details.tableview summary {
+    cursor: pointer; font-size: 12px; color: var(--ink-muted);
+    padding: 6px 0; user-select: none;
+  }
+  details.tableview summary:hover { color: var(--ink-1); }
+  details.tableview table { margin-top: 8px; font-size: 12.5px; }
+  details.tableview td, details.tableview th { padding: 6px 10px; }
+
+  #tip {
+    position: fixed; pointer-events: none; opacity: 0; transition: opacity .1s;
+    background: var(--ink-1); color: var(--page); font-size: 12px; line-height: 1.45;
+    padding: 7px 10px; border-radius: 7px; z-index: 999; max-width: 270px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.25);
+  }
+
+  .footnote { font-size: 12.5px; color: var(--ink-muted); border-top: 1px solid var(--border); padding-top: 18px; margin-top: 40px; }
+  .footnote p { max-width: 84ch; }
+  .toc { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 40px; }
+  .toc a {
+    font-size: 12.5px; color: var(--ink-2); text-decoration: none;
+    padding: 5px 11px; border: 1px solid var(--border); border-radius: 20px;
+    background: var(--surface-1);
+  }
+  .toc a:hover { color: var(--ink-1); border-color: var(--axis); }
+</style>
+</head>
+<body>
+<div id="tip" role="tooltip"></div>
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">Exarchos &middot; architecture study</p>
+  <h1>The phase-gate taxonomy</h1>
+  <p class="standfirst">
+    What a gate <em>is</em> in Exarchos, where it is declared, how it is selected, how it runs,
+    what it does to the world, and what it leaves behind. Six axes, measured from the live source
+    rather than from prose &mdash; because the interesting failures are all places where two of the six disagree.
+  </p>
+  <div class="provenance">
+    <span>Measured on merged <code>main</code> @ <code>e63493269</code></span>
+    <span>v2.12.0-preview.4</span>
+    <span>2026-08-19</span>
+    <span>124 actions &middot; 176 event types &middot; 40 gate modules &middot; 18 runbooks</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <a href="#spine">1 &middot; The spine</a>
+  <a href="#selection">2 &middot; Selection</a>
+  <a href="#encoding">3 &middot; Encoding</a>
+  <a href="#execution">4 &middot; Execution</a>
+  <a href="#effects">5 &middot; Effects</a>
+  <a href="#enforcement">6 &middot; Enforcement</a>
+  <a href="#findings">7 &middot; Findings</a>
+  <a href="#target">8 &middot; Optimal state</a>
+  <a href="#refactors">9 &middot; Refactors</a>
+  <a href="#composition">10 &middot; Epic #1763</a>
+</nav>
+
+<div class="kpi-row">
+  <div class="kpi">
+    <p class="kpi-label">Live phases &rarr; kinds &rarr; resolvers</p>
+    <p class="kpi-value">29<span class="of"> &rarr; 6 &rarr; 4</span></p>
+    <p class="kpi-note">Across 5 workflow HSMs. Two kinds (<code>MERGE</code>, <code>GATHER</code>) carry no gate obligation at all &mdash; 9 of the 29 phases are ungated by construction.</p>
+  </div>
+  <div class="kpi">
+    <p class="kpi-label">Gate-flagged registry actions</p>
+    <p class="kpi-value">28<span class="of"> / 124</span></p>
+    <p class="kpi-note">14 blocking, 14 advisory. Only 9 carry a <code>gateClass</code> &mdash; the identity the provider registry enforces one-owner-per-class on.</p>
+  </div>
+  <div class="kpi">
+    <p class="kpi-label">Resolved obligations at max depth</p>
+    <p class="kpi-value">18</p>
+    <p class="kpi-note">5 ladder + 6 plan + 2 review + 5 synthesis. Four families, resolved by four separate policy tables, speaking four different vocabularies.</p>
+  </div>
+  <div class="kpi alarm">
+    <p class="kpi-label">Gates that leave no record</p>
+    <p class="kpi-value">5</p>
+    <p class="kpi-note">Two of them <strong>blocking</strong>. Their verdict exists only in the tool response &mdash; nothing downstream can read whether they ran.</p>
+  </div>
+</div>
+
+<section id="spine">
+  <h2><span class="num">01</span> The spine</h2>
+  <p class="section-title">A gate is never bound to a phase. It is bound to a phase <em>kind</em>.</p>
+  <p class="lede">
+    This indirection is the load-bearing design decision, and it is deliberate (INV-6, workload-agnosticism):
+    an obligation attaches to the kind, so it composes across every workflow type &mdash; present and future &mdash;
+    without new playbook code. <code>KIND_OBLIGATIONS</code> in <code>workflow/phase-kind.ts</code> is the single
+    grant point, keyed only by kind, never by workflow name, phase id, or transition.
+  </p>
+
+  <div class="dg-fig">
+    <svg class="dg" viewBox="0 0 1120 384" role="img"
+         aria-label="Phase-kind binding: 5 workflow HSMs and 29 atomic phases resolve to 6 phase kinds; PLAN, IMPLEMENT, REVIEW and SYNTHESIZE each dispatch to one gate resolver producing one gate family, while MERGE and GATHER carry gates null and therefore no obligation.">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,4 L0,8 Z" class="head"/>
+        </marker>
+      </defs>
+
+      <!-- source -->
+      <rect class="box" x="350" y="14" width="420" height="40" rx="7"/>
+      <text x="560" y="32" text-anchor="middle" font-size="12" font-weight="600">5 workflow HSMs</text>
+      <text x="560" y="47" text-anchor="middle" font-size="10.5" class="t-sub">feature &middot; debug &middot; refactor &middot; oneshot &middot; discovery &mdash; 29 atomic phases</text>
+
+      <!-- distribution bus -->
+      <path class="edge" d="M560,54 L560,76 M102.5,76 L1017.5,76"/>
+      <path class="edge" d="M102.5,76 L102.5,100" marker-end="url(#ah)"/>
+      <path class="edge" d="M285.5,76 L285.5,100" marker-end="url(#ah)"/>
+      <path class="edge" d="M468.5,76 L468.5,100" marker-end="url(#ah)"/>
+      <path class="edge" d="M651.5,76 L651.5,100" marker-end="url(#ah)"/>
+      <path class="edge" d="M834.5,76 L834.5,100" marker-end="url(#ah)"/>
+      <path class="edge" d="M1017.5,76 L1017.5,100" marker-end="url(#ah)"/>
+      <text x="20" y="70" font-size="10" class="t-sub">PhaseKind &mdash; closed union of 6</text>
+
+      <!-- kind row -->
+      <rect class="box" x="20"  y="100" width="165" height="46" rx="6" style="stroke:var(--s2);stroke-width:1.5"/>
+      <text x="102.5" y="120" text-anchor="middle" font-size="12" font-weight="640">PLAN</text>
+      <text x="102.5" y="136" text-anchor="middle" font-size="10" class="t-sub">7 phases</text>
+
+      <rect class="box" x="203" y="100" width="165" height="46" rx="6" style="stroke:var(--s1);stroke-width:1.5"/>
+      <text x="285.5" y="120" text-anchor="middle" font-size="12" font-weight="640">IMPLEMENT</text>
+      <text x="285.5" y="136" text-anchor="middle" font-size="10" class="t-sub">6 phases</text>
+
+      <rect class="box" x="386" y="100" width="165" height="46" rx="6" style="stroke:var(--s3);stroke-width:1.5"/>
+      <text x="468.5" y="120" text-anchor="middle" font-size="12" font-weight="640">REVIEW</text>
+      <text x="468.5" y="136" text-anchor="middle" font-size="10" class="t-sub">6 phases</text>
+
+      <rect class="box" x="569" y="100" width="165" height="46" rx="6" style="stroke:var(--s4);stroke-width:1.5"/>
+      <text x="651.5" y="120" text-anchor="middle" font-size="12" font-weight="640">SYNTHESIZE</text>
+      <text x="651.5" y="136" text-anchor="middle" font-size="10" class="t-sub">1 phase</text>
+
+      <rect class="box-null" x="752" y="100" width="165" height="46" rx="6"/>
+      <text x="834.5" y="120" text-anchor="middle" font-size="12" font-weight="640" class="t-msg">MERGE</text>
+      <text x="834.5" y="136" text-anchor="middle" font-size="10" class="t-sub">1 phase</text>
+
+      <rect class="box-null" x="935" y="100" width="165" height="46" rx="6"/>
+      <text x="1017.5" y="120" text-anchor="middle" font-size="12" font-weight="640" class="t-msg">GATHER</text>
+      <text x="1017.5" y="136" text-anchor="middle" font-size="10" class="t-sub">8 phases</text>
+
+      <!-- kind -> resolver -->
+      <path class="edge" d="M102.5,146 L102.5,196" marker-end="url(#ah)"/>
+      <path class="edge" d="M285.5,146 L285.5,196" marker-end="url(#ah)"/>
+      <path class="edge" d="M468.5,146 L468.5,196" marker-end="url(#ah)"/>
+      <path class="edge" d="M651.5,146 L651.5,196" marker-end="url(#ah)"/>
+      <path class="edge-dash" d="M834.5,146 L834.5,171 L926,171 L926,196" marker-end="url(#ah)"/>
+      <path class="edge-dash" d="M1017.5,146 L1017.5,171 L926,171" />
+
+      <!-- resolver row -->
+      <rect class="box" x="20"  y="196" width="165" height="44" rx="6"/>
+      <text x="102.5" y="216" text-anchor="middle" font-size="9.5" class="t-sub">resolver</text>
+      <text x="102.5" y="230" text-anchor="middle" font-size="11" class="t-mono">plan-structure</text>
+
+      <rect class="box" x="203" y="196" width="165" height="44" rx="6"/>
+      <text x="285.5" y="216" text-anchor="middle" font-size="9.5" class="t-sub">resolver</text>
+      <text x="285.5" y="230" text-anchor="middle" font-size="11" class="t-mono">verification-ladder</text>
+
+      <rect class="box" x="386" y="196" width="165" height="44" rx="6"/>
+      <text x="468.5" y="216" text-anchor="middle" font-size="9.5" class="t-sub">resolver</text>
+      <text x="468.5" y="230" text-anchor="middle" font-size="11" class="t-mono">review-contract</text>
+
+      <rect class="box" x="569" y="196" width="165" height="44" rx="6"/>
+      <text x="651.5" y="216" text-anchor="middle" font-size="9.5" class="t-sub">resolver</text>
+      <text x="651.5" y="230" text-anchor="middle" font-size="11" class="t-mono">synthesis-readiness</text>
+
+      <rect class="box-null" x="752" y="196" width="348" height="44" rx="6"/>
+      <text x="926" y="216" text-anchor="middle" font-size="9.5" class="t-sub">KIND_OBLIGATIONS</text>
+      <text x="926" y="230" text-anchor="middle" font-size="11" class="t-mono t-msg">gates: null</text>
+
+      <!-- resolver -> family -->
+      <path class="edge" d="M102.5,240 L102.5,290" marker-end="url(#ah)"/>
+      <path class="edge" d="M285.5,240 L285.5,290" marker-end="url(#ah)"/>
+      <path class="edge" d="M468.5,240 L468.5,290" marker-end="url(#ah)"/>
+      <path class="edge" d="M651.5,240 L651.5,290" marker-end="url(#ah)"/>
+      <path class="edge-dash" d="M926,240 L926,290" marker-end="url(#ah)"/>
+
+      <!-- family row -->
+      <rect class="box" x="20"  y="290" width="165" height="66" rx="6" style="stroke:var(--s2);stroke-width:1.5"/>
+      <text x="102.5" y="312" text-anchor="middle" font-size="11.5" font-weight="620">family &lsquo;plan&rsquo;</text>
+      <text x="102.5" y="329" text-anchor="middle" font-size="10" class="t-msg">6 gates at deep</text>
+      <text x="102.5" y="345" text-anchor="middle" font-size="9.5" class="t-sub">action names</text>
+
+      <rect class="box" x="203" y="290" width="165" height="66" rx="6" style="stroke:var(--s1);stroke-width:1.5"/>
+      <text x="285.5" y="312" text-anchor="middle" font-size="11.5" font-weight="620">family &lsquo;ladder&rsquo;</text>
+      <text x="285.5" y="329" text-anchor="middle" font-size="10" class="t-msg">5 gates at high+boundary</text>
+      <text x="285.5" y="345" text-anchor="middle" font-size="9.5" class="t-sub">action names</text>
+
+      <rect class="box" x="386" y="290" width="165" height="66" rx="6" style="stroke:var(--s3);stroke-width:1.5"/>
+      <text x="468.5" y="312" text-anchor="middle" font-size="11.5" font-weight="620">family &lsquo;review&rsquo;</text>
+      <text x="468.5" y="329" text-anchor="middle" font-size="10" class="t-msg">2 dimensions at high</text>
+      <text x="468.5" y="345" text-anchor="middle" font-size="9.5" class="t-sub">skill folder names</text>
+
+      <rect class="box" x="569" y="290" width="165" height="66" rx="6" style="stroke:var(--s4);stroke-width:1.5"/>
+      <text x="651.5" y="312" text-anchor="middle" font-size="11.5" font-weight="620">family &lsquo;synthesis&rsquo;</text>
+      <text x="651.5" y="329" text-anchor="middle" font-size="10" class="t-msg">5 legs, fixed</text>
+      <text x="651.5" y="345" text-anchor="middle" font-size="9.5" class="t-sub">leg labels</text>
+
+      <rect class="box-null" x="752" y="290" width="348" height="66" rx="6"/>
+      <text x="926" y="316" text-anchor="middle" font-size="11.5" font-weight="620" class="t-msg">no obligation</text>
+      <text x="926" y="336" text-anchor="middle" font-size="10" class="t-sub">9 of 29 phases are ungated by construction</text>
+    </svg>
+    <p class="dg-cap">
+      The four gate-bearing kinds each dispatch to exactly one resolver, and each resolver emits a family in its own
+      vocabulary &mdash; the bottom line of each box. Only <code>plan</code> and <code>ladder</code> name registry actions.
+    </p>
+  </div>
+
+  <h3>The four families, and the four vocabularies they speak</h3>
+  <p>
+    <code>ResolvedGate</code> is a discriminated union tagged by <code>family</code>. The tag exists precisely
+    because the four are <em>heterogeneous</em> &mdash; and the heterogeneity runs deeper than the type: only two
+    of the four families name things that are actually registry actions.
+  </p>
+
+  <div class="spine">
+    <div class="spine-col">
+      <h4><span class="fam-dot" style="background:var(--s1)"></span>ladder &mdash; IMPLEMENT</h4>
+      <p class="spine-meta">Varies by riskTier &times; boundaryTouching</p>
+      <ul class="spine-list">
+        <li class="dur"><span>check_static_analysis</span><span class="mk">rec</span></li>
+        <li class="dur"><span>check_test_adequacy</span><span class="mk">rec</span></li>
+        <li class="dur"><span>check_integration_suite</span><span class="mk">rec</span></li>
+        <li class="dur"><span>check_contract_drift</span><span class="mk">rec</span></li>
+        <li class="dur"><span>check_mock_boundary</span><span class="mk">rec</span></li>
+      </ul>
+      <p class="vocab"><b>Vocabulary:</b> registry action names. Every member is dispatchable, and all five persist durable evidence.</p>
+    </div>
+    <div class="spine-col">
+      <h4><span class="fam-dot" style="background:var(--s2)"></span>plan &mdash; PLAN</h4>
+      <p class="spine-meta">Varies by designDepth rung</p>
+      <ul class="spine-list">
+        <li><span>check_task_decomposition</span><span class="mk">sig</span></li>
+        <li><span>check_plan_coverage</span><span class="mk">sig</span></li>
+        <li class="nrec"><span>spec_coverage_check</span><span class="mk">none</span></li>
+        <li><span>check_provenance_chain</span><span class="mk">sig</span></li>
+        <li class="nrec"><span>generate_traceability</span><span class="mk">none</span></li>
+        <li><span>check_exploration_depth</span><span class="mk">sig</span></li>
+      </ul>
+      <p class="vocab"><b>Vocabulary:</b> registry action names &mdash; but two members leave no record, and <code>generate_traceability</code> carries no gate metadata at all.</p>
+    </div>
+    <div class="spine-col">
+      <h4><span class="fam-dot" style="background:var(--s3)"></span>review &mdash; REVIEW</h4>
+      <p class="spine-meta">Varies by workflowType &times; riskTier</p>
+      <ul class="spine-list">
+        <li class="nrec"><span>review</span><span class="mk">skill</span></li>
+        <li><span>mutation-adequacy</span><span class="mk">sig</span></li>
+      </ul>
+      <p class="vocab"><b>Vocabulary:</b> <em>skill folder names</em> under <code>content/</code>, not actions. The dimension's verdict lands in workflow state (<code>reviews.&lt;dim&gt;.status</code>); a separate action folds it into one <code>gate.executed</code>.</p>
+    </div>
+    <div class="spine-col">
+      <h4><span class="fam-dot" style="background:var(--s4)"></span>synthesis &mdash; SYNTHESIZE</h4>
+      <p class="spine-meta">Fixed order, no variation</p>
+      <ul class="spine-list">
+        <li class="nrec"><span>task-completion</span><span class="mk">leg</span></li>
+        <li class="nrec"><span>tests</span><span class="mk">leg</span></li>
+        <li class="nrec"><span>typecheck</span><span class="mk">leg</span></li>
+        <li class="nrec"><span>document</span><span class="mk">leg</span></li>
+        <li class="nrec"><span>stack</span><span class="mk">leg</span></li>
+      </ul>
+      <p class="vocab"><b>Vocabulary:</b> <em>leg names</em>, not actions. All five are evaluated inside <code>prepare_synthesis</code>, which emits one aggregate <code>gate.executed</code> for the set.</p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <p class="callout-title"><span class="ico">&#9670;</span>Why this matters</p>
+    <p>
+      A consumer asking &ldquo;which gates ran for this phase?&rdquo; gets four answer shapes from one union. Two families
+      resolve to things you can dispatch and query by name; one resolves to a folder name whose verdict is a state
+      field; one resolves to labels that exist only inside a single handler. Any cross-family report, coverage
+      metric, or admission predicate has to special-case all four.
+    </p>
+  </div>
+</section>
+
+<section id="selection">
+  <h2><span class="num">02</span> Selection</h2>
+  <p class="section-title">Each family varies along its own axis &mdash; and each axis is a pure frozen table.</p>
+  <p class="lede">
+    All four policy modules share one discipline: a const table, no config reads, no I/O, strict-superset rungs,
+    and an override layer that composes on top rather than replacing. The gate set is resolved once at phase entry
+    and <strong>frozen into the durable log</strong> (<code>phase.entered.resolvedGates</code>), so what was owed
+    stays auditable after the fact instead of being re-derived.
+  </p>
+
+  <figure>
+    <p class="chart-title">Verification ladder &mdash; resolved gate count</p>
+    <p class="chart-sub">IMPLEMENT phases &middot; <code>resolveVerificationSequence(riskTier, boundaryTouching)</code></p>
+    <div class="heat">
+      <div></div>
+      <div class="heat-h">internal</div>
+      <div class="heat-h">boundary-touching</div>
+
+      <div class="heat-rh">low&nbsp;<small>risk</small></div>
+      <div class="heat-cell" style="background:var(--h1); color:var(--on-light-fill)" data-tip="low - internal: 1 gate&#10;check_static_analysis"><b>1</b><span>gate</span></div>
+      <div class="heat-cell" style="background:var(--h2); color:var(--on-light-fill)" data-tip="low - boundary: 2 gates&#10;+ check_contract_drift"><b>2</b><span>gates</span></div>
+
+      <div class="heat-rh">medium&nbsp;<small>risk</small></div>
+      <div class="heat-cell" style="background:var(--h2); color:var(--on-light-fill)" data-tip="medium - internal: 2 gates&#10;+ check_test_adequacy"><b>2</b><span>gates</span></div>
+      <div class="heat-cell" style="background:var(--h4); color:var(--on-dark-fill)" data-tip="medium - boundary: 4 gates&#10;+ contract_drift + mock_boundary"><b>4</b><span>gates</span></div>
+
+      <div class="heat-rh">high&nbsp;<small>risk</small></div>
+      <div class="heat-cell" style="background:var(--h3); color:var(--on-dark-fill)" data-tip="high - internal: 3 gates&#10;+ check_integration_suite"><b>3</b><span>gates</span></div>
+      <div class="heat-cell" style="background:var(--h5); color:var(--on-dark-fill)" data-tip="high - boundary: 5 gates&#10;the full ladder"><b>5</b><span>gates</span></div>
+    </div>
+    <div class="heat-scale">
+      <span>fewer</span>
+      <i><b style="background:var(--h1)"></b><b style="background:var(--h2)"></b><b style="background:var(--h3)"></b><b style="background:var(--h4)"></b><b style="background:var(--h5)"></b></i>
+      <span>more gates</span>
+    </div>
+    <details class="tableview">
+      <summary>Table view &mdash; exact sequences</summary>
+      <table>
+        <thead><tr><th>Tier</th><th>Boundary</th><th>n</th><th>Sequence (ordered)</th></tr></thead>
+        <tbody>
+          <tr><td>low</td><td>no</td><td>1</td><td><code>check_static_analysis</code></td></tr>
+          <tr><td>low</td><td>yes</td><td>2</td><td><code>check_static_analysis</code> &rarr; <code>check_contract_drift</code></td></tr>
+          <tr><td>medium</td><td>no</td><td>2</td><td><code>check_static_analysis</code> &rarr; <code>check_test_adequacy</code></td></tr>
+          <tr><td>medium</td><td>yes</td><td>4</td><td><code>check_static_analysis</code> &rarr; <code>check_test_adequacy</code> &rarr; <code>check_contract_drift</code> &rarr; <code>check_mock_boundary</code></td></tr>
+          <tr><td>high</td><td>no</td><td>3</td><td><code>check_static_analysis</code> &rarr; <code>check_test_adequacy</code> &rarr; <code>check_integration_suite</code></td></tr>
+          <tr><td>high</td><td>yes</td><td>5</td><td><code>check_static_analysis</code> &rarr; <code>check_test_adequacy</code> &rarr; <code>check_integration_suite</code> &rarr; <code>check_contract_drift</code> &rarr; <code>check_mock_boundary</code></td></tr>
+        </tbody>
+      </table>
+    </details>
+    <figcaption>
+      The base sequence is a strict-superset ladder by tier; boundary gates append after it. <code>check_mock_boundary</code>
+      is withheld from the low tier on purpose &mdash; a low-blast boundary edit does not warrant it.
+      Source: <code>workflow/verification-policy.ts</code>.
+    </figcaption>
+  </figure>
+
+  <div class="cards">
+    <div class="card">
+      <p class="card-kicker">plan-structure &middot; axis = designDepth</p>
+      <ul>
+        <li><strong>thin (2)</strong> &mdash; decomposition, coverage</li>
+        <li><strong>standard (5)</strong> &mdash; + spec-coverage, provenance, traceability</li>
+        <li><strong>deep (6)</strong> &mdash; + exploration-depth</li>
+      </ul>
+      <p style="font-size:12.5px;color:var(--ink-muted);margin:12px 0 0">
+        The <code>standard</code> rung is pinned equal to the registry's static <code>PLAN_PHASES</code> binding, so
+        graduating the resolver to read depth was provably behavior-neutral at the default.
+      </p>
+    </div>
+    <div class="card">
+      <p class="card-kicker">review-contract &middot; axis = workflowType &times; riskTier</p>
+      <ul>
+        <li><strong>low / medium (1)</strong> &mdash; <code>review</code></li>
+        <li><strong>high (2)</strong> &mdash; + <code>mutation-adequacy</code></li>
+      </ul>
+      <p style="font-size:12.5px;color:var(--ink-muted);margin:12px 0 0">
+        The workflow tier is <em>max-of-tiers</em> across the wave's tasks, so one high-risk task pulls the mutation
+        backstop onto the whole review boundary.
+      </p>
+    </div>
+    <div class="card">
+      <p class="card-kicker">synthesis-readiness &middot; no axis</p>
+      <ul>
+        <li><strong>fixed 5 legs</strong> &mdash; task-completion &rarr; tests &rarr; typecheck &rarr; document &rarr; stack</li>
+      </ul>
+      <p style="font-size:12.5px;color:var(--ink-muted);margin:12px 0 0">
+        Membership here is the <em>obligation order</em>; evaluation and config-resolved severity are owned entirely
+        by <code>prepare_synthesis</code>.
+      </p>
+    </div>
+    <div class="card">
+      <p class="card-kicker">fail-closed on a bad axis value</p>
+      <ul>
+        <li>An out-of-table <code>designDepth</code> <strong>throws</strong>, and the throw is converted to
+          <code>phase.blocked</code> &mdash; never a silent open transition.</li>
+        <li>An unresolved <code>riskTier</code> is carried as <code>'unknown'</code> rather than collapsed, because
+          the ladder and the review roster have <strong>opposite</strong> fail-safe directions.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="encoding">
+  <h2><span class="num">03</span> Encoding</h2>
+  <p class="section-title">Four independent declaration surfaces, only partly overlapping.</p>
+  <p class="lede">
+    &ldquo;Is this a gate?&rdquo; has four answers depending on which surface you ask, and the four populations are not
+    the same set.
+  </p>
+
+  <div class="cards">
+    <div class="card">
+      <p class="card-kicker">Surface 1 &mdash; registry action metadata</p>
+      <p style="font-size:13.5px;margin-bottom:8px"><code>gate: { blocking, dimension, gateClass }</code> on a <code>BuiltinToolAction</code>.</p>
+      <ul>
+        <li><strong>28 actions</strong> carry it &mdash; 14 blocking, 14 advisory</li>
+        <li><strong>18</strong> name a convergence dimension (D1&ndash;D5, plus one <code>mutation-adequacy</code>)</li>
+        <li><strong>9</strong> name a <code>gateClass</code>; 8 are <code>longRunning</code>; 1 is deprecated</li>
+      </ul>
+    </div>
+    <div class="card">
+      <p class="card-kicker">Surface 2 &mdash; the provider registry</p>
+      <p style="font-size:13.5px;margin-bottom:8px">9 <code>SupportedGateClass</code> members = 5 mechanical + 4 phase.</p>
+      <ul>
+        <li>Exactly <strong>one provider per class</strong>, enforced by <code>satisfies Record&lt;&hellip;&gt;</code> &mdash; a new class is a compile error until it gets an owner</li>
+        <li>Duplicate and missing providers are typed diagnostics, not runtime surprises</li>
+        <li>The action identity <em>is</em> the proof-domain <code>providerRef</code>; no second namespace</li>
+      </ul>
+    </div>
+    <div class="card">
+      <p class="card-kicker">Surface 3 &mdash; runbook chains</p>
+      <p style="font-size:13.5px;margin-bottom:8px">Ordered steps with <code>onFail: 'stop' | 'continue'</code>.</p>
+      <ul>
+        <li><strong>5 of 18</strong> runbooks carry a gate step</li>
+        <li><strong>12</strong> gate steps halt the chain; <strong>3</strong> continue</li>
+        <li>The plan-phase runbooks carry <em>no</em> gate steps &mdash; they are decision runbooks</li>
+      </ul>
+    </div>
+    <div class="card">
+      <p class="card-kicker">Surface 4 &mdash; runtime severity &amp; mode</p>
+      <p style="font-size:13.5px;margin-bottom:8px">Two orthogonal axes resolved per call, both workflow-keyed.</p>
+      <ul>
+        <li><strong>Severity</strong> &mdash; 5-level precedence: gate override &rarr; dimension disable &rarr; per-workflow ladder default &rarr; dimension severity &rarr; blocking</li>
+        <li><strong>Mode</strong> &mdash; <code>audit</code> vs <code>enforce</code>, IMPLEMENT-only; <code>oneshot</code> is the sole audit workflow</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="callout warn">
+    <p class="callout-title"><span class="ico">&#9650;</span>The registry flag is a mirror, not the truth</p>
+    <p>
+      <code>gate.blocking</code> in the registry <em>mirrors</em> the runtime default so drift checks can read it
+      statically &mdash; but the value that actually governs a run comes out of <code>resolveGateSeverity</code> with
+      project config layered in. <code>check_mock_boundary</code> and <code>mutation-adequacy</code> are declared
+      <code>blocking: false</code> for exactly this reason: the demotion lives in <code>DEFAULTS.review.gates</code>,
+      and a project override can raise either back to blocking without the declaration changing.
+    </p>
+  </div>
+
+  <h3>All 28 gate-flagged actions</h3>
+  <p style="font-size:13.5px;color:var(--ink-2)">Sorted by what each one leaves behind &mdash; strongest record first.</p>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>Action</th><th>Severity</th><th>Dim</th><th>Gate class</th><th>Phase kind</th><th>Record</th><th>Declared emissions</th></tr>
+      </thead>
+      <tbody>
+<tr data-track="durable">
+<td><code>check_contract_drift</code> <span class="tag">long</span></td>
+<td><span class="sev sev-block"><span class="sev-dot"></span>blocking</span></td>
+<td>D1</td>
+<td><code>contract-drift</code></td>
+<td>IMPLEMENT</td>
+<td><span class="rec rec-durable"><span class="rec-chip"></span>evidence + signal</span></td>
+<td class="emits"><code>admission.evidence-recorded</code> <code>gate.executed</code></td>
+</tr>
+<tr data-track="durable">
+<td><code>check_integration_suite</code> <span class="tag">long</span></td>
+<td><span class="sev sev-block"><span class="sev-dot"></span>blocking</span></td>
+<td>D2</td>
+<td><code>integration-suite</code></td>
+<td>IMPLEMENT</td>
+<td><span class="rec rec-durable"><span class="rec-chip"></span>evidence + signal</span></td>
+<td class="emits"><code>admission.evidence-recorded</code> <code>gate.executed</code></td>
+</tr>
+<tr data-track="durable">
+<td><code>check_static_analysis</code> <span class="tag">long</span></td>
+<td><span class="sev sev-block"><span class="sev-dot"></span>blocking</span></td>
+<td>D2</td>
+<td><code>static-analysis</code></td>
+<td>REVIEW</td>
+<td><span class="rec rec-durable"><span class="rec-chip"></span>evidence + signal</span></td>
+<td class="emits"><code>admission.evidence-recorded</code> <code>gate.executed</code></td>
+</tr>
+<tr data-track="durable">
+<td><code>check_test_adequacy</code> <span class="tag">long</span></td>
+<td><span class="sev sev-block"><span class="sev-dot"></span>blocking</span></td>
+<td>D1</td>
+<td><code>test-adequacy</code></td>
+<td>IMPLEMENT</td>
+<td><span class="rec rec-durable"><span class="rec-chip"></span>evidence + signal</span></td>
+<td class="emits"><code>admission.evidence-recorded</code> <code>gate.executed</code></td>
+</tr>
+<tr data-track="durable">
+<td><code>check_mock_boundary</code></td>
+<td><span class="sev sev-adv"><span class="sev-dot"></span>advisory</span></td>
+<td>D1</td>
+<td><code>mock-boundary</code></td>
+<td>IMPLEMENT</td>
+<td><span class="rec rec-durable"><span class="rec-chip"></span>evidence + signal</span></td>
+<td class="emits"><code>admission.evidence-recorded</code> <code>gate.executed</code></td>
+</tr>
+<tr data-track="signal">
+<td><code>check_exploration_depth</code></td>
+<td><span class="sev sev-block"><span class="sev-dot"></span>blocking</span></td>
+<td>D1</td>
+<td><span class="dim-none">—</span></td>
+<td>PLAN</td>
+<td><span class="rec rec-signal"><span class="rec-chip"></span>signal only</span></td>
+<td class="emits"><code>gate.executed</code></td>
+</tr>
+<tr data-track="signal">
+<td><code>check_invariant_conformance</code></td>
+<td><span class="sev sev-block"><span class="sev-dot"></span>blocking</span></td>
+<td><span class="dim-none">—</span></td>
+<td><span class="dim-none">—</span></td>
+<td>REVIEW</td>
+<td><span class="rec rec-signal"><span class="rec-chip"></span>signal only</span></td>
+<td class="emits"><code>gate.executed</code></td>
+</tr>
+<tr data-track="signal">
+<td><code>check_plan_coverage</code></td>
+<td><span class="sev sev-block"><span class="sev-dot"></span>blocking</span></td>
+<td>D1</td>
+<td><code>plan-coverage</code></td>
+<td>PLAN</td>
+<td><span class="rec rec-signal"><span class="rec-chip"></span>signal only</span></td>
+<td class="emits"><code>gate.executed</code></td>
+</tr>
+<tr data-track="signal">
+<td><code>check_provenance_chain</code></td>
+<td><span class="sev sev-block"><span class="sev-dot"></span>blocking</span></td>
+<td>D1</td>
+<td><code>provenance-chain</code></td>
+<td>PLAN</td>
+<td><span class="rec rec-signal"><span class="rec-chip"></span>signal only</span></td>
+<td class="emits"><code>gate.executed</code></td>
+</tr>
+<tr data-track="signal">
+<td><code>check_review_verdict</code></td>
+<td><span class="sev sev-block"><span class="sev-dot"></span>blocking</span></td>
+<td><span class="dim-none">—</span></td>
+<td><code>review-verdict</code></td>
+<td>REVIEW</td>
+<td><span class="rec rec-signal"><span class="rec-chip"></span>signal only</span></td>
+<td class="emits"><code>gate.executed</code></td>
+</tr>
+<tr data-track="signal">
+<td><code>post_delegation_check</code> <span class="tag">long</span></td>
+<td><span class="sev sev-block"><span class="sev-dot"></span>blocking</span></td>
+<td><span class="dim-none">—</span></td>
+<td><span class="dim-none">—</span></td>
+<td>IMPLEMENT</td>
+<td><span class="rec rec-signal"><span class="rec-chip"></span>signal only</span></td>
+<td class="emits"><code>gate.executed</code></td>
+</tr>
+<tr data-track="signal">
+<td><code>pre_synthesis_check</code> <span class="tag">long</span></td>
+<td><span class="sev sev-block"><span class="sev-dot"></span>blocking</span></td>
+<td><span class="dim-none">—</span></td>
+<td><span class="dim-none">—</span></td>
+<td>SYNTHESIZE</td>
+<td><span class="rec rec-signal"><span class="rec-chip"></span>signal only</span></td>
+<td class="emits"><code>gate.executed</code></td>
+</tr>
+<tr data-track="signal">
+<td><code>prepare_synthesis</code> <span class="tag">long</span></td>
+<td><span class="sev sev-block"><span class="sev-dot"></span>blocking</span></td>
+<td><span class="dim-none">—</span></td>
+<td><code>prepare-synthesis</code></td>
+<td>REVIEW</td>
+<td><span class="rec rec-signal"><span class="rec-chip"></span>signal only</span></td>
+<td class="emits"><code>gate.executed</code></td>
+</tr>
+<tr data-track="signal">
+<td><code>check_context_economy</code></td>
+<td><span class="sev sev-adv"><span class="sev-dot"></span>advisory</span></td>
+<td>D3</td>
+<td><span class="dim-none">—</span></td>
+<td>REVIEW</td>
+<td><span class="rec rec-signal"><span class="rec-chip"></span>signal only</span></td>
+<td class="emits"><code>gate.executed</code></td>
+</tr>
+<tr data-track="signal">
+<td><code>check_convergence</code></td>
+<td><span class="sev sev-adv"><span class="sev-dot"></span>advisory</span></td>
+<td><span class="dim-none">—</span></td>
+<td><span class="dim-none">—</span></td>
+<td>REVIEW</td>
+<td><span class="rec rec-signal"><span class="rec-chip"></span>signal only</span></td>
+<td class="emits"><code>gate.executed</code></td>
+</tr>
+<tr data-track="signal">
+<td><code>check_design_completeness</code> <span class="tag tag-dep">deprecated</span></td>
+<td><span class="sev sev-adv"><span class="sev-dot"></span>advisory</span></td>
+<td>D1</td>
+<td><span class="dim-none">—</span></td>
+<td>PLAN</td>
+<td><span class="rec rec-signal"><span class="rec-chip"></span>signal only</span></td>
+<td class="emits"><code>gate.executed</code></td>
+</tr>
+<tr data-track="signal">
+<td><code>check_operational_resilience</code></td>
+<td><span class="sev sev-adv"><span class="sev-dot"></span>advisory</span></td>
+<td>D4</td>
+<td><span class="dim-none">—</span></td>
+<td>REVIEW</td>
+<td><span class="rec rec-signal"><span class="rec-chip"></span>signal only</span></td>
+<td class="emits"><code>gate.executed</code></td>
+</tr>
+<tr data-track="signal">
+<td><code>check_post_merge</code></td>
+<td><span class="sev sev-adv"><span class="sev-dot"></span>advisory</span></td>
+<td>D4</td>
+<td><span class="dim-none">—</span></td>
+<td>SYNTHESIZE</td>
+<td><span class="rec rec-signal"><span class="rec-chip"></span>signal only</span></td>
+<td class="emits"><code>gate.executed</code></td>
+</tr>
+<tr data-track="signal">
+<td><code>check_security_scan</code></td>
+<td><span class="sev sev-adv"><span class="sev-dot"></span>advisory</span></td>
+<td>D1</td>
+<td><span class="dim-none">—</span></td>
+<td>REVIEW</td>
+<td><span class="rec rec-signal"><span class="rec-chip"></span>signal only</span></td>
+<td class="emits"><code>gate.executed</code></td>
+</tr>
+<tr data-track="signal">
+<td><code>check_task_decomposition</code></td>
+<td><span class="sev sev-adv"><span class="sev-dot"></span>advisory</span></td>
+<td>D5</td>
+<td><span class="dim-none">—</span></td>
+<td>PLAN</td>
+<td><span class="rec rec-signal"><span class="rec-chip"></span>signal only</span></td>
+<td class="emits"><code>gate.executed</code></td>
+</tr>
+<tr data-track="signal">
+<td><code>check_workflow_determinism</code></td>
+<td><span class="sev sev-adv"><span class="sev-dot"></span>advisory</span></td>
+<td>D5</td>
+<td><span class="dim-none">—</span></td>
+<td>REVIEW</td>
+<td><span class="rec rec-signal"><span class="rec-chip"></span>signal only</span></td>
+<td class="emits"><code>gate.executed</code></td>
+</tr>
+<tr data-track="signal">
+<td><code>mutation-adequacy</code> <span class="tag">long</span></td>
+<td><span class="sev sev-adv"><span class="sev-dot"></span>advisory</span></td>
+<td>mutation-adequacy</td>
+<td><span class="dim-none">—</span></td>
+<td>REVIEW</td>
+<td><span class="rec rec-signal"><span class="rec-chip"></span>signal only</span></td>
+<td class="emits"><code>mutation.executing_started</code> <code>mutation.executed</code> <code>gate.executed</code></td>
+</tr>
+<tr data-track="other">
+<td><code>discover_bridge</code></td>
+<td><span class="sev sev-adv"><span class="sev-dot"></span>advisory</span></td>
+<td><span class="dim-none">—</span></td>
+<td><span class="dim-none">—</span></td>
+<td>PLAN</td>
+<td><span class="rec rec-other"><span class="rec-chip"></span>non-gate event</span></td>
+<td class="emits"><code>state.patched</code></td>
+</tr>
+<tr data-track="silent">
+<td><code>debug_review_gate</code></td>
+<td><span class="sev sev-block"><span class="sev-dot"></span>blocking</span></td>
+<td><span class="dim-none">—</span></td>
+<td><span class="dim-none">—</span></td>
+<td>REVIEW</td>
+<td><span class="rec rec-silent"><span class="rec-chip"></span>no record</span></td>
+<td class="emits"><span class="dim-none">none</span></td>
+</tr>
+<tr data-track="silent">
+<td><code>validate_pr_stack</code></td>
+<td><span class="sev sev-block"><span class="sev-dot"></span>blocking</span></td>
+<td><span class="dim-none">—</span></td>
+<td><span class="dim-none">—</span></td>
+<td>SYNTHESIZE</td>
+<td><span class="rec rec-silent"><span class="rec-chip"></span>no record</span></td>
+<td class="emits"><span class="dim-none">none</span></td>
+</tr>
+<tr data-track="silent">
+<td><code>check_coverage_thresholds</code></td>
+<td><span class="sev sev-adv"><span class="sev-dot"></span>advisory</span></td>
+<td>D3</td>
+<td><span class="dim-none">—</span></td>
+<td>REVIEW</td>
+<td><span class="rec rec-silent"><span class="rec-chip"></span>no record</span></td>
+<td class="emits"><span class="dim-none">none</span></td>
+</tr>
+<tr data-track="silent">
+<td><code>prepare_review</code></td>
+<td><span class="sev sev-adv"><span class="sev-dot"></span>advisory</span></td>
+<td><span class="dim-none">—</span></td>
+<td><span class="dim-none">—</span></td>
+<td>REVIEW</td>
+<td><span class="rec rec-silent"><span class="rec-chip"></span>no record</span></td>
+<td class="emits"><span class="dim-none">none</span></td>
+</tr>
+<tr data-track="silent">
+<td><code>spec_coverage_check</code></td>
+<td><span class="sev sev-adv"><span class="sev-dot"></span>advisory</span></td>
+<td>D1</td>
+<td><span class="dim-none">—</span></td>
+<td>PLAN</td>
+<td><span class="rec rec-silent"><span class="rec-chip"></span>no record</span></td>
+<td class="emits"><span class="dim-none">none</span></td>
+</tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Runbook chains that carry a gate</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Runbook</th><th>Phase</th><th>Chain (gate steps highlighted)</th></tr></thead>
+      <tbody>
+<tr><td><code>agent-teams-saga</code></td><td><code>delegate</code></td><td class="chain"><span class="stepx">append</span><span class="arrow">→</span><span class="stepx">create</span><span class="arrow">→</span><span class="stepx">batch_append</span><span class="arrow">→</span><span class="stepx">create</span><span class="arrow">→</span><span class="stepx">append</span><span class="arrow">→</span><span class="stepx">append</span><span class="arrow">→</span><span class="stepx">spawn</span><span class="arrow">→</span><span class="stepx">workflow_status</span><span class="arrow">→</span><span class="stepx">append</span><span class="arrow">→</span><span class="stepx">shutdown</span><span class="arrow">→</span><span class="step step-stop">check_integration_suite<span class="of">stop</span></span><span class="arrow">→</span><span class="step step-stop">post_delegation_check<span class="of">stop</span></span><span class="arrow">→</span><span class="stepx">transition</span></td></tr>
+<tr><td><code>quality-evaluation</code></td><td><code>review</code></td><td class="chain"><span class="step step-stop">check_static_analysis<span class="of">stop</span></span><span class="arrow">→</span><span class="step step-continue">check_security_scan<span class="of">cont</span></span><span class="arrow">→</span><span class="step step-continue">check_convergence<span class="of">cont</span></span><span class="arrow">→</span><span class="step step-stop">check_invariant_conformance<span class="of">stop</span></span><span class="arrow">→</span><span class="step step-stop">check_review_verdict<span class="of">stop</span></span></td></tr>
+<tr><td><code>synthesis-flow</code></td><td><code>synthesize</code></td><td class="chain"><span class="step step-stop">prepare_synthesis<span class="of">stop</span></span><span class="arrow">→</span><span class="step step-stop">validate_pr_stack<span class="of">stop</span></span><span class="arrow">→</span><span class="stepx">validate_pr_body</span><span class="arrow">→</span><span class="stepx">gh_pr_create</span><span class="arrow">→</span><span class="stepx">append</span></td></tr>
+<tr><td><code>task-completion</code></td><td><code>delegate</code></td><td class="chain"><span class="step step-stop">check_test_adequacy<span class="of">stop</span></span><span class="arrow">→</span><span class="step step-stop">check_contract_drift<span class="of">stop</span></span><span class="arrow">→</span><span class="step step-continue">check_mock_boundary<span class="of">cont</span></span><span class="arrow">→</span><span class="step step-stop">check_static_analysis<span class="of">stop</span></span><span class="arrow">→</span><span class="stepx">task_complete</span></td></tr>
+<tr><td><code>task-fix</code></td><td><code>delegate</code></td><td class="chain"><span class="stepx">resume_or_spawn</span><span class="arrow">→</span><span class="step step-stop">check_test_adequacy<span class="of">stop</span></span><span class="arrow">→</span><span class="step step-stop">check_static_analysis<span class="of">stop</span></span><span class="arrow">→</span><span class="stepx">task_complete</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="execution">
+  <h2><span class="num">04</span> Execution</h2>
+  <p class="section-title">Three tracks. Only one of them produces a proof.</p>
+  <p class="lede">
+    A migration is half-finished here, and the seam is visible in the code as an explicit opt-out flag. The durable
+    runner is the intended destination: it is the <em>single authoritative producer</em> of the gate signal for every
+    class it owns, minting <code>gate.executed</code> from the same persisted evidence record it just wrote &mdash; so
+    the signal and its proof cannot disagree.
+  </p>
+
+  <div class="dg-fig">
+    <svg class="dg" viewBox="0 0 1120 512" role="img"
+         aria-label="Durable gate runner sequence: the gate handler calls runDurableGateProducer, which verifies a trusted caller, resolves the active phase attempt and selects an immutable proof subject, then calls runGateWithEvidence; that executes the provider, stores a content-addressed evidence artifact, appends admission.evidence-recorded and then appends gate.executed minted from the same record before returning the carrier.">
+      <defs>
+        <marker id="ah2" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,4 L0,8 Z" class="head"/>
+        </marker>
+        <marker id="ah2hi" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,4 L0,8 Z" class="head-hi"/>
+        </marker>
+      </defs>
+
+      <rect class="box" x="17"  y="12" width="150" height="34" rx="6"/>
+      <text x="92"  y="34" text-anchor="middle" font-size="11" font-weight="600">Gate handler</text>
+      <rect class="box" x="200" y="12" width="200" height="34" rx="6"/>
+      <text x="300" y="34" text-anchor="middle" font-size="10.5" class="t-mono">runDurableGateProducer</text>
+      <rect class="box" x="445" y="12" width="190" height="34" rx="6"/>
+      <text x="540" y="34" text-anchor="middle" font-size="10.5" class="t-mono">runGateWithEvidence</text>
+      <rect class="box" x="682" y="12" width="196" height="34" rx="6"/>
+      <text x="780" y="34" text-anchor="middle" font-size="10.5" class="t-mono">ContentAddressedStore</text>
+      <rect class="box" x="935" y="12" width="150" height="34" rx="6"/>
+      <text x="1010" y="34" text-anchor="middle" font-size="11" font-weight="600">Event store</text>
+
+      <path class="life" d="M92,46 V486 M300,46 V486 M540,46 V486 M780,46 V486 M1010,46 V486"/>
+
+      <text x="196" y="80" text-anchor="middle" font-size="10" class="t-msg">1 &middot; scope: gateClass, featureId, taskId</text>
+      <path class="edge" d="M92,88 H300" marker-end="url(#ah2)"/>
+
+      <path class="edge" d="M300,110 H338 V130 H304" marker-end="url(#ah2)"/>
+      <text x="348" y="124" font-size="10" class="t-msg">2 &middot; require trusted caller</text>
+
+      <path class="edge" d="M300,152 H338 V172 H304" marker-end="url(#ah2)"/>
+      <text x="348" y="166" font-size="10" class="t-msg">3 &middot; resolve active attempt</text>
+
+      <path class="edge" d="M300,194 H338 V214 H304" marker-end="url(#ah2)"/>
+      <text x="348" y="208" font-size="10" class="t-msg">4 &middot; select proof subject</text>
+
+      <text x="420" y="242" text-anchor="middle" font-size="10" class="t-msg">5 &middot; GateRunRequest + provider thunk</text>
+      <path class="edge" d="M300,250 H540" marker-end="url(#ah2)"/>
+
+      <path class="edge" d="M540,272 H578 V292 H544" marker-end="url(#ah2)"/>
+      <text x="588" y="286" font-size="10" class="t-msg">6 &middot; execute the real check</text>
+
+      <text x="660" y="320" text-anchor="middle" font-size="10" class="t-msg">7 &middot; store evidence artifact (content-addressed)</text>
+      <path class="edge" d="M540,328 H780" marker-end="url(#ah2)"/>
+
+      <text x="660" y="352" text-anchor="middle" font-size="10" class="t-sub">8 &middot; content digest</text>
+      <path class="edge-dash" d="M780,360 H540" marker-end="url(#ah2)"/>
+
+      <text x="775" y="386" text-anchor="middle" font-size="10" class="t-hi">9 &middot; append admission.evidence-recorded</text>
+      <path class="edge-hi" d="M540,394 H1010" marker-end="url(#ah2hi)"/>
+
+      <text x="775" y="420" text-anchor="middle" font-size="10" class="t-hi">10 &middot; append gate.executed &mdash; minted from that record</text>
+      <path class="edge-hi" d="M540,428 H1010" marker-end="url(#ah2hi)"/>
+
+      <text x="551" y="456" text-anchor="middle" font-size="10" class="t-msg">11 &middot; carrier returned byte-for-byte + evidence refs</text>
+      <path class="edge-dash" d="M1010,464 H92" marker-end="url(#ah2)"/>
+
+      <rect class="box" x="17"  y="486" width="150" height="20" rx="5"/>
+      <rect class="box" x="200" y="486" width="200" height="20" rx="5"/>
+      <rect class="box" x="445" y="486" width="190" height="20" rx="5"/>
+      <rect class="box" x="682" y="486" width="196" height="20" rx="5"/>
+      <rect class="box" x="935" y="486" width="150" height="20" rx="5"/>
+    </svg>
+    <p class="dg-cap">
+      Steps 9 and 10 are the coupling that makes the ladder family trustworthy: the signal is minted from the same
+      persisted record as the proof, so the two cannot disagree. Nothing returns to the caller before the durable append.
+    </p>
+  </div>
+
+  <figure>
+    <p class="chart-title">What each gate-flagged action leaves behind</p>
+    <p class="chart-sub">28 actions by execution track &middot; record strength, strongest to weakest</p>
+    <div class="legend">
+      <span class="key"><span class="swatch" style="background:var(--o4)"></span>evidence + signal (5)</span>
+      <span class="key"><span class="swatch" style="background:var(--o3)"></span>signal only (17)</span>
+      <span class="key"><span class="swatch" style="background:var(--o2)"></span>non-gate event only (1)</span>
+      <span class="key"><span class="swatch" style="border:1.5px dashed var(--critical)"></span>no record (5)</span>
+    </div>
+    <div class="sbar-row">
+      <div class="sbar-label">All gate actions<small>n = 28</small></div>
+      <div class="sbar">
+        <div class="seg" style="flex:5;background:var(--o4)" data-tip="Durable runner: 5&#10;evidence artifact + gate.executed minted from it"><b style="color:var(--on-dark-fill)">5</b></div>
+        <div class="seg" style="flex:17;background:var(--o3)" data-tip="Self-emit: 17&#10;provider calls emitGateEvent itself, no proof artifact"><b style="color:var(--on-dark-fill)">17</b></div>
+        <div class="seg" style="flex:1;background:var(--o2)" data-tip="discover_bridge: emits state.patched only, no gate signal"></div>
+        <div class="seg hollow" style="flex:5" data-tip="Silent: 5&#10;no event of any kind"><b style="color:var(--critical)">5</b></div>
+      </div>
+      <div class="sbar-total">28</div>
+    </div>
+
+    <p class="chart-title" style="margin-top:30px">Coupling completeness by resolver family</p>
+    <p class="chart-sub">18 resolved obligations at maximum depth &middot; how each one is recorded</p>
+    <div class="sbar-row">
+      <div class="sbar-label">ladder<small>IMPLEMENT &middot; 5</small></div>
+      <div class="sbar" style="width:83.3%">
+        <div class="seg" style="flex:5;background:var(--o4)" data-tip="5 of 5 persist a content-addressed evidence artifact and mint gate.executed from it"><b style="color:var(--on-dark-fill)">5 evidence + signal</b></div>
+      </div>
+      <div class="sbar-total">5</div>
+    </div>
+    <div class="sbar-row">
+      <div class="sbar-label">plan<small>PLAN &middot; 6 at deep</small></div>
+      <div class="sbar">
+        <div class="seg" style="flex:4;background:var(--o3)" data-tip="4 emit gate.executed with no proof artifact"><b style="color:var(--on-dark-fill)">4 signal</b></div>
+        <div class="seg hollow" style="flex:2" data-tip="spec_coverage_check and generate_traceability emit nothing"><b style="color:var(--critical)">2</b></div>
+      </div>
+      <div class="sbar-total">6</div>
+    </div>
+    <div class="sbar-row">
+      <div class="sbar-label">review<small>REVIEW &middot; 2 at high</small></div>
+      <div class="sbar" style="width:33.3%">
+        <div class="seg" style="flex:1;background:var(--o3)" data-tip="mutation-adequacy emits mutation.executing_started + mutation.executed + gate.executed"><b style="color:var(--on-dark-fill)">1</b></div>
+        <div class="seg hollow" style="flex:1" data-tip="the 'review' dimension is a skill folder; its verdict is a state field folded into check_review_verdict's single row"><b style="color:var(--critical)">1</b></div>
+      </div>
+      <div class="sbar-total">2</div>
+    </div>
+    <div class="sbar-row">
+      <div class="sbar-label">synthesis<small>SYNTHESIZE &middot; 5 legs</small></div>
+      <div class="sbar" style="width:83.3%">
+        <div class="seg hollow" style="flex:5" data-tip="No leg has its own record. One aggregate gate.executed covers all five."><b style="color:var(--critical)">5 folded into 1 aggregate row</b></div>
+      </div>
+      <div class="sbar-total">5</div>
+    </div>
+    <details class="tableview">
+      <summary>Table view &mdash; obligations by record strength</summary>
+      <table>
+        <thead><tr><th>Family</th><th>Obligations</th><th>Evidence + signal</th><th>Signal only</th><th>No own record</th></tr></thead>
+        <tbody>
+          <tr><td>ladder</td><td>5</td><td>5</td><td>0</td><td>0</td></tr>
+          <tr><td>plan</td><td>6</td><td>0</td><td>4</td><td>2</td></tr>
+          <tr><td>review</td><td>2</td><td>0</td><td>1</td><td>1</td></tr>
+          <tr><td>synthesis</td><td>5</td><td>0</td><td>0</td><td>5</td></tr>
+          <tr><td><strong>total</strong></td><td><strong>18</strong></td><td><strong>5</strong></td><td><strong>5</strong></td><td><strong>8</strong></td></tr>
+        </tbody>
+      </table>
+    </details>
+    <figcaption>
+      The ladder family is fully coupled; the other three are not. 8 of 18 resolved obligations leave no record of their
+      own, so a reader of the event log cannot reconstruct whether they were discharged.
+    </figcaption>
+  </figure>
+
+  <div class="callout">
+    <p class="callout-title"><span class="ico">&#9670;</span>The migration seam, stated in the code</p>
+    <p>
+      <code>GateRunnerDependencies.emitGateExecuted</code> defaults to <code>true</code> and exists solely as a
+      per-class opt-out for legacy providers that still emit their own row from inside the provider body &mdash;
+      <code>plan-coverage</code>, <code>provenance-chain</code>, <code>review-verdict</code> and
+      <code>prepare-synthesis</code>. The flag's own docstring says to delete the provider's <code>emitGateEvent</code>
+      call rather than the default when each is migrated. Ownership stays exactly one producer per class throughout.
+    </p>
+  </div>
+</section>
+
+<section id="effects">
+  <h2><span class="num">05</span> Effects</h2>
+  <p class="section-title">Two effect vocabularies, deliberately kept apart &mdash; and a third question neither answers.</p>
+  <p class="lede">
+    Gates are the most effectful things in the system: they spawn compilers, run whole test suites, and in one case
+    revert the working tree and put it back. Two separate models describe that, and the code is explicit that folding
+    them together would break both.
+  </p>
+
+  <div class="cards">
+    <div class="card">
+      <p class="card-kicker">Model A &mdash; the effect ledger (static census)</p>
+      <p style="font-size:13.5px;margin-bottom:10px"><code>architecture/effect-ledger.ts</code> &middot; <strong>3 primitives</strong>: filesystem, process, network.</p>
+      <ul>
+        <li>A <em>detection</em> vocabulary &mdash; its members are exactly what a static scan of import specifiers can find</li>
+        <li>Closed-world: any unvetted bare package counts as <code>network</code>, so a client cannot hide behind a novel name</li>
+        <li><strong>38 ownership rules</strong> map every occurrence to a typed owner + idempotency + compensation contract</li>
+        <li>Unowned occurrence &rarr; <code>INDETERMINATE_OWNER</code>; a rule with no live occurrence &rarr; <code>STALE_OWNERSHIP</code>. Both fail the census.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <p class="card-kicker">Model B &mdash; the effect carrier (runtime value)</p>
+      <p style="font-size:13.5px;margin-bottom:10px"><code>dispatch/core/effect-carrier.ts</code> &middot; <strong>6 classes</strong>: filesystem, process, vcs, install, network, compensation.</p>
+      <ul>
+        <li>A discriminated union with a first-class <strong>dry-run</strong> arm that is structurally incapable of running the effect</li>
+        <li><code>EffectPlan.emits</code> is typed as <code>EventType</code> &mdash; an unregistered event name is a compile error</li>
+        <li>Emission resolves against <em>neither</em> class nor owner: the event catalog is its only authority</li>
+        <li>The header states outright that the two <code>EffectClass</code> types must stay distinct, and the layer table forbids the import edge that would merge them</li>
+      </ul>
+    </div>
+  </div>
+
+  <figure>
+    <p class="chart-title">Effect footprint of the 40 gate modules</p>
+    <p class="chart-sub">Per-module attribution, scanned with the ledger's own detector</p>
+    <div class="bar-row">
+      <div class="bar-label">no detected effect</div>
+      <div class="bar-track"><div class="bar-fill" style="width:100%" data-tip="25 of 40 gate modules name no effect primitive - but see the attribution note below"></div></div>
+      <div class="bar-val">25</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">filesystem</div>
+      <div class="bar-track"><div class="bar-fill" style="width:40%" data-tip="10 modules import node:fs or node:fs/promises"></div></div>
+      <div class="bar-val">10</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">filesystem + process</div>
+      <div class="bar-track"><div class="bar-fill" style="width:12%" data-tip="check-polish-scope, needs-schema-sync, verify-worktree-baseline"></div></div>
+      <div class="bar-val">3</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">process</div>
+      <div class="bar-track"><div class="bar-fill" style="width:8%" data-tip="gate-utils.ts and pre-synthesis-check.ts"></div></div>
+      <div class="bar-val">2</div>
+    </div>
+    <details class="tableview">
+      <summary>Table view &mdash; effect profile counts</summary>
+      <table>
+        <thead><tr><th>Profile</th><th>Modules</th><th>Share of 40</th></tr></thead>
+        <tbody>
+          <tr><td>no detected effect</td><td>25</td><td>62.5%</td></tr>
+          <tr><td>filesystem</td><td>10</td><td>25.0%</td></tr>
+          <tr><td>filesystem + process</td><td>3</td><td>7.5%</td></tr>
+          <tr><td>process</td><td>2</td><td>5.0%</td></tr>
+        </tbody>
+      </table>
+    </details>
+    <figcaption>
+      Effects are attributed to the module that <em>names</em> the primitive, never propagated along the import graph &mdash;
+      a documented, deliberate boundary in the ledger's header.
+    </figcaption>
+  </figure>
+
+  <div class="callout crit">
+    <p class="callout-title"><span class="ico">&#9650;</span>Every gate's process effect funnels through one module</p>
+    <p>
+      <code>verbs/gates/gate-utils.ts</code> is the <strong>sole</strong> <code>child_process</code> importer among the
+      gate modules, and 23 modules import it. Every lint run, every test suite, every <code>git</code> call the whole
+      gate surface makes therefore attributes to that one file &mdash; and the per-module rule means the ledger
+      <em>cannot</em> say which gate spawned what. The 25 &ldquo;no detected effect&rdquo; modules above include
+      <code>static-analysis.ts</code> and <code>test-adequacy.ts</code>, two of the most effectful things in the system.
+    </p>
+    <p>
+      Ownership compounds it: the rules covering gates are declared at <em>layer</em> granularity &mdash;
+      <code>process: verbs/ &rarr; orchestrate-process-owner</code> and <code>filesystem: verbs/ &rarr; orchestrate-fs</code>
+      &mdash; and the process rule's idempotency contract reads <em>&ldquo;per-call: orchestrate probes/gates own their
+      re-run semantics.&rdquo;</em> The ledger satisfies its one-typed-owner mandate by delegating the answer back to the gates.
+    </p>
+  </div>
+
+  <div class="callout">
+    <p class="callout-title"><span class="ico">&#9670;</span>The one gate that mutates the tree</p>
+    <p>
+      <code>check_test_adequacy</code> is mutation-testing at N=1: it <em>reverts the task's source hunks</em>, keeps the
+      tests, re-runs them, and asserts at least one goes red &mdash; proving the tests are not vacuous. It restores the
+      working tree unconditionally (INV-14). That is a compensation contract in the effect-carrier sense, implemented
+      inside the gate; the ledger records it only as an anonymous <code>verbs/</code> filesystem occurrence.
+    </p>
+  </div>
+</section>
+
+<section id="enforcement">
+  <h2><span class="num">06</span> Enforcement</h2>
+  <p class="section-title">Four places a gate can actually stop something &mdash; and a fifth that is declared but dormant.</p>
+
+  <div class="cards">
+    <div class="card">
+      <p class="card-kicker">Edge 1 &mdash; runbook chain ordering</p>
+      <p style="font-size:13.5px">
+        <code>onFail: 'stop'</code> halts the chain; 12 of 15 gate steps do. This is what makes the per-task ladder
+        binding: <code>task_complete</code> is the <em>terminal</em> step, so no blocking gate may follow it.
+      </p>
+    </div>
+    <div class="card">
+      <p class="card-kicker">Edge 2 &mdash; the <code>task_complete</code> admission</p>
+      <p style="font-size:13.5px">
+        Reads <code>gate.executed</code> rows off the stream and refuses with <code>GATE_NOT_PASSED</code>. It enforces
+        exactly <strong>one</strong> universal gate: <code>static-analysis</code>. The tier-scaled gates are deliberately
+        <em>not</em> hard requirements here, because at this point the tier is unknown.
+      </p>
+    </div>
+    <div class="card">
+      <p class="card-kicker">Edge 3 &mdash; the phase boundary</p>
+      <p style="font-size:13.5px">
+        Resolve-then-freeze on <code>phase.entered</code>; a resolver fault becomes <code>phase.blocked</code>
+        (fail-closed, never a silent open). <code>phase.exited</code> carries <code>allRequiredGatesPassed</code> as a
+        <em>required</em> boolean &mdash; a missing value is rejected at the emission boundary rather than persisted as <code>false</code>.
+      </p>
+    </div>
+    <div class="card">
+      <p class="card-kicker">Edge 4 &mdash; config severity and mode</p>
+      <p style="font-size:13.5px">
+        <code>withConfigSeverity</code> turns a failure into a warning, or skips the gate entirely, per project config.
+        The <code>audit</code> mode axis does the same at kind granularity for IMPLEMENT phases in <code>oneshot</code> workflows.
+      </p>
+    </div>
+  </div>
+
+  <h3>The fifth edge: an admission-control architecture that is declared but not enforcing</h3>
+  <p>
+    Alongside the live signal path sits a full evidence-backed admission engine &mdash; requirement resolution,
+    evidence selection, policy evaluation, waivers, contradictions, reassessment, remediation. Its event vocabulary
+    is registered in the catalog. Most of it has never been emitted.
+  </p>
+
+  <figure>
+    <p class="chart-title">Event catalog liveness</p>
+    <p class="chart-sub">176 registered event types by declared emission source</p>
+    <div class="legend">
+      <span class="key"><span class="swatch" style="background:var(--s1)"></span>planned &mdash; declared, never emitted</span>
+      <span class="key"><span class="swatch" style="background:var(--axis)"></span>auto / model / retired &mdash; live</span>
+    </div>
+    <div class="sbar-row">
+      <div class="sbar-label">Whole catalog<small>n = 176</small></div>
+      <div class="sbar">
+        <div class="seg" style="flex:137;background:var(--axis)" data-tip="auto: 137, emitted by server code paths"><b style="color:var(--ink-1)">137 auto</b></div>
+        <div class="seg" style="flex:25;background:var(--axis);opacity:.6" data-tip="model: 25, written by the agent via exarchos_event"><b style="color:var(--ink-1)">25 model</b></div>
+        <div class="seg" style="flex:13;background:var(--s1)" data-tip="planned: 13, registered but never emitted&#10;includes promotion.executed"><b style="color:var(--on-dark-fill)">13</b></div>
+        <div class="seg" style="flex:1;background:var(--axis);opacity:.35" data-tip="retired: 1 (merge.rollback)"></div>
+      </div>
+      <div class="sbar-total">176</div>
+    </div>
+    <div class="sbar-row">
+      <div class="sbar-label"><code>admission.*</code><small>zoom &middot; n = 12</small></div>
+      <div class="sbar">
+        <div class="seg" style="flex:6;background:var(--axis)" data-tip="live: evidence-recorded, shadow-attempt, disagreement-disposition, rollout-decision, enforcement-enabled, cutover-ready"><b style="color:var(--ink-1)">6 live</b></div>
+        <div class="seg" style="flex:6;background:var(--s1)" data-tip="planned: requirement-resolved, transition-decided, waiver-recorded, contradiction-recorded, reassessment-requested, reassessment-completed"><b style="color:var(--on-dark-fill)">6 planned</b></div>
+      </div>
+      <div class="sbar-total">12</div>
+    </div>
+    <details class="tableview">
+      <summary>Table view &mdash; the 13 planned event types</summary>
+      <table>
+        <thead><tr><th>Event type</th><th>Domain</th></tr></thead>
+        <tbody>
+          <tr><td><code>promotion.executed</code></td><td>promotion &mdash; the open epic #1822 row</td></tr>
+          <tr><td><code>admission.requirement-resolved</code></td><td>admission engine</td></tr>
+          <tr><td><code>admission.transition-decided</code></td><td>admission engine</td></tr>
+          <tr><td><code>admission.waiver-recorded</code></td><td>admission engine</td></tr>
+          <tr><td><code>admission.contradiction-recorded</code></td><td>admission engine</td></tr>
+          <tr><td><code>admission.reassessment-requested</code></td><td>admission engine</td></tr>
+          <tr><td><code>admission.reassessment-completed</code></td><td>admission engine</td></tr>
+          <tr><td><code>stack.restacked</code></td><td>stack</td></tr>
+          <tr><td><code>turn.completed</code></td><td>session</td></tr>
+          <tr><td><code>benchmark.completed</code></td><td>evals</td></tr>
+          <tr><td><code>eval.run.started</code></td><td>evals</td></tr>
+          <tr><td><code>eval.case.completed</code></td><td>evals</td></tr>
+          <tr><td><code>eval.run.completed</code></td><td>evals</td></tr>
+        </tbody>
+      </table>
+    </details>
+    <figcaption>
+      Half the admission vocabulary is <code>planned</code>. The live half is the <em>shadow</em> apparatus &mdash;
+      observation and rollout bookkeeping &mdash; not the decision path. The second row is a zoom into a 12-member
+      subset of the first, drawn to its own width; the two rows do not share a scale.
+    </figcaption>
+  </figure>
+
+  <div class="callout warn">
+    <p class="callout-title"><span class="ico">&#9650;</span>The cutover gate gates itself</p>
+    <p>
+      Flipping enforcement from the legacy HSM guard path to the admission engine is itself event-sourced: it requires
+      a recorded <code>admission.rollout-decision</code> followed by an <code>admission.enforcement-enabled</code> fact,
+      and the module structurally refuses to build that fact for an unsatisfied gate. Six independent conditions must
+      hold &mdash; a clean deterministic corpus, at least 20 comparable live attempts, every phase kind observed, both
+      allow <em>and</em> deny outcomes present, a comparable disagreement class on every attempt, and a
+      <strong>healthy observer</strong>.
+    </p>
+    <p>
+      The last two exist because of an audited defect the module names in its own header: &ldquo;20 attempts that all
+      threw would satisfy three of four conditions.&rdquo; The observer-health condition is the direct answer to the
+      vacuity question &mdash; a dead observer's empty evidence stream must never read as a clean one. The gate is
+      <code>RESERVED</code> and deliberately not yet consulted by a production caller.
+    </p>
+  </div>
+</section>
+
+<section id="findings">
+  <h2><span class="num">07</span> Findings</h2>
+  <p class="section-title">Where two of the six axes disagree.</p>
+  <p class="lede">
+    Each of these is a measured disagreement between declaration surfaces, not a style objection. The pill marks
+    whether it is a structural observation or a live gap.
+  </p>
+
+  <ol class="findings">
+    <li>
+      <h4>Two blocking gates leave no record at all<span class="sev-pill p-gap">gap</span></h4>
+      <p>
+        <code>validate_pr_stack</code> (synthesize) and <code>debug_review_gate</code> (debug-review) are declared
+        <code>blocking: true</code> and emit nothing. Three more advisory gates &mdash;
+        <code>check_coverage_thresholds</code>, <code>spec_coverage_check</code>, <code>prepare_review</code> &mdash; are
+        the same. Their verdicts exist only in the tool response, so no projection, no admission predicate and no audit
+        can establish that they ran, let alone passed.
+      </p>
+      <p class="evidence">registry/actions/orchestrate/{verification,review-ops}.ts &middot; verbs/gates/spec-coverage-check.ts &middot; verbs/vcs/validate-pr-stack.ts</p>
+    </li>
+    <li>
+      <h4>A resolved plan obligation that is not a gate in the registry<span class="sev-pill p-gap">gap</span></h4>
+      <p>
+        <code>generate_traceability</code> is a member of the <code>plan-structure</code> sequence at the standard and
+        deep rungs, so the resolver hands it to the phase as an obligation &mdash; but it carries no <code>gate</code>
+        metadata and emits nothing. It is a gate to one authority and not a gate to the other.
+      </p>
+      <p class="evidence">workflow/plan-depth-policy.ts PLAN_DEPTH_GATE_NAMES vs the registry action declaration</p>
+    </li>
+    <li>
+      <h4>The four families speak four vocabularies<span class="sev-pill p-struct">structural</span></h4>
+      <p>
+        <code>ladder</code> and <code>plan</code> resolve to registry action names; <code>review</code> resolves to
+        skill folder names under <code>content/</code>; <code>synthesis</code> resolves to leg labels that exist only
+        inside <code>prepare_synthesis</code>. The <code>family</code> discriminant makes this exhaustively checkable at
+        the type level, which is the right containment &mdash; but any consumer that wants one answer to &ldquo;which
+        gates ran&rdquo; must implement four.
+      </p>
+      <p class="evidence">workflow/phase-kind.ts ResolvedGate</p>
+    </li>
+    <li>
+      <h4>8 of 18 resolved obligations leave no record of their own<span class="sev-pill p-gap">gap</span></h4>
+      <p>
+        The ladder family is fully coupled &mdash; 5 of 5 persist a content-addressed evidence artifact and mint the
+        signal from it. The other three are not: 2 plan members are silent, the <code>review</code> dimension's verdict
+        is a state field, and all 5 synthesis legs fold into a single aggregate row. Per-leg discharge is not
+        reconstructable from the log.
+      </p>
+      <p class="evidence">measured across registry autoEmits + provider emission sites</p>
+    </li>
+    <li>
+      <h4>The effect ledger cannot name which gate spawns a process<span class="sev-pill p-struct">structural</span></h4>
+      <p>
+        All gate process effects route through <code>verbs/gates/gate-utils.ts</code> &mdash; the only
+        <code>child_process</code> importer among 40 gate modules, imported by 23 of them. Per-module attribution is a
+        documented, deliberate boundary, but the consequence is that the ledger's answer for the entire gate surface is
+        one file and one layer-granular owner whose idempotency contract delegates the question back to the gates.
+      </p>
+      <p class="evidence">architecture/effect-ledger.ts EFFECT_OWNERSHIP &middot; verbs/gates/gate-utils.ts:6</p>
+    </li>
+    <li>
+      <h4>Three live HSM phases are absent from <code>ALL_PHASES</code><span class="sev-pill p-note">check</span></h4>
+      <p>
+        <code>overhaul-plan-review</code> (refactor, kind <code>PLAN</code>), plus <code>gathering</code> and
+        <code>synthesizing</code> (discovery, kind <code>GATHER</code>). The two GATHER phases carry no obligation, so
+        the practical effect is limited &mdash; but <code>overhaul-plan-review</code> is a PLAN-kind phase, so
+        <code>KIND_OBLIGATIONS</code> grants it the full plan-structure gate set while the registry's
+        <code>PLAN_PHASES</code> binding (<code>plan</code>, <code>plan-review</code>, <code>overhaul-plan</code>) does
+        not list it. <code>phases</code> is a descriptive projection rather than a hard dispatch admission, so this
+        surfaces as a <code>describe</code> / contract inconsistency rather than a runtime refusal &mdash; worth
+        confirming that reading before acting on it.
+      </p>
+      <p class="evidence">registry/phases.ts ALL_PHASES (26 entries) vs 29 live atomic HSM states</p>
+    </li>
+    <li>
+      <h4>One universal hard gate<span class="sev-pill p-struct">structural</span></h4>
+      <p>
+        <code>task_complete</code> enforces <code>static-analysis</code> and nothing else. Every tier-scaled gate is
+        enforced only by runbook chain ordering. That is a defensible design &mdash; the tier is genuinely unknown at
+        that point &mdash; but it means the strength of per-task verification rests on chain sequencing rather than on
+        an admission predicate over the log.
+      </p>
+      <p class="evidence">verbs/tasks/tools.ts:361</p>
+    </li>
+    <li>
+      <h4>Half the admission vocabulary has never been emitted<span class="sev-pill p-struct">structural</span></h4>
+      <p>
+        6 of 12 <code>admission.*</code> types are <code>planned</code>, including every member of the decision path
+        (<code>requirement-resolved</code>, <code>transition-decided</code>, <code>waiver-recorded</code>,
+        <code>contradiction-recorded</code>, and both reassessment types). The live half is the shadow apparatus.
+        <code>promotion.executed</code> sits in the same <code>planned</code> bucket &mdash; the open row on epic #1822.
+      </p>
+      <p class="evidence">events/schemas.ts EVENT_EMISSION_REGISTRY</p>
+    </li>
+  </ol>
+</section>
+
+<!-- ════════════ 8 · TARGET STATE ════════════ -->
+<section id="target">
+  <h2><span class="num">08</span> The optimal state</h2>
+  <p class="section-title">Exarchos has independently built three of the four roles in the standard policy architecture. The missing one is the decision.</p>
+  <p class="lede">
+    Read against the industry frame, the phase-gate system is not idiosyncratic &mdash; it is a
+    <strong>policy architecture with the decision point left implicit</strong>. Every gate action is
+    simultaneously its own policy, its own decision function, and its own enforcement point. The four
+    disagreements in &sect;7 are all downstream of that single collapse. Naming the decision separates them.
+  </p>
+
+  <div class="dg-fig">
+    <svg class="dg" viewBox="0 0 1120 360" role="img"
+         aria-label="Target architecture: policy sources feed a decision context, which feeds one decision function returning permit, deny, not-applicable or indeterminate; the verdict fans out to four named enforcement points each with its own action, while the result record is written unconditionally to the attestation log regardless of enforcement.">
+      <defs>
+        <marker id="ah3" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,4 L0,8 Z" class="head"/>
+        </marker>
+        <marker id="ah3hi" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,4 L0,8 Z" class="head-hi"/>
+        </marker>
+      </defs>
+
+      <rect class="box" x="20" y="46" width="190" height="112" rx="7"/>
+      <text x="115" y="68" text-anchor="middle" font-size="11.5" font-weight="640">PAP &mdash; policy</text>
+      <text x="115" y="88"  text-anchor="middle" font-size="9.5" class="t-sub">4 policy tables</text>
+      <text x="115" y="104" text-anchor="middle" font-size="9.5" class="t-sub">invariants catalog</text>
+      <text x="115" y="120" text-anchor="middle" font-size="9.5" class="t-sub">project config overlay</text>
+      <text x="115" y="142" text-anchor="middle" font-size="9.5" class="t-msg">+ combining algorithm</text>
+
+      <rect class="box" x="240" y="46" width="170" height="112" rx="7"/>
+      <text x="325" y="68" text-anchor="middle" font-size="11.5" font-weight="640">PIP &mdash; context</text>
+      <text x="325" y="88"  text-anchor="middle" font-size="9.5" class="t-sub">riskTier &middot; boundaryTouching</text>
+      <text x="325" y="104" text-anchor="middle" font-size="9.5" class="t-sub">designDepth &middot; workflowType</text>
+      <text x="325" y="120" text-anchor="middle" font-size="9.5" class="t-sub">phaseKind</text>
+      <text x="325" y="142" text-anchor="middle" font-size="9.5" class="t-msg">frozen at phase.entered</text>
+
+      <rect class="box" x="440" y="46" width="210" height="112" rx="7" style="stroke:var(--s1);stroke-width:1.8"/>
+      <text x="545" y="68" text-anchor="middle" font-size="11.5" font-weight="640">PDP &mdash; one decision</text>
+      <text x="545" y="86" text-anchor="middle" font-size="9.5" class="t-sub">pure, in-process, fail-closed</text>
+      <text x="545" y="112" text-anchor="middle" font-size="10" class="t-hi">Permit &middot; Deny</text>
+      <text x="545" y="130" text-anchor="middle" font-size="10" class="t-hi">NotApplicable &middot; Indeterminate</text>
+      <text x="545" y="148" text-anchor="middle" font-size="9" class="t-sub">4 verdicts, not a boolean</text>
+
+      <rect class="box" x="680" y="46" width="200" height="112" rx="7"/>
+      <text x="780" y="68" text-anchor="middle" font-size="11.5" font-weight="640">PEP &mdash; 4 named points</text>
+      <text x="780" y="88"  text-anchor="middle" font-size="9.5" class="t-mono t-sub">runbook.chain</text>
+      <text x="780" y="104" text-anchor="middle" font-size="9.5" class="t-mono t-sub">task.complete</text>
+      <text x="780" y="120" text-anchor="middle" font-size="9.5" class="t-mono t-sub">phase.boundary</text>
+      <text x="780" y="136" text-anchor="middle" font-size="9.5" class="t-mono t-sub">config.severity</text>
+      <text x="780" y="152" text-anchor="middle" font-size="9" class="t-msg">per-point action: Deny / Warn / Audit</text>
+
+      <rect class="box" x="910" y="46" width="190" height="112" rx="7" style="stroke:var(--s1);stroke-width:1.8"/>
+      <text x="1005" y="68" text-anchor="middle" font-size="11.5" font-weight="640">Attestation log</text>
+      <text x="1005" y="90"  text-anchor="middle" font-size="9.5" class="t-mono t-sub">evidence statement</text>
+      <text x="1005" y="106" text-anchor="middle" font-size="9.5" class="t-mono t-sub">gate.executed = VSA</text>
+      <text x="1005" y="130" text-anchor="middle" font-size="9.5" class="t-msg">subject digest + policy digest</text>
+      <text x="1005" y="148" text-anchor="middle" font-size="9" class="t-sub">portable, verifiable</text>
+
+      <path class="edge" d="M210,102 H240" marker-end="url(#ah3)"/>
+      <path class="edge" d="M410,102 H440" marker-end="url(#ah3)"/>
+      <path class="edge" d="M650,102 H680" marker-end="url(#ah3)"/>
+      <path class="edge" d="M880,102 H910" marker-end="url(#ah3)"/>
+
+      <!-- unconditional record path -->
+      <path class="edge-hi" d="M545,158 V250 H1005 V158" marker-end="url(#ah3hi)"/>
+      <rect class="box" x="640" y="232" width="290" height="36" rx="6" style="stroke:var(--s1);stroke-width:1.5"/>
+      <text x="785" y="248" text-anchor="middle" font-size="10" class="t-hi">recording is unconditional</text>
+      <text x="785" y="262" text-anchor="middle" font-size="9" class="t-sub">severity is configurable; whether a verdict is recorded is not</text>
+
+      <text x="20" y="310" font-size="10" class="t-sub">Today: the four boxes are collapsed into each gate action &mdash; every gate is its own policy, its own decision, and its own enforcement point.</text>
+      <text x="20" y="328" font-size="10" class="t-sub">Five of them are also their own silent discard.</text>
+    </svg>
+    <p class="dg-cap">
+      The role names are the OASIS XACML vocabulary (PAP / PIP / PDP / PEP), which Kubernetes admission
+      control, OPA Gatekeeper and Cedar all instantiate. The point of borrowing it is not conformance &mdash;
+      it is that the vocabulary already has a word for each thing Exarchos currently leaves unnamed.
+    </p>
+  </div>
+
+  <h3>Role mapping: what already exists, and what is missing</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Role</th><th>Industry instance</th><th>Exarchos today</th><th>Gap</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>PAP</strong> &mdash; administration</td>
+          <td>Gatekeeper <code>ConstraintTemplate</code>; K8s <code>ValidatingAdmissionPolicy</code></td>
+          <td>4 pure policy tables + invariants catalog + <code>.exarchos.yml</code></td>
+          <td><span class="rec rec-signal"><span class="rec-chip"></span>present</span> &mdash; but no declared <em>combining algorithm</em> across the four</td>
+        </tr>
+        <tr>
+          <td><strong>PIP</strong> &mdash; information</td>
+          <td>K8s <code>paramKind</code> / <code>paramRef</code> resource</td>
+          <td>riskTier, boundaryTouching, designDepth, workflowType</td>
+          <td><span class="rec rec-signal"><span class="rec-chip"></span>present</span> &mdash; already frozen into <code>phase.entered</code>, which is the strong half</td>
+        </tr>
+        <tr>
+          <td><strong>PDP</strong> &mdash; decision</td>
+          <td>OPA/Rego; VAP CEL engine; Cedar</td>
+          <td><span class="rec rec-silent"><span class="rec-chip"></span>absent</span> &mdash; each gate decides for itself</td>
+          <td>No shared verdict type; no <code>Indeterminate</code>; no separation of <em>ran and said no</em> from <em>could not run</em></td>
+        </tr>
+        <tr>
+          <td><strong>PEP</strong> &mdash; enforcement</td>
+          <td>admission webhook, <code>gator</code>, audit controller</td>
+          <td>4 edges, none named</td>
+          <td>No enforcement-point vocabulary, so per-point actions cannot be declared</td>
+        </tr>
+        <tr>
+          <td><strong>Evidence</strong></td>
+          <td>in-toto Statement + SLSA Verification Summary Attestation</td>
+          <td>content-addressed artifact + immutable subject + <code>policyId</code>/<code>policyDigest</code></td>
+          <td><span class="rec rec-durable"><span class="rec-chip"></span>closest to SoTA</span> &mdash; already attestation-shaped for 5 of 28 gates</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <p class="callout-title"><span class="ico">&#9670;</span>The evidence layer is the part to be proud of</p>
+    <p>
+      The durable runner's design is an independent re-derivation of the in-toto attestation shape. in-toto's
+      <code>Statement</code> binds a <code>predicate</code> to a <code>subject</code> whose elements MUST carry a
+      digest and are <em>assumed immutable</em>; Exarchos's <code>selectSubject</code> picks a task, a commit SHA,
+      or a content-addressed artifact digest &mdash; explicitly refusing to let mutable workflow state stand in for
+      a commit. SLSA's Verification Summary Attestation records <code>policy: {uri, digest}</code> alongside the
+      result; the gate runner already carries <code>policyId</code> + <code>policyDigest</code>. The remaining
+      distance to a portable, verifiable attestation is small, and it is worth closing because it is what makes a
+      gate result meaningful <em>outside</em> the Exarchos process &mdash; to Basileus, to CI, to an auditor.
+    </p>
+  </div>
+
+  <div class="callout warn">
+    <p class="callout-title"><span class="ico">&#9650;</span>What the frame does <em>not</em> license</p>
+    <p>
+      INV-15 fixes Exarchos as a single-machine process manager with cooperative agents &mdash; concurrent, not
+      distributed. So: no policy server, no network PDP, no Rego or CEL interpreter, no sidecar. The PDP here is a
+      <strong>pure in-process function</strong>. That is not a compromise; it is the same conclusion Kubernetes
+      reached in KEP-3488, which moved policy in-process precisely because &ldquo;it is far safer to use in a
+      fail-closed mode because it removes the network as a possible failure domain.&rdquo; Exarchos never had the
+      network in that domain to begin with, so it gets fail-closed for free &mdash; and already relies on it
+      (<code>phase.blocked</code> on resolver fault).
+    </p>
+  </div>
+</section>
+
+<!-- ════════════ 9 · REFACTORS ════════════ -->
+<section id="refactors">
+  <h2><span class="num">09</span> The refactors</h2>
+  <p class="section-title">Eight, ordered so each one unblocks the next.</p>
+  <p class="lede">
+    R1&ndash;R3 are the load-bearing set: they close every finding in &sect;7 and are prerequisites for the planned
+    taxonomy-v2 work. R4&ndash;R6 are the architecture. R7&ndash;R8 are debts against invariants Exarchos already
+    declares. Nothing here requires the v3.0 SDK.
+  </p>
+
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>#</th><th>Refactor</th><th>Closes</th><th>Grounding</th><th>Depends on</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>R1</strong></td>
+          <td><strong>Split &ldquo;said no&rdquo; from &ldquo;could not run&rdquo;.</strong>
+            Two declared axes per gate: <code>failurePolicy: Fail | Ignore</code> for errors and unresolvable
+            preconditions, <code>actions: [Deny | Warn | Audit]</code> for a genuine false verdict.</td>
+          <td>Findings 1, 7</td>
+          <td>K8s VAP keeps these strictly orthogonal: <code>failurePolicy</code> governs parse/type/runtime
+            errors and misconfiguration; <code>validationActions</code> governs a validation returning false.</td>
+          <td>&mdash;</td>
+        </tr>
+        <tr>
+          <td><strong>R2</strong></td>
+          <td><strong>Make <code>Indeterminate</code> a first-class verdict.</strong>
+            Four values, not a boolean: Permit, Deny, NotApplicable, Indeterminate. A skip-by-policy is
+            <em>NotApplicable</em>; an unrunnable probe is <em>Indeterminate</em> and must never read as pass.</td>
+          <td>The vacuity class outright</td>
+          <td>XACML: &ldquo;<code>Indeterminate</code> is not <code>Deny</code>, but must not grant access.&rdquo;
+            The PEP must define its handling of every outcome, timeouts included.</td>
+          <td>R1</td>
+        </tr>
+        <tr>
+          <td><strong>R3</strong></td>
+          <td><strong>Recording becomes unconditional.</strong> Every resolved obligation emits one result record
+            whatever its severity. Severity stays configurable; <em>whether a verdict is written down</em> stops
+            being configurable.</td>
+          <td>Findings 1, 2, 4</td>
+          <td>K8s records audit annotations <em>regardless</em> of whether the binding includes <code>Audit</code>.
+            Gatekeeper surfaces dry-run violations in the constraint's own <code>status</code>. The K8s Policy WG
+            <code>PolicyReport</code> CRD exists so any decision point emits one shape.</td>
+          <td>R2</td>
+        </tr>
+        <tr>
+          <td><strong>R4</strong></td>
+          <td><strong>Name the four enforcement points and scope actions per point.</strong>
+            <code>runbook.chain</code>, <code>task.complete</code>, <code>phase.boundary</code>,
+            <code>config.severity</code> &mdash; one policy, a declared action at each point.</td>
+          <td>Finding 7; informs #1773</td>
+          <td>Gatekeeper <code>enforcementAction: scoped</code> + <code>scopedEnforcementActions</code>, with
+            named points (<code>validation.gatekeeper.sh</code>, <code>audit.gatekeeper.sh</code>,
+            <code>gator.gatekeeper.sh</code>). Deny at one point, warn at another, by declaration.</td>
+          <td>R1</td>
+        </tr>
+        <tr>
+          <td><strong>R5</strong></td>
+          <td><strong>One obligation identity across all four families.</strong> Extend the provider registry's
+            exactly-one-owner discipline from 9 classes to all 18 resolved obligations, so review dimensions and
+            synthesis legs get the same stable id and provider that ladder gates have.</td>
+          <td>Findings 2, 3</td>
+          <td>Gatekeeper's ConstraintTemplate/Constraint split; K8s policy/binding/param triple. Also a
+            <em>prerequisite the planned taxonomy-v2 already assumes</em>: its judgment tier is typed
+            <code>{ tier: 'judgment'; gate: GateClass; contentSchema }</code>.</td>
+          <td>R3</td>
+        </tr>
+        <tr>
+          <td><strong>R6</strong></td>
+          <td><strong>Make <code>gate.executed</code> a Verification Summary Attestation.</strong> Name the
+            predicate type, reference input evidence by digest, keep the policy digest. The gate log becomes a
+            verifiable chain instead of a private format.</td>
+          <td>Makes proof portable</td>
+          <td>SLSA VSA fields: <code>verifier.id</code>, <code>timeVerified</code>, <code>policy{uri,digest}</code>,
+            <code>inputAttestations[]</code>, <code>verificationResult</code>. in-toto predicate types already
+            exist for <code>test-result</code> and <code>human-review</code> &mdash; the two things Exarchos gates
+            actually produce.</td>
+          <td>R3</td>
+        </tr>
+        <tr>
+          <td><strong>R7</strong></td>
+          <td><strong>Apply INV-10 and INV-13 to the gate surface.</strong> Long-running gates emit the liveness
+            pair; tree-mutating gates emit the <code>*.requested</code> intent row before the effect; every gate
+            takes an <code>operationId</code>.</td>
+          <td>A measured invariant debt</td>
+          <td>Exarchos's own catalog. Measured: <strong>7 of 8</strong> long-running gates emit no
+            <code>*.executing_started</code>; <strong>0 of 28</strong> emit an intent row; only
+            <strong>4 of 28</strong> accept an idempotency key.</td>
+          <td>&mdash;</td>
+        </tr>
+        <tr>
+          <td><strong>R8</strong></td>
+          <td><strong>Retire the separate mode axis.</strong> Fold <code>audit | enforce</code> into the action
+            vocabulary from R1/R4 &mdash; <code>Audit</code> is an action, not a second dimension.</td>
+          <td>The IMPLEMENT mode axis</td>
+          <td>Neither K8s nor Gatekeeper carries a separate mode: <code>dryrun</code>/<code>Audit</code> sits
+            alongside <code>warn</code> and <code>deny</code> in one enum, scoped per point.</td>
+          <td>R4</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Two things already true in-house</h3>
+  <div class="cards">
+    <div class="card">
+      <p class="card-kicker">R2 is what makes the cutover gate honest</p>
+      <p style="font-size:13.5px">
+        The six-condition cutover gate already carries a <code>live-disagreement-class</code> condition that
+        discards attempts whose adjudication threw, and a <code>live-observer-health</code> condition so a dead
+        observer cannot present as clean. Both are <code>Indeterminate</code> handling, hand-built for one call
+        site. R2 makes it the type everywhere.
+      </p>
+    </div>
+    <div class="card">
+      <p class="card-kicker">The reliability critique is already written</p>
+      <p style="font-size:13.5px">
+        Taxonomy v2's problem statement says the registry &ldquo;records authorship, not reliability&rdquo; &mdash;
+        <code>source: auto|model</code> says who composes the payload, not what the emission is welded to. The
+        gate surface is the sharpest instance: <code>gate.executed</code> is <code>auto</code> for all 17
+        self-emitters, and that says nothing about whether a proof backs it.
+      </p>
+    </div>
+  </div>
+
+  <div class="callout crit">
+    <p class="callout-title"><span class="ico">&#9650;</span>One ordering constraint worth respecting</p>
+    <p>
+      Taxonomy v2 sequences a Wave 0 ahead of everything because <strong>INV-9 is violated today</strong>:
+      <code>makeArtifactGuard</code> accepts any non-null value (<code>{"artifacts":{"plan":true}}</code> clears a
+      phase gate), and <code>task_complete</code>'s only path through is an agent-supplied
+      <code>evidenceBypass</code>. Its own words: &ldquo;a correct taxonomy feeding a bypassable guard changes
+      nothing.&rdquo; The same applies here &mdash; R1&ndash;R3 give the PEP a verdict worth enforcing, but if the
+      enforcement point can be waved through with a truthy literal, the refactor buys nothing. <strong>Close the
+      bypass first.</strong>
+    </p>
+  </div>
+
+  <p style="font-size:13px;color:var(--ink-muted);margin-top:20px">
+    &sect;1&ndash;&sect;7 are measured. &sect;8&ndash;&sect;9 are a proposal, and the sequencing assumes the
+    taxonomy-v2 spec still reflects current intent.
+  </p>
+</section>
+
+<!-- ════════════ 10 · COMPOSITION ════════════ -->
+<section id="composition">
+  <h2><span class="num">10</span> Composition with epic #1763</h2>
+  <p class="section-title">Four of the eight land inside work that is already open and unblocked.</p>
+  <p class="lede">
+    #1763 was re-scoped on 2026-08-17 to the measurement repair plus the closures the census can bound
+    today; fourteen anchors moved to four epics rooted at anchor 028. That partition is the thing to compose
+    against &mdash; and it turns out the refactors split along the same seam, because both are asking the same
+    question: <em>which declarations can be trusted, and what proves it.</em>
+  </p>
+
+  <div class="dg-fig">
+    <svg class="dg" viewBox="0 0 1120 300" role="img"
+         aria-label="Composition map: a Wave 0 precondition closing the INV-9 bypass precedes everything; four refactors land in epic 1763's retained and unblocked scope; three land in the spun-out graph rooted at anchor 028; one refactor is unowned by any anchor.">
+      <defs>
+        <marker id="ah4" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,4 L0,8 Z" class="head"/>
+        </marker>
+      </defs>
+
+      <rect class="box" x="20" y="20" width="1080" height="40" rx="7" style="stroke:var(--critical);stroke-width:1.5"/>
+      <text x="560" y="38" text-anchor="middle" font-size="11.5" font-weight="640">Wave 0 &mdash; precedes everything</text>
+      <text x="560" y="53" text-anchor="middle" font-size="10" class="t-msg">close the INV-9 bypass: makeArtifactGuard accepts any non-null &middot; task_complete's only path through is evidenceBypass</text>
+
+      <rect class="box" x="20" y="86" width="510" height="150" rx="7" style="stroke:var(--s1);stroke-width:1.8"/>
+      <text x="275" y="108" text-anchor="middle" font-size="11.5" font-weight="640">Actionable now &mdash; #1763 retained scope</text>
+      <text x="275" y="126" text-anchor="middle" font-size="9.5" class="t-sub">no dependency on anchor 028</text>
+      <text x="40" y="150" font-size="10" class="t-msg">R1 + R5 &nbsp;&rarr;&nbsp; ride #1768 / anchor 031 (parallelizable, unblocked)</text>
+      <text x="40" y="170" font-size="10" class="t-msg">R3 &nbsp;&rarr;&nbsp; precondition of #1774 / anchor 037</text>
+      <text x="40" y="190" font-size="10" class="t-msg">R2 &nbsp;&rarr;&nbsp; #1810 is a free instance of the class</text>
+      <text x="40" y="210" font-size="10" class="t-msg">R7 &nbsp;&rarr;&nbsp; unowned by any anchor &mdash; genuinely new</text>
+
+      <rect class="box" x="560" y="86" width="360" height="150" rx="7"/>
+      <text x="740" y="108" text-anchor="middle" font-size="11.5" font-weight="640">After anchor 028 &mdash; spun-out graph</text>
+      <text x="740" y="126" text-anchor="middle" font-size="9.5" class="t-sub">#1822 &rarr; #1823 / #1825</text>
+      <text x="580" y="150" font-size="10" class="t-msg">R6 &nbsp;&rarr;&nbsp; #1822 (028 / 036 / 039)</text>
+      <text x="580" y="170" font-size="10" class="t-msg">R4 &nbsp;&rarr;&nbsp; informs #1773 / anchor 036</text>
+      <text x="580" y="190" font-size="10" class="t-msg">R5 full &nbsp;&rarr;&nbsp; #1825 catalog disposition</text>
+      <text x="580" y="210" font-size="10" class="t-msg">R2 &nbsp;&rarr;&nbsp; #1823 reconciliation verdict</text>
+
+      <rect class="box-null" x="950" y="86" width="150" height="150" rx="7"/>
+      <text x="1025" y="108" text-anchor="middle" font-size="11.5" font-weight="640" class="t-msg">Finding 6</text>
+      <text x="1025" y="132" text-anchor="middle" font-size="9.5" class="t-sub">phase-sequencing</text>
+      <text x="1025" y="148" text-anchor="middle" font-size="9.5" class="t-sub">row</text>
+      <text x="1025" y="174" text-anchor="middle" font-size="10" class="t-msg">anchor 045</text>
+      <text x="1025" y="190" text-anchor="middle" font-size="10" class="t-msg">in #1824</text>
+      <text x="1025" y="212" text-anchor="middle" font-size="9" class="t-sub">already predicted</text>
+
+      <path class="edge" d="M530,161 H560" marker-end="url(#ah4)"/>
+      <path class="edge" d="M560,70 V78" marker-end="url(#ah4)"/>
+      <path class="edge" d="M275,70 V78" marker-end="url(#ah4)"/>
+
+      <text x="20" y="268" font-size="10" class="t-sub">Anchor 028's declaration vocabulary already ships: <tspan class="t-mono">AutoEmissionRole = 'primary' | 'recovery'</tspan> with <tspan class="t-mono">owner</tspan> and <tspan class="t-mono">recoveryExpiresAt</tspan> are live in <tspan class="t-mono">registry/gate-metadata.ts</tspan>.</text>
+      <text x="20" y="286" font-size="10" class="t-sub">R1's <tspan class="t-mono">failurePolicy</tspan> and <tspan class="t-mono">actions</tspan> are the natural siblings on that same declaration &mdash; not a new surface.</text>
+    </svg>
+    <p class="dg-cap">
+      The refactors do not need a new epic. Four attach to issues already open in #1763's retained scope; three
+      attach to the spun-out graph; one (R7) is unowned and would need filing.
+    </p>
+  </div>
+
+  <h3>Refactor &rarr; anchor, precisely</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Refactor</th><th>Composes with</th><th>Relationship</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>R3</strong> recording unconditional</td>
+          <td><strong>#1774</strong> &middot; anchor 037<br><span class="dim-none">retained in #1763</span></td>
+          <td>
+            <strong>A sequencing hazard, and the sharpest composition here.</strong> 037 deletes
+            <code>PHASE_EXPECTED_EVENTS</code> as a hand-maintained artifact and derives it from
+            <em>the union of <code>autoEmits</code> across each phase's reachable actions</em>. But 5 gate
+            actions declare no <code>autoEmits</code> at all, and 8 of 18 resolved obligations record nothing.
+            A faithful derivation therefore reproduces the gap exactly: the derived table will say
+            &ldquo;nothing expected&rdquo; for the silent gates, and <code>_eventHints.missing</code> can never
+            flag them. <strong>R3 before or with 037</strong>, or 037 ships a correct-and-vacuous table.
+          </td>
+        </tr>
+        <tr>
+          <td><strong>R1</strong> failurePolicy / actions<br><strong>R5</strong> one obligation identity</td>
+          <td><strong>#1768</strong> &middot; anchor 031<br><span class="dim-none">retained, parallelizable, unblocked</span></td>
+          <td>
+            031 tightens <code>AutoEmitSpecSchema.event</code> to a catalog-validated <code>EventTypeRef</code>
+            <em>and adds <code>tier</code> + <code>coupling</code> to <code>EvidencePolicy</code></em> &mdash; the
+            same declaration surface R1 and R5 need. It is one of only two anchors marked
+            <code>Parallelizable: Yes</code>, is unblocked, and lands as its own PR because
+            <code>contract/</code> is under active change. <strong>R1/R5's fields should ride that PR</strong>
+            rather than force a second pass over the same module.
+          </td>
+        </tr>
+        <tr>
+          <td><strong>R2</strong> Indeterminate first-class</td>
+          <td><strong>#1810</strong><br><span class="dim-none">retained residue</span></td>
+          <td>
+            #1810 <em>is</em> an Indeterminate bug, in its own words: on a same-operation retry the signal
+            &ldquo;describes the persisted <code>indeterminate</code> evidence incorrectly&rdquo; because the skip
+            descriptor is read from the retry's provider result while the evidence comes from the first attempt.
+            The fix &mdash; make the descriptor a property of the persisted evidence, not of the provider return
+            &mdash; is R2's shape in miniature. <strong>The cheapest available proof that R2 pays.</strong>
+          </td>
+        </tr>
+        <tr>
+          <td><strong>R6</strong> gate.executed as VSA<br><strong>R3</strong></td>
+          <td><strong>#1822</strong> &middot; anchors 028 / 036 / 039</td>
+          <td>
+            028 makes <code>EffectPlan.emits</code> required with a boot-time bijection and
+            <code>role: 'primary' | 'recovery'</code>. That is &ldquo;every effect records&rdquo; for the
+            <em>effect</em> producer; R3 is the same discipline for the <em>judgment</em> producer. They are the
+            two halves taxonomy-v2 names, and R6 then upgrades the record's shape.
+          </td>
+        </tr>
+        <tr>
+          <td><strong>R2</strong></td>
+          <td>anchor <strong>039</strong> &middot; in #1822</td>
+          <td>
+            039's open claim is that a zero-observation tooth cannot bite the strongest case. R2 is the
+            structural answer rather than a lint: once <code>Indeterminate</code> is a value, &ldquo;no
+            observation&rdquo; is a <em>verdict</em> instead of an absence, and a check that cannot see its
+            subject returns it rather than returning silence.
+          </td>
+        </tr>
+        <tr>
+          <td><strong>R4</strong> named enforcement points</td>
+          <td><strong>#1773</strong> &middot; anchor 036 &mdash; EmissionVerifier</td>
+          <td>
+            Taxonomy-v2's D4 sets EmissionVerifier to &ldquo;hard-fail in CI/dev, telemetry in production.&rdquo;
+            That is two enforcement points carrying different actions &mdash; precisely Gatekeeper's
+            <code>scopedEnforcementActions</code>. R4 gives the single-vs-multi-mode decision a declared
+            vocabulary instead of a bespoke branch. R8's IMPLEMENT <code>audit|enforce</code> axis is a
+            separate mode question on a different subject.
+          </td>
+        </tr>
+        <tr>
+          <td><strong>R2</strong> / <strong>R3</strong></td>
+          <td><strong>#1823</strong> &middot; anchors 032/033/034</td>
+          <td>
+            The observation tier exists so the log can learn facts nobody reported.
+            <code>Indeterminate</code> is exactly the verdict a reconciler returns when ground truth is
+            unreadable &mdash; reconciliation and R2 want the same value in the same place.
+          </td>
+        </tr>
+        <tr>
+          <td><strong>R5</strong> / <strong>R6</strong></td>
+          <td><strong>#1825</strong> &middot; anchors 041/042</td>
+          <td>
+            Disposition decides which types survive replay. Running it <em>before</em> R5 disposes of a catalog
+            whose judgment half is still nameless &mdash; 9 of 18 obligations have a <code>GateClass</code>,
+            the rest have only a folder name or a leg label.
+          </td>
+        </tr>
+        <tr>
+          <td><strong>Finding 6</strong><br><span class="dim-none">not a refactor</span></td>
+          <td>anchor <strong>045</strong> &middot; in #1824</td>
+          <td>
+            The epic already predicted this row: deriving <code>PHASE_EXPECTED_EVENTS</code> &ldquo;does not
+            discharge the phase-sequencing row, which will then report <code>binding | stale-exception</code>
+            &mdash; binding the event names to the registry says nothing about whether the phase keys track the
+            HSM phase set.&rdquo; Finding 6 is that row's subject list, measured: <strong>3 live atomic HSM
+            phases absent from <code>ALL_PHASES</code></strong>, one of them PLAN-kind.
+          </td>
+        </tr>
+        <tr>
+          <td><strong>R7</strong> INV-10 / INV-13 debt</td>
+          <td><span class="rec rec-silent"><span class="rec-chip"></span>no anchor owns it</span></td>
+          <td>
+            None of the eighteen anchors covers gate liveness or the intent row. This is genuinely new work and
+            would need filing &mdash; but it is also the cheapest of the eight, needs no design decision, and is
+            measured rather than argued.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <p class="callout-title"><span class="ico">&#9670;</span>The honest summary</p>
+    <p>
+      The refactors are not a competing programme. <strong>Four of eight attach to issues already open and
+      unblocked in #1763's retained scope</strong> (R1, R2, R3, R5 &mdash; via #1768, #1774, #1810), three attach
+      to the spun-out graph behind anchor 028, and one (R7) is unowned. The one thing worth acting on
+      independently of any of it is the <strong>R3-before-037 ordering</strong>, because that hazard is live in a
+      retained, unblocked issue and derives a table from a denominator that is missing five members.
+    </p>
+  </div>
+</section>
+
+<div class="footnote">
+  <p>
+    <strong>Method.</strong> Every count on this page was extracted by importing the live modules and enumerating them,
+    not by reading prose: <code>TOOL_REGISTRY</code> for the action surface, <code>EVENT_EMISSION_REGISTRY</code> for the
+    catalog, the five <code>create*HSM</code> factories for the phase graph, the four policy modules for the sequences,
+    and the effect ledger's own <code>detectModuleEffects</code> (with its required <code>ModuleLexer</code> port) for
+    the effect scan. Where a claim rests on an inference rather than a count &mdash; finding 6 &mdash; it says so.
+  </p>
+  <p>
+    <strong>Sources for &sect;8&ndash;&sect;9.</strong>
+    OASIS <em>XACML 3.0 core specification</em> (PAP/PDP/PEP/PIP roles; the four decision values;
+    obligations; rule- and policy-combining algorithms) &middot;
+    Kubernetes <em>KEP-3488, CEL for Admission Control</em> and the <em>ValidatingAdmissionPolicy</em>
+    reference (<code>failurePolicy</code> vs <code>validationActions</code>; audit annotations recorded
+    independently of the binding; the in-process fail-closed argument) &middot;
+    OPA <em>Gatekeeper</em> docs on enforcement points and constraint violations
+    (<code>enforcementAction: deny|dryrun|warn</code>, <code>scoped</code> per-point actions, dry-run
+    violations surfaced in constraint status) &middot;
+    Kubernetes SIG-Security <em>Policy Management</em> paper (PolicyReport CRD; inform vs enforce modes) &middot;
+    <em>in-toto Attestation Framework</em> v1 Statement spec (subject / digest / predicateType) and
+    <em>SLSA v1.0 Verifying artifacts</em> + Verification Summary Attestation.
+    Internal grounding: <code>.exarchos/invariants.md</code> (INV-1, 6, 8, 9, 10, 13, 14, 15) and the
+    filed <em>event-taxonomy-v2</em> and <em>design-knowledge-graph</em> design set.
+  </p>
+</div>
+
+</div>
+
+<script>
+(function () {
+  var tip = document.getElementById('tip');
+  function show(e, text) {
+    tip.innerHTML = text.replace(/\n/g, '<br>');
+    tip.style.opacity = '1';
+    var r = tip.getBoundingClientRect();
+    var x = e.clientX + 14, y = e.clientY + 14;
+    if (x + r.width > window.innerWidth - 8) x = e.clientX - r.width - 14;
+    if (y + r.height > window.innerHeight - 8) y = e.clientY - r.height - 14;
+    tip.style.left = Math.max(8, x) + 'px';
+    tip.style.top = Math.max(8, y) + 'px';
+  }
+  document.addEventListener('mousemove', function (e) {
+    var t = e.target && e.target.closest ? e.target.closest('[data-tip]') : null;
+    if (t) { show(e, t.getAttribute('data-tip')); }
+    else { tip.style.opacity = '0'; }
+  });
+  document.addEventListener('focusin', function (e) {
+    var t = e.target && e.target.closest ? e.target.closest('[data-tip]') : null;
+    if (!t) return;
+    var b = t.getBoundingClientRect();
+    show({ clientX: b.left, clientY: b.bottom }, t.getAttribute('data-tip'));
+  });
+})();
+</script>
+
+</body>
+</html>
