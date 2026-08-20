@@ -85,6 +85,12 @@ describe('Store-path divergence surfaces at the point of use (#1839)', () => {
     // The message must be actionable — both paths and the remedy.
     expect(result.error?.message).toContain('WORKFLOW_STATE_DIR');
     expect(result.error?.message).toContain(pluginStore());
+    // The refusal states the divergence once. Repeating it as a warning on the
+    // same envelope is noise, not a second signal.
+    expect(
+      result.warnings ?? [],
+      'the refusal already carries the message; it must not be duplicated',
+    ).toEqual([]);
   });
 
   it('Mutation_OtherStoreAbsent_ProceedsNormally', async () => {

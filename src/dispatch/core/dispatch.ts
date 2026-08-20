@@ -798,7 +798,10 @@ export async function dispatch(
     // expensive was internally consistent and wrong, with nothing in it
     // hinting that two stores existed; a separate `doctor` run was the only
     // way to learn that, and by then the reader trusted the verdict.
-    const warnings = storeDivergence?.shouldWarn === true
+    // The refusal already states the divergence in `error.message`; repeating
+    // it as a warning on the same envelope tells the caller nothing twice.
+    const alreadyStated = result.error?.code === 'STORE_PATH_DIVERGENCE';
+    const warnings = storeDivergence?.shouldWarn === true && !alreadyStated
       ? [...(result.warnings ?? []), describeStoreDivergence(storeDivergence)]
       : result.warnings;
     return {
@@ -1080,8 +1083,8 @@ export async function dispatch(
     // enforce. The readonly gate above still covers state authority.
 
     // ─── Store-path divergence — refuse a write into a ghost store ───────
-    // The detector already existed (`computeStorePathDivergence`, DR-11 B-5)
-    // but its only consumer was the doctor check, so mutations landed in the
+    // The detector already existed (`computeStorePathDivergence`) but its only
+    // consumer was the doctor check, so mutations landed in the
     // non-plugin store and reported SUCCESS while the orchestrator read a
     // different one. The tell surfaced steps later as STATE_NOT_FOUND, and
     // gates like `prepare_delegation` answered from the ghost store with a
