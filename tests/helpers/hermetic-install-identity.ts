@@ -19,8 +19,11 @@ import * as path from 'node:path';
  * Redirecting the directory per test process makes the suite hermetic without
  * weakening the production resolution order.
  */
-if (process.env['EXARCHOS_INSTALL_STATE_DIR'] === undefined) {
-  process.env['EXARCHOS_INSTALL_STATE_DIR'] = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'exarchos-test-install-identity-'),
-  );
-}
+// Set UNCONDITIONALLY. Honouring a caller-supplied value would let a stray
+// export in a shell or a CI job point the whole suite at a real directory, and
+// the tests would publish TOFU locks there — the exact leak this file exists to
+// stop. A test that needs its own directory overrides it per-test with
+// `vi.stubEnv`, which runs after this module and is undone on teardown.
+process.env['EXARCHOS_INSTALL_STATE_DIR'] = fs.mkdtempSync(
+  path.join(os.tmpdir(), 'exarchos-test-install-identity-'),
+);

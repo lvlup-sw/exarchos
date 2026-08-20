@@ -66,7 +66,7 @@ afterEach(async () => {
 });
 
 describe('Store-path divergence surfaces at the point of use (#1839)', () => {
-  it('Mutation_UnderActiveDivergence_IsRefusedNotSilentlyWritten', () => {
+  it('Mutation_UnderActiveDivergence_IsRefusedNotSilentlyWritten', async () => {
     // Precondition: `os.homedir()` must actually follow the stubbed HOME, or
     // this test would assert nothing.
     expect(os.homedir()).toBe(home);
@@ -74,17 +74,17 @@ describe('Store-path divergence surfaces at the point of use (#1839)', () => {
     createStore(cliStore());
     createStore(pluginStore());
 
-    return dispatch(
+    const result = await dispatch(
       'exarchos_workflow',
       { action: 'init', featureId: 'divergence-probe', workflowType: 'feature' },
       ctx(),
-    ).then((result) => {
-      expect(result.success, 'a write into a ghost store must not report success').toBe(false);
-      expect(result.error?.code).toBe('STORE_PATH_DIVERGENCE');
-      // The message must be actionable — both paths and the remedy.
-      expect(result.error?.message).toContain('WORKFLOW_STATE_DIR');
-      expect(result.error?.message).toContain(pluginStore());
-    });
+    );
+
+    expect(result.success, 'a write into a ghost store must not report success').toBe(false);
+    expect(result.error?.code).toBe('STORE_PATH_DIVERGENCE');
+    // The message must be actionable — both paths and the remedy.
+    expect(result.error?.message).toContain('WORKFLOW_STATE_DIR');
+    expect(result.error?.message).toContain(pluginStore());
   });
 
   it('Mutation_OtherStoreAbsent_ProceedsNormally', async () => {
@@ -148,7 +148,10 @@ describe('Store-path divergence surfaces at the point of use (#1839)', () => {
       { stateDir: explicit, eventStore: store, enableTelemetry: false },
     );
     expect(result.error?.code).not.toBe('STORE_PATH_DIVERGENCE');
-    expect(result.warnings ?? []).not.toContain(expect.stringContaining('Event-store divergence'));
+    // `.join(' ')`, NOT `toContain(expect.stringContaining(...))`. `toContain`
+    // compares array members by equality, so an asymmetric matcher is compared
+    // as a value and never matches — the assertion could not fail.
+    expect(result.warnings?.join(' ') ?? '').not.toContain('Event-store divergence');
   });
 
   it('Read_NoDivergence_CarriesNoSpuriousWarning', async () => {

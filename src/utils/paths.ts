@@ -382,7 +382,12 @@ export function detectActiveStoreDivergence(
   const activePath = pluginMode ? base.pluginPath : base.cliPath;
   const otherPath = pluginMode ? base.cliPath : base.pluginPath;
   const otherExists = base.diverges && exists(otherPath);
-  const acknowledged = (env[ALLOW_STORE_DIVERGENCE_ENV] ?? '').trim() !== '';
+  // An explicit falsy spelling means "keep the guard armed", not "disarm it".
+  // Treating any non-blank value as opt-in would make
+  // `EXARCHOS_ALLOW_STORE_DIVERGENCE=false` disable the refusal — handing the
+  // operator the silent-split failure they were trying to keep.
+  const raw = (env[ALLOW_STORE_DIVERGENCE_ENV] ?? '').trim().toLowerCase();
+  const acknowledged = raw !== '' && raw !== '0' && raw !== 'false' && raw !== 'no' && raw !== 'off';
 
   return {
     ...base,

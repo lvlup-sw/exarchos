@@ -16,7 +16,7 @@
 // are among them, and a guard must not perform the side effects it guards.
 // Depth is one real end-to-end dispatch on the action from the report.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -30,6 +30,22 @@ import { EventStore } from '../../src/events/store.js';
 import { handleInit } from '../../src/workflow/tools.js';
 import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
 import type { RootsClient } from '../../src/runtime/workspace/discovery.js';
+
+/** Temp workspaces created by this suite, removed on teardown. */
+const created: string[] = [];
+
+async function mkWorkspace(label: string): Promise<string> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), label));
+  created.push(dir);
+  return dir;
+}
+
+afterEach(async () => {
+  while (created.length > 0) {
+    const dir = created.pop();
+    if (dir !== undefined) await fs.rm(dir, { recursive: true, force: true });
+  }
+});
 
 /** The live latency shortcut in `dispatch.ts`. Skipped names never reach inference at all. */
 const LATENCY_SKIP = new Set(['describe', 'runbook', 'agent_spec']);
@@ -133,7 +149,7 @@ describe('Roots featureId inference is gated on the receiving schema (#1838)', (
     // makes exercising the whole population safe. The mutating victims
     // (`merge_pr`, `create_pr`, `create_issue`) stay excluded on purpose: a
     // guard must not perform the side effects it guards.
-    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'outcome-1838-wiring-'));
+    const workspace = await mkWorkspace('outcome-1838-wiring-');
     const stateDir = path.join(workspace, 'docs', 'workflow-state');
     await fs.mkdir(stateDir, { recursive: true });
     await fs.writeFile(path.join(workspace, '.exarchos.yml'), '', 'utf8');
@@ -187,7 +203,7 @@ describe('Roots featureId inference is gated on the receiving schema (#1838)', (
   }, 60_000);
 
   it('Dispatch_EventAppendUnderResolvingRoots_IsNotRefusedForInjectedFeatureId', async () => {
-    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'outcome-1838-'));
+    const workspace = await mkWorkspace('outcome-1838-');
     const stateDir = path.join(workspace, 'docs', 'workflow-state');
     await fs.mkdir(stateDir, { recursive: true });
     await fs.writeFile(path.join(workspace, '.exarchos.yml'), '', 'utf8');

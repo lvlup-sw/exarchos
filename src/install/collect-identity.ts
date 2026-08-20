@@ -29,7 +29,7 @@ import path from 'node:path';
 
 import { SCHEMA_VERSION } from '../storage/sqlite-backend.js';
 import { atomicWriteFile } from '../utils/atomic-write.js';
-import { resolveCacheDir, resolveInstallIdentityDir } from '../utils/paths.js';
+import { resolveCacheDir, resolveInstallIdentityDir, toPosix } from '../utils/paths.js';
 import {
   buildInstallIdentity,
   InstallIdentitySchema,
@@ -271,7 +271,11 @@ export function installIdentityLockPath(pluginRoot: string, deps: IdentityDeps =
   });
   const key = createHash('sha256').update(path.resolve(pluginRoot)).digest('hex').slice(0, 12);
   const { name, ext } = path.parse(INSTALL_IDENTITY_LOCK_FILENAME);
-  return path.join(dir, `${name}-${key}${ext}`);
+  // POSIX separators, like every other resolver in `utils/paths.ts`. This path
+  // is COMPARED (against the resolved lock directory) and not merely opened, so
+  // a native `path.join` result would not match the forward-slash form the
+  // directory resolver returns — green on POSIX, red on win32.
+  return toPosix(path.join(dir, `${name}-${key}${ext}`));
 }
 
 /**

@@ -7,7 +7,7 @@
     "testFiles": 1192,
     "parsedFiles": 1147,
     "shellFiles": 45,
-    "cases": 13287,
+    "cases": 13290,
     "dynamicTitles": 144,
     "unparseableFiles": 0
   },
@@ -46879,6 +46879,11 @@
       "runner": "vitest:root",
       "cases": [
         {
+          "suite": "The ambient-cascade comparison holds on the real dispatch path",
+          "name": "AmbientCascade_NormalizationOfTheResolverOutput_IsIdempotent",
+          "dynamic": false
+        },
+        {
           "suite": "Active store divergence (#1839)",
           "name": "Divergence_IsTrueByDefault_ForAnyNonPluginCli",
           "dynamic": false
@@ -46901,6 +46906,11 @@
         {
           "suite": "Active store divergence (#1839)",
           "name": "Divergence_Acknowledged_SuppressesRefusalButNotTheWarning",
+          "dynamic": false
+        },
+        {
+          "suite": "Active store divergence (#1839)",
+          "name": "Divergence_ExplicitFalsySpelling_StaysArmed",
           "dynamic": false
         },
         {
@@ -48396,6 +48406,11 @@
         {
           "suite": "env-variables",
           "name": "EnvVariables_EveryNameTheSourceMentions_IsRecognized",
+          "dynamic": false
+        },
+        {
+          "suite": "env-variables",
+          "name": "EnvVariables_EveryRecognizedName_IsStillMentionedBySource",
           "dynamic": false
         },
         {

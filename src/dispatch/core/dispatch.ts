@@ -1079,32 +1079,6 @@ export async function dispatch(
     // everything, and the confinement it claimed to enforce is not ours to
     // enforce. The readonly gate above still covers state authority.
 
-    // T-12 (P4 of rehydration-machinery-refactor): emit
-    // `session.machinery_consumed` on the first non-rehydrate L5 handler
-    // invocation that follows a `workflow.rehydrated` event landing on the
-    // stream. The interceptor is keyed by the dispatched action's
-    // `featureId` (its streamId); calls without a featureId — descriptive
-    // actions like `describe`, `runbook` — short-circuit inside the
-    // interceptor itself. Failures inside the interceptor are
-    // logged-and-swallowed (observability emission must not fail the
-    // dispatch); see `interceptors/session-machinery.ts` for the cache &
-    // idempotency contract.
-    const streamId = (() => {
-      const fid = (args as { featureId?: unknown }).featureId;
-      return typeof fid === 'string' && fid.length > 0 ? fid : undefined;
-    })();
-    await runSessionMachineryConsumedInterceptor(ctx.eventStore, streamId, actionName);
-
-    // ─── P05-04 — Install & cache freshness gate ─────────────────────────
-    // Block a stale/mixed installation BEFORE it executes a mutating action.
-    // This is the pre-workflow-execution chokepoint that wires the binary /
-    // plugin / skill / cache dimensions (the schema dimension is additionally
-    // enforced at store-open). Scoped to mutating built-in actions only —
-    // read-only + diagnostic actions (see `isFreshnessGateExempt`) stay
-    // available so an operator can DIAGNOSE and REPAIR the block. The gate is
-    // memoized once per process and SKIPS entirely on a dev checkout, so this
-    // is a no-op for source-run / in-process tests and adds a single one-time
-    // filesystem read on the first mutating action of a real install.
     // ─── Store-path divergence — refuse a write into a ghost store ───────
     // The detector already existed (`computeStorePathDivergence`, DR-11 B-5)
     // but its only consumer was the doctor check, so mutations landed in the
@@ -1113,6 +1087,11 @@ export async function dispatch(
     // gates like `prepare_delegation` answered from the ghost store with a
     // self-consistent, entirely wrong verdict. Every symptom pointed away
     // from the cause.
+    //
+    // It runs FIRST among the pre-execution gates. The session-machinery
+    // interceptor below APPENDS an event, so refusing after it would write
+    // into the very ghost store this refusal exists to keep out — a refusal
+    // that already mutated is not a refusal.
     //
     // Refusal is scoped to an ACTIVE divergence — the other store must exist —
     // because bare divergence is true for every standalone CLI invocation and
@@ -1142,6 +1121,32 @@ export async function dispatch(
       }
     }
 
+    // T-12 (P4 of rehydration-machinery-refactor): emit
+    // `session.machinery_consumed` on the first non-rehydrate L5 handler
+    // invocation that follows a `workflow.rehydrated` event landing on the
+    // stream. The interceptor is keyed by the dispatched action's
+    // `featureId` (its streamId); calls without a featureId — descriptive
+    // actions like `describe`, `runbook` — short-circuit inside the
+    // interceptor itself. Failures inside the interceptor are
+    // logged-and-swallowed (observability emission must not fail the
+    // dispatch); see `interceptors/session-machinery.ts` for the cache &
+    // idempotency contract.
+    const streamId = (() => {
+      const fid = (args as { featureId?: unknown }).featureId;
+      return typeof fid === 'string' && fid.length > 0 ? fid : undefined;
+    })();
+    await runSessionMachineryConsumedInterceptor(ctx.eventStore, streamId, actionName);
+
+    // ─── P05-04 — Install & cache freshness gate ─────────────────────────
+    // Block a stale/mixed installation BEFORE it executes a mutating action.
+    // This is the pre-workflow-execution chokepoint that wires the binary /
+    // plugin / skill / cache dimensions (the schema dimension is additionally
+    // enforced at store-open). Scoped to mutating built-in actions only —
+    // read-only + diagnostic actions (see `isFreshnessGateExempt`) stay
+    // available so an operator can DIAGNOSE and REPAIR the block. The gate is
+    // memoized once per process and SKIPS entirely on a dev checkout, so this
+    // is a no-op for source-run / in-process tests and adds a single one-time
+    // filesystem read on the first mutating action of a real install.
     if (!isFreshnessGateExempt(tool, actionName)) {
       const freshness = evaluateInstallFreshness({});
       if (freshness.status === 'blocked') {

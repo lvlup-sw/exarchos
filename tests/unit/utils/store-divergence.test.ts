@@ -17,7 +17,11 @@
 
 import { describe, it, expect } from 'vitest';
 
+import * as path from 'node:path';
+
 import {
+  toPosix,
+  resolveStateDir,
   computeStorePathDivergence,
   detectActiveStoreDivergence,
   describeStoreDivergence,
@@ -33,6 +37,29 @@ function existing(...paths: readonly string[]): (p: string) => boolean {
   const set = new Set(paths);
   return (p) => set.has(p);
 }
+
+describe('The ambient-cascade comparison holds on the real dispatch path', () => {
+  // dispatch decides whether the store came from the ambient cascade with
+  //   toPosix(path.resolve(ctx.stateDir)) === resolveStateDir()
+  // and the production entry point sets ctx.stateDir from resolveStateDir()
+  // itself. So the comparison is sound exactly when that normalization is
+  // IDEMPOTENT on the resolver's own output. If it is not, the check silently
+  // stops applying on the one path that matters, and it fails OPEN — no
+  // refusal, no warning, and no test anywhere goes red.
+  //
+  // Asserted as a property rather than by string-matching a platform-specific
+  // path, so it holds on win32 (where path.resolve emits backslashes that
+  // toPosix must fold back) as well as on POSIX.
+  it('AmbientCascade_NormalizationOfTheResolverOutput_IsIdempotent', () => {
+    for (const env of [{}, { WORKFLOW_STATE_DIR: '/pinned/store' }, { XDG_STATE_HOME: '/xdg' }]) {
+      const resolved = resolveStateDir({ env, homedir: HOME });
+      expect(
+        toPosix(path.resolve(resolved)),
+        `dispatch would not recognize its own resolved store dir for env ${JSON.stringify(env)}`,
+      ).toBe(resolved);
+    }
+  });
+});
 
 describe('Active store divergence (#1839)', () => {
   it('Divergence_IsTrueByDefault_ForAnyNonPluginCli', () => {
@@ -101,6 +128,21 @@ describe('Active store divergence (#1839)', () => {
     expect(d.active, 'an explicit opt-in must not be refused').toBe(false);
     // Still reportable — opting in accepts the risk, it does not hide it.
     expect(d.otherExists).toBe(true);
+  });
+
+  it('Divergence_ExplicitFalsySpelling_StaysArmed', () => {
+    // An operator who writes `=false` means "keep the guard". Treating any
+    // non-blank value as opt-in would hand them the silent split instead.
+    for (const value of ['0', 'false', 'no', 'off', 'FALSE', ' 0 ']) {
+      const d = detectActiveStoreDivergence({
+        env: { [ALLOW_STORE_DIVERGENCE_ENV]: value },
+        homedir: HOME,
+        pluginMode: false,
+        storeExists: existing(CLI_STORE, PLUGIN_STORE),
+      });
+      expect(d.acknowledged, `"${value}" must not read as an opt-in`).toBe(false);
+      expect(d.active, `"${value}" must leave the refusal armed`).toBe(true);
+    }
   });
 
   it('Divergence_FromThePluginSide_NamesTheCliStoreAsOther', () => {
