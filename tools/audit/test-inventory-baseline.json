@@ -46905,7 +46905,7 @@
         },
         {
           "suite": "Active store divergence (#1839)",
-          "name": "Divergence_Acknowledged_SuppressesRefusalButNotTheWarning",
+          "name": "Divergence_Acknowledged_SuppressesBothTheRefusalAndTheWarning",
           "dynamic": false
         },
         {

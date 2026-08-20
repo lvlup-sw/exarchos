@@ -349,6 +349,16 @@ export interface ActiveStoreDivergence extends StorePathDivergence {
    * store EXISTS, and the operator has not opted in.
    */
   readonly active: boolean;
+  /**
+   * Should a read carry the divergence caveat?
+   *
+   * Same condition as {@link active}. An explicit opt-in silences the warning
+   * as well as the refusal: the variable is named ALLOW, so an operator who
+   * sets it has already accepted the split, and repeating it on every read
+   * trains them to ignore warnings without telling them anything new. `doctor`
+   * remains the standing diagnostic for anyone who wants to re-check.
+   */
+  readonly shouldWarn: boolean;
 }
 
 /**
@@ -396,6 +406,7 @@ export function detectActiveStoreDivergence(
     otherExists,
     acknowledged,
     active: base.diverges && otherExists && !acknowledged,
+    shouldWarn: base.diverges && otherExists && !acknowledged,
   };
 }
 

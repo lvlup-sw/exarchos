@@ -798,7 +798,7 @@ export async function dispatch(
     // expensive was internally consistent and wrong, with nothing in it
     // hinting that two stores existed; a separate `doctor` run was the only
     // way to learn that, and by then the reader trusted the verdict.
-    const warnings = storeDivergence?.otherExists === true
+    const warnings = storeDivergence?.shouldWarn === true
       ? [...(result.warnings ?? []), describeStoreDivergence(storeDivergence)]
       : result.warnings;
     return {

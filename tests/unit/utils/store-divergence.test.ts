@@ -117,7 +117,7 @@ describe('Active store divergence (#1839)', () => {
     expect(d.otherExists).toBe(false);
   });
 
-  it('Divergence_Acknowledged_SuppressesRefusalButNotTheWarning', () => {
+  it('Divergence_Acknowledged_SuppressesBothTheRefusalAndTheWarning', () => {
     const d = detectActiveStoreDivergence({
       env: { [ALLOW_STORE_DIVERGENCE_ENV]: '1' },
       homedir: HOME,
@@ -126,8 +126,12 @@ describe('Active store divergence (#1839)', () => {
     });
     expect(d.acknowledged).toBe(true);
     expect(d.active, 'an explicit opt-in must not be refused').toBe(false);
-    // Still reportable — opting in accepts the risk, it does not hide it.
-    expect(d.otherExists).toBe(true);
+    // The variable is named ALLOW. Repeating the caveat on every read after an
+    // explicit opt-in is warning fatigue, not information — `doctor` stays the
+    // standing diagnostic. The split is still OBSERVED, which is what keeps
+    // the suppression a policy choice rather than a blind spot.
+    expect(d.shouldWarn, 'an explicit opt-in must not keep warning').toBe(false);
+    expect(d.otherExists, 'the split is still detected, only not repeated').toBe(true);
   });
 
   it('Divergence_ExplicitFalsySpelling_StaysArmed', () => {
