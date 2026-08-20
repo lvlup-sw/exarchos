@@ -16,14 +16,17 @@ import * as path from 'node:path';
  * not on whether the running code IS that install), so this is the ordinary
  * developer configuration, not an exotic one.
  *
- * Redirecting the directory per test process makes the suite hermetic without
- * weakening the production resolution order.
+ * ONE fixed directory, not `mkdtemp`. Setup files are evaluated per test file
+ * under vitest's isolation, so a fresh temp directory here meant a fresh
+ * directory per file: a single full run left 6,795 of them in `/tmp`, none ever
+ * removed. A stable path is created once and reused, which is safe because
+ * nothing asserts on its contents — every test that cares about the lock stubs
+ * `EXARCHOS_INSTALL_STATE_DIR` to its own directory with `vi.stubEnv`, which
+ * runs after this module and is undone on teardown.
+ *
+ * Set UNCONDITIONALLY. Honouring a caller-supplied value would let a stray
+ * export in a shell or a CI job point the whole suite at a real directory.
  */
-// Set UNCONDITIONALLY. Honouring a caller-supplied value would let a stray
-// export in a shell or a CI job point the whole suite at a real directory, and
-// the tests would publish TOFU locks there — the exact leak this file exists to
-// stop. A test that needs its own directory overrides it per-test with
-// `vi.stubEnv`, which runs after this module and is undone on teardown.
-process.env['EXARCHOS_INSTALL_STATE_DIR'] = fs.mkdtempSync(
-  path.join(os.tmpdir(), 'exarchos-test-install-identity-'),
-);
+const SCRATCH = path.join(os.tmpdir(), 'exarchos-test-install-identity');
+fs.mkdirSync(SCRATCH, { recursive: true });
+process.env['EXARCHOS_INSTALL_STATE_DIR'] = SCRATCH;
