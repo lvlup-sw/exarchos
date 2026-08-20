@@ -377,6 +377,7 @@
   <a href="#target">8 &middot; Optimal state</a>
   <a href="#refactors">9 &middot; Refactors</a>
   <a href="#composition">10 &middot; Epic #1763</a>
+  <a href="#portfolio">11 &middot; What survives</a>
 </nav>
 
 <div class="kpi-row">
@@ -1988,6 +1989,161 @@
       retained, unblocked issue and derives a table from a denominator that is missing five members.
     </p>
   </div>
+</section>
+
+<!-- ════════════ 11 · PORTFOLIO ════════════ -->
+<section id="portfolio">
+  <h2><span class="num">11</span> What should survive</h2>
+  <p class="section-title">The dimension model is dead, and a third of the population is unreachable.</p>
+  <p class="lede">
+    &sect;8&ndash;&sect;10 are <em>mechanism</em> refactors: applied literally, they preserve all 28 gates and
+    improve how each is declared, decided and recorded. That is the wrong first move, because a measurable
+    fraction of the population should not be instrumented at all &mdash; it should be deleted. This section is the
+    population question, and it reorders the refactors.
+  </p>
+
+  <div class="callout crit">
+    <p class="callout-title"><span class="ico">&#9650;</span>The D1&ndash;D5 convergence model cannot pass, on any path</p>
+    <p>
+      <code>check_convergence</code> requires
+      <code>ALL_DIMENSIONS.every(d =&gt; gateCount &gt; 0 &amp;&amp; converged)</code>. Four measured facts make
+      that unsatisfiable:
+    </p>
+    <p>
+      <strong>1.</strong> The convergence view attributes a result by reading
+      <code>data.details.dimension</code>, and <code>gate-runner.ts</code> contains <em>zero</em> occurrences of
+      <code>dimension</code>. All five durable-runner gates are therefore invisible to it &mdash; including
+      <code>check_static_analysis</code> and <code>check_integration_suite</code>, the only two D2 gates.
+      <strong>D2 can never converge.</strong>
+      <br><strong>2.</strong> D3, D4 and D5 have two gates each, and not one appears in any runbook chain or any
+      resolver sequence.
+      <br><strong>3.</strong> 10 of 28 gates carry no dimension at all, so the view cannot see them either.
+      <br><strong>4.</strong> D1 carries 9 gates under the label &ldquo;Design Completeness&rdquo; &mdash;
+      including security scan, test adequacy, contract drift and mock boundary. It has become a catch-all.
+    </p>
+    <p>
+      So the gate returns <code>passed: false</code> with <code>uncheckedDimensions</code> populated, every time
+      &mdash; and <code>quality-evaluation</code> invokes it with <code>onFail: 'continue'</code>, which discards
+      that. A verdict that is structurally always negative, on the one path that invokes it, which ignores it.
+    </p>
+  </div>
+
+  <p>
+    The root cause is that <strong>two partitions of the same population compete</strong>, and only one is alive.
+    The resolver families (ladder / plan / review / synthesis) partition obligations by who resolves them and when
+    &mdash; wired, frozen into <code>phase.entered</code>, load-bearing. The D1&ndash;D5 dimensions partition the
+    same set by a quality taxonomy nothing maintains. Keeping both means every new gate is classified twice, and
+    one of those classifications is never read.
+  </p>
+
+  <h3>Disposition, per gate</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Disposition</th><th>Gates</th><th>Measured basis</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="rec rec-silent"><span class="rec-chip"></span><strong>Retire</strong></span><br><span class="dim-none">3 actions + 1 projection</span></td>
+          <td>
+            <code>check_design_completeness</code><br>
+            <code>check_convergence</code> + <code>ConvergenceView</code><br>
+            <code>check_coverage_thresholds</code>
+          </td>
+          <td>
+            Already <code>deprecated: true</code>, delegates to <code>check_plan_coverage</code>, orphaned &middot;
+            structurally cannot pass and its failure is discarded &middot; orphan <em>and</em> advisory
+            <em>and</em> silent &mdash; no observable effect on any path.
+          </td>
+        </tr>
+        <tr>
+          <td><strong>Consolidate</strong><br><span class="dim-none">5 actions &rarr; 2</span></td>
+          <td>
+            <code>check_context_economy</code> + <code>check_operational_resilience</code> +
+            <code>check_workflow_determinism</code> &rarr; one diff-scanner with a rule pack<br><br>
+            <code>pre_synthesis_check</code> &rarr; fold into <code>prepare_synthesis</code>
+          </td>
+          <td>
+            The three scanners are structurally identical: same import
+            (<code>emitGateEvent, getDiff</code>), one handler each, one emission at layer <code>'quality'</code>,
+            all three orphaned. One gate with a parameter, not three actions &middot;
+            <code>pre_synthesis_check</code> (&ldquo;task completion, reviews, tests, stack health&rdquo;) and
+            <code>prepare_synthesis</code> (&ldquo;tests, typecheck, stack health&rdquo;) are near-duplicate
+            blocking gates in the same phase. Only the latter is wired, carries a <code>gateClass</code>, and owns
+            the readiness legs; the former has <strong>zero</strong> references anywhere under <code>content/</code>.
+          </td>
+        </tr>
+        <tr>
+          <td><strong>Re-tag</strong><br><span class="dim-none">not gates &mdash; keep the action</span></td>
+          <td><code>prepare_review</code><br><code>discover_bridge</code></td>
+          <td>
+            <code>prepare_review</code>'s own declaration comment calls it &ldquo;a non-blocking provisioning
+            surface&rdquo; that is &ldquo;deliberately NOT&rdquo; a canonical gate &mdash; yet it carries
+            <code>gate:{}</code>, so it counts in the gate population and in drift checks &middot;
+            <code>discover_bridge</code> is an authoring escalation emitting <code>state.patched</code>, not a
+            gate signal.
+          </td>
+        </tr>
+        <tr>
+          <td><strong>Resolve intent</strong><br><span class="dim-none">wire it or drop it</span></td>
+          <td><code>debug_review_gate</code><br><code>check_post_merge</code></td>
+          <td>
+            <code>debug_review_gate</code> is <strong>blocking, orphaned and silent</strong>, and &ldquo;verify
+            test files exist and pass for changed files&rdquo; is what <code>check_test_adequacy</code> already
+            does &mdash; and that gate is already bound to <code>debug-implement</code> &middot;
+            <code>check_post_merge</code> is an orphaned advisory in <code>synthesize</code> that nothing invokes.
+          </td>
+        </tr>
+        <tr>
+          <td><span class="rec rec-signal"><span class="rec-chip"></span><strong>Fix, don't delete</strong></span></td>
+          <td><code>spec_coverage_check</code><br><code>validate_pr_stack</code></td>
+          <td>
+            Both do real work and leave no trace. <code>spec_coverage_check</code> verifies that test files
+            referenced in the plan exist &mdash; genuinely distinct from <code>check_plan_coverage</code>'s
+            design-section coverage, so <em>not</em> a consolidation candidate; it is advisory and silent.
+            <code>validate_pr_stack</code> is blocking, wired into <code>synthesis-flow</code>, and silent. The two
+            clearest beneficiaries of R3.
+          </td>
+        </tr>
+        <tr>
+          <td><span class="rec rec-durable"><span class="rec-chip"></span><strong>Keep &mdash; the working core</strong></span><br><span class="dim-none">~14</span></td>
+          <td>
+            The 5 ladder gates, <code>check_plan_coverage</code>, <code>check_provenance_chain</code>,
+            <code>check_task_decomposition</code>, <code>check_exploration_depth</code>,
+            <code>check_review_verdict</code>, <code>check_invariant_conformance</code>,
+            <code>prepare_synthesis</code>, <code>post_delegation_check</code>, <code>mutation-adequacy</code>,
+            <code>check_security_scan</code>
+          </td>
+          <td>
+            Wired into a chain or a resolver sequence, and carrying real content references
+            (<code>check_test_adequacy</code> 19, <code>mutation-adequacy</code> 9,
+            <code>check_static_analysis</code> 7). The ladder five persist durable evidence. This is the part that
+            works, and where the investment belongs.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="font-size:13.5px;color:var(--ink-2);margin-top:18px">
+    Net: <strong>28 gate-flagged actions &rarr; roughly 20</strong>, the D1&ndash;D5 axis and its projection
+    deleted, and the survivors partitioned once &mdash; by resolver family &mdash; rather than twice.
+  </p>
+
+  <div class="callout warn">
+    <p class="callout-title"><span class="ico">&#9650;</span>This reorders &sect;9</p>
+    <p>
+      R3 said recording becomes unconditional. Applied before triage it would pay to instrument gates that should
+      not exist &mdash; and would turn <code>check_convergence</code>'s permanently-false verdict into a permanent
+      row in the log, which is worse than the silence it replaces. <strong>Triage first, then R3 over the
+      survivors.</strong> R5 gets cheaper the same way: extending one obligation identity across the population is
+      easier at 20 than at 28, and easier still once the competing dimension axis is gone.
+    </p>
+  </div>
+
+  <p style="font-size:13px;color:var(--ink-muted);margin-top:20px">
+    The reachability, silence, duplication and dimension facts here are measured. The dispositions are a
+    recommendation &mdash; and &ldquo;resolve intent&rdquo; marks the two cases where the measurement says
+    <em>nothing reaches this</em> but only an owner can say whether that is neglect or obsolescence.
+  </p>
 </section>
 
 <div class="footnote">
