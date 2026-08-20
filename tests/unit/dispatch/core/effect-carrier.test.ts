@@ -5,6 +5,9 @@ import {
   failed,
   plannedDryRun,
   emissionsWhen,
+  declaredEmissions,
+  records,
+  recordsNothing,
   emissionRecorder,
   effectIdempotencyKey,
   isSuccess,
@@ -27,6 +30,9 @@ const PLAN: EffectPlan = {
   description: 'write a marker file',
   idempotent: true,
   compensation: 'delete the marker file',
+  // The abstention is DECLARED now. It used to be expressed by saying nothing,
+  // which is the same thing an author who never considered it would have written.
+  emits: recordsNothing('the marker file is scratch state; nothing durable follows from it'),
 };
 
 /**
@@ -39,11 +45,11 @@ const LEDGER_PLAN: EffectPlan = {
   description: 'create a worktree',
   idempotent: true,
   compensation: 'remove the worktree and delete the branch',
-  emits: [
+  emits: records(
     { event: 'vcs.requested', when: 'before' },
     { event: 'vcs.executed', when: 'on-success' },
     { event: 'vcs.compensated', when: 'on-failure' },
-  ],
+  ),
 };
 
 /** The tree-promotion shape: one terminal, no intent — a different subset. */
@@ -52,8 +58,17 @@ const PROMOTION_PLAN: EffectPlan = {
   owner: 'install/atomic-promotion',
   description: 'atomically promote a staged tree',
   idempotent: true,
-  emits: [{ event: 'promotion.executed', when: 'on-success' }],
+  emits: records({ event: 'promotion.executed', when: 'on-success' }),
 };
+
+/**
+ * A genuine capability for runs whose subject is NOT the commit gate.
+ *
+ * Every live run needs one now, including a plan that records nothing: the
+ * demand is unconditional, so tests about unrelated behaviour have to satisfy
+ * it before they can reach the behaviour they are about.
+ */
+const inertRecorder = (): EmissionRecorder => emissionRecorder(() => undefined);
 
 const names = (emissions: readonly EffectEmission[]): readonly string[] =>
   emissions.map((emission) => emission.event);
@@ -113,7 +128,7 @@ describe('effect carrier constructors + guards', () => {
 describe('runEffect — live mode', () => {
   it('invokes execute and wraps the value in a success carrier', async () => {
     const execute = vi.fn().mockResolvedValue('done');
-    const outcome = await runEffect(LIVE, PLAN, execute);
+    const outcome = await runEffect(LIVE, PLAN, execute, inertRecorder());
     expect(execute).toHaveBeenCalledTimes(1);
     expect(outcome.kind).toBe('success');
     if (isSuccess(outcome)) expect(outcome.value).toBe('done');
@@ -121,7 +136,7 @@ describe('runEffect — live mode', () => {
 
   it('captures a thrown error into an error carrier instead of rejecting', async () => {
     const execute = vi.fn().mockRejectedValue(new Error('disk full'));
-    const outcome = await runEffect(LIVE, PLAN, execute);
+    const outcome = await runEffect(LIVE, PLAN, execute, inertRecorder());
     expect(outcome.kind).toBe('error');
     if (isError(outcome)) {
       expect(outcome.error.message).toBe('disk full');
@@ -133,7 +148,7 @@ describe('runEffect — live mode', () => {
 describe('runEffect — dry-run mode (provably no real effect)', () => {
   it('does NOT invoke execute and returns the withheld plan', async () => {
     const execute = vi.fn().mockResolvedValue('SHOULD NOT RUN');
-    const outcome = await runEffect(DRY_RUN, PLAN, execute);
+    const outcome = await runEffect(DRY_RUN, PLAN, execute, inertRecorder());
 
     // The load-bearing guarantee: the effect thunk is never reached in dry-run.
     expect(execute).not.toHaveBeenCalled();
@@ -147,7 +162,7 @@ describe('runEffect — dry-run mode (provably no real effect)', () => {
     const execute = vi.fn().mockImplementation(() => {
       throw new Error('this effect must never run in dry-run');
     });
-    const outcome = await runEffect(DRY_RUN, PLAN, execute);
+    const outcome = await runEffect(DRY_RUN, PLAN, execute, inertRecorder());
     expect(execute).not.toHaveBeenCalled();
     expect(outcome.kind).toBe('dry-run');
   });
@@ -168,7 +183,7 @@ describe('EffectPlan emissions', () => {
       names(emissionsWhen(LEDGER_PLAN, when)),
     );
     expect(new Set(perCondition).size).toBe(perCondition.length);
-    expect(perCondition).toHaveLength(LEDGER_PLAN.emits?.length ?? 0);
+    expect(perCondition).toHaveLength(declaredEmissions(LEDGER_PLAN).length);
 
     // Not a fixed intent+two-terminals triple either: a plan may condition a
     // single terminal and nothing else, and the empty conditions read empty
@@ -186,7 +201,7 @@ describe('EffectPlan emissions', () => {
   it('resolves every declared name against the registered event catalog', () => {
     const registered = new Set<string>(EventTypes);
     for (const plan of [LEDGER_PLAN, PROMOTION_PLAN]) {
-      for (const emission of plan.emits ?? []) {
+      for (const emission of declaredEmissions(plan)) {
         expect(registered.has(emission.event)).toBe(true);
       }
     }
@@ -329,20 +344,35 @@ describe('runEffect — the record is on the way to a committed value', () => {
     expect(recorded).toEqual(['vcs.requested', 'vcs.executed']);
   });
 
-  it('leaves a plan that declares no emissions inert — no capability required', async () => {
-    // The owners that predate the emission axis pass no recorder at all. Nothing
-    // is declared, so nothing is missing, and the carrier behaves as it always
-    // did. Gating THIS case would break them.
-    const outcome = await runEffect(LIVE, PLAN, () => Promise.resolve('committed'));
+  it('RunEffect_RecordsNothingPlanWithNoRecorder_RefusesInLiveMode', async () => {
+    // INVERTED, deliberately. This case used to commit: nothing was declared,
+    // so nothing was missing, and the carrier waved it through. That was the
+    // abstention hole one level down — the plan making the strongest claim
+    // ("this effect records nothing") was the only one nobody had to equip to
+    // stand behind it. The demand is unconditional now.
+    const execute = vi.fn().mockResolvedValue('committed');
+    await expect(
+      runEffect(LIVE, PLAN, execute, undefined as unknown as EmissionRecorder),
+    ).rejects.toThrow(UnrecordedEmissionError);
+    // Refused BEFORE the thunk: nothing was mutated on the way to the refusal.
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('RunEffect_RecordsNothingPlanWithRecorder_CommitsAndRecordsNothing', async () => {
+    // The other half: declaring an abstention is legal and stays inert. The
+    // capability is required, and then never used.
+    const sink = vi.fn();
+    const outcome = await runEffect(LIVE, PLAN, () => Promise.resolve('committed'), emissionRecorder(sink));
     expect(isSuccess(outcome)).toBe(true);
     if (isSuccess(outcome)) expect(outcome.value).toBe('committed');
+    expect(sink).not.toHaveBeenCalled();
   });
 
   it('withholds the refusal in dry-run — neither thunk nor capability is reached', async () => {
     // The dry-run guarantee outranks the commit gate: a withheld effect records
     // nothing, so it cannot be missing a record either.
     const execute = vi.fn().mockResolvedValue('SHOULD NOT RUN');
-    const outcome = await runEffect(DRY_RUN, LEDGER_PLAN, execute);
+    const outcome = await runEffect(DRY_RUN, LEDGER_PLAN, execute, inertRecorder());
     expect(execute).not.toHaveBeenCalled();
     expect(isDryRun(outcome)).toBe(true);
   });

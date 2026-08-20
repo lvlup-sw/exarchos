@@ -115,6 +115,7 @@ import {
   LIVE,
   emissionRecorder,
   runEffect,
+  records,
   type EffectMode,
   type EffectOutcome,
   type EffectPlan,
@@ -770,7 +771,7 @@ export const PROMOTION_EXECUTED = 'promotion.executed';
  * complete tree, leaving the destination in the state it started in — there is
  * no partial outcome for a terminal to describe.
  */
-const PROMOTION_EMISSIONS = [{ event: PROMOTION_EXECUTED, when: 'on-success' }] as const;
+const PROMOTION_EMISSIONS = records({ event: PROMOTION_EXECUTED, when: 'on-success' });
 
 /**
  * The durable fact a completed promotion records — WHERE the tree landed, WHAT
@@ -820,8 +821,9 @@ export function promotionPlan(owner: string, target: string): EffectPlan {
  * {@link PromotionError} is captured into an `error` carrier rather than
  * propagating.
  *
- * The `recorder` is not optional in effect, only in signature. The plan declares
- * an emission, so a live call without one is REFUSED before the engine runs —
+ * The `recorder` is required in signature as well as in effect — the two used to
+ * disagree, and this header was the place that said so. The plan declares an
+ * emission, so a live call without one is REFUSED before the engine runs —
  * the promoter will not perform the one non-idempotent step of an install and
  * then discover that nothing said so. On success the carrier reaches its return
  * only after the recorder has been awaited, so a caller holding the success
@@ -831,8 +833,29 @@ export async function promoteTree(
   request: TreePromotionRequest,
   mode: EffectMode = LIVE,
   io: PromotionIo = defaultPromotionIo(),
-  recorder?: PromotionRecorder,
+  recorder: PromotionRecorder,
 ): Promise<EffectOutcome<PromotionReport>> {
+  // Checked HERE, before any IO, and not left to the carrier.
+  //
+  // The carrier refuses a live run without a capability, but this owner wraps
+  // the caller's recorder in one, so from the carrier's side a wrapper around
+  // `undefined` looks like a genuine capability and the refusal moves to the
+  // success terminal — after the tree has already been promoted. This plan
+  // declares only a terminal, which is the exact shape the carrier's own note
+  // warns about: an effect whose sole emission fires at the end would mutate
+  // the world before discovering it could not record. A type-level required
+  // argument covers every typed caller; this covers the transpiled one.
+  // LIVE only. A dry-run promotes nothing and records nothing, so it has no
+  // record to be missing — demanding the capability there would break the very
+  // guarantee the dry-run arm exists to provide, which is that a withheld
+  // effect leaves the ledger as silent as it leaves the disk.
+  if (mode.kind === 'live' && typeof recorder !== 'function') {
+    throw new TypeError(
+      'promoteTree requires a recorder in live mode: the plan declares a promotion ' +
+        'record, and a promotion that cannot be recorded must not run at all.',
+    );
+  }
+
   const owner = request.owner ?? 'install/atomic-promotion';
   const plan = promotionPlan(owner, request.target);
 
@@ -844,27 +867,30 @@ export async function promoteTree(
     return Promise.resolve(report);
   };
 
-  const ledger =
-    recorder === undefined
-      ? undefined
-      : emissionRecorder(async () => {
-          // Unreachable: the success terminal fires only after the engine
-          // returned, and the engine sets `report` before it does. Throwing
-          // rather than returning quietly matters anyway — a sink that returns
-          // still mints a receipt, so a silent skip here would buy the commit
-          // gate's approval for a record that was never written.
-          if (report === undefined) {
-            throw new Error(
-              `promotion of ${request.target} reached its success terminal with no report to record`,
-            );
-          }
-          await recorder({
-            target: report.target,
-            treeDigest: report.treeDigest,
-            owner,
-            recoveredPriorAttempt: report.recoveredPriorAttempt,
-          });
-        });
+  // Built unconditionally now that the carrier demands the capability of every
+  // live run. The branch this replaces produced `undefined` whenever the
+  // caller omitted a recorder, which was the signature disagreeing with the
+  // header directly above it: the recorder was never optional in effect,
+  // because the plan declares an emission and a live call without one was
+  // already refused. The argument is required, so the disagreement is gone.
+  const ledger = emissionRecorder(async () => {
+    // Unreachable: the success terminal fires only after the engine
+    // returned, and the engine sets `report` before it does. Throwing
+    // rather than returning quietly matters anyway — a sink that returns
+    // still mints a receipt, so a silent skip here would buy the commit
+    // gate's approval for a record that was never written.
+    if (report === undefined) {
+      throw new Error(
+        `promotion of ${request.target} reached its success terminal with no report to record`,
+      );
+    }
+    await recorder({
+      target: report.target,
+      treeDigest: report.treeDigest,
+      owner,
+      recoveredPriorAttempt: report.recoveredPriorAttempt,
+    });
+  });
 
   return runEffect(mode, plan, promoted, ledger);
 }
