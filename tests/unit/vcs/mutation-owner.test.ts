@@ -394,6 +394,19 @@ describe('VCS mutation owner (P04-05)', () => {
     expect(isSuccess(second)).toBe(true);
     if (isSuccess(first) && isSuccess(second)) {
       expect(second.value).toEqual(first.value); // replayed the recorded outcome
+
+      // The two runs commit on DIFFERENT evidence, and the distinction is the
+      // whole point of the second arm. The first run minted receipts; the
+      // second performed no effect and minted nothing, so it carries a witness
+      // naming the terminal a previous run recorded. Asserting the arm and the
+      // event together is what stops a refactor pointing the witness at an
+      // event the ledger never wrote for this key.
+      expect(first.evidence.kind).toBe('recorded');
+      expect(second.evidence.kind).toBe('replayed');
+      if (second.evidence.kind === 'replayed') {
+        expect(second.evidence.event).toBe(VCS_EXECUTED);
+        expect(second.evidence.source).toContain(input.idempotencyKey);
+      }
     }
   });
 

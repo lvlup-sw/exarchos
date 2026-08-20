@@ -411,12 +411,22 @@ export interface ReplayedEvidence {
  * arm, so reaching `T` means the append happened — on this run or an earlier
  * one.
  *
- * **The trust model, stated rather than implied.** A branded witness is exactly
- * as strong as {@link emissionRecorder} and no stronger. This module cannot
- * verify that a witness corresponds to a real append, just as it cannot verify
- * that a sink really wrote — it trusts the fold-reader on the same terms it
- * already trusts the sink, and the brand is what makes that trust a decision
- * somebody made rather than a shape anybody can produce.
+ * **The trust model, stated rather than implied — and the two arms are NOT
+ * equally strong.** The brand stops an object literal from becoming evidence,
+ * so neither arm can be forged by shape. But {@link emissionRecorder} is
+ * strictly stronger than {@link replayedEvidence}: it forces the caller to
+ * supply a sink that {@link runEffect} invokes and awaits before a receipt is
+ * minted, whereas the witness constructor takes two strings, performs no IO and
+ * consults nothing. Any module that can import it can mint one.
+ *
+ * That asymmetry is deliberate and is the price of the replay path — a run that
+ * performed no effect has no append of its own to evidence, so something has to
+ * vouch for an earlier one. It is written down here because the alternative is
+ * a reader assuming the arms are interchangeable and reaching for the witness
+ * as a way to skip wiring a recorder. **They are not interchangeable: the
+ * witness is for replaying a terminal this owner has read from its own ledger,
+ * and nothing else.** The runtime gate does not cover this arm, so the
+ * constraint lives in review rather than in the type.
  */
 export type EmissionEvidence = RecordedEvidence | ReplayedEvidence;
 

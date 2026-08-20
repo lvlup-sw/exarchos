@@ -29,11 +29,21 @@
  * below is applied to text in a temp directory; the live carrier is never
  * opened for writing, and the last case asserts exactly that.
  *
- * ## Why these are compile probes
+ * ## Compile probes, and the one that must EXECUTE
  *
- * All four gates are type-level, so relaxing one is observable as `tsc`
- * accepting a program it previously rejected. Each probe therefore needs only a
- * spawned compiler, not a materialized module graph to execute.
+ * Three of the four gates are type-level, so relaxing one is observable as
+ * `tsc` accepting a program it previously rejected. The fourth is NOT, and an
+ * earlier draft of this file said it was: the unconditional-recorder demand has
+ * a type-level half (the parameter) AND a runtime half (the brand check, whose
+ * own comment calls itself "the boundary the type system does not govern").
+ * Probing only the parameter leaves the runtime half unmeasured — restoring the
+ * `declaredEmissions(plan).length > 0 &&` condition reopens the abstention hole
+ * for every `records-nothing` plan while the type stays required and a
+ * compile-only probe stays green.
+ *
+ * So that gate gets both: a compile probe on the parameter, and an EXECUTING
+ * probe that emits the relaxed copy to JavaScript and runs it in a spawned
+ * node process, reading the outcome off stdout.
  */
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -61,17 +71,52 @@ const TSC_FLAGS = [
   'ES2022',
 ];
 
-function compiles(dir: string, files: readonly string[]): boolean {
+interface CompileResult {
+  readonly accepted: boolean;
+  readonly output: string;
+}
+
+function compile(dir: string, files: readonly string[]): CompileResult {
   try {
     execFileSync(process.execPath, [TSC_BIN, ...TSC_FLAGS, ...files], {
       cwd: dir,
       encoding: 'utf8',
       stdio: 'pipe',
     });
-    return true;
-  } catch {
-    return false;
+    return { accepted: true, output: '' };
+  } catch (err: unknown) {
+    const streams: string[] = [];
+    if (typeof err === 'object' && err !== null) {
+      for (const key of ['stdout', 'stderr']) {
+        const value: unknown = Reflect.get(err, key);
+        if (typeof value === 'string') streams.push(value);
+        else if (value instanceof Uint8Array) streams.push(Buffer.from(value).toString('utf8'));
+      }
+    }
+    return { accepted: false, output: streams.join('') };
   }
+}
+
+/**
+ * The control arm: the REAL carrier must reject the fixture, and must reject it
+ * FOR THE FIXTURE.
+ *
+ * Asserting only `accepted === false` is how both arms of a probe go vacuous at
+ * once. The two arms are asymmetric by construction — the control keeps the
+ * carrier's proof block while the treatment truncates it — so anything that
+ * makes the control fail for an unrelated reason (a proof alias that does not
+ * hold under this file's widened `EventType` stub, say) would leave the control
+ * passing on a false negative and the treatment passing on a truncation, with
+ * neither measuring the guard. Naming the fixture in the diagnostic is what
+ * rules that out.
+ */
+function expectRejectedForTheFixture(dir: string, files: readonly string[], fixture: string): void {
+  const run = compile(dir, files);
+  expect(run.accepted, `the REAL carrier accepted ${fixture}`).toBe(false);
+  expect(
+    run.output,
+    `the REAL carrier rejected something, but not ${fixture} — the control arm is measuring an unrelated error:\n${run.output}`,
+  ).toContain(fixture);
 }
 
 /**
@@ -119,15 +164,97 @@ function materialize(dir: string, relaxations: readonly Relaxation[]): void {
   }
 
   for (const { find, replace } of relaxations) {
-    if (!source.includes(find)) {
+    // Presence is not enough — the target must be UNIQUE. `String.replace` with
+    // a string edits the first match, so a `find` that occurs twice silently
+    // relaxes the wrong site and the probe then reports that the guard held.
+    // This file caught exactly that: the capability check is spelled
+    // identically in `recordEmissions` and in `runEffect`, and the first draft
+    // of the executing probe relaxed the former while asserting about the
+    // latter.
+    const occurrences = source.split(find).length - 1;
+    if (occurrences === 0) {
       throw new Error(
         `probe target not found in the carrier: ${JSON.stringify(find)}. ` +
           'The guard may have been reshaped; a probe that cannot find what it relaxes proves nothing.',
       );
     }
+    if (occurrences > 1) {
+      throw new Error(
+        `probe target is AMBIGUOUS (${occurrences} matches): ${JSON.stringify(find)}. ` +
+          'Relaxing the first match would edit a site this probe is not asserting about.',
+      );
+    }
     source = source.replace(find, replace);
   }
   fs.writeFileSync(path.join(dir, 'effect-carrier.ts'), source, 'utf8');
+}
+
+/**
+ * Emit the (possibly relaxed) carrier to JavaScript and RUN it.
+ *
+ * The recorder demand is the one gate with a runtime half, so it is the one
+ * probe a compiler cannot observe. `runEffect` is called with `undefined` where
+ * the capability belongs — the shape a transpiled or untyped caller produces,
+ * which is exactly the population the runtime brand check exists for — and the
+ * outcome is read off stdout rather than an exit code, so a crash in the
+ * harness cannot be mistaken for the effect being refused.
+ */
+function runLiveWithNoRecorder(dir: string, relaxations: readonly Relaxation[]): string {
+  materialize(dir, relaxations);
+
+  // Emit rather than type-check. The carrier's one import is type-only, so the
+  // emitted module has no imports at all and needs no resolution at runtime.
+  try {
+    execFileSync(
+      process.execPath,
+      [
+        TSC_BIN,
+        '--module',
+        'commonjs',
+        '--target',
+        'ES2022',
+        '--skipLibCheck',
+        '--outDir',
+        'out',
+        'schemas.ts',
+        'effect-carrier.ts',
+      ],
+      { cwd: dir, encoding: 'utf8', stdio: 'pipe' },
+    );
+  } catch {
+    // tsc emits even when it reports errors; the relaxed copy is expected to
+    // produce some. The runner below is the observation, not this exit status.
+  }
+
+  fs.writeFileSync(
+    path.join(dir, 'out', 'runner.cjs'),
+    `
+const carrier = require('./effect-carrier.js');
+const plan = {
+  effectClass: 'filesystem',
+  owner: 'probe-owner',
+  description: 'an effect whose plan records nothing',
+  idempotent: true,
+  emits: carrier.recordsNothing('the probe declares an abstention'),
+};
+carrier
+  .runEffect({ kind: 'live' }, plan, () => Promise.resolve('value'), undefined)
+  .then((outcome) => { console.log('OUTCOME:committed:' + outcome.kind); })
+  .catch((err) => { console.log('OUTCOME:refused:' + (err && err.code)); });
+`,
+    'utf8',
+  );
+
+  const stdout = execFileSync(process.execPath, ['out/runner.cjs'], {
+    cwd: dir,
+    encoding: 'utf8',
+    stdio: 'pipe',
+  });
+  const line = stdout.split('\n').find((l) => l.startsWith('OUTCOME:'));
+  if (line === undefined) {
+    throw new Error(`the runtime probe produced no outcome line:\n${stdout}`);
+  }
+  return line;
 }
 
 const FIXTURES: Record<string, string> = {
@@ -191,10 +318,7 @@ describe('DR-5 — kill probes: every gate is shown to fail', () => {
     write(dir, 'omits-emits.ts');
 
     materialize(dir, []);
-    expect(
-      compiles(dir, ['effect-carrier.ts', 'schemas.ts', 'omits-emits.ts']),
-      'a plan omitting its emission declaration compiled against the REAL carrier',
-    ).toBe(false);
+    expectRejectedForTheFixture(dir, ['effect-carrier.ts', 'schemas.ts', 'omits-emits.ts'], 'omits-emits.ts');
 
     materialize(dir, [
       { find: '  readonly emits: PlanEmissions;', replace: '  readonly emits?: PlanEmissions;' },
@@ -205,7 +329,7 @@ describe('DR-5 — kill probes: every gate is shown to fail', () => {
       },
     ]);
     expect(
-      compiles(dir, ['effect-carrier.ts', 'schemas.ts', 'omits-emits.ts']),
+      compile(dir, ['effect-carrier.ts', 'schemas.ts', 'omits-emits.ts']).accepted,
       'relaxing the required field did not make the omission compile, so the gate measures something else',
     ).toBe(true);
   });
@@ -214,10 +338,7 @@ describe('DR-5 — kill probes: every gate is shown to fail', () => {
     write(dir, 'success-without-evidence.ts');
 
     materialize(dir, []);
-    expect(
-      compiles(dir, ['effect-carrier.ts', 'schemas.ts', 'success-without-evidence.ts']),
-      'a committed value without evidence compiled against the REAL carrier',
-    ).toBe(false);
+    expectRejectedForTheFixture(dir, ['effect-carrier.ts', 'schemas.ts', 'success-without-evidence.ts'], 'success-without-evidence.ts');
 
     materialize(dir, [
       {
@@ -227,7 +348,7 @@ describe('DR-5 — kill probes: every gate is shown to fail', () => {
       },
     ]);
     expect(
-      compiles(dir, ['effect-carrier.ts', 'schemas.ts', 'success-without-evidence.ts']),
+      compile(dir, ['effect-carrier.ts', 'schemas.ts', 'success-without-evidence.ts']).accepted,
       'making evidence optional did not make the evidence-free value compile',
     ).toBe(true);
   });
@@ -236,10 +357,7 @@ describe('DR-5 — kill probes: every gate is shown to fail', () => {
     write(dir, 'forged-witness.ts');
 
     materialize(dir, []);
-    expect(
-      compiles(dir, ['effect-carrier.ts', 'schemas.ts', 'forged-witness.ts']),
-      'a hand-built witness satisfied EmissionEvidence against the REAL carrier',
-    ).toBe(false);
+    expectRejectedForTheFixture(dir, ['effect-carrier.ts', 'schemas.ts', 'forged-witness.ts'], 'forged-witness.ts');
 
     materialize(dir, [
       {
@@ -255,7 +373,7 @@ describe('DR-5 — kill probes: every gate is shown to fail', () => {
       },
     ]);
     expect(
-      compiles(dir, ['effect-carrier.ts', 'schemas.ts', 'forged-witness.ts']),
+      compile(dir, ['effect-carrier.ts', 'schemas.ts', 'forged-witness.ts']).accepted,
       'removing the brand did not make the forged witness compile',
     ).toBe(true);
   });
@@ -264,18 +382,45 @@ describe('DR-5 — kill probes: every gate is shown to fail', () => {
     write(dir, 'omits-recorder.ts');
 
     materialize(dir, []);
-    expect(
-      compiles(dir, ['effect-carrier.ts', 'schemas.ts', 'omits-recorder.ts']),
-      'a live run with no recorder compiled against the REAL carrier',
-    ).toBe(false);
+    expectRejectedForTheFixture(dir, ['effect-carrier.ts', 'schemas.ts', 'omits-recorder.ts'], 'omits-recorder.ts');
 
     materialize(dir, [
       { find: '  recorder: EmissionRecorder,', replace: '  recorder?: EmissionRecorder,' },
     ]);
     expect(
-      compiles(dir, ['effect-carrier.ts', 'schemas.ts', 'omits-recorder.ts']),
+      compile(dir, ['effect-carrier.ts', 'schemas.ts', 'omits-recorder.ts']).accepted,
       'widening the recorder parameter did not make the capability-free call compile',
     ).toBe(true);
+  });
+
+  it('KillProbe_RecorderMadeConditional_LiveRunProceeds', () => {
+    // The EXECUTING probe, and the reason this file no longer claims every gate
+    // is type-level. Restoring the `declaredEmissions(plan).length > 0 &&`
+    // condition leaves the PARAMETER required, so the compile probe above stays
+    // green and the type-level proof stays true — while a `records-nothing`
+    // plan silently stops needing a capability at all. That is the abstention
+    // hole DR-2 closed, and only running the code can see it reopen.
+    const refused = runLiveWithNoRecorder(dir, []);
+    expect(refused, 'the REAL carrier committed a live run with no capability').toMatch(
+      /^OUTCOME:refused:/,
+    );
+
+    const proceeded = runLiveWithNoRecorder(dir, [
+      {
+        // Two lines, because the first alone also matches `recordEmissions`.
+        find:
+          '  if (!isEmissionRecorder(recorder)) {\n' +
+          "    throw new UnrecordedEmissionError(plan, 'before', 0, declaredEmissions(plan).length);",
+        replace:
+          '  if (declaredEmissions(plan).length > 0 && !isEmissionRecorder(recorder)) {\n' +
+          "    throw new UnrecordedEmissionError(plan, 'before', 0, declaredEmissions(plan).length);",
+      },
+    ]);
+    expect(
+      proceeded,
+      'restoring the declared-count condition did not let a capability-free live run commit, ' +
+        'so this probe is not measuring the runtime half of the gate',
+    ).toMatch(/^OUTCOME:committed:success/);
   });
 
   it('KillProbes_LeaveNoResidue_InTheirOwnWriteSet', () => {

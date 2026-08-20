@@ -42,6 +42,9 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.join(here, '../..');
 const CARRIER = path.join(packageRoot, 'src/dispatch/core/effect-carrier.ts');
 
+/** Where the carrier's DR-1/DR-2 compile claims begin. */
+const PROOF_BLOCK_MARKER = '// ─── DR-1 / DR-2 compile claims';
+
 /**
  * Resolved rather than path-joined.
  *
@@ -112,7 +115,19 @@ function materializeCarrier(dir: string, relax: boolean): void {
     // The proof aliases assert the very property being relaxed, so they would
     // fail the RELAXED build for the right reason and mask the fixture's own
     // result. Drop them; the fixture is the subject here.
-    source = source.slice(0, source.indexOf('// ─── DR-1 / DR-2 compile claims'));
+    //
+    // The marker is asserted rather than assumed: `indexOf` returning -1 would
+    // make `slice` chop one character and leave both proof blocks standing, so
+    // a reworded comment would send the next reader to the fixture instead of
+    // to the string that actually moved.
+    const proofsAt = source.indexOf(PROOF_BLOCK_MARKER);
+    if (proofsAt === -1) {
+      throw new Error(
+        `the proof block marker ${JSON.stringify(PROOF_BLOCK_MARKER)} is gone from the carrier. ` +
+          'Relaxing a copy that still asserts what the relaxation removes proves nothing.',
+      );
+    }
+    source = source.slice(0, proofsAt);
     // `declaredEmissions` reads the now-optional field.
     source = source.replace(
       "return plan.emits.kind === 'records' ? plan.emits.emissions : [];",
