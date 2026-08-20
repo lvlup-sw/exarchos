@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1193,
-    "parsedFiles": 1148,
+    "testFiles": 1195,
+    "parsedFiles": 1150,
     "shellFiles": 45,
-    "cases": 13299,
+    "cases": 13314,
     "dynamicTitles": 144,
     "unparseableFiles": 0
   },
@@ -4551,6 +4551,58 @@
     }
   ],
   "files": {
+    "tests/acceptance/effect-carrier-compile-gate.test.ts": {
+      "file": "tests/acceptance/effect-carrier-compile-gate.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "DR-3 — omission fails the build, not the run",
+          "name": "CompileFail_EffectWithoutCommittedEvent_FailsTypecheck",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-3 — omission fails the build, not the run",
+          "name": "CompileFail_FixtureCompilesWhenGuardRemoved",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-3 — omission fails the build, not the run",
+          "name": "CompileGate_ProbeLeavesTheLiveTreeUntouched",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/effect-plan-teeth-kill-probes.test.ts": {
+      "file": "tests/acceptance/effect-plan-teeth-kill-probes.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "DR-5 — kill probes: every gate is shown to fail",
+          "name": "KillProbe_RequiredEmissionsRelaxed_TypecheckStopsFailing",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-5 — kill probes: every gate is shown to fail",
+          "name": "KillProbe_SuccessArmDropsEvidence_ValueBecomesReachable",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-5 — kill probes: every gate is shown to fail",
+          "name": "KillProbe_WitnessUnbranded_EvidenceBecomesForgeable",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-5 — kill probes: every gate is shown to fail",
+          "name": "KillProbe_RecorderMadeOptional_LiveRunNeedsNoCapability",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-5 — kill probes: every gate is shown to fail",
+          "name": "KillProbes_LeaveNoResidue_InTheirOwnWriteSet",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/acceptance/fresh-install.test.ts": {
       "file": "tests/acceptance/fresh-install.test.ts",
       "runner": "vitest:root",
@@ -20984,7 +21036,12 @@
         },
         {
           "suite": "runEffect — the record is on the way to a committed value",
-          "name": "leaves a plan that declares no emissions inert — no capability required",
+          "name": "RunEffect_RecordsNothingPlanWithNoRecorder_RefusesInLiveMode",
+          "dynamic": false
+        },
+        {
+          "suite": "runEffect — the record is on the way to a committed value",
+          "name": "RunEffect_RecordsNothingPlanWithRecorder_CommitsAndRecordsNothing",
           "dynamic": false
         },
         {
@@ -21005,6 +21062,36 @@
         {
           "suite": "toEffectError",
           "name": "derives a class-scoped code and preserves the cause",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-5 — the edges that universal declaration puts pressure on",
+          "name": "DryRun_EveryPlanDeclares_StillRecordsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-5 — the edges that universal declaration puts pressure on",
+          "name": "DryRun_RecordsNothingPlan_IsAlsoSilent",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-5 — the edges that universal declaration puts pressure on",
+          "name": "RecordEmissions_NonReceiptMidSet_FailsWholeEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-5 — the edges that universal declaration puts pressure on",
+          "name": "UnrecordedEmissionError_NamesPlanDeclarationAndCount",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-5 — the edges that universal declaration puts pressure on",
+          "name": "SuccessArm_CarriesAReceiptPerDeclaredEmission",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-5 — the edges that universal declaration puts pressure on",
+          "name": "SuccessArm_RecordsNothingPlan_CarriesEmptyRecordedEvidence",
           "dynamic": false
         }
       ]
