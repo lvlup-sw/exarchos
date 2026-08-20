@@ -234,13 +234,19 @@ export function emissionsWhen(
  * silently ignored.
  */
 export type EffectOutcome<T> =
-  | { readonly kind: 'success'; readonly value: T }
+  | { readonly kind: 'success'; readonly value: T; readonly evidence: EmissionEvidence }
   | { readonly kind: 'error'; readonly error: EffectError }
   | { readonly kind: 'dry-run'; readonly plan: EffectPlan };
 
-/** Construct a `success` carrier. */
-export function succeeded<T>(value: T): EffectOutcome<T> {
-  return { kind: 'success', value };
+/**
+ * Construct a `success` carrier.
+ *
+ * Evidence is REQUIRED, which is the whole of DR-2: a success carrier cannot be
+ * built without something that says the record exists, so obtaining `T` from
+ * one means the append already happened.
+ */
+export function succeeded<T>(value: T, evidence: EmissionEvidence): EffectOutcome<T> {
+  return { kind: 'success', value, evidence };
 }
 
 /** Construct an `error` carrier from a structured {@link EffectError}. */
@@ -256,7 +262,7 @@ export function plannedDryRun<T>(plan: EffectPlan): EffectOutcome<T> {
 /** Narrow to the `success` arm. */
 export function isSuccess<T>(
   outcome: EffectOutcome<T>,
-): outcome is { readonly kind: 'success'; readonly value: T } {
+): outcome is { readonly kind: 'success'; readonly value: T; readonly evidence: EmissionEvidence } {
   return outcome.kind === 'success';
 }
 
@@ -346,6 +352,17 @@ const EMISSION_RECORDER_BRAND: unique symbol = Symbol('exarchos.effect.emissionR
 const EMISSION_RECEIPT_BRAND: unique symbol = Symbol('exarchos.effect.emissionReceipt');
 
 /**
+ * Module-private brand for the evidence a committed value carries.
+ *
+ * Separate from the receipt brand because evidence has TWO arms and only one of
+ * them is a receipt. Branding the union is what stops the second arm becoming
+ * the way around the first: an owner that could hand-build a witness could buy
+ * a committed value with an object literal, which is precisely the hole the
+ * branded port closed on the recorder side.
+ */
+const EMISSION_EVIDENCE_BRAND: unique symbol = Symbol('exarchos.effect.emissionEvidence');
+
+/**
  * Evidence that one declared emission was recorded.
  *
  * Minted by the capability AFTER its sink returns, so a sink that throws yields
@@ -357,6 +374,66 @@ export interface EmissionReceipt {
   readonly [EMISSION_RECEIPT_BRAND]: true;
   readonly event: EventType;
   readonly when: EmissionCondition;
+}
+
+/**
+ * This run recorded the plan's declarations, and here are the receipts.
+ *
+ * The ordinary arm: one minted receipt per declared emission, collected across
+ * the intent and the terminal that actually fired.
+ */
+export interface RecordedEvidence {
+  readonly [EMISSION_EVIDENCE_BRAND]: true;
+  readonly kind: 'recorded';
+  readonly receipts: readonly EmissionReceipt[];
+}
+
+/**
+ * A PREVIOUS run recorded the terminal, and this run is replaying it.
+ *
+ * The arm an idempotency replay needs. A replayed effect performs nothing and
+ * therefore mints nothing, but the append it would have made has already
+ * happened — the owner read it out of its own ledger fold, which is why it
+ * knows to replay at all. Forcing it to fabricate a receipt would be a lie
+ * about which run wrote the fact.
+ */
+export interface ReplayedEvidence {
+  readonly [EMISSION_EVIDENCE_BRAND]: true;
+  readonly kind: 'replayed';
+  /** The terminal a previous run recorded, as read from the ledger. */
+  readonly event: EventType;
+  /** How the caller knows it landed. Named so a reader can audit the claim. */
+  readonly source: string;
+}
+
+/**
+ * Evidence that a committed value's record exists. Carried by the `success`
+ * arm, so reaching `T` means the append happened — on this run or an earlier
+ * one.
+ *
+ * **The trust model, stated rather than implied.** A branded witness is exactly
+ * as strong as {@link emissionRecorder} and no stronger. This module cannot
+ * verify that a witness corresponds to a real append, just as it cannot verify
+ * that a sink really wrote — it trusts the fold-reader on the same terms it
+ * already trusts the sink, and the brand is what makes that trust a decision
+ * somebody made rather than a shape anybody can produce.
+ */
+export type EmissionEvidence = RecordedEvidence | ReplayedEvidence;
+
+/**
+ * The ONLY construction path for replay evidence.
+ *
+ * Exported because the owner that replays is not this module; branded because
+ * an unbranded witness would let any object literal buy a committed value, and
+ * the second arm must not become the way around the first.
+ */
+export function replayedEvidence(event: EventType, source: string): ReplayedEvidence {
+  return { [EMISSION_EVIDENCE_BRAND]: true, kind: 'replayed', event, source };
+}
+
+/** Mint evidence from receipts this run collected. Module-private on purpose. */
+function recordedEvidence(receipts: readonly EmissionReceipt[]): RecordedEvidence {
+  return { [EMISSION_EVIDENCE_BRAND]: true, kind: 'recorded', receipts };
 }
 
 /**
@@ -530,20 +607,27 @@ export async function runEffect<T>(
   if (!isEmissionRecorder(recorder)) {
     throw new UnrecordedEmissionError(plan, 'before', 0, declaredEmissions(plan).length);
   }
-  await recordEmissions(plan, 'before', recorder);
+  const intentReceipts = await recordEmissions(plan, 'before', recorder);
 
-  let outcome: EffectOutcome<T>;
+  // The value is held rather than wrapped immediately: the success carrier now
+  // requires evidence, and the terminal receipt does not exist until after the
+  // terminal record has been made. Building the carrier here would mean either
+  // constructing it without its evidence or back-filling it afterwards, and
+  // both are the convention this arm exists to replace.
+  let ran: { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: EffectError };
   let terminal: EmissionCondition;
   try {
-    outcome = succeeded(await execute());
+    ran = { ok: true, value: await execute() };
     terminal = 'on-success';
   } catch (cause) {
-    outcome = failed(toEffectError(plan, cause));
+    ran = { ok: false, error: toEffectError(plan, cause) };
     terminal = 'on-failure';
   }
 
-  await recordEmissions(plan, terminal, recorder);
-  return outcome;
+  const terminalReceipts = await recordEmissions(plan, terminal, recorder);
+  return ran.ok
+    ? succeeded(ran.value, recordedEvidence([...intentReceipts, ...terminalReceipts]))
+    : failed(ran.error);
 }
 
 // ─── Idempotency key: the stream dimension is part of construction ──────────

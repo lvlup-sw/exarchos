@@ -54,6 +54,7 @@ import {
   failed,
   toEffectError,
   records,
+  replayedEvidence,
   type EffectMode,
   type EffectOutcome,
   type EffectPlan,
@@ -538,7 +539,15 @@ export class VcsMutationOwner {
     if (recorded !== undefined) {
       if (recorded.kind === 'executed') {
         if (request.verifyReplay === undefined || request.verifyReplay()) {
-          return succeeded<T>((recorded.result ?? {}) as T);
+          // The committed value carries evidence, and on this path the evidence
+          // is a WITNESS rather than a receipt: no effect ran, so nothing was
+          // minted, but `vcs.executed` is already in the fold — reading it is
+          // how this branch knows to replay at all. A receipt here would claim
+          // this run wrote the fact, which is exactly the wrong claim.
+          return succeeded<T>(
+            (recorded.result ?? {}) as T,
+            replayedEvidence(VCS_EXECUTED, `ledger fold terminal for ${request.idempotencyKey}`),
+          );
         }
       } else {
         return failed<T>({

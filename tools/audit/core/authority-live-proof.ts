@@ -998,12 +998,14 @@ export function measureEmissionSinks(source: string, file: string): readonly Mea
 /**
  * The commit gate, measured rather than assumed.
  *
- * `EffectPlan.emits` is only an AUTHORITY because a plan that declares one
- * cannot produce a committed value without a receipt for it — that is what
+ * `EffectPlan.emits` is only an AUTHORITY because a plan cannot produce a
+ * committed value without a receipt for what it declared — that is what
  * `UnrecordedEmissionError` enforces, and without it the field would be a
- * comment. Deleting the gate must therefore take the authority claim with it,
- * so its presence is a fail-closed precondition of the measurement rather than a
- * sentence in the row's prose.
+ * comment. The field is required now, so the claim covers every plan rather
+ * than only the ones that opted in; a plan may still declare that it records
+ * nothing, but it may no longer decline to say. Deleting the gate must take the
+ * authority claim with it, so its presence is a fail-closed precondition of the
+ * measurement rather than a sentence in the row's prose.
  */
 function requireCommitGate(source: string, file: string): number {
   const sourceFile = parseOrThrow(source, file, LABEL);

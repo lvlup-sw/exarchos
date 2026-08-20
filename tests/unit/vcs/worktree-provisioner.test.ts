@@ -7,7 +7,7 @@
 // whether the report reads "created", "already exists", or "failed".
 
 import { describe, it, expect } from 'vitest';
-import { failed, plannedDryRun, succeeded } from '../../../src/dispatch/core/effect-carrier.js';
+import { failed, plannedDryRun, succeeded, replayedEvidence } from '../../../src/dispatch/core/effect-carrier.js';
 import type { WorktreeCreateResult } from '../../../src/vcs/mutation-owner.js';
 import { mapWorktreeOutcome } from '../../../src/vcs/worktree-provisioner.js';
 
@@ -25,7 +25,7 @@ describe('mapWorktreeOutcome', () => {
       branch: 'feature/x',
       createdBranch: true,
       createdWorktree: true,
-    });
+    }, replayedEvidence('vcs.executed', 'test fixture'));
     expect(mapWorktreeOutcome(outcome)).toEqual({
       ok: true,
       branchCreated: true,
@@ -39,7 +39,7 @@ describe('mapWorktreeOutcome', () => {
       branch: 'feature/x',
       createdBranch: false,
       createdWorktree: false,
-    });
+    }, replayedEvidence('vcs.executed', 'test fixture'));
     expect(mapWorktreeOutcome(outcome)).toEqual({
       ok: true,
       branchCreated: false,

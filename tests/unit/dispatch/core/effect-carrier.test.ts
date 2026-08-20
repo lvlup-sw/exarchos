@@ -8,6 +8,7 @@ import {
   declaredEmissions,
   records,
   recordsNothing,
+  replayedEvidence,
   emissionRecorder,
   effectIdempotencyKey,
   isSuccess,
@@ -105,11 +106,17 @@ function forgeBrandedRecorder(
 
 describe('effect carrier constructors + guards', () => {
   it('succeeded builds a success arm that only isSuccess narrows', () => {
-    const outcome = succeeded(42);
+    const outcome = succeeded(42, replayedEvidence('vcs.executed', 'a prior run'));
     expect(isSuccess(outcome)).toBe(true);
     expect(isError(outcome)).toBe(false);
     expect(isDryRun(outcome)).toBe(false);
-    if (isSuccess(outcome)) expect(outcome.value).toBe(42);
+    if (isSuccess(outcome)) {
+      expect(outcome.value).toBe(42);
+      // The value does not arrive alone: a success carrier cannot be built
+      // without evidence, which is what makes reaching `T` mean the append
+      // happened.
+      expect(outcome.evidence.kind).toBe('replayed');
+    }
   });
 
   it('failed builds an error arm carrying the structured error', () => {
