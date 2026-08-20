@@ -46,7 +46,14 @@ import {
  */
 export const CACHE_DESCRIPTOR_FILENAME = 'cache-manifest.json';
 
-/** Recorded expected-identity lock, written at install / first-run (TOFU). */
+/**
+ * Recorded expected-identity lock, written at install / first-run (TOFU).
+ *
+ * The stem and extension of the real filename, which
+ * {@link installIdentityLockPath} suffixes with a per-install key. Kept as one
+ * constant so the lock's name lives in a single place even though the path is
+ * now computed.
+ */
 export const INSTALL_IDENTITY_LOCK_FILENAME = 'install-identity.json';
 
 /** Injectable filesystem / environment seams. All default to live process state. */
@@ -262,7 +269,8 @@ export function installIdentityLockPath(pluginRoot: string, deps: IdentityDeps =
     ...(deps.homedir !== undefined ? { homedir: deps.homedir } : {}),
   });
   const key = createHash('sha256').update(path.resolve(pluginRoot)).digest('hex').slice(0, 12);
-  return path.join(dir, `install-identity-${key}.json`);
+  const { name, ext } = path.parse(INSTALL_IDENTITY_LOCK_FILENAME);
+  return path.join(dir, `${name}-${key}${ext}`);
 }
 
 /**
