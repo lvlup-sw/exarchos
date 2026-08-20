@@ -800,3 +800,108 @@ export type _EffectCarrier_Record_YieldsAMintedReceipt = Expect<
 export type _EffectCarrier_Constructor_MintsTheCapability = Expect<
   ReturnType<typeof emissionRecorder> extends EmissionRecorder ? true : false
 >;
+
+// ─── DR-1 / DR-2 compile claims ──────────────────────────────────────────────
+//
+// These live HERE, in a `src/` module, for the reason the block above already
+// states: the root `tsconfig.json` includes only `src/**` and excludes
+// `**/*.test.ts`, and `tests/tsconfig.json` excludes the unit and integration
+// tiers outright. A claim of this kind written in the co-located test would be
+// read by no compiler and executed by no runner — it would pass by never being
+// checked, which is the failure mode these claims exist to prevent.
+
+/**
+ * **A plan cannot omit what records it.** The pre-DR-1 shape — everything a
+ * plan needs except the emission declaration — is no longer an
+ * {@link EffectPlan}.
+ *
+ * This is the compile-time half of INV-1: an effect that lands without naming
+ * its record is a state mutation that is not an event, and the omission is a
+ * build failure rather than a runtime discovery.
+ *
+ * Falsifier: make `emits` optional again and this alias stops being `true`.
+ * @proof
+ */
+export type _EffectCarrier_PlanWithoutEmissions_IsNotAnEffectPlan = Expect<
+  IsNotAssignable<
+    {
+      readonly effectClass: EffectClass;
+      readonly owner: string;
+      readonly description: string;
+      readonly idempotent: boolean;
+    },
+    EffectPlan
+  >
+>;
+
+/**
+ * …and the abstention really is expressible, so the proof above rejects the
+ * OMISSION rather than rejecting every plan. Without this line, narrowing
+ * `emits` to something nothing can satisfy would leave the alias above passing
+ * while making the type useless — a guard that rejects everything measures as
+ * little as one that rejects nothing.
+ * @proof
+ */
+export type _EffectCarrier_RecordsNothing_IsALegalDeclaration = Expect<
+  ReturnType<typeof recordsNothing> extends PlanEmissions ? true : false
+>;
+
+/**
+ * **An empty declaration is not a declaration.** A `records` arm carrying no
+ * emissions cannot be built, so an abstention cannot be smuggled in wearing the
+ * declaring arm's clothes — which would restore the ambiguity between "records
+ * nothing" and "nobody decided" one level down.
+ *
+ * Falsifier: widen `emissions` to `readonly EffectEmission[]` and this goes
+ * false.
+ * @proof
+ */
+export type _EffectCarrier_EmptyEmissionList_IsNotADeclaringArm = Expect<
+  IsNotAssignable<{ readonly kind: 'records'; readonly emissions: readonly [] }, RecordsEmissions>
+>;
+
+/**
+ * **A committed value cannot be built without evidence.** The success arm minus
+ * its evidence is not an outcome, so `T` is unreachable from a value that does
+ * not already say the append happened.
+ *
+ * This is the criterion's `Committed<T>` in the shape this carrier actually
+ * has: the guarantee is carried by the arm rather than by the good behaviour of
+ * whoever constructs it.
+ *
+ * Falsifier: make `evidence` optional on the success arm and this stops being
+ * `true`.
+ * @proof
+ */
+export type _EffectCarrier_SuccessWithoutEvidence_IsNotAnOutcome = Expect<
+  IsNotAssignable<{ readonly kind: 'success'; readonly value: number }, EffectOutcome<number>>
+>;
+
+/**
+ * **The witness is unforgeable on the receipt's terms.** A plain object naming
+ * the replayed event is not {@link EmissionEvidence}, so the replay arm cannot
+ * become the way around the commit gate.
+ *
+ * This is the proof the second evidence arm needed and did not have when it was
+ * first sketched: an unbranded witness would have let an owner buy a committed
+ * value with an object literal, which is exactly the hole the branded port
+ * closed on the recorder side.
+ *
+ * Falsifier: drop the brand from the evidence arms and this goes false.
+ * @proof
+ */
+export type _EffectCarrier_PlainWitness_IsNotEmissionEvidence = Expect<
+  IsNotAssignable<
+    { readonly kind: 'replayed'; readonly event: EventType; readonly source: string },
+    EmissionEvidence
+  >
+>;
+
+/**
+ * …and the witness constructor really does mint the brand, so the negative
+ * above rejects the forgery rather than rejecting everything.
+ * @proof
+ */
+export type _EffectCarrier_ReplayConstructor_MintsEvidence = Expect<
+  ReturnType<typeof replayedEvidence> extends EmissionEvidence ? true : false
+>;
