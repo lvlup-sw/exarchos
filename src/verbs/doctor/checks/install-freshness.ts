@@ -46,19 +46,31 @@ export async function installFreshness(
     const observed = collectInstallIdentity(posture.pluginRoot, deps);
     observedSummary = `binary ${observed.binary.version}, schema v${observed.schema.version}`;
 
-    const recorded = readRecordedIdentity(probes.stateDir, deps);
+    const recorded = readRecordedIdentity(posture.pluginRoot, deps);
     if (recorded === undefined) {
       return {
         ...base,
         status: 'Pass',
         message:
           `Installed (${posture.source}) at ${posture.pluginRoot}; no recorded install identity yet — ` +
-          `the first mutating action records a baseline at ${installIdentityLockPath(probes.stateDir)}.`,
+          `the first mutating action records a baseline at ${installIdentityLockPath(posture.pluginRoot, deps)}.`,
         durationMs: Date.now() - start,
       };
     }
 
     const result = verifyInstallFreshness(recorded, observed);
+    if (!result.fresh && 'indeterminate' in result) {
+      // Never claim five dimensions match while two of them are unknown.
+      return {
+        ...base,
+        status: 'Warning',
+        message: `Installation freshness is UNDETERMINED (${observedSummary}). ${result.reason}`,
+        fix:
+          `Reinstall via scripts/get-exarchos.{sh,ps1} so the install carries a readable ` +
+          `version, or verify ${posture.pluginRoot}/package.json is present and readable.`,
+        durationMs: Date.now() - start,
+      };
+    }
     if (result.fresh) {
       return {
         ...base,

@@ -611,10 +611,15 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
     [
       ROOT_LAYER, 'adapters', 'adapters/cli', 'config', 'contract', 'events', 'hooks',
       'install', 'projections', 'review', 'runtime', 'storage', 'sync',
-      'vcs', 'verbs', 'workflow',
+      'utils', 'vcs', 'verbs', 'workflow',
     ],
-    'The dispatch core — 16 targets after the nested CLI adapter split out of the parent facade. ' +
-      'It is the hub, so breadth is expected; the row exists so the breadth stops growing silently.',
+    'The dispatch core — 17 targets after the nested CLI adapter split out of the parent facade. ' +
+      'It is the hub, so breadth is expected; the row exists so the breadth stops growing silently. ' +
+      'The `utils` edge is the store-path resolver: the chokepoint refuses a mutation whose resolved ' +
+      'event store diverges from the other surface\'s, and the resolution cascade it consults is a ' +
+      'foundation leaf that imports no first-party directory. Every other core layer already reaches ' +
+      'it; dispatch was the last one that did not, and this row records the edge rather than hiding ' +
+      'it by rehoming path resolution somewhere it does not belong.',
   ),
   allowance(
     'verbs',

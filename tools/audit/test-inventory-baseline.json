@@ -1,13 +1,13 @@
 {
-  "capturedAt": "2026-08-18",
+  "capturedAt": "2026-08-20",
   "discovery": "extension-based over tracked files; not a runner glob",
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1188,
-    "parsedFiles": 1143,
+    "testFiles": 1192,
+    "parsedFiles": 1147,
     "shellFiles": 45,
-    "cases": 13260,
+    "cases": 13291,
     "dynamicTitles": 144,
     "unparseableFiles": 0
   },
@@ -8109,6 +8109,16 @@
           "suite": "emission verifier policy",
           "name": "a mixed run reports the determinate count it actually earned",
           "dynamic": false
+        },
+        {
+          "suite": "emission enforcement reaches the dispatch result",
+          "name": "EmissionEnforcement_BlockMode_UndeliveredEmissionFailsTheDispatch",
+          "dynamic": false
+        },
+        {
+          "suite": "emission enforcement reaches the dispatch result",
+          "name": "EmissionEnforcement_AdvisoryMode_SameViolationReturnsTheHandlerResult",
+          "dynamic": false
         }
       ]
     },
@@ -8597,6 +8607,32 @@
         }
       ]
     },
+    "tests/outcome/roots-injection-schema-guard.test.ts": {
+      "file": "tests/outcome/roots-injection-schema-guard.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "Roots featureId inference is gated on the receiving schema (#1838)",
+          "name": "RootsInference_ActionOmittingFeatureId_IsNeverEligibleForInjection",
+          "dynamic": false
+        },
+        {
+          "suite": "Roots featureId inference is gated on the receiving schema (#1838)",
+          "name": "RootsInference_NamedRegressionVictims_AreIneligible",
+          "dynamic": false
+        },
+        {
+          "suite": "Roots featureId inference is gated on the receiving schema (#1838)",
+          "name": "Dispatch_EveryReadOnlyVictimUnderResolvingRoots_IsNotRefusedForInjectedFeatureId",
+          "dynamic": false
+        },
+        {
+          "suite": "Roots featureId inference is gated on the receiving schema (#1838)",
+          "name": "Dispatch_EventAppendUnderResolvingRoots_IsNotRefusedForInjectedFeatureId",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/outcome/runbook-merge-orchestration.test.ts": {
       "file": "tests/outcome/runbook-merge-orchestration.test.ts",
       "runner": "vitest:root",
@@ -8609,6 +8645,42 @@
         {
           "suite": "MERGE_ORCHESTRATION runbook outcome (#1363)",
           "name": "Runbook_OtherPhases_StillPopulated",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/outcome/store-divergence-dispatch.test.ts": {
+      "file": "tests/outcome/store-divergence-dispatch.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "Store-path divergence surfaces at the point of use (#1839)",
+          "name": "Mutation_UnderActiveDivergence_IsRefusedNotSilentlyWritten",
+          "dynamic": false
+        },
+        {
+          "suite": "Store-path divergence surfaces at the point of use (#1839)",
+          "name": "Mutation_OtherStoreAbsent_ProceedsNormally",
+          "dynamic": false
+        },
+        {
+          "suite": "Store-path divergence surfaces at the point of use (#1839)",
+          "name": "Mutation_Acknowledged_ProceedsWithTheOptIn",
+          "dynamic": false
+        },
+        {
+          "suite": "Store-path divergence surfaces at the point of use (#1839)",
+          "name": "Read_UnderActiveDivergence_CarriesTheCaveatInline",
+          "dynamic": false
+        },
+        {
+          "suite": "Store-path divergence surfaces at the point of use (#1839)",
+          "name": "Mutation_ExplicitStateDir_IsExemptFromTheCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "Store-path divergence surfaces at the point of use (#1839)",
+          "name": "Read_NoDivergence_CarriesNoSpuriousWarning",
           "dynamic": false
         }
       ]
@@ -28860,6 +28932,47 @@
         }
       ]
     },
+    "tests/unit/install/freshness-store-invariance.test.ts": {
+      "file": "tests/unit/install/freshness-store-invariance.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "Install freshness is invariant under WORKFLOW_STATE_DIR (#1840)",
+          "name": "Freshness_SameInstallTwoStores_ReportsTheSameVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "Install freshness is invariant under WORKFLOW_STATE_DIR (#1840)",
+          "name": "Freshness_PinningTheStore_DoesNotBlockMutations",
+          "dynamic": false
+        },
+        {
+          "suite": "Install freshness is invariant under WORKFLOW_STATE_DIR (#1840)",
+          "name": "LockPath_IsKeyedToTheInstall_NotTheStateDir",
+          "dynamic": false
+        },
+        {
+          "suite": "An undetermined dimension cannot report as matching (#1840)",
+          "name": "Verify_BothVersionsUnknown_IsIndeterminateNotFresh",
+          "dynamic": false
+        },
+        {
+          "suite": "An undetermined dimension cannot report as matching (#1840)",
+          "name": "Verify_MissingPackageJson_IsIndeterminate",
+          "dynamic": false
+        },
+        {
+          "suite": "An undetermined dimension cannot report as matching (#1840)",
+          "name": "Verify_KnownMatchingVersions_StillFresh",
+          "dynamic": false
+        },
+        {
+          "suite": "An undetermined dimension cannot report as matching (#1840)",
+          "name": "Gate_IndeterminateInstall_DegradesRatherThanBlocking",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/install/friction-signal.test.ts": {
       "file": "tests/unit/install/friction-signal.test.ts",
       "runner": "vitest:root",
@@ -46761,6 +46874,62 @@
         }
       ]
     },
+    "tests/unit/utils/store-divergence.test.ts": {
+      "file": "tests/unit/utils/store-divergence.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "The ambient-cascade comparison holds on the real dispatch path",
+          "name": "AmbientCascade_NormalizationOfTheResolverOutput_IsIdempotent",
+          "dynamic": false
+        },
+        {
+          "suite": "The ambient-cascade comparison holds on the real dispatch path",
+          "name": "AmbientCascade_WindowsShapedPath_SurvivesTheSameNormalization",
+          "dynamic": false
+        },
+        {
+          "suite": "Active store divergence (#1839)",
+          "name": "Divergence_IsTrueByDefault_ForAnyNonPluginCli",
+          "dynamic": false
+        },
+        {
+          "suite": "Active store divergence (#1839)",
+          "name": "Divergence_OtherStoreAbsent_IsNotActive",
+          "dynamic": false
+        },
+        {
+          "suite": "Active store divergence (#1839)",
+          "name": "Divergence_OtherStoreExists_IsActive",
+          "dynamic": false
+        },
+        {
+          "suite": "Active store divergence (#1839)",
+          "name": "Divergence_WorkflowStateDirPinned_CollapsesEntirely",
+          "dynamic": false
+        },
+        {
+          "suite": "Active store divergence (#1839)",
+          "name": "Divergence_Acknowledged_SuppressesBothTheRefusalAndTheWarning",
+          "dynamic": false
+        },
+        {
+          "suite": "Active store divergence (#1839)",
+          "name": "Divergence_ExplicitFalsySpelling_StaysArmed",
+          "dynamic": false
+        },
+        {
+          "suite": "Active store divergence (#1839)",
+          "name": "Divergence_FromThePluginSide_NamesTheCliStoreAsOther",
+          "dynamic": false
+        },
+        {
+          "suite": "Active store divergence (#1839)",
+          "name": "Description_NamesBothPathsAndTheRemedy",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/vcs/azure-devops.test.ts": {
       "file": "tests/unit/vcs/azure-devops.test.ts",
       "runner": "vitest:root",
@@ -48237,6 +48406,16 @@
         {
           "suite": "env-variables",
           "name": "EnvVariables_AllExarchosEnvValid_ReturnsPass",
+          "dynamic": false
+        },
+        {
+          "suite": "env-variables",
+          "name": "EnvVariables_EveryNameTheSourceMentions_IsRecognized",
+          "dynamic": false
+        },
+        {
+          "suite": "env-variables",
+          "name": "EnvVariables_EveryRecognizedName_IsStillMentionedBySource",
           "dynamic": false
         },
         {

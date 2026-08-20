@@ -17,7 +17,6 @@ import { SCHEMA_VERSION } from '../../../src/storage/sqlite-backend.js';
 import type { InstallIdentity } from '../../../src/install/install-identity.js';
 
 const PLUGIN_ROOT = '/opt/exarchos';
-const STATE_DIR = '/state';
 const ENV = { EXARCHOS_PLUGIN_ROOT: PLUGIN_ROOT, EXARCHOS_CACHE_DIR: '/opt/cache' } as const;
 const HOME = '/home/u';
 
@@ -68,12 +67,17 @@ function identityFrom(files: Map<string, string>): InstallIdentity {
 
 /** Deps for the gate over `files`, in installed posture. */
 function gateDeps(files: Map<string, string>): FreshnessGateDeps {
-  return { stateDir: STATE_DIR, env: ENV, homedir: HOME, ...seams(files) };
+  return { env: ENV, homedir: HOME, ...seams(files) };
+}
+
+/** The lock is keyed to the INSTALLATION, never to an event-store state dir. */
+function lockPath(): string {
+  return installIdentityLockPath(PLUGIN_ROOT, { env: ENV, homedir: HOME });
 }
 
 /** Seed the lock (expected identity) into the files map. */
 function seedLock(files: Map<string, string>, identity: InstallIdentity): void {
-  files.set(installIdentityLockPath(STATE_DIR), `${JSON.stringify(identity, null, 2)}\n`);
+  files.set(lockPath(), `${JSON.stringify(identity, null, 2)}\n`);
 }
 
 beforeEach(() => resetInstallFreshnessGateForTest());
@@ -81,7 +85,6 @@ beforeEach(() => resetInstallFreshnessGateForTest());
 describe('evaluateInstallFreshness — posture & bootstrap', () => {
   it('SKIPS on a dev checkout (no plugin root, no cache)', () => {
     const outcome = evaluateInstallFreshness({
-      stateDir: STATE_DIR,
       env: {},
       homedir: HOME,
       pathExists: () => false,
@@ -94,7 +97,7 @@ describe('evaluateInstallFreshness — posture & bootstrap', () => {
     const outcome = evaluateInstallFreshness(gateDeps(files));
     expect(outcome.status).toBe('bootstrapped');
     // The lock is now persisted so subsequent runs have something to compare.
-    expect(files.has(installIdentityLockPath(STATE_DIR))).toBe(true);
+    expect(files.has(lockPath())).toBe(true);
   });
 
   it('is FRESH when the recorded lock matches what is on disk', () => {
@@ -181,7 +184,7 @@ describe('evaluateInstallFreshness — memoization', () => {
   it('a block clears once the install is repaired (re-evaluation, then memoized fresh)', () => {
     const files = coherentFiles();
     // Stale lock → blocked.
-    files.set(installIdentityLockPath(STATE_DIR), `${JSON.stringify(identityFrom(coherentFiles({ pkg: JSON.stringify({ version: '9.9.9' }) })), null, 2)}\n`);
+    files.set(lockPath(), `${JSON.stringify(identityFrom(coherentFiles({ pkg: JSON.stringify({ version: '9.9.9' }) })), null, 2)}\n`);
     expect(evaluateInstallFreshness(gateDeps(files)).status).toBe('blocked');
     // Repair: rewrite the lock to match on-disk state.
     seedLock(files, identityFrom(files));

@@ -331,6 +331,100 @@ export function computeStorePathDivergence(
   return { cliPath, pluginPath, diverges: cliPath !== pluginPath };
 }
 
+/** Env var by which an operator accepts a divergent store deliberately. */
+export const ALLOW_STORE_DIVERGENCE_ENV = 'EXARCHOS_ALLOW_STORE_DIVERGENCE';
+
+/** A divergence that is actually splitting live state, with the evidence for saying so. */
+export interface ActiveStoreDivergence extends StorePathDivergence {
+  /** The store THIS process will read and write. */
+  readonly activePath: string;
+  /** The store the OTHER surface resolves. */
+  readonly otherPath: string;
+  /** Does the other surface's store exist on disk? */
+  readonly otherExists: boolean;
+  /** Has the operator opted into running two stores? */
+  readonly acknowledged: boolean;
+  /**
+   * True when state is genuinely splitting: the surfaces diverge, the other
+   * store EXISTS, and the operator has not opted in.
+   */
+  readonly active: boolean;
+  /**
+   * Should a read carry the divergence caveat?
+   *
+   * Same condition as {@link active}. An explicit opt-in silences the warning
+   * as well as the refusal: the variable is named ALLOW, so an operator who
+   * sets it has already accepted the split, and repeating it on every read
+   * trains them to ignore warnings without telling them anything new. `doctor`
+   * remains the standing diagnostic for anyone who wants to re-check.
+   */
+  readonly shouldWarn: boolean;
+}
+
+/**
+ * Decide whether this process is writing into a store the other surface will
+ * never read — the condition worth refusing on.
+ *
+ * Bare divergence is NOT that condition, and the distinction is the whole
+ * design. `WORKFLOW_STATE_DIR` unset in non-plugin mode resolves
+ * `~/.exarchos/state` for the CLI and `~/.claude/workflow-state` for the
+ * plugin, so {@link computeStorePathDivergence} reports `diverges: true` for
+ * EVERY standalone CLI invocation on the machine, including for users who have
+ * never installed the plugin. Refusing on that alone would break them all.
+ *
+ * Requiring the other store to EXIST is what turns an always-true structural
+ * fact into evidence that two stores are really in play. Setting
+ * `WORKFLOW_STATE_DIR` collapses the divergence outright (the env var wins in
+ * both modes), which is why it is the remedy the refusal names.
+ */
+export function detectActiveStoreDivergence(
+  inputs?: StorePathResolutionInputs & { readonly storeExists?: (p: string) => boolean },
+): ActiveStoreDivergence {
+  const env = inputs?.env ?? process.env;
+  const pluginMode = inputs?.pluginMode ?? isClaudeCodePlugin(env);
+  const exists = inputs?.storeExists ?? ((p: string): boolean => fs.existsSync(p));
+
+  const base = computeStorePathDivergence({
+    ...(inputs?.env !== undefined ? { env: inputs.env } : {}),
+    ...(inputs?.homedir !== undefined ? { homedir: inputs.homedir } : {}),
+  });
+
+  const activePath = pluginMode ? base.pluginPath : base.cliPath;
+  const otherPath = pluginMode ? base.cliPath : base.pluginPath;
+  const otherExists = base.diverges && exists(otherPath);
+  // An explicit falsy spelling means "keep the guard armed", not "disarm it".
+  // Treating any non-blank value as opt-in would make
+  // `EXARCHOS_ALLOW_STORE_DIVERGENCE=false` disable the refusal — handing the
+  // operator the silent-split failure they were trying to keep.
+  const raw = (env[ALLOW_STORE_DIVERGENCE_ENV] ?? '').trim().toLowerCase();
+  const acknowledged = raw !== '' && raw !== '0' && raw !== 'false' && raw !== 'no' && raw !== 'off';
+
+  return {
+    ...base,
+    activePath,
+    otherPath,
+    otherExists,
+    acknowledged,
+    active: base.diverges && otherExists && !acknowledged,
+    shouldWarn: base.diverges && otherExists && !acknowledged,
+  };
+}
+
+/**
+ * The operator-facing account of a live split: which store is being used,
+ * which one is being ignored, and the one line that collapses the two.
+ */
+export function describeStoreDivergence(d: ActiveStoreDivergence): string {
+  return (
+    `Event-store divergence: this surface resolves ${d.activePath} but the other ` +
+    `resolves ${d.otherPath}, and that store exists. Workflow state written here is ` +
+    `invisible there — reads answer from a different store and downstream gates ` +
+    `return confident, wrong verdicts. Set WORKFLOW_STATE_DIR to pin both surfaces ` +
+    `to one store (it wins in plugin and non-plugin mode alike), or set ` +
+    `${ALLOW_STORE_DIVERGENCE_ENV}=1 to proceed deliberately with two.`
+  );
+}
+
 /**
  * Resolve the teams directory.
  * Env: `EXARCHOS_TEAMS_DIR` | Claude: `~/.claude/teams` | Default: `~/.exarchos/teams`
@@ -358,4 +452,38 @@ export function resolveTasksDir(): string {
  */
 export function resolveCacheDir(inputs?: StorePathResolutionInputs): string {
   return resolveDir('EXARCHOS_CACHE_DIR', 'cache', 'cache', inputs);
+}
+
+/**
+ * Resolve the directory holding the recorded install-identity lock.
+ *
+ * Deliberately does NOT go through {@link resolveDir}: install freshness is a
+ * property of the INSTALLED ARTIFACTS — which binary, which plugin, which
+ * cache — and must not vary with `WORKFLOW_STATE_DIR`, which steers where
+ * workflow state lives and has no stated relationship to installation identity.
+ *
+ * Recording the lock inside the resolved event store made the same install
+ * simultaneously "fresh" (in the store where TOFU happened to bootstrap) and
+ * "stale or mixed" (in any other), so the freshness gate blocked precisely the
+ * configuration an operator adopts to collapse a store-path divergence. Pinning
+ * the store was the documented remedy, and taking it tripped the gate.
+ *
+ * Plugin mode is excluded from the cascade for the same reason: the verdict
+ * must not depend on which surface asks.
+ */
+export function resolveInstallIdentityDir(
+  inputs?: Omit<StorePathResolutionInputs, 'pluginMode'>,
+): string {
+  const env = inputs?.env ?? process.env;
+  const home = inputs?.homedir ?? os.homedir();
+
+  const explicit = env['EXARCHOS_INSTALL_STATE_DIR'];
+  if (explicit) return toPosix(expandTilde(explicit, home));
+
+  const xdgStateHome = env['XDG_STATE_HOME'];
+  if (xdgStateHome) {
+    return toPosix(path.join(expandTilde(xdgStateHome, home), 'exarchos', 'install'));
+  }
+
+  return toPosix(path.join(home, '.exarchos', 'install'));
 }

@@ -17,6 +17,7 @@ let base: string;
 let root: string;
 let cacheDir: string;
 let stateDir: string;
+let installDir: string; // holds the identity lock — keyed to the install, not the store
 
 function seedInstall(overrides?: Partial<{ pkg: string }>): void {
   const pkg = overrides?.pkg ?? JSON.stringify({ name: 'exarchos', version: '2.11.0' });
@@ -31,10 +32,26 @@ function seedInstall(overrides?: Partial<{ pkg: string }>): void {
 
 /** Installed-posture probes, driven purely by injected env (no fs fallback). */
 function installedProbes(): DoctorProbes {
-  return makeStubProbes({
-    env: { EXARCHOS_PLUGIN_ROOT: root, EXARCHOS_CACHE_DIR: cacheDir },
-    stateDir,
-  });
+  return makeStubProbes({ env: lockEnv(), stateDir });
+}
+
+/**
+ * Env for an installed posture with the identity lock redirected into the temp
+ * tree. `EXARCHOS_INSTALL_STATE_DIR` is load-bearing for hermeticity: the lock
+ * is keyed to the INSTALLATION rather than the state dir, so without it these
+ * tests would read and write the real home directory.
+ */
+function lockEnv(): Record<string, string> {
+  return {
+    EXARCHOS_PLUGIN_ROOT: root,
+    EXARCHOS_CACHE_DIR: cacheDir,
+    EXARCHOS_INSTALL_STATE_DIR: installDir,
+  };
+}
+
+/** Record the lock for the seeded install, in the temp install dir. */
+function recordLock(): void {
+  writeRecordedIdentity(root, collectInstallIdentity(root, { env: lockEnv() }), { env: lockEnv() });
 }
 
 const signal = new AbortController().signal;
@@ -44,7 +61,9 @@ beforeEach(() => {
   root = path.join(base, 'plugin');
   cacheDir = path.join(base, 'cache');
   stateDir = path.join(base, 'state');
+  installDir = path.join(base, 'install');
   fs.mkdirSync(stateDir, { recursive: true });
+  fs.mkdirSync(installDir, { recursive: true });
 });
 
 afterEach(() => {
@@ -54,7 +73,7 @@ afterEach(() => {
 describe('doctor install-freshness check', () => {
   it('reports Pass for a fresh install matching the recorded identity', async () => {
     seedInstall();
-    writeRecordedIdentity(stateDir, collectInstallIdentity(root, { env: { EXARCHOS_CACHE_DIR: cacheDir } }));
+    recordLock();
     const r = await installFreshness(installedProbes(), signal);
     expect(r.status).toBe('Pass');
     expect(r.name).toBe('install-freshness');
@@ -64,7 +83,7 @@ describe('doctor install-freshness check', () => {
 
   it('reports Warning naming the stale dimension, with a fix', async () => {
     seedInstall();
-    writeRecordedIdentity(stateDir, collectInstallIdentity(root, { env: { EXARCHOS_CACHE_DIR: cacheDir } }));
+    recordLock();
     // Upgrade the binary on disk after recording — binary dimension diverges.
     fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version: '9.9.9' }));
     const r = await installFreshness(installedProbes(), signal);
@@ -84,11 +103,14 @@ describe('doctor install-freshness check', () => {
   it('is read-only — does NOT write a bootstrap lock (unlike the dispatch gate)', async () => {
     seedInstall();
     await installFreshness(installedProbes(), signal);
-    expect(fs.existsSync(installIdentityLockPath(stateDir))).toBe(false);
+    expect(fs.existsSync(installIdentityLockPath(root, { env: lockEnv() }))).toBe(false);
   });
 
   it('reports Pass with no plugin-root env (source checkout is not a corrupt install)', async () => {
-    const r = await installFreshness(makeStubProbes({ env: {}, stateDir }), signal);
+    const r = await installFreshness(
+      makeStubProbes({ env: { EXARCHOS_INSTALL_STATE_DIR: installDir }, stateDir }),
+      signal,
+    );
     // Either dev-checkout (no cache) or installed-but-no-lock — both are Pass.
     expect(r.status).toBe('Pass');
   });

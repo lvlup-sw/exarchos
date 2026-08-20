@@ -51,6 +51,15 @@ import {
   findIgnoredParameters,
   buildIgnoredParameterError,
 } from '../undeclared-parameters.js';
+import type { ToolAction } from '../../registry.js';
+import path from 'node:path';
+import {
+  detectActiveStoreDivergence,
+  describeStoreDivergence,
+  resolveStateDir,
+  toPosix,
+  ALLOW_STORE_DIVERGENCE_ENV,
+} from '../../utils/paths.js';
 import type { EventSourcedTaskStore } from '../../projections/task-store/event-sourced-task-store.js';
 
 // NOTE: `../telemetry/middleware.js` is intentionally NOT imported at module
@@ -352,10 +361,24 @@ const FRESHNESS_GATE_DIAGNOSTIC_EXEMPT: ReadonlySet<string> = new Set([
  * read-only classification has a single source of truth.
  */
 function isFreshnessGateExempt(tool: string, action: string): boolean {
+  // Exactly what the doc above says in prose: read-only, PLUS the diagnostic
+  // carve-out. Expressed as a composition so the read-only classification is
+  // read from one place instead of being spelled out twice.
+  return isReadOnlyAction(tool, action) || FRESHNESS_GATE_DIAGNOSTIC_EXEMPT.has(action);
+}
+
+/**
+ * True when `action` on `tool` only reads.
+ *
+ * The primitive both gates share. The store-divergence check uses it directly
+ * rather than through {@link isFreshnessGateExempt}, because the diagnostic
+ * carve-out points the other way here: a divergence warning is precisely what
+ * `doctor` should carry, so `doctor` must not be exempt from it.
+ */
+function isReadOnlyAction(tool: string, action: string): boolean {
   const allowed = (READ_ONLY_ACTIONS as Record<string, readonly string[] | '*'>)[tool];
   if (allowed === '*') return true;
-  if (allowed !== undefined && allowed.includes(action)) return true;
-  return FRESHNESS_GATE_DIAGNOSTIC_EXEMPT.has(action);
+  return allowed !== undefined && allowed.includes(action);
 }
 
 /**
@@ -364,16 +387,41 @@ function isFreshnessGateExempt(tool: string, action: string): boolean {
  * The roots-based workspace-discovery branch in `dispatch()` skips its
  * synchronous filesystem walk for actions in this set so high-frequency
  * introspection calls (catalog reads, runbook fetches, agent-spec
- * lookups) don't pay the discovery cost. Adding an action here is a
- * "this surface MUST NOT ever take a featureId" assertion — pair the
- * addition with a registry-side check that the action's schema does not
- * declare a `featureId` field.
+ * lookups) don't pay the discovery cost.
+ *
+ * This list is a LATENCY shortcut and nothing more. It is deliberately NOT
+ * load-bearing for correctness: {@link actionAcceptsInferredFeatureId} decides
+ * whether inference may run at all, reading the receiving action's own schema.
+ * A name missing from this set costs a filesystem walk; it can no longer cost
+ * a rejected call.
  */
 const NO_WORKSPACE_RESOLUTION_ACTIONS: ReadonlySet<string> = new Set([
   'describe',
   'runbook',
   'agent_spec',
 ]);
+
+/**
+ * May the roots/cwd resolver hand this action an inferred `featureId`?
+ *
+ * Only when the action's OWN schema declares the field. Every composite tool
+ * flattens its actions into one registration schema, so the wire accepts the
+ * union of every action's fields — but routing hands the payload to a single
+ * strict schema that knows only its own. Injecting into an action that does
+ * not declare `featureId` therefore manufactures the exact refusal
+ * `undeclared-parameters.ts` exists to raise, naming a parameter the caller
+ * never sent and the server itself added.
+ *
+ * The predicate reads the same `schema.shape` that builds that refusal, so the
+ * two can no longer disagree: a newly-added action is classified correctly the
+ * moment it is declared, with no list to keep in step.
+ *
+ * Exported for the regression guard, which asserts this over the whole
+ * registry rather than executing 59 handlers to discover it.
+ */
+export function actionAcceptsInferredFeatureId(action: ToolAction): boolean {
+  return action.schema.shape['featureId'] !== undefined;
+}
 
 /**
  * Apply the readonly capability gate. Returns a structured CAPABILITY_DENIED
@@ -711,6 +759,23 @@ export async function dispatch(
     ? undefined
     : snapshotCallerAuthorization(ctx.callerIdentity, ctx.capabilityResolver);
   const dispatchCtx = mintDispatchContextFromRequest(args, authorization);
+
+  // Computed once per dispatch and reused by both the read-side warning and
+  // the write-side refusal below, so the existence probe runs at most once on
+  // the hot path.
+  //
+  // Scoped to a context whose store came from the AMBIENT cascade. When a
+  // caller supplied an explicit state dir — `--state-dir`, an embedding host,
+  // every in-process test — there is no ambiguity about which store was meant,
+  // so there is nothing to warn about and nothing to refuse. Without this the
+  // verdict would depend on which stores happen to exist under the invoking
+  // user's home, making dispatch behave differently on a developer machine
+  // than in CI.
+  const storeCameFromAmbientCascade = toPosix(path.resolve(ctx.stateDir)) === resolveStateDir();
+  const storeDivergence = storeCameFromAmbientCascade
+    ? detectActiveStoreDivergence()
+    : undefined;
+
   const attachMeta = (result: ToolResult): ToolResult => {
     const existingMeta =
       typeof (result as { _meta?: unknown })._meta === 'object' &&
@@ -728,7 +793,22 @@ export async function dispatch(
     const mergedMeta = existingMeta
       ? { ...correlationMeta, ...existingMeta }
       : correlationMeta;
-    return { ...result, _meta: mergedMeta } as ToolResult;
+    // A read answered from a store the other surface never sees carries the
+    // caveat INLINE. The `prepare_delegation` envelope that made this issue
+    // expensive was internally consistent and wrong, with nothing in it
+    // hinting that two stores existed; a separate `doctor` run was the only
+    // way to learn that, and by then the reader trusted the verdict.
+    // The refusal already states the divergence in `error.message`; repeating
+    // it as a warning on the same envelope tells the caller nothing twice.
+    const alreadyStated = result.error?.code === 'STORE_PATH_DIVERGENCE';
+    const warnings = storeDivergence?.shouldWarn === true && !alreadyStated
+      ? [...(result.warnings ?? []), describeStoreDivergence(storeDivergence)]
+      : result.warnings;
+    return {
+      ...result,
+      ...(warnings !== undefined ? { warnings } : {}),
+      _meta: mergedMeta,
+    } as ToolResult;
   };
 
   return runWithDispatchContext(dispatchCtx, async () => {
@@ -790,10 +870,20 @@ export async function dispatch(
     // to every CLI hot-path dispatch (telemetry view, doctor checks, etc.)
     // that happens to omit a featureId. Roots+cwd inference is purely an
     // MCP-client convenience for callers that DID declare roots.
+    //
+    // The receiving action's schema is consulted FIRST. Inference is a
+    // convenience for actions that take a featureId; for an action that does
+    // not declare one there is nothing to infer, and injecting anyway turns a
+    // successful resolution into an INVALID_INPUT naming a field the caller
+    // never sent. That inverted failure hit 59 of the 124 registered actions
+    // — including `doctor`, so the diagnostic of record broke exactly when an
+    // operator reached for it — and it reproduced only where roots resolution
+    // SUCCEEDS, which is why the repo's own suite never saw it.
     if (
       rest.featureId === undefined
       && ctx.capabilityResolver !== undefined
       && ctx.rootsClient !== undefined
+      && actionAcceptsInferredFeatureId(matchingAction)
       && !NO_WORKSPACE_RESOLUTION_ACTIONS.has(actionName)
     ) {
       try {
@@ -992,6 +1082,48 @@ export async function dispatch(
     // everything, and the confinement it claimed to enforce is not ours to
     // enforce. The readonly gate above still covers state authority.
 
+    // ─── Store-path divergence — refuse a write into a ghost store ───────
+    // The detector already existed (`computeStorePathDivergence`) but its only
+    // consumer was the doctor check, so mutations landed in the
+    // non-plugin store and reported SUCCESS while the orchestrator read a
+    // different one. The tell surfaced steps later as STATE_NOT_FOUND, and
+    // gates like `prepare_delegation` answered from the ghost store with a
+    // self-consistent, entirely wrong verdict. Every symptom pointed away
+    // from the cause.
+    //
+    // It runs FIRST among the pre-execution gates. The session-machinery
+    // interceptor below APPENDS an event, so refusing after it would write
+    // into the very ghost store this refusal exists to keep out — a refusal
+    // that already mutated is not a refusal.
+    //
+    // Refusal is scoped to an ACTIVE divergence — the other store must exist —
+    // because bare divergence is true for every standalone CLI invocation and
+    // refusing on it would break users who never installed the plugin.
+    if (!isReadOnlyAction(tool, actionName) && storeDivergence !== undefined) {
+      const divergence = storeDivergence;
+      if (divergence.active) {
+        logger.child({ subsystem: 'store-divergence' }).warn(
+          { tool, action: actionName, activePath: divergence.activePath, otherPath: divergence.otherPath },
+          'refusing mutating action: the resolved event store diverges from the other surface',
+        );
+        return attachMeta({
+          success: false,
+          error: {
+            code: 'STORE_PATH_DIVERGENCE',
+            message: describeStoreDivergence(divergence),
+            tool,
+            action: actionName,
+            expectedShape: {
+              activePath: divergence.activePath,
+              otherPath: divergence.otherPath,
+              remedy: `WORKFLOW_STATE_DIR=${path.dirname(divergence.otherPath)}`,
+              override: `${ALLOW_STORE_DIVERGENCE_ENV}=1`,
+            },
+          },
+        });
+      }
+    }
+
     // T-12 (P4 of rehydration-machinery-refactor): emit
     // `session.machinery_consumed` on the first non-rehydrate L5 handler
     // invocation that follows a `workflow.rehydrated` event landing on the
@@ -1019,7 +1151,7 @@ export async function dispatch(
     // is a no-op for source-run / in-process tests and adds a single one-time
     // filesystem read on the first mutating action of a real install.
     if (!isFreshnessGateExempt(tool, actionName)) {
-      const freshness = evaluateInstallFreshness({ stateDir: ctx.stateDir });
+      const freshness = evaluateInstallFreshness({});
       if (freshness.status === 'blocked') {
         logger.child({ subsystem: 'install-freshness' }).warn(
           {
