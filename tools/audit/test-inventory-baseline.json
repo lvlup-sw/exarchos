@@ -7,7 +7,7 @@
     "testFiles": 1192,
     "parsedFiles": 1147,
     "shellFiles": 45,
-    "cases": 13285,
+    "cases": 13286,
     "dynamicTitles": 144,
     "unparseableFiles": 0
   },
@@ -48386,6 +48386,11 @@
         {
           "suite": "env-variables",
           "name": "EnvVariables_AllExarchosEnvValid_ReturnsPass",
+          "dynamic": false
+        },
+        {
+          "suite": "env-variables",
+          "name": "EnvVariables_EveryNameTheSourceMentions_IsRecognized",
           "dynamic": false
         },
         {
