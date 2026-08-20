@@ -435,3 +435,135 @@ describe('toEffectError', () => {
     expect(err.cause).toBe(cause);
   });
 });
+
+describe('DR-5 — the edges that universal declaration puts pressure on', () => {
+  it('DryRun_EveryPlanDeclares_StillRecordsNothing', async () => {
+    // Declaration is universal now, so the arm that must record NOTHING is the
+    // one carrying the new pressure: a dry-run holds a plan that declares three
+    // emissions and a capability able to write them, and must still write none.
+    const trace: string[] = [];
+    const recorder = emissionRecorder((emission) => {
+      trace.push(emission.event);
+    });
+    const execute = vi.fn().mockResolvedValue('SHOULD NOT RUN');
+
+    const outcome = await runEffect(DRY_RUN, LEDGER_PLAN, execute, recorder);
+
+    expect(isDryRun(outcome)).toBe(true);
+    expect(execute).not.toHaveBeenCalled();
+    // The whole guarantee: a withheld effect leaves the ledger as silent as it
+    // leaves the disk.
+    expect(trace).toEqual([]);
+  });
+
+  it('DryRun_RecordsNothingPlan_IsAlsoSilent', async () => {
+    // The other plan shape, for the same arm. An abstention in dry-run must not
+    // be the case that quietly reaches the recorder.
+    const sink = vi.fn();
+    const outcome = await runEffect(DRY_RUN, PLAN, () => Promise.resolve(1), emissionRecorder(sink));
+    expect(isDryRun(outcome)).toBe(true);
+    expect(sink).not.toHaveBeenCalled();
+  });
+
+  it('RecordEmissions_NonReceiptMidSet_FailsWholeEffect', async () => {
+    // A recorder that stops minting part-way through a declared set must fail
+    // the WHOLE effect rather than record a prefix and commit. The ledger plan
+    // declares one `before` emission, so the mid-set case needs a condition
+    // carrying more than one — built here rather than borrowed, so the test
+    // states its own subject.
+    const multiIntent: EffectPlan = {
+      ...LEDGER_PLAN,
+      emits: records(
+        { event: 'vcs.requested', when: 'before' },
+        { event: 'vcs.executed', when: 'before' },
+      ),
+    };
+
+    let minted = 0;
+    const genuine = emissionRecorder(() => undefined);
+    // Mints a real receipt for the first declaration, then returns a non-receipt.
+    const halfway = forgeBrandedRecorder(async (emission, plan) => {
+      minted += 1;
+      return minted === 1 ? await genuine.record(emission, plan) : { notAReceipt: true };
+    });
+
+    const execute = vi.fn().mockResolvedValue('committed');
+    await expect(runEffect(LIVE, multiIntent, execute, halfway)).rejects.toThrow(
+      UnrecordedEmissionError,
+    );
+    // Truncation is not a partial success: the effect never ran at all.
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('UnrecordedEmissionError_NamesPlanDeclarationAndCount', async () => {
+    // A failing build has to say what to fix. The diagnostic names the plan, the
+    // condition, and both counts — otherwise it reports that something is wrong
+    // without saying what.
+    const genuine = emissionRecorder(() => undefined);
+    let minted = 0;
+    const halfway = forgeBrandedRecorder(async (emission, plan) => {
+      minted += 1;
+      return minted === 1 ? await genuine.record(emission, plan) : { notAReceipt: true };
+    });
+    const multiIntent: EffectPlan = {
+      ...LEDGER_PLAN,
+      emits: records(
+        { event: 'vcs.requested', when: 'before' },
+        { event: 'vcs.executed', when: 'before' },
+      ),
+    };
+
+    const error = await runEffect(LIVE, multiIntent, () => Promise.resolve(1), halfway).catch(
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(UnrecordedEmissionError);
+    if (error instanceof UnrecordedEmissionError) {
+      expect(error.plan.description).toBe(multiIntent.description);
+      expect(error.when).toBe('before');
+      expect(error.declared).toBe(2);
+      expect(error.appended).toBe(1);
+      expect(error.message).toContain(multiIntent.owner);
+      expect(error.message).toContain('2');
+    }
+  });
+
+  it('SuccessArm_CarriesAReceiptPerDeclaredEmission', async () => {
+    // The evidence is not decorative: it holds one minted receipt for each
+    // declaration that fired — the intent and exactly one terminal.
+    const outcome = await runEffect(
+      LIVE,
+      LEDGER_PLAN,
+      () => Promise.resolve('committed'),
+      emissionRecorder(() => undefined),
+    );
+
+    expect(isSuccess(outcome)).toBe(true);
+    if (isSuccess(outcome) && outcome.evidence.kind === 'recorded') {
+      expect(outcome.evidence.receipts.map((receipt) => receipt.event)).toEqual([
+        'vcs.requested',
+        'vcs.executed',
+      ]);
+    } else {
+      expect.unreachable('a live ledger run must carry recorded evidence');
+    }
+  });
+
+  it('SuccessArm_RecordsNothingPlan_CarriesEmptyRecordedEvidence', async () => {
+    // An abstention still commits through the `recorded` arm — with nothing in
+    // it. That is the honest shape: this run recorded, and what it recorded was
+    // nothing. Reaching for the replay witness here would claim a prior append
+    // that never happened.
+    const outcome = await runEffect(
+      LIVE,
+      PLAN,
+      () => Promise.resolve('committed'),
+      emissionRecorder(() => undefined),
+    );
+    expect(isSuccess(outcome)).toBe(true);
+    if (isSuccess(outcome)) {
+      expect(outcome.evidence.kind).toBe('recorded');
+      if (outcome.evidence.kind === 'recorded') expect(outcome.evidence.receipts).toEqual([]);
+    }
+  });
+});
