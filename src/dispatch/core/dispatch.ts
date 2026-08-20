@@ -361,16 +361,19 @@ const FRESHNESS_GATE_DIAGNOSTIC_EXEMPT: ReadonlySet<string> = new Set([
  * read-only classification has a single source of truth.
  */
 function isFreshnessGateExempt(tool: string, action: string): boolean {
-  const allowed = (READ_ONLY_ACTIONS as Record<string, readonly string[] | '*'>)[tool];
-  if (allowed === '*') return true;
-  if (allowed !== undefined && allowed.includes(action)) return true;
-  return FRESHNESS_GATE_DIAGNOSTIC_EXEMPT.has(action);
+  // Exactly what the doc above says in prose: read-only, PLUS the diagnostic
+  // carve-out. Expressed as a composition so the read-only classification is
+  // read from one place instead of being spelled out twice.
+  return isReadOnlyAction(tool, action) || FRESHNESS_GATE_DIAGNOSTIC_EXEMPT.has(action);
 }
 
 /**
- * True when `action` on `tool` only reads. Same source of truth as the
- * freshness gate, minus the diagnostic carve-out: a divergence WARNING is
- * exactly what `doctor` should carry, so `doctor` is not exempted here.
+ * True when `action` on `tool` only reads.
+ *
+ * The primitive both gates share. The store-divergence check uses it directly
+ * rather than through {@link isFreshnessGateExempt}, because the diagnostic
+ * carve-out points the other way here: a divergence warning is precisely what
+ * `doctor` should carry, so `doctor` must not be exempt from it.
  */
 function isReadOnlyAction(tool: string, action: string): boolean {
   const allowed = (READ_ONLY_ACTIONS as Record<string, readonly string[] | '*'>)[tool];
