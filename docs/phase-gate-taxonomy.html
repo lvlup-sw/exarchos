@@ -2022,18 +2022,39 @@
       including security scan, test adequacy, contract drift and mock boundary. It has become a catch-all.
     </p>
     <p>
-      So the gate returns <code>passed: false</code> with <code>uncheckedDimensions</code> populated, every time
-      &mdash; and <code>quality-evaluation</code> invokes it with <code>onFail: 'continue'</code>, which discards
-      that. A verdict that is structurally always negative, on the one path that invokes it, which ignores it.
+      No gate the system runs can populate D2, so convergence cannot pass on any automated path: the gate returns
+      <code>passed: false</code> with <code>uncheckedDimensions</code> populated &mdash; and
+      <code>quality-evaluation</code> invokes it with <code>onFail: 'continue'</code>, which discards that. (An
+      operator <em>can</em> hand-append a dimension-carrying <code>gate.executed</code> row, since the schema is
+      not <code>.strict()</code> and the reader is tolerant. That is the only way it goes green, and it is not a
+      path the system drives.)
+    </p>
+  </div>
+
+  <div class="callout warn">
+    <p class="callout-title"><span class="ico">&#9650;</span>But the dimension field itself is NOT dead &mdash; it has a second, live consumer</p>
+    <p>
+      <code>gate.dimension</code> is also the key for <code>resolveGateSeverity</code>, which reads
+      <code>review.dimensions.D1&hellip;D5</code> from <code>.exarchos.yml</code> to disable a dimension outright or
+      downgrade it to a warning. That is a documented, user-facing knob
+      (<code>yaml-schema.ts</code> exposes <code>DimensionKey</code> as an enum). <strong>Deleting the dimension
+      field would break it.</strong>
+    </p>
+    <p>
+      So the precise disposition is narrower than &ldquo;delete the axis&rdquo;: retire the <em>convergence</em>
+      consumer, keep <code>dimension</code> as a severity-grouping key. What remains wrong there is naming and
+      coherence, not existence &mdash; D1 groups 9 unrelated gates under the label &ldquo;Design Completeness&rdquo;.
+      Whether severity should group by dimension at all, or by resolver family instead, is a design decision rather
+      than a triage item, and it is a config-breaking change either way.
     </p>
   </div>
 
   <p>
-    The root cause is that <strong>two partitions of the same population compete</strong>, and only one is alive.
-    The resolver families (ladder / plan / review / synthesis) partition obligations by who resolves them and when
+    The root cause of the dead half is that <strong>two partitions of the same population compete</strong>. The
+    resolver families (ladder / plan / review / synthesis) partition obligations by who resolves them and when
     &mdash; wired, frozen into <code>phase.entered</code>, load-bearing. The D1&ndash;D5 dimensions partition the
-    same set by a quality taxonomy nothing maintains. Keeping both means every new gate is classified twice, and
-    one of those classifications is never read.
+    same set by a quality taxonomy that only the severity overlay still reads, and that the convergence view reads
+    incorrectly.
   </p>
 
   <h3>Disposition, per gate</h3>
@@ -2045,13 +2066,15 @@
           <td><span class="rec rec-silent"><span class="rec-chip"></span><strong>Retire</strong></span><br><span class="dim-none">3 actions + 1 projection</span></td>
           <td>
             <code>check_design_completeness</code><br>
-            <code>check_convergence</code> + <code>ConvergenceView</code><br>
+            <code>check_convergence</code> + <code>ConvergenceView</code> + the <code>convergence</code> CLI view<br>
             <code>check_coverage_thresholds</code>
           </td>
           <td>
             Already <code>deprecated: true</code>, delegates to <code>check_plan_coverage</code>, orphaned &middot;
-            structurally cannot pass and its failure is discarded &middot; orphan <em>and</em> advisory
-            <em>and</em> silent &mdash; no observable effect on any path.
+            cannot pass on any automated path and its failure is discarded &mdash; note the CLI registers
+            <code>convergence</code> as a view name, so retiring it is a contract change under INV-2, not an
+            internal edit &middot; orphan <em>and</em> advisory <em>and</em> silent &mdash; no observable effect on
+            any path.
           </td>
         </tr>
         <tr>
@@ -2124,8 +2147,9 @@
   </div>
 
   <p style="font-size:13.5px;color:var(--ink-2);margin-top:18px">
-    Net: <strong>28 gate-flagged actions &rarr; roughly 20</strong>, the D1&ndash;D5 axis and its projection
-    deleted, and the survivors partitioned once &mdash; by resolver family &mdash; rather than twice.
+    Net: <strong>28 gate-flagged actions &rarr; 20</strong>, the convergence consumer and its projection deleted,
+    the <code>dimension</code> field kept for severity config, and every survivor reachable from a runbook chain or
+    a resolver sequence rather than from prose alone.
   </p>
 
   <div class="callout warn">
