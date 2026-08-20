@@ -51,7 +51,7 @@ import {
   findIgnoredParameters,
   buildIgnoredParameterError,
 } from '../undeclared-parameters.js';
-import type { ToolAction } from '../../registry.js';
+import { applyInferredValues } from './inferred-values.js';
 import path from 'node:path';
 import {
   detectActiveStoreDivergence,
@@ -380,49 +380,6 @@ function isReadOnlyAction(tool: string, action: string): boolean {
   if (allowed === '*') return true;
   return allowed !== undefined && allowed.includes(action);
 }
-
-/**
- * Actions that never consume a `featureId` (Sentry MEDIUM #1423).
- *
- * The roots-based workspace-discovery branch in `dispatch()` skips its
- * synchronous filesystem walk for actions in this set so high-frequency
- * introspection calls (catalog reads, runbook fetches, agent-spec
- * lookups) don't pay the discovery cost.
- *
- * This list is a LATENCY shortcut and nothing more. It is deliberately NOT
- * load-bearing for correctness: {@link actionAcceptsInferredFeatureId} decides
- * whether inference may run at all, reading the receiving action's own schema.
- * A name missing from this set costs a filesystem walk; it can no longer cost
- * a rejected call.
- */
-const NO_WORKSPACE_RESOLUTION_ACTIONS: ReadonlySet<string> = new Set([
-  'describe',
-  'runbook',
-  'agent_spec',
-]);
-
-/**
- * May the roots/cwd resolver hand this action an inferred `featureId`?
- *
- * Only when the action's OWN schema declares the field. Every composite tool
- * flattens its actions into one registration schema, so the wire accepts the
- * union of every action's fields — but routing hands the payload to a single
- * strict schema that knows only its own. Injecting into an action that does
- * not declare `featureId` therefore manufactures the exact refusal
- * `undeclared-parameters.ts` exists to raise, naming a parameter the caller
- * never sent and the server itself added.
- *
- * The predicate reads the same `schema.shape` that builds that refusal, so the
- * two can no longer disagree: a newly-added action is classified correctly the
- * moment it is declared, with no list to keep in step.
- *
- * Exported for the regression guard, which asserts this over the whole
- * registry rather than executing 59 handlers to discover it.
- */
-export function actionAcceptsInferredFeatureId(action: ToolAction): boolean {
-  return action.schema.shape['featureId'] !== undefined;
-}
-
 /**
  * Apply the readonly capability gate. Returns a structured CAPABILITY_DENIED
  * ToolResult when the effective capability set forbids `action` on `tool`,
@@ -839,115 +796,37 @@ export async function dispatch(
 
     let { action: _action, ...rest } = args;
 
-    // ─── #1290 — Roots-based featureId inference ─────────────────────────
-    // Resolution priority (load-bearing for missing-required-param paths):
-    //   explicit > roots > cwd > elicitation > INVALID_INPUT.
-    // Elicitation is the LAST resort before INVALID_INPUT because it
-    // requires a transport round-trip; roots + cwd inference are
-    // round-trip-free and so take precedence (#1274). If the caller
-    // already supplied a `featureId`, we leave it alone. Otherwise, if
-    // the client declared the MCP roots capability (snapshotted on the
-    // resolver via the initialize handshake), call `resolveWorkspace`
-    // to attempt inference from the cached roots list or a cwd-walk
-    // fallback.
+    // ─── Inferred values ─────────────────────────────────────────────────
     //
-    // Multi-match returns a structured INVALID_INPUT here so the caller
-    // can disambiguate; zero-match falls through to the existing per-
-    // action Zod validation, which surfaces the legacy "featureId is
-    // required" envelope unchanged.
+    // Resolution priority for a parameter the caller omitted:
     //
-    // Sentry MEDIUM #1423: actions that never consume workspace context
-    // (`describe`/`runbook`/`agent_spec` — pure introspection on the
-    // registry / catalogs) skip the discovery call entirely. Pre-fix
-    // these high-frequency informational calls each triggered a
-    // synchronous cwd-walk on miss, adding measurable latency to the
-    // dispatch hot path. The skip list is conservative: anything that
-    // *might* take a featureId stays in the discovery branch.
-    // Sentry MEDIUM #1424: skip workspace resolution entirely when
-    // `rootsClient` is undefined — that's the CLI dispatch path which has
-    // no MCP roots channel and therefore no useful inference target. The
-    // sync `cwdWalk` fallback would still fire and add filesystem latency
-    // to every CLI hot-path dispatch (telemetry view, doctor checks, etc.)
-    // that happens to omit a featureId. Roots+cwd inference is purely an
-    // MCP-client convenience for callers that DID declare roots.
+    //     explicit > inferred (roots, then a cwd walk) > elicitation > INVALID_INPUT
     //
-    // The receiving action's schema is consulted FIRST. Inference is a
-    // convenience for actions that take a featureId; for an action that does
-    // not declare one there is nothing to infer, and injecting anyway turns a
-    // successful resolution into an INVALID_INPUT naming a field the caller
-    // never sent. That inverted failure hit 59 of the 124 registered actions
-    // — including `doctor`, so the diagnostic of record broke exactly when an
-    // operator reached for it — and it reproduced only where roots resolution
-    // SUCCEEDS, which is why the repo's own suite never saw it.
-    if (
-      rest.featureId === undefined
-      && ctx.capabilityResolver !== undefined
-      && ctx.rootsClient !== undefined
-      && actionAcceptsInferredFeatureId(matchingAction)
-      && !NO_WORKSPACE_RESOLUTION_ACTIONS.has(actionName)
-    ) {
-      try {
-        const { resolveWorkspace } = await import('../../runtime/workspace/discovery.js');
-        const resolution = await resolveWorkspace({
-          resolver: ctx.capabilityResolver,
-          rootsClient: ctx.rootsClient,
-          cwd: ctx.cwd ?? process.cwd(),
-          eventStore: ctx.eventStore,
-          // #1504 — authoritative workflow enumeration via the projected
-          // `workflow_state` table when probing this server's own workspace.
-          storage: ctx.storage,
-        });
-        if (resolution !== undefined) {
-          if (resolution.success) {
-            rest = { ...rest, featureId: resolution.featureId };
-          } else {
-            // Multi-match. Surface the structured INVALID_INPUT so the
-            // caller can pick the intended target. CodeRabbit CRITICAL
-            // #1428: map `validTargets` from `{featureId,path}` records
-            // to plain `featureId` strings — that's the disambiguator the
-            // caller actually supplies in the retry. The published error
-            // contract expects `readonly (string | ValidTransitionTarget)[]`.
-            // CodeRabbit CRITICAL + Sentry #1428: also attach _meta so
-            // the multi-match envelope carries correlation IDs (parity
-            // with success + thrown-error paths). Pre-fix this was the
-            // ONE early-return path that diverged from the published
-            // error contract.
-            return attachMeta({
-              success: false,
-              error: {
-                code: resolution.code,
-                message:
-                  `${tool}/${actionName}: multiple workspaces matched MCP roots; ` +
-                  'supply an explicit featureId to disambiguate.',
-                // CodeRabbit CRITICAL #1423: `ToolResult.error.validTargets`
-                // expects `readonly (string | ValidTransitionTarget)[]`, but
-                // workspace resolution returns
-                // `readonly { featureId, path }[]`. Surface the featureIds
-                // (the disambiguator the caller actually supplies) so the
-                // envelope satisfies the contract.
-                validTargets: resolution.validTargets?.map((t) => t.featureId),
-              },
-            });
-          }
-        }
-      } catch (err) {
-        // Discovery is a best-effort inference hook — a failure must not
-        // mask the legacy validation contract. Fall through to the
-        // existing schema check; callers see the standard "featureId
-        // is required" envelope. CodeRabbit MINOR #1423: silent catches
-        // violate the project's observability standard. Surface via the
-        // workspace-discovery logger child so the failure is auditable
-        // without changing the user-facing fallback.
-        logger.child({ subsystem: 'workspace-discovery' }).warn(
-          {
-            tool,
-            action: actionName,
-            error: err instanceof Error ? err.message : String(err),
-          },
-          'workspace inference failed; falling back to legacy featureId validation',
-        );
-      }
+    // Elicitation is LAST because it costs a transport round-trip; inference is
+    // round-trip-free and so takes precedence. It is also the only one of the
+    // three that needs no gate here: it splices a field named by this action's
+    // OWN parse error, so it can only ever supply something the action
+    // declares.
+    //
+    // The table in `inferred-values.ts` owns which values may be inferred and
+    // the single gate they share — most importantly that a value is merged only
+    // into an action whose schema declares it. Dispatch keeps no per-field
+    // logic, so a future inference cannot reopen #1838 by forgetting a check.
+    const inference = await applyInferredValues(rest, matchingAction, tool, actionName, ctx);
+    if (inference.kind === 'refused') {
+      // Multi-match. A structured INVALID_INPUT so the caller can pick the
+      // intended target. `attachMeta` is applied like every other early return
+      // — this path used to be the one that diverged from the error contract.
+      return attachMeta({
+        success: false,
+        error: {
+          code: inference.code,
+          message: inference.message,
+          ...(inference.validTargets !== undefined ? { validTargets: inference.validTargets } : {}),
+        },
+      });
     }
+    rest = inference.args;
 
     // ─── DR-7 — honoured, or refused (never accepted-and-dropped) ────────
     //

@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1192,
-    "parsedFiles": 1147,
+    "testFiles": 1193,
+    "parsedFiles": 1148,
     "shellFiles": 45,
-    "cases": 13291,
+    "cases": 13299,
     "dynamicTitles": 144,
     "unparseableFiles": 0
   },
@@ -21036,6 +21036,52 @@
         {
           "suite": "EmissionVerifier lifecycle axis",
           "name": "reports a missing emission and a lifecycle violation together",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/dispatch/core/inferred-values.test.ts": {
+      "file": "tests/unit/dispatch/core/inferred-values.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "Every inferrable field inherits one gate",
+          "name": "InferredValue_ActionDeclaringTheField_ReceivesIt",
+          "dynamic": false
+        },
+        {
+          "suite": "Every inferrable field inherits one gate",
+          "name": "InferredValue_ActionOmittingTheField_NeverReceivesIt",
+          "dynamic": false
+        },
+        {
+          "suite": "Every inferrable field inherits one gate",
+          "name": "InferredValue_ExplicitCallerValue_IsNeverOverwritten",
+          "dynamic": false
+        },
+        {
+          "suite": "Every inferrable field inherits one gate",
+          "name": "InferredValue_LatencySkipList_SuppressesResolution",
+          "dynamic": false
+        },
+        {
+          "suite": "Every inferrable field inherits one gate",
+          "name": "InferredValue_AmbiguousOutcome_RefusesWithTheCallersOptions",
+          "dynamic": false
+        },
+        {
+          "suite": "Every inferrable field inherits one gate",
+          "name": "InferredValue_UnavailableOutcome_FallsThroughToValidation",
+          "dynamic": false
+        },
+        {
+          "suite": "The shipped table is well-formed",
+          "name": "InferrableFields_EveryEntry_DeclaresADistinctField",
+          "dynamic": false
+        },
+        {
+          "suite": "The shipped table is well-formed",
+          "name": "InferrableFields_TheGate_IsAFunctionOfTheSchemaAlone",
           "dynamic": false
         }
       ]
