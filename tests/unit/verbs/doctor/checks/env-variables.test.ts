@@ -1,3 +1,12 @@
+// @oracle-sources: ../../../../../src/verbs/doctor/checks/env-variables.ts, shipped-src-corpus
+//
+// The drift guard below derives its expectation from the shipped `src/` tree —
+// every `EXARCHOS_*` name the source mentions — and checks it against the
+// hand-maintained `KNOWN` set in the check itself. Both authorities are named
+// here because the assertion is a comparison BETWEEN them: the tree supplies
+// the population, the check supplies the claim, and the test exists to stop the
+// two drifting apart.
+
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
