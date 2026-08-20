@@ -17,6 +17,7 @@
 
 import { describe, it, expect } from 'vitest';
 
+import * as os from 'node:os';
 import * as path from 'node:path';
 
 import {
@@ -51,13 +52,34 @@ describe('The ambient-cascade comparison holds on the real dispatch path', () =>
   // path, so it holds on win32 (where path.resolve emits backslashes that
   // toPosix must fold back) as well as on POSIX.
   it('AmbientCascade_NormalizationOfTheResolverOutput_IsIdempotent', () => {
-    for (const env of [{}, { WORKFLOW_STATE_DIR: '/pinned/store' }, { XDG_STATE_HOME: '/xdg' }]) {
-      const resolved = resolveStateDir({ env, homedir: HOME });
+    // The REAL home, not the POSIX literal the divergence cases below use.
+    // `path.resolve` is drive-relative on win32, so a bare `/home/u` there
+    // resolves to `D:/home/u` and the comparison would fail for a reason that
+    // has nothing to do with the property. Production always feeds this an
+    // absolute platform path, because ctx.stateDir comes from resolveStateDir
+    // itself.
+    const realHome = os.homedir();
+    for (const env of [
+      {},
+      { WORKFLOW_STATE_DIR: path.join(realHome, 'pinned-store') },
+      { XDG_STATE_HOME: path.join(realHome, 'xdg') },
+    ]) {
+      const resolved = resolveStateDir({ env, homedir: realHome });
       expect(
         toPosix(path.resolve(resolved)),
         `dispatch would not recognize its own resolved store dir for env ${JSON.stringify(env)}`,
       ).toBe(resolved);
     }
+  });
+
+  it('AmbientCascade_WindowsShapedPath_SurvivesTheSameNormalization', () => {
+    // Asserted through `path.win32` so the win32 branch is proved from a POSIX
+    // runner too. Without this the test above only ever covers the platform it
+    // happens to run on, and the Windows lane is exactly where separator
+    // handling breaks — a previous fix in this same change set was a
+    // native-separator path that compared unequal to its POSIX resolver.
+    const resolverOutput = 'C:/Users/runneradmin/.exarchos/state';
+    expect(toPosix(path.win32.resolve(resolverOutput))).toBe(resolverOutput);
   });
 });
 

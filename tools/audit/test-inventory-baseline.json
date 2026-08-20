@@ -7,7 +7,7 @@
     "testFiles": 1192,
     "parsedFiles": 1147,
     "shellFiles": 45,
-    "cases": 13290,
+    "cases": 13291,
     "dynamicTitles": 144,
     "unparseableFiles": 0
   },
@@ -46881,6 +46881,11 @@
         {
           "suite": "The ambient-cascade comparison holds on the real dispatch path",
           "name": "AmbientCascade_NormalizationOfTheResolverOutput_IsIdempotent",
+          "dynamic": false
+        },
+        {
+          "suite": "The ambient-cascade comparison holds on the real dispatch path",
+          "name": "AmbientCascade_WindowsShapedPath_SurvivesTheSameNormalization",
           "dynamic": false
         },
         {
