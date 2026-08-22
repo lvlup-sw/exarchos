@@ -13,8 +13,10 @@
       "populationSize": 54,
       "satisfyingCount": 50,
       "zeroPrimaryCount": 0,
+      "unownedPrimaryCount": 0,
       "multiPrimaryCount": 4,
       "zeroPrimary": [],
+      "unownedPrimary": [],
       "multiPrimary": [
         {
           "key": "admission.evidence-recorded",
@@ -22,6 +24,7 @@
           "primaryOwners": [
             "orchestrate"
           ],
+          "unattributedPrimaryEdges": 0,
           "declaringEdges": 5,
           "declaredBy": [
             "exarchos_orchestrate.check_contract_drift",
@@ -37,6 +40,7 @@
           "primaryOwners": [
             "orchestrate"
           ],
+          "unattributedPrimaryEdges": 0,
           "declaringEdges": 24,
           "declaredBy": [
             "exarchos_orchestrate.assess_stack",
@@ -71,6 +75,7 @@
           "primaryOwners": [
             "orchestrate"
           ],
+          "unattributedPrimaryEdges": 0,
           "declaringEdges": 2,
           "declaredBy": [
             "exarchos_orchestrate.reconcile_worktrees",
@@ -83,6 +88,7 @@
           "primaryOwners": [
             "orchestrate"
           ],
+          "unattributedPrimaryEdges": 0,
           "declaringEdges": 2,
           "declaredBy": [
             "exarchos_orchestrate.reconcile_worktrees",
@@ -155,8 +161,10 @@
       "populationSize": 54,
       "satisfyingCount": 54,
       "zeroPrimaryCount": 0,
+      "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
       "zeroPrimary": [],
+      "unownedPrimary": [],
       "multiPrimary": [],
       "satisfyingKeys": [
         "admission.enforcement-enabled",
@@ -227,12 +235,14 @@
       "populationSize": 86,
       "satisfyingCount": 83,
       "zeroPrimaryCount": 3,
+      "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
       "zeroPrimary": [
         {
           "key": "onboard.executed@exarchos_orchestrate.doctor",
           "primaryEdges": 0,
           "primaryOwners": [],
+          "unattributedPrimaryEdges": 0,
           "declaringEdges": 1,
           "declaredBy": [
             "exarchos_orchestrate.doctor"
@@ -242,6 +252,7 @@
           "key": "onboard.requested@exarchos_orchestrate.doctor",
           "primaryEdges": 0,
           "primaryOwners": [],
+          "unattributedPrimaryEdges": 0,
           "declaringEdges": 1,
           "declaredBy": [
             "exarchos_orchestrate.doctor"
@@ -251,12 +262,14 @@
           "key": "state.patched@exarchos_orchestrate.discover_bridge",
           "primaryEdges": 0,
           "primaryOwners": [],
+          "unattributedPrimaryEdges": 0,
           "declaringEdges": 1,
           "declaredBy": [
             "exarchos_orchestrate.discover_bridge"
           ]
         }
       ],
+      "unownedPrimary": [],
       "multiPrimary": [],
       "satisfyingKeys": [
         "admission.enforcement-enabled@exarchos_orchestrate.cutover_decide",
@@ -356,18 +369,21 @@
       "populationSize": 55,
       "satisfyingCount": 54,
       "zeroPrimaryCount": 1,
+      "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
       "zeroPrimary": [
         {
           "key": "state.patched@exarchos_orchestrate",
           "primaryEdges": 0,
           "primaryOwners": [],
+          "unattributedPrimaryEdges": 0,
           "declaringEdges": 1,
           "declaredBy": [
             "exarchos_orchestrate.discover_bridge"
           ]
         }
       ],
+      "unownedPrimary": [],
       "multiPrimary": [],
       "satisfyingKeys": [
         "admission.enforcement-enabled@exarchos_orchestrate",

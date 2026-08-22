@@ -44,9 +44,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const OUT = path.join(ROOT, 'tools/audit/core/primary-owner-population.json');
+/** Must match {@link PRIMARY_OWNER_POPULATION_FLOOR} in `src/events/registration-validate.ts`. */
+const PRIMARY_OWNER_POPULATION_FLOOR = 54;
+const CENSUS_MARKER = '<<<CENSUS>>>';
 
 // ─── Raw facts, read from the live registry as VALUES ────────────────────────
 //
@@ -92,7 +96,7 @@ const planDeclared = [
 ];
 
 process.stdout.write(
-  '<<<CENSUS>>>' +
+  '${CENSUS_MARKER}' +
     JSON.stringify({
       edges,
       annotations,
@@ -102,22 +106,26 @@ process.stdout.write(
         trigger: m.trigger,
       })),
       planDeclared,
-    }),
+    }) +
+    '${CENSUS_MARKER}',
 );
 `;
 
 function readRawFacts() {
-  const tmp = path.join(ROOT, '.tmp-primary-owner-census.mts');
+  const tmp = path.join(ROOT, `.tmp-primary-owner-census-${randomUUID()}.mts`);
+  const tsxCli = path.join(ROOT, 'node_modules/tsx/dist/cli.mjs');
   fs.writeFileSync(tmp, EXTRACT, 'utf8');
   try {
-    const out = execFileSync('npx', ['tsx', tmp], {
+    const out = execFileSync(process.execPath, [tsxCli, tmp], {
       cwd: ROOT,
       encoding: 'utf8',
       maxBuffer: 32 * 1024 * 1024,
     });
-    const marker = out.indexOf('<<<CENSUS>>>');
+    const marker = out.indexOf(CENSUS_MARKER);
     if (marker === -1) throw new Error(`census extractor produced no payload:\n${out}`);
-    return JSON.parse(out.slice(marker + '<<<CENSUS>>>'.length));
+    const end = out.indexOf(CENSUS_MARKER, marker + CENSUS_MARKER.length);
+    if (end === -1) throw new Error(`census extractor payload was truncated:\n${out}`);
+    return JSON.parse(out.slice(marker + CENSUS_MARKER.length, end));
   } finally {
     fs.rmSync(tmp, { force: true });
   }
@@ -141,13 +149,20 @@ function tally(edges, keyOf) {
     const key = keyOf(edge);
     let group = groups.get(key);
     if (group === undefined) {
-      group = { key, edges: [], primaryEdges: [], primaryOwners: new Set() };
+      group = {
+        key,
+        edges: [],
+        primaryEdges: [],
+        primaryOwners: new Set(),
+        unattributedPrimaryEdges: [],
+      };
       groups.set(key, group);
     }
     group.edges.push(edge);
     if (edge.role === 'primary') {
       group.primaryEdges.push(edge);
-      if (edge.owner !== null) group.primaryOwners.add(edge.owner);
+      if (edge.owner === null) group.unattributedPrimaryEdges.push(edge);
+      else group.primaryOwners.add(edge.owner);
     }
   }
   return [...groups.values()].sort((a, b) => byName(a.key, b.key));
@@ -164,6 +179,7 @@ function tally(edges, keyOf) {
 function verdict(groups, count) {
   const satisfied = [];
   const zeroPrimary = [];
+  const unownedPrimary = [];
   const multiPrimary = [];
   for (const group of groups) {
     const n = count(group);
@@ -171,6 +187,7 @@ function verdict(groups, count) {
       key: group.key,
       primaryEdges: group.primaryEdges.length,
       primaryOwners: [...group.primaryOwners].sort(byName),
+      unattributedPrimaryEdges: group.unattributedPrimaryEdges.length,
       declaringEdges: group.edges.length,
       declaredBy: group.edges
         .map((e) => `${e.declaringTool}.${e.action}`)
@@ -178,6 +195,7 @@ function verdict(groups, count) {
         .filter((id, i, all) => all.indexOf(id) === i),
     };
     if (n === 1) satisfied.push(row);
+    else if (n === 0 && group.unattributedPrimaryEdges.length > 0) unownedPrimary.push(row);
     else if (n === 0) zeroPrimary.push(row);
     else multiPrimary.push(row);
   }
@@ -185,8 +203,10 @@ function verdict(groups, count) {
     populationSize: groups.length,
     satisfyingCount: satisfied.length,
     zeroPrimaryCount: zeroPrimary.length,
+    unownedPrimaryCount: unownedPrimary.length,
     multiPrimaryCount: multiPrimary.length,
     zeroPrimary,
+    unownedPrimary,
     multiPrimary,
     // The satisfying rows are the population a gate would range over without
     // failing. Their key names alone are enough; the detail is on the
@@ -218,7 +238,13 @@ function verdict(groups, count) {
  */
 function probeArms(edges, keyOf, count) {
   const subject = edges.find((e) => e.role === 'primary');
-  if (subject === undefined) return { multiArmReachable: false, zeroArmReachable: false };
+  if (subject === undefined) {
+    return {
+      multiArmReachable: false,
+      zeroArmReachable: false,
+      probedWith: { multi: null, zero: null },
+    };
+  }
 
   const groupCount = (population, key) => {
     const group = tally(population, keyOf).find((g) => g.key === key);
@@ -232,8 +258,12 @@ function probeArms(edges, keyOf, count) {
     declaringTool: '__seeded_tool',
     owner: '__seeded_owner',
   };
-  const withForeign = [...edges, foreign];
-  const multiArmReachable = tally(withForeign, keyOf).some((g) => count(g) > 1);
+  // Only the seeded group's own count may answer this. A population-wide scan
+  // would report the arm reachable on the strength of a pre-existing row.
+  const seededKey = keyOf(foreign);
+  const before = groupCount(edges, seededKey) ?? 0;
+  const after = groupCount([...edges, foreign], seededKey) ?? 0;
+  const multiArmReachable = after > 1 && after > before;
 
   // ZERO: relabel every primary edge of one event as recovery. Pick an event
   // with a single primary so the relabel is total for that event.
@@ -375,7 +405,20 @@ function measure(raw) {
 
 // ─── Entry point ────────────────────────────────────────────────────────────
 
-const rendered = `${JSON.stringify(measure(readRawFacts()), null, 2)}\n`;
+function assertPopulationFloor(measured) {
+  const population = measured.keys['per-event-type/primary-owners'].populationSize;
+  if (population !== PRIMARY_OWNER_POPULATION_FLOOR) {
+    throw new Error(
+      `PRIMARY_OWNER_POPULATION_FLOOR drift: census reports ${population}, ` +
+        `script constant is ${PRIMARY_OWNER_POPULATION_FLOOR}; reconcile with ` +
+        'src/events/registration-validate.ts PRIMARY_OWNER_POPULATION_FLOOR.',
+    );
+  }
+}
+
+const measured = measure(readRawFacts());
+assertPopulationFloor(measured);
+const rendered = `${JSON.stringify(measured, null, 2)}\n`;
 
 if (process.argv.includes('--check')) {
   const existing = fs.existsSync(OUT) ? fs.readFileSync(OUT, 'utf8') : null;

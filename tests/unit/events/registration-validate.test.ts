@@ -812,6 +812,38 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
     }
   });
 
+  it('PrimaryOwnerBijection_SameOwnerDuplicateEdges_DoesNotReportMultiPrimary', () => {
+    const verdict = validateRegistrationWelds(
+      EVENT_ANNOTATIONS,
+      EFFECT_PROVIDERS,
+      EFFECT_OWNERSHIP,
+      WELD_RESOLUTION_POLICY,
+      DIAGNOSTIC_SEVERITY_POLICY,
+      CONFORMING_EMISSIONS,
+      STALE_COVER_LIFECYCLE_POLICY,
+      [],
+      [
+        ...declaredEmissionEdges(),
+        {
+          event: 'seeded.same-owner-dup',
+          action: 'first-claim',
+          declaringTool: 'exarchos_orchestrate',
+          role: 'primary',
+          owner: 'orchestrate',
+        },
+        {
+          event: 'seeded.same-owner-dup',
+          action: 'second-claim',
+          declaringTool: 'exarchos_workflow',
+          role: 'primary',
+          owner: 'orchestrate',
+        },
+      ],
+    );
+
+    expect(verdict.diagnostics.filter((d) => d.code === MULTI_PRIMARY_OWNER_CODE)).toEqual([]);
+  });
+
   it('StartupAssertion_ObserveSeverity_ReportsWithoutThrowing', () => {
     // THE OTHER ARM, over the same six inputs — including the two whose shipped severity is
     // already `observe`, so this loop covers every code the gate can emit rather than only the
