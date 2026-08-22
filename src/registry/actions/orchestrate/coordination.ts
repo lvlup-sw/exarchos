@@ -2,9 +2,39 @@ import { coercedIntArray, coercedNonnegativeInt, coercedPositiveInt, coercedReco
 import { vacuityWaiver, withCappedShape } from '../../../output-schema-declaration.js';
 import { StackPlaceOutputSchema } from '../../../verbs/stack/schemas.js';
 import { z } from 'zod';
+import { declared, none, withActionContract, type ActionContract } from '../../action-contract.js';
 import { LOCAL_MUTATION, REMOTE_MUTATION } from '../../annotations.js';
 import { DELEGATE_PHASES, REVIEW_PHASES, ROLE_ANY, ROLE_LEAD, ROLE_TEAMMATE, STACK_PHASES, SYNTHESIS_REVIEW_PHASES } from '../../phases.js';
 import type { BuiltinToolAction } from '../../types.js';
+
+function withContract(
+  action: BuiltinToolAction,
+  partial: {
+    readonly requires?: ActionContract['requires'];
+    readonly ensures: ActionContract['ensures'];
+    readonly needs: ActionContract['needs'];
+    readonly resources?: ActionContract['touches']['resources'];
+    readonly replay: ActionContract['replay'];
+    readonly emissions?: ActionContract['emissions'];
+  },
+): BuiltinToolAction {
+  return withActionContract(
+    action,
+    {
+      requires: partial.requires ?? none('this action does not consume a prior resolved gate or approval floor'),
+      ensures: partial.ensures,
+      needs: partial.needs,
+      touches: {
+        frame: 'single-machine',
+        resources: partial.resources ?? none('this action does not address a stream, path, worktree, or git-ref'),
+      },
+      executionAuthority: { kind: 'local' },
+      replay: partial.replay,
+      emissions: partial.emissions ?? none('this action appends no catalog events'),
+    },
+    { annotations: action.annotations },
+  );
+}
 
 export const coordinationActions: readonly BuiltinToolAction[] = [
 // DR-3 / B-3 — `prNumbers` and its int-array peers bind the shared, CSV-tolerant
@@ -15,7 +45,7 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
 // CSV-tolerant and made the direct-MCP CSV path fail INVALID_INPUT while its
 // tests exercised the unused shared helper — review fix.)
 
-  {
+  withContract({
     name: 'task_claim',
     description: 'Claim a task for execution',
     schema: z.object({
@@ -36,8 +66,14 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.task_claim'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared({ source: 'event-append', when: 'success', event: 'task.claimed' }),
+    needs: declared('mcp:exarchos'),
+    resources: declared({ kind: 'stream', selector: 'featureId' }),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared({ event: 'task.claimed', condition: 'always', owner: 'orchestrate', role: 'primary' }),
+  }),
+  withContract({
     name: 'task_complete',
     description: 'Mark a task as complete with optional result and evidence. Auto-emits task.completed event. When evidence is provided, verified=true in event data; otherwise verified=false',
     schema: z.object({
@@ -63,8 +99,14 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.task_complete'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared({ source: 'event-append', when: 'success', event: 'task.completed' }),
+    needs: declared('mcp:exarchos'),
+    resources: declared({ kind: 'stream', selector: 'featureId' }),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared({ event: 'task.completed', condition: 'always', owner: 'orchestrate', role: 'primary' }),
+  }),
+  withContract({
     name: 'task_fail',
     description: 'Mark a task as failed with error details. Auto-emits task.failed event',
     schema: z.object({
@@ -86,8 +128,14 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.task_fail'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared({ source: 'event-append', when: 'failure', event: 'task.failed' }),
+    needs: declared('mcp:exarchos'),
+    resources: declared({ kind: 'stream', selector: 'featureId' }),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared({ event: 'task.failed', condition: 'always', owner: 'orchestrate', role: 'primary' }),
+  }),
+  withContract({
     name: 'review_triage',
     description: 'Score PRs by risk and dispatch to CodeRabbit or self-hosted review based on velocity',
     schema: z.object({
@@ -112,8 +160,20 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.review_triage'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared({ source: 'event-append', when: 'success', event: 'review.routed' }),
+    needs: declared('mcp:exarchos'),
+    resources: declared({ kind: 'stream', selector: 'featureId' }),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared({
+      event: 'review.routed',
+      condition: 'conditional',
+      owner: 'orchestrate',
+      role: 'primary',
+      description: 'One per PR routed; none when nothing is dispatched',
+    }),
+  }),
+  withContract({
     name: 'prepare_delegation',
     description: 'Query delegation readiness and prepare quality hints for subagent dispatch',
     schema: z.object({
@@ -164,8 +224,23 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.prepare_delegation'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared({ source: 'event-append', when: 'success', event: 'quality.hint.generated' }),
+    needs: declared('fs:read', 'mcp:exarchos'),
+    resources: declared(
+      { kind: 'stream', selector: 'featureId' },
+      { kind: 'path', selector: 'planPath' },
+    ),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared({
+      event: 'quality.hint.generated',
+      condition: 'conditional',
+      owner: 'orchestrate',
+      role: 'primary',
+      description: 'When hints exist',
+    }),
+  }),
+  withContract({
     name: 'prepare_synthesis',
     description: 'Run pre-synthesis checks: tests, typecheck, stack health. Emits events for readiness views and eval flywheel.',
     schema: z.object({
@@ -186,13 +261,25 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.prepare_synthesis'),
     annotations: LOCAL_MUTATION,
-  },
+  }, {
+    ensures: declared(
+      { source: 'durable-evidence', when: 'always', evidenceType: 'prepare-synthesis' },
+      { source: 'event-append', when: 'always', event: 'gate.executed' },
+    ),
+    needs: declared('fs:read', 'mcp:exarchos', 'shell:exec'),
+    resources: declared(
+      { kind: 'stream', selector: 'featureId' },
+      { kind: 'path', selector: 'repoRoot' },
+    ),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared({ event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' }),
+  }),
   // Recording a stack position IS a mutation — the handler validates the
   // position and appends `stack.position-filled`. It sat on `exarchos_view`,
   // where its registration named `exarchos_orchestrate` as the effect provider
   // and the two could never agree. The read half (`stack_status`) stays on the
   // view tool; only the writer moved.
-  {
+  withContract({
     name: 'stack_place',
     description:
       'Record a task\'s position in a PR stack. Validates the position and appends stack.position-filled, which the stack projection folds into the ordered stack view. Use for: registering where a task sits in the stack after its branch or PR exists. Do NOT use for: reading current stack positions (use exarchos_view stack_status); assessing stack CI/review health (use assess_stack).',
@@ -210,8 +297,17 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: withCappedShape(StackPlaceOutputSchema),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared({ source: 'event-append', when: 'always', event: 'stack.position-filled' }),
+    needs: declared('mcp:exarchos'),
+    resources: declared(
+      { kind: 'stream', selector: 'streamId' },
+      { kind: 'git-ref', selector: 'branch' },
+    ),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared({ event: 'stack.position-filled', condition: 'always', owner: 'orchestrate', role: 'primary' }),
+  }),
+  withContract({
     name: 'assess_stack',
     description: 'Assess PR stack health during synthesize: CI status, reviews, comments. Emits events for the shepherd iteration loop (within synthesize phase) and eval flywheel.',
     schema: z.object({
@@ -248,5 +344,18 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     // conditional emission discipline is a handler-level detail and
     // should not be smuggled into the advisory annotation.
     annotations: REMOTE_MUTATION,
-  },
+  }, {
+    ensures: declared({ source: 'event-append', when: 'always', event: 'gate.executed' }),
+    needs: declared('mcp:exarchos'),
+    resources: declared({ kind: 'stream', selector: 'featureId' }),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared(
+      { event: 'ci.status', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'One per PR assessed; none when the stack is empty' },
+      { event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' },
+      { event: 'shepherd.approval_requested', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'When approval needed' },
+      { event: 'shepherd.completed', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'When PR merged' },
+      { event: 'shepherd.escalated', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'When the auto-fix bound is reached' },
+      { event: 'shepherd.started', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'First invocation (idempotent)' },
+    ),
+  }),
 ];
