@@ -168,6 +168,9 @@ import {
 } from '../contract/reachability/providers.js';
 import { EFFECT_OWNERSHIP, type EffectOwnershipRule } from '../architecture/effect-ledger.js';
 import { TOOL_REGISTRY, type CompositeTool } from '../registry.js';
+
+/** Same union as `registry/gate-metadata.ts` — local to avoid a forbidden events→registry import. */
+type AutoEmissionRole = 'primary' | 'recovery';
 import { EVENT_ANNOTATIONS } from './event-annotations.js';
 import { MODULE_EMISSIONS, type ModuleEmission } from './module-emissions.js';
 import {
@@ -196,6 +199,17 @@ export const EMISSION_PROVIDER_MISMATCH_CODE = 'EMISSION_PROVIDER_MISMATCH';
  * declared emission edge names — a weld claiming cover nothing in the tool registry backs.
  */
 export const STALE_CAPABILITY_COVER_CODE = 'STALE_CAPABILITY_COVER';
+/** No event type in the autoEmits population names a primary declaring tool. */
+export const ZERO_PRIMARY_OWNER_CODE = 'ZERO_PRIMARY_OWNER';
+/** Two or more distinct primary owners claim the same event type. */
+export const MULTI_PRIMARY_OWNER_CODE = 'MULTI_PRIMARY_OWNER';
+
+/**
+ * The measured size of the K2 primary-owner population: distinct event types that carry at least
+ * one `autoEmits` edge. A floor, not an expectation — same ratchet semantics as
+ * {@link EMISSION_DENOMINATOR_FLOOR}.
+ */
+export const PRIMARY_OWNER_POPULATION_FLOOR = 54;
 
 /**
  * The measured size of the set the provider comparison ranges over: declared emission edges whose
@@ -455,6 +469,38 @@ export type WeldResolutionDiagnostic =
       readonly excludedByLifecycle: number;
       readonly message: string;
       readonly severity: WeldDiagnosticSeverity;
+    }
+  | {
+      readonly code: 'EMPTY_PRIMARY_OWNER_DENOMINATOR';
+      readonly eventType: null;
+      readonly provider: null;
+      readonly message: string;
+      readonly severity: WeldDiagnosticSeverity;
+    }
+  | {
+      readonly code: 'NARROWED_PRIMARY_OWNER_DENOMINATOR';
+      readonly eventType: null;
+      readonly provider: null;
+      readonly compared: number;
+      readonly floor: number;
+      readonly message: string;
+      readonly severity: WeldDiagnosticSeverity;
+    }
+  | {
+      readonly code: typeof ZERO_PRIMARY_OWNER_CODE;
+      readonly eventType: string;
+      readonly provider: null;
+      readonly message: string;
+      readonly severity: WeldDiagnosticSeverity;
+    }
+  | {
+      readonly code: typeof MULTI_PRIMARY_OWNER_CODE;
+      readonly eventType: string;
+      readonly provider: null;
+      /** The distinct primary owners that collided — carried so the fault is readable in one line. */
+      readonly owners: readonly string[];
+      readonly message: string;
+      readonly severity: WeldDiagnosticSeverity;
     };
 
 /**
@@ -476,22 +522,20 @@ export type WeldDiagnosticCode = WeldResolutionDiagnostic['code'];
  * The four REFERENCE-INTEGRITY rows are `blocking`. That is not a placeholder: it is the
  * behaviour this gate shipped with, written down.
  *
- * The five EMISSION-COUPLING rows are `observe`, and that is the whole reason the axis exists.
- * The comparison they carry reports against the live tree BEFORE the tree is reconciled — there
- * are real, measured disagreements in the shipped catalog — so arming it as `blocking` would take
- * every entry point down over a break set nobody has dispositioned yet. Graduating them is a
- * deliberate edit of these rows once that set is disposed of, not a side effect of some other
- * change.
+ * The two EMISSION-COUPLING findings shipped `observe` and have since GRADUATED to `blocking`,
+ * once repair — not narrowing — emptied both break sets. The rows below carry that history
+ * inline; read them, not this paragraph, for which way a given code points.
  *
- * `NARROWED_EMISSION_DENOMINATOR` sits here for a second reason of its own: a floor that refused
- * startup would turn any legitimate re-tiering of a capability event into an unbootable tree for
- * every entry point at once, which is a far worse outcome than the narrowing it is watching for.
+ * The line the table now sits on is not reference-integrity versus emission-coupling. It is a
+ * CATALOG fault versus an INSTRUMENT one: a defect in what the tree declares refuses the process,
+ * and a collapse in this gate's own reach only reports, because a tree whose census stopped
+ * resolving must still boot so somebody can run the tooling that diagnoses it. That sentence is
+ * the whole rule for placing a NEW code.
  *
- * `STALE_CAPABILITY_COVER` sits here for the same reason its sibling comparison does — the shipped
- * catalog carries a measured break set of active capability registrations nothing declares it
- * emits, and refusing every entry point over a set nobody has dispositioned would be a worse gate
- * than none. Its vacuity guard rides at the same severity so the two cannot be read apart: a fault
- * and the reason its denominator vanished should not arrive with different weights.
+ * `NARROWED_EMISSION_DENOMINATOR` sits on the reporting side for a second reason of its own: a
+ * floor that refused startup would turn any legitimate re-tiering of a capability event into an
+ * unbootable tree for every entry point at once, which is a far worse outcome than the narrowing
+ * it is watching for.
  */
 export const DIAGNOSTIC_SEVERITY_POLICY: Readonly<Record<WeldDiagnosticCode, WeldDiagnosticSeverity>> =
   Object.freeze({
@@ -518,6 +562,8 @@ export const DIAGNOSTIC_SEVERITY_POLICY: Readonly<Record<WeldDiagnosticCode, Wel
     // disagreement refuses the process instead of printing a line nobody reads.
     [EMISSION_PROVIDER_MISMATCH_CODE]: 'blocking',
     [STALE_CAPABILITY_COVER_CODE]: 'blocking',
+    [ZERO_PRIMARY_OWNER_CODE]: 'blocking',
+    [MULTI_PRIMARY_OWNER_CODE]: 'blocking',
     // The three EMPTY_*/NARROWED_* denominator diagnostics stay `observe` DELIBERATELY. They fire
     // when a population this gate measures over has collapsed — which is a defect in the gate's
     // own reach, not in the catalog — and a tree whose emission census stopped resolving must
@@ -526,6 +572,8 @@ export const DIAGNOSTIC_SEVERITY_POLICY: Readonly<Record<WeldDiagnosticCode, Wel
     EMPTY_EMISSION_DENOMINATOR: 'observe',
     NARROWED_EMISSION_DENOMINATOR: 'observe',
     EMPTY_STALE_COVER_DENOMINATOR: 'observe',
+    EMPTY_PRIMARY_OWNER_DENOMINATOR: 'observe',
+    NARROWED_PRIMARY_OWNER_DENOMINATOR: 'observe',
   });
 
 /** The verdict, carrying EVERY denominator so no count can be read without its population. */
@@ -693,6 +741,10 @@ export interface EmissionEdge {
   readonly action: string;
   /** The composite tool that action is registered under. */
   readonly declaringTool: string;
+  /** Which edge this declaration is, when the registry carries it. */
+  readonly role?: AutoEmissionRole;
+  /** The accountable owner string from the declaration, when present. */
+  readonly owner?: string;
 }
 
 /**
@@ -711,7 +763,13 @@ export function declaredEmissionEdges(
   for (const tool of registry) {
     for (const action of tool.actions) {
       for (const emission of action.autoEmits ?? []) {
-        edges.push({ event: emission.event, action: action.name, declaringTool: tool.name });
+        edges.push({
+          event: emission.event,
+          action: action.name,
+          declaringTool: tool.name,
+          ...(emission.role !== undefined ? { role: emission.role } : {}),
+          ...(emission.owner !== undefined ? { owner: emission.owner } : {}),
+        });
       }
     }
   }
@@ -746,6 +804,7 @@ export function validateRegistrationWelds(
     Record<EventLifecycle, StaleCoverEligibility>
   > = STALE_COVER_LIFECYCLE_POLICY,
   moduleEmissions: readonly ModuleEmission[] = MODULE_EMISSIONS,
+  primaryOwnerEmissions: readonly EmissionEdge[] = declaredEmissionEdges(),
 ): WeldResolutionVerdict {
   const diagnostics: WeldResolutionDiagnostic[] = [];
   // One lookup, so severity is stamped from the table at every emission site and never decided
@@ -956,6 +1015,83 @@ export function validateRegistrationWelds(
         "entry that would name it, or nothing emits the event and the registration's lifecycle " +
         'should say so.',
     });
+  }
+
+  // ── Primary-owner bijection (K2): per event type, distinct primary owners ──
+  //
+  // Counts distinct primary `owner` strings per event type over the autoEmits population — not
+  // primary edges. A boot-time check over declarations has no access to occurrences; the message
+  // names what is checked (one declaring tool claims primary) rather than an over-broad "owner".
+  const eventsWithEdges = new Set(primaryOwnerEmissions.map((edge) => edge.event));
+  const populationSize = eventsWithEdges.size;
+
+  if (populationSize === 0) {
+    diagnostics.push({
+      code: 'EMPTY_PRIMARY_OWNER_DENOMINATOR',
+      eventType: null,
+      provider: null,
+      severity: severityOf('EMPTY_PRIMARY_OWNER_DENOMINATOR'),
+      message:
+        'no event type is named by any declared autoEmits edge — the primary-owner comparison ' +
+        'ranged over an empty population and cannot have found anything, which must not read as ' +
+        'clean.',
+    });
+  } else if (populationSize < PRIMARY_OWNER_POPULATION_FLOOR) {
+    diagnostics.push({
+      code: 'NARROWED_PRIMARY_OWNER_DENOMINATOR',
+      eventType: null,
+      provider: null,
+      compared: populationSize,
+      floor: PRIMARY_OWNER_POPULATION_FLOOR,
+      severity: severityOf('NARROWED_PRIMARY_OWNER_DENOMINATOR'),
+      message:
+        `the primary-owner comparison ranged over ${populationSize} event type(s), below the ` +
+        `measured floor of ${PRIMARY_OWNER_POPULATION_FLOOR}, out of ${primaryOwnerEmissions.length} declared ` +
+        'edge(s). The population is not empty, so vacuity guards pass and a narrowing still hides. ' +
+        'If the shrink is intended, lower PRIMARY_OWNER_POPULATION_FLOOR in the same change and say why.',
+    });
+  }
+
+  if (populationSize > 0) {
+    const primaryOwnersByEvent = new Map<string, Set<string>>();
+    for (const edge of primaryOwnerEmissions) {
+      if (edge.role !== 'primary' || edge.owner === undefined) continue;
+      let owners = primaryOwnersByEvent.get(edge.event);
+      if (owners === undefined) {
+        owners = new Set();
+        primaryOwnersByEvent.set(edge.event, owners);
+      }
+      owners.add(edge.owner);
+    }
+
+    for (const eventType of [...eventsWithEdges].sort(byString)) {
+      const owners = primaryOwnersByEvent.get(eventType) ?? new Set<string>();
+      if (owners.size === 0) {
+        diagnostics.push({
+          code: ZERO_PRIMARY_OWNER_CODE,
+          eventType,
+          provider: null,
+          severity: severityOf(ZERO_PRIMARY_OWNER_CODE),
+          message:
+            `event '${eventType}' is named by declared autoEmits edge(s) but no edge declares ` +
+            'itself primary with an owner — no declaring tool claims primary for this event type.',
+        });
+        continue;
+      }
+      if (owners.size > 1) {
+        const ownerList = [...owners].sort(byString);
+        diagnostics.push({
+          code: MULTI_PRIMARY_OWNER_CODE,
+          eventType,
+          provider: null,
+          owners: ownerList,
+          severity: severityOf(MULTI_PRIMARY_OWNER_CODE),
+          message:
+            `event '${eventType}' has ${owners.size} distinct primary owners [${ownerList.join(', ')}] ` +
+            '— two or more declaring tools both claim primary for the same event type.',
+        });
+      }
+    }
   }
 
   const sorted = [...diagnostics].sort((a, b) =>
@@ -1689,6 +1825,7 @@ export function assertRegistrationWeldsAtStartup(
     Record<EventLifecycle, StaleCoverEligibility>
   > = STALE_COVER_LIFECYCLE_POLICY,
   moduleEmissions: readonly ModuleEmission[] = MODULE_EMISSIONS,
+  primaryOwnerEmissions: readonly EmissionEdge[] = declaredEmissionEdges(),
 ): WeldResolutionVerdict {
   const verdict = validateRegistrationWelds(
     annotations,
@@ -1699,6 +1836,7 @@ export function assertRegistrationWeldsAtStartup(
     emissions,
     lifecyclePolicy,
     moduleEmissions,
+    primaryOwnerEmissions,
   );
   if (!verdict.bootable) throw new RegistrationWeldError(verdict);
   // Survivable, but not silent. An observation nobody is told about is indistinguishable from a

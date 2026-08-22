@@ -42,10 +42,9 @@ export const mergeActions: readonly BuiltinToolAction[] = [
       // The legacy `merge.rollback` write path is retired (read-tolerant, not
       // emittable) so it is NO LONGER declared here — a `retired` event must not
       // appear in any `autoEmits` (RegistryDrift enforces `autoEmits ⊆ auto`).
-      // Fires only once the execute arm has already failed — the compensating
-      // path, not the normal one. No expiry: the recovery ladder is a permanent
-      // part of the merge contract rather than a stopgap awaiting removal.
-      { event: 'merge.recovered', condition: 'conditional', description: 'When execute fails and the INV-14 recovery ladder runs', role: 'recovery', owner: 'orchestrate' },
+      // Compensation terminal for the merge saga — the only emitter of this
+      // event, not a backstop for another primary edge.
+      { event: 'merge.recovered', condition: 'conditional', description: 'When execute fails and the INV-14 recovery ladder runs', role: 'primary', owner: 'orchestrate' },
       // The terminal marker, appended by `execute-merge.ts` in the same dispatch that already
       // declares `merge.executed`. A losing concurrent invocation returns STATE_CONFLICT and
       // defers completion to the winner, so this is conditional rather than always.
