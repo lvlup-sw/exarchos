@@ -1,4 +1,10 @@
+import { digestText } from '../contract/authority-digest.js';
 import { z } from 'zod';
+import {
+  actionContractCanonicalBytes,
+  normalizeActionContract,
+  type ActionContract,
+} from './action-contract.js';
 import type { CompositeTool, ToolAction } from './types.js';
 
 // ─── Schema Generation ──────────────────────────────────────────────────────
@@ -273,6 +279,99 @@ function describeContractConflict(a: FieldContract, b: FieldContract): string | 
     return `Default values differ: ${a.defaultValue ?? '(none)'} vs ${b.defaultValue ?? '(none)'}.`;
   }
   return null;
+}
+
+export const ACTION_CONTRACT_DIMENSIONS = [
+  'requires',
+  'ensures',
+  'needs',
+  'touches',
+  'executionAuthority',
+  'replay',
+  'emissions',
+] as const;
+
+export type ActionContractDimension = (typeof ACTION_CONTRACT_DIMENSIONS)[number];
+
+export interface CompactDeclaredPresence {
+  readonly kind: 'declared' | 'none';
+}
+
+/** Compact MCP summary: dimension presence + digest, no prose. */
+export interface CompactActionContract {
+  readonly digest: string;
+  readonly requires: CompactDeclaredPresence;
+  readonly ensures: CompactDeclaredPresence;
+  readonly needs: CompactDeclaredPresence;
+  readonly touches: {
+    readonly frame: 'single-machine';
+    readonly resources: CompactDeclaredPresence;
+  };
+  readonly executionAuthority: { readonly kind: 'local' | 'host' };
+  readonly replay: { readonly kind: 'safe-repeat' | 'claim-required' | 'reject-replay' };
+  readonly emissions: CompactDeclaredPresence;
+}
+
+function readDeclaredActionContract(action: ToolAction): unknown {
+  if (!('actionContract' in action)) return undefined;
+  return Reflect.get(action, 'actionContract');
+}
+
+/** Compact a normalized contract. Omits prose; keeps every dimension and the digest. */
+export function compactActionContract(contract: ActionContract): CompactActionContract {
+  return {
+    digest: digestText(actionContractCanonicalBytes(contract)),
+    requires: { kind: contract.requires.kind },
+    ensures: { kind: contract.ensures.kind },
+    needs: { kind: contract.needs.kind },
+    touches: {
+      frame: contract.touches.frame,
+      resources: { kind: contract.touches.resources.kind },
+    },
+    executionAuthority: { kind: contract.executionAuthority.kind },
+    replay: { kind: contract.replay.kind },
+    emissions: { kind: contract.emissions.kind },
+  };
+}
+
+/**
+ * Project a compact MCP summary from the same declared block the registry
+ * normalizes. Missing live contracts stay missing — annotations are not a
+ * source for inventing one.
+ */
+export function projectCompactActionContract(action: ToolAction): CompactActionContract | undefined {
+  const declared = readDeclaredActionContract(action);
+  if (declared === undefined) return undefined;
+  return compactActionContract(
+    normalizeActionContract(declared, { annotations: action.annotations }),
+  );
+}
+
+export function formatCompactActionContracts(actions: readonly ToolAction[]): string {
+  const lines = actions.map((action) => {
+    const compact = projectCompactActionContract(action);
+    if (compact === undefined) {
+      return `- ${action.name}: absent`;
+    }
+    return (
+      `- ${action.name}: digest=${compact.digest}` +
+      ` requires=${compact.requires.kind}` +
+      ` ensures=${compact.ensures.kind}` +
+      ` needs=${compact.needs.kind}` +
+      ` touches=${compact.touches.resources.kind}` +
+      ` executionAuthority=${compact.executionAuthority.kind}` +
+      ` replay=${compact.replay.kind}` +
+      ` emissions=${compact.emissions.kind}`
+    );
+  });
+  return `Action contracts:\n${lines.join('\n')}`;
+}
+
+export function appendCompactActionContracts(
+  description: string,
+  actions: readonly ToolAction[],
+): string {
+  return `${description}\n\n${formatCompactActionContracts(actions)}`;
 }
 
 /**
