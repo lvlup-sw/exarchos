@@ -63,8 +63,8 @@ export interface RegistrationSource {
     readonly tool: string;
     readonly action: string;
     readonly description: string;
-    readonly actionContract?: ActionContract;
-    readonly policy?: { readonly actionContract?: ActionContract };
+    readonly actionContract?: ActionContract | undefined;
+    readonly policy?: { readonly actionContract?: ActionContract | undefined };
   }[];
 }
 
