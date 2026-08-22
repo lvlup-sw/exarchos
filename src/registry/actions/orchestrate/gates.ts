@@ -1,12 +1,42 @@
 import { coercedNonnegativeInt, coercedPositiveInt } from '../../../coerce.js';
 import { vacuityWaiver } from '../../../output-schema-declaration.js';
 import { z } from 'zod';
+import { declared, none, withActionContract, type ActionContract } from '../../action-contract.js';
 import { LOCAL_MUTATION } from '../../annotations.js';
 import { DELEGATE_PHASES, PLAN_PHASES, REVIEW_PHASES, ROLE_LEAD, STACK_PHASES } from '../../phases.js';
 import type { BuiltinToolAction } from '../../types.js';
 
+function withContract(
+  action: BuiltinToolAction,
+  partial: {
+    readonly requires?: ActionContract['requires'];
+    readonly ensures: ActionContract['ensures'];
+    readonly needs: ActionContract['needs'];
+    readonly resources?: ActionContract['touches']['resources'];
+    readonly replay: ActionContract['replay'];
+    readonly emissions?: ActionContract['emissions'];
+  },
+): BuiltinToolAction {
+  return withActionContract(
+    action,
+    {
+      requires: partial.requires ?? none('this action does not consume a prior resolved gate or approval floor'),
+      ensures: partial.ensures,
+      needs: partial.needs,
+      touches: {
+        frame: 'single-machine',
+        resources: partial.resources ?? none('this action does not address a stream, path, worktree, or git-ref'),
+      },
+      executionAuthority: { kind: 'local' },
+      replay: partial.replay,
+      emissions: partial.emissions ?? none('this action appends no catalog events'),
+    },
+    { annotations: action.annotations },
+  );
+}
+
 export const gateActions: readonly BuiltinToolAction[] = [
-  {
+  withContract({
     name: 'check_static_analysis',
     description: 'Run static analysis gate (lint + typecheck) and persist canonical subject-bound evidence.',
     schema: z.object({
@@ -40,8 +70,26 @@ export const gateActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_static_analysis'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared(
+      { source: 'durable-evidence', when: 'always', evidenceType: 'static-analysis' },
+      { source: 'event-append', when: 'always', event: 'admission.evidence-recorded' },
+      { source: 'event-append', when: 'always', event: 'gate.executed' },
+    ),
+    needs: declared('fs:read', 'mcp:exarchos', 'shell:exec'),
+    resources: declared(
+      { kind: 'stream', selector: 'featureId' },
+      { kind: 'path', selector: 'repoRoot' },
+      { kind: 'worktree', selector: 'worktreePath' },
+      { kind: 'git-ref', selector: 'branch' },
+    ),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared(
+      { event: 'admission.evidence-recorded', condition: 'always', owner: 'orchestrate', role: 'primary' },
+      { event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' },
+    ),
+  }),
+  withContract({
     name: 'check_integration_suite',
     description:
       'Run the FULL test suite against the integration tip and fold file-LOAD ' +
@@ -76,8 +124,25 @@ export const gateActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_integration_suite'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared(
+      { source: 'durable-evidence', when: 'always', evidenceType: 'integration-suite' },
+      { source: 'event-append', when: 'always', event: 'admission.evidence-recorded' },
+      { source: 'event-append', when: 'always', event: 'gate.executed' },
+    ),
+    needs: declared('fs:read', 'mcp:exarchos', 'shell:exec'),
+    resources: declared(
+      { kind: 'stream', selector: 'featureId' },
+      { kind: 'path', selector: 'repoRoot' },
+      { kind: 'worktree', selector: 'worktreePath' },
+    ),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared(
+      { event: 'admission.evidence-recorded', condition: 'always', owner: 'orchestrate', role: 'primary' },
+      { event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' },
+    ),
+  }),
+  withContract({
     name: 'check_security_scan',
     description: 'Run security pattern scan on diff. Emits gate.executed event with dimension D1.',
     schema: z.object({
@@ -92,8 +157,17 @@ export const gateActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_security_scan'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared(
+      { source: 'durable-evidence', when: 'always', evidenceType: 'security-scan' },
+      { source: 'event-append', when: 'always', event: 'gate.executed' },
+    ),
+    needs: declared('mcp:exarchos'),
+    resources: declared({ kind: 'stream', selector: 'featureId' }),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared({ event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' }),
+  }),
+  withContract({
     name: 'check_context_economy',
     description: 'Check code complexity impacting LLM context consumption. Emits gate.executed event with dimension D3.',
     schema: z.object({
@@ -109,8 +183,21 @@ export const gateActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_context_economy'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared(
+      { source: 'durable-evidence', when: 'always', evidenceType: 'context-economy' },
+      { source: 'event-append', when: 'always', event: 'gate.executed' },
+    ),
+    needs: declared('fs:read', 'mcp:exarchos'),
+    resources: declared(
+      { kind: 'stream', selector: 'featureId' },
+      { kind: 'path', selector: 'repoRoot' },
+      { kind: 'git-ref', selector: 'baseBranch' },
+    ),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared({ event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' }),
+  }),
+  withContract({
     name: 'check_operational_resilience',
     description: 'Check for operational anti-patterns (empty catches, swallowed errors, console.log). Emits gate.executed event with dimension D4.',
     schema: z.object({
@@ -126,8 +213,21 @@ export const gateActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_operational_resilience'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared(
+      { source: 'durable-evidence', when: 'always', evidenceType: 'operational-resilience' },
+      { source: 'event-append', when: 'always', event: 'gate.executed' },
+    ),
+    needs: declared('fs:read', 'mcp:exarchos'),
+    resources: declared(
+      { kind: 'stream', selector: 'featureId' },
+      { kind: 'path', selector: 'repoRoot' },
+      { kind: 'git-ref', selector: 'baseBranch' },
+    ),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared({ event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' }),
+  }),
+  withContract({
     name: 'check_workflow_determinism',
     description: 'Check test reliability and determinism (.only/.skip, non-deterministic time/random, debug artifacts). Emits gate.executed event with dimension D5.',
     schema: z.object({
@@ -143,8 +243,21 @@ export const gateActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_workflow_determinism'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared(
+      { source: 'durable-evidence', when: 'always', evidenceType: 'workflow-determinism' },
+      { source: 'event-append', when: 'always', event: 'gate.executed' },
+    ),
+    needs: declared('fs:read', 'mcp:exarchos'),
+    resources: declared(
+      { kind: 'stream', selector: 'featureId' },
+      { kind: 'path', selector: 'repoRoot' },
+      { kind: 'git-ref', selector: 'baseBranch' },
+    ),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared({ event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' }),
+  }),
+  withContract({
     name: 'check_review_verdict',
     description: 'Compute review verdict from finding counts. Emits per-dimension and summary gate.executed events. On NEEDS_FIXES, bounds the fix-loop via the shared escalation policy (DR-3): returns escalate:true when the auto-fix bound is hit or a finding is intent-touching.',
     schema: z.object({
@@ -181,8 +294,17 @@ export const gateActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_review_verdict'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared(
+      { source: 'durable-evidence', when: 'always', evidenceType: 'review-verdict' },
+      { source: 'event-append', when: 'always', event: 'gate.executed' },
+    ),
+    needs: declared('mcp:exarchos'),
+    resources: declared({ kind: 'stream', selector: 'featureId' }),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared({ event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' }),
+  }),
+  withContract({
     name: 'check_convergence',
     description: 'Query D1-D5 convergence status from gate.executed events. Emits gate.executed event on each invocation. Returns overall pass/fail and per-dimension summary.',
     schema: z.object({
@@ -203,8 +325,17 @@ export const gateActions: readonly BuiltinToolAction[] = [
     // matches the actual write surface (matches the rest of the check_*
     // family that emits gate.executed).
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared(
+      { source: 'durable-evidence', when: 'always', evidenceType: 'convergence' },
+      { source: 'event-append', when: 'always', event: 'gate.executed' },
+    ),
+    needs: declared('mcp:exarchos'),
+    resources: declared({ kind: 'stream', selector: 'featureId' }),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared({ event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' }),
+  }),
+  withContract({
     name: 'check_provenance_chain',
     description: 'Verify design requirement traceability (DR-N) from design doc to plan tasks. Emits gate.executed event with dimension D1.',
     schema: z.object({
@@ -220,8 +351,21 @@ export const gateActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_provenance_chain'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared(
+      { source: 'durable-evidence', when: 'always', evidenceType: 'provenance-chain' },
+      { source: 'event-append', when: 'always', event: 'gate.executed' },
+    ),
+    needs: declared('fs:read', 'mcp:exarchos'),
+    resources: declared(
+      { kind: 'stream', selector: 'featureId' },
+      { kind: 'path', selector: 'designPath' },
+      { kind: 'path', selector: 'planPath' },
+    ),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared({ event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' }),
+  }),
+  withContract({
     name: 'check_design_completeness',
     description: 'DEPRECATED (#1581): delegates to check_plan_coverage on the unified docs/specs/ artifact; its acceptance-criteria check folded into plan-coverage. Use check_plan_coverage. Removed in a future minor version.',
     deprecated: true,
@@ -247,8 +391,20 @@ export const gateActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_design_completeness'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared(
+      { source: 'durable-evidence', when: 'always', evidenceType: 'design-completeness' },
+      { source: 'event-append', when: 'always', event: 'gate.executed' },
+    ),
+    needs: declared('fs:read', 'mcp:exarchos'),
+    resources: declared(
+      { kind: 'stream', selector: 'featureId' },
+      { kind: 'path', selector: 'designPath' },
+    ),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared({ event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' }),
+  }),
+  withContract({
     name: 'check_plan_coverage',
     description: 'Verify plan tasks cover all design sections. Emits gate.executed event with dimension D1.',
     schema: z.object({
@@ -264,8 +420,21 @@ export const gateActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_plan_coverage'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared(
+      { source: 'durable-evidence', when: 'always', evidenceType: 'plan-coverage' },
+      { source: 'event-append', when: 'always', event: 'gate.executed' },
+    ),
+    needs: declared('fs:read', 'mcp:exarchos'),
+    resources: declared(
+      { kind: 'stream', selector: 'featureId' },
+      { kind: 'path', selector: 'designPath' },
+      { kind: 'path', selector: 'planPath' },
+    ),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared({ event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' }),
+  }),
+  withContract({
     name: 'check_exploration_depth',
     description:
       'Deep-depth planning gate (DR-4): verifies a `deep`-designDepth spec carries ' +
@@ -300,8 +469,20 @@ export const gateActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_exploration_depth'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared(
+      { source: 'durable-evidence', when: 'always', evidenceType: 'exploration-depth' },
+      { source: 'event-append', when: 'always', event: 'gate.executed' },
+    ),
+    needs: declared('fs:read', 'mcp:exarchos'),
+    resources: declared(
+      { kind: 'stream', selector: 'featureId' },
+      { kind: 'path', selector: 'designPath' },
+    ),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared({ event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' }),
+  }),
+  withContract({
     name: 'check_test_adequacy',
     description:
       'Per-task test-adequacy kill probe (mutation-testing-at-N=1): reverts the ' +
@@ -349,8 +530,26 @@ export const gateActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_test_adequacy'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared(
+      { source: 'durable-evidence', when: 'always', evidenceType: 'test-adequacy' },
+      { source: 'event-append', when: 'always', event: 'admission.evidence-recorded' },
+      { source: 'event-append', when: 'always', event: 'gate.executed' },
+    ),
+    needs: declared('fs:read', 'mcp:exarchos', 'shell:exec'),
+    resources: declared(
+      { kind: 'stream', selector: 'featureId' },
+      { kind: 'path', selector: 'repoRoot' },
+      { kind: 'worktree', selector: 'worktreePath' },
+      { kind: 'git-ref', selector: 'branch' },
+    ),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared(
+      { event: 'admission.evidence-recorded', condition: 'always', owner: 'orchestrate', role: 'primary' },
+      { event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' },
+    ),
+  }),
+  withContract({
     name: 'check_contract_drift',
     description:
       'Per-task contract-drift gate (verification-ladder slice 1): regenerates ' +
@@ -391,8 +590,26 @@ export const gateActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_contract_drift'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared(
+      { source: 'durable-evidence', when: 'always', evidenceType: 'contract-drift' },
+      { source: 'event-append', when: 'always', event: 'admission.evidence-recorded' },
+      { source: 'event-append', when: 'always', event: 'gate.executed' },
+    ),
+    needs: declared('fs:read', 'mcp:exarchos', 'shell:exec'),
+    resources: declared(
+      { kind: 'stream', selector: 'featureId' },
+      { kind: 'path', selector: 'repoRoot' },
+      { kind: 'worktree', selector: 'worktreePath' },
+      { kind: 'git-ref', selector: 'branch' },
+    ),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared(
+      { event: 'admission.evidence-recorded', condition: 'always', owner: 'orchestrate', role: 'primary' },
+      { event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' },
+    ),
+  }),
+  withContract({
     name: 'check_mock_boundary',
     description:
       'Per-task mock-boundary gate (verification-ladder slice 1, SIV-4): scans ' +
@@ -440,8 +657,25 @@ export const gateActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_mock_boundary'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared(
+      { source: 'durable-evidence', when: 'always', evidenceType: 'mock-boundary' },
+      { source: 'event-append', when: 'always', event: 'admission.evidence-recorded' },
+      { source: 'event-append', when: 'always', event: 'gate.executed' },
+    ),
+    needs: declared('fs:read', 'mcp:exarchos'),
+    resources: declared(
+      { kind: 'stream', selector: 'featureId' },
+      { kind: 'path', selector: 'repoRoot' },
+      { kind: 'worktree', selector: 'worktreePath' },
+    ),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared(
+      { event: 'admission.evidence-recorded', condition: 'always', owner: 'orchestrate', role: 'primary' },
+      { event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' },
+    ),
+  }),
+  withContract({
     name: 'mutation-adequacy',
     description:
       'Verification-ladder slice 3 (R5): the mutation-adequacy backstop for the ' +
@@ -499,8 +733,26 @@ export const gateActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.mutation-adequacy'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared(
+      { source: 'durable-evidence', when: 'always', evidenceType: 'mutation-adequacy' },
+      { source: 'event-append', when: 'always', event: 'gate.executed' },
+      { source: 'event-append', when: 'always', event: 'mutation.executed' },
+    ),
+    needs: declared('fs:read', 'mcp:exarchos', 'shell:exec'),
+    resources: declared(
+      { kind: 'stream', selector: 'featureId' },
+      { kind: 'worktree', selector: 'worktreePath' },
+      { kind: 'git-ref', selector: 'base' },
+    ),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared(
+      { event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' },
+      { event: 'mutation.executed', condition: 'always', owner: 'orchestrate', role: 'primary' },
+      { event: 'mutation.executing_started', condition: 'always', owner: 'orchestrate', role: 'primary' },
+    ),
+  }),
+  withContract({
     name: 'check_post_merge',
     description: 'Post-merge regression check. Emits gate.executed event with dimension D4.',
     schema: z.object({
@@ -516,5 +768,14 @@ export const gateActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_post_merge'),
     annotations: LOCAL_MUTATION,
-  },
+  }, {
+    ensures: declared(
+      { source: 'durable-evidence', when: 'always', evidenceType: 'post-merge' },
+      { source: 'event-append', when: 'always', event: 'gate.executed' },
+    ),
+    needs: declared('mcp:exarchos'),
+    resources: declared({ kind: 'stream', selector: 'featureId' }),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared({ event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' }),
+  }),
 ];

@@ -1,13 +1,43 @@
 import { vacuityWaiver, withCappedShape } from '../../../output-schema-declaration.js';
 import { AmendInvariantOutputSchema } from '../../../verbs/invariants/amend.js';
 import { z } from 'zod';
+import { declared, none, withActionContract, type ActionContract } from '../../action-contract.js';
 import { LOCAL_MUTATION } from '../../annotations.js';
 import { ALL_PHASES, ROLE_ANY } from '../../phases.js';
 import type { BuiltinToolAction } from '../../types.js';
 
+function withContract(
+  action: BuiltinToolAction,
+  partial: {
+    readonly requires?: ActionContract['requires'];
+    readonly ensures: ActionContract['ensures'];
+    readonly needs: ActionContract['needs'];
+    readonly resources?: ActionContract['touches']['resources'];
+    readonly replay: ActionContract['replay'];
+    readonly emissions?: ActionContract['emissions'];
+  },
+): BuiltinToolAction {
+  return withActionContract(
+    action,
+    {
+      requires: partial.requires ?? none('this action does not consume a prior resolved gate or approval floor'),
+      ensures: partial.ensures,
+      needs: partial.needs,
+      touches: {
+        frame: 'single-machine',
+        resources: partial.resources ?? none('this action does not address a stream, path, worktree, or git-ref'),
+      },
+      executionAuthority: { kind: 'local' },
+      replay: partial.replay,
+      emissions: partial.emissions ?? none('this action appends no catalog events'),
+    },
+    { annotations: action.annotations },
+  );
+}
+
 export const invariantActions: readonly BuiltinToolAction[] = [
   // ─── Invariant Authoring Actions (invariants-catalog-wizard, P2) ───────────
-  {
+  withContract({
     // P2/T7: create a starter invariant catalog file for a tier and
     // idempotently register it in `.exarchos.yml`. INV-5d: this is an ACTION on
     // exarchos_orchestrate, NOT a fifth visible tool. Never overwrites an
@@ -27,8 +57,13 @@ export const invariantActions: readonly BuiltinToolAction[] = [
     roles: ROLE_ANY,
     outputSchema: vacuityWaiver('exarchos_orchestrate.invariants_scaffold'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: none('scaffolding writes a starter catalog file and registers its path; it appends no catalog events'),
+    needs: declared('fs:write'),
+    resources: declared({ kind: 'path', selector: 'path' }),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+  }),
+  withContract({
     // P2/T11: validate one entry against InvariantEntryV3Schema (incl. the
     // .strict() enforcement DSL) and append it to a registered catalog.
     // `dryRun` defaults true (INV-5c): the dry run returns the rendered entry +
@@ -66,8 +101,20 @@ export const invariantActions: readonly BuiltinToolAction[] = [
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.invariants_add'),
     annotations: LOCAL_MUTATION,
-  },
-  {
+  }, {
+    ensures: declared(
+      { source: 'event-append', when: 'success', event: 'invariant.authored' },
+      { source: 'event-append', when: 'success', event: 'catalog.registered' },
+    ),
+    needs: declared('fs:write', 'mcp:exarchos'),
+    resources: declared({ kind: 'path', selector: 'catalog' }),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared(
+      { event: 'catalog.registered', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'On first registration of the target catalog' },
+      { event: 'invariant.authored', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'On commit (dryRun:false)' },
+    ),
+  }),
+  withContract({
     // Task 068 / DR-23: the catalog had no sanctioned amend path. `invariants_add`
     // is append-only and the `/exarchos:invariants` skill forbids hand-writing
     // catalog YAML, so entries were effectively IMMUTABLE once committed —
@@ -111,5 +158,17 @@ export const invariantActions: readonly BuiltinToolAction[] = [
     // seeded ids, so this is enforced at compile time, not by convention.)
     outputSchema: withCappedShape(AmendInvariantOutputSchema),
     annotations: LOCAL_MUTATION,
-  },
+  }, {
+    ensures: declared({ source: 'event-append', when: 'success', event: 'invariant.amended' }),
+    needs: declared('fs:write', 'mcp:exarchos'),
+    resources: declared({ kind: 'path', selector: 'catalog' }),
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared({
+      event: 'invariant.amended',
+      condition: 'conditional',
+      owner: 'orchestrate',
+      role: 'primary',
+      description: 'On commit (dryRun:false)',
+    }),
+  }),
 ];
