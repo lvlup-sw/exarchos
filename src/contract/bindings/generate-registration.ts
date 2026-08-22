@@ -17,6 +17,12 @@ import { canonicalJson } from '../request-context.js';
 import { canonicalizeText } from '../authority-digest.js';
 import { CONTRACT_SURFACE_VERSION } from '../compatibility.js';
 import { TOOL_REGISTRY, type CompositeTool } from '../../registry.js';
+import type { ActionContract } from '../../registry/action-contract.js';
+import {
+  compactActionContract,
+  projectCompactActionContract,
+  type CompactActionContract,
+} from '../../registry/schema-builders.js';
 
 /** The current MCP-registration manifest schema version. */
 export const REGISTRATION_VERSION = 1 as const;
@@ -26,6 +32,8 @@ export interface RegistrationAction {
   readonly actionId: string;
   readonly action: string;
   readonly description: string;
+  /** Compact contract projection; null when the live action has no declared block. */
+  readonly contractSummary: CompactActionContract | null;
 }
 
 /** One tool's discovery entry — the MCP registration unit — and its actions. */
@@ -55,6 +63,8 @@ export interface RegistrationSource {
     readonly tool: string;
     readonly action: string;
     readonly description: string;
+    readonly actionContract?: ActionContract;
+    readonly policy?: { readonly actionContract?: ActionContract };
   }[];
 }
 
@@ -72,6 +82,7 @@ function assembleTools(entries: readonly TaggedAction[]): readonly RegistrationT
       actionId: entry.actionId,
       action: entry.action,
       description: entry.description,
+      contractSummary: entry.contractSummary,
     };
     if (bucket) {
       bucket.push(action);
@@ -87,6 +98,14 @@ function assembleTools(entries: readonly TaggedAction[]): readonly RegistrationT
     .sort((a, b) => byString(a.tool, b.tool));
 }
 
+function sourceContractSummary(
+  descriptor: RegistrationSource['descriptors'][number],
+): CompactActionContract | null {
+  const declared = descriptor.actionContract ?? descriptor.policy?.actionContract;
+  if (declared === undefined) return null;
+  return compactActionContract(declared);
+}
+
 /**
  * Generate the MCP registration manifest from the COMPILED CONTRACT. Pure and
  * deterministic: descriptions are line-ending-normalized and every list is
@@ -98,6 +117,7 @@ export function generateRegistration(source: RegistrationSource): RegistrationMa
     actionId: d.actionId,
     action: d.action,
     description: canonicalizeText(d.description),
+    contractSummary: sourceContractSummary(d),
   }));
   return {
     registrationVersion: REGISTRATION_VERSION,
@@ -125,6 +145,7 @@ export function deriveRegistrationFromRegistry(
         actionId: `${tool.name}.${action.name}`,
         action: action.name,
         description: canonicalizeText(action.description),
+        contractSummary: projectCompactActionContract(action) ?? null,
       });
     }
   }
