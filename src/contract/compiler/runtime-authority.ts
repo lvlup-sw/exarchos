@@ -98,8 +98,10 @@
 
 import {
   TOOL_REGISTRY,
+  actionContractCanonicalBytes,
   buildRegistrationSchema,
   buildToolDescription,
+  type ActionContract,
   type CompositeTool,
 } from '../../registry.js';
 import { zodToJsonSchema } from '../../utils/json-schema.js';
@@ -160,6 +162,12 @@ export interface ObservedAction {
   readonly taskSuitable: boolean;
   readonly taskTtlSuggestionMs: number | null;
   readonly economyBudgetTokens: number;
+  /** Normalized action contract as describe published it, or null when absent. */
+  readonly actionContract: Readonly<Record<string, unknown>> | null;
+  /** Canonical bytes digest describe published alongside the contract. */
+  readonly actionContractDigest: string | null;
+  /** Compact contract view; may omit prose but must keep every dimension + digest. */
+  readonly actionContractCompact: Readonly<Record<string, unknown>> | null;
 }
 
 /** What the shipped MCP registration surface says about ONE composite tool. */
@@ -233,6 +241,9 @@ function observeAction(
       typeof dispatch?.taskTtlSuggestionMs === 'number' ? dispatch.taskTtlSuggestionMs : null,
     economyBudgetTokens:
       typeof raw.economyBudgetTokens === 'number' ? raw.economyBudgetTokens : Number.NaN,
+    actionContract: asRecord(raw.actionContract),
+    actionContractDigest: typeof raw.actionContractDigest === 'string' ? raw.actionContractDigest : null,
+    actionContractCompact: asRecord(raw.actionContractCompact),
   };
 }
 
@@ -348,6 +359,7 @@ export const META_MODEL_FINDING_KINDS = [
   'wire-field-unmodelled',
   'wire-signature-divergence',
   'runtime-policy-divergence',
+  'contract-dimension-dropped',
   'policy-incoherence',
 ] as const;
 export type MetaModelFindingKind = (typeof META_MODEL_FINDING_KINDS)[number];
@@ -435,6 +447,159 @@ export function expectedSignatureLine(entry: ActionMetaModel): string {
 }
 
 // ─── Differential audit ──────────────────────────────────────────────────────
+
+const OBSERVED_CONTRACT_DIMENSIONS = [
+  'requires',
+  'ensures',
+  'needs',
+  'touches',
+  'executionAuthority',
+  'replay',
+  'emissions',
+] as const;
+
+function modelledActionContract(entry: ActionMetaModel): ActionContract | undefined {
+  return entry.actionContract ?? entry.policy.actionContract;
+}
+
+function droppedDimensionFinding(
+  actionId: string,
+  field: string,
+  expected: string,
+  actual: string,
+  message: string,
+): MetaModelFinding {
+  return finding('contract-dimension-dropped', actionId, field, expected, actual, message);
+}
+
+function auditActionContract(
+  entry: ActionMetaModel,
+  observed: ObservedAction,
+): readonly MetaModelFinding[] {
+  const findings: MetaModelFinding[] = [];
+  const id = entry.actionId;
+  const modelled = modelledActionContract(entry);
+  const described = observed.actionContract;
+
+  if (modelled === undefined && described === null) return findings;
+
+  if (modelled !== undefined && described === null) {
+    findings.push(
+      droppedDimensionFinding(
+        id,
+        'actionContract',
+        '<described by the shipped describe surface>',
+        '<absent>',
+        `action '${id}' has an action contract in the meta-model, but the shipped describe surface dropped it`,
+      ),
+    );
+    return findings;
+  }
+
+  if (modelled === undefined && described !== null) {
+    findings.push(
+      droppedDimensionFinding(
+        id,
+        'actionContract',
+        '<absent from the meta-model>',
+        '<described by the shipped describe surface>',
+        `action '${id}' is described with an action contract that the meta-model dropped`,
+      ),
+    );
+    return findings;
+  }
+
+  if (modelled === undefined || described === null) return findings;
+
+  const modelledRecord = modelled as unknown as Readonly<Record<string, unknown>>;
+  for (const dimension of OBSERVED_CONTRACT_DIMENSIONS) {
+    const modelledHas = dimension in modelledRecord;
+    const describedHas = dimension in described;
+    if (!modelledHas || !describedHas) {
+      const missingFrom = !modelledHas && !describedHas
+        ? 'both the meta-model and the shipped describe surface'
+        : !modelledHas
+          ? 'the meta-model'
+          : 'the shipped describe surface';
+      findings.push(
+        droppedDimensionFinding(
+          id,
+          `actionContract.${dimension}`,
+          dimension,
+          '<absent>',
+          `action '${id}' dropped action-contract dimension '${dimension}' from ${missingFrom}`,
+        ),
+      );
+      continue;
+    }
+    const expected = canonicalJson(described[dimension]);
+    const actual = canonicalJson(modelledRecord[dimension]);
+    if (expected === actual) continue;
+    findings.push(
+      finding(
+        'runtime-policy-divergence',
+        id,
+        `actionContract.${dimension}`,
+        expected,
+        actual,
+        `action '${id}' action-contract dimension '${dimension}': the shipped describe surface reports ${expected}, the meta-model claims ${actual}`,
+      ),
+    );
+  }
+
+  const expectedDigest = actionContractCanonicalBytes(modelled);
+  if (observed.actionContractDigest === null) {
+    findings.push(
+      droppedDimensionFinding(
+        id,
+        'actionContractDigest',
+        expectedDigest,
+        '<absent>',
+        `action '${id}' dropped the action-contract digest from the shipped describe surface`,
+      ),
+    );
+  } else if (observed.actionContractDigest !== expectedDigest) {
+    findings.push(
+      finding(
+        'runtime-policy-divergence',
+        id,
+        'actionContractDigest',
+        expectedDigest,
+        observed.actionContractDigest,
+        `action '${id}' action-contract digest: the shipped describe surface reports ${observed.actionContractDigest}, the meta-model claims ${expectedDigest}`,
+      ),
+    );
+  }
+
+  const compact = observed.actionContractCompact;
+  if (compact === null) return findings;
+
+  for (const dimension of OBSERVED_CONTRACT_DIMENSIONS) {
+    if (dimension in compact) continue;
+    findings.push(
+      droppedDimensionFinding(
+        id,
+        `actionContractCompact.${dimension}`,
+        dimension,
+        '<absent>',
+        `action '${id}' dropped action-contract dimension '${dimension}' from the compact describe view`,
+      ),
+    );
+  }
+  if (typeof compact.digest !== 'string' || compact.digest.length === 0) {
+    findings.push(
+      droppedDimensionFinding(
+        id,
+        'actionContractCompact.digest',
+        expectedDigest,
+        '<absent>',
+        `action '${id}' dropped the action-contract digest from the compact describe view`,
+      ),
+    );
+  }
+
+  return findings;
+}
 
 function auditAgainstDescribe(
   entry: ActionMetaModel,
@@ -528,6 +693,8 @@ function auditAgainstDescribe(
     canonicalJson(entry.policy.economy.budgetTokens),
     'effective economy budget',
   );
+
+  findings.push(...auditActionContract(entry, observed));
 
   return findings;
 }
