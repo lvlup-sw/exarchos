@@ -1,7 +1,7 @@
 # Code comment and docstring quality audit
 
-**Audit date:** 2026-08-21  
-**Scope:** 2,193 tracked TypeScript and JavaScript files  
+**Audit date:** 2026-08-21
+**Scope:** 2,193 tracked TypeScript and JavaScript files
 **Method:** parse-based extraction through `tools/audit/lib/comment-prose.mjs`,
 classification through the repository policy, and a second-pass smell census
 
