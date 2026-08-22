@@ -134,11 +134,11 @@ interface Relaxation {
 /**
  * Where the carrier's compile-time proofs begin.
  *
- * The EARLIER of the two proof blocks, deliberately. The module has two — the
- * original capability proofs and the emission-declaration claims appended after
- * truncating at the later marker leaves the first block asserting a property the
- * probe is trying to relax, so the copy fails for the right reason and the probe
- * reads as the guard holding.
+ * The EARLIER of the two proof blocks, deliberately. The module has two: the
+ * original capability proofs, and the emission-declaration claims appended
+ * after them. Truncating at the later marker leaves the first block standing,
+ * and that block asserts a property the probe is trying to relax — so the copy
+ * fails for the right reason and the probe reads as the guard holding.
  */
 const PROOF_BLOCK_MARKER = '// ─── Compile-time proofs';
 
