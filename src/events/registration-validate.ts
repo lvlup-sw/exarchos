@@ -167,8 +167,10 @@ import {
   type EffectProvider,
 } from '../contract/reachability/providers.js';
 import { EFFECT_OWNERSHIP, type EffectOwnershipRule } from '../architecture/effect-ledger.js';
-import type { AutoEmissionRole } from '../registry/gate-metadata.js';
 import { TOOL_REGISTRY, type CompositeTool } from '../registry.js';
+
+/** Same union as `registry/gate-metadata.ts` — local to avoid a forbidden events→registry import. */
+type AutoEmissionRole = 'primary' | 'recovery';
 import { EVENT_ANNOTATIONS } from './event-annotations.js';
 import { MODULE_EMISSIONS, type ModuleEmission } from './module-emissions.js';
 import {
