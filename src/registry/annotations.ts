@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import {
+  ActionContractError,
+  normalizeActionContract,
+  type ActionContract,
+} from './action-contract.js';
 
 export type ActionAnnotations = {
   readonly safety: 'read-only' | 'local-mutation' | 'remote-mutation' | 'compensable';
@@ -112,6 +117,71 @@ export function validateAnnotations(a: unknown, actionName: string): asserts a i
 }
 
 /**
+ * How `validateAction` treats a missing `actionContract` block.
+ *
+ * `load` is the built-in module-load loop: live declarations are still
+ * migrating onto the block, so absence is skipped and a present block is
+ * still normalized. `registration` is the admission path for custom and
+ * extension tools — the block is required and must normalize completely.
+ * The contracted type still requires the field; this mode only
+ * accommodates unmigrated built-in literals.
+ */
+export type ActionRegistrationMode = 'load' | 'registration';
+
+function readActionContract(action: object): unknown {
+  if (!('actionContract' in action)) {
+    return undefined;
+  }
+  return Reflect.get(action, 'actionContract');
+}
+
+function replayAnnotationsOf(annotations: unknown): { readonly idempotent: boolean } | undefined {
+  if (
+    typeof annotations === 'object' &&
+    annotations !== null &&
+    'idempotent' in annotations &&
+    typeof Reflect.get(annotations, 'idempotent') === 'boolean'
+  ) {
+    return { idempotent: Reflect.get(annotations, 'idempotent') as boolean };
+  }
+  return undefined;
+}
+
+/**
+ * Admission gate for the action-contract block. Built-in and extension
+ * registration share this language: a missing block fails, and a present
+ * block must normalize (including replay vs `annotations.idempotent`).
+ */
+export function admitActionContract(
+  action: { name: string; annotations?: unknown; actionContract?: unknown },
+  toolName: string,
+): ActionContract {
+  const id = `${toolName}.${action.name}`;
+  const contract = readActionContract(action);
+  if (contract === undefined) {
+    throw new ActionContractError(
+      'MISSING_DIMENSION',
+      `Action '${id}' is missing required actionContract`,
+    );
+  }
+  const annotations = replayAnnotationsOf(action.annotations);
+  try {
+    return normalizeActionContract(
+      contract,
+      annotations === undefined ? {} : { annotations },
+    );
+  } catch (error) {
+    if (error instanceof ActionContractError) {
+      throw new ActionContractError(
+        error.code,
+        `Action '${id}' has invalid actionContract: ${error.message}`,
+      );
+    }
+    throw error;
+  }
+}
+
+/**
  * Registration-time invariant check (Wave 0 task C.3, design §2.1 + §2.4,
  * issues #1287 + #1289).
  *
@@ -122,10 +192,15 @@ export function validateAnnotations(a: unknown, actionName: string): asserts a i
  * startup rather than at first call. The thrown error always surfaces
  * the fully-qualified `${toolName}.${action.name}` identifier so the
  * operator can navigate from a failed import directly to the offender.
+ *
+ * `actionContract` is required on the registration path. The built-in
+ * load loop still admits unmigrated declarations that omit the block;
+ * a present block is always normalized against annotations.
  */
 export function validateAction(
   action: { name: string; outputSchema?: z.ZodType; annotations?: unknown },
   toolName: string,
+  mode: ActionRegistrationMode = 'load',
 ): void {
   const id = `${toolName}.${action.name}`;
   if (action.outputSchema === undefined) {
@@ -138,6 +213,9 @@ export function validateAction(
   // check) so a hand-edited field set that drifts from the schema fails
   // at the same boundary as a missing declaration.
   validateAnnotations(action.annotations, id);
+  if (mode === 'registration' || readActionContract(action) !== undefined) {
+    admitActionContract(action, toolName);
+  }
 }
 
 // ─── Shared Annotation Presets (Wave 0 E.1-E.5, design §2.4) ────────

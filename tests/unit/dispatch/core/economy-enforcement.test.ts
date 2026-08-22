@@ -39,6 +39,7 @@ import {
   type CompositeTool,
   type EconomyHints,
 } from '../../../../src/registry.js';
+import { none, type ActionContract } from '../../../../src/registry/action-contract.js';
 import { EnvelopeSchema } from '../../../../src/contract/schemas/envelope.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
@@ -48,6 +49,19 @@ const READ_ONLY: ActionAnnotations = {
   destructive: false,
   idempotent: true,
   openWorld: false,
+};
+
+const FIXTURE_CONTRACT: ActionContract = {
+  requires: none('economy fixture is a read-only probe'),
+  ensures: none('economy fixture has no durable postcondition'),
+  needs: none('economy fixture declares no capabilities'),
+  touches: {
+    frame: 'single-machine',
+    resources: none('economy fixture touches no durable resources'),
+  },
+  executionAuthority: { kind: 'local' },
+  replay: { kind: 'safe-repeat' },
+  emissions: none('economy fixture emits no events'),
 };
 
 /**
@@ -73,6 +87,7 @@ function registerEconomyTool(opts: {
     outputSchema: EnvelopeSchema(z.unknown()),
     economy: opts.economy,
     annotations: READ_ONLY,
+    actionContract: FIXTURE_CONTRACT,
   };
   const toolDef: CompositeTool = {
     name: opts.tool,

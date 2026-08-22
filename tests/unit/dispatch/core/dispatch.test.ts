@@ -25,6 +25,20 @@ import {
   setCustomToolActionHandler,
 } from '../../../../src/registry.js';
 import type { CompositeTool } from '../../../../src/registry.js';
+import { none, type ActionContract } from '../../../../src/registry/action-contract.js';
+
+const FIXTURE_CONTRACT: ActionContract = {
+  requires: none('dispatch fixture has no additional obligations'),
+  ensures: none('dispatch fixture has no durable postcondition'),
+  needs: none('dispatch fixture declares no capabilities'),
+  touches: {
+    frame: 'single-machine',
+    resources: none('dispatch fixture touches no durable resources'),
+  },
+  executionAuthority: { kind: 'local' },
+  replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+  emissions: none('dispatch fixture emits no events'),
+};
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { extractSingleMissingRequiredField } from '../../../../src/dispatch/core/dispatch.js';
 import { InMemoryBackend } from '../../../../src/storage/memory-backend.js';
@@ -190,6 +204,7 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            actionContract: FIXTURE_CONTRACT,
           },
           {
             name: 'status',
@@ -197,6 +212,7 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            actionContract: FIXTURE_CONTRACT,
           },
         ],
       };
@@ -234,6 +250,7 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            actionContract: FIXTURE_CONTRACT,
           },
           {
             name: 'cancel',
@@ -241,6 +258,7 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            actionContract: FIXTURE_CONTRACT,
           },
         ],
       };
@@ -274,6 +292,7 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            actionContract: FIXTURE_CONTRACT,
           },
           {
             name: 'list',
@@ -281,6 +300,7 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            actionContract: FIXTURE_CONTRACT,
           },
         ],
       };
@@ -362,6 +382,7 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            actionContract: FIXTURE_CONTRACT,
           },
           {
             name: 'warnings',
@@ -369,6 +390,7 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            actionContract: FIXTURE_CONTRACT,
           },
           {
             name: 'noop',
@@ -376,6 +398,7 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            actionContract: FIXTURE_CONTRACT,
           },
         ],
       };
