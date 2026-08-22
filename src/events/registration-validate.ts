@@ -476,22 +476,20 @@ export type WeldDiagnosticCode = WeldResolutionDiagnostic['code'];
  * The four REFERENCE-INTEGRITY rows are `blocking`. That is not a placeholder: it is the
  * behaviour this gate shipped with, written down.
  *
- * The five EMISSION-COUPLING rows are `observe`, and that is the whole reason the axis exists.
- * The comparison they carry reports against the live tree BEFORE the tree is reconciled — there
- * are real, measured disagreements in the shipped catalog — so arming it as `blocking` would take
- * every entry point down over a break set nobody has dispositioned yet. Graduating them is a
- * deliberate edit of these rows once that set is disposed of, not a side effect of some other
- * change.
+ * The two EMISSION-COUPLING findings shipped `observe` and have since GRADUATED to `blocking`,
+ * once repair — not narrowing — emptied both break sets. The rows below carry that history
+ * inline; read them, not this paragraph, for which way a given code points.
  *
- * `NARROWED_EMISSION_DENOMINATOR` sits here for a second reason of its own: a floor that refused
- * startup would turn any legitimate re-tiering of a capability event into an unbootable tree for
- * every entry point at once, which is a far worse outcome than the narrowing it is watching for.
+ * The line the table now sits on is not reference-integrity versus emission-coupling. It is a
+ * CATALOG fault versus an INSTRUMENT one: a defect in what the tree declares refuses the process,
+ * and a collapse in this gate's own reach only reports, because a tree whose census stopped
+ * resolving must still boot so somebody can run the tooling that diagnoses it. That sentence is
+ * the whole rule for placing a NEW code.
  *
- * `STALE_CAPABILITY_COVER` sits here for the same reason its sibling comparison does — the shipped
- * catalog carries a measured break set of active capability registrations nothing declares it
- * emits, and refusing every entry point over a set nobody has dispositioned would be a worse gate
- * than none. Its vacuity guard rides at the same severity so the two cannot be read apart: a fault
- * and the reason its denominator vanished should not arrive with different weights.
+ * `NARROWED_EMISSION_DENOMINATOR` sits on the reporting side for a second reason of its own: a
+ * floor that refused startup would turn any legitimate re-tiering of a capability event into an
+ * unbootable tree for every entry point at once, which is a far worse outcome than the narrowing
+ * it is watching for.
  */
 export const DIAGNOSTIC_SEVERITY_POLICY: Readonly<Record<WeldDiagnosticCode, WeldDiagnosticSeverity>> =
   Object.freeze({

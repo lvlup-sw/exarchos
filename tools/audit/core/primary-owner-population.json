@@ -1,0 +1,636 @@
+{
+  "totals": {
+    "emissionEdges": 86,
+    "edgesCarryingRole": 86,
+    "edgesCarryingOwner": 86,
+    "distinctEventsWithEdges": 54,
+    "distinctOwners": 2,
+    "registeredEvents": 176,
+    "moduleEmitterRows": 11
+  },
+  "keys": {
+    "per-event-type/primary-edges": {
+      "populationSize": 54,
+      "satisfyingCount": 49,
+      "zeroPrimaryCount": 1,
+      "multiPrimaryCount": 4,
+      "zeroPrimary": [
+        {
+          "key": "merge.recovered",
+          "primaryEdges": 0,
+          "primaryOwners": [],
+          "declaringEdges": 1,
+          "declaredBy": [
+            "exarchos_orchestrate.merge_orchestrate"
+          ]
+        }
+      ],
+      "multiPrimary": [
+        {
+          "key": "admission.evidence-recorded",
+          "primaryEdges": 5,
+          "primaryOwners": [
+            "orchestrate"
+          ],
+          "declaringEdges": 5,
+          "declaredBy": [
+            "exarchos_orchestrate.check_contract_drift",
+            "exarchos_orchestrate.check_integration_suite",
+            "exarchos_orchestrate.check_mock_boundary",
+            "exarchos_orchestrate.check_static_analysis",
+            "exarchos_orchestrate.check_test_adequacy"
+          ]
+        },
+        {
+          "key": "gate.executed",
+          "primaryEdges": 24,
+          "primaryOwners": [
+            "orchestrate"
+          ],
+          "declaringEdges": 24,
+          "declaredBy": [
+            "exarchos_orchestrate.assess_stack",
+            "exarchos_orchestrate.check_context_economy",
+            "exarchos_orchestrate.check_contract_drift",
+            "exarchos_orchestrate.check_convergence",
+            "exarchos_orchestrate.check_design_completeness",
+            "exarchos_orchestrate.check_event_emissions",
+            "exarchos_orchestrate.check_exploration_depth",
+            "exarchos_orchestrate.check_integration_suite",
+            "exarchos_orchestrate.check_invariant_conformance",
+            "exarchos_orchestrate.check_mock_boundary",
+            "exarchos_orchestrate.check_operational_resilience",
+            "exarchos_orchestrate.check_plan_coverage",
+            "exarchos_orchestrate.check_post_merge",
+            "exarchos_orchestrate.check_provenance_chain",
+            "exarchos_orchestrate.check_review_verdict",
+            "exarchos_orchestrate.check_security_scan",
+            "exarchos_orchestrate.check_static_analysis",
+            "exarchos_orchestrate.check_task_decomposition",
+            "exarchos_orchestrate.check_test_adequacy",
+            "exarchos_orchestrate.check_workflow_determinism",
+            "exarchos_orchestrate.mutation-adequacy",
+            "exarchos_orchestrate.post_delegation_check",
+            "exarchos_orchestrate.pre_synthesis_check",
+            "exarchos_orchestrate.prepare_synthesis"
+          ]
+        },
+        {
+          "key": "worktree.merge_executed",
+          "primaryEdges": 2,
+          "primaryOwners": [
+            "orchestrate"
+          ],
+          "declaringEdges": 2,
+          "declaredBy": [
+            "exarchos_orchestrate.reconcile_worktrees",
+            "exarchos_orchestrate.serialize_merge"
+          ]
+        },
+        {
+          "key": "worktree.released",
+          "primaryEdges": 2,
+          "primaryOwners": [
+            "orchestrate"
+          ],
+          "declaringEdges": 2,
+          "declaredBy": [
+            "exarchos_orchestrate.reconcile_worktrees",
+            "exarchos_orchestrate.release_worktree"
+          ]
+        }
+      ],
+      "satisfyingKeys": [
+        "admission.enforcement-enabled",
+        "admission.rollout-decision",
+        "catalog.registered",
+        "ci.status",
+        "diagnostic.executed",
+        "feedback.recorded",
+        "invariant.amended",
+        "invariant.authored",
+        "issue.created",
+        "launch.executed",
+        "merge.completed",
+        "merge.executed",
+        "merge.preflight",
+        "mutation.executed",
+        "mutation.executing_started",
+        "onboard.executed",
+        "onboard.requested",
+        "pr.commented",
+        "pr.created",
+        "pr.merged",
+        "prune.executed",
+        "prune.executing_started",
+        "quality.hint.generated",
+        "review.routed",
+        "shepherd.approval_requested",
+        "shepherd.completed",
+        "shepherd.escalated",
+        "shepherd.started",
+        "stack.position-filled",
+        "state.patched",
+        "synthesize.requested",
+        "task.claimed",
+        "task.completed",
+        "task.failed",
+        "workflow.cancel",
+        "workflow.checkpoint",
+        "workflow.cleanup",
+        "workflow.compensation",
+        "workflow.fix-cycle",
+        "workflow.pruned",
+        "workflow.rehydrated",
+        "workflow.started",
+        "workflow.transition",
+        "worktree.adopted",
+        "worktree.merge_requested",
+        "worktree.orphan_detected",
+        "worktree.remove.executed",
+        "worktree.remove.requested",
+        "worktree.reserved"
+      ],
+      "arms": {
+        "multiArmReachable": true,
+        "zeroArmReachable": true,
+        "probedWith": {
+          "multi": "admission.enforcement-enabled",
+          "zero": "admission.enforcement-enabled"
+        }
+      }
+    },
+    "per-event-type/primary-owners": {
+      "populationSize": 54,
+      "satisfyingCount": 53,
+      "zeroPrimaryCount": 1,
+      "multiPrimaryCount": 0,
+      "zeroPrimary": [
+        {
+          "key": "merge.recovered",
+          "primaryEdges": 0,
+          "primaryOwners": [],
+          "declaringEdges": 1,
+          "declaredBy": [
+            "exarchos_orchestrate.merge_orchestrate"
+          ]
+        }
+      ],
+      "multiPrimary": [],
+      "satisfyingKeys": [
+        "admission.enforcement-enabled",
+        "admission.evidence-recorded",
+        "admission.rollout-decision",
+        "catalog.registered",
+        "ci.status",
+        "diagnostic.executed",
+        "feedback.recorded",
+        "gate.executed",
+        "invariant.amended",
+        "invariant.authored",
+        "issue.created",
+        "launch.executed",
+        "merge.completed",
+        "merge.executed",
+        "merge.preflight",
+        "mutation.executed",
+        "mutation.executing_started",
+        "onboard.executed",
+        "onboard.requested",
+        "pr.commented",
+        "pr.created",
+        "pr.merged",
+        "prune.executed",
+        "prune.executing_started",
+        "quality.hint.generated",
+        "review.routed",
+        "shepherd.approval_requested",
+        "shepherd.completed",
+        "shepherd.escalated",
+        "shepherd.started",
+        "stack.position-filled",
+        "state.patched",
+        "synthesize.requested",
+        "task.claimed",
+        "task.completed",
+        "task.failed",
+        "workflow.cancel",
+        "workflow.checkpoint",
+        "workflow.cleanup",
+        "workflow.compensation",
+        "workflow.fix-cycle",
+        "workflow.pruned",
+        "workflow.rehydrated",
+        "workflow.started",
+        "workflow.transition",
+        "worktree.adopted",
+        "worktree.merge_executed",
+        "worktree.merge_requested",
+        "worktree.orphan_detected",
+        "worktree.released",
+        "worktree.remove.executed",
+        "worktree.remove.requested",
+        "worktree.reserved"
+      ],
+      "arms": {
+        "multiArmReachable": true,
+        "zeroArmReachable": true,
+        "probedWith": {
+          "multi": "admission.enforcement-enabled",
+          "zero": "admission.enforcement-enabled"
+        }
+      }
+    },
+    "per-emission-site/primary-edges": {
+      "populationSize": 86,
+      "satisfyingCount": 82,
+      "zeroPrimaryCount": 4,
+      "multiPrimaryCount": 0,
+      "zeroPrimary": [
+        {
+          "key": "merge.recovered@exarchos_orchestrate.merge_orchestrate",
+          "primaryEdges": 0,
+          "primaryOwners": [],
+          "declaringEdges": 1,
+          "declaredBy": [
+            "exarchos_orchestrate.merge_orchestrate"
+          ]
+        },
+        {
+          "key": "onboard.executed@exarchos_orchestrate.doctor",
+          "primaryEdges": 0,
+          "primaryOwners": [],
+          "declaringEdges": 1,
+          "declaredBy": [
+            "exarchos_orchestrate.doctor"
+          ]
+        },
+        {
+          "key": "onboard.requested@exarchos_orchestrate.doctor",
+          "primaryEdges": 0,
+          "primaryOwners": [],
+          "declaringEdges": 1,
+          "declaredBy": [
+            "exarchos_orchestrate.doctor"
+          ]
+        },
+        {
+          "key": "state.patched@exarchos_orchestrate.discover_bridge",
+          "primaryEdges": 0,
+          "primaryOwners": [],
+          "declaringEdges": 1,
+          "declaredBy": [
+            "exarchos_orchestrate.discover_bridge"
+          ]
+        }
+      ],
+      "multiPrimary": [],
+      "satisfyingKeys": [
+        "admission.enforcement-enabled@exarchos_orchestrate.cutover_decide",
+        "admission.evidence-recorded@exarchos_orchestrate.check_contract_drift",
+        "admission.evidence-recorded@exarchos_orchestrate.check_integration_suite",
+        "admission.evidence-recorded@exarchos_orchestrate.check_mock_boundary",
+        "admission.evidence-recorded@exarchos_orchestrate.check_static_analysis",
+        "admission.evidence-recorded@exarchos_orchestrate.check_test_adequacy",
+        "admission.rollout-decision@exarchos_orchestrate.cutover_decide",
+        "catalog.registered@exarchos_orchestrate.invariants_add",
+        "ci.status@exarchos_orchestrate.assess_stack",
+        "diagnostic.executed@exarchos_orchestrate.doctor",
+        "feedback.recorded@exarchos_workflow.feedback",
+        "gate.executed@exarchos_orchestrate.assess_stack",
+        "gate.executed@exarchos_orchestrate.check_context_economy",
+        "gate.executed@exarchos_orchestrate.check_contract_drift",
+        "gate.executed@exarchos_orchestrate.check_convergence",
+        "gate.executed@exarchos_orchestrate.check_design_completeness",
+        "gate.executed@exarchos_orchestrate.check_event_emissions",
+        "gate.executed@exarchos_orchestrate.check_exploration_depth",
+        "gate.executed@exarchos_orchestrate.check_integration_suite",
+        "gate.executed@exarchos_orchestrate.check_invariant_conformance",
+        "gate.executed@exarchos_orchestrate.check_mock_boundary",
+        "gate.executed@exarchos_orchestrate.check_operational_resilience",
+        "gate.executed@exarchos_orchestrate.check_plan_coverage",
+        "gate.executed@exarchos_orchestrate.check_post_merge",
+        "gate.executed@exarchos_orchestrate.check_provenance_chain",
+        "gate.executed@exarchos_orchestrate.check_review_verdict",
+        "gate.executed@exarchos_orchestrate.check_security_scan",
+        "gate.executed@exarchos_orchestrate.check_static_analysis",
+        "gate.executed@exarchos_orchestrate.check_task_decomposition",
+        "gate.executed@exarchos_orchestrate.check_test_adequacy",
+        "gate.executed@exarchos_orchestrate.check_workflow_determinism",
+        "gate.executed@exarchos_orchestrate.mutation-adequacy",
+        "gate.executed@exarchos_orchestrate.post_delegation_check",
+        "gate.executed@exarchos_orchestrate.pre_synthesis_check",
+        "gate.executed@exarchos_orchestrate.prepare_synthesis",
+        "invariant.amended@exarchos_orchestrate.invariants_amend",
+        "invariant.authored@exarchos_orchestrate.invariants_add",
+        "issue.created@exarchos_orchestrate.create_issue",
+        "launch.executed@exarchos_orchestrate.reconcile_worktrees",
+        "merge.completed@exarchos_orchestrate.merge_orchestrate",
+        "merge.executed@exarchos_orchestrate.merge_orchestrate",
+        "merge.preflight@exarchos_orchestrate.merge_orchestrate",
+        "mutation.executed@exarchos_orchestrate.mutation-adequacy",
+        "mutation.executing_started@exarchos_orchestrate.mutation-adequacy",
+        "onboard.executed@exarchos_orchestrate.onboard",
+        "onboard.requested@exarchos_orchestrate.onboard",
+        "pr.commented@exarchos_orchestrate.add_pr_comment",
+        "pr.created@exarchos_orchestrate.create_pr",
+        "pr.merged@exarchos_orchestrate.merge_pr",
+        "prune.executed@exarchos_orchestrate.prune_worktrees",
+        "prune.executing_started@exarchos_orchestrate.prune_worktrees",
+        "quality.hint.generated@exarchos_orchestrate.prepare_delegation",
+        "review.routed@exarchos_orchestrate.review_triage",
+        "shepherd.approval_requested@exarchos_orchestrate.assess_stack",
+        "shepherd.completed@exarchos_orchestrate.assess_stack",
+        "shepherd.escalated@exarchos_orchestrate.assess_stack",
+        "shepherd.started@exarchos_orchestrate.assess_stack",
+        "stack.position-filled@exarchos_orchestrate.stack_place",
+        "state.patched@exarchos_workflow.update",
+        "synthesize.requested@exarchos_orchestrate.request_synthesize",
+        "task.claimed@exarchos_orchestrate.task_claim",
+        "task.completed@exarchos_orchestrate.task_complete",
+        "task.failed@exarchos_orchestrate.task_fail",
+        "workflow.cancel@exarchos_workflow.cancel",
+        "workflow.checkpoint@exarchos_workflow.checkpoint",
+        "workflow.cleanup@exarchos_workflow.cleanup",
+        "workflow.compensation@exarchos_workflow.cancel",
+        "workflow.fix-cycle@exarchos_workflow.transition",
+        "workflow.pruned@exarchos_orchestrate.prune_stale_workflows",
+        "workflow.rehydrated@exarchos_workflow.rehydrate",
+        "workflow.started@exarchos_workflow.init",
+        "workflow.transition@exarchos_workflow.transition",
+        "worktree.adopted@exarchos_orchestrate.acquire_worktree",
+        "worktree.merge_executed@exarchos_orchestrate.reconcile_worktrees",
+        "worktree.merge_executed@exarchos_orchestrate.serialize_merge",
+        "worktree.merge_requested@exarchos_orchestrate.serialize_merge",
+        "worktree.orphan_detected@exarchos_orchestrate.reconcile_worktrees",
+        "worktree.released@exarchos_orchestrate.reconcile_worktrees",
+        "worktree.released@exarchos_orchestrate.release_worktree",
+        "worktree.remove.executed@exarchos_orchestrate.prune_worktrees",
+        "worktree.remove.requested@exarchos_orchestrate.prune_worktrees",
+        "worktree.reserved@exarchos_orchestrate.acquire_worktree"
+      ],
+      "arms": {
+        "multiArmReachable": false,
+        "zeroArmReachable": true,
+        "probedWith": {
+          "multi": "admission.enforcement-enabled",
+          "zero": "admission.enforcement-enabled"
+        }
+      }
+    },
+    "per-event-and-tool/primary-owners": {
+      "populationSize": 55,
+      "satisfyingCount": 53,
+      "zeroPrimaryCount": 2,
+      "multiPrimaryCount": 0,
+      "zeroPrimary": [
+        {
+          "key": "merge.recovered@exarchos_orchestrate",
+          "primaryEdges": 0,
+          "primaryOwners": [],
+          "declaringEdges": 1,
+          "declaredBy": [
+            "exarchos_orchestrate.merge_orchestrate"
+          ]
+        },
+        {
+          "key": "state.patched@exarchos_orchestrate",
+          "primaryEdges": 0,
+          "primaryOwners": [],
+          "declaringEdges": 1,
+          "declaredBy": [
+            "exarchos_orchestrate.discover_bridge"
+          ]
+        }
+      ],
+      "multiPrimary": [],
+      "satisfyingKeys": [
+        "admission.enforcement-enabled@exarchos_orchestrate",
+        "admission.evidence-recorded@exarchos_orchestrate",
+        "admission.rollout-decision@exarchos_orchestrate",
+        "catalog.registered@exarchos_orchestrate",
+        "ci.status@exarchos_orchestrate",
+        "diagnostic.executed@exarchos_orchestrate",
+        "feedback.recorded@exarchos_workflow",
+        "gate.executed@exarchos_orchestrate",
+        "invariant.amended@exarchos_orchestrate",
+        "invariant.authored@exarchos_orchestrate",
+        "issue.created@exarchos_orchestrate",
+        "launch.executed@exarchos_orchestrate",
+        "merge.completed@exarchos_orchestrate",
+        "merge.executed@exarchos_orchestrate",
+        "merge.preflight@exarchos_orchestrate",
+        "mutation.executed@exarchos_orchestrate",
+        "mutation.executing_started@exarchos_orchestrate",
+        "onboard.executed@exarchos_orchestrate",
+        "onboard.requested@exarchos_orchestrate",
+        "pr.commented@exarchos_orchestrate",
+        "pr.created@exarchos_orchestrate",
+        "pr.merged@exarchos_orchestrate",
+        "prune.executed@exarchos_orchestrate",
+        "prune.executing_started@exarchos_orchestrate",
+        "quality.hint.generated@exarchos_orchestrate",
+        "review.routed@exarchos_orchestrate",
+        "shepherd.approval_requested@exarchos_orchestrate",
+        "shepherd.completed@exarchos_orchestrate",
+        "shepherd.escalated@exarchos_orchestrate",
+        "shepherd.started@exarchos_orchestrate",
+        "stack.position-filled@exarchos_orchestrate",
+        "state.patched@exarchos_workflow",
+        "synthesize.requested@exarchos_orchestrate",
+        "task.claimed@exarchos_orchestrate",
+        "task.completed@exarchos_orchestrate",
+        "task.failed@exarchos_orchestrate",
+        "workflow.cancel@exarchos_workflow",
+        "workflow.checkpoint@exarchos_workflow",
+        "workflow.cleanup@exarchos_workflow",
+        "workflow.compensation@exarchos_workflow",
+        "workflow.fix-cycle@exarchos_workflow",
+        "workflow.pruned@exarchos_orchestrate",
+        "workflow.rehydrated@exarchos_workflow",
+        "workflow.started@exarchos_workflow",
+        "workflow.transition@exarchos_workflow",
+        "worktree.adopted@exarchos_orchestrate",
+        "worktree.merge_executed@exarchos_orchestrate",
+        "worktree.merge_requested@exarchos_orchestrate",
+        "worktree.orphan_detected@exarchos_orchestrate",
+        "worktree.released@exarchos_orchestrate",
+        "worktree.remove.executed@exarchos_orchestrate",
+        "worktree.remove.requested@exarchos_orchestrate",
+        "worktree.reserved@exarchos_orchestrate"
+      ],
+      "arms": {
+        "multiArmReachable": false,
+        "zeroArmReachable": true,
+        "probedWith": {
+          "multi": "admission.enforcement-enabled",
+          "zero": "admission.enforcement-enabled"
+        }
+      }
+    }
+  },
+  "perTier": [
+    {
+      "tier": "capability",
+      "eventCount": 29,
+      "events": [
+        "admission.enforcement-enabled",
+        "admission.evidence-recorded",
+        "admission.rollout-decision",
+        "ci.status",
+        "gate.executed",
+        "launch.executed",
+        "merge.completed",
+        "merge.executed",
+        "merge.preflight",
+        "merge.recovered",
+        "prune.executed",
+        "prune.executing_started",
+        "review.routed",
+        "shepherd.approval_requested",
+        "shepherd.completed",
+        "shepherd.escalated",
+        "shepherd.started",
+        "stack.position-filled",
+        "task.claimed",
+        "task.completed",
+        "task.failed",
+        "workflow.fix-cycle",
+        "worktree.adopted",
+        "worktree.merge_executed",
+        "worktree.merge_requested",
+        "worktree.orphan_detected",
+        "worktree.released",
+        "worktree.remove.executed",
+        "worktree.reserved"
+      ],
+      "zeroPrimaryEvents": [
+        "merge.recovered"
+      ],
+      "multiPrimaryEventsByOwner": []
+    },
+    {
+      "tier": "substrate",
+      "eventCount": 25,
+      "events": [
+        "catalog.registered",
+        "diagnostic.executed",
+        "feedback.recorded",
+        "invariant.amended",
+        "invariant.authored",
+        "issue.created",
+        "mutation.executed",
+        "mutation.executing_started",
+        "onboard.executed",
+        "onboard.requested",
+        "pr.commented",
+        "pr.created",
+        "pr.merged",
+        "quality.hint.generated",
+        "state.patched",
+        "synthesize.requested",
+        "workflow.cancel",
+        "workflow.checkpoint",
+        "workflow.cleanup",
+        "workflow.compensation",
+        "workflow.pruned",
+        "workflow.rehydrated",
+        "workflow.started",
+        "workflow.transition",
+        "worktree.remove.requested"
+      ],
+      "zeroPrimaryEvents": [],
+      "multiPrimaryEventsByOwner": []
+    }
+  ],
+  "planDeclaredPopulation": {
+    "events": [
+      "promotion.executed",
+      "vcs.compensated",
+      "vcs.executed",
+      "vcs.requested"
+    ],
+    "coveredByAutoEmits": [],
+    "uncoveredByAutoEmits": [
+      "promotion.executed",
+      "vcs.compensated",
+      "vcs.executed",
+      "vcs.requested"
+    ],
+    "registeredInCatalog": [
+      "promotion.executed",
+      "vcs.compensated",
+      "vcs.executed",
+      "vcs.requested"
+    ]
+  },
+  "moduleEmitters": [
+    {
+      "event": "admission.cutover-ready",
+      "module": "workflow/admission/cutover-auto-export.ts",
+      "trigger": "success-hook",
+      "alsoDeclaredByAnAction": false
+    },
+    {
+      "event": "admission.disagreement-disposition",
+      "module": "workflow/admission/live-shadow-observer.ts",
+      "trigger": "observer-drain",
+      "alsoDeclaredByAnAction": false
+    },
+    {
+      "event": "admission.shadow-attempt",
+      "module": "workflow/admission/live-shadow-observer.ts",
+      "trigger": "observer-drain",
+      "alsoDeclaredByAnAction": false
+    },
+    {
+      "event": "emission.violated",
+      "module": "dispatch/core/interceptors/emission-verifier.ts",
+      "trigger": "dispatch-interceptor",
+      "alsoDeclaredByAnAction": false
+    },
+    {
+      "event": "launch.executing_started",
+      "module": "runtime/launcher/liveness.ts",
+      "trigger": "process-hook",
+      "alsoDeclaredByAnAction": false
+    },
+    {
+      "event": "session.machinery_consumed",
+      "module": "dispatch/core/interceptors/session-machinery.ts",
+      "trigger": "dispatch-interceptor",
+      "alsoDeclaredByAnAction": false
+    },
+    {
+      "event": "subagent.tokens_used",
+      "module": "lifecycle/subagent-stop.ts",
+      "trigger": "process-hook",
+      "alsoDeclaredByAnAction": false
+    },
+    {
+      "event": "tool.action_errored",
+      "module": "projections/telemetry/middleware.ts",
+      "trigger": "dispatch-wrapper",
+      "alsoDeclaredByAnAction": false
+    },
+    {
+      "event": "tool.completed",
+      "module": "projections/telemetry/middleware.ts",
+      "trigger": "dispatch-wrapper",
+      "alsoDeclaredByAnAction": false
+    },
+    {
+      "event": "tool.errored",
+      "module": "projections/telemetry/middleware.ts",
+      "trigger": "dispatch-wrapper",
+      "alsoDeclaredByAnAction": false
+    },
+    {
+      "event": "tool.invoked",
+      "module": "projections/telemetry/middleware.ts",
+      "trigger": "dispatch-wrapper",
+      "alsoDeclaredByAnAction": false
+    }
+  ],
+  "unregisteredEmittedEvents": []
+}
