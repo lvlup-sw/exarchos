@@ -3,12 +3,26 @@ import { vacuityWaiver, withCappedShape } from '../../../output-schema-declarati
 import { scopeField as lifecycleScopeField } from '../../../projections/views/lifecycle/schema-fields.js';
 import { AsOfSchema } from '../../../workflow/schemas.js';
 import { z } from 'zod';
+import { none, withActionContract } from '../../action-contract.js';
 import { CORRELATION_TUPLE_FILTER_SHAPE, LOCAL_MUTATION, READ_ONLY_LOCAL } from '../../annotations.js';
 import { TelemetryViewOutputSchema } from '../../output-schemas.js';
 import { ALL_PHASES, ROLE_ANY, STACK_PHASES } from '../../phases.js';
 import type { BuiltinToolAction } from '../../types.js';
 
-export const coreViewActions: readonly BuiltinToolAction[] = [
+const READ_ONLY_VIEW_CONTRACT = {
+  requires: none('read-only view has no admission obligations'),
+  ensures: none('read-only view returns an ephemeral projection with no durable postcondition'),
+  needs: none('read-only view folds in-process projections'),
+  touches: {
+    frame: 'single-machine' as const,
+    resources: none('read-only view does not claim exclusive stream, path, worktree, or git-ref ownership'),
+  },
+  executionAuthority: { kind: 'local' as const },
+  replay: { kind: 'safe-repeat' as const },
+  emissions: none('read-only view emits no catalog events'),
+};
+
+const CORE_VIEW_DECLARATIONS: readonly BuiltinToolAction[] = [
   {
     name: 'pipeline',
     description: "Aggregated view of active workflows with stack positions, repo-scoped by default to the caller's repo (excludes completed/cancelled unless includeCompleted=true). Returns ≤ 10 compact entries; data.page carries {total, offset, limit, hasMore} and data.scope/data.unscopedTotal report the effective scope and the pre-scope count so hidden rows are perceivable. Pass scope='all' to span every repo, an explicit repoRoot to scope to another repo, or detail=true for the full per-task map.",
@@ -201,3 +215,7 @@ export const coreViewActions: readonly BuiltinToolAction[] = [
     annotations: READ_ONLY_LOCAL,
   },
 ];
+
+export const coreViewActions: readonly BuiltinToolAction[] = CORE_VIEW_DECLARATIONS.map((action) =>
+  withActionContract(action, READ_ONLY_VIEW_CONTRACT, { annotations: action.annotations }),
+);
