@@ -29,113 +29,31 @@
  * event name is registered. A copy is also what lets the kill probe relax the
  * guard without ever touching the live tree.
  */
-import { execFileSync } from 'node:child_process';
-import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const packageRoot = path.join(here, '../..');
-const CARRIER = path.join(packageRoot, 'src/dispatch/core/effect-carrier.ts');
-
-/** Where the carrier's emission-declaration compile claims begin. */
-const PROOF_BLOCK_MARKER = '// ─── Emission-declaration compile claims';
+import {
+  CARRIER_PATH,
+  compile,
+  materializeCarrier,
+  type Relaxation,
+} from '../helpers/carrier-compile-harness.js';
 
 /**
- * Resolved rather than path-joined.
- *
- * `node_modules` is not necessarily under `packageRoot`: a git worktree resolves
- * its dependencies from the parent checkout by walking up, so a hardcoded
- * `packageRoot/node_modules/...` is absent exactly when the suite runs in one.
- * `require.resolve` follows the same walk Node does.
+ * The single relaxation this suite needs: the emission declaration becomes
+ * optional again, and the one accessor that reads it is widened to match.
  */
-const TSC_BIN = createRequire(import.meta.url).resolve('typescript/bin/tsc');
-
-const TSC_FLAGS = [
-  '--noEmit',
-  '--strict',
-  '--exactOptionalPropertyTypes',
-  '--module',
-  'NodeNext',
-  '--moduleResolution',
-  'NodeNext',
-  '--target',
-  'ES2022',
-];
-
-interface TscRun {
-  readonly accepted: boolean;
-  readonly output: string;
-}
-
-function runTsc(files: readonly string[], cwd: string): TscRun {
-  try {
-    const output = execFileSync(
-      process.execPath,
-      [TSC_BIN, ...TSC_FLAGS, ...files],
-      { cwd, encoding: 'utf8', stdio: 'pipe' },
-    );
-    return { accepted: true, output };
-  } catch (err: unknown) {
-    const streams: string[] = [];
-    if (typeof err === 'object' && err !== null) {
-      for (const key of ['stdout', 'stderr']) {
-        const value: unknown = Reflect.get(err, key);
-        if (typeof value === 'string') streams.push(value);
-        else if (value instanceof Uint8Array) streams.push(Buffer.from(value).toString('utf8'));
-      }
-    }
-    return { accepted: false, output: streams.join('') };
-  }
-}
-
-/** The carrier, standalone: its one import rewritten to a local stub. */
-function materializeCarrier(dir: string, relax: boolean): void {
-  fs.writeFileSync(
-    path.join(dir, 'schemas.ts'),
-    'export type EventType = string;\n',
-    'utf8',
-  );
-  let source = fs.readFileSync(CARRIER, 'utf8');
-  source = source.replace("from '../../events/schemas.js'", "from './schemas.js'");
-
-  if (relax) {
-    const required = '  readonly emits: PlanEmissions;';
-    if (!source.includes(required)) {
-      throw new Error(
-        'the relaxation target moved: the carrier no longer declares `readonly emits: PlanEmissions;`. ' +
-          'A probe that cannot find what it relaxes proves nothing, so this fails loudly.',
-      );
-    }
-    source = source.replace(required, '  readonly emits?: PlanEmissions;');
-    // The proof aliases assert the very property being relaxed, so they would
-    // fail the RELAXED build for the right reason and mask the fixture's own
-    // result. Drop them; the fixture is the subject here.
-    //
-    // The marker is asserted rather than assumed: `indexOf` returning -1 would
-    // make `slice` chop one character and leave both proof blocks standing, so
-    // a reworded comment would send the next reader to the fixture instead of
-    // to the string that actually moved.
-    const proofsAt = source.indexOf(PROOF_BLOCK_MARKER);
-    if (proofsAt === -1) {
-      throw new Error(
-        `the proof block marker ${JSON.stringify(PROOF_BLOCK_MARKER)} is gone from the carrier. ` +
-          'Relaxing a copy that still asserts what the relaxation removes proves nothing.',
-      );
-    }
-    source = source.slice(0, proofsAt);
-    // `declaredEmissions` reads the now-optional field.
-    source = source.replace(
-      "return plan.emits.kind === 'records' ? plan.emits.emissions : [];",
+const RELAX_REQUIRED_EMITS: readonly Relaxation[] = [
+  { find: '  readonly emits: PlanEmissions;', replace: '  readonly emits?: PlanEmissions;' },
+  {
+    find: "return plan.emits.kind === 'records' ? plan.emits.emissions : [];",
+    replace:
       "return plan.emits !== undefined && plan.emits.kind === 'records' ? plan.emits.emissions : [];",
-    );
-  }
-  fs.writeFileSync(path.join(dir, 'effect-carrier.ts'), source, 'utf8');
-}
+  },
+];
 
 /** A handler that performs an effect and does NOT say what records it. */
 const OMITTING_FIXTURE = `
@@ -164,10 +82,10 @@ describe('omission fails the build, not the run', () => {
   });
 
   it('CompileFail_EffectWithoutCommittedEvent_FailsTypecheck', () => {
-    materializeCarrier(dir, false);
+    materializeCarrier(dir, []);
     fs.writeFileSync(path.join(dir, 'fixture.ts'), OMITTING_FIXTURE, 'utf8');
 
-    const run = runTsc(['effect-carrier.ts', 'schemas.ts', 'fixture.ts'], dir);
+    const run = compile(dir, ['effect-carrier.ts', 'schemas.ts', 'fixture.ts']);
 
     expect(run.accepted, `a plan omitting its emission declaration compiled:\n${run.output}`).toBe(
       false,
@@ -182,10 +100,10 @@ describe('omission fails the build, not the run', () => {
     // The probe: the SAME fixture against a copy whose guard is relaxed. If it
     // still failed, the first assertion would be measuring a typo rather than
     // the requirement.
-    materializeCarrier(dir, true);
+    materializeCarrier(dir, RELAX_REQUIRED_EMITS);
     fs.writeFileSync(path.join(dir, 'fixture.ts'), OMITTING_FIXTURE, 'utf8');
 
-    const run = runTsc(['effect-carrier.ts', 'schemas.ts', 'fixture.ts'], dir);
+    const run = compile(dir, ['effect-carrier.ts', 'schemas.ts', 'fixture.ts']);
 
     expect(
       run.accepted,
@@ -197,7 +115,7 @@ describe('omission fails the build, not the run', () => {
     // The probes run against copies. This asserts the property rather than
     // trusting it: the real carrier still declares the required field after a
     // relaxed copy has been built from it.
-    materializeCarrier(dir, true);
-    expect(fs.readFileSync(CARRIER, 'utf8')).toContain('readonly emits: PlanEmissions;');
+    materializeCarrier(dir, RELAX_REQUIRED_EMITS);
+    expect(fs.readFileSync(CARRIER_PATH, 'utf8')).toContain('readonly emits: PlanEmissions;');
   });
 });

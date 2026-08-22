@@ -46,56 +46,19 @@
  * node process, reading the outcome off stdout.
  */
 import { execFileSync } from 'node:child_process';
-import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const packageRoot = path.join(here, '../..');
-const CARRIER = path.join(packageRoot, 'src/dispatch/core/effect-carrier.ts');
-const TSC_BIN = createRequire(import.meta.url).resolve('typescript/bin/tsc');
-
-const TSC_FLAGS = [
-  '--noEmit',
-  '--strict',
-  '--exactOptionalPropertyTypes',
-  '--module',
-  'NodeNext',
-  '--moduleResolution',
-  'NodeNext',
-  '--target',
-  'ES2022',
-];
-
-interface CompileResult {
-  readonly accepted: boolean;
-  readonly output: string;
-}
-
-function compile(dir: string, files: readonly string[]): CompileResult {
-  try {
-    execFileSync(process.execPath, [TSC_BIN, ...TSC_FLAGS, ...files], {
-      cwd: dir,
-      encoding: 'utf8',
-      stdio: 'pipe',
-    });
-    return { accepted: true, output: '' };
-  } catch (err: unknown) {
-    const streams: string[] = [];
-    if (typeof err === 'object' && err !== null) {
-      for (const key of ['stdout', 'stderr']) {
-        const value: unknown = Reflect.get(err, key);
-        if (typeof value === 'string') streams.push(value);
-        else if (value instanceof Uint8Array) streams.push(Buffer.from(value).toString('utf8'));
-      }
-    }
-    return { accepted: false, output: streams.join('') };
-  }
-}
+import {
+  CARRIER_PATH,
+  TSC_BIN,
+  compile,
+  materializeCarrier,
+  type Relaxation,
+} from '../helpers/carrier-compile-harness.js';
 
 /**
  * The control arm: the REAL carrier must reject the fixture, and must reject it
@@ -120,76 +83,6 @@ function expectRejectedForTheFixture(dir: string, files: readonly string[], fixt
 }
 
 /**
- * One relaxation: the text it replaces and what it becomes.
- *
- * `find` is asserted present before the edit. A probe whose target has moved
- * would otherwise silently relax NOTHING and then report that the guard still
- * holds — a false green of exactly the kind this file exists to prevent.
- */
-interface Relaxation {
-  readonly find: string;
-  readonly replace: string;
-}
-
-/**
- * Where the carrier's compile-time proofs begin.
- *
- * The EARLIER of the two proof blocks, deliberately. The module has two: the
- * original capability proofs, and the emission-declaration claims appended
- * after them. Truncating at the later marker leaves the first block standing,
- * and that block asserts a property the probe is trying to relax — so the copy
- * fails for the right reason and the probe reads as the guard holding.
- */
-const PROOF_BLOCK_MARKER = '// ─── Compile-time proofs';
-
-function materialize(dir: string, relaxations: readonly Relaxation[]): void {
-  fs.writeFileSync(path.join(dir, 'schemas.ts'), 'export type EventType = string;\n', 'utf8');
-  let source = fs.readFileSync(CARRIER, 'utf8');
-  source = source.replace("from '../../events/schemas.js'", "from './schemas.js'");
-
-  // The proof aliases assert exactly the properties a relaxation removes, so a
-  // relaxed copy that kept them would fail for the RIGHT reason and mask the
-  // fixture's own result. Truncating is deliberate: commenting the block out
-  // would leave an unterminated comment and the copy would fail to parse, which
-  // reads identically to the guard holding.
-  if (relaxations.length > 0) {
-    const at = source.indexOf(PROOF_BLOCK_MARKER);
-    if (at === -1) {
-      throw new Error(
-        'the in-source proof block is gone from the carrier. A probe that cannot find it ' +
-          'would relax a copy that still asserts what the probe removes, and report a false green.',
-      );
-    }
-    source = source.slice(0, at);
-  }
-
-  for (const { find, replace } of relaxations) {
-    // Presence is not enough — the target must be UNIQUE. `String.replace` with
-    // a string edits the first match, so a `find` that occurs twice silently
-    // relaxes the wrong site and the probe then reports that the guard held.
-    // This file caught exactly that: the capability check is spelled
-    // identically in `recordEmissions` and in `runEffect`, and the first draft
-    // of the executing probe relaxed the former while asserting about the
-    // latter.
-    const occurrences = source.split(find).length - 1;
-    if (occurrences === 0) {
-      throw new Error(
-        `probe target not found in the carrier: ${JSON.stringify(find)}. ` +
-          'The guard may have been reshaped; a probe that cannot find what it relaxes proves nothing.',
-      );
-    }
-    if (occurrences > 1) {
-      throw new Error(
-        `probe target is AMBIGUOUS (${occurrences} matches): ${JSON.stringify(find)}. ` +
-          'Relaxing the first match would edit a site this probe is not asserting about.',
-      );
-    }
-    source = source.replace(find, replace);
-  }
-  fs.writeFileSync(path.join(dir, 'effect-carrier.ts'), source, 'utf8');
-}
-
-/**
  * Emit the (possibly relaxed) carrier to JavaScript and RUN it.
  *
  * The recorder demand is the one gate with a runtime half, so it is the one
@@ -200,7 +93,7 @@ function materialize(dir: string, relaxations: readonly Relaxation[]): void {
  * harness cannot be mistaken for the effect being refused.
  */
 function runLiveWithNoRecorder(dir: string, relaxations: readonly Relaxation[]): string {
-  materialize(dir, relaxations);
+  materializeCarrier(dir, relaxations);
 
   // Emit rather than type-check. The carrier's one import is type-only, so the
   // emitted module has no imports at all and needs no resolution at runtime.
@@ -317,10 +210,10 @@ describe('kill probes: every gate is shown to fail', () => {
   it('KillProbe_RequiredEmissionsRelaxed_TypecheckStopsFailing', () => {
     write(dir, 'omits-emits.ts');
 
-    materialize(dir, []);
+    materializeCarrier(dir, []);
     expectRejectedForTheFixture(dir, ['effect-carrier.ts', 'schemas.ts', 'omits-emits.ts'], 'omits-emits.ts');
 
-    materialize(dir, [
+    materializeCarrier(dir, [
       { find: '  readonly emits: PlanEmissions;', replace: '  readonly emits?: PlanEmissions;' },
       {
         find: "return plan.emits.kind === 'records' ? plan.emits.emissions : [];",
@@ -337,10 +230,10 @@ describe('kill probes: every gate is shown to fail', () => {
   it('KillProbe_SuccessArmDropsEvidence_ValueBecomesReachable', () => {
     write(dir, 'success-without-evidence.ts');
 
-    materialize(dir, []);
+    materializeCarrier(dir, []);
     expectRejectedForTheFixture(dir, ['effect-carrier.ts', 'schemas.ts', 'success-without-evidence.ts'], 'success-without-evidence.ts');
 
-    materialize(dir, [
+    materializeCarrier(dir, [
       {
         find: "| { readonly kind: 'success'; readonly value: T; readonly evidence: EmissionEvidence }",
         replace:
@@ -356,10 +249,10 @@ describe('kill probes: every gate is shown to fail', () => {
   it('KillProbe_WitnessUnbranded_EvidenceBecomesForgeable', () => {
     write(dir, 'forged-witness.ts');
 
-    materialize(dir, []);
+    materializeCarrier(dir, []);
     expectRejectedForTheFixture(dir, ['effect-carrier.ts', 'schemas.ts', 'forged-witness.ts'], 'forged-witness.ts');
 
-    materialize(dir, [
+    materializeCarrier(dir, [
       {
         find: 'export interface ReplayedEvidence {\n  readonly [EMISSION_EVIDENCE_BRAND]: true;',
         replace: 'export interface ReplayedEvidence {',
@@ -381,10 +274,10 @@ describe('kill probes: every gate is shown to fail', () => {
   it('KillProbe_RecorderMadeOptional_LiveRunNeedsNoCapability', () => {
     write(dir, 'omits-recorder.ts');
 
-    materialize(dir, []);
+    materializeCarrier(dir, []);
     expectRejectedForTheFixture(dir, ['effect-carrier.ts', 'schemas.ts', 'omits-recorder.ts'], 'omits-recorder.ts');
 
-    materialize(dir, [
+    materializeCarrier(dir, [
       { find: '  recorder: EmissionRecorder,', replace: '  recorder?: EmissionRecorder,' },
     ]);
     expect(
@@ -429,12 +322,12 @@ describe('kill probes: every gate is shown to fail', () => {
     // suite runs alongside tiers that legitimately write coverage, SQLite and
     // `.exarchos/` state, so a whole-repo assertion would measure their work
     // and fail for reasons unrelated to any probe.
-    materialize(dir, [
+    materializeCarrier(dir, [
       { find: '  readonly emits: PlanEmissions;', replace: '  readonly emits?: PlanEmissions;' },
     ]);
 
     // The live carrier still declares every guard the probes relaxed.
-    const live = fs.readFileSync(CARRIER, 'utf8');
+    const live = fs.readFileSync(CARRIER_PATH, 'utf8');
     expect(live).toContain('  readonly emits: PlanEmissions;');
     expect(live).toContain('  recorder: EmissionRecorder,');
     expect(live).toContain('readonly [EMISSION_EVIDENCE_BRAND]: true;');
