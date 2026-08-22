@@ -14,10 +14,12 @@ const FAMILY_ACTIONS: readonly ToolAction[] = [...mergeActions, ...vcsActions, .
 const FAMILY_NAMES = new Set(FAMILY_ACTIONS.map((action) => action.name));
 
 function readContract(action: ToolAction): ActionContract {
-  if (!('actionContract' in action) || action.actionContract === undefined) {
+  if (!('actionContract' in action)) {
     throw new Error(`${action.name} is missing actionContract`);
   }
-  return action.actionContract;
+  return normalizeActionContract(Reflect.get(action, 'actionContract'), {
+    annotations: { idempotent: action.annotations.idempotent },
+  });
 }
 
 function assertCompleteContract(action: ToolAction): ActionContract {
