@@ -108,7 +108,7 @@ import {
   type WorkflowEvent,
 } from '../../../src/events/schemas.js';
 import * as mutationOwner from '../../../src/vcs/mutation-owner.js';
-import { promoteTree, promotionPlan } from '../../../src/install/atomic-promotion.js';
+import { promoteTree, promotionPlan, defaultPromotionIo } from '../../../src/install/atomic-promotion.js';
 import { digestTree } from '../../../src/install/install-identity.js';
 import { DRY_RUN, isDryRun } from '../../../src/dispatch/core/effect-carrier.js';
 import { workflowStateProjection } from '../../../src/projections/views/workflow-state-projection.js';
@@ -4397,7 +4397,13 @@ describe('WLM operational-core merge lease schemas', () => {
     // Dry-run: the engine is structurally unreachable, so this asks the site for its plan
     // without touching a byte of the filesystem. The owner therefore comes from the site's own
     // default, not from a literal spelled here.
-    const outcome = await promoteTree({ target, entries }, DRY_RUN);
+    // The recorder is a required argument now, so a dry-run has to spell one
+    // even though the withheld arm never reaches it. Passing a throwing sink is
+    // the honest choice here: if the dry-run guarantee ever regressed, this
+    // call would fail loudly instead of silently recording.
+    const outcome = await promoteTree({ target, entries }, DRY_RUN, defaultPromotionIo(), () => {
+      throw new Error('a dry-run promotion must never record');
+    });
     expect(isDryRun(outcome), 'the promotion site did not withhold the effect').toBe(true);
     if (!isDryRun(outcome)) return;
     const plan = outcome.plan;

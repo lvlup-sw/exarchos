@@ -115,6 +115,66 @@ export interface EffectEmission {
 }
 
 /**
+ * A plan that genuinely records no fact, and the reason it does not.
+ *
+ * This arm exists so that "records nothing" and "nobody decided" are different
+ * values rather than the same absence. An optional field could not tell them
+ * apart: a missing `emits` meant both, which is what let a plan promise no
+ * record by saying nothing at all.
+ *
+ * `because` is required for the same reason the arm is: an abstention with no
+ * stated reason is indistinguishable from an oversight, and the whole point of
+ * naming the abstention is that somebody had to decide it.
+ */
+export interface RecordsNothing {
+  readonly kind: 'records-nothing';
+  readonly because: string;
+}
+
+/**
+ * A plan that records, carrying the emissions it promises.
+ *
+ * The tuple type is non-empty by construction, so `records()` with nothing in
+ * it does not compile. An empty emission list is an abstention wearing the
+ * declaring arm's clothes, and it would reintroduce exactly the ambiguity
+ * {@link RecordsNothing} exists to remove.
+ */
+export interface RecordsEmissions {
+  readonly kind: 'records';
+  readonly emissions: readonly [EffectEmission, ...EffectEmission[]];
+}
+
+/**
+ * What a plan promises to record. Required on every {@link EffectPlan}: an
+ * effect that cannot say what records it is a state mutation that is not an
+ * event — a change to the world that the event log does not know happened.
+ */
+export type PlanEmissions = RecordsEmissions | RecordsNothing;
+
+/** Declare the emissions a plan records. At least one, by type. */
+export function records(
+  first: EffectEmission,
+  ...rest: readonly EffectEmission[]
+): RecordsEmissions {
+  return { kind: 'records', emissions: [first, ...rest] };
+}
+
+/** Declare that a plan records nothing, and why. */
+export function recordsNothing(because: string): RecordsNothing {
+  return { kind: 'records-nothing', because };
+}
+
+/**
+ * The emissions a plan declares, flattened across both arms.
+ *
+ * The one accessor every consumer reads, so the arm distinction stays inside
+ * this module rather than spreading a `kind` check through every caller.
+ */
+export function declaredEmissions(plan: EffectPlan): readonly EffectEmission[] {
+  return plan.emits.kind === 'records' ? plan.emits.emissions : [];
+}
+
+/**
  * The typed plan for a single effect. It encodes the three things the plan
  * mandates for every effect:
  *   - `owner`        — the single typed owner accountable for the effect;
@@ -141,12 +201,18 @@ export interface EffectPlan {
    * to tell "the intent landed" from "a terminal landed" — the exact
    * distinction that says whether an interrupted run needs convergence.
    *
-   * Optional, so a plan that records nothing stays a legal plan and every
-   * construction site that predates the emission axis still compiles. An
-   * undeclared `emits` means "this plan promises no record", never "the record
-   * is inferred from `effectClass` or `owner`"; see the vocabulary note above.
+   * REQUIRED. A plan cannot be built without saying what records it, because a
+   * plan that records nothing by saying nothing is the hole this closes: an
+   * effect that lands without its event is a state mutation that is not an
+   * event, and nothing downstream can replay or reconcile it.
+   *
+   * An effect that genuinely records nothing is still expressible — it declares
+   * {@link recordsNothing} and carries its reason. What is no longer
+   * expressible is the silence that used to mean both that and "nobody
+   * decided". Nothing here is inferred from `effectClass` or `owner`; see the
+   * vocabulary note above.
    */
-  readonly emits?: readonly EffectEmission[];
+  readonly emits: PlanEmissions;
 }
 
 /**
@@ -160,7 +226,7 @@ export function emissionsWhen(
   plan: EffectPlan,
   when: EmissionCondition,
 ): readonly EffectEmission[] {
-  return (plan.emits ?? []).filter((emission) => emission.when === when);
+  return declaredEmissions(plan).filter((emission) => emission.when === when);
 }
 
 /**
@@ -169,13 +235,19 @@ export function emissionsWhen(
  * silently ignored.
  */
 export type EffectOutcome<T> =
-  | { readonly kind: 'success'; readonly value: T }
+  | { readonly kind: 'success'; readonly value: T; readonly evidence: EmissionEvidence }
   | { readonly kind: 'error'; readonly error: EffectError }
   | { readonly kind: 'dry-run'; readonly plan: EffectPlan };
 
-/** Construct a `success` carrier. */
-export function succeeded<T>(value: T): EffectOutcome<T> {
-  return { kind: 'success', value };
+/**
+ * Construct a `success` carrier.
+ *
+ * Evidence is REQUIRED, and that is the whole point: a success carrier cannot
+ * be built without something that says the record exists, so obtaining `T` from
+ * one means the append already happened.
+ */
+export function succeeded<T>(value: T, evidence: EmissionEvidence): EffectOutcome<T> {
+  return { kind: 'success', value, evidence };
 }
 
 /** Construct an `error` carrier from a structured {@link EffectError}. */
@@ -191,7 +263,7 @@ export function plannedDryRun<T>(plan: EffectPlan): EffectOutcome<T> {
 /** Narrow to the `success` arm. */
 export function isSuccess<T>(
   outcome: EffectOutcome<T>,
-): outcome is { readonly kind: 'success'; readonly value: T } {
+): outcome is { readonly kind: 'success'; readonly value: T; readonly evidence: EmissionEvidence } {
   return outcome.kind === 'success';
 }
 
@@ -281,6 +353,17 @@ const EMISSION_RECORDER_BRAND: unique symbol = Symbol('exarchos.effect.emissionR
 const EMISSION_RECEIPT_BRAND: unique symbol = Symbol('exarchos.effect.emissionReceipt');
 
 /**
+ * Module-private brand for the evidence a committed value carries.
+ *
+ * Separate from the receipt brand because evidence has TWO arms and only one of
+ * them is a receipt. Branding the union is what stops the second arm becoming
+ * the way around the first: an owner that could hand-build a witness could buy
+ * a committed value with an object literal, which is precisely the hole the
+ * branded port closed on the recorder side.
+ */
+const EMISSION_EVIDENCE_BRAND: unique symbol = Symbol('exarchos.effect.emissionEvidence');
+
+/**
  * Evidence that one declared emission was recorded.
  *
  * Minted by the capability AFTER its sink returns, so a sink that throws yields
@@ -292,6 +375,76 @@ export interface EmissionReceipt {
   readonly [EMISSION_RECEIPT_BRAND]: true;
   readonly event: EventType;
   readonly when: EmissionCondition;
+}
+
+/**
+ * This run recorded the plan's declarations, and here are the receipts.
+ *
+ * The ordinary arm: one minted receipt per declared emission, collected across
+ * the intent and the terminal that actually fired.
+ */
+export interface RecordedEvidence {
+  readonly [EMISSION_EVIDENCE_BRAND]: true;
+  readonly kind: 'recorded';
+  readonly receipts: readonly EmissionReceipt[];
+}
+
+/**
+ * A PREVIOUS run recorded the terminal, and this run is replaying it.
+ *
+ * The arm an idempotency replay needs. A replayed effect performs nothing and
+ * therefore mints nothing, but the append it would have made has already
+ * happened — the owner read it out of its own ledger fold, which is why it
+ * knows to replay at all. Forcing it to fabricate a receipt would be a lie
+ * about which run wrote the fact.
+ */
+export interface ReplayedEvidence {
+  readonly [EMISSION_EVIDENCE_BRAND]: true;
+  readonly kind: 'replayed';
+  /** The terminal a previous run recorded, as read from the ledger. */
+  readonly event: EventType;
+  /** How the caller knows it landed. Named so a reader can audit the claim. */
+  readonly source: string;
+}
+
+/**
+ * Evidence that a committed value's record exists. Carried by the `success`
+ * arm, so reaching `T` means the append happened — on this run or an earlier
+ * one.
+ *
+ * **The trust model, stated rather than implied — and the two arms are NOT
+ * equally strong.** The brand stops an object literal from becoming evidence,
+ * so neither arm can be forged by shape. But {@link emissionRecorder} is
+ * strictly stronger than {@link replayedEvidence}: it forces the caller to
+ * supply a sink that {@link runEffect} invokes and awaits before a receipt is
+ * minted, whereas the witness constructor takes two strings, performs no IO and
+ * consults nothing. Any module that can import it can mint one.
+ *
+ * That asymmetry is deliberate and is the price of the replay path — a run that
+ * performed no effect has no append of its own to evidence, so something has to
+ * vouch for an earlier one. It is written down here because the alternative is
+ * a reader assuming the arms are interchangeable and reaching for the witness
+ * as a way to skip wiring a recorder. **They are not interchangeable: the
+ * witness is for replaying a terminal this owner has read from its own ledger,
+ * and nothing else.** The runtime gate does not cover this arm, so the
+ * constraint lives in review rather than in the type.
+ */
+export type EmissionEvidence = RecordedEvidence | ReplayedEvidence;
+
+/**
+ * The ONLY construction path for replay evidence.
+ *
+ * Exported because the owner that replays is not this module; branded because
+ * an unbranded witness would let any object literal buy a committed value, and
+ * the second arm must not become the way around the first.
+ */
+export function replayedEvidence(event: EventType, source: string): ReplayedEvidence {
+  return { [EMISSION_EVIDENCE_BRAND]: true, kind: 'replayed', event, source };
+}
+
+/** Mint evidence from receipts this run collected. Module-private on purpose. */
+function recordedEvidence(receipts: readonly EmissionReceipt[]): RecordedEvidence {
+  return { [EMISSION_EVIDENCE_BRAND]: true, kind: 'recorded', receipts };
 }
 
 /**
@@ -387,10 +540,12 @@ export class UnrecordedEmissionError extends Error {
  * Record every emission a plan declares for one condition, in order, and return
  * the receipts.
  *
- * A plan declaring nothing for the condition records nothing and needs no
- * capability — that is what keeps a plan with no `emits` inert. Once a plan does
- * declare, though, the run may only continue on evidence: one minted receipt per
- * declared emission. Anything less throws.
+ * A plan declaring nothing for THIS condition records nothing for it — which is
+ * ordinary: an intent-only plan reaches its terminals with nothing to append.
+ * That is a statement about one condition, not about the plan: every plan now
+ * declares, and a plan that records nothing at all says so in its own arm.
+ * Once a condition does declare, the run may only continue on evidence: one
+ * minted receipt per declared emission. Anything less throws.
  */
 async function recordEmissions(
   plan: EffectPlan,
@@ -431,19 +586,21 @@ async function recordEmissions(
  * `runEffect` never rejects for an effect failure. Only the thunk sits inside
  * the `try`, so a terminal record cannot be mistaken for the effect failing.
  *
- * A plan declaring no emissions records nothing, needs no capability, and leaves
- * the three-arm carrier exactly as it is. A plan that DOES declare gets the
- * commit gate: the effect is refused up front unless a real
- * {@link EmissionRecorder} was supplied — so the thunk does not run either — and
- * the `return` below is reached only after the terminal record produced one
- * minted receipt per declared emission. There is no path from a no-op to a
- * committed value; the record is not merely expected, it is on the way.
+ * Every plan declares, so every live run gets the commit gate: the effect is
+ * refused up front unless a real {@link EmissionRecorder} was supplied — so the
+ * thunk does not run either — and the `return` below is reached only after the
+ * terminal record produced one minted receipt per declared emission. A plan
+ * that declares {@link recordsNothing} still needs the capability, because
+ * "this effect records nothing" is a claim its owner must be equipped to stand
+ * behind rather than a way to opt out of being asked. There is no path from a
+ * no-op to a committed value; the record is not merely expected, it is on the
+ * way.
  */
 export async function runEffect<T>(
   mode: EffectMode,
   plan: EffectPlan,
   execute: () => Promise<T>,
-  recorder?: EmissionRecorder,
+  recorder: EmissionRecorder,
 ): Promise<EffectOutcome<T>> {
   if (mode.kind === 'dry-run') {
     return plannedDryRun(plan);
@@ -451,24 +608,37 @@ export async function runEffect<T>(
   // Refused BEFORE the thunk, not at the terminal: an owner that cannot record
   // must not perform the effect at all, and a plan whose only emission is a
   // terminal would otherwise mutate the world before discovering that.
-  const declaredCount = plan.emits?.length ?? 0;
-  if (declaredCount > 0 && !isEmissionRecorder(recorder)) {
-    throw new UnrecordedEmissionError(plan, 'before', 0, declaredCount);
+  //
+  // Refused UNCONDITIONALLY, not only when the plan declares something. Gating
+  // the demand on a non-empty declaration was the same abstention hole one
+  // level down: it let a plan that records nothing skip the capability, so the
+  // one kind of plan nobody had to equip was the one making the strongest
+  // claim. The parameter is required at the type level too; this check is what
+  // holds at a boundary the type system does not govern.
+  if (!isEmissionRecorder(recorder)) {
+    throw new UnrecordedEmissionError(plan, 'before', 0, declaredEmissions(plan).length);
   }
-  await recordEmissions(plan, 'before', recorder);
+  const intentReceipts = await recordEmissions(plan, 'before', recorder);
 
-  let outcome: EffectOutcome<T>;
+  // The value is held rather than wrapped immediately: the success carrier now
+  // requires evidence, and the terminal receipt does not exist until after the
+  // terminal record has been made. Building the carrier here would mean either
+  // constructing it without its evidence or back-filling it afterwards, and
+  // both are the convention this arm exists to replace.
+  let ran: { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: EffectError };
   let terminal: EmissionCondition;
   try {
-    outcome = succeeded(await execute());
+    ran = { ok: true, value: await execute() };
     terminal = 'on-success';
   } catch (cause) {
-    outcome = failed(toEffectError(plan, cause));
+    ran = { ok: false, error: toEffectError(plan, cause) };
     terminal = 'on-failure';
   }
 
-  await recordEmissions(plan, terminal, recorder);
-  return outcome;
+  const terminalReceipts = await recordEmissions(plan, terminal, recorder);
+  return ran.ok
+    ? succeeded(ran.value, recordedEvidence([...intentReceipts, ...terminalReceipts]))
+    : failed(ran.error);
 }
 
 // ─── Idempotency key: the stream dimension is part of construction ──────────
@@ -588,12 +758,14 @@ export type _EffectCarrier_PlainRecord_IsNotAnEmissionReceipt = Expect<
 
 /**
  * **The unreachability proof.** `runEffect`'s recorder parameter is EXACTLY the
- * minted capability (or nothing at all — the inert case, for a plan that
- * declares no emissions and therefore has no record to be missing). Read with
- * the three negative proofs above, this is the chain: the only value that can
- * occupy that parameter is one {@link emissionRecorder} produced, and the
- * runtime gate then refuses a committed value until that capability has minted a
- * receipt per declared emission.
+ * minted capability — no longer "or nothing at all". The inert case is gone
+ * because there are no inert plans: every plan declares, and one that records
+ * nothing says so in its own arm rather than by omission, so there is no plan
+ * for which the capability could be excused. Read with the three negative
+ * proofs above, this is the chain: the only value that can occupy that
+ * parameter is one {@link emissionRecorder} produced, and the runtime gate then
+ * refuses a committed value until that capability has minted a receipt per
+ * declared emission.
  *
  * Falsifier: widen the parameter back to a function type — {@link EmissionSink}
  * or anything else a lambda satisfies — and the two sides stop matching. That is
@@ -607,10 +779,15 @@ export type _EffectCarrier_PlainRecord_IsNotAnEmissionReceipt = Expect<
  * level can tell that sink from a durable one. The runtime half covers it: the
  * behavior test asserts that an OMITTED recorder refuses to commit, which a
  * defaulted no-op would turn red.
+ *
+ * Second falsifier, added when the parameter stopped being optional: widen it
+ * back to `EmissionRecorder | undefined` and this alias goes false. That is the
+ * regression which would let a caller omit the capability entirely, and it is
+ * the compile-time half of the unconditional demand the runtime gate makes.
  * @proof
  */
 export type _EffectCarrier_CommittedValue_IsUnreachableWithoutTheCapability = Expect<
-  MutuallyAssignable<Parameters<typeof runEffect>[3], EmissionRecorder | undefined>
+  MutuallyAssignable<Parameters<typeof runEffect>[3], EmissionRecorder>
 >;
 
 /**
@@ -633,4 +810,108 @@ export type _EffectCarrier_Record_YieldsAMintedReceipt = Expect<
  */
 export type _EffectCarrier_Constructor_MintsTheCapability = Expect<
   ReturnType<typeof emissionRecorder> extends EmissionRecorder ? true : false
+>;
+
+// ─── Emission-declaration compile claims ─────────────────────────────────────
+//
+// These live HERE, in a `src/` module, for the reason the block above already
+// states: the root `tsconfig.json` includes only `src/**` and excludes
+// `**/*.test.ts`, and `tests/tsconfig.json` excludes the unit and integration
+// tiers outright. A claim of this kind written in the co-located test would be
+// read by no compiler and executed by no runner — it would pass by never being
+// checked, which is the failure mode these claims exist to prevent.
+
+/**
+ * **A plan cannot omit what records it.** The older shape — everything a plan
+ * needs except the emission declaration — is no longer an {@link EffectPlan}.
+ *
+ * This is the compile-time half of the guarantee: an effect that lands without
+ * naming its record is a state mutation that is not an event, and the omission
+ * is a build failure rather than a runtime discovery.
+ *
+ * Falsifier: make `emits` optional again and this alias stops being `true`.
+ * @proof
+ */
+export type _EffectCarrier_PlanWithoutEmissions_IsNotAnEffectPlan = Expect<
+  IsNotAssignable<
+    {
+      readonly effectClass: EffectClass;
+      readonly owner: string;
+      readonly description: string;
+      readonly idempotent: boolean;
+    },
+    EffectPlan
+  >
+>;
+
+/**
+ * …and the abstention really is expressible, so the proof above rejects the
+ * OMISSION rather than rejecting every plan. Without this line, narrowing
+ * `emits` to something nothing can satisfy would leave the alias above passing
+ * while making the type useless — a guard that rejects everything measures as
+ * little as one that rejects nothing.
+ * @proof
+ */
+export type _EffectCarrier_RecordsNothing_IsALegalDeclaration = Expect<
+  ReturnType<typeof recordsNothing> extends PlanEmissions ? true : false
+>;
+
+/**
+ * **An empty declaration is not a declaration.** A `records` arm carrying no
+ * emissions cannot be built, so an abstention cannot be smuggled in wearing the
+ * declaring arm's clothes — which would restore the ambiguity between "records
+ * nothing" and "nobody decided" one level down.
+ *
+ * Falsifier: widen `emissions` to `readonly EffectEmission[]` and this goes
+ * false.
+ * @proof
+ */
+export type _EffectCarrier_EmptyEmissionList_IsNotADeclaringArm = Expect<
+  IsNotAssignable<{ readonly kind: 'records'; readonly emissions: readonly [] }, RecordsEmissions>
+>;
+
+/**
+ * **A committed value cannot be built without evidence.** The success arm minus
+ * its evidence is not an outcome, so `T` is unreachable from a value that does
+ * not already say the append happened.
+ *
+ * This is the criterion's `Committed<T>` in the shape this carrier actually
+ * has: the guarantee is carried by the arm rather than by the good behaviour of
+ * whoever constructs it.
+ *
+ * Falsifier: make `evidence` optional on the success arm and this stops being
+ * `true`.
+ * @proof
+ */
+export type _EffectCarrier_SuccessWithoutEvidence_IsNotAnOutcome = Expect<
+  IsNotAssignable<{ readonly kind: 'success'; readonly value: number }, EffectOutcome<number>>
+>;
+
+/**
+ * **The witness is unforgeable on the receipt's terms.** A plain object naming
+ * the replayed event is not {@link EmissionEvidence}, so the replay arm cannot
+ * become the way around the commit gate.
+ *
+ * This is the proof the second evidence arm needed and did not have when it was
+ * first sketched: an unbranded witness would have let an owner buy a committed
+ * value with an object literal, which is exactly the hole the branded port
+ * closed on the recorder side.
+ *
+ * Falsifier: drop the brand from the evidence arms and this goes false.
+ * @proof
+ */
+export type _EffectCarrier_PlainWitness_IsNotEmissionEvidence = Expect<
+  IsNotAssignable<
+    { readonly kind: 'replayed'; readonly event: EventType; readonly source: string },
+    EmissionEvidence
+  >
+>;
+
+/**
+ * …and the witness constructor really does mint the brand, so the negative
+ * above rejects the forgery rather than rejecting everything.
+ * @proof
+ */
+export type _EffectCarrier_ReplayConstructor_MintsEvidence = Expect<
+  ReturnType<typeof replayedEvidence> extends EmissionEvidence ? true : false
 >;

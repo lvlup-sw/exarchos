@@ -596,8 +596,10 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
         whyNotDerivable:
           'The representations are the carrier plus one sink per declaring owner, and no enumerable ' +
           'domain generates that set. `EffectClass` (`dispatch/core/effect-carrier.ts`) is a union, but it ' +
-          'enumerates effect KINDS, not representations of this boundary, and `emits` is optional on ' +
-          'a plan — so no type obliges an owner to appear here. Deriving the row from either would be ' +
+          'enumerates effect KINDS, not representations of this boundary. `emits` is REQUIRED on a plan ' +
+          'now, which narrows the gap without closing it: every plan must say what records it, but a ' +
+          'plan may still say `records-nothing`, and nothing enumerates the owners that build plans — ' +
+          'so no type obliges an owner to appear here. Deriving the row from either would still be ' +
           'a fabricated bridge that reports a totality it does not have.',
       }),
       measured:
