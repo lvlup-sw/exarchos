@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import { declared, none, type ActionContract } from '../../../../src/registry/action-contract.js';
 import {
   ActionAdmissionSnapshotError,
   createActionAdmissionSnapshot,
+  evaluateActionAdmission,
 } from '../../../../src/workflow/admission/action-admission.js';
+import { POLICY_CAPABILITY } from '../../../../src/workflow/admission/policy-authority.js';
+import { resolveActionIdRequirements } from '../../../../src/workflow/admission/requirement-resolution.js';
+import { BOTTOM_REQUIREMENTS } from '../../../../src/workflow/admission/requirement-strength.js';
 import type { ActionAdmissionSnapshotV1 } from '../../../../src/workflow/admission/types.js';
 
 const SHA256_A = 'a'.repeat(64);
@@ -27,7 +32,7 @@ const producer = {
 const authorization = {
   authorizationId: 'authorization-001',
   posture: 'shared-mutating' as const,
-  capabilityIds: ['capability.issue-waiver'],
+  capabilityIds: [POLICY_CAPABILITY.ISSUE_GATE_EVIDENCE, 'capability.issue-waiver'],
   resolverVersion: '1.0',
   resolvedAt: AT,
 };
@@ -194,3 +199,155 @@ describe('action admission snapshots', () => {
     expect(verdictChanged.digest.value).not.toBe(addedEvidence.digest.value);
   });
 });
+
+function evaluationContract(overrides: Partial<ActionContract> = {}): ActionContract {
+  return {
+    requires: none('read-only ActionId has no admission obligations'),
+    ensures: none('evaluator does not check postconditions'),
+    needs: none('no capability obligations'),
+    touches: {
+      frame: 'single-machine',
+      resources: none('no resource touch set'),
+    },
+    executionAuthority: { kind: 'local' },
+    replay: { kind: 'safe-repeat' },
+    emissions: none('evaluator does not publish emissions'),
+    ...overrides,
+  };
+}
+
+const REQUIRES_STATIC = declared({
+  family: 'ladder' as const,
+  gate: 'check_static_analysis' as const,
+});
+
+const staticEvidence = {
+  ...gateEvidence,
+  requirementId: 'check_static_analysis',
+};
+
+describe('action admission evaluation', () => {
+  it('EvaluateActionAdmission_Satisfied_Allows', () => {
+    const snapshot = createActionAdmissionSnapshot(
+      trustedInput({ evidence: [staticEvidence] }),
+    );
+    const result = evaluateActionAdmission(
+      'workflow.get',
+      snapshot,
+      evaluationContract({ requires: REQUIRES_STATIC }),
+    );
+    expect(result.verdict).toBe('allow');
+    expect(result.digest).toEqual(snapshot.digest);
+  });
+
+  it('EvaluateActionAdmission_MissingInput_IsIndeterminate', () => {
+    expect(
+      evaluateActionAdmission('workflow.get', { actionId: 'workflow.get' }, evaluationContract())
+        .verdict,
+    ).toBe('indeterminate');
+  });
+
+  it('EvaluateActionAdmission_MissingCapability_Denies', () => {
+    expect(
+      evaluateActionAdmission(
+        'workflow.get',
+        trustedInput(),
+        evaluationContract({ needs: declared('fs:write') }),
+      ).verdict,
+    ).toBe('deny');
+  });
+
+  it('EvaluateActionAdmission_TransitionRequires_IsNone', () => {
+    const requires = none(
+      'phase verbs defer edge obligations to the HSM transition guard',
+    );
+    expect(resolveActionIdRequirements(requires)).toEqual(BOTTOM_REQUIREMENTS);
+    expect(
+      evaluateActionAdmission(
+        'workflow.transition',
+        trustedInput({ actionId: 'workflow.transition', evidence: [] }),
+        evaluationContract({ requires }),
+      ).verdict,
+    ).toBe('allow');
+  });
+
+  it('EvaluateActionAdmission_SharedIrAlone_DoesNotBypassRequires', () => {
+    expect(
+      evaluateActionAdmission(
+        'workflow.get',
+        trustedInput({ evidence: [] }),
+        evaluationContract({ requires: REQUIRES_STATIC }),
+      ).verdict,
+    ).toBe('deny');
+  });
+
+  it('EvaluateActionAdmission_DoesNotSelectTransitionTarget', () => {
+    const result = evaluateActionAdmission(
+      'workflow.transition',
+      trustedInput({
+        actionId: 'workflow.transition',
+        evidence: [],
+        target: 'completed',
+      }),
+      evaluationContract({
+        requires: none('phase verbs defer edge obligations to the HSM transition guard'),
+      }),
+    );
+    expect(result).not.toHaveProperty('target');
+    expect(result.verdict).toBe('allow');
+  });
+
+  it('EvaluateActionAdmission_Contradiction_DoesNotAllow', () => {
+    expect(
+      evaluateActionAdmission(
+        'workflow.get',
+        trustedInput({
+          evidence: [
+            staticEvidence,
+            { ...staticEvidence, evidenceId: 'evidence-002', verdict: 'fail' },
+          ],
+        }),
+        evaluationContract({ requires: REQUIRES_STATIC }),
+      ).verdict,
+    ).not.toBe('allow');
+  });
+
+  it('EvaluateActionAdmission_SnapshotStaleEvidence_DoesNotAllow', () => {
+    expect(
+      evaluateActionAdmission(
+        'workflow.get',
+        trustedInput({
+          evidence: [{ ...staticEvidence, createdAt: '2026-07-21T16:00:00.000Z' }],
+        }),
+        evaluationContract({ requires: REQUIRES_STATIC }),
+      ).verdict,
+    ).not.toBe('allow');
+  });
+
+  it('EvaluateActionAdmission_UnauthorizedEvidence_DoesNotAllow', () => {
+    expect(
+      evaluateActionAdmission(
+        'workflow.get',
+        trustedInput({
+          evidence: [staticEvidence],
+          authorization: {
+            ...authorization,
+            capabilityIds: ['capability.issue-waiver'],
+          },
+        }),
+        evaluationContract({ requires: REQUIRES_STATIC }),
+      ).verdict,
+    ).not.toBe('allow');
+  });
+
+  it('EvaluateActionAdmission_WaiverMissingPhaseAttempt_IsIndeterminate', () => {
+    expect(
+      evaluateActionAdmission(
+        'workflow.get',
+        trustedInput({ evidence: [], hsmFacts: { phase: 'plan' } }),
+        evaluationContract({ requires: REQUIRES_STATIC }),
+      ).verdict,
+    ).toBe('indeterminate');
+  });
+});
+

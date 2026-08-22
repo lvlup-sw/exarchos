@@ -3,6 +3,13 @@ import {
   normalizeEvidenceSubjectContent,
   type NormalizedEvidenceSubjectContent,
 } from './evidence-subject.js';
+import { evaluateAuthoredRequirements } from './policy-evaluation.js';
+import { POLICY_CAPABILITY } from './policy-authority.js';
+import {
+  authoredActionRequirements,
+  resolveActionIdRequirements,
+  type ActionIdRequires,
+} from './requirement-resolution.js';
 import {
   ADMISSION_RUNTIME_CONTRACT_VERSION,
   ActionAdmissionActionIdSchema,
@@ -11,6 +18,7 @@ import {
   ActionAdmissionSubjectV1Schema,
   AdmissionEvidenceV1Schema,
   AuthorizationSnapshotV1Schema,
+  isActionAdmissionSnapshotV1,
   type ActionAdmissionHsmFactsV1,
   type ActionAdmissionSnapshotV1,
   type ActionAdmissionSubjectV1,
@@ -253,6 +261,157 @@ export function createActionAdmissionSnapshot(
     digest,
   });
   return deepFreeze(snapshot);
+}
+
+export type ActionAdmissionVerdict = 'allow' | 'deny' | 'indeterminate';
+
+export interface ActionAdmissionDecision {
+  readonly verdict: ActionAdmissionVerdict;
+  readonly digest: ContentDigestV1;
+}
+
+/** Snapshot-resident freshness window; wall-clock is not an evaluator input. */
+export const ACTION_ADMISSION_FRESHNESS_HORIZON_MS = 60 * 60 * 1000;
+
+function digestText(value: string): ContentDigestV1 {
+  return {
+    algorithm: 'sha256',
+    value: createHash('sha256').update(value, 'utf8').digest('hex'),
+  };
+}
+
+function decision(
+  verdict: ActionAdmissionVerdict,
+  digest: ContentDigestV1,
+): ActionAdmissionDecision {
+  return deepFreeze({ verdict, digest });
+}
+
+function resolveEvaluationSnapshot(
+  snapshot: unknown,
+): ActionAdmissionSnapshotV1 | undefined {
+  if (isActionAdmissionSnapshotV1(snapshot)) return snapshot;
+  try {
+    return createActionAdmissionSnapshot(snapshot);
+  } catch {
+    return undefined;
+  }
+}
+
+interface ActionAdmissionNeeds {
+  readonly kind: 'none' | 'declared';
+  readonly values?: readonly string[];
+}
+
+interface ActionAdmissionContract {
+  readonly requires: ActionIdRequires;
+  readonly needs: ActionAdmissionNeeds;
+  readonly executionAuthority: { readonly kind: string };
+}
+
+function isActionIdRequires(value: unknown): value is ActionIdRequires {
+  if (!isPlainRecord(value) || typeof value.kind !== 'string') return false;
+  if (value.kind === 'none') {
+    return typeof value.because === 'string' && value.because.trim().length > 0;
+  }
+  return value.kind === 'declared' && Array.isArray(value.values);
+}
+
+function isActionAdmissionContract(value: unknown): value is ActionAdmissionContract {
+  if (!isPlainRecord(value)) return false;
+  const needs = value.needs;
+  const executionAuthority = value.executionAuthority;
+  return (
+    isActionIdRequires(value.requires) &&
+    isPlainRecord(needs) &&
+    (needs.kind === 'none' || needs.kind === 'declared') &&
+    isPlainRecord(executionAuthority) &&
+    typeof executionAuthority.kind === 'string'
+  );
+}
+
+function capabilitiesSatisfied(
+  needs: ActionAdmissionNeeds,
+  authorization: AuthorizationSnapshotV1,
+): boolean {
+  if (needs.kind === 'none') return true;
+  const required = needs.values ?? [];
+  if (required.length === 0) return false;
+  const held = new Set(authorization.capabilityIds.map((id) => String(id)));
+  return required.every((capability) => held.has(capability));
+}
+
+function snapshotAuthorizesEvidence(
+  evidence: AdmissionEvidenceV1,
+  authorization: AuthorizationSnapshotV1,
+): boolean {
+  const required =
+    evidence.kind === 'gate'
+      ? POLICY_CAPABILITY.ISSUE_GATE_EVIDENCE
+      : POLICY_CAPABILITY.ISSUE_APPROVAL;
+  return authorization.capabilityIds.some((id) => String(id) === required);
+}
+
+/**
+ * Evaluate registry ActionId admission against a frozen snapshot and contract.
+ *
+ * Order is fixed and total: known ActionId, then execution ownership /
+ * capabilities, then ActionId-wide requires. Waivers are considered only when
+ * the snapshot carries a phase attempt. Missing trusted inputs, capability
+ * failure, unsatisfied requires, contradiction, and snapshot-resident stale or
+ * unauthorized evidence never allow. The decision does not select a transition
+ * target and does not replace the HSM transition guard — HSM edge conditions
+ * remain a separate conjunct.
+ */
+export function evaluateActionAdmission(
+  actionId: unknown,
+  snapshot: unknown,
+  contract: unknown,
+): ActionAdmissionDecision {
+  const parsedActionId = ActionAdmissionActionIdSchema.safeParse(actionId);
+  if (!parsedActionId.success || !isActionAdmissionContract(contract)) {
+    return decision(
+      'indeterminate',
+      digestText(`indeterminate:${String(actionId ?? '')}`),
+    );
+  }
+
+  const resolved = resolveEvaluationSnapshot(snapshot);
+  if (resolved === undefined) {
+    return decision(
+      'indeterminate',
+      digestText(`indeterminate:${parsedActionId.data}`),
+    );
+  }
+
+  if (resolved.actionId !== parsedActionId.data) {
+    return decision('deny', resolved.digest);
+  }
+
+  if (!capabilitiesSatisfied(contract.needs, resolved.authorization)) {
+    return decision('deny', resolved.digest);
+  }
+
+  const authored = authoredActionRequirements(contract.requires);
+  if (authored.length === 0) {
+    return decision('allow', resolved.digest);
+  }
+
+  const obligations = resolveActionIdRequirements(contract.requires);
+  const requirements = evaluateAuthoredRequirements({
+    requirements: authored,
+    obligations,
+    evidence: resolved.evidence,
+    ...(resolved.hsmFacts.phaseAttemptId === undefined
+      ? {}
+      : { phaseAttemptId: resolved.hsmFacts.phaseAttemptId }),
+    evaluatedAt: resolved.authorization.resolvedAt,
+    freshnessHorizonMs: ACTION_ADMISSION_FRESHNESS_HORIZON_MS,
+    authorizesEvidence: (evidence) =>
+      snapshotAuthorizesEvidence(evidence, resolved.authorization),
+  });
+
+  return decision(requirements.verdict, resolved.digest);
 }
 
 export type { ActionAdmissionSnapshotV1 };

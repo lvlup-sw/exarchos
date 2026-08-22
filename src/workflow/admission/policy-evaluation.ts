@@ -25,7 +25,8 @@
 // Pure: no I/O, no clock, no config reads; deterministic output ordering.
 
 import type { EvidenceContradiction } from './select-evidence.js';
-import type { PolicyAuthority } from './policy-authority.js';
+import { DENY_ALL_AUTHORITY, type PolicyAuthority } from './policy-authority.js';
+import type { ActionIdRequirement } from './requirement-resolution.js';
 import type { ResolvedRequirements } from './requirement-strength.js';
 import {
   selectApplicableWaiver,
@@ -479,4 +480,172 @@ export function evaluatePolicy(input: PolicyEvaluationInput): PolicyEvaluation {
       [...new Set(appliedWaiverIds)].sort(byId),
     ),
   });
+}
+
+// ─── ActionId-wide authored discriminants ────────────────────────────────────
+
+export interface AuthoredRequirementEvaluationInput {
+  /** Authored obligation discriminants — never freeze-time requirement ids. */
+  readonly requirements: readonly ActionIdRequirement[];
+  /** Lattice projection of those discriminants; `waivable` gates the waiver arm. */
+  readonly obligations: ResolvedRequirements;
+  readonly evidence: readonly AdmissionEvidenceV1[];
+  /** Present only when the snapshot carries a phase attempt. */
+  readonly phaseAttemptId?: PhaseAttemptId;
+  readonly evaluatedAt: string;
+  readonly freshnessHorizonMs: number;
+  /** Snapshot-resident authorization predicate; not a self-asserted producer role. */
+  readonly authorizesEvidence: (evidence: AdmissionEvidenceV1) => boolean;
+}
+
+function evidenceMatchesDiscriminant(
+  evidence: AdmissionEvidenceV1,
+  requirement: ActionIdRequirement,
+): boolean {
+  const id = evidence.requirementId;
+  if ('family' in requirement) {
+    return (
+      evidence.kind === 'gate' &&
+      (id === requirement.gate ||
+        id === `${requirement.family}:${requirement.gate}` ||
+        id === `gate:${requirement.family}:${requirement.gate}`)
+    );
+  }
+  if (requirement.kind === 'approvals') {
+    return evidence.kind === 'approval';
+  }
+  return true;
+}
+
+function attemptMismatch(
+  evidence: AdmissionEvidenceV1,
+  phaseAttemptId: PhaseAttemptId | undefined,
+): boolean {
+  return phaseAttemptId !== undefined && evidence.phaseAttemptId !== phaseAttemptId;
+}
+
+function authoredContradiction(matched: readonly AdmissionEvidenceV1[]): boolean {
+  const statements = new Set(matched.map(statementOfAuthored));
+  return statements.has('satisfied') && statements.has('unsatisfied');
+}
+
+function statementOfAuthored(evidence: AdmissionEvidenceV1): EvidenceStatementLike {
+  if (evidence.kind === 'approval') {
+    return evidence.verdict === 'approved' ? 'satisfied' : 'unsatisfied';
+  }
+  switch (evidence.verdict) {
+    case 'pass':
+      return 'satisfied';
+    case 'fail':
+      return 'unsatisfied';
+    case 'indeterminate':
+      return 'indeterminate';
+  }
+}
+
+type EvidenceStatementLike = 'satisfied' | 'unsatisfied' | 'indeterminate';
+
+function evaluateAuthoredRequirement(
+  requirement: ActionIdRequirement,
+  evidence: readonly AdmissionEvidenceV1[],
+  ctx: EvalContext,
+  phaseAttemptId: PhaseAttemptId | undefined,
+  authorizesEvidence: (evidence: AdmissionEvidenceV1) => boolean,
+): RawDisposition {
+  const matched = evidence.filter((item) =>
+    evidenceMatchesDiscriminant(item, requirement),
+  );
+  if (matched.length === 0) return denied('missing', []);
+
+  const malformed = matched.filter((item) => attemptMismatch(item, phaseAttemptId));
+  if (malformed.length > 0) return denied('malformed', malformed);
+
+  const unauthorized = matched.filter((item) => !authorizesEvidence(item));
+  if (unauthorized.length > 0) return denied('unauthorized', unauthorized);
+
+  const fresh = matched.filter((item) => !isStale(item, ctx));
+  if (fresh.length === 0) return denied('stale', matched);
+
+  if (authoredContradiction(fresh)) return denied('contradictory', fresh);
+
+  if ('family' in requirement) {
+    const passing = fresh.filter((item) => item.kind === 'gate' && item.verdict === 'pass');
+    if (passing.length > 0) return satisfied(passing);
+    const failing = fresh.filter((item) => item.kind === 'gate' && item.verdict === 'fail');
+    if (failing.length > 0) return denied('failed', failing);
+    return indeterminate('EVALUATOR_FAILED', fresh);
+  }
+
+  if (requirement.kind === 'approvals') {
+    const approved = fresh.filter(
+      (item): item is ApprovalEvidence =>
+        item.kind === 'approval' && item.verdict === 'approved',
+    );
+    const distinct = new Set(approved.map((item) => item.attributedTo.principalId));
+    if (distinct.size >= requirement.minimum) return satisfied(approved);
+    const rejected = fresh.filter(
+      (item) => item.kind === 'approval' && item.verdict === 'rejected',
+    );
+    if (rejected.length > 0) return denied('failed', rejected);
+    return denied('missing', approved);
+  }
+
+  const satisfying = fresh.filter(isSatisfyingVerdict);
+  const independent = new Set(satisfying.map(independenceKey));
+  if (independent.size >= requirement.minimum) return satisfied(satisfying);
+  return denied('missing', satisfying);
+}
+
+/**
+ * Evaluate authored ActionId-wide requires against snapshot-resident evidence.
+ *
+ * Discriminants are matched by their authored keys, not by minted requirement
+ * ids. A waiver-bearing (waivable) miss without a phase attempt is
+ * indeterminate — the waiver arm is not evaluated when the snapshot has no
+ * attempt to bind. Contradictory, stale, unauthorized, failed, or missing
+ * evidence never allows.
+ */
+export function evaluateAuthoredRequirements(
+  input: AuthoredRequirementEvaluationInput,
+): { readonly verdict: PolicyVerdict } {
+  const ctx: EvalContext = {
+    authority: DENY_ALL_AUTHORITY,
+    evaluatedAt: input.evaluatedAt,
+    freshnessHorizonMs: input.freshnessHorizonMs,
+  };
+
+  const dispositions: RawDisposition[] = [];
+  for (const requirement of input.requirements) {
+    dispositions.push(
+      evaluateAuthoredRequirement(
+        requirement,
+        input.evidence,
+        ctx,
+        input.phaseAttemptId,
+        input.authorizesEvidence,
+      ),
+    );
+  }
+
+  const hasDenied = dispositions.some((item) => item.kind === 'denied');
+  const hasIndeterminate = dispositions.some((item) => item.kind === 'indeterminate');
+  if (hasDenied) {
+    const waiverEligibleMiss =
+      input.obligations.waivable &&
+      input.phaseAttemptId === undefined &&
+      dispositions.every(
+        (item) =>
+          item.kind !== 'denied' ||
+          item.reason === 'missing' ||
+          item.reason === 'failed',
+      );
+    if (waiverEligibleMiss) {
+      return Object.freeze({ verdict: 'indeterminate' as const });
+    }
+    return Object.freeze({ verdict: 'deny' as const });
+  }
+  if (hasIndeterminate) {
+    return Object.freeze({ verdict: 'indeterminate' as const });
+  }
+  return Object.freeze({ verdict: 'allow' as const });
 }
