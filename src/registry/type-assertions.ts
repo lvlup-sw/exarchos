@@ -2,7 +2,8 @@ import { EnvelopeSchema } from '../contract/schemas/envelope.js';
 import { type ExtensionOutputSchema, vacuityWaiver, withCappedShape } from '../output-schema-declaration.js';
 import type { VacuityWaiverId } from '../output-schema-vacuity-allowlist.js';
 import { z } from 'zod';
-import type { BuiltinCompositeTool, BuiltinToolAction, CompositeTool, ExtensionCompositeTool, ExtensionToolAction, ToolAction } from './types.js';
+import type { ActionContract } from './action-contract.js';
+import type { BuiltinCompositeTool, BuiltinToolAction, CompositeTool, ContractedToolAction, ExtensionCompositeTool, ExtensionToolAction, ToolAction } from './types.js';
 
 // ─── DR-4: vacuity is unconstructible at the ToolAction boundary ─────────────
 //
@@ -100,6 +101,26 @@ export type _OutputSchemaBuiltinActionIsAToolAction = ExpectTrue<
 /** @proof */
 export type _OutputSchemaExtensionActionIsAToolAction = ExpectTrue<
   ExtensionToolAction extends ToolAction ? true : false
+>;
+/**
+ * Omitting the contract block is not assignable to the contracted action
+ * type. A built-in or extension action plus a complete contract is.
+ * @proof
+ */
+export type _ActionContractOmittedFromToolActionFailsCompile = ExpectTrue<
+  NotAssignableTo<ToolAction, ContractedToolAction>
+>;
+/** @proof */
+export type _ActionContractOmittedFromBuiltinActionFailsCompile = ExpectTrue<
+  NotAssignableTo<BuiltinToolAction, ContractedToolAction>
+>;
+/** @proof */
+export type _ActionContractOmittedFromExtensionActionFailsCompile = ExpectTrue<
+  NotAssignableTo<ExtensionToolAction, ContractedToolAction>
+>;
+/** @proof */
+export type _ActionContractSatisfiesContractedToolAction = ExpectTrue<
+  ToolAction & { readonly actionContract: ActionContract } extends ContractedToolAction ? true : false
 >;
 /** @proof */
 export type _OutputSchemaExtensionToolIsACompositeTool = ExpectTrue<

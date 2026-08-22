@@ -85,7 +85,32 @@ export type { ActionAnnotations } from './annotations.js';
 export { ActionAnnotationsSchema, validateAnnotations, validateAction } from './annotations.js';
 
 export type {
+  ActionContract,
+  ActionContractErrorCode,
+  ActionEmission,
+  ActionPostcondition,
+  ActionRequirement,
+  ActionResource,
+  DeclaredSet,
+  ExecutionAuthority,
+  HostObligation,
+  ReplayPolicy,
+} from './action-contract.js';
+export {
+  ACTION_RESOURCE_KINDS,
+  ActionContractError,
+  AGENT_SPAWN_CAPABILITY,
+  HOST_OBLIGATIONS,
+  actionContractCanonicalBytes,
+  declared,
+  none,
+  normalizeActionContract,
+  withActionContract,
+} from './action-contract.js';
+
+export type {
   ToolAction,
+  ContractedToolAction,
   CompositeTool,
   BuiltinToolAction,
   BuiltinCompositeTool,
@@ -134,4 +159,8 @@ export type {
   _OutputSchemaBuiltinActionIsAToolAction,
   _OutputSchemaExtensionActionIsAToolAction,
   _OutputSchemaExtensionToolIsACompositeTool,
+  _ActionContractOmittedFromToolActionFailsCompile,
+  _ActionContractOmittedFromBuiltinActionFailsCompile,
+  _ActionContractOmittedFromExtensionActionFailsCompile,
+  _ActionContractSatisfiesContractedToolAction,
 } from './type-assertions.js';

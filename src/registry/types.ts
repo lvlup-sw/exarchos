@@ -1,6 +1,7 @@
 import type { DeclaredOutputSchema, ExtensionOutputSchema, RegisteredOutputSchema } from '../output-schema-declaration.js';
 import type { AgentPosture } from '../runtime/agents/spec.js';
 import { z } from 'zod';
+import type { ActionContract } from './action-contract.js';
 import type { ActionAnnotations } from './annotations.js';
 import type { AutoEmission, GateMetadata } from './gate-metadata.js';
 import type { CliActionHints, CliToolHints, DispatchHints, EconomyHints } from './hints.js';
@@ -124,6 +125,17 @@ export interface ToolAction {
    */
   readonly annotations: ActionAnnotations;
 }
+
+/**
+ * A registry action that carries a complete {@link ActionContract}.
+ * Omitting `actionContract` is not assignable to this type. Live
+ * declarations stay {@link ToolAction} until family migration authors the
+ * block; {@link withActionContract} is the constructor that produces this
+ * contracted form.
+ */
+export type ContractedToolAction = ToolAction & {
+  readonly actionContract: ActionContract;
+};
 
 export interface CompositeTool {
   readonly name: string;
