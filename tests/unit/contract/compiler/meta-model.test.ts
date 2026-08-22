@@ -2,7 +2,13 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import { z } from 'zod';
 import { EnvelopeSchema } from '../../../../src/contract/schemas/envelope.js';
-import type { CompositeTool, ToolAction } from '../../../../src/registry.js';
+import {
+  none,
+  normalizeActionContract,
+  type ActionContract,
+  type CompositeTool,
+  type ToolAction,
+} from '../../../../src/registry.js';
 import { layerCodes } from '../../../../src/contract/error-families.js';
 import { CONTRACT_SURFACE_VERSION } from '../../../../src/contract/compatibility.js';
 import { OUTPUT_KINDS } from '../../../../src/contract/envelope.js';
@@ -48,6 +54,25 @@ function makeAction(overrides: Partial<ToolAction> & { name: string }): ToolActi
     },
     ...overrides,
   };
+}
+
+const CONTRACT_NONE = none('read-only query has no additional obligations');
+
+function validContract(overrides: Partial<ActionContract> = {}): ActionContract {
+  return {
+    requires: CONTRACT_NONE,
+    ensures: CONTRACT_NONE,
+    needs: CONTRACT_NONE,
+    touches: { frame: 'single-machine', resources: CONTRACT_NONE },
+    executionAuthority: { kind: 'local' },
+    replay: { kind: 'safe-repeat' },
+    emissions: CONTRACT_NONE,
+    ...overrides,
+  };
+}
+
+function withDeclaredContract(action: ToolAction, contract: unknown): ToolAction {
+  return Object.assign(action, { actionContract: contract });
 }
 
 function makeTool(name: string, actions: readonly ToolAction[]): CompositeTool {
@@ -375,5 +400,75 @@ describe('DR-11 — the meta-model is audited against the shipped runtime surfac
         baselineMatchesFreshCompile: onDisk === freshFromSound,
       }).ok,
     ).toBe(true);
+  });
+});
+
+describe('deriveMetaModel — action-contract projection', () => {
+  it('DeriveMetaModel_DoesNotReconstructFromAnnotations', () => {
+    const autoEmits = [
+      { event: 'workflow.started' as const, condition: 'always' as const, owner: 'annotated', role: 'primary' as const },
+    ];
+    const annotatedOnly = makeAction({ name: 'annotated', autoEmits });
+    const declared = validContract({
+      emissions: {
+        kind: 'declared',
+        values: [
+          {
+            event: 'task.completed',
+            condition: 'conditional',
+            owner: 'contracted',
+            role: 'primary',
+          },
+        ],
+      },
+    });
+    const contracted = withDeclaredContract(makeAction({ name: 'contracted', autoEmits }), declared);
+
+    const annotatedEntry = deriveActionMetaModel(makeTool('exarchos_probe', [annotatedOnly]), annotatedOnly);
+    const contractedEntry = deriveActionMetaModel(makeTool('exarchos_probe', [contracted]), contracted);
+
+    expect(annotatedEntry.actionContract).toBeUndefined();
+    expect(annotatedEntry.policy.actionContract).toBeUndefined();
+    expect(annotatedEntry.policy.evidence.autoEmits).toEqual([{ event: 'workflow.started', condition: 'always' }]);
+
+    expect(contractedEntry.actionContract).toEqual(normalizeActionContract(declared));
+    expect(contractedEntry.policy.actionContract).toEqual(contractedEntry.actionContract);
+    expect(contractedEntry.policy.evidence.autoEmits).toEqual([{ event: 'task.completed', condition: 'conditional' }]);
+    expect(contractedEntry.policy.evidence.autoEmits).not.toEqual(annotatedEntry.policy.evidence.autoEmits);
+  });
+
+  it('DeriveMetaModel_ReorderedSets_IsByteStable', () => {
+    const emissions = [
+      { event: 'task.completed', condition: 'conditional' as const, owner: 'b', role: 'primary' as const },
+      { event: 'workflow.started', condition: 'always' as const, owner: 'a', role: 'primary' as const },
+    ] as const;
+    const resources = [
+      { kind: 'path' as const, selector: 'src/registry' },
+      { kind: 'stream' as const, selector: 'feature-a' },
+    ] as const;
+
+    const forward = validContract({
+      needs: { kind: 'declared', values: ['fs:write', 'shell:exec', 'fs:read'] },
+      touches: { frame: 'single-machine', resources: { kind: 'declared', values: [...resources] } },
+      emissions: { kind: 'declared', values: [...emissions] },
+    });
+    const reversed = validContract({
+      needs: { kind: 'declared', values: ['fs:read', 'shell:exec', 'fs:write'] },
+      touches: {
+        frame: 'single-machine',
+        resources: { kind: 'declared', values: [resources[1], resources[0]] },
+      },
+      emissions: { kind: 'declared', values: [emissions[1], emissions[0]] },
+    });
+
+    const toolA = makeTool('exarchos_probe', [withDeclaredContract(makeAction({ name: 'probe' }), forward)]);
+    const toolB = makeTool('exarchos_probe', [withDeclaredContract(makeAction({ name: 'probe' }), reversed)]);
+    const left = deriveMetaModel([toolA]);
+    const right = deriveMetaModel([toolB]);
+
+    expect(left.actions[0]!.actionContract).toBeDefined();
+    expect(left.actions[0]!.actionContract).toEqual(normalizeActionContract(forward));
+    expect(canonicalJson(left)).toBe(canonicalJson(right));
+    expect(canonicalJson(left.actions[0]!.actionContract)).toBe(canonicalJson(normalizeActionContract(reversed)));
   });
 });
