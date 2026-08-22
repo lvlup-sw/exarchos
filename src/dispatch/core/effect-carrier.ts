@@ -21,6 +21,12 @@
  */
 
 import type { EventType } from '../../events/schemas.js';
+import {
+  deriveReplayIdentity,
+  type AuthenticatedRequestContext,
+  type ReplayIdentity,
+} from '../../contract/request-context.js';
+import type { ActionContract, ReplayPolicy } from '../../registry/action-contract.js';
 
 /**
  * Which vocabulary governs which claim.
@@ -213,6 +219,46 @@ export interface EffectPlan {
    * vocabulary note above.
    */
   readonly emits: PlanEmissions;
+}
+
+/**
+ * Fields a sibling may supply when a contract is present. `idempotent` is
+ * omitted so a caller cannot pass a value that disagrees with `replay`.
+ */
+export type EffectPlanInput = Omit<EffectPlan, 'idempotent'>;
+
+/** `safe-repeat` is the only replay that is safe to re-run. */
+export function idempotentFromReplay(replay: ReplayPolicy): boolean {
+  return replay.kind === 'safe-repeat';
+}
+
+/**
+ * Build an {@link EffectPlan} from a contract's replay policy.
+ *
+ * `idempotent` is derived (`safe-repeat` → true; `claim-required` and
+ * `reject-replay` → false). Live actions may omit a contract and keep
+ * constructing {@link EffectPlan} directly.
+ */
+export function effectPlanFromContract(
+  fields: EffectPlanInput,
+  contract: Pick<ActionContract, 'replay'>,
+): EffectPlan {
+  return {
+    ...fields,
+    idempotent: idempotentFromReplay(contract.replay),
+  };
+}
+
+/**
+ * Claim-required identity: the existing effect-idempotency key plus the
+ * existing subject/request replay identity. No additional claim key is minted.
+ */
+export function replayIdentityFromEffectKey(
+  ctx: AuthenticatedRequestContext,
+  effectKey: EffectIdempotencyKey,
+  payload: unknown,
+): ReplayIdentity {
+  return deriveReplayIdentity(ctx, effectKey.value, payload);
 }
 
 /**
@@ -914,4 +960,13 @@ export type _EffectCarrier_PlainWitness_IsNotEmissionEvidence = Expect<
  */
 export type _EffectCarrier_ReplayConstructor_MintsEvidence = Expect<
   ReturnType<typeof replayedEvidence> extends EmissionEvidence ? true : false
+>;
+
+/**
+ * A contract-bound plan input cannot carry an independent `idempotent` flag.
+ * Falsifier: add `idempotent` back onto {@link EffectPlanInput}.
+ * @proof
+ */
+export type _EffectCarrier_ContractPlanInput_OmitsIdempotent = Expect<
+  'idempotent' extends keyof EffectPlanInput ? false : true
 >;
