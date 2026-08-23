@@ -793,3 +793,46 @@ export function evaluateCollectedActionContractClosure(
   }
   return evaluateActionContractClosure({ subjects });
 }
+
+/**
+ * One collected live subject by ActionId. Missing ids stay missing so a
+ * narrowed or invented ActionId cannot stand in for the live tree.
+ */
+export function liveActionContractSubject(
+  actionId: string,
+  subjects: readonly ActionContractClosureSubject[] = collectLiveActionContractSubjects(),
+): ActionContractClosureSubject | undefined {
+  return subjects.find((subject) => subject.actionId === actionId);
+}
+
+export type ActionContractExecuteKind =
+  | 'admitted'
+  | 'admission-denied'
+  | 'ensure-violated'
+  | 'hsm-deny'
+  | 'other';
+
+/**
+ * Classify a dispatch outcome for advertise / execute / ensure / HSM closure.
+ * An HSM deny is not an ActionId admission parity failure, and admission
+ * does not invent a transition-edge.
+ */
+export function classifyActionContractExecute(input: {
+  readonly success: boolean;
+  readonly errorCode?: string | undefined;
+}): ActionContractExecuteKind {
+  const code = input.errorCode;
+  if (code === 'ADMISSION_DENIED') return 'admission-denied';
+  if (code === 'ENSURE_CONTRACT_VIOLATED') return 'ensure-violated';
+  if (code === 'INVALID_TRANSITION' || code === 'GUARD_FAILED') return 'hsm-deny';
+  if (input.success) return 'admitted';
+  return 'other';
+}
+
+/**
+ * Whether a collected contract reasons `requires` as none. Transition-edge
+ * obligations stay on the HSM guard; admission must not invent that edge.
+ */
+export function actionContractRequiresIsNone(contract: unknown): boolean {
+  return isRecord(contract) && isRecord(contract.requires) && contract.requires.kind === 'none';
+}

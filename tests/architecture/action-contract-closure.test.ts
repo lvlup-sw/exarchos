@@ -5,8 +5,11 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  actionContractRequiresIsNone,
+  classifyActionContractExecute,
   collectLiveActionContractSubjects,
   collectedSubjectsCoverLiveDenominator,
+  liveActionContractSubject,
   liveRegisteredActionIds,
 } from '../../src/contract/action-contract-closure.js';
 import {
@@ -34,5 +37,25 @@ describe('action-contract closure live tree', () => {
     expect(collectedIds).toEqual(snapshotIds);
     expect(live.counts).toEqual(recorded.counts);
     expect(new Set(collectedIds).size).toBe(subjects.length);
+  });
+
+  it('Closure_ExecuteClassifier_SeparatesHsmFromAdmission', () => {
+    expect(classifyActionContractExecute({ success: true })).toBe('admitted');
+    expect(
+      classifyActionContractExecute({ success: false, errorCode: 'ADMISSION_DENIED' }),
+    ).toBe('admission-denied');
+    expect(
+      classifyActionContractExecute({ success: false, errorCode: 'ENSURE_CONTRACT_VIOLATED' }),
+    ).toBe('ensure-violated');
+    expect(
+      classifyActionContractExecute({ success: false, errorCode: 'GUARD_FAILED' }),
+    ).toBe('hsm-deny');
+    expect(
+      classifyActionContractExecute({ success: false, errorCode: 'INVALID_TRANSITION' }),
+    ).toBe('hsm-deny');
+
+    const transition = liveActionContractSubject('exarchos_workflow.transition');
+    expect(transition, 'live tree names workflow.transition').toBeDefined();
+    expect(actionContractRequiresIsNone(transition?.contract)).toBe(true);
   });
 });
