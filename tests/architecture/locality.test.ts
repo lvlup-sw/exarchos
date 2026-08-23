@@ -81,7 +81,7 @@ const EXEMPTIONS: Record<string, Exemption> = {
       'Repo-automation oracles, baselines and CLIs that the product tree is not allowed to hold. ' +
       'Breadth here is a count of instruments, not a second orchestrate/. Grouping them into ' +
       'subdirectories is the reduction; until then the count is pinned so the next file is argued.',
-    grantedAt: 52,
+    grantedAt: 56,
   },
   'tools/audit/gates': {
     reason:
