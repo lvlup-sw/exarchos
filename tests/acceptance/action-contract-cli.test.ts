@@ -80,8 +80,8 @@ function compileSynthetic(actions: readonly ToolAction[]) {
 }
 
 function descriptorContract(descriptor: {
-  readonly actionContract?: ActionContract;
-  readonly policy: { readonly actionContract?: ActionContract };
+  readonly actionContract?: ActionContract | undefined;
+  readonly policy: { readonly actionContract?: ActionContract | undefined };
 }): ActionContract | undefined {
   const declaredContract = descriptor.actionContract ?? descriptor.policy.actionContract;
   if (declaredContract === undefined) return undefined;
