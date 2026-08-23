@@ -86,8 +86,8 @@ export interface NextActionReducer
   derive(state: NextActionDerivationState, hsm: HSMDefinition): NextActionState;
   /**
    * Allow-only registry ActionIds for the same workflow-scoped inputs.
-   * Distinct from {@link derive}: phase and control verbs stay on the
-   * HSM envelope and are never ActionIds.
+   * Distinct from {@link derive}: phase and control verbs stay on the HSM
+   * envelope and are never ActionIds.
    */
   deriveAdvertised(state: NextActionDerivationState): readonly RegistryAdvertisement[];
 }
