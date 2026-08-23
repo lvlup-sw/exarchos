@@ -182,11 +182,39 @@ export function resolveCapabilityAuthorization(
  */
 export const LOCAL_OPERATOR_POSTURE: AgentPosture = 'shared-mutating';
 
+/**
+ * Capabilities the local process holds beyond its posture tier.
+ *
+ * The posture table maps an AGENT's trust tier, and `shared-mutating` is
+ * deliberately the strictest of the three — widening it there would widen
+ * every agent that runs under it. The local operator is a different subject:
+ * it IS the Exarchos tool surface (CLI and MCP server are one binary
+ * governing the machine they run on), and it is the host that spawns when an
+ * action returns the `agent-spawn` obligation. Both are identity-layer
+ * grants, not caller self-assertions, so they are named here.
+ *
+ * Thirty-eight of the registry's contracts declare exactly these two, so
+ * omitting them denied every gate check, the whole task lifecycle,
+ * prepare_delegation and invariants_* on both surfaces.
+ */
+const PROCESS_HELD_CAPABILITIES: readonly Capability[] = ['mcp:exarchos', 'subagent:spawn'];
+
+/**
+ * The local operator's full grant: its posture tier plus what the process
+ * itself holds. Both the resolver-backed path and the no-resolver fallback
+ * read this, so the two cannot disagree about what a local caller may do.
+ */
+export function localOperatorCapabilities(): readonly Capability[] {
+  const capabilities = new Set<Capability>(capabilitiesForPosture(LOCAL_OPERATOR_POSTURE));
+  for (const capability of PROCESS_HELD_CAPABILITIES) capabilities.add(capability);
+  return Object.freeze([...capabilities].sort());
+}
+
 export function localOperatorAuthorization(): CapabilityAuthorization {
-  const capabilities = Object.freeze(
-    [...capabilitiesForPosture(LOCAL_OPERATOR_POSTURE)].sort(),
-  );
-  return Object.freeze({ posture: LOCAL_OPERATOR_POSTURE, capabilities });
+  return Object.freeze({
+    posture: LOCAL_OPERATOR_POSTURE,
+    capabilities: localOperatorCapabilities(),
+  });
 }
 
 export function createInMemoryResolver(
@@ -261,33 +289,13 @@ export function createInMemoryResolver(
 export const ANTHROPIC_NATIVE_CACHING = 'anthropic_native_caching' as const;
 
 /**
- * Capabilities the local process actually holds beyond its posture tier.
- *
- * The posture table maps an AGENT's trust tier, and `shared-mutating` is
- * deliberately the strictest of the three — it must not be widened for the
- * agents that run under it. The local process is a different subject: it IS
- * the Exarchos tool surface (the CLI and the MCP server are the same binary
- * governing the machine they run on), and it is the host that spawns
- * subagents when an action returns the `agent-spawn` obligation. Those two
- * facts are grants of the identity layer, not caller self-assertions, so
- * they are named here rather than folded into the posture map.
- *
- * Omitting them denied every gate check, the whole task lifecycle, and
- * delegation itself, because those contracts declare exactly these needs.
- */
-const PROCESS_HELD_CAPABILITIES: readonly Capability[] = ['mcp:exarchos', 'subagent:spawn'];
-
-/**
  * Capabilities the local process actually holds. CLI and the MCP server
  * both run on the machine they govern; handshake hints are not the
  * ActionId need set. Cache-hint tokens stay in the list so envelope
  * consumers can still see `anthropic_native_caching`.
  */
 export function defaultProcessCapabilityIds(): readonly string[] {
-  const capabilities: string[] = [...capabilitiesForPosture(LOCAL_OPERATOR_POSTURE)];
-  for (const capability of PROCESS_HELD_CAPABILITIES) {
-    if (!capabilities.includes(capability)) capabilities.push(capability);
-  }
+  const capabilities: string[] = [...localOperatorCapabilities()];
   if (process.env.EXARCHOS_DISABLE_CACHE_HINTS !== '1') {
     capabilities.push(ANTHROPIC_NATIVE_CACHING);
   }
