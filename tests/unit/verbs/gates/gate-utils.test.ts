@@ -36,13 +36,13 @@ describe('emitGateEvent', () => {
     const mockStore = { append: vi.fn().mockResolvedValue(undefined) };
 
     // Act
-    await emitGateEvent(mockStore as any, 'stream-1', 'test-gate', 'CI', true);
+    await emitGateEvent(mockStore as any, 'stream-1', 'test-gate', 'CI', 'pass');
 
     // Assert
     expect(mockStore.append).toHaveBeenCalledOnce();
     expect(mockStore.append).toHaveBeenCalledWith('stream-1', {
       type: 'gate.executed',
-      data: { gateName: 'test-gate', layer: 'CI', passed: true },
+      data: { gateName: 'test-gate', layer: 'CI', passed: true, verdict: 'pass' },
     });
   });
 
@@ -54,12 +54,12 @@ describe('emitGateEvent', () => {
     const details = { passCount: 10, failCount: 2 };
 
     // Act
-    await emitGateEvent(mockStore as any, 'stream-2', 'test-suite', 'CI', false, details);
+    await emitGateEvent(mockStore as any, 'stream-2', 'test-suite', 'CI', 'fail', details);
 
     // Assert
     expect(mockStore.append).toHaveBeenCalledWith('stream-2', {
       type: 'gate.executed',
-      data: { gateName: 'test-suite', layer: 'CI', passed: false, details },
+      data: { gateName: 'test-suite', layer: 'CI', passed: false, verdict: 'fail', details },
     });
   });
 
@@ -70,12 +70,12 @@ describe('emitGateEvent', () => {
     const mockStore = { append: vi.fn().mockResolvedValue(undefined) };
 
     // Act
-    await emitGateEvent(mockStore as any, 'stream-3', 'design-check', 'design', true);
+    await emitGateEvent(mockStore as any, 'stream-3', 'design-check', 'design', 'pass');
 
     // Assert
     expect(mockStore.append).toHaveBeenCalledWith('stream-3', {
       type: 'gate.executed',
-      data: { gateName: 'design-check', layer: 'design', passed: true },
+      data: { gateName: 'design-check', layer: 'design', passed: true, verdict: 'pass' },
     });
   });
 
@@ -86,7 +86,7 @@ describe('emitGateEvent', () => {
     const mockStore = { append: vi.fn().mockResolvedValue(undefined) };
 
     // Act
-    await emitGateEvent(mockStore as any, 'stream-4', 'post-merge', 'post-merge', true);
+    await emitGateEvent(mockStore as any, 'stream-4', 'post-merge', 'post-merge', 'pass');
 
     // Assert
     const calledEvent = mockStore.append.mock.calls[0][1];

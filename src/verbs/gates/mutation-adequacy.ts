@@ -1038,7 +1038,7 @@ export async function handleMutationAdequacy(
         args.featureId,
         MUTATION_GATE_NAME,
         MUTATION_GATE_LAYER,
-        true,
+        'pass',
         { skipped: true, reason, mutationScore: 0 },
         mutationGateKey(args.operationId, 'skip-no-toolchain'),
       );
@@ -1240,7 +1240,7 @@ export async function handleMutationAdequacy(
       args.featureId,
       MUTATION_GATE_NAME,
       MUTATION_GATE_LAYER,
-      passed,
+      passed ? 'pass' : 'fail',
       {
         mutationScore: carrier.mutationScore,
         killed: carrier.killed,
@@ -1386,7 +1386,7 @@ async function emitAdvisoryGate(
       args.featureId,
       MUTATION_GATE_NAME,
       MUTATION_GATE_LAYER,
-      true,
+      'pass',
       { skipped: true, degraded: true, reason, mutationScore: 0 },
       mutationGateKey(args.operationId, 'degraded'),
     );

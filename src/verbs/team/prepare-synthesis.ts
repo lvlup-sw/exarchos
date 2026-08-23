@@ -798,7 +798,7 @@ async function executePrepareSynthesis(
       : { passed: false, indeterminate: true, reason: legs.reason };
 
     // 5. Emit gate.executed event for test-suite (feeds flywheel)
-    await emitGateEvent(store, streamId, 'test-suite', 'CI', tests.passed, {
+    await emitGateEvent(store, streamId, 'test-suite', 'CI', tests.passed ? 'pass' : 'fail', {
       dimension: 'D1',
       phase: 'synthesize',
       ...(tests.passCount !== undefined ? { passCount: tests.passCount } : {}),
@@ -812,7 +812,7 @@ async function executePrepareSynthesis(
       : { passed: false, errorCount: 0, indeterminate: true, reason: legs.reason };
 
     // 7. Emit gate.executed event for typecheck (feeds flywheel)
-    await emitGateEvent(store, streamId, 'typecheck', 'CI', typecheck.passed, {
+    await emitGateEvent(store, streamId, 'typecheck', 'CI', typecheck.passed ? 'pass' : 'fail', {
       dimension: 'D1',
       phase: 'synthesize',
       errorCount: typecheck.errorCount,
@@ -847,7 +847,7 @@ async function executePrepareSynthesis(
             + 'could not be verified. Re-run synthesis, or waive via synthesis.documentLeg.',
         }
       : evaluateDocumentLeg(changedFiles, docCfg);
-    await emitGateEvent(store, streamId, 'document-coverage', 'synthesize', documentLeg.covered, {
+    await emitGateEvent(store, streamId, 'document-coverage', 'synthesize', documentLeg.covered ? 'pass' : 'fail', {
       dimension: 'D1',
       phase: 'synthesize',
       evaluated: documentLeg.evaluated,

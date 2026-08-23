@@ -217,7 +217,7 @@ export async function handleCheckExplorationDepth(
   const skip = resolveExplorationSkip(designDepth);
   if (skip) {
     try {
-      await emitGateEvent(eventStore, args.featureId, 'exploration-depth', 'planning', true, {
+      await emitGateEvent(eventStore, args.featureId, 'exploration-depth', 'planning', 'pass', {
         dimension: 'D1',
         phase: 'plan',
         designDepth: designDepth ?? null,
@@ -265,7 +265,7 @@ export async function handleCheckExplorationDepth(
   const result = checkExplorationDepth(content);
 
   try {
-    await emitGateEvent(eventStore, args.featureId, 'exploration-depth', 'planning', result.passed, {
+    await emitGateEvent(eventStore, args.featureId, 'exploration-depth', 'planning', result.passed ? 'pass' : 'fail', {
       dimension: 'D1',
       phase: 'plan',
       designDepth: 'deep',

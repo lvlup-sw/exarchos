@@ -387,7 +387,7 @@ async function executeReviewVerdict(
   // persistence failure: the canonical runner converts it to a failure carrier.
   if (args.dimensionResults) {
     for (const [key, entry] of Object.entries(args.dimensionResults)) {
-      await emitGateEvent(eventStore, args.featureId, `review-${key}`, 'review', entry.passed, {
+      await emitGateEvent(eventStore, args.featureId, `review-${key}`, 'review', entry.passed ? 'pass' : 'fail', {
         dimension: key,
         phase: 'review',
         findingCount: entry.findingCount,
@@ -400,7 +400,7 @@ async function executeReviewVerdict(
     ? [...new Set(args.pluginFindings.map(f => f.source))]
     : undefined;
 
-  await emitGateEvent(eventStore, args.featureId, 'review-verdict', 'review', verdict === 'APPROVED', {
+  await emitGateEvent(eventStore, args.featureId, 'review-verdict', 'review', verdict === 'APPROVED' ? 'pass' : 'fail', {
     verdict,
     phase: 'review',
     high: mergedHigh,
@@ -416,7 +416,7 @@ async function executeReviewVerdict(
   // recorded as FAILED (passed:false) — escalation means the bounded loop could
   // not converge unattended.
   if (escalation?.action === 'escalate') {
-    await emitGateEvent(eventStore, args.featureId, 'review-escalation', 'review', false, {
+    await emitGateEvent(eventStore, args.featureId, 'review-escalation', 'review', 'fail', {
       phase: 'review',
       reason: escalation.reason,
       findingClass: escalation.findingClass,

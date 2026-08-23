@@ -1033,7 +1033,7 @@ export async function handleTaskDecomposition(
   // Emit gate.executed event (fire-and-forget: emission failure must not break the gate check)
   try {
     const store = eventStore;
-    await emitGateEvent(store, args.featureId, 'task-decomposition', 'planning', passed, {
+    await emitGateEvent(store, args.featureId, 'task-decomposition', 'planning', passed ? 'pass' : 'fail', {
       dimension: 'D5',
       phase: 'plan',
       wellDecomposed,

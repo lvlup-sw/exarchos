@@ -202,7 +202,7 @@ describe('handleProvenanceChain', () => {
       'test-feat',
       'provenance-chain',
       'planning',
-      true,
+      'pass',
       expect.objectContaining({
         dimension: 'D1',
         requirements: 2,
@@ -239,7 +239,7 @@ describe('handleProvenanceChain', () => {
       'test-feat',
       'provenance-chain',
       'planning',
-      true,
+      'pass',
       expect.objectContaining({
         phase: 'plan',
       }),

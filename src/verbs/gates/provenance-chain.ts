@@ -140,7 +140,7 @@ async function executeProvenanceChain(
     orphanRefs: tsResult.orphanRefs,
   };
 
-  await emitGateEvent(eventStore, args.featureId, 'provenance-chain', 'planning', passed, {
+  await emitGateEvent(eventStore, args.featureId, 'provenance-chain', 'planning', passed ? 'pass' : 'fail', {
     dimension: 'D1',
     phase: 'plan',
     requirements: metrics.requirements,

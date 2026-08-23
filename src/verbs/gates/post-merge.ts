@@ -140,7 +140,7 @@ export async function handlePostMerge(
   // and the second one is not a finding anybody may act on.
   try {
     const store = eventStore;
-    await emitGateEvent(store, args.featureId, 'post-merge', 'post-merge', passed, {
+    await emitGateEvent(store, args.featureId, 'post-merge', 'post-merge', passed ? 'pass' : 'fail', {
       dimension: 'D4',
       phase: 'synthesize',
       prUrl: args.prUrl,

@@ -425,7 +425,7 @@ export async function handleCheckInvariantConformance(
       args.featureId,
       'invariant-conformance',
       'review',
-      verdict === 'APPROVED',
+      verdict === 'APPROVED' ? 'pass' : 'fail',
       {
         verdict,
         phase,

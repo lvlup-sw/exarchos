@@ -1500,7 +1500,7 @@ export async function handlePrepareDelegation(
 
     // Emit plan-coverage gate event (best-effort: emission failure must not break readiness)
     try {
-      await emitGateEvent(store, streamId, 'plan-coverage', 'planning', true, {
+      await emitGateEvent(store, streamId, 'plan-coverage', 'planning', 'pass', {
         dimension: 'D1',
         phase: 'delegate',
         taskCount,

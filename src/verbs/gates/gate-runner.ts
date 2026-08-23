@@ -169,11 +169,21 @@ async function appendGateExecutedSignal(
       data: {
         gateName: provider.gateClass,
         layer: GATE_RUNNER_GATE_LAYER,
+        // The runner is the one place that COMPUTES a verdict, and it used to
+        // be the place that threw it away: the row carried the collapsed
+        // boolean at the top level and the verdict only down in `details`,
+        // where the readers that gate on the outcome do not look. It is minted
+        // whole now, with `passed` derived from it.
+        verdict: evidence.verdict,
         passed: evidence.verdict === 'pass',
         details: {
           ...(taskId === undefined ? {} : { taskId }),
           gateClass: provider.gateClass,
           providerRef: provider.providerRef,
+          // Retained alongside the top-level field, deliberately: every row
+          // written before the widening carries the verdict ONLY here, so a
+          // reader folding history has to keep looking here. Dropping it would
+          // make the fold correct for new rows and wrong for old ones.
           verdict: evidence.verdict,
           evidenceId: evidence.evidenceId,
           phaseAttemptId: evidence.phaseAttemptId,

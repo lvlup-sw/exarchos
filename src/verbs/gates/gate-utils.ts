@@ -18,7 +18,7 @@ import { resolveVerificationPolicy } from '../../workflow/verification-policy-re
 import type { PhaseKind } from '../../workflow/phase-kind.js';
 import type { GitExec } from '../pure/execute-merge.js';
 import type { EvidenceArtifactReferenceV1 } from '../../workflow/admission/evidence-artifact.js';
-import type { AdmissionEvidenceRecorded } from '../../events/schemas.js';
+import type { AdmissionEvidenceRecorded, GateVerdict } from '../../events/schemas.js';
 
 /**
  * Output ceiling for the git shell-outs below.
@@ -108,7 +108,14 @@ export async function emitGateEvent(
   streamId: string,
   gateName: string,
   layer: string,
-  passed: boolean,
+  /**
+   * The verdict, NOT a boolean. `passed` is derived here so a self-emitting
+   * gate cannot write down an outcome it did not compute: there is no
+   * parameter left for it to disagree with. A gate that could not decide says
+   * `indeterminate`; one whose obligation was withdrawn says `not-applicable`.
+   * Neither is a pass, and neither is a failure.
+   */
+  verdict: GateVerdict,
   details?: Record<string, unknown>,
   /**
    * Optional idempotency key (INV-8). When supplied, a second emission with the
@@ -123,7 +130,11 @@ export async function emitGateEvent(
     data: {
       gateName,
       layer,
-      passed,
+      // Derived once, at the only place a row is minted, so the schema's
+      // `passed === (verdict === 'pass')` refinement cannot be violated by a
+      // caller that got the pair out of step.
+      passed: verdict === 'pass',
+      verdict,
       ...(details !== undefined ? { details } : {}),
     },
   };

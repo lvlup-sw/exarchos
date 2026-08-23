@@ -125,6 +125,28 @@ function appendedRows(): unknown[][] {
   return mockEmitGateEvent.mock.calls.map((call) => call.slice(1));
 }
 
+/** Index of the verdict argument in a row, once the store argument is sliced off. */
+const VERDICT_ARG = 3;
+
+/**
+ * Lift a CAPTURED row into the emitter's current vocabulary.
+ *
+ * The baseline was captured while `emitGateEvent` still took `passed: boolean`,
+ * so its verdict argument is a boolean. The emitter now takes the verdict and
+ * derives `passed` from it. The recorded boolean is lifted through that same
+ * derivation rather than the baseline being rewritten: the capture is EVIDENCE
+ * of what the three retired handlers did, and editing evidence to agree with
+ * new code is how a characterization quietly stops characterizing anything.
+ *
+ * Only the one argument moves. Anything else differing is a real behavioural
+ * change and still fails.
+ */
+function inCurrentVocabulary(row: readonly unknown[]): unknown[] {
+  return row.map((arg, index) =>
+    index === VERDICT_ARG && typeof arg === 'boolean' ? (arg ? 'pass' : 'fail') : arg,
+  );
+}
+
 describe('the diff-hygiene rule pack', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -272,7 +294,9 @@ describe('the diff-hygiene rule pack', () => {
       const captured = SCORED[key]!;
       await runOn(DIFF_CORPUS[key] ?? '');
 
-      const expectedRows = RETIRED_GATE_NAMES.flatMap((id) => captured[id]?.emissions ?? []);
+      const expectedRows = RETIRED_GATE_NAMES.flatMap((id) => captured[id]?.emissions ?? []).map(
+        inCurrentVocabulary,
+      );
       expect(appendedRows()).toEqual(expectedRows);
     });
   });
@@ -320,7 +344,9 @@ describe('the diff-hygiene rule pack', () => {
       // unconditionally — a success carrier without the rows is drift the
       // post-dispatch emission verifier reports, and it leaves the durable log
       // unable to tell an unscoped run from one that never happened.
-      const expectedRows = RETIRED_GATE_NAMES.flatMap((id) => UNSCOPED[id]!.emissions);
+      const expectedRows = RETIRED_GATE_NAMES.flatMap((id) => UNSCOPED[id]!.emissions).map(
+        inCurrentVocabulary,
+      );
       expect(appendedRows()).toEqual(expectedRows);
     });
   });

@@ -890,7 +890,7 @@ async function executePlanCoverage(
   const foldedResult =
     foldedAdvisories.length > 0 ? { ...result, advisories: foldedAdvisories } : result;
 
-  await emitGateEvent(eventStore, args.featureId, 'plan-coverage', 'planning', result.passed, {
+  await emitGateEvent(eventStore, args.featureId, 'plan-coverage', 'planning', result.passed ? 'pass' : 'fail', {
     dimension: 'D1',
     phase: 'plan',
     covered: result.coverage.covered,

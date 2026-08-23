@@ -221,7 +221,7 @@ export async function handleSecurityScan(
   // Emit gate.executed event (fire-and-forget: emission failure must not break the gate check)
   try {
     const store = eventStore;
-    await emitGateEvent(store, args.featureId, 'security-scan', 'quality', passed, {
+    await emitGateEvent(store, args.featureId, 'security-scan', 'quality', passed ? 'pass' : 'fail', {
       dimension: 'D1',
       phase: 'review',
       findingCount: findings.length,

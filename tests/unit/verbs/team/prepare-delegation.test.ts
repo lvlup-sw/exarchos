@@ -455,7 +455,7 @@ describe('handlePrepareDelegation', () => {
       'test-feature',    // streamId
       'plan-coverage',   // gateName
       'planning',        // layer
-      true,              // passed
+      'pass',            // verdict — `passed` is derived from it at the emitter
       {
         dimension: 'D1',
         phase: 'delegate',

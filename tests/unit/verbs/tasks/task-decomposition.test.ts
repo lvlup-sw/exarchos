@@ -1187,7 +1187,7 @@ describe('handleTaskDecomposition', () => {
       'test-feature',
       'task-decomposition',
       'planning',
-      true,
+      'pass',
       expect.objectContaining({
         dimension: 'D5',
         phase: 'plan',

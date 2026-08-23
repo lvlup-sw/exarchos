@@ -216,7 +216,7 @@ export async function handleCheckEventEmissions(
 
   // Emit gate.executed event (fire-and-forget)
   try {
-    await emitGateEvent(store, streamId, 'event-emissions', 'observability', complete, {
+    await emitGateEvent(store, streamId, 'event-emissions', 'observability', complete ? 'pass' : 'fail', {
       phase,
       checked,
       missing,

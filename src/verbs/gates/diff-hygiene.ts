@@ -234,7 +234,7 @@ async function emitRuleRow(
   details: Record<string, unknown>,
 ): Promise<void> {
   try {
-    await emitGateEvent(store, featureId, rule.id, GATE_LAYER, passed, {
+    await emitGateEvent(store, featureId, rule.id, GATE_LAYER, passed ? 'pass' : 'fail', {
       dimension: rule.dimension,
       phase: GATE_PHASE,
       ...details,

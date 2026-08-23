@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1207,
-    "parsedFiles": 1162,
+    "testFiles": 1210,
+    "parsedFiles": 1165,
     "shellFiles": 45,
-    "cases": 13490,
+    "cases": 13503,
     "dynamicTitles": 151,
     "unparseableFiles": 0
   },
@@ -4629,6 +4629,27 @@
         }
       ]
     },
+    "tests/acceptance/gate-verdict-emission.test.ts": {
+      "file": "tests/acceptance/gate-verdict-emission.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "gate verdicts reach the wire whole",
+          "name": "NoCallSite_PassesABareBoolean",
+          "dynamic": false
+        },
+        {
+          "suite": "gate verdicts reach the wire whole",
+          "name": "SelfEmitter_CannotExpressAnUncomputedVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "gate verdicts reach the wire whole",
+          "name": "IndeterminateEmission_IsNotWrittenDownAsAFailure",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/acceptance/ladder-off-node.test.ts": {
       "file": "tests/acceptance/ladder-off-node.test.ts",
       "runner": "vitest:root",
@@ -6062,7 +6083,7 @@
       "cases": [
         {
           "suite": "retired public names",
-          "name": "ConvergenceViewName_IsRemovedFromTheCliContract",
+          "name": "RetiredActionNames_AreRemovedFromEveryPublishedSurface",
           "dynamic": false
         }
       ]
@@ -6104,6 +6125,16 @@
         {
           "suite": "test inventory",
           "name": "TestInventory_RenamedCases_StillReconcileAgainstTheTask002Oracle",
+          "dynamic": false
+        },
+        {
+          "suite": "test inventory",
+          "name": "TestInventory_RetirementRegister_IsHonestAndNotInert",
+          "dynamic": false
+        },
+        {
+          "suite": "test inventory",
+          "name": "TestInventory_DeletionWithoutARetirement_IsStillReported",
           "dynamic": false
         },
         {
@@ -8575,6 +8606,27 @@
         {
           "suite": "gate scope-failure recording",
           "name": "PhaseGateScopeFailure_LeavesADurableTrace",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/gate-verdict-replay.test.ts": {
+      "file": "tests/integration/gate-verdict-replay.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "gate.executed verdict replay",
+          "name": "Replay_ProducesTheSameProjection",
+          "dynamic": false
+        },
+        {
+          "suite": "gate.executed verdict replay",
+          "name": "Replay_SeededDivergence_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "gate.executed verdict replay",
+          "name": "Replay_HistoricalAndWidenedRows_Interleave",
           "dynamic": false
         }
       ]
@@ -23630,6 +23682,37 @@
         {
           "suite": "CodeQualityView - promptVersion",
           "name": "CodeQualityView_GateWithPromptVersion_StoresInMetrics",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/events/gate-executed-schema.test.ts": {
+      "file": "tests/unit/events/gate-executed-schema.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "gate.executed verdict widening",
+          "name": "HistoricalRow_WithoutVerdict_StillParses",
+          "dynamic": false
+        },
+        {
+          "suite": "gate.executed verdict widening",
+          "name": "HistoricalRow_AnyShape_RemainsValid",
+          "dynamic": false
+        },
+        {
+          "suite": "gate.executed verdict widening",
+          "name": "Passed_EqualsVerdictIsPass",
+          "dynamic": false
+        },
+        {
+          "suite": "gate.executed verdict widening",
+          "name": "IndeterminateRow_DoesNotReadAsPass",
+          "dynamic": false
+        },
+        {
+          "suite": "gate.executed verdict widening",
+          "name": "WithdrawnObligation_IsNotWrittenDownAsAFailure",
           "dynamic": false
         }
       ]
@@ -41999,7 +42082,7 @@
         },
         {
           "suite": "Runbook definitions",
-          "name": "QualityEvaluation_HasFourSteps",
+          "name": "QualityEvaluation_HasFiveSteps",
           "dynamic": false
         },
         {
