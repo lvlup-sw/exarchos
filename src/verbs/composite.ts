@@ -157,14 +157,21 @@ function adaptArgsWithEventStore<T>(handler: (args: T) => ToolResult | Promise<T
  * {@link adaptLadderGate}.
  */
 function adaptArgsWithConfig<T>(handler: (args: T) => ToolResult | Promise<ToolResult>): ActionHandler {
-  return async (args, _stateDir, ctx) => {
-    const enriched =
-      ctx?.projectConfig !== undefined &&
-      (args as { projectConfig?: unknown }).projectConfig === undefined
-        ? { ...(args as Record<string, unknown>), projectConfig: ctx.projectConfig }
-        : args;
-    return handler(enriched as unknown as T);
-  };
+  // Composed onto `adaptArgs` rather than repeating it. The erasure from
+  // `Record<string, unknown>` to `T` is one escape hatch that every adapter in
+  // this file needs exactly once; writing a second copy of it here bought a
+  // duplicate assertion for no extra checking. `args` is already a
+  // `Record<string, unknown>`, so reading and spreading it needs no assertion
+  // of its own either.
+  const inner = adaptArgs(handler);
+  return async (args, stateDir, ctx) =>
+    inner(
+      ctx?.projectConfig !== undefined && args.projectConfig === undefined
+        ? { ...args, projectConfig: ctx.projectConfig }
+        : args,
+      stateDir,
+      ctx,
+    );
 }
 
 /**

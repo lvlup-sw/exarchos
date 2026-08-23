@@ -1,3 +1,10 @@
+// @oracle-sources: ../../../src/vcs/resolve-base-branch.ts, the src/ tree walked at test time for callers
+//
+// The census below compares the module that DECLARES the resolver against the
+// live source tree walked for uses of it. Neither side is written down here: a
+// hand-listed caller set would keep naming a caller after it was deleted, and
+// keep missing one that was added.
+
 import { describe, it, expect, vi } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';

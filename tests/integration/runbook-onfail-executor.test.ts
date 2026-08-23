@@ -76,8 +76,18 @@ describe('runbook onFail is projected, not executed', () => {
       50,
     );
 
+    // The executor honors exactly two policies. Written as a membership filter
+    // rather than a sorted comparison so a step declaring anything else is
+    // NAMED rather than reported as two lists that differ — and because the
+    // vocabulary is a closed union declared alongside these definitions, so
+    // there is no independent authority a parity could be taken against.
+    const HONORED: ReadonlySet<string> = new Set(['continue', 'stop']);
     const values = new Set(ALL_RUNBOOKS.flatMap((r) => r.steps.map((s) => String(s.onFail))));
-    expect([...values].sort()).toEqual(['continue', 'stop']);
+    const unhonored = [...values].filter((value) => !HONORED.has(value));
+
+    expect(unhonored, 'a runbook step declares an onFail policy no reader honors').toEqual([]);
+    // ...and the converse, so the filter is not passing by measuring nothing.
+    expect(values.size, 'the declared policy set is empty').toBeGreaterThan(1);
   });
 
   it('Runbook_RetryPolicy_IsRejectedAtProjection', async () => {
