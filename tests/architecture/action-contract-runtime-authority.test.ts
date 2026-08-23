@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const DISPATCH_ROOT = path.join(REPO_ROOT, 'src/dispatch');
 const DISPATCH_CORE = path.join(DISPATCH_ROOT, 'core/dispatch.ts');
+const DENOMINATOR = path.join(REPO_ROOT, 'src/contract/registered-actions-denominator.ts');
 
 const COMPILED_AUTHORITY_IMPORT = /from\s+['"][^'"]*(?:contract\/compiler(?:\/(?:descriptors|generate|fixtures|compile))?|compiler\/generated\/proof-fixtures)(?:\.js)?['"]/;
 
@@ -53,6 +54,11 @@ function compiledDescriptorImports(source: string): readonly string[] {
 
 describe('dispatch compiled-descriptor authority', () => {
   it('Dispatch_CompiledDescriptors_AreNotRuntimeAuthority', () => {
+    const denominator = readFileSync(DENOMINATOR, 'utf8');
+    expect(denominator).toMatch(/export function measureLiveRegisteredActions/);
+    expect(denominator).toMatch(/export function snapshotMatchesLiveRegistry/);
+    expect(denominator).toMatch(/export function generatedProjectionsMatchLive/);
+
     const sources = dispatchSources();
     expect(sources.length, 'dispatch tree resolved to nothing').toBeGreaterThan(10);
 
