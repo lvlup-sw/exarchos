@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest';
 import type { EventRegistration } from '../../../../src/events/event-registration.js';
 import {
   lifecycleViolations,
+  verifierDeclaredEmissions,
   verifyDeclaredEmissions,
 } from '../../../../src/dispatch/core/interceptors/emission-verifier.js';
 
@@ -126,5 +127,28 @@ describe('EmissionVerifier lifecycle axis', () => {
     expect(verdict.lifecycleViolations).toEqual([
       { event: 'stack.restacked', lifecycle: 'planned' },
     ]);
+  });
+});
+
+describe('EmissionVerifier declared-subject authority', () => {
+  const sibling = [{ event: 'gate.executed', condition: 'always' as const }];
+  const nested = {
+    event: 'workflow.started',
+    condition: 'always' as const,
+    owner: 'workflow',
+    role: 'primary' as const,
+  };
+
+  it('reads nested emissions and ignores a sibling fallback argument', () => {
+    const read = verifierDeclaredEmissions as (
+      contract: { readonly emissions: { readonly kind: 'declared' | 'none'; readonly values?: readonly typeof nested[]; readonly because?: string } } | undefined,
+      siblingAutoEmits?: readonly typeof sibling,
+    ) => readonly { readonly event: string }[] | undefined;
+
+    expect(
+      read({ emissions: { kind: 'declared', values: [nested] } }, sibling)?.map((row) => row.event),
+    ).toEqual(['workflow.started']);
+    expect(read({ emissions: { kind: 'none', because: 'reasoned silence' } }, sibling)).toBeUndefined();
+    expect(read(undefined, sibling)).toBeUndefined();
   });
 });

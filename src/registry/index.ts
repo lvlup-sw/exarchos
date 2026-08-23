@@ -102,6 +102,7 @@ export {
   AGENT_SPAWN_CAPABILITY,
   HOST_OBLIGATIONS,
   actionContractCanonicalBytes,
+  contractEmissionsOf,
   declared,
   none,
   normalizeActionContract,

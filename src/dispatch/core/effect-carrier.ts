@@ -20,13 +20,13 @@
  * that a dry-run planned no observable side effect and recorded no fact.
  */
 
-import type { EventType } from '../../events/schemas.js';
+import { isBuiltInEventType, type EventType } from '../../events/schemas.js';
 import {
   deriveReplayIdentity,
   type AuthenticatedRequestContext,
   type ReplayIdentity,
 } from '../../contract/request-context.js';
-import type { ActionContract, ReplayPolicy } from '../../registry/action-contract.js';
+import type { ActionContract, ActionEmission, ReplayPolicy } from '../../registry/action-contract.js';
 
 /**
  * Which vocabulary governs which claim.
@@ -118,6 +118,8 @@ export type EmissionCondition = 'before' | 'on-success' | 'on-failure';
 export interface EffectEmission {
   readonly event: EventType;
   readonly when: EmissionCondition;
+  readonly owner?: string;
+  readonly role?: ActionEmission['role'];
 }
 
 /**
@@ -233,20 +235,63 @@ export function idempotentFromReplay(replay: ReplayPolicy): boolean {
 }
 
 /**
- * Build an {@link EffectPlan} from a contract's replay policy.
+ * Build an {@link EffectPlan} from a contract's replay and emission block.
  *
  * `idempotent` is derived (`safe-repeat` → true; `claim-required` and
- * `reject-replay` → false). Live actions may omit a contract and keep
- * constructing {@link EffectPlan} directly.
+ * `reject-replay` → false). When `emissions` is present, emit identity and
+ * owner/role come from that nested list — sibling `when` stays on the
+ * effect and is never copied from `condition`. Live actions may omit a
+ * contract and keep constructing {@link EffectPlan} directly.
  */
 export function effectPlanFromContract(
   fields: EffectPlanInput,
-  contract: Pick<ActionContract, 'replay'>,
+  contract: Pick<ActionContract, 'replay'> & Partial<Pick<ActionContract, 'emissions'>>,
 ): EffectPlan {
   return {
     ...fields,
     idempotent: idempotentFromReplay(contract.replay),
+    emits:
+      contract.emissions === undefined
+        ? fields.emits
+        : planEmissionsFromContract(fields.emits, contract.emissions),
   };
+}
+
+function whenFromSibling(
+  sibling: PlanEmissions,
+  event: string,
+  index: number,
+): EmissionCondition {
+  if (sibling.kind !== 'records') return 'on-success';
+  const byEvent = sibling.emissions.find((emission) => emission.event === event);
+  if (byEvent !== undefined) return byEvent.when;
+  const byIndex = sibling.emissions[index];
+  if (byIndex !== undefined) return byIndex.when;
+  return sibling.emissions[0]?.when ?? 'on-success';
+}
+
+function planEmissionsFromContract(
+  sibling: PlanEmissions,
+  emissions: ActionContract['emissions'],
+): PlanEmissions {
+  if (emissions.kind === 'none') {
+    return recordsNothing(emissions.because);
+  }
+  const mapped: EffectEmission[] = [];
+  for (const [index, emission] of emissions.values.entries()) {
+    if (!isBuiltInEventType(emission.event)) continue;
+    mapped.push({
+      event: emission.event as EventType,
+      when: whenFromSibling(sibling, emission.event, index),
+      owner: emission.owner,
+      role: emission.role,
+    });
+  }
+  const first = mapped[0];
+  if (first === undefined) {
+    return recordsNothing('nested contract named no catalog emissions');
+  }
+  return records(first, ...mapped.slice(1));
 }
 
 /**
@@ -969,4 +1014,14 @@ export type _EffectCarrier_ReplayConstructor_MintsEvidence = Expect<
  */
 export type _EffectCarrier_ContractPlanInput_OmitsIdempotent = Expect<
   'idempotent' extends keyof EffectPlanInput ? false : true
+>;
+
+/**
+ * Contract emission `condition` is not an {@link EmissionCondition}. Copying
+ * it onto `when` would not typecheck; the two clocks stay distinct.
+ * Falsifier: widen {@link EmissionCondition} to include `always` / `conditional`.
+ * @proof
+ */
+export type _EffectCarrier_ContractCondition_IsNotEmissionWhen = Expect<
+  IsNotAssignable<'always' | 'conditional', EmissionCondition>
 >;

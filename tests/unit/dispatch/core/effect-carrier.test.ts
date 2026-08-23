@@ -611,3 +611,58 @@ describe('effect plan replay binding', () => {
     ).toBe(false);
   });
 });
+
+describe('effect plan emission binding', () => {
+  const siblingEmit = records({ event: 'gate.executed', when: 'before' });
+  const contractEmission = {
+    event: 'workflow.started' as const,
+    condition: 'always' as const,
+    owner: 'workflow',
+    role: 'primary' as const,
+  };
+
+  it('derives emit identity and owner/role from the nested contract', () => {
+    const plan = effectPlanFromContract(
+      {
+        ...PLAN_FIELDS,
+        owner: 'effect-owner',
+        emits: records({ event: 'gate.executed', when: 'on-success', owner: 'sibling', role: 'recovery' }),
+      },
+      {
+        replay: { kind: 'safe-repeat' },
+        emissions: { kind: 'declared', values: [contractEmission] },
+      },
+    );
+    expect(declaredEmissions(plan)).toEqual([
+      { event: 'workflow.started', when: 'on-success', owner: 'workflow', role: 'primary' },
+    ]);
+    expect(plan.owner).toBe('effect-owner');
+  });
+
+  it('keeps per-effect when independent of the contract condition', () => {
+    const plan = effectPlanFromContract(
+      {
+        ...PLAN_FIELDS,
+        emits: records({ event: 'workflow.started', when: 'before' }),
+      },
+      {
+        replay: { kind: 'safe-repeat' },
+        emissions: { kind: 'declared', values: [contractEmission] },
+      },
+    );
+    expect(declaredEmissions(plan)[0]?.when).toBe('before');
+    expect(declaredEmissions(plan)[0]?.event).toBe('workflow.started');
+    expect(plan.emits.kind).toBe('records');
+  });
+
+  it('a reasoned none wins over sibling records', () => {
+    const plan = effectPlanFromContract(
+      { ...PLAN_FIELDS, emits: siblingEmit },
+      {
+        replay: { kind: 'safe-repeat' },
+        emissions: { kind: 'none', because: 'this action appends nothing' },
+      },
+    );
+    expect(plan.emits).toEqual(recordsNothing('this action appends nothing'));
+  });
+});

@@ -1444,11 +1444,8 @@ export async function dispatch(
     // from the check by the NAME of its parameter. The residue is declared, not
     // silent: an action carrying neither still resolves `no-stream`.
     streamId: observedStreamId,
-    // Nested contract emissions win when they are declared. The sibling
-    // list stays as the fallback so an action with no contract, or one
-    // that reasons it emits nothing, does not silently drop existing
-    // unconditional coverage.
-    declared: verifierDeclaredEmissions(dispatchedContract, dispatchedAction?.autoEmits),
+    // Nested contract emissions are the only subject. Sibling autoEmits is leftover.
+    declared: verifierDeclaredEmissions(dispatchedContract),
     handlerStubbed: STUBBED_COMPOSITES.has(tool),
     handlerSucceeded: result.success,
     readOnlyAbstention,

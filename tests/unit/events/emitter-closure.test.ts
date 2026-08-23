@@ -59,8 +59,6 @@ const UNDECLARED_BASELINE: readonly string[] = Object.freeze([
   'elicitation.declined <- dispatch/elicitation-dispatch.ts',
   'elicitation.fulfilled <- dispatch/elicitation-dispatch.ts',
   'elicitation.requested <- dispatch/elicitation-dispatch.ts',
-  'export.executed <- projections/views/lifecycle/export.ts',
-  'export.requested <- projections/views/lifecycle/export.ts',
   'issue.create.executed <- verbs/vcs/create-issue.ts',
   'issue.create.requested <- verbs/vcs/create-issue.ts',
   'merge.executing_started <- verbs/merge/execute-merge.ts',

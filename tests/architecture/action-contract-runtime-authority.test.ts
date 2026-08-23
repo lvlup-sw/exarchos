@@ -8,6 +8,13 @@ import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  declaredEmissions,
+  effectPlanFromContract,
+  records,
+} from '../../src/dispatch/core/effect-carrier.js';
+import { verifierDeclaredEmissions } from '../../src/dispatch/core/interceptors/emission-verifier.js';
+import { contractEmissionsOf, declared, none } from '../../src/registry/action-contract.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const DISPATCH_ROOT = path.join(REPO_ROOT, 'src/dispatch');
@@ -83,5 +90,76 @@ describe('dispatch compiled-descriptor authority', () => {
     expect(injected).toEqual([
       "import { compileDescriptor } from '../../contract/compiler/descriptors.js';",
     ]);
+  });
+});
+
+describe('nested emission authority', () => {
+  it('sibling autoEmits is not the declared-emission authority', () => {
+    const sibling = [
+      { event: 'gate.executed', condition: 'always' as const, owner: 'sibling', role: 'primary' as const },
+    ];
+    const nested = {
+      event: 'workflow.started',
+      condition: 'always' as const,
+      owner: 'workflow',
+      role: 'primary' as const,
+    };
+    const contract = {
+      requires: none('architecture probe'),
+      ensures: none('architecture probe'),
+      needs: none('architecture probe'),
+      touches: { frame: 'single-machine' as const, resources: none('architecture probe') },
+      executionAuthority: { kind: 'local' as const },
+      replay: { kind: 'safe-repeat' as const },
+      emissions: declared(nested),
+    };
+
+    expect(
+      contractEmissionsOf({ autoEmits: sibling, actionContract: contract }),
+    ).toEqual([nested]);
+    expect(
+      contractEmissionsOf({
+        autoEmits: sibling,
+        actionContract: { ...contract, emissions: none('reasoned silence') },
+      }),
+    ).toEqual([]);
+
+    type VerifierRead = (
+      contract: Parameters<typeof verifierDeclaredEmissions>[0],
+      siblingAutoEmits?: typeof sibling,
+    ) => ReturnType<typeof verifierDeclaredEmissions>;
+    const read = verifierDeclaredEmissions as VerifierRead;
+    expect(read({ emissions: none('reasoned silence') }, sibling)).toBeUndefined();
+    expect(read(undefined, sibling)).toBeUndefined();
+    expect(read({ emissions: declared(nested) }, sibling)?.map((row) => row.event)).toEqual([
+      'workflow.started',
+    ]);
+
+    const plan = effectPlanFromContract(
+      {
+        effectClass: 'filesystem',
+        owner: 'effect-owner',
+        description: 'architecture probe',
+        emits: records({ event: 'gate.executed', when: 'before', owner: 'sibling', role: 'recovery' }),
+      },
+      { replay: { kind: 'safe-repeat' }, emissions: declared(nested) },
+    );
+    expect(declaredEmissions(plan)).toEqual([
+      { event: 'workflow.started', when: 'before', owner: 'workflow', role: 'primary' },
+    ]);
+
+    const collect = readFileSync(path.join(REPO_ROOT, 'src/contract/reachability/collect.ts'), 'utf8');
+    expect(collect).toMatch(/contractEmissionsOf/);
+    expect(collect).not.toMatch(/action\.autoEmits\s*\?\?/);
+
+    const census = readFileSync(path.join(REPO_ROOT, 'src/events/registration-validate.ts'), 'utf8');
+    expect(census).toMatch(/contractEmissionsOf/);
+    expect(census).not.toMatch(/action\.autoEmits\s*\?\?/);
+
+    const verifier = readFileSync(
+      path.join(REPO_ROOT, 'src/dispatch/core/interceptors/emission-verifier.ts'),
+      'utf8',
+    );
+    expect(verifier).not.toMatch(/return siblingAutoEmits/);
   });
 });

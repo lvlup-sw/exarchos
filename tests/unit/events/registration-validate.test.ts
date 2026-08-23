@@ -1196,7 +1196,13 @@ describe('ProviderComparison — the declaring tool against the declared provide
     for (const tool of TOOL_REGISTRY) {
       for (const action of tool.actions) {
         toolByAction.set(`${tool.name}|${action.name}`, tool.name);
-        declaredEmissionCount += action.autoEmits?.length ?? 0;
+        const raw = Reflect.get(action, 'actionContract');
+        if (raw === undefined || raw === null || typeof raw !== 'object') continue;
+        const emissions = Reflect.get(raw, 'emissions');
+        if (emissions === undefined || emissions === null || typeof emissions !== 'object') continue;
+        if (Reflect.get(emissions, 'kind') !== 'declared') continue;
+        const values = Reflect.get(emissions, 'values');
+        if (Array.isArray(values)) declaredEmissionCount += values.length;
       }
     }
     expect(edges.length).toBe(declaredEmissionCount);
@@ -1229,8 +1235,23 @@ describe('ComparisonDenominator — the size of the set the provider comparison 
     let size = 0;
     for (const tool of TOOL_REGISTRY) {
       for (const action of tool.actions) {
-        for (const emission of action.autoEmits ?? []) {
-          if (welded.has(emission.event)) size += 1;
+        const raw = Reflect.get(action, 'actionContract');
+        if (raw === undefined || raw === null || typeof raw !== 'object') continue;
+        const emissions = Reflect.get(raw, 'emissions');
+        if (emissions === undefined || emissions === null || typeof emissions !== 'object') continue;
+        if (Reflect.get(emissions, 'kind') !== 'declared') continue;
+        const values = Reflect.get(emissions, 'values');
+        if (!Array.isArray(values)) continue;
+        for (const emission of values) {
+          if (
+            emission !== null &&
+            typeof emission === 'object' &&
+            'event' in emission &&
+            typeof emission.event === 'string' &&
+            welded.has(emission.event)
+          ) {
+            size += 1;
+          }
         }
       }
     }

@@ -293,20 +293,17 @@ export function lifecycleViolations(
 /**
  * The emission list the verifier assesses.
  *
- * When the nested action contract names emissions, those are the subject —
- * the sibling `autoEmits` list is a fallback only when the contract is
- * absent or reasons that it emits nothing. Reading the sibling first would
- * let an empty or disagreeing `autoEmits` list hide a nested unconditional
- * promise, which is the same vacuity as never checking.
+ * Nested `actionContract.emissions` is the only subject. Sibling `autoEmits`
+ * is never consulted — a populated leftover list must not revive a reasoned
+ * `none`, and an absent contract is not filled in from the sibling.
  */
 export function verifierDeclaredEmissions(
   contract: Pick<ActionContract, 'emissions'> | undefined,
-  siblingAutoEmits: readonly AutoEmission[] | undefined,
 ): readonly AutoEmission[] | undefined {
   if (contract?.emissions.kind === 'declared') {
     return contract.emissions.values;
   }
-  return siblingAutoEmits;
+  return undefined;
 }
 
 export function unconditionalEmissions(

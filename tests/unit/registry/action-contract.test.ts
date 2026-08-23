@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ActionContractError,
   actionContractCanonicalBytes,
+  contractEmissionsOf,
   declared,
   none,
   normalizeActionContract,
@@ -255,5 +256,35 @@ describe('action-contract properties', () => {
         },
       ),
     );
+  });
+});
+
+describe('contract emission authority', () => {
+  const sibling = [
+    { event: 'gate.executed', condition: 'always' as const, owner: 'sibling', role: 'primary' as const },
+  ];
+  const nested = {
+    event: 'workflow.started',
+    condition: 'always' as const,
+    owner: 'workflow',
+    role: 'primary' as const,
+  };
+
+  it('reads nested emissions and ignores a populated sibling list', () => {
+    const declaredAction = {
+      autoEmits: sibling,
+      actionContract: validContract({ emissions: declared(nested) }),
+    };
+    expect(contractEmissionsOf(declaredAction)).toEqual([nested]);
+
+    const silentAction = {
+      autoEmits: sibling,
+      actionContract: validContract({ emissions: none('reasoned silence') }),
+    };
+    expect(contractEmissionsOf(silentAction)).toEqual([]);
+  });
+
+  it('does not treat a missing contract as the sibling list', () => {
+    expect(contractEmissionsOf({ autoEmits: sibling })).toEqual([]);
   });
 });

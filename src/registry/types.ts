@@ -14,6 +14,12 @@ export interface ToolAction {
   readonly roles: ReadonlySet<string>;
   readonly cli?: CliActionHints;
   readonly gate?: GateMetadata;
+  /**
+   * Leftover sibling emission list. Not authoritative: every consumer reads
+   * nested `actionContract.emissions` via `Reflect.get` and
+   * `normalizeActionContract`. A populated list here does not win when the
+   * nested block disagrees, including a reasoned `none`.
+   */
   readonly autoEmits?: readonly AutoEmission[];
   /**
    * Dispatch-layer metadata (#1440 Op 2, preview-4 T2, design §4.3).

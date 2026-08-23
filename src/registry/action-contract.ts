@@ -584,3 +584,22 @@ export function withActionContract<T extends object>(
     actionContract: normalizeActionContract(contract, options),
   };
 }
+
+/**
+ * The emission list nested on an action, or empty when the block is absent,
+ * unreadable, or reasons that it emits nothing.
+ *
+ * Sibling `autoEmits` is never consulted. Live registry actions do not
+ * require the block; the field is read reflectively and normalized so a
+ * raw declaration cannot be treated as already-valid.
+ */
+export function contractEmissionsOf(action: object): readonly ActionEmission[] {
+  const raw = Reflect.get(action, 'actionContract');
+  if (raw === undefined) return [];
+  try {
+    const contract = normalizeActionContract(raw);
+    return contract.emissions.kind === 'declared' ? contract.emissions.values : [];
+  } catch {
+    return [];
+  }
+}
