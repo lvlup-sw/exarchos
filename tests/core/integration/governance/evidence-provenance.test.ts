@@ -401,8 +401,8 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
    *
    * BLOCKING arm: with the marker in place, `get` answers, and it answers with
    * the phase at the tail — a fold that had not seen the transition could not
-   * produce it, so this is the CB-8 guarantee stated about the answer instead
-   * of about the presence of an error.
+   * produce it, so the guarantee is stated about the answer instead of about
+   * the presence of an error.
    * NEGATIVE TWIN: `exarchos_event query` reports the same phase from the
    * durable log with no fold involved. If the read above were serving a
    * remembered value rather than folding the tail, the two would disagree.

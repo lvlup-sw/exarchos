@@ -5,7 +5,7 @@ import { correlateQualityAndEvals } from '../../quality/quality-correlation.js';
 import { CODE_QUALITY_VIEW, type CodeQualityViewState } from '../code-quality-view.js';
 import { EVAL_RESULTS_VIEW, type EvalResultsViewState } from '../eval-results-view.js';
 import { CompactSkillCorrelation, compactSkillCorrelation } from './analytic-contract.js';
-import { foldToTail } from '../../fold-at-tail.js';
+import { foldPairToTail } from '../../fold-at-tail.js';
 import { getOrCreateMaterializer } from './materializer.js';
 import { deriveCorrelationFilters, hasCorrelationFilters, materializeFiltered, queryDeltaEvents } from './query.js';
 
@@ -37,17 +37,35 @@ export async function handleViewQualityCorrelation(
 
     // Under a correlation filter, `queryDeltaEvents` short-circuits the
     // cache and returns `store.query(streamId, filters)` regardless of
-    // `viewName` — so both calls would fetch an identical event list.
-    // Fetch once and fold the same list into both projections (each
-    // projection's `apply` ignores event types it doesn't care about).
-    const cqEvents = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW, correlationFilters);
-    const cqView = correlationFiltered
-      ? materializeFiltered<CodeQualityViewState>(materializer, CODE_QUALITY_VIEW, cqEvents)
-      : (await foldToTail<CodeQualityViewState>(store, materializer, streamId, CODE_QUALITY_VIEW)).view;
-
-    const erView = correlationFiltered
-      ? materializeFiltered<EvalResultsViewState>(materializer, EVAL_RESULTS_VIEW, cqEvents)
-      : (await foldToTail<EvalResultsViewState>(store, materializer, streamId, EVAL_RESULTS_VIEW)).view;
+    // Both projections describe ONE state of the stream, so both must come from
+    // one sequence. Filtered, that is the single fetched event list they each
+    // fold; unfiltered, it is the single tail `foldPairToTail` pins for the
+    // pair. Folding them independently would let an append between the two
+    // produce a comparison of a state the stream was never in — and would also
+    // charge every unfiltered read for an event query it does not use.
+    let cqView: CodeQualityViewState;
+    let erView: EvalResultsViewState;
+    if (correlationFiltered) {
+      const cqEvents = await queryDeltaEvents(
+        store,
+        materializer,
+        streamId,
+        CODE_QUALITY_VIEW,
+        correlationFilters,
+      );
+      cqView = materializeFiltered<CodeQualityViewState>(materializer, CODE_QUALITY_VIEW, cqEvents);
+      erView = materializeFiltered<EvalResultsViewState>(materializer, EVAL_RESULTS_VIEW, cqEvents);
+    } else {
+      const pair = await foldPairToTail<CodeQualityViewState, EvalResultsViewState>(
+        store,
+        materializer,
+        streamId,
+        CODE_QUALITY_VIEW,
+        EVAL_RESULTS_VIEW,
+      );
+      cqView = pair.first;
+      erView = pair.second;
+    }
 
     const correlation = correlateQualityAndEvals(cqView, erView);
     // DR-8 (Task 024) compact-by-default — keep each skill's headline (pass rate

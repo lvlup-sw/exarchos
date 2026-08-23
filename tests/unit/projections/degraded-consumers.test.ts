@@ -2,7 +2,7 @@
 //
 // ## What this file used to assert, and why it moved
 //
-// CB-8 caught workflow views serving a silently stale fold: a cancelled
+// A dogfood run caught workflow views serving a silently stale fold: a cancelled
 // workflow reported at `plan-review`, 7 of 10 completed tasks visible, lag past
 // 500s. The answer shipped for it made the verdict durable
 // (`projection.degraded` on `meta/projection-health`) and had every
@@ -26,7 +26,7 @@
 // list of surfaces that can serve a projection-derived answer, and that list is
 // what a future change to the seam has to keep covered.
 //
-// CB-8's guarantee is stronger here than it was under the refusal, because the
+// The guarantee is stronger here than it was under the refusal, because the
 // assertion is about the ANSWER rather than about the presence of an error:
 // `Consumer_RewoundFold_AnswersFromTheTail` reads the phase back and requires
 // it to be the phase at the tail, which a stale fold cannot produce.
@@ -99,7 +99,7 @@ async function seedWorkflow(): Promise<void> {
 }
 
 /**
- * The CB-8 fault, injected for real: warm a genuine fold through the genuine
+ * The stale-fold fault, injected for real: warm a genuine fold through the genuine
  * view chokepoint, then rewind ONE named fold's high-water mark so the
  * materialized cursor provably stops short of the durable tail.
  */
@@ -206,8 +206,9 @@ describe('#1855 — every readiness/workflow/reliability consumer answers', () =
   }
 
   it('Consumer_RewoundFold_AnswersFromTheTail', async () => {
-    // The CB-8 guarantee itself, stated as a claim about the ANSWER rather than
-    // about the presence of an error. A fold rewound to sequence 1 has not seen
+    // The guarantee itself — a read never answers from a fold that has not seen
+    // events already durable when it was asked — stated as a claim about the
+    // ANSWER rather than about the presence of an error. A fold rewound to sequence 1 has not seen
     // the transition; if the answer still carries the tip phase, it was not
     // served from the stale fold.
     await seedWorkflow();

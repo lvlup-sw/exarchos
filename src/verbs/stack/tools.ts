@@ -1,5 +1,6 @@
 // ─── Stack MCP Tool Handlers ────────────────────────────────────────────────
 
+import { toCoverageFailure } from '../../projections/degraded-result.js';
 import { foldToTail } from '../../projections/fold-at-tail.js';
 import type { EventStore } from '../../events/store.js';
 import { toEventAck, type ToolResult } from '../../format.js';
@@ -42,6 +43,8 @@ export async function handleStackStatus(
 
     return { success: true, data: positions };
   } catch (err) {
+    const refusal = toCoverageFailure(err, { tool: 'exarchos_view', action: 'stack_status' });
+    if (refusal) return refusal;
     return {
       success: false,
       error: {

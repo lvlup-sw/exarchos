@@ -8,7 +8,7 @@ import { CODE_QUALITY_VIEW, type CodeQualityViewState } from '../code-quality-vi
 import { EVAL_RESULTS_VIEW, type EvalResultsViewState } from '../eval-results-view.js';
 import { compactAttributionEntry } from './analytic-contract.js';
 import { resolveInventoryWindow } from './inventory-contract.js';
-import { foldToTail } from '../../fold-at-tail.js';
+import { foldPairToTail } from '../../fold-at-tail.js';
 import { getOrCreateMaterializer } from './materializer.js';
 import { buildPage } from './pipeline.js';
 import { deriveCorrelationFilters, hasCorrelationFilters, materializeFiltered, queryDeltaEvents } from './query.js';
@@ -56,16 +56,35 @@ export async function handleViewQualityAttribution(
     const correlationFilters = deriveCorrelationFilters(args);
     const correlationFiltered = hasCorrelationFilters(correlationFilters);
 
-    // See handleViewQualityCorrelation above — under a correlation filter
-    // both projections fold from the same backend payload, so fetch once.
-    const cqEvents = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW, correlationFilters);
-    const cqView = correlationFiltered
-      ? materializeFiltered<CodeQualityViewState>(materializer, CODE_QUALITY_VIEW, cqEvents)
-      : (await foldToTail<CodeQualityViewState>(store, materializer, streamId, CODE_QUALITY_VIEW)).view;
-
-    const erView = correlationFiltered
-      ? materializeFiltered<EvalResultsViewState>(materializer, EVAL_RESULTS_VIEW, cqEvents)
-      : (await foldToTail<EvalResultsViewState>(store, materializer, streamId, EVAL_RESULTS_VIEW)).view;
+    // Both projections describe ONE state of the stream, so both must come from
+    // one sequence. Filtered, that is the single fetched event list they each
+    // fold; unfiltered, it is the single tail `foldPairToTail` pins for the
+    // pair. Folding them independently would let an append between the two
+    // produce a comparison of a state the stream was never in — and would also
+    // charge every unfiltered read for an event query it does not use.
+    let cqView: CodeQualityViewState;
+    let erView: EvalResultsViewState;
+    if (correlationFiltered) {
+      const cqEvents = await queryDeltaEvents(
+        store,
+        materializer,
+        streamId,
+        CODE_QUALITY_VIEW,
+        correlationFilters,
+      );
+      cqView = materializeFiltered<CodeQualityViewState>(materializer, CODE_QUALITY_VIEW, cqEvents);
+      erView = materializeFiltered<EvalResultsViewState>(materializer, EVAL_RESULTS_VIEW, cqEvents);
+    } else {
+      const pair = await foldPairToTail<CodeQualityViewState, EvalResultsViewState>(
+        store,
+        materializer,
+        streamId,
+        CODE_QUALITY_VIEW,
+        EVAL_RESULTS_VIEW,
+      );
+      cqView = pair.first;
+      erView = pair.second;
+    }
 
     // AttributionQuery.timeRange expects ISO 8601 duration string (e.g., 'P7D'),
     // but the MCP handler receives { start, end } — compute duration from the range

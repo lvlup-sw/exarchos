@@ -2,10 +2,10 @@
  * The guard for the class #1855 belongs to: a projection-derived answer that
  * escapes to a caller with no evidence its fold covers the durable event tail.
  *
- * The class has two instances. CB-8 served a cancelled workflow at
- * `plan-review` from a fold 500 seconds behind. The mechanism built to answer
- * CB-8 then inverted it — the answer was withheld permanently rather than
- * served stalely, on a lag of one event. Two instances make it a property of
+ * The class has two instances. A phase-gate dogfood run served a cancelled
+ * workflow at `plan-review` from a fold 500 seconds behind. The mechanism built
+ * to answer that then inverted it — the answer was withheld permanently rather
+ * than served stalely, on a lag of one event. Two instances make it a property of
  * the system rather than an incident, so the fix is structural: `foldToTail`
  * establishes coverage before any answer, and this guard is what keeps a
  * caller from going around it.
@@ -50,6 +50,7 @@ interface Policy {
   readonly allowlist: readonly {
     readonly file: string;
     readonly members: readonly string[];
+    readonly why: string;
     readonly owner: string;
     readonly expiry: string;
   }[];
@@ -198,8 +199,12 @@ describe('projection fold seam', () => {
     expect(bounded, 'a permitted member must not be reported as a violation').toEqual([]);
   });
 
-  it('ProjectionFoldSeam_AllowlistEntries_CarryAnOwnerAndAnUnexpiredDate', () => {
+  it('ProjectionFoldSeam_AllowlistEntries_CarryARationaleOwnerAndUnexpiredDate', () => {
     for (const entry of POLICY.allowlist) {
+      // The policy declares a `why` field; without an assertion on it, an entry
+      // could bypass the seam carrying only an owner and a date, which records
+      // who accepted the risk but never what the risk was.
+      expect(entry.why, `${entry.file} records no reason the seam does not fit`).toBeTruthy();
       expect(entry.owner, `${entry.file} has no owner`).toBeTruthy();
       expect(entry.expiry, `${entry.file} has no expiry`).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(

@@ -43,7 +43,7 @@ import { handleViewTelemetry } from '../telemetry/tools.js';
 import type { QualityHintsConfig } from '../../workflow/capabilities/resolver.js';
 import { deriveRepoKey } from '../../utils/paths.js';
 import { viewLogger } from '../../logger.js';
-import { publishProjectionFreshness } from '../freshness.js';
+import { publishProjectionFreshness, readProjectionDegradedState } from '../freshness.js';
 
 const viewActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_view')!.actions;
 
@@ -153,9 +153,14 @@ async function clearProjectionHealth(
   if (streamId === undefined || streamId.length === 0) return result;
 
   try {
-    // `publishProjectionFreshness` appends `projection.recovered` only when a
-    // degraded row is actually held, and nothing at all otherwise — so a
-    // healthy stream still does not write a row per read.
+    // The held row decides whether there is anything to do, so it is read
+    // first. `publishProjectionFreshness` would reach the same conclusion, but
+    // only after this response path had already paid for a `tailSequence` call
+    // whose value the healthy case discards. Almost every read is the healthy
+    // case.
+    const held = await readProjectionDegradedState(ctx.eventStore, streamId);
+    if (held === undefined) return result;
+
     const eventTail = await ctx.eventStore.tailSequence(streamId);
     await publishProjectionFreshness(ctx.eventStore, streamId, {
       degraded: false,

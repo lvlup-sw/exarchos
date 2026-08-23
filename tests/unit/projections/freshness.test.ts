@@ -1,6 +1,6 @@
 // ─── EFF-002: projection-degraded signal on cursor/tail disagreement ─────────
 //
-// CB-8 (phase-gate v2.12 dogfood): workflow views served a silently stale fold —
+// A phase-gate dogfood run found workflow views serving a silently stale fold —
 // a cancelled workflow still reported at `plan-review`, 7 of 10 completed tasks
 // visible, lag past 500s — with nothing on the response saying the answer did
 // not derive from the current event tail.
@@ -281,7 +281,7 @@ describe('durable projection-degraded state (DR-4)', () => {
 
   /**
    * Warm a REAL fold through the real view chokepoint, then drive its cursor to
-   * `cursor`. This is the CB-8 fault: a materialized projection whose
+   * `cursor`. This is the fault under test: a materialized projection whose
    * high-water mark no longer matches the durable tail.
    *
    * It rewinds ONE named fold. The version before #1855 looped over every

@@ -370,9 +370,19 @@ function adaptSetupWorktree(): ActionHandler {
         // #1509/#1501: project synthesis.integrationBranch so the handler can
         // base managed worktrees on the integration tip, not a stale `main`.
         workflowState = { tasks: view.tasks, synthesis: view.synthesis };
-      } catch {
-        // Best-effort: missing/unreadable state is not a setup_worktree
-        // failure — handler falls back to legacy default branch.
+      } catch (err) {
+        // A coverage failure is NOT best-effort material. Falling back to the
+        // legacy default branch here would base a managed worktree on `main`
+        // while the integration tip was merely unprovable — the silent
+        // degradation this seam exists to remove.
+        const { toCoverageFailure } = await import('../projections/degraded-result.js');
+        const refusal = toCoverageFailure(err, {
+          tool: 'exarchos_orchestrate',
+          action: 'setup_worktree',
+        });
+        if (refusal) return refusal;
+        // Anything else stays best-effort: missing or unreadable state is not a
+        // setup_worktree failure, and the handler falls back as before.
         workflowState = undefined;
       }
     }

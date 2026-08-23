@@ -34,7 +34,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { DispatchContext } from '../../../src/dispatch/core/dispatch.js';
 import { EventStore } from '../../../src/events/store.js';
-import { foldToTail } from '../../../src/projections/fold-at-tail.js';
+import { foldPairToTail, foldToTail } from '../../../src/projections/fold-at-tail.js';
 import {
   PROJECTION_HEALTH_STREAM_ID,
   PROJECTION_DEGRADED_EVENT_TYPE,
@@ -45,6 +45,42 @@ import { getOrCreateMaterializer, resetMaterializerCache } from '../../../src/pr
 import { WORKFLOW_STATE_VIEW, type WorkflowStateView } from '../../../src/projections/views/workflow-state-projection.js';
 import { handleWorkflow } from '../../../src/workflow/composite.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
+
+/** Only the cursor matters for the pair test, so the shape is deliberately loose. */
+type WorkflowStatusLike = Record<string, unknown>;
+
+/**
+ * A store that lets one event land in the window between the tail pin and the
+ * fold's query — the window a concurrent writer actually occupies.
+ *
+ * Without it these guarantees cannot be tested at all: a single-threaded fold
+ * queries microseconds after it pins, so the bound never has anything to
+ * exclude and the assertions hold for the wrong reason. Removing the bound from
+ * the seam leaves such a test green, which is the definition of a test that
+ * cannot fail.
+ */
+class RacingEventStore extends EventStore {
+  private queries = 0;
+
+  constructor(
+    stateDir: string,
+    private readonly raceOnQuery: number,
+    private readonly raceStream: string,
+  ) {
+    super(stateDir);
+  }
+
+  override async query(
+    streamId: string,
+    filters?: Parameters<EventStore['query']>[1],
+  ): Promise<Awaited<ReturnType<EventStore['query']>>> {
+    this.queries += 1;
+    if (this.queries === this.raceOnQuery) {
+      await super.append(this.raceStream, { type: 'task.progressed', data: { raced: true } });
+    }
+    return super.query(streamId, filters);
+  }
+}
 
 const STREAM = 'fold-at-tail-feature';
 
@@ -156,13 +192,14 @@ describe('#1855 — the wedge', () => {
   });
 });
 
-describe('#1855 — the guarantee CB-8 bought, kept', () => {
+describe('#1855 — a read never answers from a fold behind the tail', () => {
   it('FoldAtTail_RewoundFold_AnswersFromTheTailNotFromTheStaleFold', async () => {
     await seedWorkflow();
     const materializer = getOrCreateMaterializer(stateDir);
 
-    // Warm a real fold, then rewind its cursor and let the stream move — the
-    // CB-8 fault injected for real. The old contract detected this and refused.
+    // Warm a real fold, then rewind its cursor and let the stream move — a
+    // genuinely stale fold, injected for real. The old contract detected this
+    // and refused.
     // The stronger claim is that the ANSWER is right, so assert the answer.
     const warm = await foldToTail<WorkflowStateView>(store, materializer, STREAM, WORKFLOW_STATE_VIEW);
     const rewound = materializer.getState<WorkflowStateView>(STREAM, WORKFLOW_STATE_VIEW);
@@ -229,6 +266,63 @@ describe('#1855 — the guarantee CB-8 bought, kept', () => {
 
     expect(folded.sequence).toBe(await store.tailSequence(STREAM));
     expect(folded.repaired).toBeUndefined();
+  });
+
+  it('FoldAtTail_AppendLandsMidFold_SequenceStaysOnThePinnedTail', async () => {
+    // The reported sequence is what callers bound their own evidence to — the
+    // emissions gate reads the phase from the fold and then filters raw events
+    // to that sequence. A fold that ran past its own pin would make those two
+    // halves describe different states of the stream.
+    await seedWorkflow();
+    const racing = new RacingEventStore(stateDir, 1, STREAM);
+    await racing.initialize();
+    try {
+      const materializer = getOrCreateMaterializer(stateDir);
+      const pinned = await racing.tailSequence(STREAM);
+
+      const folded = await foldToTail<WorkflowStateView>(
+        racing,
+        materializer,
+        STREAM,
+        WORKFLOW_STATE_VIEW,
+      );
+
+      // The raced event is real and the tail really did move…
+      expect(await racing.tailSequence(STREAM)).toBeGreaterThan(pinned);
+      // …and the fold still answers for the sequence it pinned.
+      expect(folded.sequence).toBe(pinned);
+    } finally {
+      racing.close();
+    }
+  });
+
+  it('FoldPairToTail_TwoViews_ShareOneSequence', async () => {
+    // Two independent folds pin two tails, so a read that COMBINES them can
+    // describe a state the stream was never in: one view holding an event the
+    // other has not seen. The attribution and correlation views do exactly that
+    // combining.
+    await seedWorkflow();
+    const materializer = getOrCreateMaterializer(stateDir);
+
+    // Race an append into the window BETWEEN the two folds. Two independent
+    // pins would put the second view a sequence ahead of the first.
+    const racing = new RacingEventStore(stateDir, 2, STREAM);
+    await racing.initialize();
+    try {
+      const pair = await foldPairToTail<WorkflowStateView, WorkflowStatusLike>(
+        racing,
+        materializer,
+        STREAM,
+        WORKFLOW_STATE_VIEW,
+        'workflow-status',
+      );
+
+      expect(await racing.tailSequence(STREAM)).toBeGreaterThan(pair.sequence);
+      expect(materializer.getState(STREAM, WORKFLOW_STATE_VIEW)?.highWaterMark).toBe(pair.sequence);
+      expect(materializer.getState(STREAM, 'workflow-status')?.highWaterMark).toBe(pair.sequence);
+    } finally {
+      racing.close();
+    }
   });
 
   it('FoldAtTail_EmptyStream_IsCoveredAtSequenceZero', async () => {

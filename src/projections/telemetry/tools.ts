@@ -1,5 +1,6 @@
 // ─── Telemetry MCP Tool Handler ──────────────────────────────────────────────
 
+import { toViewFailure } from '../degraded-result.js';
 import { foldToTail } from '../fold-at-tail.js';
 import { z } from 'zod';
 import type { ToolResult } from '../../format.js';
@@ -199,13 +200,7 @@ export async function handleViewTelemetry(
       ...(nextActions.length > 0 ? { next_actions: nextActions } : {}),
     };
   } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'VIEW_ERROR',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
+    return toViewFailure(err, { tool: 'exarchos_view', action: 'telemetry' });
   }
 }
 

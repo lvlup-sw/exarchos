@@ -166,7 +166,7 @@ export async function handleCheckEventEmissions(
   // phase. This is one of the folds #1855 was about: it lands in the shared
   // view materializer and no `exarchos_view` action refreshes it, so before
   // the seam it was the entry that went stale and stayed stale.
-  const { view } = await foldToTail<WorkflowStateView>(
+  const { view, sequence } = await foldToTail<WorkflowStateView>(
     store,
     materializer,
     streamId,
@@ -190,8 +190,11 @@ export async function handleCheckEventEmissions(
     };
   }
 
-  // Query all events from the stream
-  const events = await store.query(streamId);
+  // The phase came from a fold covering `sequence`; the evidence for that
+  // phase must stop there too. An unbounded read would let events appended
+  // after the fold answer for a phase that predates them — reporting a phase
+  // complete on emissions belonging to the next one.
+  const events = (await store.query(streamId)).filter((e) => e.sequence <= sequence);
   const presentTypes = new Set(events.map((e) => e.type));
 
   // Check which expected events are missing

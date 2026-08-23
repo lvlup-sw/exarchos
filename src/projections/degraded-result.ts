@@ -122,7 +122,8 @@ function describe(detail: ProjectionDegradedDetail): string {
  * refusing surface. A caller following it re-ran the same read, failed
  * identically, and each attempt left a window for more events to land, so the
  * loop never converged (#1855). A remedy that can be the disease is not a
- * remedy: `assertRemedyIsNotTheFailingCall` below is what keeps that true.
+ * remedy: `remedyFor` below drops the suggestion entirely when `isSameCall`
+ * shows it would name the call that just failed.
  *
  * `exarchos_event` `query` is the right destination on the merits too. This
  * result means no fold could be shown to cover the tail, and the log is the one
@@ -195,26 +196,44 @@ export function toViewFailure(
   err: unknown,
   context?: { readonly tool?: string | undefined; readonly action?: string | undefined },
 ): ToolResult {
-  if (err instanceof ProjectionCoverageError) {
-    return toProjectionDegradedResult(
-      {
-        streamId: err.streamId,
-        reason: err.freshness.reason ?? 'projection-behind',
-        eventTail: err.freshness.eventTail,
-        projectionCursor: err.freshness.projectionCursor,
-        lag: err.freshness.lag,
-        staleViews: err.freshness.staleViews,
-        sequence: 0,
-        observedAt: new Date().toISOString(),
-      },
-      context,
-    );
-  }
-  return {
+  return toCoverageFailure(err, context) ?? {
     success: false,
     error: {
       code: 'VIEW_ERROR',
       message: err instanceof Error ? err.message : String(err),
     },
   };
+}
+
+/**
+ * The degraded result for a coverage failure, or `undefined` for any other
+ * fault.
+ *
+ * Separate from {@link toViewFailure} because not every catch site wants
+ * `VIEW_ERROR` as its fallback: some fall back to a legacy default, some to
+ * `STATUS_FAILED`. Each of those is a reasonable answer to an ordinary fault
+ * and the wrong answer to "no fold could be shown to cover the tail" — a
+ * best-effort fallback there is the silent degradation this whole seam exists
+ * to remove. Reading as `const refusal = toCoverageFailure(err, ctx); if
+ * (refusal) return refusal;` keeps the distinction at every site instead of
+ * forcing one fallback on all of them.
+ */
+export function toCoverageFailure(
+  err: unknown,
+  context?: { readonly tool?: string | undefined; readonly action?: string | undefined },
+): ToolResult | undefined {
+  if (!(err instanceof ProjectionCoverageError)) return undefined;
+  return toProjectionDegradedResult(
+    {
+      streamId: err.streamId,
+      reason: err.freshness.reason ?? 'projection-behind',
+      eventTail: err.freshness.eventTail,
+      projectionCursor: err.freshness.projectionCursor,
+      lag: err.freshness.lag,
+      staleViews: err.freshness.staleViews,
+      sequence: 0,
+      observedAt: new Date().toISOString(),
+    },
+    context,
+  );
 }

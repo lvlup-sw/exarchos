@@ -62,9 +62,13 @@ import { isInternalSentinelStream, type ViewMaterializer } from './views/materia
 export interface FoldAtTail<T> {
   readonly view: T;
   /**
-   * The event sequence this fold covers. Always `>=` the tail read when the
-   * fold began; greater when the stream grew while it ran, which is a longer
-   * answer and not a staler one.
+   * The event sequence this fold covers — exactly, not at least.
+   *
+   * The fold is bounded by the tail pinned when it began, so a stream that
+   * grows mid-fold does not widen the answer. That exactness is what lets two
+   * views of one stream be folded to the SAME sequence and compared: an answer
+   * derived from two folds that stopped at different points is a claim about
+   * no single state of the stream.
    */
   readonly sequence: number;
   /**
@@ -120,6 +124,60 @@ export async function foldToTail<T>(
   streamId: string,
   viewName: string,
 ): Promise<FoldAtTail<T>> {
+  return foldAtPinnedTail<T>(
+    store,
+    materializer,
+    streamId,
+    viewName,
+    await pinTail(store, streamId),
+  );
+}
+
+/**
+ * Fold TWO views of one stream against a single pinned tail.
+ *
+ * Two independent {@link foldToTail} calls pin two tails, so a read that
+ * combines their results — quality-against-evals attribution and correlation —
+ * can describe a state the stream was never in: one view including an event the
+ * other has not seen. Pinning once and folding both against it makes the pair a
+ * claim about one sequence, which is the whole point of carrying the sequence.
+ *
+ * Two rather than N because the typed form is what keeps this cast-free: each
+ * view has its own state type, and a list-shaped API would hand every caller an
+ * `unknown` to assert away. A third view wants a third type parameter here, not
+ * a widening of the return type.
+ */
+export async function foldPairToTail<A, B>(
+  store: EventStore,
+  materializer: ViewMaterializer,
+  streamId: string,
+  firstView: string,
+  secondView: string,
+): Promise<{ first: A; second: B; sequence: number }> {
+  const eventTail = await pinTail(store, streamId);
+  const first = await foldAtPinnedTail<A>(store, materializer, streamId, firstView, eventTail);
+  const second = await foldAtPinnedTail<B>(store, materializer, streamId, secondView, eventTail);
+  return { first: first.view, second: second.view, sequence: eventTail };
+}
+
+/** The tail every fold in one read is measured against. */
+async function pinTail(store: EventStore, streamId: string): Promise<number> {
+  return isInternalSentinelStream(streamId) ? 0 : store.tailSequence(streamId);
+}
+
+/**
+ * Fold one view against an ALREADY-pinned tail.
+ *
+ * Separating this from the pinning is what lets several views share one tail.
+ * On its own it makes no claim about currency — the caller's pin does.
+ */
+async function foldAtPinnedTail<T>(
+  store: EventStore,
+  materializer: ViewMaterializer,
+  streamId: string,
+  viewName: string,
+  eventTail: number,
+): Promise<FoldAtTail<T>> {
   // A sentinel stream (`__migration__`) is deliberately never folded — see
   // `ViewMaterializer.materializeAt`. It has no cached state to be stale, so
   // there is no coverage claim to make or to break.
@@ -128,15 +186,11 @@ export async function foldToTail<T>(
   }
 
   // A cold fold may still have a persisted snapshot to seed from; give it that
-  // chance BEFORE the cursor is read, so the plan below sees the real starting
+  // chance before the cursor is read, so the plan below sees the real starting
   // position rather than treating a warm-on-disk view as cold.
   if (materializer.getState(streamId, viewName) === undefined) {
     await materializer.loadFromSnapshot(streamId, viewName);
   }
-
-  // Pin the tail first. Everything after this is measured against this number,
-  // so an append landing mid-fold widens the answer instead of invalidating it.
-  const eventTail = await store.tailSequence(streamId);
   const cached = materializer.getState(streamId, viewName);
 
   const plan = planRehydrationSource({
@@ -153,12 +207,16 @@ export async function foldToTail<T>(
     materializer.discardFold(streamId, viewName);
   }
 
-  const events: WorkflowEvent[] =
+  const queried: readonly WorkflowEvent[] =
     plan.sinceSequence > 0
       ? await store.query(streamId, { sinceSequence: plan.sinceSequence })
       : await store.query(streamId);
+  // Bound to the pinned tail. The store has no upper-sequence filter, and an
+  // append landing mid-read would otherwise carry this fold past the sequence
+  // its siblings stopped at.
+  const events = queried.filter((event) => event.sequence <= eventTail);
 
-  const folded = materializer.materializeAt<T>(streamId, viewName, events);
+  const folded = materializer.materializeAt<T>(streamId, viewName, [...events]);
 
   // The fold is complete when its cursor reaches the tail it was pinned
   // against. A cursor that stops short means the log did not produce events the
