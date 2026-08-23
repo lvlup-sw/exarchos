@@ -31,6 +31,32 @@ export const HOST_OBLIGATIONS: readonly HostObligation[] = [
   'host-ui',
 ];
 
+/**
+ * Host obligations the host must discharge BEFORE the action can do anything.
+ * An approval, an interactive login and a host-UI prompt are all preconditions:
+ * until one is satisfied there is no useful work for the handler to do, so
+ * dispatch returns the obligation instead of executing.
+ *
+ * `agent-spawn` is deliberately absent, and the distinction is load-bearing.
+ * The host spawns USING what the action returns — `agent_spec` returns the
+ * spec to spawn with, `prepare_review` provisions the packet — so short-
+ * circuiting those hands the caller an obligation where its payload should be.
+ */
+export const BLOCKING_HOST_OBLIGATIONS: readonly HostObligation[] = [
+  'human-approval',
+  'interactive-authentication',
+  'host-ui',
+];
+
+const BLOCKING_HOST_OBLIGATION_SET: ReadonlySet<string> = new Set<string>(
+  BLOCKING_HOST_OBLIGATIONS,
+);
+
+/** True when the obligation must be discharged before the handler can run. */
+export function isBlockingHostObligation(obligation: string): boolean {
+  return BLOCKING_HOST_OBLIGATION_SET.has(obligation);
+}
+
 type SynthesisLeg = 'task-completion' | 'tests' | 'typecheck' | 'document' | 'stack';
 export const SYNTHESIS_LEGS: readonly SynthesisLeg[] = [
   'task-completion',

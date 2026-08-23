@@ -71,6 +71,7 @@ import { POLICY_CAPABILITY } from '../../workflow/admission/policy-authority.js'
 import { ADMISSION_EVENT_TYPES } from '../../workflow/admission/types.js';
 import { AdmissionEvidenceRecordedData } from '../../events/schemas.js';
 import type { CallerAuthorizationSnapshot } from '../caller-identity.js';
+import { isBlockingHostObligation } from '../../registry/action-contract.js';
 import type { ActionContract, ActionRequirement } from '../../registry/action-contract.js';
 import {
   applicableEnsures,
@@ -340,8 +341,16 @@ function contractNeedsSatisfied(
   );
 }
 
+/**
+ * Every declared requirement is an approval.
+ *
+ * A reasoned `none` is NOT "only approvals" — it is no requirement at all, and
+ * answering true for it made an empty set satisfy a predicate about the set's
+ * members. That vacuity is what routed `agent_spec` and `prepare_review` into
+ * the obligation short-circuit and stopped their handlers from ever running.
+ */
 function requiresOnlyApprovals(requires: ActionContract['requires']): boolean {
-  if (requires.kind === 'none') return true;
+  if (requires.kind === 'none') return false;
   return requires.values.every(
     (requirement: ActionRequirement) =>
       'kind' in requirement && requirement.kind === 'approvals',
@@ -522,12 +531,18 @@ async function evaluateDispatchAdmission(input: {
     return admissionDeniedResult(input.tool, input.actionName, 'missing-capabilities');
   }
 
+  // A host obligation short-circuits only when the host must discharge it
+  // BEFORE the handler could do anything — an approval, an interactive login,
+  // a host-UI prompt. `agent-spawn` is discharged USING the handler's output,
+  // so those actions run and return it.
   const obligation = hostObligationOf(contract);
-  const hostApprovalOnly =
-    obligation !== undefined && requiresOnlyApprovals(contract.requires);
-  if (contract.requires.kind === 'none' || hostApprovalOnly) {
-    return obligation === undefined ? null : hostOwnedObligationResult(obligation);
+  if (
+    obligation !== undefined &&
+    (isBlockingHostObligation(obligation) || requiresOnlyApprovals(contract.requires))
+  ) {
+    return hostOwnedObligationResult(obligation);
   }
+  if (contract.requires.kind === 'none') return null;
 
   const subject = workflowSubjectFromArgs(input.args);
   const hsmFacts =
@@ -1624,7 +1639,10 @@ export async function dispatch(
         outcome: result.success ? 'success' : 'failure',
       });
     } catch {
-      observation = { status: 'violated' as const, missing: dispatchedContract.ensures.values };
+      // Report the ensures that APPLY to this outcome, not every declared one:
+      // the failure path's message otherwise names postconditions the run was
+      // never going to observe.
+      observation = { status: 'violated' as const, missing: applicable };
     }
     if (observation.status === 'violated') {
       return attachMeta(

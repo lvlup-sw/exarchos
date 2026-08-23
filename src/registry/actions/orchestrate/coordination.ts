@@ -120,7 +120,11 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     outputSchema: vacuityWaiver('exarchos_orchestrate.task_fail'),
     annotations: LOCAL_MUTATION,
   }, {
-    ensures: declared({ source: 'event-append', when: 'failure', event: 'task.failed' }),
+    // `when` is the DISPATCH outcome, not the task's. A `task_fail` call that
+    // records a failed task succeeds, and that is the path on which
+    // `task.failed` is appended — which is also what this action's own
+    // `emissions` say by declaring the event unconditional.
+    ensures: declared({ source: 'event-append', when: 'success', event: 'task.failed' }),
     needs: declared('mcp:exarchos'),
     resources: declared({ kind: 'stream', selector: 'featureId' }),
     replay: { kind: 'claim-required', scope: 'stream-subject-request' },

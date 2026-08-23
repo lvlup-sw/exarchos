@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1225,
-    "parsedFiles": 1180,
+    "testFiles": 1226,
+    "parsedFiles": 1181,
     "shellFiles": 45,
-    "cases": 13498,
+    "cases": 13502,
     "dynamicTitles": 144,
     "unparseableFiles": 0
   },
@@ -5028,6 +5028,32 @@
         {
           "suite": "FreshInstall",
           "name": "PluginHooks_LoadExactlyOnce",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/host-obligation-execution.test.ts": {
+      "file": "tests/acceptance/host-obligation-execution.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "host-owned actions — execute vs return the obligation",
+          "name": "HostObligations_Population_IsNonEmptyAndCarriesBothKinds",
+          "dynamic": false
+        },
+        {
+          "suite": "host-owned actions — execute vs return the obligation",
+          "name": "HostObligations_AgentSpawn_RunsTheHandler",
+          "dynamic": false
+        },
+        {
+          "suite": "host-owned actions — execute vs return the obligation",
+          "name": "HostObligations_Blocking_ReturnTheObligationWithoutExecuting",
+          "dynamic": false
+        },
+        {
+          "suite": "host-owned actions — execute vs return the obligation",
+          "name": "HostObligations_AgentSpec_ReturnsTheSpecNotTheObligation",
           "dynamic": false
         }
       ]
