@@ -382,16 +382,34 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     // `exarchos_orchestrate`, and carrying its waiver across would have deleted
     // one seeded key and added another. That is an in-place swap, exactly what
     // the pinned digest exists to redden, so the only legal route was to write
-    // the real schema. The graveyard therefore holds four ids, and the digest
-    // above is UNCHANGED across all four — a paydown MOVES an id between the two
-    // maps, so the union, and therefore the pin, is invariant. Note the id keeps
-    // its ORIGINAL `exarchos_view.` spelling: the graveyard records the key that
-    // was seeded, not where the action ended up.
+    // the real schema. Note that id keeps its ORIGINAL `exarchos_view.`
+    // spelling: the graveyard records the key that was SEEDED, not where the
+    // action ended up.
+    //
+    // The gate-population triage then retired nine more in one change, and they
+    // are the case the design was built for rather than an exception to it. A
+    // retired ACTION cannot pay its waiver down — there is no schema left to
+    // write — so the only honest disposition is to move the entry, which is
+    // exactly what a paydown does. The union is unchanged, so the digest above
+    // is UNCHANGED across all thirteen. Deleting them instead would have
+    // destroyed the prior state the pin is made of, and a later addition could
+    // then be spelled as delete-then-add across two commits — which is the
+    // in-place swap this case exists to catch.
     const retiredIds: readonly string[] = [
       'exarchos_orchestrate.check_invariant_conformance',
       'exarchos_orchestrate.cutover_decide',
       'exarchos_orchestrate.cutover_readiness',
       'exarchos_view.stack_place',
+      // The gate-population triage.
+      'exarchos_orchestrate.check_context_economy',
+      'exarchos_orchestrate.check_convergence',
+      'exarchos_orchestrate.check_coverage_thresholds',
+      'exarchos_orchestrate.check_design_completeness',
+      'exarchos_orchestrate.check_operational_resilience',
+      'exarchos_orchestrate.check_workflow_determinism',
+      'exarchos_orchestrate.debug_review_gate',
+      'exarchos_orchestrate.pre_synthesis_check',
+      'exarchos_view.convergence',
     ];
     expect([...Object.keys(VACUITY_RETIRED)].sort()).toEqual([...retiredIds].sort());
 
@@ -404,12 +422,43 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     const currentIdOf = (retiredId: string): string =>
       retiredId === 'exarchos_view.stack_place' ? 'exarchos_orchestrate.stack_place' : retiredId;
 
+    // An entry leaves the allowlist for one of TWO reasons, and they need
+    // different evidence. Either the schema was written — the action is still
+    // declared, and its id must have moved to the substantive half — or the
+    // ACTION was withdrawn, in which case there is no schema left to write and
+    // the id must be gone from the declaration surface altogether. Collapsing
+    // the two would either fail every withdrawal or excuse every parking.
+    const live = censusLiveOutputSchemas();
+    const declared = new Set<string>([...live.substantive, ...live.vacuous]);
+
+    const schemaWritten: string[] = [];
+    const actionWithdrawn: string[] = [];
     for (const id of retiredIds) {
       expect(VACUITY_ALLOWLIST_IDS).not.toContain(id);
-      // …and each retired id is genuinely paid down, not parked: the membership
-      // half would report it `UNWAIVED_VACUITY` if its schema were still vacuous.
-      expect(censusLiveOutputSchemas().substantive).toContain(currentIdOf(id));
+      (declared.has(currentIdOf(id)) ? schemaWritten : actionWithdrawn).push(id);
     }
+
+    // Denominators, one per arm: with either empty, the check below it passes
+    // by having nothing to run over. Both dispositions are live today.
+    expect(schemaWritten.length, 'no retired id is still a declared action').toBeGreaterThan(0);
+    expect(actionWithdrawn.length, 'no retired id belongs to a actionWithdrawn action').toBeGreaterThan(0);
+    expect(schemaWritten.length + actionWithdrawn.length, 'the roster is not fully accounted for').toBe(
+      retiredIds.length,
+    );
+
+    // Still declared ⇒ genuinely paid down, not parked. The membership half
+    // would report it `UNWAIVED_VACUITY` if its schema were still vacuous.
+    expect(
+      schemaWritten.filter((id) => !live.substantive.includes(currentIdOf(id))),
+      'a retired id is still declared but its schema is not substantive — parked, not paid down',
+    ).toEqual([]);
+
+    // Withdrawn ⇒ gone from BOTH halves. An id that came back as vacuous while
+    // holding no waiver is the exact hole retirement must not open.
+    expect(
+      actionWithdrawn.filter((id) => live.vacuous.includes(currentIdOf(id))),
+      'a retired id is declared vacuous again while holding no waiver',
+    ).toEqual([]);
 
     // Retired entries carry the owner + ISO paydown date. The shape predicate is
     // pinned against constructed entries in BOTH directions first, so the
