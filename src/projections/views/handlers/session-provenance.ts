@@ -1,3 +1,4 @@
+import { toViewFailure } from '../../degraded-result.js';
 import type { ToolResult } from '../../../format.js';
 
 // ─── View Session Provenance Handler ─────────────────────────────────────────
@@ -56,12 +57,6 @@ export async function handleViewSessionProvenance(
     const { fileAttribution: _fileAttribution, files: _files, ...compact } = result;
     return { success: true, data: compact };
   } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'VIEW_ERROR',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
+    return toViewFailure(err, { tool: 'exarchos_view', action: 'session_provenance' });
   }
 }

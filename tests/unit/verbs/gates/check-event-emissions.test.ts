@@ -27,6 +27,21 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
   queryDeltaEvents: vi.fn().mockResolvedValue([]),
 }));
 
+// #1855 — the gate folds its view to the stream's durable tail through
+// `foldToTail` rather than pairing `queryDeltaEvents` with a bare
+// `materialize`. The fold is the seam a unit test of the VERDICT should stub:
+// what the fold itself guarantees is covered against a real store in
+// `tests/unit/projections/fold-at-tail.test.ts`.
+// `foldToTail` guarantees the fold covers the stream's durable tail, and
+// callers now bound their own evidence to the sequence it reports. These
+// fixtures ARE the stream, so the stub reports a sequence at or past every
+// fixture event; a lower one would assert a lag this file never sets up.
+const AT_TAIL = Number.MAX_SAFE_INTEGER;
+
+vi.mock('../../../../src/projections/fold-at-tail.js', () => ({
+  foldToTail: vi.fn(async () => ({ view: mockViewState, sequence: AT_TAIL })),
+}));
+
 import { PHASE_EXPECTED_EVENTS, handleCheckEventEmissions } from '../../../../src/verbs/gates/check-event-emissions.js';
 
 const STATE_DIR = '/tmp/test-check-event-emissions';
@@ -338,7 +353,7 @@ describe('handleCheckEventEmissions', () => {
   it('CheckEventEmissions_UsesWorkflowIdAsStreamId', async () => {
     mockViewState = { phase: 'delegate' };
 
-    const { queryDeltaEvents } = await import('../../../../src/projections/views/tools.js');
+    const { foldToTail } = await import('../../../../src/projections/fold-at-tail.js');
 
     await handleCheckEventEmissions(
       { featureId: 'test-feature', workflowId: 'custom-stream' },
@@ -346,7 +361,7 @@ describe('handleCheckEventEmissions', () => {
       mockStore as unknown as EventStore,
     );
 
-    expect(queryDeltaEvents).toHaveBeenCalledWith(
+    expect(foldToTail).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       'custom-stream',

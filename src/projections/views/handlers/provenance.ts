@@ -1,4 +1,5 @@
 import { narrowAffordance } from '../../../dispatch/core/economy.js';
+import { toViewFailure } from '../../degraded-result.js';
 import { EventStore } from '../../../events/store.js';
 import type { ToolResult } from '../../../format.js';
 import type { NextAction } from '../../../next-action.js';
@@ -6,7 +7,7 @@ import { PROVENANCE_VIEW, type ProvenanceViewState } from '../provenance-view.js
 import { resolveInventoryWindow } from './inventory-contract.js';
 import { getOrCreateMaterializer } from './materializer.js';
 import { buildPage } from './pipeline.js';
-import { queryDeltaEvents } from './query.js';
+import { foldToTail } from '../../fold-at-tail.js';
 
 // ─── View Provenance Handler ──────────────────────────────────────────────
 
@@ -28,12 +29,7 @@ export async function handleViewProvenance(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const events = await queryDeltaEvents(store, materializer, streamId, PROVENANCE_VIEW);
-    const view = materializer.materialize<ProvenanceViewState>(
-      streamId,
-      PROVENANCE_VIEW,
-      events,
-    );
+    const { view } = await foldToTail<ProvenanceViewState>(store, materializer, streamId, PROVENANCE_VIEW);
 
     // DR-8 (Task 024) — `requirements` is the dominant list, so page it. Strip
     // the internal `_completedTaskIds` mirror by default (mirrors
@@ -63,12 +59,6 @@ export async function handleViewProvenance(
       ...nextActionsWrap,
     };
   } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'VIEW_ERROR',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
+    return toViewFailure(err, { tool: 'exarchos_view', action: 'provenance' });
   }
 }

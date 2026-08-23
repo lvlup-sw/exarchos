@@ -1,0 +1,76 @@
+{
+  "capturedAt": "2026-08-23",
+  "authority": "The policy `tests/architecture/reachable-controls.test.ts` reads. Editing this file changes what the guard enforces; editing the test changes how it enforces it. Keep the two apart so an exemption is reviewable as data.",
+  "class": "a control that gates production behaviour, whose ENABLING call exists only in tests — so the gated path is dark in the shipped composition while the code reads as if it ships",
+  "history": {
+    "first": "`configureWorkflowMaterializer` — set `moduleViewMaterializer`, which gated the ES v2 read path in `handleGet` and the state-snapshot refresh in `handleSet`. Called from four test files and from nothing in `src/`, so `workflow get` always took the legacy state-file path and `get --asOf` silently answered with tip state instead of a bounded fold.",
+    "why-invisible": "Nothing was red. The gated branches had tests, because the tests called the enabler themselves — which is exactly what made the coverage look complete while the shipped path was unreachable. It surfaced only when a regression test for a fix inside one of those branches passed with the fix removed."
+  },
+  "rule": {
+    "statement": "A function whose name marks it as an enabler — it configures, registers, installs, enables or wires something a production path then checks — must have at least one caller under `src/`. A caller under `tests/` does not count, because a test that enables a path is testing a composition the product does not ship.",
+    "why-name-based": "The signal is intent, and intent lives in the name. A structural check cannot tell 'sets a value some branch reads' from 'sets a value nothing reads' without whole-program dataflow; the naming convention is what makes the population decidable, and it is the convention this repository already follows."
+  },
+  "enablerNamePatterns": [
+    {
+      "pattern": "^configure[A-Z]",
+      "why": "sets a module-level or container-level value a consumer later reads"
+    },
+    {
+      "pattern": "^register[A-Z]",
+      "why": "adds an implementation to a registry a dispatcher resolves from"
+    },
+    {
+      "pattern": "^install[A-Z]",
+      "why": "attaches a hook, handler or middleware to a live surface"
+    },
+    {
+      "pattern": "^enable[A-Z]",
+      "why": "flips a capability a guarded branch tests"
+    },
+    {
+      "pattern": "^wire[A-Z]",
+      "why": "connects a component to the composition root"
+    }
+  ],
+  "scannedRoots": [
+    "src"
+  ],
+  "callerRoots": [
+    "src"
+  ],
+  "allowlist": [
+    {
+      "symbol": "installManifestVouchesForDir",
+      "file": "src/install/install-skills.ts",
+      "why": "Not an enabler. It is a PREDICATE over an install manifest — `installManifest` + `VouchesForDir`, returning a boolean — and matches `^install[A-Z]` by prefix coincidence alone. Nothing is gated on calling it, so there is no dark path behind it. Encoding 'is a predicate' into the name rule is harder than recording the one case, and a rule that tried would start producing false negatives.",
+      "owner": "@rsalus",
+      "expiry": "2027-02-23"
+    },
+    {
+      "symbol": "installBundle",
+      "file": "src/install/operations/bundle.ts",
+      "why": "A GENUINE instance, exempted only to keep it visible while it is triaged rather than to excuse it. It copies the bundled MCP server into `~/.claude/mcp-servers/` so the runtime can launch it, and no install path calls it — only its own test. Either the installer lost that step or the step was superseded; deciding which needs the install surface's owner, and guessing wrong breaks installs. Not fixed here because this change is scoped to the workflow materializer.",
+      "owner": "@rsalus",
+      "expiry": "2026-11-23"
+    }
+  ],
+  "allowlistSchema": {
+    "symbol": "the exported enabler permitted to have no production caller",
+    "file": "repo-relative path that declares it",
+    "why": "the reason a production caller is genuinely not owed — not 'we will wire it later'",
+    "owner": "who accepts the risk",
+    "expiry": "YYYY-MM-DD after which the guard fails on this entry"
+  },
+  "killFixture": {
+    "path": "tools/audit/__fixtures__/unreachable-control.ts.txt",
+    "why": "`configureWorkflowMaterializer` as it stood before it was removed, verbatim. The guard must report it. A guard with no failing subject has no evidence that it works.",
+    "expectedSymbol": "configureWorkflowMaterializer"
+  },
+  "minimumScannedFiles": 200,
+  "minimumEnablersFound": 1,
+  "sourceExtensions": [
+    ".ts",
+    ".js"
+  ],
+  "sourceExtensionsWhy": "This tree contains AUTHORED `.js` under `src/` (the lifecycle bridges), not just compiled output — and compiled output is gitignored, so a tracked-file walk cannot pick it up by accident. Scanning `.ts` alone reported `installSkills` as dark while `src/lifecycle/install-skills-bridge.js` imports and calls it."
+}

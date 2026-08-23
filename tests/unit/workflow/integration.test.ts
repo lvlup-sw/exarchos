@@ -268,19 +268,19 @@ describe('Integration', () => {
         stateDir,
         eventStore,
       );
-      await transitionFeature('fix-cycle', 'plan');
+      await transitionFeature('fix-cycle', 'plan', eventStore);
       await handleSet(
         { featureId: 'fix-cycle', updates: { 'artifacts.plan': 'plan.md' } },
         stateDir,
         eventStore,
       );
-      await transitionFeature('fix-cycle', 'plan-review');
+      await transitionFeature('fix-cycle', 'plan-review', eventStore);
       await handleSet(
         { featureId: 'fix-cycle', updates: { planReview: { approved: true } } },
         stateDir,
         eventStore,
       );
-      await transitionFeature('fix-cycle', 'delegate');
+      await transitionFeature('fix-cycle', 'delegate', eventStore);
 
       // Perform fix cycles: delegate -> review (fail) -> delegate
       // Circuit breaker max is 3 for implementation compound
@@ -298,7 +298,7 @@ describe('Integration', () => {
           source: 'orchestrator',
           data: { featureId: 'fix-cycle', totalDurationMs: 1000, tasksCompleted: 1, tasksFailed: 0 },
         });
-        await transitionFeature('fix-cycle', 'review');
+        await transitionFeature('fix-cycle', 'review', eventStore);
 
         // Set review as failed
         await handleSet(
@@ -330,7 +330,7 @@ describe('Integration', () => {
         source: 'orchestrator',
         data: { featureId: 'fix-cycle', totalDurationMs: 1000, tasksCompleted: 1, tasksFailed: 0 },
       });
-      await transitionFeature('fix-cycle', 'review');
+      await transitionFeature('fix-cycle', 'review', eventStore);
 
       // Set review as failed
       await handleSet(
