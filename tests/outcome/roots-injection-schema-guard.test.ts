@@ -82,8 +82,15 @@ describe('Roots featureId inference is gated on the receiving schema (#1838)', (
     // trivially, which is the failure mode this repo keeps rediscovering.
     // These are the measured counts at the time of the fix; they are lower
     // bounds, so adding actions never turns the guard vacuous.
-    expect(omitting.length).toBeGreaterThanOrEqual(60);
-    expect(declaring.length).toBeGreaterThanOrEqual(55);
+    //
+    // RE-PINNED after the gate-population triage, which retired nine actions
+    // and added one: 124 -> 116, and the partition moved with it — declaring
+    // 59 -> 54, omitting 65 -> 62. Re-measured rather than lowered by the one
+    // the CI failure named: a floor left eight below the live count would sit
+    // out the next eight silent removals, which is the same vacuity these
+    // assertions exist to refuse.
+    expect(omitting.length).toBeGreaterThanOrEqual(62);
+    expect(declaring.length).toBeGreaterThanOrEqual(54);
     expect(omitting.length + declaring.length).toBe(
       TOOL_REGISTRY.reduce((n, t) => n + t.actions.length, 0),
     );
@@ -91,7 +98,8 @@ describe('Roots featureId inference is gated on the receiving schema (#1838)', (
     // The population the bug actually broke: omits `featureId` AND was not
     // rescued by the latency skip list.
     const exposed = omitting.filter((r) => !LATENCY_SKIP.has(r.action));
-    expect(exposed.length).toBeGreaterThanOrEqual(55);
+    // Same re-pin, same reason: 59 -> 56 across the retirement.
+    expect(exposed.length).toBeGreaterThanOrEqual(56);
 
     // Every one of them must be ineligible for injection.
     for (const ref of exposed) {
