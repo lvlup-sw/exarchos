@@ -183,11 +183,18 @@ describe('action-contract descriptor binding', () => {
 
   it('does not invent a contract for live actions that omit one', () => {
     const live = deriveMetaModel();
-    const uncontracted = live.actions.find((entry) => entry.actionContract === undefined);
-    expect(uncontracted).toBeDefined();
-    if (uncontracted === undefined) throw new Error('expected an uncontracted live action');
-    const descriptor = compileDescriptor(uncontracted);
-    expect(descriptor.actionContract).toBeUndefined();
+    expect(live.actions.length, 'live meta-model resolved to nothing').toBeGreaterThan(0);
+    for (const entry of live.actions) {
+      const descriptor = compileDescriptor(entry);
+      expect(descriptor.actionContract !== undefined, entry.actionId).toBe(
+        entry.actionContract !== undefined,
+      );
+    }
+
+    const omitted = makeAction({ name: 'omit' });
+    const entry = deriveActionMetaModel(makeTool('exarchos_probe', [omitted]), omitted);
+    expect(entry.actionContract).toBeUndefined();
+    expect(compileDescriptor(entry).actionContract).toBeUndefined();
   });
 
   it('dispatch does not read compiled descriptors as runtime authority', () => {

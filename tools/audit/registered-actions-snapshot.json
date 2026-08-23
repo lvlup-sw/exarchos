@@ -1,6 +1,6 @@
 {
-  "note": "Task 047. Persisted identifiers and registered action names, captured BEFORE the decompositions in tasks 048-051. A decomposition that drops a registration or changes a persisted identifier compiles cleanly and passes every type check — this snapshot is the only thing that sees it. Regenerate ONLY when a registration is deliberately added or removed, and say so in the same commit.",
-  "capturedAt": "2026-08-13",
+  "note": "Live TOOL_REGISTRY and event-annotation denominator. Regenerated from the live registry whenever a registration is deliberately added or removed; the counts are a measurement, not a target.",
+  "capturedAt": "2026-08-22",
   "counts": {
     "tools": 5,
     "visibleTools": 4,
