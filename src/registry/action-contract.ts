@@ -5,28 +5,51 @@ import type { ResolvedGate } from '../workflow/phase-kind.js';
 import { VERIFICATION_GATE_NAMES } from '../workflow/verification-policy.js';
 import type { AutoEmissionRole } from './gate-metadata.js';
 
-export const ACTION_RESOURCE_KINDS = ['stream', 'path', 'worktree', 'git-ref'] as const;
-export type ActionResourceKind = (typeof ACTION_RESOURCE_KINDS)[number];
+// The vocabularies below declare the type first and annotate the array with it,
+// rather than pinning the array with `as const` and deriving the type back out
+// of it. Both forms produce the same literal union; this one states the closed
+// set where a reader looks for it, and does not spend the DR-14 cast budget on
+// a vocabulary that asserts nothing.
 
-export const HOST_OBLIGATIONS = [
+export type ActionResourceKind = 'stream' | 'path' | 'worktree' | 'git-ref';
+export const ACTION_RESOURCE_KINDS: readonly ActionResourceKind[] = [
+  'stream',
+  'path',
+  'worktree',
+  'git-ref',
+];
+
+export type HostObligation =
+  | 'agent-spawn'
+  | 'human-approval'
+  | 'interactive-authentication'
+  | 'host-ui';
+export const HOST_OBLIGATIONS: readonly HostObligation[] = [
   'agent-spawn',
   'human-approval',
   'interactive-authentication',
   'host-ui',
-] as const;
-export type HostObligation = (typeof HOST_OBLIGATIONS)[number];
+];
 
-export const SYNTHESIS_LEGS = [
+type SynthesisLeg = 'task-completion' | 'tests' | 'typecheck' | 'document' | 'stack';
+export const SYNTHESIS_LEGS: readonly SynthesisLeg[] = [
   'task-completion',
   'tests',
   'typecheck',
   'document',
   'stack',
-] as const;
+];
 
-export const POSTCONDITION_SOURCES = ['durable-evidence', 'event-append'] as const;
-export const POSTCONDITION_WHEN = ['success', 'failure', 'always'] as const;
-export const AGENT_SPAWN_CAPABILITY = 'subagent:spawn' as const;
+export type PostconditionSource = 'durable-evidence' | 'event-append';
+export const POSTCONDITION_SOURCES: readonly PostconditionSource[] = [
+  'durable-evidence',
+  'event-append',
+];
+
+export type PostconditionWhen = 'success' | 'failure' | 'always';
+export const POSTCONDITION_WHEN: readonly PostconditionWhen[] = ['success', 'failure', 'always'];
+
+export const AGENT_SPAWN_CAPABILITY: Capability = 'subagent:spawn';
 
 export type DeclaredSet<T> =
   | { readonly kind: 'declared'; readonly values: readonly [T, ...T[]] }
@@ -45,12 +68,12 @@ export type ActionRequirement =
 export type ActionPostcondition =
   | {
       readonly source: 'durable-evidence';
-      readonly when: (typeof POSTCONDITION_WHEN)[number];
+      readonly when: PostconditionWhen;
       readonly evidenceType: string;
     }
   | {
       readonly source: 'event-append';
-      readonly when: (typeof POSTCONDITION_WHEN)[number];
+      readonly when: PostconditionWhen;
       readonly event: string;
     };
 

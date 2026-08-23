@@ -281,7 +281,16 @@ function describeContractConflict(a: FieldContract, b: FieldContract): string | 
   return null;
 }
 
-export const ACTION_CONTRACT_DIMENSIONS = [
+type ContractDimension =
+  | 'requires'
+  | 'ensures'
+  | 'needs'
+  | 'touches'
+  | 'executionAuthority'
+  | 'replay'
+  | 'emissions';
+
+export const ACTION_CONTRACT_DIMENSIONS: readonly ContractDimension[] = [
   'requires',
   'ensures',
   'needs',
@@ -289,7 +298,7 @@ export const ACTION_CONTRACT_DIMENSIONS = [
   'executionAuthority',
   'replay',
   'emissions',
-] as const;
+];
 
 export interface CompactDeclaredPresence {
   readonly kind: 'declared' | 'none';

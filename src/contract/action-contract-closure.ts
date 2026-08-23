@@ -31,7 +31,16 @@ import { projectActionContract } from './compiler/meta-model.js';
 import { measureLiveRegisteredActions } from './registered-actions-denominator.js';
 import { canonicalJson } from './request-context.js';
 
-export const ACTION_CONTRACT_CLOSURE_DIMENSIONS = [
+type ClosureDimension =
+  | 'requires'
+  | 'ensures'
+  | 'needs'
+  | 'touches'
+  | 'executionAuthority'
+  | 'replay'
+  | 'emissions';
+
+export const ACTION_CONTRACT_CLOSURE_DIMENSIONS: readonly ClosureDimension[] = [
   'requires',
   'ensures',
   'needs',
@@ -39,9 +48,19 @@ export const ACTION_CONTRACT_CLOSURE_DIMENSIONS = [
   'executionAuthority',
   'replay',
   'emissions',
-] as const;
+];
 
-export const ACTION_CONTRACT_CLOSURE_CODES = [
+export type ActionContractClosureCode =
+  | 'OMITTED_DIMENSION'
+  | 'BLANK_ABSTENTION'
+  | 'STALE_REFERENCE'
+  | 'ROLE_EXPIRY_CONFLICT'
+  | 'ORPHAN_PROJECTION'
+  | 'PROJECTION_DRIFT'
+  | 'EMPTY_DENOMINATOR'
+  | 'PARITY_DISAGREEMENT';
+
+export const ACTION_CONTRACT_CLOSURE_CODES: readonly ActionContractClosureCode[] = [
   'OMITTED_DIMENSION',
   'BLANK_ABSTENTION',
   'STALE_REFERENCE',
@@ -50,9 +69,7 @@ export const ACTION_CONTRACT_CLOSURE_CODES = [
   'PROJECTION_DRIFT',
   'EMPTY_DENOMINATOR',
   'PARITY_DISAGREEMENT',
-] as const;
-
-export type ActionContractClosureCode = (typeof ACTION_CONTRACT_CLOSURE_CODES)[number];
+];
 
 export interface ActionContractClosureFinding {
   readonly code: ActionContractClosureCode;

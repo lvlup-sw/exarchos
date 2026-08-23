@@ -24,7 +24,16 @@ import { serializePlaybooks, listPlaybookWorkflowTypes } from '../workflow/playb
 import { buildConfigDescription } from '../workflow/describe-config.js';
 import { RESERVED_FIELDS_DESCRIPTOR } from '../workflow/schemas.js';
 
-export const ACTION_CONTRACT_DIMENSIONS = [
+type ContractDimension =
+  | 'requires'
+  | 'ensures'
+  | 'needs'
+  | 'touches'
+  | 'executionAuthority'
+  | 'replay'
+  | 'emissions';
+
+export const ACTION_CONTRACT_DIMENSIONS: readonly ContractDimension[] = [
   'requires',
   'ensures',
   'needs',
@@ -32,7 +41,7 @@ export const ACTION_CONTRACT_DIMENSIONS = [
   'executionAuthority',
   'replay',
   'emissions',
-] as const;
+];
 
 export type CompactDeclaredSet<T> =
   | { readonly kind: 'none' }

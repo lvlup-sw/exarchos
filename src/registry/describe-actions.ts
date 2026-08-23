@@ -1,7 +1,7 @@
 import { vacuityWaiver } from '../output-schema-declaration.js';
 import type { VacuityWaiverId } from '../output-schema-vacuity-allowlist.js';
 import { z } from 'zod';
-import { none, withActionContract } from './action-contract.js';
+import { none, withActionContract, type ActionContract } from './action-contract.js';
 import { READ_ONLY_LOCAL } from './annotations.js';
 import { DESCRIBE_ECONOMY_BUDGET_TOKENS, EVENT_DESCRIBE_ECONOMY_BUDGET_TOKENS } from './hints.js';
 import { ALL_PHASES, ROLE_ANY } from './phases.js';
@@ -12,13 +12,13 @@ const DESCRIBE_CONTRACT = {
   ensures: none('describe returns ephemeral schema text with no durable postcondition'),
   needs: none('describe inspects in-process registry state'),
   touches: {
-    frame: 'single-machine' as const,
+    frame: 'single-machine',
     resources: none('describe does not touch streams, paths, worktrees, or git refs'),
   },
-  executionAuthority: { kind: 'local' as const },
-  replay: { kind: 'safe-repeat' as const },
+  executionAuthority: { kind: 'local'},
+  replay: { kind: 'safe-repeat'},
   emissions: none('describe emits no catalog events'),
-};
+} satisfies ActionContract;
 
 // ─── Describe Action ────────────────────────────────────────────────────────
 
@@ -43,7 +43,7 @@ export function makeDescribeAction(waiverId: VacuityWaiverId): BuiltinToolAction
     },
     DESCRIBE_CONTRACT,
     { annotations: READ_ONLY_LOCAL },
-  ) as BuiltinToolAction;
+  );
 }
 
 /** Workflow-specific describe schema: supports actions, topology, playbooks, and config. */
@@ -78,7 +78,7 @@ export function makeWorkflowDescribeAction(waiverId: VacuityWaiverId): BuiltinTo
     },
     DESCRIBE_CONTRACT,
     { annotations: READ_ONLY_LOCAL },
-  ) as BuiltinToolAction;
+  );
 }
 
 const eventDescribeSchema = z.object({
@@ -110,5 +110,5 @@ export function makeEventDescribeAction(waiverId: VacuityWaiverId): BuiltinToolA
     },
     DESCRIBE_CONTRACT,
     { annotations: READ_ONLY_LOCAL },
-  ) as BuiltinToolAction;
+  );
 }

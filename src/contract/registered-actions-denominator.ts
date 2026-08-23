@@ -18,12 +18,12 @@ export const REGISTERED_ACTIONS_SNAPSHOT_FILE = path.join(
   'tools/audit/registered-actions-snapshot.json',
 );
 
-const VISIBLE_TOOL_NAMES = [
+const VISIBLE_TOOL_NAMES: readonly string[] = [
   'exarchos_event',
   'exarchos_orchestrate',
   'exarchos_view',
   'exarchos_workflow',
-] as const;
+];
 
 export interface SnapshotTool {
   readonly name: string;
