@@ -1,9 +1,11 @@
 import { narrowAffordance } from '../../../dispatch/core/economy.js';
+import { toViewFailure } from '../../degraded-result.js';
 import { EventStore } from '../../../events/store.js';
 import type { ToolResult } from '../../../format.js';
 import type { NextAction } from '../../../next-action.js';
 import { DELEGATION_TIMELINE_VIEW, type DelegationTimelineViewState, type TimelineTask } from '../delegation-timeline-view.js';
 import { CompactTimelineTask, compactTimelineTask, resolveInventoryWindow, scopeHiddenAffordance } from './inventory-contract.js';
+import { foldToTail } from '../../fold-at-tail.js';
 import { getOrCreateMaterializer } from './materializer.js';
 import { buildPage } from './pipeline.js';
 import { deriveCorrelationFilters, hasCorrelationFilters, materializeFiltered, queryDeltaEvents } from './query.js';
@@ -32,16 +34,15 @@ export async function handleViewDelegationTimeline(
 
     const correlationFilters = deriveCorrelationFilters(args);
     const filtered = hasCorrelationFilters(correlationFilters);
-    const events = await queryDeltaEvents(store, materializer, streamId, DELEGATION_TIMELINE_VIEW, correlationFilters);
     // Wave 5 (#1437) — under a correlation filter, fold a fresh projection
     // off `init()` so the materializer cache stays the unfiltered truth.
     const view = filtered
-      ? materializeFiltered<DelegationTimelineViewState>(materializer, DELEGATION_TIMELINE_VIEW, events)
-      : materializer.materialize<DelegationTimelineViewState>(
-          streamId,
+      ? materializeFiltered<DelegationTimelineViewState>(
+          materializer,
           DELEGATION_TIMELINE_VIEW,
-          events,
-        );
+          await queryDeltaEvents(store, materializer, streamId, DELEGATION_TIMELINE_VIEW, correlationFilters),
+        )
+      : (await foldToTail<DelegationTimelineViewState>(store, materializer, streamId, DELEGATION_TIMELINE_VIEW)).view;
 
     // DR-8 — the `tasks[]` list is the paged inventory; `total` is the scoped
     // (possibly correlation-filtered) task count.
@@ -58,13 +59,13 @@ export async function handleViewDelegationTimeline(
     let unscopedTotal = total;
     if (filtered) {
       scope = 'correlation';
-      const unfilteredEvents = await queryDeltaEvents(store, materializer, streamId, DELEGATION_TIMELINE_VIEW);
-      const unfilteredView = materializer.materialize<DelegationTimelineViewState>(
+      const unfiltered = await foldToTail<DelegationTimelineViewState>(
+        store,
+        materializer,
         streamId,
         DELEGATION_TIMELINE_VIEW,
-        unfilteredEvents,
       );
-      unscopedTotal = unfilteredView.tasks.length;
+      unscopedTotal = unfiltered.view.tasks.length;
     }
 
     // DR-8 — deterministic window (default item cap when `limit` omitted).
@@ -94,12 +95,6 @@ export async function handleViewDelegationTimeline(
       ...(nextActions.length > 0 ? { next_actions: nextActions } : {}),
     };
   } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'VIEW_ERROR',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
+    return toViewFailure(err, { tool: 'exarchos_view', action: 'delegation_timeline' });
   }
 }

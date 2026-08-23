@@ -5,8 +5,7 @@ import * as os from 'node:os';
 import {
   handleInit,
   handleSet,
-  configureWorkflowMaterializer,
-} from '../../../src/workflow/tools.js';
+  } from '../../../src/workflow/tools.js';
 import { reconcileFromEvents } from '../../../src/workflow/state-store.js';
 import { EventStore } from '../../../src/events/store.js';
 import type { EventType } from '../../../src/events/schemas.js';
@@ -22,7 +21,6 @@ describe('ReconcileGuardE2E', () => {
   });
 
   afterEach(async () => {
-    configureWorkflowMaterializer(null);
     await rmrfAsync(stateDir);
   });
 

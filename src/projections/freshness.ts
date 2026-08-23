@@ -64,14 +64,6 @@ export interface ProjectionFreshness {
   readonly staleViews: readonly string[];
 }
 
-/** A stream with no events and no folds is trivially fresh. */
-const FRESH: ProjectionFreshness = Object.freeze({
-  degraded: false,
-  eventTail: 0,
-  projectionCursor: 0,
-  lag: 0,
-  staleViews: Object.freeze([]),
-});
 
 /**
  * Compare one projection cursor against the durable event tail.
@@ -106,60 +98,23 @@ export function assessProjectionFreshness(input: {
   };
 }
 
-/**
- * Compare every cached projection cursor for a stream against its durable tail.
- *
- * A stream is fresh only when every fold that has been materialized covers the
- * tail exactly. The reported `projectionCursor` is the worst offender, so a
- * consumer sees the widest gap rather than an average that hides it.
- *
- * A stream with no materialized folds is fresh: there is no stale answer to
- * serve. This keeps cold reads — which fold from scratch — out of the degraded
- * path.
- */
-export function assessStreamFreshness(
-  eventTail: number,
-  cursors: readonly ProjectionCursor[],
-): ProjectionFreshness {
-  if (cursors.length === 0) {
-    return eventTail === 0 ? FRESH : { ...FRESH, eventTail, projectionCursor: eventTail };
-  }
-
-  const disagreeing = cursors.filter((c) => c.cursor !== eventTail);
-  if (disagreeing.length === 0) {
-    return {
-      degraded: false,
-      eventTail,
-      projectionCursor: eventTail,
-      lag: 0,
-      staleViews: [],
-    };
-  }
-
-  // Worst first: the largest absolute distance from the tail leads.
-  const ordered = [...disagreeing].sort(
-    (a, b) => Math.abs(eventTail - b.cursor) - Math.abs(eventTail - a.cursor),
-  );
-  const [worst, ...rest] = ordered;
-  if (worst === undefined) {
-    return {
-      degraded: false,
-      eventTail,
-      projectionCursor: eventTail,
-      lag: 0,
-      staleViews: [],
-    };
-  }
-  const lag = eventTail - worst.cursor;
-  return {
-    degraded: true,
-    reason: lag > 0 ? 'projection-behind' : 'projection-ahead',
-    eventTail,
-    projectionCursor: worst.cursor,
-    lag,
-    staleViews: [worst, ...rest].map((c) => c.viewName),
-  };
-}
+// ─── Removed: `assessStreamFreshness` (#1855) ───────────────────────────────
+//
+// It compared EVERY cached fold of a stream against the tail and called the
+// stream degraded unless all of them agreed. That is not a stricter version of
+// the real obligation — it is a different and false one. A read advances
+// exactly one fold, so on any stream with more than one cached fold the
+// predicate could not come back clean; `workflow-state` (folded by orchestrate
+// verbs and gates, folded by no view action) made it permanent, and the surface
+// that published the verdict was the only one able to clear it.
+//
+// The staleness of a fold nobody is reading says nothing about the answer being
+// produced, because a read of THAT fold now repairs it before answering
+// (`projections/fold-at-tail.ts`). The per-fold comparison
+// (`assessProjectionFreshness`, above) is the whole of what survives, and its
+// one consumer is `planRehydrationSource`, which repairs rather than reports.
+//
+// The FRESH constant it used is gone with it.
 
 /** `_meta` key carrying the freshness verdict on a view response envelope. */
 export const PROJECTION_DEGRADED_META = 'projectionDegraded' as const;

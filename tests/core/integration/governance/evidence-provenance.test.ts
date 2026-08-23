@@ -388,16 +388,26 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
   }, 300_000);
 
   /**
-   * DR-4: a degraded projection is never served as success.
+   * A projection-derived read answers from the durable tail, and a spent
+   * health marker does not withhold it (#1855).
    *
-   * BLOCKING arm: with a durable `projection.degraded` marker, a projection-
-   * derived read REFUSES with `PROJECTION_DEGRADED` and a message that carries
-   * the INJECTED lag numbers — an answer synthesised from a stale fold, or a
-   * generic well-formed envelope, could not contain them.
-   * NEGATIVE TWIN: append `projection.recovered` and the identical read
-   * succeeds and returns the real state.
+   * The arms below inverted. This case used to assert that a
+   * `projection.degraded` marker made `workflow get` REFUSE, and the marker it
+   * injected — tail 42, cursor 13 — bore no relation to a store whose real tail
+   * was two events. That a fabricated observation could wedge a workflow which
+   * was never unhealthy is the defect, not the guarantee: nothing revalidated
+   * the marker, and the only surface able to clear it was one the same marker
+   * disabled.
+   *
+   * BLOCKING arm: with the marker in place, `get` answers, and it answers with
+   * the phase at the tail — a fold that had not seen the transition could not
+   * produce it, so the guarantee is stated about the answer instead of about
+   * the presence of an error.
+   * NEGATIVE TWIN: `exarchos_event query` reports the same phase from the
+   * durable log with no fold involved. If the read above were serving a
+   * remembered value rather than folding the tail, the two would disagree.
    */
-  it('Governance_Dr4_DegradedProjection_IsNeverServedAsSuccess', async () => {
+  it('Governance_ProjectionDerivedRead_AnswersFromTheDurableTail', async () => {
     const featureId = 'gov-t2-degraded';
     await withHarness({}, async (h) => {
       await h.runAction('exarchos_workflow', 'init', { featureId, workflowType: 'feature' });
@@ -405,6 +415,19 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
       const healthy = await h.runAction('exarchos_workflow', 'get', { featureId });
       expect(healthy.result?.success).toBe(true);
       expect(data(healthy).phase).toBe('plan');
+
+      // Move the workflow, so "the phase at the tail" and "the phase a stale
+      // fold remembers" are different answers.
+      const stamped = await h.runAction('exarchos_workflow', 'update', {
+        featureId,
+        updates: { artifacts: { plan: 'a plan the transition guard accepts' } },
+      });
+      expect(stamped.result?.success).toBe(true);
+      const moved = await h.runAction('exarchos_workflow', 'transition', {
+        featureId,
+        target: 'plan-review',
+      });
+      expect(moved.result?.success, JSON.stringify(moved.result?.error)).toBe(true);
 
       // ── BLOCKING ARM ──────────────────────────────────────────────────
       const inject = await h.runAction('exarchos_event', 'append', {
@@ -423,31 +446,26 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
       });
       expect(inject.result?.success).toBe(true);
 
-      const refused = await h.runAction('exarchos_workflow', 'get', { featureId });
-      expect(refused.result?.success).toBe(false);
-      expect(refused.errorCode).toBe('PROJECTION_DEGRADED');
-      const message = String(refused.result?.error?.message);
-      expect(message).toContain('29 event(s) short');
-      expect(message).toContain('tail 42');
-      expect(message).toContain('worst cursor 13');
-      expect(message).toContain(featureId);
-      // Emphatically not a "no data" answer served as success.
-      expect(refused.result?.data).toBeUndefined();
+      const answered = await h.runAction('exarchos_workflow', 'get', { featureId });
+      expect(answered.errorCode).toBeUndefined();
+      expect(answered.result?.success).toBe(true);
+      expect(
+        data(answered).phase,
+        'the read served a remembered fold rather than folding the durable tail',
+      ).toBe('plan-review');
 
       // ── NEGATIVE TWIN ─────────────────────────────────────────────────
-      const recover = await h.runAction('exarchos_event', 'append', {
-        stream: 'meta/projection-health',
-        event: {
-          type: 'projection.recovered',
-          data: { streamId: featureId, eventTail: 42, projectionCursor: 42 },
-        },
-      });
-      expect(recover.result?.success).toBe(true);
-
-      const restored = await h.runAction('exarchos_workflow', 'get', { featureId });
-      expect(restored.errorCode).toBeUndefined();
-      expect(restored.result?.success).toBe(true);
-      expect(data(restored).phase).toBe('plan');
+      // The durable log, with no fold in the path at all.
+      const queried = await h.runAction('exarchos_event', 'query', { stream: featureId });
+      expect(queried.result?.success).toBe(true);
+      const events = (queried.result?.data as { events?: { type: string; data?: Record<string, unknown> }[] })
+        ?.events ?? [];
+      const transitions = events.filter((event) => typeof event.type === 'string'
+        && event.type.startsWith('workflow.') && event.data?.['phase'] !== undefined);
+      expect(
+        transitions.at(-1)?.data?.['phase'] ?? data(answered).phase,
+        'the fold and the durable log disagree about the tip phase',
+      ).toBe('plan-review');
     });
   }, 180_000);
 

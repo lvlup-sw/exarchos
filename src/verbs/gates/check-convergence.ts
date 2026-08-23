@@ -7,10 +7,8 @@
 
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
-import {
-  getOrCreateMaterializer,
-  queryDeltaEvents,
-} from '../../projections/views/tools.js';
+import { foldToTail } from '../../projections/fold-at-tail.js';
+import { getOrCreateMaterializer } from '../../projections/views/tools.js';
 import { ALL_DIMENSIONS, CONVERGENCE_VIEW } from '../../projections/views/convergence-view.js';
 import type { ConvergenceViewState } from '../../projections/views/convergence-view.js';
 import { emitGateEvent } from './gate-utils.js';
@@ -65,12 +63,14 @@ export async function handleCheckConvergence(
   const materializer = getOrCreateMaterializer(stateDir);
   const streamId = args.workflowId ?? args.featureId;
 
-  // Materialize convergence view from gate.executed events
-  const events = await queryDeltaEvents(store, materializer, streamId, CONVERGENCE_VIEW);
-  const view = materializer.materialize<ConvergenceViewState>(
+  // Fold the convergence view over `gate.executed` up to the durable tail. A
+  // reliability verdict derived from a fold that has not seen the latest gate
+  // is worse than no verdict.
+  const { view } = await foldToTail<ConvergenceViewState>(
+    store,
+    materializer,
     streamId,
     CONVERGENCE_VIEW,
-    events,
   );
 
   // Apply phase filter if specified — filter gate results per dimension
