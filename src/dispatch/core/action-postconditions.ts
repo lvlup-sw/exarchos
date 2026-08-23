@@ -16,10 +16,10 @@
  * names the debt, it does not pay it.
  *
  * This checker reports `satisfied` or `violated`. It does not invent a third
- * or fourth status, and it does not block the dispatch return — wiring the
- * verdict onto success is a separate concern. The subject set is the
- * success-path ensures (`when: success` and `when: always`). Failure-path
- * observation of `failure` and `always` is a later check.
+ * or fourth status. Dispatch wires the verdict after effects land: a success
+ * return is a contract violation when an applicable ensure cannot be observed.
+ * The subject set follows the outcome — success reads `success` and `always`;
+ * failure reads `failure` and `always`.
  */
 
 import type { ActionPostcondition, DeclaredSet } from '../../registry/action-contract.js';
@@ -29,6 +29,7 @@ import {
 } from '../../workflow/admission/evidence-reader.js';
 
 export type PostconditionObservationStatus = 'satisfied' | 'violated';
+export type PostconditionOutcome = 'success' | 'failure';
 
 /**
  * The store slice an event-append ensure needs. `EventStore.query` satisfies
@@ -37,8 +38,8 @@ export type PostconditionObservationStatus = 'satisfied' | 'violated';
 export interface PostconditionStore {
   query(
     streamId: string,
-    filters?: { type?: string; operationId?: string },
-  ): Promise<readonly { readonly type: string; readonly operationId?: string }[]>;
+    filters?: { type?: string | undefined; operationId?: string | undefined },
+  ): Promise<readonly { readonly type: string; readonly operationId?: string | undefined }[]>;
 }
 
 export interface ObserveActionPostconditionsInput {
@@ -47,6 +48,13 @@ export interface ObserveActionPostconditionsInput {
   readonly evidence: PersistedEvidenceSource;
   readonly streamId: string;
   readonly operationId: string;
+  /**
+   * Which ensure `when` values apply. Success observes `success` and
+   * `always`; failure observes `failure` and `always`. Omitted means the
+   * success subject set, which is the path that cannot return success
+   * when an applicable ensure is missing.
+   */
+  readonly outcome?: PostconditionOutcome;
   /**
    * In-memory witnesses offered as if they were observation. They are not.
    * Accepted so a caller cannot satisfy an ensure by handing a branded
@@ -60,11 +68,17 @@ export interface ActionPostconditionObservation {
   readonly missing: readonly ActionPostcondition[];
 }
 
-function successPathEnsures(
+/**
+ * The ensures that apply to one dispatch outcome. Reasoned abstention
+ * (`kind: 'none'`) contributes nothing — there is no append to observe.
+ */
+export function applicableEnsures(
   ensures: DeclaredSet<ActionPostcondition>,
+  outcome: PostconditionOutcome,
 ): readonly ActionPostcondition[] {
   if (ensures.kind === 'none') return [];
-  return ensures.values.filter((item) => item.when === 'success' || item.when === 'always');
+  const matched = outcome === 'success' ? 'success' : 'failure';
+  return ensures.values.filter((item) => item.when === matched || item.when === 'always');
 }
 
 function witnessCannotSatisfy(_witness: unknown): false {
@@ -94,8 +108,8 @@ async function durableEvidenceObserved(
 /**
  * Observe declared ensures against the store and the persisted-evidence reader.
  *
- * Pure in the verdict: every declared success-path ensure is either observed
- * or reported missing. Witnesses are consulted only to refuse them.
+ * Pure in the verdict: every applicable ensure is either observed or
+ * reported missing. Witnesses are consulted only to refuse them.
  */
 export async function observeActionPostconditions(
   input: ObserveActionPostconditionsInput,
@@ -108,7 +122,7 @@ export async function observeActionPostconditions(
   }
 
   const missing: ActionPostcondition[] = [];
-  for (const postcondition of successPathEnsures(input.ensures)) {
+  for (const postcondition of applicableEnsures(input.ensures, input.outcome ?? 'success')) {
     const observed =
       postcondition.source === 'event-append'
         ? await eventAppendObserved(
