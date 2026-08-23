@@ -180,6 +180,19 @@ export interface GateNotApplicableDescriptor {
 }
 
 /**
+ * Is this carrier's `data` a plain record we can read fields off?
+ *
+ * The three readers below each hand-rolled this narrowing and then ASSERTED
+ * the result, which is the shape an assertion exists to avoid: the compiler
+ * checked the guard and then took the author's word for what the guard proved.
+ * As a predicate the same three conditions carry the narrowing themselves, so
+ * the assertion is unnecessary rather than merely unchecked.
+ */
+function isGateRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
  * Read the not-applicable marker a carrier stamps on itself.
  *
  * Deliberately NOT folded into {@link readGateSkipDescriptor}: that predicate
@@ -191,9 +204,8 @@ export interface GateNotApplicableDescriptor {
 export function readGateNotApplicableDescriptor(
   result: ToolResult,
 ): GateNotApplicableDescriptor | undefined {
-  const data = result.data;
-  if (data === null || typeof data !== 'object' || Array.isArray(data)) return undefined;
-  const record = data as Readonly<Record<string, unknown>>;
+  const record = result.data;
+  if (!isGateRecord(record)) return undefined;
   if (record.notApplicable !== true) return undefined;
   const reason = record.reason;
   return { notApplicable: true, ...(typeof reason === 'string' ? { reason } : {}) };
@@ -210,9 +222,8 @@ export function readGateNotApplicableDescriptor(
  * `passed`. See {@link normalizeGateVerdict} for why.
  */
 export function readGateSkipDescriptor(result: ToolResult): GateSkipDescriptor | undefined {
-  const data = result.data;
-  if (data === null || typeof data !== 'object' || Array.isArray(data)) return undefined;
-  const record = data as Readonly<Record<string, unknown>>;
+  const record = result.data;
+  if (!isGateRecord(record)) return undefined;
   if (record.skipped !== true) return undefined;
   const discriminant = record.discriminant;
   const reason = record.reason;
@@ -283,13 +294,12 @@ export function attachGateEvidence(
   references: readonly GateEvidenceReference[],
 ): ToolResult {
   const priorData = result.data;
-  const data =
-    priorData !== null && typeof priorData === 'object' && !Array.isArray(priorData)
-      ? { ...(priorData as Readonly<Record<string, unknown>>), evidenceReferences: references }
-      : {
-          ...(priorData === undefined ? {} : { result: priorData }),
-          evidenceReferences: references,
-        };
+  const data = isGateRecord(priorData)
+    ? { ...priorData, evidenceReferences: references }
+    : {
+        ...(priorData === undefined ? {} : { result: priorData }),
+        evidenceReferences: references,
+      };
   return { ...result, data };
 }
 
