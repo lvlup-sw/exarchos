@@ -1,9 +1,8 @@
 import { EventStore } from '../../../events/store.js';
-import { toViewFailure } from '../../degraded-result.js';
 import type { ToolResult } from '../../../format.js';
 import { DELEGATION_READINESS_VIEW, type DelegationReadinessState, scopeReadinessToWave } from '../delegation-readiness-view.js';
 import { getOrCreateMaterializer } from './materializer.js';
-import { foldToTail } from '../../fold-at-tail.js';
+import { queryDeltaEvents } from './query.js';
 
 // ─── View Delegation Readiness Handler ──────────────────────────────────────
 
@@ -29,7 +28,12 @@ export async function handleViewDelegationReadiness(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const { view: materialized } = await foldToTail<DelegationReadinessState>(store, materializer, streamId, DELEGATION_READINESS_VIEW);
+    const events = await queryDeltaEvents(store, materializer, streamId, DELEGATION_READINESS_VIEW);
+    const materialized = materializer.materialize<DelegationReadinessState>(
+      streamId,
+      DELEGATION_READINESS_VIEW,
+      events,
+    );
     const view = scopeReadinessToWave(
       materialized,
       args.tasks?.map((id) => ({ id })),
@@ -48,6 +52,12 @@ export async function handleViewDelegationReadiness(
     } = view.worktrees;
     return { success: true, data: { ...view, worktrees } };
   } catch (err) {
-    return toViewFailure(err, { tool: 'exarchos_view', action: 'delegation_readiness' });
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
   }
 }

@@ -38,8 +38,11 @@
 
 import { z } from 'zod';
 import {
+  ActionContractError,
+  normalizeActionContract,
   TOOL_REGISTRY,
   resolveEconomyBudget,
+  type ActionContract,
   type CompositeTool,
   type ToolAction,
 } from '../../registry.js';
@@ -175,6 +178,28 @@ const PresentationPolicySchema = z
   })
   .strict();
 
+function admitActionContract(value: unknown): ActionContract {
+  return normalizeActionContract(value);
+}
+
+function actionContractIssueMessage(error: unknown): string {
+  return error instanceof ActionContractError ? `${error.code}: ${error.message}` : 'invalid action contract';
+}
+
+/**
+ * Admission schema for a declared action contract. Validation reuses the
+ * registry algebra (including the existing emission catalog) so this module
+ * does not author a second catalog. Nested sets are canonicalized.
+ */
+export const ActionContractModelSchema: z.ZodType<ActionContract> = z.unknown().transform((value, ctx) => {
+  try {
+    return admitActionContract(value);
+  } catch (error) {
+    ctx.addIssue({ code: 'custom', message: actionContractIssueMessage(error) });
+    return z.NEVER;
+  }
+});
+
 /** The total policy record — every one of the ten dimensions is required. */
 export const ActionPolicySchema = z
   .object({
@@ -188,6 +213,7 @@ export const ActionPolicySchema = z
     economy: EconomyPolicySchema,
     compatibility: CompatibilityPolicySchema,
     presentation: PresentationPolicySchema,
+    actionContract: ActionContractModelSchema.optional(),
   })
   .strict();
 
@@ -207,6 +233,7 @@ export const ActionMetaModelSchema = z
     errorCodes: z.array(z.string()),
     outputKinds: z.array(z.string()),
     policy: ActionPolicySchema,
+    actionContract: ActionContractModelSchema.optional(),
   })
   .strict();
 
@@ -243,6 +270,30 @@ const byString = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 /** Dedupe + sort a list of strings (order-independent, byte-stable). */
 export function sortedUnique(values: readonly string[]): string[] {
   return [...new Set(values)].sort(byString);
+}
+
+function readDeclaredActionContract(action: ToolAction): unknown {
+  if (!('actionContract' in action)) return undefined;
+  return Reflect.get(action, 'actionContract');
+}
+
+/**
+ * Project a declared registry contract into the compiler model.
+ * Missing live contracts stay missing — annotations and top-level `autoEmits`
+ * are not an independent source for inventing one.
+ */
+export function projectActionContract(action: ToolAction): ActionContract | undefined {
+  const declared = readDeclaredActionContract(action);
+  if (declared === undefined) return undefined;
+  return normalizeActionContract(declared, { annotations: action.annotations });
+}
+
+function evidenceFromContract(contract: ActionContract): EvidencePolicy {
+  if (contract.emissions.kind === 'none') return { autoEmits: [] };
+  const autoEmits = contract.emissions.values
+    .map((emission) => ({ event: emission.event, condition: emission.condition }))
+    .sort((left, right) => byString(left.event, right.event) || byString(left.condition, right.condition));
+  return { autoEmits };
 }
 
 // ─── Derivation from the live registry ───────────────────────────────────────
@@ -297,11 +348,12 @@ function deriveAuthorizationPolicy(action: ToolAction): AuthorizationPolicy {
   };
 }
 
-function deriveEvidencePolicy(action: ToolAction): EvidencePolicy {
-  const autoEmits = (action.autoEmits ?? [])
-    .map((e) => ({ event: e.event, condition: e.condition }))
-    .sort((x, y) => byString(x.event, y.event) || byString(x.condition, y.condition));
-  return { autoEmits };
+function deriveEvidencePolicy(
+  _action: ToolAction,
+  contract: ActionContract | undefined,
+): EvidencePolicy {
+  if (contract !== undefined) return evidenceFromContract(contract);
+  return { autoEmits: [] };
 }
 
 function deriveEffectPolicy(action: ToolAction): EffectPolicy {
@@ -356,10 +408,11 @@ function derivePresentationPolicy(action: ToolAction): PresentationPolicy {
 
 /** Derive the total, ten-dimension policy record for one action. */
 export function derivePolicy(action: ToolAction): ActionPolicy {
+  const actionContract = projectActionContract(action);
   return {
     execution: deriveExecutionPolicy(action),
     authorization: deriveAuthorizationPolicy(action),
-    evidence: deriveEvidencePolicy(action),
+    evidence: deriveEvidencePolicy(action, actionContract),
     effect: deriveEffectPolicy(action),
     cache: deriveCachePolicy(action),
     task: deriveTaskPolicy(action),
@@ -367,11 +420,13 @@ export function derivePolicy(action: ToolAction): ActionPolicy {
     economy: deriveEconomyPolicy(action),
     compatibility: deriveCompatibilityPolicy(action),
     presentation: derivePresentationPolicy(action),
+    ...(actionContract === undefined ? {} : { actionContract }),
   };
 }
 
 /** Derive one action's meta-model entry from its registry descriptor. */
 export function deriveActionMetaModel(tool: CompositeTool, action: ToolAction): ActionMetaModel {
+  const policy = derivePolicy(action);
   return {
     actionId: `${tool.name}.${action.name}`,
     tool: tool.name,
@@ -385,7 +440,8 @@ export function deriveActionMetaModel(tool: CompositeTool, action: ToolAction): 
     outputSchema: zodToJsonSchema(action.outputSchema) as JsonSchema,
     errorCodes: deriveErrorCodes(action),
     outputKinds: [...OUTPUT_KINDS].sort(byString),
-    policy: derivePolicy(action),
+    policy,
+    ...(policy.actionContract === undefined ? {} : { actionContract: policy.actionContract }),
   };
 }
 

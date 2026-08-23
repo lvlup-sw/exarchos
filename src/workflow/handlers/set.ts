@@ -2,17 +2,18 @@ import { buildValidatedEvent } from '../../events/event-factory.js';
 import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
 import { workflowLogger } from '../../logger.js';
+import { WORKFLOW_STATE_VIEW, type WorkflowStateView } from '../../projections/views/workflow-state-projection.js';
 import { recordLiveTransition } from '../admission/live-shadow-observer.js';
 import { buildCheckpointMeta, type CheckpointEnforcementConfig, incrementOperations, resetCounter, shouldEnforceCheckpoint } from '../checkpoint.js';
 import { hsmTransitionGuard } from '../hsm-transition-guard.js';
 import { allocatePhaseAttemptId, readPhaseAttemptId } from '../phase-attempt-id.js';
 import { resolveGateSet } from '../phase-kind.js';
-import { ErrorCode } from '../schemas.js';
-import { applyDotPath, hydrateEventsFromStore, readStateFile, StateStoreError, validateStateForWrite, VersionConflictError, writeStateFile } from '../state-store.js';
+import { ErrorCode, WorkflowStateSchema } from '../schemas.js';
+import { applyDotPath, hydrateEventsFromStore, readStateFile, StateStoreError, VersionConflictError, writeStateFile } from '../state-store.js';
 import type { SetInput, WorkflowState } from '../types.js';
 import { resolveBoundaryTouching, resolveRiskTier } from '../verification-policy-resolver.js';
 import * as path from 'node:path';
-import { CURRENT_ES_VERSION, isEventSourced } from './shared.js';
+import { CURRENT_ES_VERSION, isEventSourced, moduleViewMaterializer } from './shared.js';
 
 // ─── handleSet ──────────────────────────────────────────────────────────────
 
@@ -31,9 +32,9 @@ const MAX_CAS_RETRIES = 3;
  *
  * **ES v2 field updates:** For workflows with `_esVersion === 2`, field
  * updates emit a `state.patched` event with the patch delta before
- * writing. The file is NOT re-materialized from the fold afterwards — see
- * the note at that site for why the projection cannot produce a schema-valid
- * state file. Reads are event-derived regardless (`handleGet`). That event is keyed
+ * writing. After the CAS write succeeds, the state file is overwritten
+ * with a snapshot re-materialized from the full event stream, ensuring
+ * the file is always a derived artifact. That event is keyed
  * `${featureId}:patch:${expectedVersion}:${fieldsHash}`, which guarantees
  * only **one event per (featureId, base-version, field-name-set)** — the
  * key covers field NAMES, not values, so two different patches to the same
@@ -591,22 +592,31 @@ export async function handleSet(
 
     // ─── Event-first: append state.patched event for v2 field updates ──
     const updateKeys = input.updates ? Object.keys(input.updates) : [];
+    // Reject a state the file write would refuse BEFORE appending
+    // `state.patched`. Event-first plus a name-only idempotency key
+    // otherwise leaves a ghost row that shadows the next distinct
+    // patch at the same version, so post-dispatch observation cannot
+    // see the write that actually landed.
+    if (updateKeys.length > 0) {
+      const currentVersion =
+        typeof mutableState._version === 'number' ? mutableState._version : 1;
+      const candidate = { ...mutableState, _version: currentVersion + 1 };
+      const validation = WorkflowStateSchema.safeParse(candidate);
+      if (!validation.success) {
+        return {
+          success: false,
+          error: {
+            code: ErrorCode.INVALID_INPUT,
+            message: `Write-time validation failed: ${validation.error.message}`,
+          },
+        };
+      }
+    }
     if (
       isEventSourced(state)
       && eventStore
       && updateKeys.length > 0
     ) {
-      // Do not record a mutation the write is about to reject. The event-first
-      // contract guarantees an applied patch is always recorded; without this it
-      // did not guarantee the converse, so a schema-invalid patch stayed in the
-      // log after the write refused it — and an event-derived read then served
-      // the value the caller was told had failed. Same schema, same `_version`
-      // bump, same rule the write itself applies.
-      const invalid = validateStateForWrite(mutableState as WorkflowState);
-      if (invalid !== undefined) {
-        return { success: false, error: { code: ErrorCode.INVALID_INPUT, message: invalid } };
-      }
-
       try {
         const fieldsHash = [...updateKeys].sort().join(',');
         const idempotencyKey = `${input.featureId}:patch:${expectedVersion}:${fieldsHash}`;
@@ -714,26 +724,46 @@ export async function handleSet(
     // After the CAS write succeeds, overwrite the state file with a
     // snapshot derived from the full event stream. This ensures the
     // state file is always a derived artifact of the event log.
-    // ─── Why there is no state-file re-materialization here ────────────
-    //
-    // This block used to rebuild `<featureId>.state.json` from the event fold
-    // after every mutation, so the file would stay a derived artifact of the
-    // log. It never ran: it was gated on a materializer that nothing in `src/`
-    // ever configured.
-    //
-    // Wiring it revealed that it cannot run as written. A planner writes a
-    // partial task through `workflow set` and the normal write path validates
-    // and defaults it; the fold applies the same patch VERBATIM, so a task
-    // without a `title` reaches the snapshot, which wrote it back with
-    // `skipValidation: true`. The next read then rejects the whole file — after
-    // the mutation that wrote it has already committed.
-    // `WorkflowStateFold_PatchedTask_ViolatesStateSchema` pins that gap, so
-    // this is evidence rather than an assertion, and so the block is not
-    // restored before the shapes are reconciled.
-    //
-    // Nothing regresses by its absence, because it never executed. Reads are
-    // event-derived regardless: `handleGet` folds the log and merges the
-    // file-owned fields on top.
+    if (
+      isEventSourced(state)
+      && eventStore
+      && moduleViewMaterializer
+    ) {
+      const allEvents = await eventStore.query(input.featureId);
+      const materialized = moduleViewMaterializer.materialize<WorkflowStateView>(
+        input.featureId,
+        WORKFLOW_STATE_VIEW,
+        allEvents,
+      );
+
+      // Merge materialized state with checkpoint/version metadata from the
+      // mutable state (checkpoint tracking is not event-sourced)
+      const latestSequence = allEvents.length
+        ? allEvents[allEvents.length - 1]?.sequence
+        : mutableState._eventSequence;
+      const snapshot = {
+        ...(materialized as unknown as Record<string, unknown>),
+        _version: (mutableState._version as number),
+        _eventSequence: latestSequence,
+        _esVersion: CURRENT_ES_VERSION,
+        _checkpoint: mutableState._checkpoint,
+        updatedAt: mutableState.updatedAt,
+      };
+
+      try {
+        await writeStateFile(
+          stateFile,
+          snapshot as unknown as WorkflowState,
+          { expectedVersion: mutableState._version as number, skipValidation: true },
+        );
+      } catch (err) {
+        if (err instanceof VersionConflictError) {
+          // Another writer updated the state after our CAS write; skip rematerialization
+        } else {
+          throw err;
+        }
+      }
+    }
 
     // Event-first: events already appended before CAS write with idempotency keys.
     // State write is the follow-up materialization step.

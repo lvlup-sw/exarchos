@@ -9,8 +9,10 @@ import type { EventType } from '../../events/schemas.js';
 import { EVENT_DATA_SCHEMAS, EVENT_EMISSION_REGISTRY } from '../../events/schemas.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
-import { foldToTail } from '../../projections/fold-at-tail.js';
-import { getOrCreateMaterializer } from '../../projections/views/tools.js';
+import {
+  getOrCreateMaterializer,
+  queryDeltaEvents,
+} from '../../projections/views/tools.js';
 import { WORKFLOW_STATE_VIEW } from '../../projections/views/workflow-state-projection.js';
 import type { WorkflowStateView } from '../../projections/views/workflow-state-projection.js';
 import { emitGateEvent } from './gate-utils.js';
@@ -162,15 +164,12 @@ export async function handleCheckEventEmissions(
   const materializer = getOrCreateMaterializer(stateDir);
   const streamId = args.workflowId ?? args.featureId;
 
-  // Fold the workflow-state view to the durable tail to read the current
-  // phase. This is one of the folds #1855 was about: it lands in the shared
-  // view materializer and no `exarchos_view` action refreshes it, so before
-  // the seam it was the entry that went stale and stayed stale.
-  const { view, sequence } = await foldToTail<WorkflowStateView>(
-    store,
-    materializer,
+  // Materialize workflow state view to get the current phase
+  const stateEvents = await queryDeltaEvents(store, materializer, streamId, WORKFLOW_STATE_VIEW);
+  const view = materializer.materialize<WorkflowStateView>(
     streamId,
     WORKFLOW_STATE_VIEW,
+    stateEvents,
   );
 
   const phase = view.phase;
@@ -190,11 +189,8 @@ export async function handleCheckEventEmissions(
     };
   }
 
-  // The phase came from a fold covering `sequence`; the evidence for that
-  // phase must stop there too. An unbounded read would let events appended
-  // after the fold answer for a phase that predates them — reporting a phase
-  // complete on emissions belonging to the next one.
-  const events = (await store.query(streamId)).filter((e) => e.sequence <= sequence);
+  // Query all events from the stream
+  const events = await store.query(streamId);
   const presentTypes = new Set(events.map((e) => e.type));
 
   // Check which expected events are missing

@@ -12,6 +12,7 @@ import {
   handleTransitions,
   handleCancel,
   handleCheckpoint,
+  configureWorkflowMaterializer,
   isEventSourced,
   CURRENT_ES_VERSION,
 } from '../../../src/workflow/tools.js';
@@ -30,6 +31,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  configureWorkflowMaterializer(null);
   await rmrfAsync(tmpDir);
 });
 
@@ -3057,6 +3059,7 @@ describe('HandleGet_EsVersion2_MaterializesFromEvents', () => {
     const eventStore = new EventStore(tmpDir);
     const materializer = new ViewMaterializer();
     materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
+    configureWorkflowMaterializer(materializer);
 
     // Init creates a v2 workflow (sets _esVersion: 2, emits workflow.started event)
     await handleInit({ featureId: 'es-get-v2', workflowType: 'feature' }, tmpDir, eventStore);
@@ -3092,6 +3095,7 @@ describe('HandleGet_ScalarQuery_EsVersion2_FoldsEventsNotStaleFile', () => {
     const eventStore = new EventStore(tmpDir);
     const materializer = new ViewMaterializer();
     materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
+    configureWorkflowMaterializer(materializer);
 
     await handleInit({ featureId: 'fast-es-v2', workflowType: 'feature' }, tmpDir, eventStore);
 
@@ -3171,6 +3175,7 @@ describe('HandleGet_EsVersion2_FieldProjection_Works', () => {
     const eventStore = new EventStore(tmpDir);
     const materializer = new ViewMaterializer();
     materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
+    configureWorkflowMaterializer(materializer);
 
     await handleInit({ featureId: 'es-fields', workflowType: 'feature' }, tmpDir, eventStore);
 
@@ -3202,6 +3207,7 @@ describe('HandleSet_EsVersion2_FieldUpdates_EmitsStatePatchedEvent', () => {
     const eventStore = new EventStore(tmpDir);
     const materializer = new ViewMaterializer();
     materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
+    configureWorkflowMaterializer(materializer);
 
     await handleInit({ featureId: 'es-set-patch', workflowType: 'feature' }, tmpDir, eventStore);
 
@@ -3240,6 +3246,7 @@ describe('HandleSet_EsVersion2_PhaseAndFields_EmitsBothEvents', () => {
     const eventStore = new EventStore(tmpDir);
     const materializer = new ViewMaterializer();
     materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
+    configureWorkflowMaterializer(materializer);
 
     await handleInit({ featureId: 'es-set-both', workflowType: 'feature' }, tmpDir, eventStore);
 
@@ -3287,6 +3294,7 @@ describe('HandleSet_EsVersion2_AfterEmit_StateFileReflectsEvents', () => {
     const eventStore = new EventStore(tmpDir);
     const materializer = new ViewMaterializer();
     materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
+    configureWorkflowMaterializer(materializer);
 
     await handleInit({ featureId: 'es-set-snap', workflowType: 'feature' }, tmpDir, eventStore);
 
@@ -3331,6 +3339,7 @@ describe('HandleSet_EsVersion2_IdempotencyKey_PreventsDuplicates', () => {
     const eventStore = new EventStore(tmpDir);
     const materializer = new ViewMaterializer();
     materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
+    configureWorkflowMaterializer(materializer);
 
     await handleInit({ featureId: 'es-set-idemp', workflowType: 'feature' }, tmpDir, eventStore);
 

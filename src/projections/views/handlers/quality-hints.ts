@@ -1,5 +1,4 @@
 import { narrowAffordance } from '../../../dispatch/core/economy.js';
-import { toViewFailure } from '../../degraded-result.js';
 import { EventStore } from '../../../events/store.js';
 import type { ToolResult } from '../../../format.js';
 import type { NextAction } from '../../../next-action.js';
@@ -9,7 +8,7 @@ import { CompactQualityHint, analyticScope, compactQualityHint } from './analyti
 import { resolveInventoryWindow } from './inventory-contract.js';
 import { getOrCreateMaterializer } from './materializer.js';
 import { buildPage } from './pipeline.js';
-import { foldToTail } from '../../fold-at-tail.js';
+import { queryDeltaEvents } from './query.js';
 
 // ─── View Quality Hints Handler ─────────────────────────────────────────────
 
@@ -31,7 +30,12 @@ export async function handleViewQualityHints(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const { view } = await foldToTail<CodeQualityViewState>(store, materializer, streamId, CODE_QUALITY_VIEW);
+    const events = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW);
+    const view = materializer.materialize<CodeQualityViewState>(
+      streamId,
+      CODE_QUALITY_VIEW,
+      events,
+    );
 
     const { generateQualityHints } = await import('../../quality/hints.js');
     const hints = generateQualityHints(view, args.skill);
@@ -73,6 +77,12 @@ export async function handleViewQualityHints(
       ...(nextActions.length > 0 ? { next_actions: nextActions } : {}),
     };
   } catch (err) {
-    return toViewFailure(err, { tool: 'exarchos_view', action: 'quality_hints' });
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
   }
 }

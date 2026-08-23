@@ -1,7 +1,7 @@
 // ── A DR-30 note on the bijection at the foot of this file ──────────────────
 //
 // The two things it compares — `runbook.autoEmits` in `./definitions.ts` and the
-// `ToolAction.autoEmits` the registry declares — are hand-written in two places,
+// `actionContract.emissions` the registry declares — are hand-written in two places,
 // but `../registry.ts` REACHES `./definitions.ts` in the static import graph, so
 // DR-30 counts them as one authority wearing two names. That is why the
 // assertions are per-element membership checks rather than
@@ -15,7 +15,7 @@
 import { describe, it, expect } from 'vitest';
 import { zodToJsonSchema } from '../../../src/utils/json-schema.js';
 import { ALL_RUNBOOKS, TASK_COMPLETION } from '../../../src/runbooks/definitions.js';
-import { findActionInRegistry, getFullRegistry } from '../../../src/registry.js';
+import { contractEmissionsOf, findActionInRegistry, getFullRegistry } from '../../../src/registry.js';
 import { EVENT_EMISSION_REGISTRY } from '../../../src/events/schemas.js';
 import type { RunbookDefinition } from '../../../src/runbooks/types.js';
 
@@ -77,8 +77,9 @@ function stepDerivedAutoEmits(
           'resolve in the registry — the derived emission set would silently be empty.',
       );
     }
-    if (action.autoEmits === undefined) continue;
-    for (const emission of action.autoEmits) {
+    const emissions = contractEmissionsOf(action);
+    if (emissions.length === 0) continue;
+    for (const emission of emissions) {
       if (subject === 'unconditional' && emission.condition !== 'always') continue;
       events.add(emission.event);
     }

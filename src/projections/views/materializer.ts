@@ -52,7 +52,7 @@ const DEFAULT_THRASHING_WINDOW_SIZE = 100;
 // (b) in #1434, explicitly rejected); the kebab-only constraint is the
 // right shape for user-facing featureIds and we don't want a future caller
 // to accidentally name a snapshot file `..` or `subdir/foo`.
-export const isInternalSentinelStream = (id: string): boolean => id.startsWith('__');
+const isInternalSentinelStream = (id: string): boolean => id.startsWith('__');
 
 /** Read EXARCHOS_MAX_CACHE_ENTRIES from env, falling back to default on invalid/missing. */
 function parseEnvMaxCacheEntries(): number {
@@ -139,24 +139,6 @@ export class ViewMaterializer {
    * Uses high-water mark tracking for incremental updates.
    */
   materialize<T>(streamId: string, viewName: string, events: WorkflowEvent[]): T {
-    return this.materializeAt<T>(streamId, viewName, events).view;
-  }
-
-  /**
-   * Materialize, and return the fold together with the sequence it covers.
-   *
-   * `materialize` above drops the cursor and hands back a bare view. That is
-   * the shape #1855 turned on: a fold and the evidence of what it covers were
-   * separable, so an answer could be derived from one without the other, and
-   * the coverage question moved to a separate comparison that ran too late to
-   * do anything but refuse. Returning the pair keeps the two together, and
-   * `projections/fold-at-tail.ts` is what turns the pair into a guarantee.
-   */
-  materializeAt<T>(
-    streamId: string,
-    viewName: string,
-    events: WorkflowEvent[],
-  ): { view: T; sequence: number } {
     const projection = this.projections.get(viewName);
     if (!projection) {
       throw new Error(`No projection registered for view: ${viewName}`);
@@ -172,7 +154,7 @@ export class ViewMaterializer {
         { streamId, viewName },
         'ViewMaterializer: skipping sentinel stream',
       );
-      return { view: projection.init() as T, sequence: 0 };
+      return projection.init() as T;
     }
 
     const stateKey = `${viewName}:${streamId}`;
@@ -256,7 +238,7 @@ export class ViewMaterializer {
       }
     }
 
-    return { view: currentView, sequence: maxSequence };
+    return currentView;
   }
 
   /**
@@ -377,22 +359,6 @@ export class ViewMaterializer {
    */
   recordBypass(): void {
     this.cacheBypasses++;
-  }
-
-  /**
-   * Drop one stream's cached fold for `viewName`.
-   *
-   * The repair half of the `projection-ahead` case: a fold whose cursor sits
-   * past the durable tail was built over events the log can no longer produce,
-   * and `materialize` cannot heal it — its high-water-mark filter discards
-   * every event below that cursor, so a re-fold applies nothing. Dropping the
-   * entry makes the next fold a full replay from the log, which is the source of
-   * truth and therefore authoritative by construction.
-   */
-  discardFold(streamId: string, viewName: string): void {
-    const stateKey = `${viewName}:${streamId}`;
-    this.states.delete(stateKey);
-    this.lastSnapshotHwm.delete(stateKey);
   }
 
   /**

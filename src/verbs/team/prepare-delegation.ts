@@ -13,8 +13,10 @@ import { DEFAULTS } from '../../config/resolve.js';
 import type { EventStore } from '../../events/store.js';
 import { orchestrateLogger } from '../../logger.js';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
-import { foldToTail } from '../../projections/fold-at-tail.js';
-import { getOrCreateMaterializer } from '../../projections/views/tools.js';
+import {
+  getOrCreateMaterializer,
+  queryDeltaEvents,
+} from '../../projections/views/tools.js';
 import {
   validateBranchAncestry,
   assertMainWorktree,
@@ -1095,11 +1097,11 @@ export async function handlePrepareDelegation(
 
     // ─── DR-1: Branch Ancestry Preflight ────────────────────────────────
     // Materialize workflow state early to get integrationBranch
-    const { view: workflowState } = await foldToTail<WorkflowStateView>(
-      store,
-      materializer,
+    const wsEvents = await queryDeltaEvents(store, materializer, streamId, WORKFLOW_STATE_VIEW);
+    const workflowState = materializer.materialize<WorkflowStateView>(
       streamId,
       WORKFLOW_STATE_VIEW,
+      wsEvents,
     );
 
     const gitExec = createGitExec();
@@ -1389,11 +1391,11 @@ export async function handlePrepareDelegation(
     }
 
     // Materialize delegation readiness from event stream
-    const { view: readiness } = await foldToTail<DelegationReadinessState>(
-      store,
-      materializer,
+    const drEvents = await queryDeltaEvents(store, materializer, streamId, DELEGATION_READINESS_VIEW);
+    const readiness = materializer.materialize<DelegationReadinessState>(
       streamId,
       DELEGATION_READINESS_VIEW,
+      drEvents,
     );
 
     // DR-T-1 (#1205, T-03): plan-artifact presence is tracked by the
@@ -1482,12 +1484,12 @@ export async function handlePrepareDelegation(
     // Materialize code quality (best effort -- may have no events)
     let qualityState: CodeQualityViewState | null = null;
     try {
-      qualityState = (await foldToTail<CodeQualityViewState>(
-        store,
-        materializer,
+      const cqEvents = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW);
+      qualityState = materializer.materialize<CodeQualityViewState>(
         streamId,
         CODE_QUALITY_VIEW,
-      )).view;
+        cqEvents,
+      );
     } catch {
       // Quality view may not exist for this stream -- that's fine
     }

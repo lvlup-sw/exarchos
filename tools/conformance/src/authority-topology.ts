@@ -437,8 +437,9 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
       enforceFrom: Object.freeze({
         kind: 'already-enforced',
         by:
-          'the P05-05 reachability census (`contract/reachability/graph.ts`), which resolves every ' +
-          'public action to exactly ONE schema/route/handler/output and fails on `missing` or `ambiguous`',
+          'the ActionId-scoped closure instrument (`src/contract/action-contract-closure.ts`), which ' +
+          'reports omitted dimensions, orphan projections, and advertise/execute disagreement against ' +
+          'the declared contract',
       }),
       provenance: Object.freeze({ kind: 'derived', from: 'declaration-kinds' }),
       measured:
@@ -524,9 +525,9 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
       representations: Object.freeze([
         authoritative('EVENT_EMISSION_REGISTRY (`events/schemas.ts`)'),
         unbound(
-          'the registry `autoEmits` rows',
+          'the registry emission rows',
           'declared alongside the emission registry rather than projected from it — an action whose ' +
-            '`autoEmits` drifts from what it actually emits is invisible to any shipped check',
+            'emission row drifts from what it actually emits is invisible to any shipped check',
         ),
         unbound(
           'PHASE_EXPECTED_EVENTS (`verbs/gates/check-event-emissions.ts`)',

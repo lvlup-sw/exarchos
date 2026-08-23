@@ -41,7 +41,7 @@ import {
   type EffectOwnershipRule,
 } from '../../../src/architecture/effect-ledger.js';
 import { EVENT_ANNOTATIONS } from '../../../src/events/event-annotations.js';
-import { TOOL_REGISTRY } from '../../../src/registry.js';
+import { TOOL_REGISTRY, contractEmissionsOf } from '../../../src/registry.js';
 import {
   EVENT_LIFECYCLES,
   EVENT_TIERS,
@@ -1196,7 +1196,13 @@ describe('ProviderComparison — the declaring tool against the declared provide
     for (const tool of TOOL_REGISTRY) {
       for (const action of tool.actions) {
         toolByAction.set(`${tool.name}|${action.name}`, tool.name);
-        declaredEmissionCount += action.autoEmits?.length ?? 0;
+        const raw = Reflect.get(action, 'actionContract');
+        if (raw === undefined || raw === null || typeof raw !== 'object') continue;
+        const emissions = Reflect.get(raw, 'emissions');
+        if (emissions === undefined || emissions === null || typeof emissions !== 'object') continue;
+        if (Reflect.get(emissions, 'kind') !== 'declared') continue;
+        const values = Reflect.get(emissions, 'values');
+        if (Array.isArray(values)) declaredEmissionCount += values.length;
       }
     }
     expect(edges.length).toBe(declaredEmissionCount);
@@ -1229,8 +1235,23 @@ describe('ComparisonDenominator — the size of the set the provider comparison 
     let size = 0;
     for (const tool of TOOL_REGISTRY) {
       for (const action of tool.actions) {
-        for (const emission of action.autoEmits ?? []) {
-          if (welded.has(emission.event)) size += 1;
+        const raw = Reflect.get(action, 'actionContract');
+        if (raw === undefined || raw === null || typeof raw !== 'object') continue;
+        const emissions = Reflect.get(raw, 'emissions');
+        if (emissions === undefined || emissions === null || typeof emissions !== 'object') continue;
+        if (Reflect.get(emissions, 'kind') !== 'declared') continue;
+        const values = Reflect.get(emissions, 'values');
+        if (!Array.isArray(values)) continue;
+        for (const emission of values) {
+          if (
+            emission !== null &&
+            typeof emission === 'object' &&
+            'event' in emission &&
+            typeof emission.event === 'string' &&
+            welded.has(emission.event)
+          ) {
+            size += 1;
+          }
         }
       }
     }
@@ -2037,7 +2058,7 @@ describe('StaleCover — a capability weld that nothing declares it emits', () =
     const namedByAnEdge = new Set<string>();
     for (const tool of TOOL_REGISTRY) {
       for (const action of tool.actions) {
-        for (const emission of action.autoEmits ?? []) namedByAnEdge.add(emission.event);
+        for (const emission of contractEmissionsOf(action)) namedByAnEdge.add(emission.event);
       }
     }
     for (const row of MODULE_EMISSIONS) namedByAnEdge.add(row.event);

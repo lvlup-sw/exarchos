@@ -402,33 +402,6 @@ function getStateVersion(state: WorkflowState): number {
  * async operations. For multi-process scenarios, file-level locking (e.g., `flock`)
  * would be needed.
  */
-
-/**
- * The write-time schema check, as a function the write path is not the only
- * caller of.
- *
- * `handleSet` records a `state.patched` event BEFORE it writes — the event-first
- * contract, so a mutation cannot be applied without being recorded. The
- * converse was never enforced: a patch the schema rejected had already been
- * appended, so the log kept a mutation the state layer refused. That stayed
- * invisible while `workflow get` read the file, and became visible the moment
- * the read folded the log — a boolean written to `artifacts.plan`, rejected at
- * the write with `INVALID_INPUT`, and then served by `get` as though it had
- * taken.
- *
- * Exported so the emission boundary can ask the same question the write will
- * ask, with the same schema and the same `_version` bump, rather than
- * approximating it.
- */
-export function validateStateForWrite(state: WorkflowState): string | undefined {
-  const stateWithVersion = {
-    ...state,
-    _version: getStateVersion(state) + 1,
-  } as WorkflowState;
-  const validation = WorkflowStateSchema.safeParse(stateWithVersion);
-  return validation.success ? undefined : `Write-time validation failed: ${validation.error.message}`;
-}
-
 export async function writeStateFile(
   stateFile: string,
   state: WorkflowState,
@@ -446,8 +419,13 @@ export async function writeStateFile(
 
     // Validate before writing
     if (!options?.skipValidation) {
-      const invalid = validateStateForWrite(state);
-      if (invalid !== undefined) throw new StateStoreError(ErrorCode.INVALID_INPUT, invalid);
+      const validation = WorkflowStateSchema.safeParse(stateWithVersion);
+      if (!validation.success) {
+        throw new StateStoreError(
+          ErrorCode.INVALID_INPUT,
+          `Write-time validation failed: ${validation.error.message}`,
+        );
+      }
     }
 
     try {
@@ -516,8 +494,13 @@ export async function writeStateFile(
 
   // Validate before writing to catch schema violations at write time (not deferred to read)
   if (!options?.skipValidation) {
-    const invalid = validateStateForWrite(state);
-    if (invalid !== undefined) throw new StateStoreError(ErrorCode.INVALID_INPUT, invalid);
+    const validation = WorkflowStateSchema.safeParse(stateWithVersion);
+    if (!validation.success) {
+      throw new StateStoreError(
+        ErrorCode.INVALID_INPUT,
+        `Write-time validation failed: ${validation.error.message}`,
+      );
+    }
   }
 
   const tmpPath = nextTempPath(stateFile, 'tmp');

@@ -2,50 +2,24 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// ─── Mock event store and fold seam ──────────────────────────────────────────
-//
-// These are unit tests of the MAPPING — telemetry view onto runtime metrics —
-// so the fold itself is the seam to stub, not the materializer underneath it.
-// The mock used to stub `ViewMaterializer.materialize`, which meant it also
-// asserted a fold protocol it had reimplemented by hand; #1855 moved that
-// protocol behind `foldToTail`, and the stub is now the one thing this file
-// legitimately fakes. What the fold actually guarantees is covered against a
-// real store in `tests/unit/projections/fold-at-tail.test.ts`.
+// ─── Mock event store and materializer ───────────────────────────────────────
 
 const mockStore = {
   append: vi.fn().mockResolvedValue(undefined),
   query: vi.fn().mockResolvedValue([]),
-  tailSequence: vi.fn().mockResolvedValue(0),
 };
 
 const mockMaterializer = {
-  materializeAt: vi.fn(),
-  getState: vi.fn(() => undefined),
+  materialize: vi.fn(),
+  getState: vi.fn(() => null),
   loadFromSnapshot: vi.fn().mockResolvedValue(undefined),
-  discardFold: vi.fn(),
 };
-
-const foldToTail = vi.fn();
 
 vi.mock('../../../../src/projections/views/tools.js', () => ({
   getOrCreateEventStore: () => mockStore,
   getOrCreateMaterializer: () => mockMaterializer,
   queryDeltaEvents: vi.fn().mockResolvedValue([]),
 }));
-
-vi.mock('../../../../src/projections/fold-at-tail.js', () => ({
-  foldToTail: (...args: unknown[]) => foldToTail(...args),
-}));
-
-/** The fold answers with `state`, covering an arbitrary non-zero tail. */
-function foldReturns(state: unknown): void {
-  foldToTail.mockResolvedValue({ view: state, sequence: 7 });
-}
-
-/** The fold cannot answer — the graceful-degradation arm. */
-function foldThrows(): void {
-  foldToTail.mockRejectedValue(new Error('materialization failed'));
-}
 
 import { queryRuntimeMetrics, queryTelemetryState } from '../../../../src/projections/telemetry/telemetry-queries.js';
 import type { TelemetryViewState } from '../../../../src/projections/telemetry/telemetry-projection.js';
@@ -80,7 +54,7 @@ describe('queryRuntimeMetrics', () => {
       totalTokens: 5000,
       windowSize: 1000,
     };
-    foldReturns(telemetryState);
+    mockMaterializer.materialize.mockReturnValue(telemetryState);
 
     // Act
     const metrics = await queryRuntimeMetrics(mockStore as never, STATE_DIR);
@@ -100,7 +74,7 @@ describe('queryRuntimeMetrics', () => {
       totalTokens: 0,
       windowSize: 1000,
     };
-    foldReturns(telemetryState);
+    mockMaterializer.materialize.mockReturnValue(telemetryState);
 
     // Act
     const metrics = await queryRuntimeMetrics(mockStore as never, STATE_DIR);
@@ -113,7 +87,9 @@ describe('queryRuntimeMetrics', () => {
 
   it('QueryRuntimeMetrics_MaterializationFailure_ReturnsZeroMetrics', async () => {
     // Arrange: materializer throws
-    foldThrows();
+    mockMaterializer.materialize.mockImplementation(() => {
+      throw new Error('materialization failed');
+    });
 
     // Act
     const metrics = await queryRuntimeMetrics(mockStore as never, STATE_DIR);
@@ -145,7 +121,7 @@ describe('queryTelemetryState', () => {
       totalTokens: 1500,
       windowSize: 1000,
     };
-    foldReturns(telemetryState);
+    mockMaterializer.materialize.mockReturnValue(telemetryState);
 
     // Act
     const state = await queryTelemetryState(mockStore as never, STATE_DIR);
@@ -158,7 +134,9 @@ describe('queryTelemetryState', () => {
 
   it('QueryTelemetryState_MaterializationFailure_ReturnsNull', async () => {
     // Arrange
-    foldThrows();
+    mockMaterializer.materialize.mockImplementation(() => {
+      throw new Error('materialization failed');
+    });
 
     // Act
     const state = await queryTelemetryState(mockStore as never, STATE_DIR);

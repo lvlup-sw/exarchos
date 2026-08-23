@@ -10,28 +10,39 @@ import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { envelopeWrap } from '../envelope-wrap.js';
 import { deriveRepoKey } from '../utils/paths.js';
 import { workflowLogger } from '../logger.js';
-import { toViewFailure } from '../projections/degraded-result.js';
+import {
+  guardProjectionDegraded,
+  resolveProjectionStreamId,
+} from '../projections/degraded-result.js';
 
 const workflowActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!.actions;
 
 /**
- * #1855 — there is no consumer-side degraded gate here any more, and its
- * removal is the fix rather than a relaxation.
+ * DR-4 — workflow actions whose answer is derived from a materialized fold.
  *
- * `exarchos_workflow` holds no materializer cursor of its own, so the gate
- * could only read a verdict some other surface had published and refuse on it.
- * That verdict was a point-in-time observation of one process's cache, treated
- * as a current fact about the stream; nothing revalidated it, and the only
- * surface that could clear it was one the same condition disabled. `get` stayed
- * refused across processes and restarts on a lag of one event, and a fabricated
- * marker could wedge a workflow that was never unhealthy.
+ * `get` resolves every query shape (scalar, dot-path, field projection) through
+ * `moduleViewMaterializer.materialize` (workflow/tools.ts) — the same LRU CB-8
+ * caught serving a cancelled workflow as `plan-review`. It is therefore the
+ * workflow surface that can hand back a stale payload, and the one guarded.
  *
- * `get` now establishes its own coverage: `handleGetFromEvents` folds
- * `workflow-state` to the stream's durable tail through
- * `projections/fold-at-tail.ts` before it answers. A guarantee a surface can
- * prove for itself does not need a gate reporting on it from outside, and
- * `toViewFailure` keeps the one genuinely undecidable case a failure.
+ * Everything else is deliberately EXEMPT, and the exemptions are the causality
+ * argument, not an oversight:
+ *
+ * - `init` / `transition` / `update` / `cancel` / `checkpoint` / `feedback`
+ *   are WRITES. They append to the durable log, which is authoritative by
+ *   construction; refusing them because a derived read is stale would block
+ *   progress on a system whose source of truth is perfectly healthy.
+ * - `cleanup` / `reconcile` are the RECOVERY path. Guarding the actions that
+ *   repair a stale projection with the state that says the projection is stale
+ *   is a deadlock, not a safeguard.
+ * - `rehydrate` re-folds from the authoritative log whenever the cached
+ *   snapshot contradicts the tail (`plan.source`, EFF-004) and stamps the same
+ *   `_meta.projectionDegraded` verdict on the result. Its answer is
+ *   event-derived, so it is not a stale payload — it is the other recovery
+ *   surface, and refusing it would remove the caller's way back.
+ * - `describe` is static schema; it reads no stream at all.
  */
+const PROJECTION_DERIVED_WORKFLOW_ACTIONS: ReadonlySet<string> = new Set(['get']);
 
 // HATEOAS envelope wrapping is the shared `envelopeWrap` (../envelope-wrap.ts).
 // Successful workflow results are re-shaped into `Envelope<T>` at the tool
@@ -60,6 +71,26 @@ export async function handleWorkflow(
   const { stateDir, eventStore } = ctx;
   const { action, ...rest } = args;
 
+  // DR-4 consumer chokepoint. `exarchos_workflow` holds no materializer cursors
+  // of its own, so it cannot re-derive the freshness verdict — it READS the
+  // durable state `exarchos_view` publishes (`meta/projection-health`) and
+  // refuses to serve a projection-derived answer for a stream recorded as
+  // degraded. This is what makes the guarantee hold across processes and across
+  // a restart with a cold cache, which the ephemeral `_meta` stamp never could.
+  if (typeof action === 'string' && PROJECTION_DERIVED_WORKFLOW_ACTIONS.has(action)) {
+    const refusal = await guardProjectionDegraded(
+      eventStore,
+      resolveProjectionStreamId(rest),
+      {
+        tool: 'exarchos_workflow',
+        action,
+        onError: (err) =>
+          workflowLogger.warn({ action, err }, 'durable projection-health read failed'),
+      },
+    );
+    if (refusal) return refusal;
+  }
+
   switch (action) {
     case 'init': {
       // DR-5: the composite layer owns caller identity — compute the memoized
@@ -76,19 +107,7 @@ export async function handleWorkflow(
       );
     }
     case 'get':
-      try {
-        return envelopeWrap(
-          await handleGet(rest as Parameters<typeof handleGet>[0], stateDir, eventStore),
-          startedAt,
-        );
-      } catch (err) {
-        // A fold that cannot be shown to cover the tail is undecidable, not a
-        // generic handler crash; `toViewFailure` keeps it on the reserved code
-        // and lets every other fault propagate as before.
-        const failure = toViewFailure(err, { tool: 'exarchos_workflow', action });
-        if (failure.error?.code !== 'VIEW_ERROR') return failure;
-        throw err;
-      }
+      return envelopeWrap(await handleGet(rest as Parameters<typeof handleGet>[0], stateDir, eventStore), startedAt);
     case 'transition': {
       // T36/T37/DR-4 — canonical phase-mutation surface. Routes through the
       // shared `applyTransition()` helper in `handleTransition`. v2.11

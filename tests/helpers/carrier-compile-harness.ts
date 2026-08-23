@@ -102,20 +102,74 @@ export interface Relaxation {
 /**
  * Write a standalone copy of the carrier into `dir`, with `relaxations` applied.
  *
- * Tractable because the carrier has exactly ONE import — a type-only
- * `EventType` — so rewriting that specifier to a local stub yields a module
- * that compiles alone. The stub widens `EventType` to `string`, which is sound
- * for these fixtures: they are about whether a field may be omitted or a brand
- * forged, never about whether an event name is registered.
+ * Tractable because the carrier's imports are rewritten onto local stubs.
+ * The event-name stub widens `EventType` to `string`, which is sound for
+ * these fixtures: they are about whether a field may be omitted or a brand
+ * forged, never about whether an event name is registered. The replay and
+ * contract stubs are similarly wide — the probes do not exercise those
+ * types as subjects.
  *
  * Copying is also what keeps every probe off the live tree. A probe that edited
  * `src/` could not restore cleanly across a thrown assertion, a timeout or a
  * worker crash, and the residue would redden unrelated gates.
  */
 export function materializeCarrier(dir: string, relaxations: readonly Relaxation[]): void {
-  fs.writeFileSync(path.join(dir, 'schemas.ts'), 'export type EventType = string;\n', 'utf8');
+  fs.writeFileSync(
+    path.join(dir, 'schemas.ts'),
+    [
+      'export type EventType = string;',
+      'export function isBuiltInEventType(name: string): name is EventType {',
+      '  return typeof name === "string" && name.length > 0;',
+      '}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(dir, 'request-context.ts'),
+    [
+      'export type AuthenticatedRequestContext = { readonly subjectId: string };',
+      'export interface ReplayIdentity {',
+      '  readonly idempotencyKey: string;',
+      '  readonly subjectId: string;',
+      '  readonly requestDigest: string;',
+      '}',
+      'export function deriveReplayIdentity(',
+      '  ctx: AuthenticatedRequestContext,',
+      '  idempotencyKey: string,',
+      '  _payload: unknown,',
+      '): ReplayIdentity {',
+      '  return { idempotencyKey, subjectId: ctx.subjectId, requestDigest: "probe" };',
+      '}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(dir, 'action-contract.ts'),
+    [
+      "export type ReplayPolicy = { readonly kind: 'safe-repeat' | 'claim-required' | 'reject-replay' };",
+      'export type ActionEmission = {',
+      '  readonly event: string;',
+      "  readonly condition: 'always' | 'conditional';",
+      '  readonly owner: string;',
+      "  readonly role: 'primary' | 'audit';",
+      '  readonly description?: string;',
+      '};',
+      'export type ActionContract = {',
+      '  readonly replay: ReplayPolicy;',
+      '  readonly emissions:',
+      "    | { readonly kind: 'none'; readonly because: string }",
+      "    | { readonly kind: 'declared'; readonly values: readonly ActionEmission[] };",
+      '};',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
   let source = fs.readFileSync(CARRIER_PATH, 'utf8');
   source = source.replace("from '../../events/schemas.js'", "from './schemas.js'");
+  source = source.replace("from '../../contract/request-context.js'", "from './request-context.js'");
+  source = source.replace("from '../../registry/action-contract.js'", "from './action-contract.js'");
 
   if (relaxations.length > 0) {
     const at = source.indexOf(PROOF_BLOCK_MARKER);

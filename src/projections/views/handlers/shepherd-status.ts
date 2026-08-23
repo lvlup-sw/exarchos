@@ -1,4 +1,3 @@
-import { toViewFailure } from '../../degraded-result.js';
 import { narrowAffordance } from '../../../dispatch/core/economy.js';
 import { EventStore } from '../../../events/store.js';
 import type { ToolResult } from '../../../format.js';
@@ -8,7 +7,7 @@ import { CompactPrStatus, compactPrStatus } from './analytic-contract.js';
 import { resolveInventoryWindow } from './inventory-contract.js';
 import { getOrCreateMaterializer } from './materializer.js';
 import { buildPage } from './pipeline.js';
-import { foldToTail } from '../../fold-at-tail.js';
+import { queryDeltaEvents } from './query.js';
 
 // ─── View Shepherd Status Handler ────────────────────────────────────────────
 
@@ -29,7 +28,12 @@ export async function handleViewShepherdStatus(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const { view } = await foldToTail<ShepherdStatusState>(store, materializer, streamId, SHEPHERD_STATUS_VIEW);
+    const events = await queryDeltaEvents(store, materializer, streamId, SHEPHERD_STATUS_VIEW);
+    const view = materializer.materialize<ShepherdStatusState>(
+      streamId,
+      SHEPHERD_STATUS_VIEW,
+      events,
+    );
 
     // DR-8 (Task 024) — `prs` is the dominant list, so page it. Compact-by-
     // default drops each PR's per-severity breakdown; `detail: true` restores it.
@@ -51,6 +55,12 @@ export async function handleViewShepherdStatus(
       ...(nextActions.length > 0 ? { next_actions: nextActions } : {}),
     };
   } catch (err) {
-    return toViewFailure(err, { tool: 'exarchos_view', action: 'shepherd_status' });
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
   }
 }

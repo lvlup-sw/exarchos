@@ -1,9 +1,7 @@
-import { toViewFailure } from '../../degraded-result.js';
 import { EventStore } from '../../../events/store.js';
 import type { ToolResult } from '../../../format.js';
 import { type AsOfParam, resolveAsOfEvents } from '../../cursor.js';
 import { WORKFLOW_STATUS_VIEW, type WorkflowStatusViewState } from '../workflow-status-view.js';
-import { foldToTail } from '../../fold-at-tail.js';
 import { getOrCreateMaterializer } from './materializer.js';
 import { queryDeltaEvents } from './query.js';
 import { readWorkflowStateJson } from './streams.js';
@@ -33,12 +31,11 @@ export async function handleViewWorkflowStatus(
           WORKFLOW_STATUS_VIEW,
           resolveAsOfEvents(await store.query(streamId), args.asOf),
         )
-      : (await foldToTail<WorkflowStatusViewState>(
-          store,
-          materializer,
+      : materializer.materialize<WorkflowStatusViewState>(
           streamId,
           WORKFLOW_STATUS_VIEW,
-        )).view;
+          await queryDeltaEvents(store, materializer, streamId, WORKFLOW_STATUS_VIEW),
+        );
 
     // Fix 2 (#1184) — `tasksTotal` is a plan-state fact: the planner stamps
     // the full task list via `workflow set` (state.patched events), and
@@ -81,6 +78,12 @@ export async function handleViewWorkflowStatus(
 
     return { success: true, data };
   } catch (err) {
-    return toViewFailure(err, { tool: 'exarchos_view', action: 'workflow_status' });
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
   }
 }

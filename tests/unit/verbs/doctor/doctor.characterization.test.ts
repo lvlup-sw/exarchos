@@ -101,6 +101,7 @@ const PINNED_CHECKS: ReadonlyArray<{
   { category: 'plugin', name: 'install-freshness' },
   { category: 'remote', name: 'remote-mcp' },
   { category: 'invariants', name: 'invariants-catalog' },
+  { category: 'invariants', name: 'action-contract-closure' },
   { category: 'verification', name: 'verification-toolchain' },
 ];
 
@@ -166,8 +167,8 @@ describe('doctor characterization (DR-9 baseline)', () => {
     // (13 → 15 updated by Task 017: onramp-block-drift + retired-hooks-present;
     // 15 → 16 by Task 011: stale-skill-dirs; 16 → 17 by Task 019:
     // store-path-divergence; 17 → 18 by P05-04: install-freshness.)
-    expect(ALL_CHECKS).toHaveLength(18);
-    expect(checks).toHaveLength(18);
+    expect(ALL_CHECKS).toHaveLength(19);
+    expect(checks).toHaveLength(19);
 
     const observedIdentity = checks.map((c) => ({
       category: c.category,
@@ -177,7 +178,7 @@ describe('doctor characterization (DR-9 baseline)', () => {
 
     // The name set is exactly the pinned set (no dupes, no strays).
     const observedNames = new Set(checks.map((c) => c.name));
-    expect(observedNames.size).toBe(18);
+    expect(observedNames.size).toBe(19);
     for (const { name } of PINNED_CHECKS) {
       expect(observedNames.has(name)).toBe(true);
     }
@@ -247,7 +248,7 @@ describe('doctor characterization (DR-9 baseline)', () => {
 
     // Pinned cross-field invariants between the event and the doctor output.
     expect(payload.checkCount).toBe(checks.length);
-    expect(payload.checkCount).toBe(18);
+    expect(payload.checkCount).toBe(19);
     expect(payload.summary).toEqual(summary);
     expect(payload.failedCheckNames).toEqual(
       checks.filter((c) => c.status === 'Fail').map((c) => c.name),

@@ -136,6 +136,8 @@ describe('initializeContext', () => {
       const ctx = await initializeContext(tmpDir);
       expect(ctx.capabilityResolver).toBeDefined();
       expect(ctx.capabilityResolver!.has('anthropic_native_caching')).toBe(true);
+      expect(ctx.capabilityResolver!.has('fs:write')).toBe(true);
+      expect(ctx.capabilityResolver!.has('shell:exec')).toBe(true);
       // Other capability strings are NOT reported — the resolver is a
       // closed allowlist, not a wildcard.
       expect(ctx.capabilityResolver!.has('made_up_capability')).toBe(false);
@@ -148,17 +150,19 @@ describe('initializeContext', () => {
     }
   });
 
-  it('InitializeContext_DisableCacheHintsEnv_ResolverReportsNothing', async () => {
+  it('InitializeContext_DisableCacheHintsEnv_DropsCacheHintKeepsProcessGrant', async () => {
     const prior = process.env.EXARCHOS_DISABLE_CACHE_HINTS;
     process.env.EXARCHOS_DISABLE_CACHE_HINTS = '1';
     try {
       const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
       const ctx = await initializeContext(tmpDir);
       expect(ctx.capabilityResolver).toBeDefined();
-      // Empty resolver — `applyCacheHints` becomes a no-op and the
-      // `_cacheHints` field is omitted from response envelopes.
+      // The env kill switch drops the handshake hint token only.
+      // Process grants stay so `needs: declared` actions still admit.
       expect(ctx.capabilityResolver!.has('anthropic_native_caching')).toBe(false);
-      expect(ctx.capabilityResolver!.list()).toEqual([]);
+      expect(ctx.capabilityResolver!.has('fs:write')).toBe(true);
+      expect(ctx.capabilityResolver!.list()).not.toContain('anthropic_native_caching');
+      expect(ctx.capabilityResolver!.list().length).toBeGreaterThan(0);
     } finally {
       if (prior === undefined) {
         delete process.env.EXARCHOS_DISABLE_CACHE_HINTS;

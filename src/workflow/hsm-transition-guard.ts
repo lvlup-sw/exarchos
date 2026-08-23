@@ -615,6 +615,12 @@ function mergeFloors(
 }
 
 export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
+  /**
+   * Decide a request `target` against the HSM definition. ActionId admission
+   * does not name or invent this edge — `workflow.transition` stays one
+   * ActionId whose contract abstains from edge obligations, and this primitive
+   * remains the only authority on whether `currentPhase → targetPhase` is legal.
+   */
   async attempt(
     featureId: string,
     currentPhase: string,

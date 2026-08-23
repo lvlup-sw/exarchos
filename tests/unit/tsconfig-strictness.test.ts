@@ -136,15 +136,20 @@ describe('DR-14: escape-hatch census', () => {
   // repo compiles"; that set simply got smaller. The typecheck hole itself is
   // the real finding and is tracked separately — this ledger records only that
   // the two gates still agree with each other.
-  // PAYDOWN — nonNull 72 -> 70, asCast 1698 -> 1695. `handleGet` and
-  // `handleSet` reached the ES v2 read and snapshot paths through a settable
-  // module singleton that nothing in `src/` ever set, so every use of it needed
-  // a `!` to tell the compiler the value was present when the code could not
-  // show that it was. The read path now resolves the materializer per stateDir
-  // and the snapshot path is gone, taking both assertions and three `as` casts
-  // (the snapshot's shape juggling) with them. No debt was moved; five sites
-  // stopped needing an escape hatch.
-  const BASELINE: CastCounts = { nonNull: 70, asCast: 1695, asAny: 0 };
+  // Re-baselined for the action-contract surface. The paydown came first:
+  // decorative `as const` in contract literals became `satisfies` (which this
+  // census exempts by design), each closed vocabulary now declares its union
+  // instead of pinning an array and deriving it back, the validate-then-narrow
+  // sites became type predicates, and `Envelope` gained the field the wrapper
+  // was casting to reach. That took the delta from 77 to 24.
+  //
+  // What remains is boundary narrowing that has no cast-free form — dynamic
+  // `import()` results, parsed JSON snapshots, oracle fixtures — plus the
+  // `as const` this census counts although the module header defines its
+  // subject as assertions that "silence the checker without proving
+  // anything", which `as const` does not do. That mismatch is older than this
+  // change and is left as a separate question.
+  const BASELINE: CastCounts = { nonNull: 73, asCast: 1722, asAny: 0 };
 
   // Declared budget = MAX escape-hatch sites maintenance work may introduce
   // before the NEXT documented re-baseline. `as any` may never grow.

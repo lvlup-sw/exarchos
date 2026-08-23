@@ -11,6 +11,8 @@ import {
   replayedEvidence,
   emissionRecorder,
   effectIdempotencyKey,
+  effectPlanFromContract,
+  idempotentFromReplay,
   isSuccess,
   isError,
   isDryRun,
@@ -20,6 +22,7 @@ import {
   DRY_RUN,
   type EffectPlan,
   type EffectEmission,
+  type EffectPlanInput,
   type EmissionRecorder,
   type EmissionSink,
 } from '../../../../src/dispatch/core/effect-carrier.js';
@@ -565,5 +568,101 @@ describe('the edges that universal declaration puts pressure on', () => {
       expect(outcome.evidence.kind).toBe('recorded');
       if (outcome.evidence.kind === 'recorded') expect(outcome.evidence.receipts).toEqual([]);
     }
+  });
+});
+
+const PLAN_FIELDS: EffectPlanInput = {
+  effectClass: PLAN.effectClass,
+  owner: PLAN.owner,
+  description: PLAN.description,
+  compensation: PLAN.compensation,
+  emits: PLAN.emits,
+};
+
+describe('effect plan replay binding', () => {
+  it('Replay_EffectPlanIdempotent_DerivesFromContract', () => {
+    expect(idempotentFromReplay({ kind: 'safe-repeat' })).toBe(true);
+    expect(
+      idempotentFromReplay({ kind: 'claim-required', scope: 'stream-subject-request' }),
+    ).toBe(false);
+    expect(
+      idempotentFromReplay({ kind: 'reject-replay', because: 'external side effect' }),
+    ).toBe(false);
+
+    expect(
+      effectPlanFromContract(PLAN_FIELDS, { replay: { kind: 'safe-repeat' } }).idempotent,
+    ).toBe(true);
+    expect(
+      effectPlanFromContract(PLAN_FIELDS, {
+        replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+      }).idempotent,
+    ).toBe(false);
+    expect(
+      effectPlanFromContract(PLAN_FIELDS, {
+        replay: { kind: 'reject-replay', because: 'external side effect' },
+      }).idempotent,
+    ).toBe(false);
+
+    const disagreeing = { ...PLAN_FIELDS, idempotent: true };
+    expect(
+      effectPlanFromContract(disagreeing, {
+        replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+      }).idempotent,
+    ).toBe(false);
+  });
+});
+
+describe('effect plan emission binding', () => {
+  const siblingEmit = records({ event: 'gate.executed', when: 'before' });
+  const contractEmission = {
+    event: 'workflow.started' as const,
+    condition: 'always' as const,
+    owner: 'workflow',
+    role: 'primary' as const,
+  };
+
+  it('derives emit identity and owner/role from the nested contract', () => {
+    const plan = effectPlanFromContract(
+      {
+        ...PLAN_FIELDS,
+        owner: 'effect-owner',
+        emits: records({ event: 'gate.executed', when: 'on-success', owner: 'sibling', role: 'recovery' }),
+      },
+      {
+        replay: { kind: 'safe-repeat' },
+        emissions: { kind: 'declared', values: [contractEmission] },
+      },
+    );
+    expect(declaredEmissions(plan)).toEqual([
+      { event: 'workflow.started', when: 'on-success', owner: 'workflow', role: 'primary' },
+    ]);
+    expect(plan.owner).toBe('effect-owner');
+  });
+
+  it('keeps per-effect when independent of the contract condition', () => {
+    const plan = effectPlanFromContract(
+      {
+        ...PLAN_FIELDS,
+        emits: records({ event: 'workflow.started', when: 'before' }),
+      },
+      {
+        replay: { kind: 'safe-repeat' },
+        emissions: { kind: 'declared', values: [contractEmission] },
+      },
+    );
+    expect(declaredEmissions(plan)[0]?.when).toBe('before');
+    expect(declaredEmissions(plan)[0]?.event).toBe('workflow.started');
+    expect(plan.emits.kind).toBe('records');
+  });
+
+  it('a reasoned none wins over sibling records', () => {
+    const plan = effectPlanFromContract(
+      { ...PLAN_FIELDS, emits: siblingEmit },
+      {
+        replay: { kind: 'safe-repeat' },
+        emissions: { kind: 'none', because: 'this action appends nothing' },
+      },
+    );
+    expect(plan.emits).toEqual(recordsNothing('this action appends nothing'));
   });
 });

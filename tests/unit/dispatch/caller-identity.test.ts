@@ -16,6 +16,7 @@ import {
   setCustomToolActionHandler,
   unregisterCustomTool,
 } from '../../../src/registry.js';
+import { none } from '../../../src/registry/action-contract.js';
 import { InMemoryBackend } from '../../../src/storage/memory-backend.js';
 import {
   deriveLocalOperatorIdentity,
@@ -193,6 +194,18 @@ describe('trusted caller identity and authorization snapshots', () => {
         schema: z.object({}).passthrough(),
         phases: new Set<string>(),
         roles: new Set<string>(['any']),
+        actionContract: {
+          requires: none('identity probe has no additional obligations'),
+          ensures: none('identity probe has no durable postcondition'),
+          needs: none('identity probe declares no capabilities'),
+          touches: {
+            frame: 'single-machine',
+            resources: none('identity probe touches no durable resources'),
+          },
+          executionAuthority: { kind: 'local' as const },
+          replay: { kind: 'claim-required' as const, scope: 'stream-subject-request' as const },
+          emissions: none('identity probe emits no events'),
+        },
       }],
     });
     setCustomToolActionHandler(toolName, 'probe', async () => {

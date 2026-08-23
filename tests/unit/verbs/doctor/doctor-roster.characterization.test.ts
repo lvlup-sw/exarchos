@@ -60,6 +60,11 @@ import { ALL_CHECKS } from '../../../../src/verbs/doctor/index.js';
  * DELIBERATE PIN UPDATE (P05-04): `install-freshness` (category `plugin`) was
  * added in the plugin block, after `plugin-version-match`, as a CONSCIOUS act,
  * updating the count 17 → 18.
+ * DELIBERATE PIN UPDATE: `action-contract-closure` (category `invariants`) was
+ * added after `invariants-catalog` as a CONSCIOUS act, updating the count
+ * 18 → 19. It gives the ActionId closure evaluator a production caller — until
+ * then the instrument was reachable only from its own tests, and a build whose
+ * contract projections had drifted said nothing about it at runtime.
  */
 const PINNED_ROSTER: ReadonlyArray<{
   category: CheckResult['category'];
@@ -82,6 +87,7 @@ const PINNED_ROSTER: ReadonlyArray<{
   { category: 'plugin', name: 'install-freshness' },
   { category: 'remote', name: 'remote-mcp' },
   { category: 'invariants', name: 'invariants-catalog' },
+  { category: 'invariants', name: 'action-contract-closure' },
   { category: 'verification', name: 'verification-toolchain' },
 ];
 
@@ -164,16 +170,16 @@ async function runRoster(): Promise<readonly CheckResult[]> {
 // ─── Characterization ────────────────────────────────────────────────────────
 
 describe('doctor roster characterization (T0 baseline)', () => {
-  it('DoctorRoster_CurrentBuild_ExactlyEighteenChecksWithStableNames', async () => {
-    // The static export ships exactly eighteen checks, in pinned order. (13 → 15
+  it('DoctorRoster_CurrentBuild_ExactlyNineteenChecksWithStableNames', async () => {
+    // The static export ships exactly nineteen checks, in pinned order. (13 → 15
     // by Task 017: onramp-block-drift + retired-hooks-present; 15 → 16 by
     // Task 011: stale-skill-dirs; 16 → 17 by Task 019: store-path-divergence;
-    // 17 → 18 by P05-04: install-freshness.)
-    expect(ALL_CHECKS).toHaveLength(18);
-    expect(PINNED_ROSTER).toHaveLength(18);
+    // 17 → 18 by P05-04: install-freshness; 18 → 19: action-contract-closure.)
+    expect(ALL_CHECKS).toHaveLength(19);
+    expect(PINNED_ROSTER).toHaveLength(19);
 
     const results = await runRoster();
-    expect(results).toHaveLength(18);
+    expect(results).toHaveLength(19);
 
     // Each check, run through the REAL ALL_CHECKS, stamps its own identity —
     // we read (category, name) off the returned result rather than transcribing.
@@ -185,7 +191,7 @@ describe('doctor roster characterization (T0 baseline)', () => {
 
     // The name set is exactly the pinned set: no duplicates, no strays.
     const observedNames = new Set(results.map((r) => r.name));
-    expect(observedNames.size).toBe(18);
+    expect(observedNames.size).toBe(19);
     for (const { name } of PINNED_ROSTER) {
       expect(observedNames.has(name)).toBe(true);
     }

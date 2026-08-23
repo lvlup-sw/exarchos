@@ -5,7 +5,8 @@ import * as path from 'node:path';
 import {
   handleInit,
   handleSet,
-  } from '../../../src/workflow/tools.js';
+  configureWorkflowMaterializer,
+} from '../../../src/workflow/tools.js';
 
 import { EventStore } from '../../../src/events/store.js';
 import { registerWorkflowType, unregisterWorkflowType } from '../../../src/workflow/state-machine.js';
@@ -21,6 +22,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  configureWorkflowMaterializer(null);
   closeOpenDatabases();
   await rmrfAsync(tmpDir);
 });

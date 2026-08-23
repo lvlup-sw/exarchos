@@ -485,8 +485,17 @@ function raceGitExec(
   _repoRoot: string,
   args: readonly string[],
 ): GitExecResult {
+  if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') {
+    return { stdout: '/repo\n', exitCode: 0 };
+  }
   if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
     return { stdout: `${RACE_ROLLBACK_SHA}\n`, exitCode: 0 };
+  }
+  if (args[0] === 'worktree' && args[1] === 'list') {
+    return {
+      stdout: 'worktree /repo\nHEAD aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nbranch refs/heads/feat/race\n',
+      exitCode: 0,
+    };
   }
   return { stdout: '', exitCode: 0 };
 }
@@ -553,6 +562,7 @@ describe('handleMergeOrchestrate race (#1303 α-03)', () => {
           persistState: async () => {
             /* no-op */
           },
+          gitExec: raceGitExec,
         },
         ctx,
       );

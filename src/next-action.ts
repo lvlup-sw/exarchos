@@ -109,3 +109,60 @@ export const NextAction = z.union([
 ]);
 
 export type NextAction = z.infer<typeof NextAction>;
+
+/**
+ * Control-owned next-action verbs. These stay on the HSM/control envelope
+ * and are outside ActionId totality — they must never be published as
+ * registry advertisements.
+ */
+export const CONTROL_OWNED_VERBS = [
+  'retry_with_task',
+  'divergent_loop',
+] as const;
+
+export type ControlOwnedVerb = (typeof CONTROL_OWNED_VERBS)[number];
+
+const CONTROL_OWNED_VERB_SET: ReadonlySet<string> = new Set(CONTROL_OWNED_VERBS);
+
+export function isControlOwnedVerb(verb: string): verb is ControlOwnedVerb {
+  return CONTROL_OWNED_VERB_SET.has(verb);
+}
+
+/**
+ * Registry advertisement envelope. Distinct from {@link NextAction}: an
+ * advertised item is an allow-decided ActionId plus the workflow-scoped
+ * subject it was decided against. Phase names and control verbs are not
+ * members of this schema.
+ */
+export const RegistryAdvertisement = z
+  .object({
+    actionId: z
+      .string()
+      .min(1)
+      .max(256)
+      .regex(
+        /^[A-Za-z0-9][A-Za-z0-9._:-]*$/,
+        'ActionId may contain only letters, digits, dot, underscore, colon, and hyphen',
+      ),
+    subject: z
+      .object({
+        featureId: z.string().min(1).max(256),
+        stream: z.string().min(1).max(256),
+      })
+      .strict(),
+    digest: z
+      .object({
+        algorithm: z.literal('sha256'),
+        value: z.string().regex(/^[a-f0-9]{64}$/),
+      })
+      .strict(),
+  })
+  .strict();
+
+export type RegistryAdvertisement = z.infer<typeof RegistryAdvertisement>;
+
+export function isRegistryAdvertisement(
+  value: unknown,
+): value is RegistryAdvertisement {
+  return RegistryAdvertisement.safeParse(value).success;
+}

@@ -43,7 +43,16 @@ import { handleViewTelemetry } from '../telemetry/tools.js';
 import type { QualityHintsConfig } from '../../workflow/capabilities/resolver.js';
 import { deriveRepoKey } from '../../utils/paths.js';
 import { viewLogger } from '../../logger.js';
-import { publishProjectionFreshness, readProjectionDegradedState } from '../freshness.js';
+import {
+  assessStreamFreshness,
+  publishProjectionFreshness,
+  toProjectionDegradedMeta,
+  PROJECTION_DEGRADED_META,
+} from '../freshness.js';
+import {
+  guardProjectionDegraded,
+  toProjectionDegradedResult,
+} from '../degraded-result.js';
 
 const viewActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_view')!.actions;
 
@@ -114,36 +123,49 @@ export async function handleView(
   deps?: WaitDeps,
 ): Promise<ToolResult> {
   const result = await dispatchViewAction(args, ctx, deps);
-  return clearProjectionHealth(result, args, ctx);
+  return stampProjectionFreshness(result, args, ctx);
 }
 
 /**
- * The read-surface chokepoint, after #1855: it CLEARS projection health, it no
- * longer withholds on it.
+ * EFF-002 read-surface chokepoint / DR-4 detector, publisher AND consumer.
  *
- * What used to stand here compared every cached fold of the stream against the
- * durable tail, published the verdict, and dropped the payload when any fold
- * disagreed. The comparison quantified over every fold; a read advances exactly
- * one. So on any stream with more than one cached fold the verdict could not
- * come back clean, and `workflow-state` — folded by orchestrate verbs and gates,
- * folded by no view action — made it permanent. Since this surface was the only
- * publisher of `projection.recovered`, the state it published was one only it
- * could clear and one it could no longer reach.
+ * Every view answer routes through here. `exarchos_view` is the only surface
+ * that holds BOTH halves of the comparison — the durable tail and the live
+ * materializer cursors — so it is the surface that detects a disagreement,
+ * makes it durable, and clears it again. `exarchos_workflow` and
+ * `exarchos_orchestrate` are pure consumers of what this publishes.
  *
- * Each handler now folds its own view to the tail before answering
- * (`projections/fold-at-tail.ts`), so by the time a successful result arrives
- * here its coverage is already established and there is nothing to withhold.
- * What is left is the other half of the old job: a stream that answered a read
- * is a stream that can be served, so any durable `projection.degraded` row it
- * still carries is a spent observation. Clearing it is what keeps the health
- * journal a record of live conditions rather than a latch.
+ * Order is load-bearing:
  *
- * Deliberately conservative, unchanged from before:
+ *   1. The action has already run, so the folds have been brought as current as
+ *      a re-fold can bring them. Assessing BEFORE the dispatch would report a
+ *      staleness the read itself was about to fix, and — because this is also
+ *      the recovery surface — would wedge: the one action able to clear the
+ *      state would be the one refused by it.
+ *   2. Publish the live verdict. Degraded mints (idempotently) a
+ *      `projection.degraded` row; freshly-caught-up mints the paired
+ *      `projection.recovered`, releasing every consumer blocked on it. This is
+ *      the production write path for T-06's durable state.
+ *   3. Refuse. A disagreement that survived step 1 is one a re-fold cannot fix
+ *      — a fold ahead of a pruned log, or a sibling projection of the same
+ *      stream still trailing — so the payload is dropped and the shared typed
+ *      degraded result returned in its place (DR-4).
+ *
+ * `_meta.projectionDegraded` is KEPT alongside the typed result rather than
+ * subsumed: it is the pre-existing per-response courtesy, it is forwarded
+ * verbatim by `envelopeWrap`, and `workflow/rehydrate.ts` stamps the same key
+ * for the case where a contradictory cache was discarded and the answer IS
+ * authoritative — a state that must stay expressible as an annotated success.
+ * What changed is that `_meta` is no longer the ONLY signal, and no longer
+ * rides on a `success: true` carrying the stale payload.
+ *
+ * Deliberately conservative:
  * - A failed result is returned untouched; the error is the signal.
- * - Any fault publishing recovery leaves the response alone. The health journal
- *   must never be the reason a healthy read fails.
+ * - A stream with no cached folds is fresh — a cold read folds from scratch.
+ * - Any fault computing or publishing freshness leaves the response unchanged.
+ *   The freshness probe must never be the reason a healthy read fails.
  */
-async function clearProjectionHealth(
+async function stampProjectionFreshness(
   result: ToolResult,
   args: Record<string, unknown>,
   ctx: DispatchContext,
@@ -153,26 +175,70 @@ async function clearProjectionHealth(
   if (streamId === undefined || streamId.length === 0) return result;
 
   try {
-    // The held row decides whether there is anything to do, so it is read
-    // first. `publishProjectionFreshness` would reach the same conclusion, but
-    // only after this response path had already paid for a `tailSequence` call
-    // whose value the healthy case discards. Almost every read is the healthy
-    // case.
-    const held = await readProjectionDegradedState(ctx.eventStore, streamId);
-    if (held === undefined) return result;
+    const materializer = getOrCreateMaterializer(ctx.stateDir);
+    const cursors = materializer?.getStreamCursors?.(streamId) ?? [];
+    if (cursors.length === 0) {
+      // No fold of our own to judge — but another process may have recorded
+      // this stream degraded, and serving it as a clean success would be the
+      // exact cross-process blind spot DR-4 exists to close.
+      return (
+        (await guardProjectionDegraded(ctx.eventStore, streamId, {
+          tool: 'exarchos_view',
+          action: typeof args['action'] === 'string' ? args['action'] : undefined,
+          onError: (err) =>
+            viewLogger.warn({ streamId, err }, 'durable projection-health read failed'),
+        })) ?? result
+      );
+    }
 
     const eventTail = await ctx.eventStore.tailSequence(streamId);
-    await publishProjectionFreshness(ctx.eventStore, streamId, {
-      degraded: false,
-      eventTail,
-      projectionCursor: eventTail,
-      lag: 0,
-      staleViews: [],
+    const freshness = assessStreamFreshness(eventTail, cursors);
+
+    // (2) Publish — the production write path for the durable state. Degraded
+    // records; recovered releases. Never allowed to fail the read.
+    let durable: Awaited<ReturnType<typeof publishProjectionFreshness>>;
+    try {
+      durable = await publishProjectionFreshness(ctx.eventStore, streamId, freshness);
+    } catch (err) {
+      viewLogger.warn({ streamId, err }, 'publishing projection-health state failed');
+    }
+
+    const meta = toProjectionDegradedMeta(freshness);
+    if (meta === undefined) return result;
+
+    viewLogger.warn(
+      { streamId, ...meta },
+      'projection cursors disagree with the durable event tail; response refused as degraded (EFF-002/DR-4)',
+    );
+
+    // (3) Refuse. The stale payload is dropped, not annotated — a caller that
+    // branches on `success` must not be able to act on it.
+    const degraded =
+      durable ??
+      // The publish leg failed; the verdict is still true and still ours to
+      // report, so synthesize the same shape from the live comparison rather
+      // than silently downgrading to a success.
+      {
+        streamId,
+        reason: meta.reason,
+        eventTail: meta.eventTail,
+        projectionCursor: meta.projectionCursor,
+        lag: meta.lag,
+        staleViews: meta.staleViews,
+        sequence: 0,
+        observedAt: new Date().toISOString(),
+      };
+    const refusal = toProjectionDegradedResult(degraded, {
+      tool: 'exarchos_view',
+      action: typeof args['action'] === 'string' ? args['action'] : undefined,
     });
-  } catch (err) {
-    viewLogger.warn({ streamId, err }, 'clearing projection-health state failed');
+    return {
+      ...refusal,
+      _meta: { ...(result._meta ?? {}), [PROJECTION_DEGRADED_META]: meta },
+    };
+  } catch {
+    return result;
   }
-  return result;
 }
 
 /**
