@@ -53,6 +53,7 @@ import {
 } from '../undeclared-parameters.js';
 import { applyInferredValues } from './inferred-values.js';
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 import {
   detectActiveStoreDivergence,
   describeStoreDivergence,
@@ -61,6 +62,11 @@ import {
   ALLOW_STORE_DIVERGENCE_ENV,
 } from '../../utils/paths.js';
 import type { EventSourcedTaskStore } from '../../projections/task-store/event-sourced-task-store.js';
+import { evaluateActionAdmission } from '../../workflow/admission/action-admission.js';
+import { ADMISSION_EVENT_TYPES } from '../../workflow/admission/types.js';
+import { AdmissionEvidenceRecordedData } from '../../events/schemas.js';
+import type { CallerAuthorizationSnapshot } from '../caller-identity.js';
+import type { ActionContract } from '../../registry/action-contract.js';
 
 // NOTE: `../telemetry/middleware.js` is intentionally NOT imported at module
 // top-level. The middleware instantiates a singleton TraceWriter at import,
@@ -234,6 +240,178 @@ export function extractSingleMissingRequiredField(
   const received = (only as { received?: unknown }).received;
   if (received !== 'undefined' && received !== undefined) return undefined;
   return key;
+}
+
+function isPlainAdmissionRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function registryActionId(tool: string, actionName: string): string {
+  return `${tool}.${actionName}`;
+}
+
+function workflowSubjectFromArgs(
+  args: Record<string, unknown>,
+): { readonly featureId: string; readonly stream: string } | undefined {
+  const featureId =
+    typeof args.featureId === 'string' && args.featureId.length > 0
+      ? args.featureId
+      : undefined;
+  const namedStream =
+    typeof args.stream === 'string' && args.stream.length > 0
+      ? args.stream
+      : typeof args.streamId === 'string' && args.streamId.length > 0
+        ? args.streamId
+        : undefined;
+  const stream = namedStream ?? featureId;
+  if (featureId === undefined || stream === undefined) return undefined;
+  return { featureId, stream };
+}
+
+function admissionAuthorizationFromCaller(
+  snapshot: CallerAuthorizationSnapshot | undefined,
+  resolver: DispatchContext['capabilityResolver'],
+): unknown | undefined {
+  if (snapshot === undefined) return undefined;
+  const capabilityIds = resolver === undefined ? snapshot.capabilities : resolver.list();
+  if (capabilityIds.length === 0) return undefined;
+  return {
+    authorizationId: snapshot.identity.subjectId,
+    posture: snapshot.posture,
+    capabilityIds,
+    resolverVersion: snapshot.resolver.version,
+    resolvedAt: snapshot.resolvedAt,
+  };
+}
+
+async function readTrustedHsmFacts(
+  stateDir: string,
+  featureId: string,
+): Promise<{ readonly phase: string; readonly phaseAttemptId?: string } | undefined> {
+  try {
+    const raw = await readFile(path.join(stateDir, `${featureId}.state.json`), 'utf8');
+    const parsed: unknown = JSON.parse(raw);
+    if (!isPlainAdmissionRecord(parsed)) return undefined;
+    if (typeof parsed.phase !== 'string' || parsed.phase.length === 0) return undefined;
+    const phaseAttemptId =
+      typeof parsed.phaseAttemptId === 'string' && parsed.phaseAttemptId.length > 0
+        ? parsed.phaseAttemptId
+        : undefined;
+    return phaseAttemptId === undefined
+      ? { phase: parsed.phase }
+      : { phase: parsed.phase, phaseAttemptId };
+  } catch {
+    return undefined;
+  }
+}
+
+async function readTrustedAdmissionEvidence(
+  eventStore: EventStore,
+  streamId: string,
+): Promise<readonly unknown[]> {
+  const rows = await eventStore.query(streamId, {
+    type: ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED,
+  });
+  const evidence: unknown[] = [];
+  for (const row of rows) {
+    const parsed = AdmissionEvidenceRecordedData.safeParse(row.data);
+    if (!parsed.success) continue;
+    evidence.push(parsed.data.evidence);
+  }
+  return evidence;
+}
+
+function readActionContract(action: object): ActionContract | undefined {
+  if (!('actionContract' in action)) return undefined;
+  const contract = Reflect.get(action, 'actionContract');
+  return isPlainAdmissionRecord(contract) ? (contract as ActionContract) : undefined;
+}
+
+function hostObligationOf(contract: ActionContract | undefined): string | undefined {
+  const authority = contract?.executionAuthority;
+  if (authority === undefined || authority.kind !== 'host') return undefined;
+  return authority.obligation;
+}
+
+function admissionDeniedResult(
+  tool: string,
+  actionName: string,
+  digestValue: string,
+): ToolResult {
+  return {
+    success: false,
+    error: {
+      code: 'ADMISSION_DENIED',
+      message: `Action "${actionName}" on tool "${tool}" is not admitted against the current trusted workflow subject.`,
+      tool,
+      action: actionName,
+      expectedShape: { digest: { algorithm: 'sha256', value: digestValue } },
+    },
+  };
+}
+
+function hostOwnedObligationResult(obligation: string): ToolResult {
+  return {
+    success: true,
+    data: { obligation },
+  };
+}
+
+/**
+ * Re-evaluate registry ActionId admission against store-trusted state before
+ * the handler or any dispatch effect runs. The snapshot is the same
+ * workflow-scoped subject used to advertise: ActionId, feature/stream,
+ * persisted evidence, authorization, and HSM facts. Request payload (including
+ * a transition target) and a fresh wall-clock are not snapshot members.
+ *
+ * Missing trusted inputs skip this gate so cold probes and create paths stay
+ * side-effect-free. A constructed snapshot that is not allow fails closed.
+ * Host-owned actions return their declared obligation without executing host
+ * work. Transition remains one ActionId; its request target is still decided
+ * by the HSM transition guard after this gate.
+ */
+async function evaluateDispatchAdmission(input: {
+  readonly tool: string;
+  readonly actionName: string;
+  readonly action: object;
+  readonly args: Record<string, unknown>;
+  readonly ctx: DispatchContext;
+  readonly authorization: CallerAuthorizationSnapshot | undefined;
+}): Promise<ToolResult | null> {
+  const contract = readActionContract(input.action);
+  const obligation = hostObligationOf(contract);
+  const subject = workflowSubjectFromArgs(input.args);
+  const authorization = admissionAuthorizationFromCaller(
+    input.authorization,
+    input.ctx.capabilityResolver,
+  );
+
+  if (subject === undefined || authorization === undefined || contract === undefined) {
+    return obligation === undefined ? null : hostOwnedObligationResult(obligation);
+  }
+
+  const hsmFacts = await readTrustedHsmFacts(input.ctx.stateDir, subject.featureId);
+  if (hsmFacts === undefined) {
+    return obligation === undefined ? null : hostOwnedObligationResult(obligation);
+  }
+
+  const evidence = await readTrustedAdmissionEvidence(input.ctx.eventStore, subject.stream);
+  const actionId = registryActionId(input.tool, input.actionName);
+  const decision = evaluateActionAdmission(
+    actionId,
+    {
+      actionId,
+      subject,
+      evidence,
+      authorization,
+      hsmFacts,
+    },
+    contract,
+  );
+  if (decision.verdict !== 'allow') {
+    return admissionDeniedResult(input.tool, input.actionName, decision.digest.value);
+  }
+  return obligation === undefined ? null : hostOwnedObligationResult(obligation);
 }
 
 // ─── T04: Server-side Read-only Action Allowlist (Issue #1192) ─────────────
@@ -1002,6 +1180,16 @@ export async function dispatch(
         });
       }
     }
+
+    const admission = await evaluateDispatchAdmission({
+      tool,
+      actionName,
+      action: matchingAction,
+      args,
+      ctx,
+      authorization,
+    });
+    if (admission !== null) return attachMeta(admission);
 
     // T-12 (P4 of rehydration-machinery-refactor): emit
     // `session.machinery_consumed` on the first non-rehydrate L5 handler
