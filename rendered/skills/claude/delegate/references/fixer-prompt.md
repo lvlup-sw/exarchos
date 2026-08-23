@@ -23,7 +23,10 @@ This posture exists because subagent self-assessment is an unreliable signal. Im
 
 Before making ANY changes:
 1. Run: `pwd`
-2. Verify path contains `.worktrees/`
+2. Confirm that directory is a **linked** git worktree — ask git, not the path:
+   `[ "$(git rev-parse --git-dir)" != "$(git rev-parse --git-common-dir)" ]`
+   (the main checkout names the same directory twice). Where a repository keeps
+   its worktrees is its own choice, so the path's spelling settles nothing.
 3. If NOT in worktree: STOP and report error
 
 ## Working Directory
@@ -114,7 +117,8 @@ Task({
 
 Before making ANY changes:
 1. Run: \`pwd\`
-2. Verify path contains \`.worktrees/\`
+2. Confirm that directory is a **linked** git worktree — ask git, not the path:
+   \`[ "$(git rev-parse --git-dir)" != "$(git rev-parse --git-common-dir)" ]\`
 3. If NOT in worktree: STOP and report error
 
 ## Working Directory

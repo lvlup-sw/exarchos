@@ -144,9 +144,18 @@ describe('handleSetupWorktree', () => {
     });
     vi.mocked(existsSync).mockImplementation((p: unknown) => {
       const path = String(p);
+      if (path === '/repo/.gitignore') return true;
       if (path === '/repo/.worktrees/task-001-setup') return false;
       if (path === '/repo/.worktrees/task-001-setup/package.json') return true;
       return false;
+    });
+    // Every step must be able to PASS for "all steps pass" to mean anything —
+    // the gitignore step only passes when the repo file already lists the entry.
+    vi.mocked(readFileSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path === '/repo/.gitignore') return '.worktrees/\n';
+      if (path.endsWith('package.json')) return VALID_PACKAGE_JSON;
+      return '';
     });
 
     const result = await callSetup({
@@ -159,6 +168,7 @@ describe('handleSetupWorktree', () => {
     const data = result.data as { passed: boolean; checks: { pass: number; fail: number; skip: number } };
     expect(data.passed).toBe(true);
     expect(data.checks.fail).toBe(0);
+    expect(data.checks.skip).toBe(0);
     expect(data.checks.pass).toBe(5);
   });
 
@@ -232,101 +242,6 @@ describe('handleSetupWorktree', () => {
     const data = result.data as { passed: boolean; report: string };
     expect(data.passed).toBe(true);
     expect(data.report).toContain('already exists');
-  });
-
-  // ── Test 4: .worktrees not gitignored → adds to .gitignore ─────────────
-
-  it('WorktreesNotGitignored_AddsToGitignore', async () => {
-    let gitignoreCheckCallCount = 0;
-    vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd).replace(/\.cmd$/, '');
-      const argsArr = args as string[];
-      if (cmdStr === 'git' && argsArr.includes('check-ignore')) {
-        gitignoreCheckCallCount++;
-        if (gitignoreCheckCallCount === 1) {
-          const error = new Error('not ignored') as Error & { status: number };
-          error.status = 1;
-          throw error;
-        }
-        return '';
-      }
-      if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
-      if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
-      if (cmdStr === 'npm' && argsArr.includes('install')) return '';
-      if (cmdStr === 'npm' && argsArr.includes('test:run')) return '';
-      return '';
-    });
-    vi.mocked(existsSync).mockImplementation((p: unknown) => {
-      const path = String(p);
-      if (path === '/repo/.gitignore') return true;
-      if (path === '/repo/.worktrees/task-004-api') return true;
-      if (path === '/repo/.worktrees/task-004-api/package.json') return true;
-      return false;
-    });
-    vi.mocked(readFileSync).mockImplementation((p: unknown) => {
-      const path = String(p);
-      if (path === '/repo/.gitignore') return 'node_modules/\n';
-      if (path.endsWith('package.json')) return VALID_PACKAGE_JSON;
-      return '';
-    });
-
-    const result = await callSetup({
-      repoRoot: '/repo',
-      taskId: 'task-004',
-      taskName: 'api',
-    });
-
-    expect(result.success).toBe(true);
-    expect(appendFileSync).toHaveBeenCalledWith(
-      '/repo/.gitignore',
-      '.worktrees/\n',
-    );
-  });
-
-  // ── #1213 / CodeRabbit #7: gitignore append must preserve line boundary ─
-
-  it('WorktreesNotGitignored_ExistingGitignoreNoTrailingNewline_PrependsNewline', async () => {
-    // Existing .gitignore lacks trailing newline (ends with "dist", no \n).
-    // A bare append would produce "dist.worktrees/\n" — a single
-    // concatenated line that no longer ignores either path. The fix
-    // prepends a newline so the final contents are "dist\n.worktrees/\n".
-    vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
-      const cmdStr = String(cmd).replace(/\.cmd$/, '');
-      const argsArr = args as string[];
-      if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
-      if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
-      if (cmdStr === 'npm' && argsArr.includes('install')) return '';
-      if (cmdStr === 'npm' && argsArr.includes('test:run')) return '';
-      return '';
-    });
-    vi.mocked(existsSync).mockImplementation((p: unknown) => {
-      const path = String(p);
-      if (path === '/repo/.gitignore') return true;
-      if (path === '/repo/.worktrees/task-004b-newline') return true;
-      if (path === '/repo/.worktrees/task-004b-newline/package.json') return true;
-      return false;
-    });
-    vi.mocked(readFileSync).mockImplementation((p: unknown) => {
-      const path = String(p);
-      // Crucially: NO trailing newline here.
-      if (path === '/repo/.gitignore') return 'dist';
-      if (path.endsWith('package.json')) return VALID_PACKAGE_JSON;
-      return '';
-    });
-
-    const result = await callSetup({
-      repoRoot: '/repo',
-      taskId: 'task-004b',
-      taskName: 'newline',
-    });
-
-    expect(result.success).toBe(true);
-    // The append payload MUST start with \n so the final content is
-    // "dist\n.worktrees/\n", not "dist.worktrees/\n".
-    expect(appendFileSync).toHaveBeenCalledWith(
-      '/repo/.gitignore',
-      '\n.worktrees/\n',
-    );
   });
 
   // ── Test 5: install fails ───────────────────────────────────────────────
@@ -961,9 +876,9 @@ describe('handleSetupWorktree', () => {
     expect(pnpmCalls).toHaveLength(0);
   });
 
-  // ─── DR-1 (T-07, #1203): direct-read .gitignore, honest PASS message ──
+  // ─── The governed repo's .gitignore: read directly, never written ──────────
 
-  describe('ensureGitignored direct-read behavior', () => {
+  describe('checkGitignored reports the repo file and never writes it', () => {
     function setupBaseExecMocks() {
       // Generic happy-path mocks for show-ref / rev-parse / install / test.
       vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
@@ -979,7 +894,7 @@ describe('handleSetupWorktree', () => {
       });
     }
 
-    it('ensureGitignored_AlreadyPresent_ReportsAlreadyPresent', async () => {
+    it('checkGitignored_AlreadyPresent_ReportsAlreadyPresent', async () => {
       setupBaseExecMocks();
       vi.mocked(existsSync).mockImplementation((p: unknown) => {
         const path = String(p);
@@ -1005,64 +920,12 @@ describe('handleSetupWorktree', () => {
       expect(appendFileSync).not.toHaveBeenCalledWith('/repo/.gitignore', expect.anything());
     });
 
-    it('ensureGitignored_NotPresent_AppendsAndReportsAdded', async () => {
-      setupBaseExecMocks();
-      vi.mocked(existsSync).mockImplementation((p: unknown) => {
-        const path = String(p);
-        if (path === '/repo/.gitignore') return true;
-        if (path === '/repo/.worktrees/T-002-y') return true;
-        if (path === '/repo/.worktrees/T-002-y/package.json') return true;
-        return false;
-      });
-      vi.mocked(readFileSync).mockImplementation((p: unknown) => {
-        const path = String(p);
-        if (path === '/repo/.gitignore') return 'node_modules/\n';
-        if (path.endsWith('package.json')) return VALID_PACKAGE_JSON;
-        return '';
-      });
-
-      const result = await callSetup({
-        repoRoot: '/repo', taskId: 'T-002', taskName: 'y',
-      });
-
-      expect(result.success).toBe(true);
-      const data = result.data as { report: string };
-      expect(data.report).toMatch(/PASS.*\.worktrees is gitignored.*added/i);
-      expect(appendFileSync).toHaveBeenCalledWith('/repo/.gitignore', '.worktrees/\n');
-    });
-
-    it('ensureGitignored_FileMissing_CreatesWithEntry', async () => {
-      setupBaseExecMocks();
-      vi.mocked(existsSync).mockImplementation((p: unknown) => {
-        const path = String(p);
-        if (path === '/repo/.gitignore') return false;
-        if (path === '/repo/.worktrees/T-003-z') return true;
-        if (path === '/repo/.worktrees/T-003-z/package.json') return true;
-        return false;
-      });
-      vi.mocked(readFileSync).mockImplementation((p: unknown) => {
-        const path = String(p);
-        if (path.endsWith('package.json')) return VALID_PACKAGE_JSON;
-        return '';
-      });
-
-      const result = await callSetup({
-        repoRoot: '/repo', taskId: 'T-003', taskName: 'z',
-      });
-
-      expect(result.success).toBe(true);
-      const data = result.data as { report: string };
-      expect(data.report).toMatch(/PASS.*\.worktrees is gitignored.*created/i);
-      expect(appendFileSync).toHaveBeenCalledWith('/repo/.gitignore', '.worktrees/\n');
-    });
-
-    it('ensureGitignored_GlobalIgnoreOnlyMatch_StillReportsHonestlyAndUpdatesRepoGitignore', async () => {
-      // Critical regression coverage for #1203: a non-repo source (e.g.,
-      // global gitignore, .git/info/exclude) might tell `git check-ignore`
-      // the path is ignored. Repo `.gitignore` itself is empty of this entry
-      // and `git status` from a fresh clone would show .worktrees/ as
-      // untracked. The new contract: PASS message reflects the repo file
-      // state truthfully, and we always update the repo file when needed.
+    it('checkGitignored_GlobalIgnoreOnlyMatch_StillReportsTheRepoFileHonestly', async () => {
+      // A non-repo source (global gitignore, .git/info/exclude, a parent glob)
+      // might tell `git check-ignore` the path is ignored while the repo file
+      // itself lacks the entry — `git status` in a fresh clone would then show
+      // .worktrees/ as untracked. The contract: the report reflects the repo
+      // file, and `git check-ignore` is never consulted.
       setupBaseExecMocks();
       vi.mocked(existsSync).mockImplementation((p: unknown) => {
         const path = String(p);
@@ -1084,18 +947,17 @@ describe('handleSetupWorktree', () => {
 
       expect(result.success).toBe(true);
       const data = result.data as { report: string };
-      // Even if a global ignore would have matched, the repo file is
-      // missing — function must add and report 'added' truthfully.
-      expect(data.report).toMatch(/added/i);
-      expect(appendFileSync).toHaveBeenCalledWith('/repo/.gitignore', '.worktrees/\n');
-      // No git check-ignore call — function works directly off the repo file.
+      // Not PASS: whatever a global ignore would have said, the repo file is
+      // missing the entry, and that is what gets reported.
+      expect(data.report).toMatch(/SKIP.*\.worktrees is gitignored/i);
+      // No git check-ignore call — the step works directly off the repo file.
       const checkIgnoreCalls = vi.mocked(execFileSync).mock.calls.filter(
         (c) => Array.isArray(c[1]) && (c[1] as string[]).includes('check-ignore'),
       );
       expect(checkIgnoreCalls).toHaveLength(0);
     });
 
-    it('ensureGitignored_AppendThrows_ReportsFail', async () => {
+    it('checkGitignored_ReadThrows_ReportsFail', async () => {
       setupBaseExecMocks();
       vi.mocked(existsSync).mockImplementation((p: unknown) => {
         const path = String(p);
@@ -1104,11 +966,8 @@ describe('handleSetupWorktree', () => {
       });
       vi.mocked(readFileSync).mockImplementation((p: unknown) => {
         const path = String(p);
-        if (path === '/repo/.gitignore') return 'node_modules/\n';
+        if (path === '/repo/.gitignore') throw new Error('EACCES: permission denied');
         return '';
-      });
-      vi.mocked(appendFileSync).mockImplementation(() => {
-        throw new Error('EACCES: permission denied');
       });
 
       const result = await callSetup({
@@ -1119,6 +978,80 @@ describe('handleSetupWorktree', () => {
       const data = result.data as { passed: boolean; report: string };
       expect(data.report).toMatch(/FAIL.*\.worktrees is gitignored.*EACCES/i);
       expect(data.passed).toBe(false);
+    });
+
+    it('GitignoreIsNeverWritten_MissingEntryOrMissingFile', async () => {
+      // The governed repository's .gitignore is that repository's to own, and
+      // there is no opt-in that changes that: setup_worktree must not edit it —
+      // not when the entry is merely missing, and not when the file is absent —
+      // and must say so both times.
+      setupBaseExecMocks();
+      for (const gitignoreExists of [true, false]) {
+        vi.mocked(appendFileSync).mockClear();
+        vi.mocked(existsSync).mockImplementation((p: unknown) => {
+          const path = String(p);
+          if (path === '/repo/.gitignore') return gitignoreExists;
+          if (path === '/repo/.worktrees/T-006-c') return true;
+          if (path === '/repo/.worktrees/T-006-c/package.json') return true;
+          return false;
+        });
+        vi.mocked(readFileSync).mockImplementation((p: unknown) => {
+          const path = String(p);
+          if (path === '/repo/.gitignore') return 'node_modules/\n';
+          if (path.endsWith('package.json')) return VALID_PACKAGE_JSON;
+          return '';
+        });
+
+        const result = await callSetup({
+          repoRoot: '/repo', taskId: 'T-006', taskName: 'c',
+        });
+
+        expect(result.success).toBe(true);
+        const data = result.data as { report: string };
+        expect(data.report).toMatch(/SKIP.*\.worktrees is gitignored/i);
+        expect(appendFileSync).not.toHaveBeenCalled();
+      }
+    });
+
+    it('MissingIgnoreEntry_IsReported_NotSilentlyWritten', async () => {
+      // A missing entry is a condition the operator is told about, naming the
+      // file and the line to add — not a silent repair, and not a setup failure.
+      setupBaseExecMocks();
+      vi.mocked(existsSync).mockImplementation((p: unknown) => {
+        const path = String(p);
+        if (path === '/repo/.gitignore') return true;
+        if (path === '/repo/.worktrees/T-007-d') return true;
+        if (path === '/repo/.worktrees/T-007-d/package.json') return true;
+        return false;
+      });
+      vi.mocked(readFileSync).mockImplementation((p: unknown) => {
+        const path = String(p);
+        if (path === '/repo/.gitignore') return 'node_modules/\n';
+        if (path.endsWith('package.json')) return VALID_PACKAGE_JSON;
+        return '';
+      });
+
+      const result = await callSetup({
+        repoRoot: '/repo', taskId: 'T-007', taskName: 'd',
+      });
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        passed: boolean;
+        report: string;
+        checks: { pass: number; fail: number; skip: number };
+      };
+      expect(data.report).toMatch(/SKIP.*\.worktrees is gitignored/i);
+      expect(data.report).toContain('/repo/.gitignore');
+      expect(data.report).toContain(".worktrees/' line");
+      expect(data.checks.skip).toBe(1);
+      // The skip must survive into the headline verdict. Counting only
+      // pass/fail there lets a repo that cannot pass this check read as a
+      // clean sweep of the checks that did run.
+      expect(data.report).toMatch(/\*\*Result: PASS\*\* \(\d+\/\d+ checks passed, 1 skipped\)/);
+      // Reported, not fatal.
+      expect(data.passed).toBe(true);
+      expect(appendFileSync).not.toHaveBeenCalled();
     });
   });
 

@@ -4,7 +4,7 @@
 // validation steps: gitignore, branch, worktree, npm install, baseline tests.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { existsSync, appendFileSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { runCommandSync } from '../../utils/process.js';
 import { join } from 'node:path';
@@ -103,16 +103,21 @@ function formatReport(
 
   const pass = checks.filter((c) => c.status === 'pass').length;
   const fail = checks.filter((c) => c.status === 'fail').length;
+  const skip = checks.filter((c) => c.status === 'skip').length;
   const total = pass + fail;
 
   lines.push('');
   lines.push('---');
   lines.push('');
 
+  // A skipped check settled nothing, so it rides in the headline. Left out, a
+  // run whose gitignore (or install, or baseline) step never ran reads as a
+  // clean sweep of the checks that did.
+  const skipped = skip > 0 ? `, ${skip} skipped` : '';
   if (fail === 0) {
-    lines.push(`**Result: PASS** (${pass}/${total} checks passed)`);
+    lines.push(`**Result: PASS** (${pass}/${total} checks passed${skipped})`);
   } else {
-    lines.push(`**Result: FAIL** (${fail}/${total} checks failed)`);
+    lines.push(`**Result: FAIL** (${fail}/${total} checks failed${skipped})`);
   }
 
   return lines.join('\n');
@@ -120,30 +125,22 @@ function formatReport(
 
 // ─── Step Functions ─────────────────────────────────────────────────────────
 
-// DR-1 (T-07, #1203): direct-read the repo's `.gitignore`. The previous
-// implementation used `git check-ignore -q .worktrees/`, which honors any
-// ignore source (global excludes, .git/info/exclude, parent globs). When
-// a non-repo source matched, the function reported PASS without writing
-// to the repo file — a fresh clone or CI run then saw `.worktrees/` as
-// untracked, breaking subsequent `merge_orchestrate` preflights.
-//
-// New contract: PASS means "the repo's `.gitignore` lists `.worktrees/`."
-// The detail string reflects exactly which path the function took
-// (already present / added / created with entry).
-//
-// fix-007 (review #1213): orchestration-only — read/format helpers
-// extracted below so each concern (read vs error formatting vs control
-// flow) sits in its own function and stays easy to read in isolation.
-function ensureGitignored(repoRoot: string): CheckResult {
-  const gitignorePath = toPosix(join(repoRoot, '.gitignore'));
+/** The one name this step reports under. */
+const GITIGNORE_CHECK = '.worktrees is gitignored';
 
-  let detail: 'already present' | 'added' | 'created with entry';
-  let needsAppend: boolean;
-  // CodeRabbit #7: when the existing .gitignore lacks a trailing newline,
-  // a bare append produces `dist.worktrees/\n` (single concatenated line)
-  // instead of two distinct entries. Prepend a newline if needed so the
-  // boundary is preserved.
-  let prependNewline = false;
+// Membership is read directly from the repo's own `.gitignore`, never from
+// `git check-ignore -q`, which also honors global excludes, `.git/info/exclude`
+// and parent globs. When a non-repo source matched, this step reported PASS
+// while a fresh clone or CI run still saw `.worktrees/` as untracked, breaking
+// subsequent `merge_orchestrate` preflights. PASS means exactly "the repo's
+// `.gitignore` lists `.worktrees/`".
+//
+// This step reports; it never writes. A governed repository's `.gitignore` is
+// that repository's own source, and a governance tool that edits it becomes a
+// silent author of a file it does not own. So a missing entry is NAMED — skip,
+// with the file and the line to add — and left to whoever owns the file.
+function checkGitignored(repoRoot: string): CheckResult {
+  const gitignorePath = toPosix(join(repoRoot, '.gitignore'));
 
   if (existsSync(gitignorePath)) {
     const readResult = readGitignoreLines(gitignorePath);
@@ -152,35 +149,22 @@ function ensureGitignored(repoRoot: string): CheckResult {
     }
 
     if (containsWorktreesEntry(readResult.contents)) {
-      return { name: '.worktrees is gitignored', status: 'pass', detail: 'already present' };
-    }
-
-    detail = 'added';
-    needsAppend = true;
-    prependNewline =
-      readResult.contents.length > 0 && !readResult.contents.endsWith('\n');
-  } else {
-    detail = 'created with entry';
-    needsAppend = true;
-  }
-
-  if (needsAppend) {
-    try {
-      const payload = (prependNewline ? '\n' : '') + '.worktrees/\n';
-      appendFileSync(gitignorePath, payload);
-    } catch (err) {
-      const verb = detail === 'created with entry' ? 'create' : 'append to';
-      return formatGitignoreError(`Failed to ${verb} ${gitignorePath}`, err);
+      return { name: GITIGNORE_CHECK, status: 'pass', detail: 'already present' };
     }
   }
 
-  return { name: '.worktrees is gitignored', status: 'pass', detail };
+  return {
+    name: GITIGNORE_CHECK,
+    status: 'skip',
+    detail:
+      `'.worktrees/' is not listed in ${gitignorePath}, so worktrees will show as untracked. ` +
+      "Add a '.worktrees/' line to that file.",
+  };
 }
 
 /**
- * fix-007 (#1213): I/O wrapper that returns either the file contents or a
- * structured error. Centralizes the readFileSync try/catch so the
- * orchestrator can stay flat.
+ * I/O wrapper returning either the file contents or a structured error, so the
+ * orchestrating function above stays flat.
  */
 type ReadGitignoreResult =
   | { kind: 'ok'; contents: string }
@@ -195,14 +179,13 @@ function readGitignoreLines(gitignorePath: string): ReadGitignoreResult {
 }
 
 /**
- * fix-007 (#1213): single-source formatter for the gitignore-step CheckResult
- * `fail` shape. Keeps the `${prefix}: ${message}` convention in one place so
- * any future adjustment to the detail string lives in one function.
+ * Single-source formatter for the gitignore-step `fail` shape, keeping the
+ * `${prefix}: ${message}` convention in one place.
  */
 function formatGitignoreError(prefix: string, err: unknown): CheckResult {
   const message = err instanceof Error ? err.message : String(err);
   return {
-    name: '.worktrees is gitignored',
+    name: GITIGNORE_CHECK,
     status: 'fail',
     detail: `${prefix}: ${message}`,
   };
@@ -578,8 +561,8 @@ async function runSetupWorktreeSteps(
 
   const checks: CheckResult[] = [];
 
-  // Step 1: Ensure .worktrees is gitignored
-  checks.push(ensureGitignored(args.repoRoot));
+  // Step 1: report whether .worktrees is gitignored (report only — never write)
+  checks.push(checkGitignored(args.repoRoot));
 
   // Steps 2+3: Create branch + worktree atomically through the single typed
   // VCS mutation owner. Idempotency (keyed on the worktree path) makes a

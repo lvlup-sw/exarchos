@@ -39,7 +39,10 @@ correctly.
 Before making ANY file changes, you MUST verify you are in a worktree:
 
 1. Run: `pwd`
-2. Verify the path contains `.worktrees/`
+2. Confirm that directory is a **linked** git worktree. Ask git, not the path:
+   where a repository keeps its worktrees is its own choice (`.worktrees/`,
+   `.claude/worktrees/`, or a directory outside the repo), so no substring of
+   the path settles it either way.
 3. If NOT in a worktree directory:
    - STOP immediately
    - Report: "ERROR: Working directory is not a worktree. Aborting task."
@@ -47,7 +50,17 @@ Before making ANY file changes, you MUST verify you are in a worktree:
 
 **Example verification:**
 ```bash
-pwd | grep -q "\.worktrees" || { echo "ERROR: Not in worktree!"; exit 1; }
+pwd
+# A linked worktree keeps its own git dir beneath the shared one; the main
+# checkout names the same directory twice.
+[ "$(git rev-parse --git-dir)" != "$(git rev-parse --git-common-dir)" ] \
+  || { echo "ERROR: Not in worktree!"; exit 1; }
+```
+
+Or ask the gate, which reads the same fact from git:
+
+```typescript
+exarchos_orchestrate({ action: "verify_worktree" })
 ```
 
 This check prevents accidental modifications to the main project root, which would cause merge conflicts with other parallel tasks.
@@ -348,7 +361,7 @@ After that, the verification block below confirms you landed correctly.
 Before making ANY file changes, you MUST verify you are in a worktree:
 
 1. Run: `pwd`
-2. Verify the path contains `.worktrees/`
+2. Confirm that directory is a **linked** git worktree — ask git, not the path.
 3. If NOT in a worktree directory:
    - STOP immediately
    - Report: "ERROR: Working directory is not a worktree. Aborting task."
@@ -356,7 +369,9 @@ Before making ANY file changes, you MUST verify you are in a worktree:
 
 **Example verification:**
 ```bash
-pwd | grep -q "\.worktrees" || { echo "ERROR: Not in worktree!"; exit 1; }
+pwd
+[ "$(git rev-parse --git-dir)" != "$(git rev-parse --git-common-dir)" ] \
+  || { echo "ERROR: Not in worktree!"; exit 1; }
 ```
 
 This check prevents accidental modifications to the main project root, which would cause merge conflicts with other parallel tasks.

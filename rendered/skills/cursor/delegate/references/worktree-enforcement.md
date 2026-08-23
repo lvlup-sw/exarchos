@@ -36,7 +36,7 @@ is the one way to silently land on `main` — so pass `featureId`, or set
 integration tip across all six runtimes.
 
 **Validates:**
-- `.worktrees/` is gitignored (adds to `.gitignore` if missing)
+- `.worktrees/` is listed in the repo's own `.gitignore` — reported, never written: a missing entry is a SKIP naming the file and the line to add, for you to add yourself
 - Feature branch created (`feature/<task-id>-<task-name>` from the resolved integration tip)
 - Git worktree added at `.worktrees/<task-id>-<task-name>`
 - `npm install` ran in worktree

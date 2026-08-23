@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { ToolResult } from '../../../../src/format.js';
+import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
 import { toPosix } from '../../../../src/utils/paths.js';
 
 vi.mock('node:fs');
@@ -21,7 +22,7 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
-// ─── Helper ──────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function mockDirExists(dirPath: string): void {
   const resolved = resolvedOf(dirPath);
@@ -34,40 +35,152 @@ function mockDirExists(dirPath: string): void {
   });
 }
 
+interface GitCall {
+  readonly dir: string;
+  readonly args: readonly string[];
+}
+
+/**
+ * A `git rev-parse --is-inside-work-tree --git-dir --git-common-dir` stub.
+ * `gitDir === commonDir` is the main checkout; differing paths are a linked
+ * worktree — exactly the distinction the handler reads.
+ */
+function stubRevParse(
+  lines: readonly string[],
+  calls: GitCall[] = [],
+  exitCode = 0,
+): GitExec {
+  return (dir, args) => {
+    calls.push({ dir, args: [...args] });
+    return { stdout: `${lines.join('\n')}\n`, exitCode };
+  };
+}
+
+const linkedWorktree = (repo: string, name: string): readonly string[] => [
+  'true',
+  `${repo}/.git/worktrees/${name}`,
+  `${repo}/.git`,
+];
+
+const mainCheckout = (): readonly string[] => ['true', '.git', '.git'];
+
+function dataOf(result: ToolResult): { passed: boolean; path: string; message: string } {
+  return result.data as { passed: boolean; path: string; message: string };
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('handleVerifyWorktree', () => {
-  it('returns passed when path is inside a worktree', async () => {
-    const worktreePath = '/foo/.worktrees/task-001/bar';
+  it('ClaudeWorktreesLayout_IsRecognized', async () => {
+    // The harness's own layout. The retired predicate tested for a
+    // `.worktrees/` substring, which this path does not contain — the gate
+    // aborted from inside a real worktree.
+    const worktreePath = '/repo/.claude/worktrees/feature-x';
+    expect(worktreePath.includes('.worktrees/')).toBe(false);
     mockDirExists(worktreePath);
 
-    const result: ToolResult = await handleVerifyWorktree({ cwd: worktreePath }, STATE_DIR);
+    const result = await handleVerifyWorktree(
+      { cwd: worktreePath },
+      STATE_DIR,
+      stubRevParse(linkedWorktree('/repo', 'feature-x')),
+    );
 
     expect(result.success).toBe(true);
-    const data = result.data as { passed: boolean; path: string; message: string };
+    const data = dataOf(result);
     expect(data.passed).toBe(true);
     expect(data.path).toBe(resolvedOf(worktreePath));
     expect(data.message).toContain('worktree');
   });
 
-  it('returns failed when path is not in a worktree', async () => {
-    const regularPath = '/foo/bar';
-    mockDirExists(regularPath);
+  it('MainCheckout_IsNotAWorktree', async () => {
+    const repoPath = '/repo';
+    mockDirExists(repoPath);
 
-    const result: ToolResult = await handleVerifyWorktree({ cwd: regularPath }, STATE_DIR);
+    const result = await handleVerifyWorktree(
+      { cwd: repoPath },
+      STATE_DIR,
+      stubRevParse(mainCheckout()),
+    );
 
     expect(result.success).toBe(true);
-    const data = result.data as { passed: boolean; path: string; message: string };
+    const data = dataOf(result);
     expect(data.passed).toBe(false);
-    expect(data.path).toBe(resolvedOf(regularPath));
     expect(data.message).toContain('Not in a worktree');
+    expect(data.message).toContain('main checkout');
+  });
+
+  it('MembershipComesFromGit_NotASubstring', async () => {
+    // A path that spells `.worktrees/` but is the main checkout: fails.
+    const spelledLikeAWorktree = '/repo/.worktrees/looks-right';
+    mockDirExists(spelledLikeAWorktree);
+    const calls: GitCall[] = [];
+
+    const spoofed = await handleVerifyWorktree(
+      { cwd: spelledLikeAWorktree },
+      STATE_DIR,
+      stubRevParse(mainCheckout(), calls),
+    );
+    expect(dataOf(spoofed).passed).toBe(false);
+
+    // A path that spells nothing but IS a linked worktree: passes.
+    const unnamedLayout = '/elsewhere/checkouts/wt-7';
+    mockDirExists(unnamedLayout);
+
+    const genuine = await handleVerifyWorktree(
+      { cwd: unnamedLayout },
+      STATE_DIR,
+      stubRevParse(['true', '/repo/.git/worktrees/wt-7', '/repo/.git'], calls),
+    );
+    expect(dataOf(genuine).passed).toBe(true);
+
+    // Both verdicts came from git, asked at the directory under test.
+    expect(calls).toHaveLength(2);
+    for (const call of calls) {
+      expect(call.args).toContain('rev-parse');
+      expect(call.args).toContain('--git-common-dir');
+    }
+    expect(calls[0]?.dir).toBe(resolvedOf(spelledLikeAWorktree));
+    expect(calls[1]?.dir).toBe(resolvedOf(unnamedLayout));
+  });
+
+  it('returns failed with the git reason when the directory is not in a repository', async () => {
+    const looseDir = '/tmp/loose';
+    mockDirExists(looseDir);
+
+    const result = await handleVerifyWorktree(
+      { cwd: looseDir },
+      STATE_DIR,
+      stubRevParse(['fatal: not a git repository (or any of the parent directories): .git'], [], 128),
+    );
+
+    expect(result.success).toBe(true);
+    const data = dataOf(result);
+    expect(data.passed).toBe(false);
+    expect(data.message).toContain('not a git repository');
+  });
+
+  it('returns failed inside a bare repository', async () => {
+    const bareDir = '/repo.git';
+    mockDirExists(bareDir);
+
+    const result = await handleVerifyWorktree(
+      { cwd: bareDir },
+      STATE_DIR,
+      stubRevParse(['false', '.', '.']),
+    );
+
+    expect(dataOf(result).passed).toBe(false);
   });
 
   it('returns error for non-existent directory', async () => {
     const badPath = '/does/not/exist';
     vi.mocked(fs.existsSync).mockReturnValue(false);
 
-    const result: ToolResult = await handleVerifyWorktree({ cwd: badPath }, STATE_DIR);
+    const result: ToolResult = await handleVerifyWorktree(
+      { cwd: badPath },
+      STATE_DIR,
+      stubRevParse(mainCheckout()),
+    );
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
@@ -75,26 +188,35 @@ describe('handleVerifyWorktree', () => {
   });
 
   it('defaults to process.cwd() when no cwd arg provided', async () => {
-    const fakeCwd = '/home/user/.worktrees/task-002/project';
+    const fakeCwd = '/home/user/checkouts/task-002';
     vi.spyOn(process, 'cwd').mockReturnValue(fakeCwd);
     mockDirExists(fakeCwd);
 
-    const result: ToolResult = await handleVerifyWorktree({}, STATE_DIR);
+    const result = await handleVerifyWorktree(
+      {},
+      STATE_DIR,
+      stubRevParse(linkedWorktree('/home/user/project', 'task-002')),
+    );
 
     expect(result.success).toBe(true);
-    const data = result.data as { passed: boolean; path: string };
+    const data = dataOf(result);
     expect(data.passed).toBe(true);
-    expect(data.path).toBe(fakeCwd);
+    expect(data.path).toBe(resolvedOf(fakeCwd));
   });
 
   it('resolves relative paths correctly', async () => {
     const resolvedPath = path.resolve('relative/path');
     mockDirExists(resolvedPath);
+    const calls: GitCall[] = [];
 
-    const result: ToolResult = await handleVerifyWorktree({ cwd: 'relative/path' }, STATE_DIR);
+    const result = await handleVerifyWorktree(
+      { cwd: 'relative/path' },
+      STATE_DIR,
+      stubRevParse(mainCheckout(), calls),
+    );
 
     expect(result.success).toBe(true);
-    const data = result.data as { path: string };
-    expect(path.isAbsolute(data.path)).toBe(true);
+    expect(path.isAbsolute(dataOf(result).path)).toBe(true);
+    expect(calls[0]?.dir).toBe(resolvedOf(resolvedPath));
   });
 });

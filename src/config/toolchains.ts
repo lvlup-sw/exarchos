@@ -75,7 +75,7 @@ export interface Toolchain {
 // (package.json wins). Entries below the original five (node, dotnet, rust, go,
 // python) are additive: repos that previously resolved to "no toolchain" now
 // detect — never overriding an existing match.
-export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
+export const BUILTIN_TOOLCHAINS = [
   {
     id: 'node',
     projectType: 'Node.js',
@@ -235,7 +235,14 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       contract: null,
     },
   },
-];
+] as const satisfies readonly Toolchain[];
+
+/**
+ * The closed set of built-in toolchain ids, derived from the registry array
+ * rather than hand-listed — so a table keyed by this type cannot fall behind
+ * the registry. See {@link TestReportFormat}.
+ */
+export type ToolchainId = (typeof BUILTIN_TOOLCHAINS)[number]['id'];
 
 /** Shape of a `.exarchos.yml` `toolchains:` entry (see exarchos-config-schema). */
 export interface ConfigToolchain {
@@ -467,6 +474,132 @@ export function resolveMutationDiffScope(toolchainId: string, base: string): Mut
     : `toolchain '${toolchainId}' has no resolved mutation runner to diff-scope; the mutation run is unscoped`;
   return { kind: 'unscoped-warning', warning: reason };
 }
+
+// ─── Test report carrier (the result side of the command SoT) ───────────────
+//
+// The runner COMMAND has a per-toolchain source of truth above; its RESULT
+// CARRIER had none, so the integration-suite gate appended vitest's
+// `--reporter=json` to every resolved command and parsed vitest JSON only —
+// `cargo test --reporter=json`, `pytest --reporter=json`. Which carrier a
+// runner produces is per-runner knowledge, so it belongs here beside the
+// commands: consumers branch on the descriptor's `kind` and never on an id.
+//
+// Three arms, because three is what a gate reads. A `junit-xml` or `tap` arm
+// would be a guess about a format nothing parses; a new arm arrives with the
+// gate that needs it.
+
+/**
+ * How a toolchain's test runner reports its result.
+ *
+ * - `vitest-json`    — the runner emits vitest's JSON summary. `reporterFlag`
+ *                      is what asks for it, carried ON the descriptor so no
+ *                      consumer spells a runner's flag itself.
+ * - `exit-code-only` — the exit code is the whole verdict. Not a degradation:
+ *                      a pass/fail gate over an exit code is fully generic and
+ *                      fully trustworthy (`check_test_adequacy` is the model).
+ * - `unknown`        — the carrier is not known; the gate reports indeterminate
+ *                      rather than guess a flag or a parse.
+ */
+export type TestReportFormat =
+  | { readonly kind: 'vitest-json'; readonly reporterFlag: '--reporter=json' }
+  | { readonly kind: 'exit-code-only' }
+  | { readonly kind: 'unknown'; readonly reason: string };
+
+/**
+ * Result carrier per built-in toolchain.
+ *
+ * `satisfies Record<ToolchainId, …>` is load-bearing: a toolchain added to
+ * {@link BUILTIN_TOOLCHAINS} with no row here is a COMPILE error, never a
+ * silent `unknown`.
+ */
+const TEST_REPORT_FORMAT = {
+  // `node` is the arm that owes a justification, because its command does not
+  // name its runner: `npm run test:run` is a SCRIPT INDIRECTION, the script
+  // could be jest or node:test, and the resolver does not even always land on
+  // that command — it resolves node package-manager-aware and may produce
+  // `pnpm test`, `yarn test`, `bun run test:run`, or Bun's own native
+  // `bun test`. Indirection alone is not what singles node out, either:
+  // `composer test` and `bundle exec rake test` are the same shape.
+  //
+  // The mapping stands on two facts rather than on a guarantee. Vitest is what
+  // the node script conventionally resolves to — the resolver's missing-script
+  // hint offers `"test:run": "vitest run"` as its example — and being wrong
+  // here is SAFE, because a runner that emits no vitest JSON lands on the
+  // integration gate's existing fail-closed unparseable-output path. A false
+  // red, never a false green. A project that genuinely runs something else
+  // declares its own toolchain in `.exarchos.yml`; that id is not a built-in
+  // and resolves to `unknown`, which is what serves it — not a new union arm.
+  node: { kind: 'vitest-json', reporterFlag: '--reporter=json' },
+  // No other entry's runner — whether the command names it outright
+  // (`cargo test`, `pytest`) or reaches it through a task indirection
+  // (`composer test`, `./gradlew test`) — accepts `--reporter=json` or writes a
+  // machine-readable summary to stdout by default. The exit code is their
+  // honest carrier, and a complete one for a pass/fail gate, which is why this
+  // is the majority answer rather than a fallback.
+  dotnet: { kind: 'exit-code-only' },
+  rust: { kind: 'exit-code-only' },
+  go: { kind: 'exit-code-only' },
+  python: { kind: 'exit-code-only' },
+  'java-gradle': { kind: 'exit-code-only' },
+  'java-maven': { kind: 'exit-code-only' },
+  ruby: { kind: 'exit-code-only' },
+  php: { kind: 'exit-code-only' },
+  elixir: { kind: 'exit-code-only' },
+  swift: { kind: 'exit-code-only' },
+  cmake: { kind: 'exit-code-only' },
+} as const satisfies Record<ToolchainId, TestReportFormat>;
+
+/**
+ * Resolve how a toolchain's test runner reports its result.
+ *
+ * Total over the built-in ids by construction. Any other id — a `.exarchos.yml`
+ * toolchain, or a caller naming a runner this registry does not know — returns
+ * the `unknown` arm with its reason, so the gate degrades to indeterminate
+ * instead of handing one runner another runner's flag.
+ */
+export function resolveTestReportFormat(toolchainId: string): TestReportFormat {
+  const known: Readonly<Record<string, TestReportFormat>> = TEST_REPORT_FORMAT;
+  const format = known[toolchainId];
+  if (format) return format;
+  return {
+    kind: 'unknown',
+    reason: `toolchain '${toolchainId}' is not a built-in toolchain, so how its test runner reports a result is unknown`,
+  };
+}
+
+// ─── Compile-time proof (verified by `npm run typecheck`) ───────────────────
+//
+// The claim "a registry entry with no carrier row is a COMPILE error" cannot be
+// pinned from the test tier: the tests tsconfig excludes `unit/**`, so a
+// `@ts-expect-error` sited beside the runtime tests would be read by no
+// compiler. The proof lives here in the subject module, where `tsc` does read
+// it — the same placement, and the same `Expect<T extends true>` device, as the
+// event-grammar proofs. Its runtime twin is `MissingEntry_IsACompileError`.
+
+type Expect<T extends true> = T;
+/** Set equality for unions of literals: mutual assignability, neither side split. */
+type MutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+
+/**
+ * The carrier table's rows cover exactly the registry's ids — no id without a
+ * row, no row naming an id the registry dropped.
+ *
+ * `satisfies Record<ToolchainId, …>` is the device, but it is only as strong as
+ * its key type: widen that key to `string` and every row becomes optional again
+ * with nothing at runtime to notice, because a missing row simply resolves to
+ * `unknown`. This alias fails on that weakening.
+ *
+ * The `extends [never]` guard is the non-empty-denominator rule at the type
+ * level: an emptied registry collapses `ToolchainId` to `never`, and `never` is
+ * mutually assignable with `never`, so the equality would otherwise read as a
+ * clean proof over nothing.
+ * @proof
+ */
+export type _Toolchains_CarrierRows_CoverExactlyTheRegistry = Expect<
+  [ToolchainId] extends [never]
+    ? false
+    : MutuallyAssignable<ToolchainId, keyof typeof TEST_REPORT_FORMAT>
+>;
 
 // ─── Hermetic-double resolution (SIV-5 / #1531) ──────────────────────────────
 //

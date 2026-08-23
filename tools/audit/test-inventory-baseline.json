@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1199,
-    "parsedFiles": 1154,
+    "testFiles": 1202,
+    "parsedFiles": 1157,
     "shellFiles": 45,
-    "cases": 13345,
+    "cases": 13362,
     "dynamicTitles": 144,
     "unparseableFiles": 0
   },
@@ -8548,6 +8548,32 @@
         }
       ]
     },
+    "tests/integration/worktree-membership.test.ts": {
+      "file": "tests/integration/worktree-membership.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "verify_worktree against a real repository",
+          "name": "ClaudeWorktreesLayout_IsRecognized",
+          "dynamic": false
+        },
+        {
+          "suite": "verify_worktree against a real repository",
+          "name": "MainCheckout_IsNotAWorktree",
+          "dynamic": false
+        },
+        {
+          "suite": "verify_worktree against a real repository",
+          "name": "MembershipComesFromGit_NotASubstring",
+          "dynamic": false
+        },
+        {
+          "suite": "verify_worktree against a real repository",
+          "name": "DirectoryOutsideAnyRepository_IsNotAWorktree",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/migration/batch-migration.test.ts": {
       "file": "tests/migration/batch-migration.test.ts",
       "runner": "vitest:root",
@@ -16808,6 +16834,32 @@
         {
           "suite": "resolveTaskRunner — kind candidates & priority",
           "name": "no runner files → undefined",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/config/test-report-format.test.ts": {
+      "file": "tests/unit/config/test-report-format.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "resolveTestReportFormat (per-runner result carrier)",
+          "name": "EveryBuiltinToolchain_HasAReportFormat",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveTestReportFormat (per-runner result carrier)",
+          "name": "UnknownToolchain_ResolvesUnknownArm",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveTestReportFormat (per-runner result carrier)",
+          "name": "Descriptor_CarriesItsOwnReporterFlag",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveTestReportFormat (per-runner result carrier)",
+          "name": "MissingEntry_IsACompileError",
           "dynamic": false
         }
       ]
@@ -48225,6 +48277,52 @@
         }
       ]
     },
+    "tests/unit/vcs/resolve-base-branch.test.ts": {
+      "file": "tests/unit/vcs/resolve-base-branch.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "resolveBaseBranch",
+          "name": "PrefersProviderDefaultBranch",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveBaseBranch",
+          "name": "FallsBackToSymbolicRef",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveBaseBranch",
+          "name": "Unresolved_IsTyped_NotMain",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveBaseBranch",
+          "name": "UnsupportedProviderOperation_IsNotACrash",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveBaseBranch",
+          "name": "RefNameFailingTheSanitizer_IsNotTrusted",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveBaseBranch",
+          "name": "HostedNonAsciiBranchName_IsNotDiscarded",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveBaseBranch",
+          "name": "RefOutsideTheOriginPrefix_IsNotLaundered",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveBaseBranch",
+          "name": "EmptyProviderDefaultBranch_FallsThrough",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/vcs/worktree-provisioner.test.ts": {
       "file": "tests/unit/vcs/worktree-provisioner.test.ts",
       "runner": "vitest:root",
@@ -52745,12 +52843,27 @@
       "cases": [
         {
           "suite": "handleVerifyWorktree",
-          "name": "returns passed when path is inside a worktree",
+          "name": "ClaudeWorktreesLayout_IsRecognized",
           "dynamic": false
         },
         {
           "suite": "handleVerifyWorktree",
-          "name": "returns failed when path is not in a worktree",
+          "name": "MainCheckout_IsNotAWorktree",
+          "dynamic": false
+        },
+        {
+          "suite": "handleVerifyWorktree",
+          "name": "MembershipComesFromGit_NotASubstring",
+          "dynamic": false
+        },
+        {
+          "suite": "handleVerifyWorktree",
+          "name": "returns failed with the git reason when the directory is not in a repository",
+          "dynamic": false
+        },
+        {
+          "suite": "handleVerifyWorktree",
+          "name": "returns failed inside a bare repository",
           "dynamic": false
         },
         {
@@ -59665,16 +59778,6 @@
         },
         {
           "suite": "handleSetupWorktree",
-          "name": "WorktreesNotGitignored_AddsToGitignore",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
-          "name": "WorktreesNotGitignored_ExistingGitignoreNoTrailingNewline_PrependsNewline",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSetupWorktree",
           "name": "NpmInstallFails_Step4Fails",
           "dynamic": false
         },
@@ -59769,28 +59872,28 @@
           "dynamic": false
         },
         {
-          "suite": "handleSetupWorktree > ensureGitignored direct-read behavior",
-          "name": "ensureGitignored_AlreadyPresent_ReportsAlreadyPresent",
+          "suite": "handleSetupWorktree > checkGitignored reports the repo file and never writes it",
+          "name": "checkGitignored_AlreadyPresent_ReportsAlreadyPresent",
           "dynamic": false
         },
         {
-          "suite": "handleSetupWorktree > ensureGitignored direct-read behavior",
-          "name": "ensureGitignored_NotPresent_AppendsAndReportsAdded",
+          "suite": "handleSetupWorktree > checkGitignored reports the repo file and never writes it",
+          "name": "checkGitignored_GlobalIgnoreOnlyMatch_StillReportsTheRepoFileHonestly",
           "dynamic": false
         },
         {
-          "suite": "handleSetupWorktree > ensureGitignored direct-read behavior",
-          "name": "ensureGitignored_FileMissing_CreatesWithEntry",
+          "suite": "handleSetupWorktree > checkGitignored reports the repo file and never writes it",
+          "name": "checkGitignored_ReadThrows_ReportsFail",
           "dynamic": false
         },
         {
-          "suite": "handleSetupWorktree > ensureGitignored direct-read behavior",
-          "name": "ensureGitignored_GlobalIgnoreOnlyMatch_StillReportsHonestlyAndUpdatesRepoGitignore",
+          "suite": "handleSetupWorktree > checkGitignored reports the repo file and never writes it",
+          "name": "GitignoreIsNeverWritten_MissingEntryOrMissingFile",
           "dynamic": false
         },
         {
-          "suite": "handleSetupWorktree > ensureGitignored direct-read behavior",
-          "name": "ensureGitignored_AppendThrows_ReportsFail",
+          "suite": "handleSetupWorktree > checkGitignored reports the repo file and never writes it",
+          "name": "MissingIgnoreEntry_IsReported_NotSilentlyWritten",
           "dynamic": false
         },
         {
