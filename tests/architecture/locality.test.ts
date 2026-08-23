@@ -77,8 +77,15 @@ const EXEMPTIONS: Record<string, Exemption> = {
     reason:
       'Repo-automation oracles, baselines and CLIs that the product tree is not allowed to hold. ' +
       'Breadth here is a count of instruments, not a second orchestrate/. Grouping them into ' +
-      'subdirectories is the reduction; until then the count is pinned so the next file is argued.',
-    grantedAt: 52,
+      'subdirectories is the reduction; until then the count is pinned so the next file is argued. ' +
+      '+1 for projection-fold-seam.json: the policy data behind the guard that keeps a ' +
+      'projection-derived answer from escaping without evidence its fold covers the event tail. ' +
+      'It sits at this level because that is where every other guard reads its policy from, and ' +
+      'splitting one policy file into a subdirectory of its own would cost more than it saves. ' +
+      '+1 for reachable-controls.json, on the same argument: the policy behind the guard that ' +
+      'fails a control whose enabling call exists only in tests, so a gated path cannot go dark ' +
+      'while its branches read as shipped.',
+    grantedAt: 54,
   },
   'tools/audit/gates': {
     reason:

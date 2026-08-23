@@ -1,9 +1,11 @@
 import { EventStore } from '../../../events/store.js';
+import { toViewFailure } from '../../degraded-result.js';
 import type { ToolResult } from '../../../format.js';
 import { logger } from '../../../logger.js';
 import { detectRegressions, emitRegressionEvents, type FailureTracker } from '../../quality/regression-detector.js';
 import { CODE_QUALITY_VIEW, type CodeQualityViewState } from '../code-quality-view.js';
 import { analyticScope } from './analytic-contract.js';
+import { foldToTail } from '../../fold-at-tail.js';
 import { getOrCreateMaterializer } from './materializer.js';
 import { deriveCorrelationFilters, hasCorrelationFilters, materializeFiltered, queryDeltaEvents } from './query.js';
 
@@ -35,16 +37,15 @@ export async function handleViewCodeQuality(
 
     const correlationFilters = deriveCorrelationFilters(args);
     const correlationFiltered = hasCorrelationFilters(correlationFilters);
-    const events = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW, correlationFilters);
     // Wave 5 (#1437) — under a correlation filter, fold a fresh projection
     // off `init()` so the materializer cache stays the unfiltered truth.
     const view = correlationFiltered
-      ? materializeFiltered<CodeQualityViewState>(materializer, CODE_QUALITY_VIEW, events)
-      : materializer.materialize<CodeQualityViewState>(
-          streamId,
+      ? materializeFiltered<CodeQualityViewState>(
+          materializer,
           CODE_QUALITY_VIEW,
-          events,
-        );
+          await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW, correlationFilters),
+        )
+      : (await foldToTail<CodeQualityViewState>(store, materializer, streamId, CODE_QUALITY_VIEW)).view;
 
     // Detect and emit quality regressions with deduplication.
     // _failureTrackers is a non-enumerable property set by code-quality-view.ts.
@@ -146,12 +147,6 @@ export async function handleViewCodeQuality(
       ...nextActions,
     };
   } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'VIEW_ERROR',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
+    return toViewFailure(err, { tool: 'exarchos_view', action: 'code_quality' });
   }
 }

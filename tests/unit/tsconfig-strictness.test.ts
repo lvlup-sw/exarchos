@@ -136,7 +136,15 @@ describe('DR-14: escape-hatch census', () => {
   // repo compiles"; that set simply got smaller. The typecheck hole itself is
   // the real finding and is tracked separately — this ledger records only that
   // the two gates still agree with each other.
-  const BASELINE: CastCounts = { nonNull: 72, asCast: 1698, asAny: 0 };
+  // PAYDOWN — nonNull 72 -> 70, asCast 1698 -> 1695. `handleGet` and
+  // `handleSet` reached the ES v2 read and snapshot paths through a settable
+  // module singleton that nothing in `src/` ever set, so every use of it needed
+  // a `!` to tell the compiler the value was present when the code could not
+  // show that it was. The read path now resolves the materializer per stateDir
+  // and the snapshot path is gone, taking both assertions and three `as` casts
+  // (the snapshot's shape juggling) with them. No debt was moved; five sites
+  // stopped needing an escape hatch.
+  const BASELINE: CastCounts = { nonNull: 70, asCast: 1695, asAny: 0 };
 
   // Declared budget = MAX escape-hatch sites maintenance work may introduce
   // before the NEXT documented re-baseline. `as any` may never grow.

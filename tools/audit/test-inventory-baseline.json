@@ -1,13 +1,13 @@
 {
-  "capturedAt": "2026-08-20",
+  "capturedAt": "2026-08-23",
   "discovery": "extension-based over tracked files; not a runner glob",
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1195,
-    "parsedFiles": 1150,
+    "testFiles": 1199,
+    "parsedFiles": 1154,
     "shellFiles": 45,
-    "cases": 13314,
+    "cases": 13337,
     "dynamicTitles": 144,
     "unparseableFiles": 0
   },
@@ -4556,17 +4556,17 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "DR-3 — omission fails the build, not the run",
+          "suite": "omission fails the build, not the run",
           "name": "CompileFail_EffectWithoutCommittedEvent_FailsTypecheck",
           "dynamic": false
         },
         {
-          "suite": "DR-3 — omission fails the build, not the run",
+          "suite": "omission fails the build, not the run",
           "name": "CompileFail_FixtureCompilesWhenGuardRemoved",
           "dynamic": false
         },
         {
-          "suite": "DR-3 — omission fails the build, not the run",
+          "suite": "omission fails the build, not the run",
           "name": "CompileGate_ProbeLeavesTheLiveTreeUntouched",
           "dynamic": false
         }
@@ -4577,27 +4577,32 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "DR-5 — kill probes: every gate is shown to fail",
+          "suite": "kill probes: every gate is shown to fail",
           "name": "KillProbe_RequiredEmissionsRelaxed_TypecheckStopsFailing",
           "dynamic": false
         },
         {
-          "suite": "DR-5 — kill probes: every gate is shown to fail",
+          "suite": "kill probes: every gate is shown to fail",
           "name": "KillProbe_SuccessArmDropsEvidence_ValueBecomesReachable",
           "dynamic": false
         },
         {
-          "suite": "DR-5 — kill probes: every gate is shown to fail",
+          "suite": "kill probes: every gate is shown to fail",
           "name": "KillProbe_WitnessUnbranded_EvidenceBecomesForgeable",
           "dynamic": false
         },
         {
-          "suite": "DR-5 — kill probes: every gate is shown to fail",
+          "suite": "kill probes: every gate is shown to fail",
           "name": "KillProbe_RecorderMadeOptional_LiveRunNeedsNoCapability",
           "dynamic": false
         },
         {
-          "suite": "DR-5 — kill probes: every gate is shown to fail",
+          "suite": "kill probes: every gate is shown to fail",
+          "name": "KillProbe_RecorderMadeConditional_LiveRunProceeds",
+          "dynamic": false
+        },
+        {
+          "suite": "kill probes: every gate is shown to fail",
           "name": "KillProbes_LeaveNoResidue_InTheirOwnWriteSet",
           "dynamic": false
         }
@@ -5498,6 +5503,37 @@
         }
       ]
     },
+    "tests/architecture/projection-fold-seam.test.ts": {
+      "file": "tests/architecture/projection-fold-seam.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "projection fold seam",
+          "name": "ProjectionFoldSeam_NoSourceFile_BypassesTheTailCoveringFold",
+          "dynamic": false
+        },
+        {
+          "suite": "projection fold seam",
+          "name": "ProjectionFoldSeam_EntryPoint_HasRealCallers",
+          "dynamic": false
+        },
+        {
+          "suite": "projection fold seam",
+          "name": "ProjectionFoldSeam_KillFixture_IsReportedByTheSameScanner",
+          "dynamic": false
+        },
+        {
+          "suite": "projection fold seam",
+          "name": "ProjectionFoldSeam_BoundedReadMembers_AreExemptByNameNotByOversight",
+          "dynamic": false
+        },
+        {
+          "suite": "projection fold seam",
+          "name": "ProjectionFoldSeam_AllowlistEntries_CarryARationaleOwnerAndUnexpiredDate",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/architecture/prose-exodus.test.ts": {
       "file": "tests/architecture/prose-exodus.test.ts",
       "runner": "vitest:root",
@@ -5612,6 +5648,27 @@
         {
           "suite": "published-path facades",
           "name": "PublishedPathFacades_AreClassifiedByShapeNotByName",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/reachable-controls.test.ts": {
+      "file": "tests/architecture/reachable-controls.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "reachable controls",
+          "name": "ReachableControls_NoEnabler_IsCalledOnlyFromTests",
+          "dynamic": false
+        },
+        {
+          "suite": "reachable controls",
+          "name": "ReachableControls_KillFixture_IsReportedByTheSameScanner",
+          "dynamic": false
+        },
+        {
+          "suite": "reachable controls",
+          "name": "ReachableControls_AllowlistEntries_CarryAReasonOwnerAndUnexpiredDate",
           "dynamic": false
         }
       ]
@@ -6494,7 +6551,7 @@
         },
         {
           "suite": "T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)",
-          "name": "Governance_Dr4_DegradedProjection_IsNeverServedAsSuccess",
+          "name": "Governance_ProjectionDerivedRead_AnswersFromTheDurableTail",
           "dynamic": false
         },
         {
@@ -21065,32 +21122,32 @@
           "dynamic": false
         },
         {
-          "suite": "DR-5 — the edges that universal declaration puts pressure on",
+          "suite": "the edges that universal declaration puts pressure on",
           "name": "DryRun_EveryPlanDeclares_StillRecordsNothing",
           "dynamic": false
         },
         {
-          "suite": "DR-5 — the edges that universal declaration puts pressure on",
+          "suite": "the edges that universal declaration puts pressure on",
           "name": "DryRun_RecordsNothingPlan_IsAlsoSilent",
           "dynamic": false
         },
         {
-          "suite": "DR-5 — the edges that universal declaration puts pressure on",
+          "suite": "the edges that universal declaration puts pressure on",
           "name": "RecordEmissions_NonReceiptMidSet_FailsWholeEffect",
           "dynamic": false
         },
         {
-          "suite": "DR-5 — the edges that universal declaration puts pressure on",
+          "suite": "the edges that universal declaration puts pressure on",
           "name": "UnrecordedEmissionError_NamesPlanDeclarationAndCount",
           "dynamic": false
         },
         {
-          "suite": "DR-5 — the edges that universal declaration puts pressure on",
+          "suite": "the edges that universal declaration puts pressure on",
           "name": "SuccessArm_CarriesAReceiptPerDeclaredEmission",
           "dynamic": false
         },
         {
-          "suite": "DR-5 — the edges that universal declaration puts pressure on",
+          "suite": "the edges that universal declaration puts pressure on",
           "name": "SuccessArm_RecordsNothingPlan_CarriesEmptyRecordedEvidence",
           "dynamic": false
         }
@@ -23473,6 +23530,11 @@
         {
           "suite": "StartupAssertion — the severity axis on the boot refusal",
           "name": "StartupAssertion_BlockingSeverity_ThrowsOnAnyViolation",
+          "dynamic": false
+        },
+        {
+          "suite": "StartupAssertion — the severity axis on the boot refusal",
+          "name": "PrimaryOwnerBijection_SameOwnerDuplicateEdges_DoesNotReportMultiPrimary",
           "dynamic": false
         },
         {
@@ -33016,47 +33078,37 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "CHARACTERIZATION (superseded) — consumers served stale folds as success:true",
-          "name": "ViewComposite_DegradedProjection_ReturnsTypedDegradedResult",
-          "dynamic": false
-        },
-        {
-          "suite": "CHARACTERIZATION (superseded) — consumers served stale folds as success:true",
-          "name": "WorkflowComposite_DegradedProjection_DoesNotReturnStalePayload",
-          "dynamic": false
-        },
-        {
-          "suite": "CHARACTERIZATION (superseded) — consumers served stale folds as success:true",
-          "name": "OrchestrateComposite_DegradedProjection_ReturnsTypedDegradedResult",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-4 — every readiness/workflow/reliability consumer refuses",
+          "suite": "#1855 — every readiness/workflow/reliability consumer answers",
           "name": "<dynamic-case-1>",
           "dynamic": true
         },
         {
-          "suite": "DR-4 — a degraded result is distinguishable from its neighbours",
+          "suite": "#1855 — every readiness/workflow/reliability consumer answers",
+          "name": "Consumer_RewoundFold_AnswersFromTheTail",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — the reserved code still separates its neighbours",
           "name": "DegradedResult_IsNotConfusableWithNoData",
           "dynamic": false
         },
         {
-          "suite": "DR-4 — a degraded result is distinguishable from its neighbours",
+          "suite": "#1855 — the reserved code still separates its neighbours",
           "name": "DegradedResult_IsNotConfusableWithGenuineFailure",
           "dynamic": false
         },
         {
-          "suite": "DR-4 — a degraded result is distinguishable from its neighbours",
-          "name": "HealthyStream_NoDurableRow_ConsumersAnswerNormally",
+          "suite": "#1855 — the reserved code still separates its neighbours",
+          "name": "SuggestedFix_NeverNamesTheCallThatFailed",
           "dynamic": false
         },
         {
-          "suite": "DR-4 — recovery clears the refusal",
-          "name": "DegradedStream_RefoldViaViewChokepoint_PublishesRecoveryAndUnblocksConsumers",
+          "suite": "#1855 — a spent observation clears",
+          "name": "DegradedRow_SurvivingRead_IsClearedByTheViewChokepoint",
           "dynamic": false
         },
         {
-          "suite": "DR-4 — recovery clears the refusal",
+          "suite": "#1855 — a spent observation clears",
           "name": "WorkflowMutationsAndRecoveryActions_StayUnguarded",
           "dynamic": false
         }
@@ -33158,6 +33210,72 @@
         }
       ]
     },
+    "tests/unit/projections/fold-at-tail.test.ts": {
+      "file": "tests/unit/projections/fold-at-tail.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "#1855 — the wedge",
+          "name": "FoldAtTail_StaleSiblingFold_DoesNotRefuseAnUnrelatedViewRead",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — the wedge",
+          "name": "FoldAtTail_RepeatedReadsOnAnAppendingStream_AllSucceed",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — the wedge",
+          "name": "FoldAtTail_WorkflowGet_IsNotWedgedByASiblingFold",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — the wedge",
+          "name": "FoldAtTail_FabricatedDegradedMarker_DoesNotWedgeAHealthyStream",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — a read never answers from a fold behind the tail",
+          "name": "FoldAtTail_RewoundFold_AnswersFromTheTailNotFromTheStaleFold",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — a read never answers from a fold behind the tail",
+          "name": "FoldAtTail_ContradictoryFold_IsDiscardedAndReplayedFromTheLog",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — a read never answers from a fold behind the tail",
+          "name": "FoldAtTail_ColdStream_CoversTheTailWithNoWarmFold",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — a read never answers from a fold behind the tail",
+          "name": "FoldAtTail_AppendLandsMidFold_SequenceStaysOnThePinnedTail",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — a read never answers from a fold behind the tail",
+          "name": "FoldPairToTail_TwoViews_ShareOneSequence",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — a read never answers from a fold behind the tail",
+          "name": "FoldAtTail_EmptyStream_IsCoveredAtSequenceZero",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — a committed mutation is never reported as a failure",
+          "name": "WorkflowUpdate_CoverageUnprovable_StillReportsTheCommittedWrite",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — a committed mutation is never reported as a failure",
+          "name": "FoldAtTail_UnprovableCoverage_ThrowsRatherThanAnswering",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/projections/freshness.test.ts": {
       "file": "tests/unit/projections/freshness.test.ts",
       "runner": "vitest:root",
@@ -33179,17 +33297,7 @@
         },
         {
           "suite": "projection freshness comparison (EFF-002)",
-          "name": "Freshness_MultipleCursors_ReportsWorstOffenderFirst",
-          "dynamic": false
-        },
-        {
-          "suite": "projection freshness comparison (EFF-002)",
-          "name": "Freshness_AllCursorsAtTail_NotDegraded",
-          "dynamic": false
-        },
-        {
-          "suite": "projection freshness comparison (EFF-002)",
-          "name": "Freshness_NoMaterializedFolds_NotDegraded",
+          "name": "Freshness_IsPerFold_NotPerStream",
           "dynamic": false
         },
         {
@@ -33199,12 +33307,12 @@
         },
         {
           "suite": "view chokepoint marks degraded reads (EFF-002)",
-          "name": "HandleView_ProjectionAheadOfPrunedLog_ReturnsTypedDegradedMarker",
+          "name": "HandleView_ProjectionAheadOfPrunedLog_IsRepairedAndAnswered",
           "dynamic": false
         },
         {
           "suite": "view chokepoint marks degraded reads (EFF-002)",
-          "name": "HandleView_StaleSiblingFold_DegradesTheWholeStreamAnswer",
+          "name": "HandleView_StaleSiblingFold_DoesNotDegradeAnUnrelatedAnswer",
           "dynamic": false
         },
         {
@@ -70798,6 +70906,37 @@
           "suite": "single-composer guard > scanner-form coverage",
           "name": "<dynamic-case-2>",
           "dynamic": true
+        }
+      ]
+    },
+    "tests/unit/workflow/state-fold-merge.test.ts": {
+      "file": "tests/unit/workflow/state-fold-merge.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "ES v2 get — the fold merged with the file",
+          "name": "WorkflowGet_EventDerivedRead_KeepsEveryFileOwnedField",
+          "dynamic": false
+        },
+        {
+          "suite": "ES v2 get — the fold merged with the file",
+          "name": "WorkflowGet_EventDerivedRead_AddsWhatOnlyTheFoldKnows",
+          "dynamic": false
+        },
+        {
+          "suite": "ES v2 get — the fold merged with the file",
+          "name": "WorkflowGet_AsOf_AnswersHistoricallyRatherThanWithTipState",
+          "dynamic": false
+        },
+        {
+          "suite": "ES v2 get — the fold merged with the file",
+          "name": "WorkflowGet_AsOfPastTheTip_IsIdenticalToTheLiveRead",
+          "dynamic": false
+        },
+        {
+          "suite": "why the state file is not re-materialized from the fold",
+          "name": "WorkflowStateFold_PatchedTask_ViolatesStateSchema",
+          "dynamic": false
         }
       ]
     },

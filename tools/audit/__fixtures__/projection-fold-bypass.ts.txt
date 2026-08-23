@@ -1,0 +1,29 @@
+// KILL FIXTURE — not compiled, not shipped, deliberately defective.
+//
+// The `queryDeltaEvents` + `materialize` pair as it stood in
+// src/workflow/handlers/get.ts at 529348175, before #1855. It obtains a fold
+// with no evidence of what that fold covers, which is the whole defect class:
+// the answer is served, and whether it saw the events that were already durable
+// when the question was asked is decided somewhere else, later, about something
+// else.
+//
+// `tests/architecture/projection-fold-seam.test.ts` runs its real scanner over
+// this file and fails if the bypass is not reported. If a future refactor makes
+// the scanner blind to this shape, the guard goes red here rather than going
+// quiet in production.
+
+export async function handleGetFromEvents(
+  input: GetInput,
+  fileState: WorkflowState,
+  eventStore: EventStore,
+): Promise<ToolResult> {
+  const allEvents = await eventStore.query(input.featureId);
+
+  const materialized = moduleViewMaterializer!.materialize<WorkflowStateView>(
+    input.featureId,
+    WORKFLOW_STATE_VIEW,
+    allEvents,
+  );
+
+  return projectState(input, materialized as unknown as Record<string, unknown>);
+}

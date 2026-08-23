@@ -1,3 +1,4 @@
+import { toViewFailure } from '../../degraded-result.js';
 import { narrowAffordance } from '../../../dispatch/core/economy.js';
 import { EventStore } from '../../../events/store.js';
 import { pickFields, type ToolResult } from '../../../format.js';
@@ -6,7 +7,7 @@ import { TASK_DETAIL_VIEW, type TaskDetail, type TaskDetailViewState } from '../
 import { CompactTaskDetail, compactTaskDetail, resolveInventoryWindow, scopeHiddenAffordance } from './inventory-contract.js';
 import { getOrCreateMaterializer } from './materializer.js';
 import { buildPage } from './pipeline.js';
-import { queryDeltaEvents } from './query.js';
+import { foldToTail } from '../../fold-at-tail.js';
 import { readWorkflowStateJson } from './streams.js';
 
 // ─── View Tasks Handler ────────────────────────────────────────────────────
@@ -30,12 +31,7 @@ export async function handleViewTasks(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const events = await queryDeltaEvents(store, materializer, streamId, TASK_DETAIL_VIEW);
-    const view = materializer.materialize<TaskDetailViewState>(
-      streamId,
-      TASK_DETAIL_VIEW,
-      events,
-    );
+    const { view } = await foldToTail<TaskDetailViewState>(store, materializer, streamId, TASK_DETAIL_VIEW);
 
     // Fix 2 (#1184) — the task-detail projection is event-sourced and only
     // populates entries that have a `task.assigned` event. The planner often
@@ -143,12 +139,6 @@ export async function handleViewTasks(
       : windowed.map(compactTaskDetail);
     return { success: true, data: rows, ...envelopeExtras };
   } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'VIEW_ERROR',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
+    return toViewFailure(err, { tool: 'exarchos_view', action: 'tasks' });
   }
 }
