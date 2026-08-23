@@ -12,21 +12,35 @@
  *   'pass'  = EVERY applicable check ran and passed (warnings OK)
  *   'fail'  = errors found in one or more tools
  *   'skip'  = the gate is inconclusive. Two reasons produce it:
- *             'no-toolchain'        — no recognized project type at all
- *                                     (DR-4, docs/plans/archive/2026-05-04-v290-dogfood-bundle.md).
+ *             'no-toolchain'        — nothing this gate can run checks for. The
+ *                                     registry recognised no toolchain at all,
+ *                                     or it recognised one this gate has no
+ *                                     runner for. The report says which.
  *             'constituent-skipped' — a toolchain WAS detected and at least one
  *                                     constituent check did not run (missing
- *                                     npm script, or a --skip-* flag) while no
- *                                     check failed (DR-6). The dimension is
- *                                     DEGRADED, never PASS: a check that never
- *                                     ran is not evidence that it would pass.
+ *                                     npm script, a --skip-* flag, a command
+ *                                     that could not be launched, or a
+ *                                     toolchain that assembled no runnable leg
+ *                                     at all) while no check failed. The
+ *                                     dimension is DEGRADED, never PASS: a
+ *                                     check that never ran is not evidence that
+ *                                     it would pass.
  *             The `skipReason` field carries the reason code.
- *   'error' = usage error (missing repo root, no package.json)
+ *   'error' = usage error (missing repo root, no package.json, unreadable
+ *             `.exarchos.yml`)
  */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { detectToolchain, BUILTIN_TOOLCHAINS } from '../../config/toolchains.js';
+import { runCommandSync } from '../../utils/process.js';
+import { loadExarchosConfig } from '../../config/load-exarchos-config.js';
+import {
+  detectToolchain,
+  toolchainFromConfig,
+  BUILTIN_TOOLCHAINS,
+  type ConfigToolchain,
+  type Toolchain,
+} from '../../config/toolchains.js';
 
 // ============================================================
 // PUBLIC TYPES
@@ -52,12 +66,133 @@ export interface CommandResult {
  *
  * Abstracted to allow mocking in tests while retaining real execFileSync
  * in production use.
+ *
+ * `timeoutMs` is a REQUIREMENT on the runner, not a hint: a toolchain command
+ * that never returns must not become a gate that never returns. An
+ * implementation that cannot bound the wall clock should report the expiry the
+ * same way it reports an unspawnable binary — through `spawnError`, which says
+ * `exitCode` is not authoritative — because a command that was killed produced
+ * no evidence either way and must not read as a failure.
  */
 export type RunCommandFn = (
   cmd: string,
   args: readonly string[],
-  options?: { cwd?: string }
+  options?: { cwd?: string; timeoutMs?: number }
 ) => CommandResult;
+
+/**
+ * Wall-clock bound every command this gate spawns is given.
+ *
+ * Ten minutes is chosen to sit above a cold full-repository build or typecheck
+ * on a large governed repository and well below any human's patience for a
+ * gate that has stopped making progress. It is a single declared value rather
+ * than a per-call literal so the bound is one fact a reader can find and
+ * change, and so a spawn site that forgot it is visible as an omission.
+ */
+export const CHECK_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
+
+/**
+ * Output ceiling for one check, in bytes.
+ *
+ * Node's default is a megabyte, which a failing lint or typecheck run over a
+ * large repository exceeds routinely — and overflowing it kills the child, so
+ * the very run that had the most to say is the one whose verdict is lost. The
+ * ceiling is raised to where only a runaway can reach it; the transcript is
+ * capped for the reader separately (see the fail-detail cap below), which is a
+ * presentation concern and not a reason to stop reading the tool's output.
+ */
+export const CHECK_COMMAND_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Exit code reported alongside a `spawnError`. The field's whole point is that
+ * the number is not authoritative, so this is a placeholder in the
+ * command-not-found tradition rather than something a caller may read.
+ */
+const NO_VERDICT_EXIT_CODE = 127;
+
+/**
+ * Describe a run that produced no verdict, in one line.
+ *
+ * Node puts the useful part in `code` (`ENOENT`, `ETIMEDOUT`, …) and repeats
+ * the command plus, sometimes, an entire captured transcript in `message`.
+ * Only the first line of the message is kept: this string is a reason a leg is
+ * inconclusive, not a report of findings, and it goes into the gate output
+ * uncapped.
+ */
+function describeRunFailure(err: { readonly code?: string; readonly message?: string }): string {
+  const firstLine = (err.message ?? '').split('\n')[0]?.trim() ?? '';
+  const code = typeof err.code === 'string' ? err.code : '';
+  if (code && firstLine) return `${code}: ${firstLine}`;
+  return code || firstLine || 'the command did not run to completion';
+}
+
+/**
+ * The runner this gate is composed with in production.
+ *
+ * It lives beside the contract it implements rather than in the handler,
+ * because the handler's own adapter was where the contract quietly stopped
+ * being honoured: it dropped `timeoutMs` (so nothing this gate spawned had a
+ * bounded wall clock) and never set `spawnError` (so a linter that could not be
+ * launched arrived as exit 1 and was read as a lint failure — a false red on a
+ * check that never ran).
+ *
+ * The discriminant is a NUMERIC EXIT STATUS, not an errno table. A process that
+ * exited produced a verdict, whatever the code; a throw that carries no numeric
+ * `status` means no verdict exists — the binary was not found, the wall-clock
+ * bound killed the run, the output ceiling killed it — and every one of those
+ * is inconclusive for this gate, which treats them all the same way. Callers
+ * that need to tell those apart classify the errno themselves; this one does
+ * not, so it does not carry a table it would have to keep correct.
+ */
+export const execCommandRunner: RunCommandFn = (
+  cmd: string,
+  args: readonly string[],
+  options?: { cwd?: string; timeoutMs?: number },
+): CommandResult => {
+  try {
+    const stdout = runCommandSync(cmd, args, {
+      encoding: 'utf-8',
+      cwd: options?.cwd,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      maxBuffer: CHECK_COMMAND_MAX_OUTPUT_BYTES,
+      timeout: options?.timeoutMs ?? CHECK_COMMAND_TIMEOUT_MS,
+    }) as string;
+    return { exitCode: 0, stdout, stderr: '' };
+  } catch (err: unknown) {
+    const execErr = err as {
+      status?: number;
+      code?: string;
+      message?: string;
+      stdout?: string;
+      stderr?: string;
+    };
+    const stdout = typeof execErr.stdout === 'string' ? execErr.stdout : '';
+    const stderr = typeof execErr.stderr === 'string' ? execErr.stderr : '';
+    if (typeof execErr.status === 'number') {
+      return { exitCode: execErr.status, stdout, stderr };
+    }
+    return {
+      exitCode: NO_VERDICT_EXIT_CODE,
+      stdout,
+      stderr,
+      spawnError: describeRunFailure(execErr),
+    };
+  }
+};
+
+/**
+ * The part of a loaded `.exarchos.yml` this gate reads.
+ *
+ * Declared as what is consumed rather than as the loader's whole result, so the
+ * seam states its own requirement and a test can satisfy it without building a
+ * validated config document. The real loader satisfies it structurally.
+ */
+export interface ToolchainConfigSource {
+  readonly config: { readonly toolchains?: readonly ConfigToolchain[] | undefined };
+}
+
+/** Reads the repository's toolchain declarations, or null when it has none. */
+export type LoadToolchainConfigFn = (repoRoot: string) => ToolchainConfigSource | null;
 
 export interface StaticAnalysisInput {
   /** Repository root to analyze. */
@@ -68,15 +203,26 @@ export interface StaticAnalysisInput {
   readonly skipTypecheck?: boolean | undefined;
   /** External command runner (dependency injection). */
   readonly runCommand: RunCommandFn;
+  /**
+   * Reads the repository's `.exarchos.yml`, whose `toolchains:` block is the
+   * sanctioned way to extend or override what a repository is detected as.
+   * Injectable so the extension point is testable without a file on disk;
+   * unset means the real loader, which is what production uses.
+   */
+  readonly loadConfig?: LoadToolchainConfigFn | undefined;
 }
 
 /**
  * Reason code for a 'skip' status.
  *
- * - 'no-toolchain'        — no recognized project files in repoRoot (DR-4).
- * - 'constituent-skipped' — a toolchain was detected but at least one
- *                           constituent check did not run (DR-6). The gate is
- *                           DEGRADED/inconclusive: it may not report PASS.
+ * - 'no-toolchain'        — nothing this gate can run checks for: no recognized
+ *                           project files in repoRoot, or a toolchain it has no
+ *                           runner for.
+ * - 'constituent-skipped' — a toolchain was detected and at least one
+ *                           constituent check did not run — including the case
+ *                           where the toolchain assembled no runnable check at
+ *                           all. The gate is DEGRADED/inconclusive: it may not
+ *                           report PASS.
  */
 export type StaticAnalysisSkipReason = 'no-toolchain' | 'constituent-skipped';
 
@@ -84,15 +230,14 @@ export interface StaticAnalysisResult {
   /**
    * Overall status.
    *
-   * - 'pass'  — EVERY applicable check ran and passed. A single skipped
-   *             constituent forbids this value (DR-6).
+   * - 'pass'  — EVERY applicable check ran and passed, and there was at least
+   *             one. A single skipped constituent forbids this value, and so
+   *             does an empty set of them.
    * - 'fail'  — one or more checks failed
    * - 'skip'  — inconclusive; see `skipReason` for the reason code. Distinct
    *             from 'pass' so the gate does not falsely-green a repo with no
-   *             recognized toolchain (DR-4) or with a check that never ran
-   *             (DR-6). See DR-4 in v2.9 dogfood plan, DR-6 in
-   *             docs/specs/2026-08-04-wiring-closure-and-unified-integration-suite.md.
-   * - 'error' — usage error (missing/invalid repo root, etc.)
+   *             recognized toolchain, or with a check that never ran.
+   * - 'error' — usage error (missing/invalid repo root, unreadable config)
    */
   readonly status: 'pass' | 'fail' | 'skip' | 'error';
   /** Structured markdown report. */
@@ -106,21 +251,26 @@ export interface StaticAnalysisResult {
   /** Number of checks that failed. */
   readonly failCount: number;
   /**
-   * Number of constituent checks that did NOT run (missing script or
-   * --skip-* flag). Non-zero forces the aggregate away from 'pass' (DR-6).
+   * Number of constituent checks that did NOT run (missing script, --skip-*
+   * flag, a command that could not be launched, or a toolchain that declared
+   * nothing runnable). Non-zero forces the aggregate away from 'pass'.
    */
   readonly skipCount: number;
-  /** Detected project type (undefined if no recognized project). */
+  /**
+   * The registry's label for the detected toolchain, whether or not this gate
+   * could check it. Undefined only when nothing was detected at all — which is
+   * what separates "no project here" from "a project this gate cannot check".
+   */
   readonly projectType?: string | undefined;
 }
 
 // ============================================================
-// IMPORT-BOUNDARY LINT (SIV-3 Layer A, task 027)
+// IMPORT-BOUNDARY LINT (structural layer)
 // ============================================================
 //
 // The boundary-lint leg rides the static-analysis gate to enforce
 // architectural import boundaries (e.g. "domain core must not import the IO
-// facade"). It is Layer A of SIV-3: a *structural* boundary check on the
+// facade"). It is the STRUCTURAL half: a boundary check on the
 // module import graph.
 //
 // Decision (made at plan time): the leg is built on **dependency-cruiser**,
@@ -135,13 +285,14 @@ export interface StaticAnalysisResult {
 // graph, not the flow of tainted values through it, so Layer B is a SEPARATE
 // leg driven by a resolved taint engine (Semgrep) over a committed ruleset.
 //
-// Implementation decision (SIV-3B, #1529): the taint leg is driven by an
+// Implementation decision (#1529): the taint leg is driven by an
 // EXTERNAL resolved engine (Semgrep), not a hand-rolled TypeScript-compiler AST
 // walk. Rationale: (1) bundling the TS compiler into the shipped runtime to
 // re-implement dataflow is disproportionate; (2) one engine (Semgrep) serves
 // TS *and* the non-TS degrade the research names (CodeQL is the heavier
 // alternative), so the guarantee is language-agnostic with a single per-runtime
-// implementation (INV-4 parity) rather than a TS-only primary + a separate
+// implementation (one guarantee, at parity across runtimes) rather than a
+// TS-only primary + a separate
 // degrade; (3) the ruleset — not code — encodes BOTH halves of the invariant:
 // (a) raw IO (`JSON.parse` / `response.json()` / `req.body` / `fs.read*`) whose
 // result is not consumed by a registered parser, AND (b) out-of-band
@@ -150,7 +301,7 @@ export interface StaticAnalysisResult {
 // resolved convention (`parsers: ['src/parse/**']`) referenced by the ruleset,
 // not baked into this module.
 //
-// INV-4 degrade discipline: a repo with no `.dependency-cruiser.cjs` (or with
+// Degrade discipline: a repo with no `.dependency-cruiser.cjs` (or with
 // dependency-cruiser absent from the toolchain) yields a SKIP leg, never a
 // hard failure — exactly like the gate's "no lint script" SKIP. The leg only
 // blocks when a real config is present AND a real violation is found.
@@ -179,7 +330,7 @@ export interface BoundaryLintInput {
   readonly sources?: readonly string[];
 }
 
-/** Verdict of the import-boundary leg. SKIP is the INV-4 advisory degrade. */
+/** Verdict of the import-boundary leg. SKIP is the advisory degrade. */
 export interface BoundaryLintResult {
   readonly status: 'PASS' | 'FAIL' | 'SKIP';
   /** Human detail: the violation summary on FAIL, the skip reason on SKIP. */
@@ -235,7 +386,7 @@ export function runBoundaryLint(input: BoundaryLintInput): BoundaryLintResult {
     result = runCommand(
       'npx',
       ['depcruise', '--validate', configName, ...sources],
-      { cwd: repoRoot },
+      { cwd: repoRoot, timeoutMs: CHECK_COMMAND_TIMEOUT_MS },
     );
   } catch {
     // Tool absent / not resolvable → degrade to SKIP, never a hard failure.
@@ -254,7 +405,7 @@ export function runBoundaryLint(input: BoundaryLintInput): BoundaryLintResult {
 }
 
 // ============================================================
-// BOUNDARY-PARSE TAINT (SIV-3 Layer B, #1529)
+// BOUNDARY-PARSE TAINT (dataflow layer, #1529)
 // ============================================================
 //
 // "No raw IO into the core": untrusted input must cross a registered parser
@@ -263,7 +414,7 @@ export function runBoundaryLint(input: BoundaryLintInput): BoundaryLintResult {
 // (it sees imports, not value flow), so it rides its own resolved engine.
 //
 // The engine is Semgrep (resolved, not bundled — see the decision note above).
-// The leg follows the exact INV-4 degrade discipline as Layer A: it only runs
+// The leg follows the exact degrade discipline as Layer A: it only runs
 // when a repo OPTS IN by committing a taint ruleset at a known path, and a
 // missing ruleset OR a missing engine yields an advisory SKIP, never a hard
 // FAIL. A repo that declares no parse boundary is simply not subject to the
@@ -292,7 +443,7 @@ export interface RawIoTaintInput {
   readonly coreSources?: readonly string[];
 }
 
-/** Verdict of the boundary-parse taint leg. SKIP is the INV-4 advisory degrade. */
+/** Verdict of the boundary-parse taint leg. SKIP is the advisory degrade. */
 export interface RawIoTaintResult {
   readonly status: 'PASS' | 'FAIL' | 'SKIP';
   /** Human detail: the violation summary on FAIL, the skip reason on SKIP. */
@@ -349,7 +500,7 @@ export function runRawIoTaint(input: RawIoTaintInput): RawIoTaintResult {
     result = runCommand(
       'semgrep',
       ['--error', '--quiet', '--config', ruleset, ...coreSources],
-      { cwd: repoRoot },
+      { cwd: repoRoot, timeoutMs: CHECK_COMMAND_TIMEOUT_MS },
     );
   } catch {
     // Engine absent / not resolvable → degrade to SKIP, never a hard failure.
@@ -360,7 +511,7 @@ export function runRawIoTaint(input: RawIoTaintInput): RawIoTaintResult {
     // The runner reports an unspawnable engine (ENOENT/EACCES) via `spawnError`
     // rather than throwing — when it does, `exitCode` is NOT authoritative, so a
     // coincidental `1` must not read as a boundary finding. Degrade to SKIP,
-    // the same INV-4 discipline as the throw path above (and the contract the
+    // the same discipline as the throw path above (and the contract the
     // integration-suite gate already honors, #1537).
     return {
       status: 'SKIP',
@@ -373,7 +524,7 @@ export function runRawIoTaint(input: RawIoTaintInput): RawIoTaintResult {
   }
 
   // Exit 1 = findings (a real boundary violation) ⇒ FAIL. ANY OTHER non-zero
-  // code is inconclusive, not a violation ⇒ degrade to SKIP (INV-4), the same
+  // code is inconclusive, not a violation ⇒ degrade to SKIP, the same
   // discipline as a missing tool: semgrep exit ≥2 is an engine/config error,
   // and a negative code is signal death (a SIGKILL'd engine) — neither is
   // evidence of a boundary violation, so neither may hard-FAIL the build.
@@ -417,6 +568,24 @@ function hasNpmScript(packageJson: Record<string, unknown>, scriptName: string):
 }
 
 /**
+ * The reason a command produced no verdict, or null when its exit code is
+ * authoritative.
+ *
+ * `spawnError` is the runner's channel for "the process never ran to
+ * completion" — an unresolvable binary, or a run the wall-clock bound cut
+ * short. In both cases `exitCode` carries whatever the platform happened to
+ * put there, so reading it as a failure invents evidence: nothing was checked.
+ * The leg SKIPs, which the aggregate already treats as inconclusive and
+ * refuses to render as a pass. The taint leg above has always honoured this
+ * field; the lint and typecheck legs did not, so an unlaunchable linter read
+ * as a lint failure.
+ */
+function didNotRun(result: CommandResult): string | null {
+  if (!result.spawnError) return null;
+  return result.spawnError.trim() || 'the command did not run to completion';
+}
+
+/**
  * Read and parse package.json from a directory.
  * Returns `{ packageJson }` on success or `{ error }` on failure.
  */
@@ -434,12 +603,12 @@ function readPackageJson(
 }
 
 // ============================================================
-// FAIL-DETAIL CAP (DR-7a — counts-not-transcripts)
+// FAIL-DETAIL CAP (counts, not transcripts)
 // ============================================================
 //
 // A failing lint/typecheck run can emit hundreds of lines of transcript. Echoing
 // the whole dump into the gate response is the O-3 unbounded-echo the token-
-// economy audit named (DR-7): the reviewer pays for a 500-line wall of text when
+// economy audit named: the reviewer pays for a 500-line wall of text when
 // a first page + counts + a re-run hint is enough to triage. This caps the raw
 // detail to `FAIL_DETAIL_MAX_LINES`, then appends:
 //   (a) the total line count (so the reader knows how much was elided),
@@ -458,7 +627,7 @@ export const FAIL_DETAIL_MAX_LINES = 50;
 /**
  * Maximum distinct failing files enumerated in the per-file breakdown. Without
  * this cap a large cascade appends one line per file, so the "capped" detail can
- * still blow the DR-7 response budget the line cap exists to protect.
+ * still blow the response budget the line cap exists to protect.
  */
 export const FAIL_DETAIL_MAX_FILES = 20;
 
@@ -555,7 +724,12 @@ function runNpmCheck(
   }
 
   try {
-    const result = runCommand('npm', ['run', scriptName], { cwd: repoRoot });
+    const result = runCommand('npm', ['run', scriptName], {
+      cwd: repoRoot,
+      timeoutMs: CHECK_COMMAND_TIMEOUT_MS,
+    });
+    const unran = didNotRun(result);
+    if (unran) return { name, status: 'SKIP', detail: unran };
     if (result.exitCode === 0) {
       return { name, status: 'PASS' };
     }
@@ -573,43 +747,205 @@ function runNpmCheck(
 }
 
 // ============================================================
-// PROJECT TYPE DETECTION
+// WHICH TOOLCHAINS THIS GATE CAN CHECK
 // ============================================================
 
-type ProjectType = 'Node.js' | '.NET' | 'Rust' | 'Go';
-
 /**
- * Toolchain ids this gate has check-runners for, mapped to their report label.
- * Detection itself is delegated to the shared registry (single source of truth
- * for markers — this is where `.slnx`/`.sln` are recognized, #1507). The
- * registry detects many more toolchains; this gate only *runs checks* for the
- * four it has runners for and SKIPs the rest (honest no-toolchain).
+ * Toolchain ids this gate has runnable checks for.
+ *
+ * Detection is delegated wholesale to the shared registry, which is the single
+ * source of truth for markers and recognises considerably more toolchains than
+ * this set. Membership here answers the narrower question of whether a
+ * DETECTED toolchain has anything to run, and a non-member is an honest skip,
+ * never a pass.
+ *
+ * Exported because the difference between this set and the registry is the
+ * gate's real coverage, and an unmeasured difference is one that grows: a
+ * toolchain added to the registry with no runner here changed nothing that
+ * could be seen. `tests/architecture/gate-toolchain-coverage.test.ts` pins the
+ * uncovered ids by name so the list can only shrink.
+ *
+ * This set governs BUILT-IN toolchains. A repository that declares its own is
+ * admitted on different terms — see {@link isCheckable}.
  */
-const SUPPORTED_TOOLCHAINS: Readonly<Record<string, ProjectType>> = {
-  node: 'Node.js',
-  dotnet: '.NET',
-  rust: 'Rust',
-  go: 'Go',
-};
+export const SUPPORTED_TOOLCHAINS: ReadonlySet<string> = new Set([
+  'node',
+  'dotnet',
+  'rust',
+  'go',
+]);
 
-/** Markers (registry-sourced) for the gate's supported toolchains, for the SKIP message. */
-function supportedMarkers(): string[] {
-  return Object.keys(SUPPORTED_TOOLCHAINS).flatMap(
-    (id) => BUILTIN_TOOLCHAINS.find((t) => t.id === id)?.markers ?? [],
-  );
+/** Every marker the registry recognises, for an honest "nothing detected" report. */
+function allRegistryMarkers(): string[] {
+  return BUILTIN_TOOLCHAINS.flatMap((t) => t.markers);
+}
+
+// ============================================================
+// TOOLCHAIN RESOLUTION
+// ============================================================
+
+/** A detected toolchain plus where the declaration came from. */
+interface ToolchainResolution {
+  readonly toolchain: Toolchain | undefined;
+  /** True when the match came from the repository's own `toolchains:` block. */
+  readonly userDeclared: boolean;
 }
 
 /**
- * Detect project type via the shared toolchain registry, narrowed to the
- * toolchains this gate can actually check. Returns undefined when nothing is
- * detected or the detected toolchain has no runner here.
+ * Detect the repository's toolchain, letting its own `.exarchos.yml`
+ * `toolchains:` block participate.
+ *
+ * That block is the sanctioned way to extend or override detection, and every
+ * other consumer of the registry already passes it. This gate did not, so a
+ * repository could declare its commands, watch the test runtime honour them,
+ * and still be told static analysis had no runner for it.
+ *
+ * Throws whatever the loader throws. A `.exarchos.yml` that cannot be parsed or
+ * validated is not an absent one: continuing would mean running the gate
+ * against a detection the operator did not ask for and reporting the result as
+ * if nothing were wrong.
  */
-function detectProjectType(repoRoot: string): ProjectType | undefined {
-  const toolchain = detectToolchain(repoRoot);
-  if (toolchain && toolchain.id in SUPPORTED_TOOLCHAINS) {
-    return SUPPORTED_TOOLCHAINS[toolchain.id];
+function resolveToolchain(
+  repoRoot: string,
+  loadConfig: LoadToolchainConfigFn,
+): ToolchainResolution {
+  const declared = (loadConfig(repoRoot)?.config.toolchains ?? []).map(toolchainFromConfig);
+  if (declared.length === 0) {
+    return { toolchain: detectToolchain(repoRoot), userDeclared: false };
   }
-  return undefined;
+  const matched = detectToolchain(repoRoot, declared);
+  return { toolchain: matched, userDeclared: matched !== undefined && declared.includes(matched) };
+}
+
+/**
+ * Whether this gate has checks to run for a detected toolchain.
+ *
+ * Two different questions, deliberately answered differently. For a BUILT-IN
+ * toolchain the gate has to decide on the repository's behalf what a partial
+ * registry declaration should mean, and {@link SUPPORTED_TOOLCHAINS} is where
+ * that decision is recorded. A repository that declares its own toolchain has
+ * already made the decision itself by naming the commands, so refusing it would
+ * make the extension point advisory. Either way a toolchain that names nothing
+ * runnable is inconclusive, not a pass — see {@link runToolchainChecks}.
+ */
+function isCheckable(toolchain: Toolchain, userDeclared: boolean): boolean {
+  if (SUPPORTED_TOOLCHAINS.has(toolchain.id)) return true;
+  return userDeclared && declaresRunnableCheck(toolchain);
+}
+
+// ============================================================
+// CHECK LEGS: REGISTRY FIRST, SUPPLEMENTS BY EXCEPTION
+// ============================================================
+//
+// The commands are the registry's to declare. This gate used to re-derive one
+// literal per language beside a detection call that already knew the answer,
+// which is how the same knowledge came to disagree with itself elsewhere. So:
+// a detected toolchain's `commands.lint` and `commands.typecheck` ARE the lint
+// and typecheck legs, and only what the registry declines to declare is
+// supplied here — by exception, named, with the reason it cannot come from the
+// registry.
+//
+// Measured against the registry as it stands, the four toolchains this gate
+// runs split three ways:
+//   - go     — the registry's lint command is byte-identical to the literal
+//              this module used to carry. Pure duplication; now sourced.
+//   - rust   — the registry declares the linter and no typecheck command. The
+//              linter is taken as declared; `cargo check` remains a supplement.
+//   - dotnet — the registry declares neither leg for it.
+//   - node   — the registry's node commands do not answer this gate's question
+//              at all (see runNodeChecks).
+
+/** Which `--skip-*` flag suppresses a supplement leg. */
+type SkipAxis = 'lint' | 'typecheck' | 'both';
+
+interface SupplementLeg {
+  /** Report label. */
+  readonly name: string;
+  /** The command, exactly as it would be typed. */
+  readonly command: string;
+  /** `'both'` means the leg runs unless BOTH skip flags are set. */
+  readonly axis: SkipAxis;
+}
+
+/**
+ * Legs the registry does not declare, keyed by toolchain id, each with the
+ * reason it is here. An entry whose command the registry later declares has
+ * become a duplicate and should be deleted rather than kept in step.
+ */
+const COMMAND_SUPPLEMENTS: Readonly<Record<string, readonly SupplementLeg[]>> = {
+  // The registry declares no lint and no typecheck command for .NET. The
+  // compiler is both, and promoting warnings is what makes a build a check.
+  dotnet: [
+    { name: 'Build', command: 'dotnet build --no-restore -warnaserror', axis: 'both' },
+  ],
+  // The registry declares rust's linter but no typecheck command; a
+  // compile-only pass is the leg clippy does not stand in for.
+  rust: [{ name: 'Check', command: 'cargo check', axis: 'typecheck' }],
+};
+
+/**
+ * Tokens appended to a toolchain's declared linter so that what it finds
+ * actually fails the leg.
+ *
+ * A linter whose findings exit zero contributes a PASS while establishing
+ * nothing: the leg ran, and no outcome of it could have been a failure. Clippy
+ * is exactly that — its default level for most lints is `warn`, so a crate can
+ * be thick with findings and still exit 0. The registry declares the linter's
+ * IDENTITY, which is the right thing for it to own; whether a finding is
+ * allowed to block is this gate's question, and it is answered the same way the
+ * .NET leg answers it with `-warnaserror`.
+ *
+ * `go vet` needs no entry: it already exits non-zero on what it reports. An
+ * entry here is a claim that a toolchain's declared linter cannot fail without
+ * one, so adding a row is a decision, not a default.
+ */
+const LINT_FAILING_MODE: Readonly<Record<string, readonly string[]>> = {
+  rust: ['--', '-D', 'warnings'],
+};
+
+/**
+ * The promotion tokens for a declared lint command, or none.
+ *
+ * Withheld when the declared command already passes flags through to the
+ * compiler (a `--` separator): a repository that writes its own
+ * `cargo clippy -- …` has chosen its lint levels, and a second separator would
+ * corrupt the argv rather than harden it.
+ */
+function lintFailingMode(toolchainId: string, command: string): readonly string[] {
+  const promote = LINT_FAILING_MODE[toolchainId];
+  if (!promote) return [];
+  return command.trim().split(/\s+/).includes('--') ? [] : promote;
+}
+
+/** Split a declared command string into an executable plus argv. */
+function splitCommand(
+  command: string,
+): { readonly cmd: string; readonly args: readonly string[] } | null {
+  const [cmd, ...args] = command.trim().split(/\s+/).filter((p) => p.length > 0);
+  return cmd ? { cmd, args } : null;
+}
+
+/** Run one declared command, plus any appended tokens, as a named check leg. */
+function runDeclaredCheck(
+  name: string,
+  command: string,
+  extraArgs: readonly string[],
+  repoRoot: string,
+  runCommand: RunCommandFn,
+  skip: boolean,
+): CheckResult {
+  const parsed = splitCommand(command);
+  if (!parsed) {
+    return { name, status: 'SKIP', detail: 'no runnable command declared' };
+  }
+  return runGenericCheck(
+    name,
+    parsed.cmd,
+    [...parsed.args, ...extraArgs],
+    repoRoot,
+    runCommand,
+    skip,
+  );
 }
 
 // ============================================================
@@ -629,7 +965,12 @@ function runGenericCheck(
   }
 
   try {
-    const result = runCommand(cmd, args, { cwd: repoRoot });
+    const result = runCommand(cmd, args, {
+      cwd: repoRoot,
+      timeoutMs: CHECK_COMMAND_TIMEOUT_MS,
+    });
+    const unran = didNotRun(result);
+    if (unran) return { name, status: 'SKIP', detail: unran };
     if (result.exitCode === 0) {
       return { name, status: 'PASS' };
     }
@@ -646,9 +987,21 @@ function runGenericCheck(
 }
 
 // ============================================================
-// PLATFORM-SPECIFIC CHECK RUNNERS
+// PER-TOOLCHAIN CHECK ASSEMBLY
 // ============================================================
 
+/**
+ * The node legs, which are the one case the registry cannot answer.
+ *
+ * A node repository's lint and typecheck are package.json SCRIPTS, not
+ * commands: the registry declares no node linter precisely because there is no
+ * conventional invocation to declare, and its `tsc --noEmit` would run the
+ * compiler over whatever the working directory happens to be instead of the
+ * project the repository's own script targets. Going through the script also
+ * keeps the check on whatever package manager the repository uses. An absent
+ * script is a SKIP, which degrades the aggregate — a check that never ran is
+ * not evidence that it would have passed.
+ */
 function runNodeChecks(
   repoRoot: string,
   runCommand: RunCommandFn,
@@ -668,38 +1021,93 @@ function runNodeChecks(
   ];
 }
 
-function runDotnetChecks(
+/** Report label for the leg that stands in when a toolchain assembles none. */
+const NO_CHECKS_NAME = 'Applicable checks';
+
+/** Whether a toolchain declares a command this gate could run as a check. */
+function declaresRunnableCheck(toolchain: Toolchain): boolean {
+  return toolchain.commands.lint !== null || toolchain.commands.typecheck !== null;
+}
+
+/**
+ * Assemble and run the check legs for a detected toolchain: whatever the
+ * registry declares, plus this module's named supplements for what it does not.
+ *
+ * Returns at least one leg, always. A toolchain that assembles nothing runnable
+ * gets an explicit SKIP leg instead of an empty list, because an empty list is
+ * how a gate comes to report `PASS (0/0 checks passed)` — green off nothing at
+ * all, which is the one verdict this module exists to make unreachable. The
+ * substitution happens here rather than in the tally so the aggregate keeps a
+ * single rule (any skipped constituent degrades) instead of growing a special
+ * case for a count it should never see.
+ */
+function runToolchainChecks(
+  toolchain: Toolchain,
+  userDeclared: boolean,
   repoRoot: string,
   runCommand: RunCommandFn,
   skipLint: boolean,
   skipTypecheck: boolean,
 ): CheckResult[] {
+  const checks = assembleToolchainChecks(
+    toolchain,
+    userDeclared,
+    repoRoot,
+    runCommand,
+    skipLint,
+    skipTypecheck,
+  );
+  if (checks.length > 0) return checks;
+
   return [
-    runGenericCheck('Build', 'dotnet', ['build', '--no-restore', '-warnaserror'], repoRoot, runCommand, skipLint && skipTypecheck),
+    {
+      name: NO_CHECKS_NAME,
+      status: 'SKIP',
+      detail:
+        `nothing runnable is declared for ${toolchain.projectType} ` +
+        `(\`${toolchain.id}\`): no lint and no typecheck command`,
+    },
   ];
 }
 
-function runGoChecks(
+function assembleToolchainChecks(
+  toolchain: Toolchain,
+  userDeclared: boolean,
   repoRoot: string,
   runCommand: RunCommandFn,
   skipLint: boolean,
   skipTypecheck: boolean,
 ): CheckResult[] {
-  return [
-    runGenericCheck('Vet', 'go', ['vet', './...'], repoRoot, runCommand, skipLint),
-  ];
-}
+  // The script indirection is what a node repository gets when nobody has said
+  // otherwise. A repository that declares its own node lint/typecheck commands
+  // in `.exarchos.yml` has answered the question the indirection exists to
+  // answer, so its declaration is honoured instead; one that overrides node
+  // detection without naming either command still gets the scripts.
+  if (toolchain.id === 'node' && !(userDeclared && declaresRunnableCheck(toolchain))) {
+    return runNodeChecks(repoRoot, runCommand, skipLint, skipTypecheck);
+  }
 
-function runRustChecks(
-  repoRoot: string,
-  runCommand: RunCommandFn,
-  skipLint: boolean,
-  skipTypecheck: boolean,
-): CheckResult[] {
-  return [
-    runGenericCheck('Check', 'cargo', ['check'], repoRoot, runCommand, skipTypecheck),
-    runGenericCheck('Clippy', 'cargo', ['clippy', '--', '-D', 'warnings'], repoRoot, runCommand, skipLint),
-  ];
+  const checks: CheckResult[] = [];
+  const { lint, typecheck } = toolchain.commands;
+  if (lint) {
+    const promote = lintFailingMode(toolchain.id, lint);
+    checks.push(runDeclaredCheck('Lint', lint, promote, repoRoot, runCommand, skipLint));
+  }
+  if (typecheck) {
+    checks.push(runDeclaredCheck('Typecheck', typecheck, [], repoRoot, runCommand, skipTypecheck));
+  }
+
+  for (const leg of COMMAND_SUPPLEMENTS[toolchain.id] ?? []) {
+    const skip =
+      leg.axis === 'lint'
+        ? skipLint
+        : leg.axis === 'typecheck'
+          ? skipTypecheck
+          : skipLint && skipTypecheck;
+    checks.push(runDeclaredCheck(leg.name, leg.command, [], repoRoot, runCommand, skip));
+  }
+
+  return checks;
 }
 
 // ============================================================
@@ -744,24 +1152,47 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
     };
   }
 
-  // Detect project type
-  const projectType = detectProjectType(repoRoot);
+  let resolution: ToolchainResolution;
+  try {
+    resolution = resolveToolchain(repoRoot, input.loadConfig ?? loadExarchosConfig);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      status: 'error',
+      output: '',
+      error: `Cannot resolve the toolchain for ${repoRoot}: ${message}`,
+      passCount: 0,
+      failCount: 0,
+      skipCount: 0,
+    };
+  }
+  const { toolchain, userDeclared } = resolution;
 
-  if (!projectType) {
-    // T-10 / DR-4: no recognized toolchain returns 'skip' (inconclusive),
-    // NOT 'pass'. A pass would falsely-green any repo missing a toolchain
-    // marker. Callers (handler + convergence view) translate this into a
-    // skipped/inconclusive gate result rather than a passing one.
+  if (!toolchain || !isCheckable(toolchain, userDeclared)) {
+    // Nothing to run returns 'skip' (inconclusive), never 'pass' — a pass
+    // would falsely-green any repository this gate simply cannot check.
+    // Callers translate a skip into an inconclusive verdict, not a passing one.
+    //
+    // The two ways to get here are different facts and the report says which.
+    // Telling a Python repository that nothing recognised it is false: the
+    // registry recognised it fine, and it is this gate that has no runner.
+    const detected = toolchain
+      ? `Detected ${toolchain.projectType} (\`${toolchain.id}\`), which this gate has no static-analysis runner for`
+      : `No recognized project type (none of: ${allRegistryMarkers().join(', ')})`;
+    const verdictLine = toolchain
+      ? '**Result: SKIP** (no static-analysis runner for the detected toolchain)'
+      : '**Result: SKIP** (no applicable toolchain detected)';
+
     const output = [
       '## Static Analysis Report',
       '',
       `**Repository:** \`${repoRoot}\``,
       '',
-      `- **SKIP**: No recognized project type (none of: ${supportedMarkers().join(', ')})`,
+      `- **SKIP**: ${detected}`,
       '',
       '---',
       '',
-      '**Result: SKIP** (no applicable toolchain detected)',
+      verdictLine,
     ].join('\n');
 
     return {
@@ -771,28 +1202,21 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
       passCount: 0,
       failCount: 0,
       skipCount: 0,
-      projectType: undefined,
+      projectType: toolchain?.projectType,
     };
   }
 
-  // Run platform-specific checks
-  let checks: CheckResult[];
-  switch (projectType) {
-    case 'Node.js':
-      checks = runNodeChecks(repoRoot, runCommand, skipLint, skipTypecheck);
-      break;
-    case '.NET':
-      checks = runDotnetChecks(repoRoot, runCommand, skipLint, skipTypecheck);
-      break;
-    case 'Go':
-      checks = runGoChecks(repoRoot, runCommand, skipLint, skipTypecheck);
-      break;
-    case 'Rust':
-      checks = runRustChecks(repoRoot, runCommand, skipLint, skipTypecheck);
-      break;
-  }
+  const projectType = toolchain.projectType;
+  const checks = runToolchainChecks(
+    toolchain,
+    userDeclared,
+    repoRoot,
+    runCommand,
+    skipLint,
+    skipTypecheck,
+  );
 
-  // SIV-3 Layer A (task 027): fold the import-boundary leg into the report
+  // Fold the import-boundary leg into the report
   // ONLY when a `.dependency-cruiser.*` config is actually present. An absent
   // config produces an advisory SKIP from runBoundaryLint that we deliberately
   // do NOT append — the leg simply does not apply to repos that declare no
@@ -808,7 +1232,7 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
     });
   }
 
-  // SIV-3 Layer B (#1529): fold the boundary-parse taint leg in on the same
+  // Fold the boundary-parse taint leg in on the same
   // terms as Layer A — only when a repo has opted in with a committed taint
   // ruleset. An absent ruleset (or an unresolved engine) yields an advisory
   // SKIP we deliberately do NOT append, so the leg is invisible to repos that
@@ -824,7 +1248,7 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
 
   // Tally results.
   //
-  // DR-6: SKIP is tallied as a FIRST-CLASS outcome, not discarded. The gate
+  // SKIP is tallied as a FIRST-CLASS outcome, not discarded. The gate
   // previously counted only PASS/FAIL, so a constituent that never ran was
   // invisible to the verdict — a repo with no `lint` and no `quality-check`
   // script rendered `PASS (2/2)` off a single real check. A check that never
@@ -863,7 +1287,7 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
   outputLines.push('---');
   outputLines.push('');
 
-  // DR-6 precedence: FAIL ≻ DEGRADED ≻ PASS.
+  // Precedence: FAIL ≻ DEGRADED ≻ PASS.
   //
   // A real failure still dominates (an operator must see the failure first);
   // otherwise ANY skipped constituent degrades the dimension. PASS is

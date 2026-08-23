@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1202,
-    "parsedFiles": 1157,
+    "testFiles": 1208,
+    "parsedFiles": 1163,
     "shellFiles": 45,
-    "cases": 13362,
-    "dynamicTitles": 144,
+    "cases": 13520,
+    "dynamicTitles": 149,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -4629,6 +4629,137 @@
         }
       ]
     },
+    "tests/acceptance/ladder-off-node.test.ts": {
+      "file": "tests/acceptance/ladder-off-node.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "every declared toolchain composes only its own reporter flag",
+          "name": "TheRegistryIsANonEmptyDenominator",
+          "dynamic": false
+        },
+        {
+          "suite": "every declared toolchain composes only its own reporter flag",
+          "name": "BuiltinToolchain_ReceivesNoForeignReporterFlag [%s]",
+          "dynamic": false
+        },
+        {
+          "suite": "every declared toolchain composes only its own reporter flag",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "every declared toolchain composes only its own reporter flag",
+          "name": "CargoTest_DoesNotReceiveReporterJson",
+          "dynamic": false
+        },
+        {
+          "suite": "every declared toolchain composes only its own reporter flag",
+          "name": "DotnetTest_DoesNotReceiveReporterJson",
+          "dynamic": false
+        },
+        {
+          "suite": "a command from a higher resolver layer keeps its own carrier",
+          "name": "ConfigDeclaredPytest_AtANodeRepo_GetsNoReporterFlag",
+          "dynamic": false
+        },
+        {
+          "suite": "a command from a higher resolver layer keeps its own carrier",
+          "name": "TaskRunnerCommand_GetsNoReporterFlag",
+          "dynamic": false
+        },
+        {
+          "suite": "a command from a higher resolver layer keeps its own carrier",
+          "name": "NonNpmNodeCommand_IsSpawnedAsResolved_AndStillRead [%s]",
+          "dynamic": false
+        },
+        {
+          "suite": "a command from a higher resolver layer keeps its own carrier",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "an exit-code runner produces a complete verdict",
+          "name": "ExitCodeToolchain_ZeroExit_ClearsTheRung",
+          "dynamic": false
+        },
+        {
+          "suite": "an exit-code runner produces a complete verdict",
+          "name": "ExitCodeToolchain_NonZeroExit_FailsTheRung",
+          "dynamic": false
+        },
+        {
+          "suite": "an exit-code runner produces a complete verdict",
+          "name": "ExitCodeToolchain_ReportsNoCountsItCouldNotMeasure",
+          "dynamic": false
+        },
+        {
+          "suite": "the blocking ladder gate clears on a Rust repository",
+          "name": "RustRepo_GreenSuite_MintsProof",
+          "dynamic": false
+        },
+        {
+          "suite": "the blocking ladder gate clears on a Rust repository",
+          "name": "RustRepo_RedSuite_ReportsTheFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "a gate that cannot run says so",
+          "name": "NoToolchain_IsIndeterminate_NotNpmFallback",
+          "dynamic": false
+        },
+        {
+          "suite": "a gate that cannot run says so",
+          "name": "NoTestCommand_IsIndeterminate_AndCarriesTheResolverSGuidance",
+          "dynamic": false
+        },
+        {
+          "suite": "a gate that cannot run says so",
+          "name": "IndeterminateReport_SaysTheRungIsNotCleared",
+          "dynamic": false
+        },
+        {
+          "suite": "a gate that cannot run says so",
+          "name": "ProjectDeclaredRunner_IsRunAndReadByItsExitCode_NotShutOut",
+          "dynamic": false
+        },
+        {
+          "suite": "a gate that cannot run says so",
+          "name": "SpawnFailure_IsIndeterminate_OnBothCarriers",
+          "dynamic": false
+        },
+        {
+          "suite": "a gate that cannot run says so",
+          "name": "MissingBinary_ThroughTheProductionRunner_IsIndeterminate",
+          "dynamic": false
+        },
+        {
+          "suite": "a gate that cannot run says so",
+          "name": "HungRunner_YieldsIndeterminate",
+          "dynamic": false
+        },
+        {
+          "suite": "VitestRepo_BehaviourUnchanged",
+          "name": "ThisRepo_StillResolvesTheVitestJsonCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "VitestRepo_BehaviourUnchanged",
+          "name": "ThisRepo_GreenRun_StillParsesToPass",
+          "dynamic": false
+        },
+        {
+          "suite": "VitestRepo_BehaviourUnchanged",
+          "name": "ThisRepo_LoadCascade_StillFoldsIntoTheFailureCount",
+          "dynamic": false
+        },
+        {
+          "suite": "VitestRepo_BehaviourUnchanged",
+          "name": "ThisRepo_UnparseableOutput_StillFailsClosed",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/architecture/agent-instructions.test.ts": {
       "file": "tests/architecture/agent-instructions.test.ts",
       "runner": "vitest:root",
@@ -5206,6 +5337,57 @@
         }
       ]
     },
+    "tests/architecture/gate-toolchain-coverage.test.ts": {
+      "file": "tests/architecture/gate-toolchain-coverage.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "static-analysis toolchain coverage",
+          "name": "GateToolchainCoverage_Denominator_IsNonEmptyOnBothSides",
+          "dynamic": false
+        },
+        {
+          "suite": "static-analysis toolchain coverage",
+          "name": "GateToolchainCoverage_EveryRunner_NamesARegistryToolchain",
+          "dynamic": false
+        },
+        {
+          "suite": "static-analysis toolchain coverage",
+          "name": "SupportedToolchains_ShortfallIsAsserted",
+          "dynamic": false
+        },
+        {
+          "suite": "static-analysis toolchain coverage",
+          "name": "SupportedToolchains_CoverageAndShortfall_PartitionTheRegistry",
+          "dynamic": false
+        },
+        {
+          "suite": "static-analysis toolchain coverage",
+          "name": "SupportedToolchains_EveryShortfallEntry_CarriesAReason",
+          "dynamic": false
+        },
+        {
+          "suite": "static-analysis toolchain coverage",
+          "name": "SupportedToolchains_NoTwoEntries_ShareAReason",
+          "dynamic": false
+        },
+        {
+          "suite": "static-analysis toolchain coverage",
+          "name": "FillerReason_RedensTheGuard",
+          "dynamic": false
+        },
+        {
+          "suite": "static-analysis toolchain coverage",
+          "name": "NewToolchain_WithoutARunner_RedensTheGuard",
+          "dynamic": false
+        },
+        {
+          "suite": "static-analysis toolchain coverage",
+          "name": "RetiredRunner_AlsoRedensTheGuard",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/architecture/guard-liveness.test.ts": {
       "file": "tests/architecture/guard-liveness.test.ts",
       "runner": "vitest:root",
@@ -5442,6 +5624,27 @@
         {
           "suite": "locality",
           "name": "Locality_SeededOverflow_IsRejected",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/no-literal-base-branch.test.ts": {
+      "file": "tests/architecture/no-literal-base-branch.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "Base-branch resolution: the gate surface never invents a branch",
+          "name": "NoGateModule_ContainsALiteralMainFallback",
+          "dynamic": false
+        },
+        {
+          "suite": "Base-branch resolution: the gate surface never invents a branch",
+          "name": "SeededLiteralFallback_IsDetected",
+          "dynamic": false
+        },
+        {
+          "suite": "Base-branch resolution: the gate surface never invents a branch",
+          "name": "MentioningTheBranchName_IsNotAViolation",
           "dynamic": false
         }
       ]
@@ -41655,6 +41858,11 @@
         },
         {
           "suite": "Runbook parameter shape (DR-3 / T-05): delegation stamp threading",
+          "name": "SynthesisFlow_UsesCreatePrAction_NotBashGh",
+          "dynamic": false
+        },
+        {
+          "suite": "Runbook parameter shape (DR-3 / T-05): delegation stamp threading",
           "name": "CheckStaticAnalysis_NeverBindsTheStamp_T04Exclusion",
           "dynamic": false
         },
@@ -48320,6 +48528,61 @@
           "suite": "resolveBaseBranch",
           "name": "EmptyProviderDefaultBranch_FallsThrough",
           "dynamic": false
+        },
+        {
+          "suite": "resolveBaseBranch",
+          "name": "NoOriginHead_TheRemoteIsAskedDirectly",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveBaseBranch",
+          "name": "RemoteWithNoHead_IsNotABranchNamedUnknown",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveBaseBranch",
+          "name": "LocalRefWins_AndTheNetworkIsNeverTouched",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveBaseBranch",
+          "name": "InferredDefault_IsAcceptedOnlyAfterTheBranchIsSeenToExist",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveBaseBranch",
+          "name": "InferredDefault_NamingAMissingBranch_IsNoAnswer",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveBaseBranch",
+          "name": "UnresolvedReason_NamesEverySignalAndItsTrustClass",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveDiffBase",
+          "name": "ExplicitRefWins_AndNeverAsksGit",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveDiffBase",
+          "name": "BlankExplicitRef_IsNoAnswer_NotABranch",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveDiffBase",
+          "name": "AbsentExplicitRef_FallsThroughToDetection",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveDiffBase",
+          "name": "DiscriminantText_LivesInExactlyOnePlace",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveDiffBase",
+          "name": "SeededCopyOfTheDiscriminant_IsDetected",
+          "dynamic": false
         }
       ]
     },
@@ -49780,7 +50043,7 @@
         },
         {
           "suite": "check_integration_suite command resolution (#1537, DR-15)",
-          "name": "checkIntegrationSuite_RunnerSpawnFailure_DistinctFromJsonShapeMismatch",
+          "name": "checkIntegrationSuite_RunnerNeverStarted_IsNotTheSameAsRanAndGarbled",
           "dynamic": false
         },
         {
@@ -49908,7 +50171,12 @@
         },
         {
           "suite": "Check Polish Scope",
-          "name": "default baseBranch is \"main\"",
+          "name": "DetectsTheDefaultBranch_RatherThanAssumingMain",
+          "dynamic": false
+        },
+        {
+          "suite": "Check Polish Scope",
+          "name": "UnresolvedBase_ReportsIt_AndNeverDiffsAgainstMain",
           "dynamic": false
         }
       ]
@@ -49956,6 +50224,16 @@
           "suite": "handleContextEconomy > telemetry integration",
           "name": "handleContextEconomy_WithoutTelemetryData_ReturnsZeroMetrics",
           "dynamic": false
+        },
+        {
+          "suite": "handleContextEconomy > base branch",
+          "name": "handleContextEconomy_UnresolvedBase_IsInconclusive_NotPass",
+          "dynamic": false
+        },
+        {
+          "suite": "handleContextEconomy > base branch",
+          "name": "handleContextEconomy_ExplicitBase_IsUsedVerbatim",
+          "dynamic": false
         }
       ]
     },
@@ -49976,6 +50254,11 @@
         {
           "suite": "check_contract_drift registration + dispatch + steer",
           "name": "NextActions_OnPass_CarriesOneSemanticTestSteer",
+          "dynamic": false
+        },
+        {
+          "suite": "check_contract_drift registration + dispatch + steer",
+          "name": "UnresolvedBase_IsInconclusive_NotAPassAndNotADriftFinding",
           "dynamic": false
         }
       ]
@@ -50751,6 +51034,11 @@
           "suite": "check_mock_boundary registration + dispatch + steer",
           "name": "SteerForFinding_UnclassifiedDependency_FallsBackToGenericMenu",
           "dynamic": false
+        },
+        {
+          "suite": "check_mock_boundary registration + dispatch + steer",
+          "name": "UnresolvedBase_IsInconclusive_NotACleanBoundaryReport",
+          "dynamic": false
         }
       ]
     },
@@ -51325,13 +51613,23 @@
           "dynamic": false
         },
         {
-          "suite": "handleNeedsSchemaSync > default baseBranch",
-          "name": "defaults baseBranch to \"main\"",
+          "suite": "handleNeedsSchemaSync > base branch",
+          "name": "DetectsTheDefaultBranch_RatherThanAssumingMain",
           "dynamic": false
         },
         {
-          "suite": "handleNeedsSchemaSync > default baseBranch",
+          "suite": "handleNeedsSchemaSync > base branch",
           "name": "uses custom baseBranch when provided",
+          "dynamic": false
+        },
+        {
+          "suite": "handleNeedsSchemaSync > base branch",
+          "name": "UnresolvedBase_ReportsIt_AndNeverDiffsAgainstMain",
+          "dynamic": false
+        },
+        {
+          "suite": "handleNeedsSchemaSync > base branch",
+          "name": "SuppliedDiffFile_NeedsNoBaseAtAll",
           "dynamic": false
         },
         {
@@ -51368,6 +51666,11 @@
         {
           "suite": "handleOperationalResilience > git diff failure",
           "name": "handleOperationalResilience_GitDiffFails_ReturnsError",
+          "dynamic": false
+        },
+        {
+          "suite": "handleOperationalResilience > base branch",
+          "name": "handleOperationalResilience_UnresolvedBase_IsInconclusive_NotPass",
           "dynamic": false
         }
       ]
@@ -51751,6 +52054,16 @@
         {
           "suite": "handlePostMerge",
           "name": "handlePostMerge_PassesRunCommandAdapter",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePostMerge",
+          "name": "handlePostMerge_ThreadsRepoRootIntoTheCheck_NotOnlyIntoTheRunner",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePostMerge",
+          "name": "handlePostMerge_IndeterminateCheck_IsNotCollapsedToAFailure",
           "dynamic": false
         }
       ]
@@ -52136,6 +52449,31 @@
         },
         {
           "suite": "handleSpecCoverageCheck",
+          "name": "SpecCoverage_DoesNotSpawnNpxVitest",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSpecCoverageCheck",
+          "name": "SpecCoverage_DeclaredPathIsNotAppendedToTheResolvedCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSpecCoverageCheck",
+          "name": "SpecCoverage_UnresolvedRuntime_IsIndeterminate_NotGreen",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSpecCoverageCheck",
+          "name": "SpecCoverage_RunnerNeverStarts_IsIndeterminate_NotAFailingTest",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSpecCoverageCheck",
+          "name": "SpecCoverage_RunnerTimesOut_IsIndeterminate_NotAFailingTest",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSpecCoverageCheck",
           "name": "planFileNotFound_returnsError",
           "dynamic": false
         },
@@ -52512,6 +52850,16 @@
           "suite": "check_test_adequacy routing + idempotency (task 014)",
           "name": "GateEvent_MigratedPath_DoesNotEmitLegacyGateEvent",
           "dynamic": false
+        },
+        {
+          "suite": "check_test_adequacy routing + idempotency (task 014)",
+          "name": "CheckTestAdequacy_UnresolvedBase_IsDiffFailed_AndNeverProbes",
+          "dynamic": false
+        },
+        {
+          "suite": "check_test_adequacy routing + idempotency (task 014)",
+          "name": "CheckTestAdequacy_UnresolvedBase_BlocksEvenAtTheLowestTier",
+          "dynamic": false
         }
       ]
     },
@@ -52700,6 +53048,37 @@
         }
       ]
     },
+    "tests/unit/verbs/gates/unscoped-gate-emission.test.ts": {
+      "file": "tests/unit/verbs/gates/unscoped-gate-emission.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "a gate that cannot scope itself still records the verdict",
+          "name": "UnscopedRun_StillAppendsGateExecuted [%s]",
+          "dynamic": false
+        },
+        {
+          "suite": "a gate that cannot scope itself still records the verdict",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "a gate that cannot scope itself still records the verdict",
+          "name": "UnscopedRun_NeverMintsProof [%s]",
+          "dynamic": false
+        },
+        {
+          "suite": "a gate that cannot scope itself still records the verdict",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "a gate that cannot scope itself still records the verdict",
+          "name": "TheRowSaysWhy_SoAnUnscopedRunIsNotAnOrdinaryFailure",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/gates/verify-doc-links.test.ts": {
       "file": "tests/unit/verbs/gates/verify-doc-links.test.ts",
       "runner": "vitest:root",
@@ -52834,6 +53213,26 @@
           "suite": "handleVerifyWorktreeBaseline",
           "name": "detectProjectType_PnpmProject_ReturnsPnpmTest",
           "dynamic": false
+        },
+        {
+          "suite": "handleVerifyWorktreeBaseline",
+          "name": "WorktreeBaseline_LabelComesFromTheRegistry_NotStringEquality",
+          "dynamic": false
+        },
+        {
+          "suite": "handleVerifyWorktreeBaseline",
+          "name": "WorktreeBaseline_UnknownProjectMessage_NamesEveryRegistryMarker",
+          "dynamic": false
+        },
+        {
+          "suite": "handleVerifyWorktreeBaseline",
+          "name": "WorktreeBaseline_RunnerNeverStarts_IsIndeterminate_NotFail",
+          "dynamic": false
+        },
+        {
+          "suite": "handleVerifyWorktreeBaseline",
+          "name": "WorktreeBaseline_RunnerNonZeroExit_IsStillAFailingBaseline",
+          "dynamic": false
         }
       ]
     },
@@ -52910,6 +53309,11 @@
         {
           "suite": "handleWorkflowDeterminism > git diff failure",
           "name": "handleWorkflowDeterminism_GitDiffFails_ReturnsError",
+          "dynamic": false
+        },
+        {
+          "suite": "handleWorkflowDeterminism > base branch",
+          "name": "handleWorkflowDeterminism_UnresolvedBase_IsInconclusive_NotPass",
           "dynamic": false
         }
       ]
@@ -54164,6 +54568,11 @@
         },
         {
           "suite": "migrated ladder gate durable evidence",
+          "name": "IntegrationSuite_CannotResolveACommand_RecordsIndeterminateNotPass",
+          "dynamic": false
+        },
+        {
+          "suite": "migrated ladder gate durable evidence",
           "name": "LadderGate_SameOperationIsIdempotent_NewOperationSupersedes",
           "dynamic": false
         },
@@ -55003,6 +55412,72 @@
         }
       ]
     },
+    "tests/unit/verbs/pure/command-outcome.test.ts": {
+      "file": "tests/unit/verbs/pure/command-outcome.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "classifyCommandFailure",
+          "name": "NumericStatus_IsAVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "classifyCommandFailure",
+          "name": "NumericStatus_WinsOverAnErrno",
+          "dynamic": false
+        },
+        {
+          "suite": "classifyCommandFailure",
+          "name": "SpawnErrno_%s_IsNotAVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "classifyCommandFailure",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "classifyCommandFailure",
+          "name": "Timeout_IsItsOwnArm_NotASpawnFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "classifyCommandFailure",
+          "name": "OutputCeilingKill_StaysAVerdict_NotASpawnFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "classifyCommandFailure",
+          "name": "CapturesBothStreams_IncludingBuffers",
+          "dynamic": false
+        },
+        {
+          "suite": "classifyCommandFailure",
+          "name": "DetailKeepsOnlyTheFirstMessageLine",
+          "dynamic": false
+        },
+        {
+          "suite": "classifyCommandFailure",
+          "name": "NonObjectThrow_LandsOnTheVerdictArm",
+          "dynamic": false
+        },
+        {
+          "suite": "inconclusiveReason",
+          "name": "ExitFailure_HasNoReason",
+          "dynamic": false
+        },
+        {
+          "suite": "inconclusiveReason",
+          "name": "SpawnFailure_NamesTheCommandAndTheCause",
+          "dynamic": false
+        },
+        {
+          "suite": "inconclusiveReason",
+          "name": "Timeout_SaysItWasKilled_NotThatItFailed",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/pure/context-economy.parity.test.ts": {
       "file": "tests/unit/verbs/pure/context-economy.parity.test.ts",
       "runner": "vitest:root",
@@ -55510,6 +55985,127 @@
         }
       ]
     },
+    "tests/unit/verbs/pure/integration-suite.test.ts": {
+      "file": "tests/unit/verbs/pure/integration-suite.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "resolveIntegrationCommand",
+          "name": "ExplicitScript_TakesPrecedenceAndKeepsTheReporterFlag",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveIntegrationCommand",
+          "name": "ScriptRunner_PutsTheReporterFlagAfterThePassthrough",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveIntegrationCommand",
+          "name": "NonPackageManagerCommand_AtANodeRepo_IsSpawnedUnaltered",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveIntegrationCommand",
+          "name": "ExitCodeToolchain_IsSpawnedExactlyAsDeclared",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveIntegrationCommand",
+          "name": "NoToolchain_IsUnrunnable_NotAnNpmFallback",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveIntegrationCommand",
+          "name": "ProjectWithNoResolvedTestCommand_IsUnrunnable",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveIntegrationCommand",
+          "name": "ResolverRemediation_IsTheReason_NotARestatementOfTheId",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveIntegrationCommand",
+          "name": "AThrowingResolver_IsUnrunnable_NotACrash",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveIntegrationCommand",
+          "name": "UnknownToolchainId_IsRunnable_OnTheExitCodeCarrier",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveIntegrationRuntime (the shipped seam)",
+          "name": "PnpmRepo_ResolvesPnpm_NotTheRegistrySNpmBaseline",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveIntegrationRuntime (the shipped seam)",
+          "name": "ConfigDeclaredCommand_OutranksTheRegistryRow",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveIntegrationRuntime (the shipped seam)",
+          "name": "NodeRepoWithNoTestScript_ProducesTheNoTestCommandArm",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveIntegrationRuntime (the shipped seam)",
+          "name": "UnrecognizedDirectory_ResolvesNothing_AndNamesNoCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "runIntegrationSuite carriers",
+          "name": "UnrunnableCommand_NeverSpawnsAnything",
+          "dynamic": false
+        },
+        {
+          "suite": "runIntegrationSuite carriers",
+          "name": "ExitCodeCarrier_SpawnFailure_IsIndeterminate_NotAFailedSuite",
+          "dynamic": false
+        },
+        {
+          "suite": "runIntegrationSuite carriers",
+          "name": "VitestCarrier_SpawnFailure_IsIndeterminateToo_NotAFailedSuite",
+          "dynamic": false
+        },
+        {
+          "suite": "runIntegrationSuite carriers",
+          "name": "VitestCarrier_RanButGarbled_StillFailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "runIntegrationSuite carriers",
+          "name": "VitestCarrier_GreenJson_ParsesTheCounts",
+          "dynamic": false
+        },
+        {
+          "suite": "runIntegrationSuite carriers",
+          "name": "ExitCodeCarrier_DoesNotParseStdout",
+          "dynamic": false
+        },
+        {
+          "suite": "a runner that never finishes",
+          "name": "TimedOutRunner_IsIndeterminate_OnTheExitCodeCarrier",
+          "dynamic": false
+        },
+        {
+          "suite": "a runner that never finishes",
+          "name": "TimedOutRunner_IsIndeterminate_OnTheVitestCarrier",
+          "dynamic": false
+        },
+        {
+          "suite": "a runner that never finishes",
+          "name": "TimeoutIsDeclared_NotDefaulted",
+          "dynamic": false
+        },
+        {
+          "suite": "a runner that never finishes",
+          "name": "TimeoutClassification_SeparatesAKillFromAnExitAndFromAMissingCommand",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/pure/merge-preflight.test.ts": {
       "file": "tests/unit/verbs/pure/merge-preflight.test.ts",
       "runner": "vitest:root",
@@ -55872,6 +56468,26 @@
           "suite": "checkPostMerge",
           "name": "empty checks from provider returns pass for CI",
           "dynamic": false
+        },
+        {
+          "suite": "checkPostMerge",
+          "name": "PostMerge_UsesResolvedCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "checkPostMerge",
+          "name": "PostMerge_UnresolvedRuntime_IsIndeterminate_NotPass",
+          "dynamic": false
+        },
+        {
+          "suite": "checkPostMerge",
+          "name": "PostMerge_RunnerNeverStarts_IsIndeterminate_NotARegression",
+          "dynamic": false
+        },
+        {
+          "suite": "checkPostMerge",
+          "name": "PostMerge_RunnerTimesOut_IsIndeterminate_NotARegression",
+          "dynamic": false
         }
       ]
     },
@@ -56190,6 +56806,121 @@
         {
           "suite": "runStaticAnalysis > platform detection",
           "name": "Node.js takes priority over other project files",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > registry-sourced commands",
+          "name": "Commands_ComeFromTheRegistry_NotAPerLanguageSwitch",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > registry-sourced commands",
+          "name": "ClippyLeg_IsPromotedSoAFindingCanFailIt",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > registry-sourced commands",
+          "name": "GoVetLeg_IsNotPromoted_BecauseItAlreadyFails",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > registry-sourced commands",
+          "name": "SupplementedLeg_SurvivesWhereTheRegistryDeclaresNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > registry-sourced commands",
+          "name": "NodeLegs_StayScriptIndirections_NotTheRegistryCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > registry-sourced commands",
+          "name": "PythonRepo_IsNotToldNoProjectType",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > registry-sourced commands",
+          "name": "NothingDetected_EnumeratesEveryMarkerTheRegistryKnows",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > command timeout",
+          "name": "TimeoutIsDeclared_NotDefaulted",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > command timeout",
+          "name": "HungCommand_YieldsIndeterminate_NotAHang",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > command timeout",
+          "name": "UnspawnableTool_Degrades_RatherThanReadingAsAFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > production command runner",
+          "name": "ProductionRunner_ReportsARealExitCode_WithoutASpawnError",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > production command runner",
+          "name": "ProductionRunner_CapturesStdout_OnSuccess",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > production command runner",
+          "name": "ProductionRunner_SetsSpawnError_WhenTheBinaryDoesNotExist",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > production command runner",
+          "name": "ProductionRunner_HonoursTimeoutMs_AndReportsTheKillAsNoVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > production command runner",
+          "name": "SpawnFailure_FromTheProductionRunner_DegradesTheWholeGate",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > production command runner",
+          "name": "ProductionRunner_IsWhatTheGateHandlerComposes",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > zero applicable checks",
+          "name": "ToolchainWithNoRunnableCommand_Skips_RatherThanPassing",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > zero applicable checks",
+          "name": "OneRunnableCommand_StillReachesPass",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > user-declared toolchains",
+          "name": "DeclaredToolchain_OverridesTheBuiltInCommands",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > user-declared toolchains",
+          "name": "DeclaredLintFlags_AreNotSecondGuessed",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > user-declared toolchains",
+          "name": "DeclaredToolchain_WithAnUnknownId_IsRun_NotRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > user-declared toolchains",
+          "name": "NodeScriptIndirection_SurvivesAPartialOverride",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > user-declared toolchains",
+          "name": "UnreadableConfig_IsAnError_NotASilentlyIgnoredOne",
           "dynamic": false
         },
         {
@@ -58348,6 +59079,26 @@
         },
         {
           "suite": "handlePostDelegationCheck",
+          "name": "PostDelegation_UsesResolvedCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePostDelegationCheck",
+          "name": "NonNodeWorktree_IsIndeterminate_NotSkip",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePostDelegationCheck",
+          "name": "PostDelegation_RunnerNeverStarts_IsIndeterminate_NotFail",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePostDelegationCheck",
+          "name": "PostDelegation_RunnerNonZeroExit_IsStillAFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePostDelegationCheck",
           "name": "stateFileNotFound_returnsError",
           "dynamic": false
         },
@@ -59334,6 +60085,41 @@
         {
           "suite": "handlePrepareSynthesis",
           "name": "PrepareSynthesis_AdvisoryUncoveredDoc_EmitsGateButDoesNotBlock",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "TestsLeg_UsesResolvedCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "TypecheckLeg_UsesResolvedCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "ExitCodeOnlyCarrier_ReportsNoCounts_AndTypecheckIsUnmeasured",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "TypecheckLeg_ObservedFailureElsewhere_IsNotSoftenedToSkipped",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "TestLeg_RunnerNeverStarts_IsIndeterminate_NotAFailingSuite",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "UnresolvedRuntime_YieldsIndeterminate_NotFail",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "NoNpmLiteral_RemainsInModule",
           "dynamic": false
         },
         {
@@ -60567,7 +61353,12 @@
         },
         {
           "suite": "handleCheckCoderabbit",
-          "name": "handleCheckCoderabbit_NoReview_ReturnsPassedWithNone",
+          "name": "CodeRabbit_AbsentVendor_IsIndeterminate_NotPass",
+          "dynamic": false
+        },
+        {
+          "suite": "handleCheckCoderabbit",
+          "name": "CodeRabbit_RealFailureAlongsideAnAbsence_StaysAFailure",
           "dynamic": false
         },
         {
@@ -60598,6 +61389,11 @@
         {
           "suite": "handleCheckCoderabbit",
           "name": "handleCheckCoderabbit_PendingReview_ReturnsFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "handleCheckCoderabbit",
+          "name": "TheConsumer_BranchesOnTheAbsentReviewer_RatherThanOnPassedAlone",
           "dynamic": false
         }
       ]
@@ -61241,6 +62037,36 @@
         {
           "suite": "handleValidatePrStack",
           "name": "UsesProviderListPrs_WithStateOpenFilter",
+          "dynamic": false
+        },
+        {
+          "suite": "handleValidatePrStack",
+          "name": "NonGitHubProvider_YieldsADeclaredSkip_NotGhCliError",
+          "dynamic": false
+        },
+        {
+          "suite": "handleValidatePrStack",
+          "name": "SkipBranch_IsReachableInProduction",
+          "dynamic": false
+        },
+        {
+          "suite": "handleValidatePrStack",
+          "name": "GitHubProvider_ResolvedByTheFactory_StillRuns",
+          "dynamic": false
+        },
+        {
+          "suite": "handleValidatePrStack",
+          "name": "MissingBaseBranch_IsRejectedBeforeAnyProviderIsResolved",
+          "dynamic": false
+        },
+        {
+          "suite": "handleValidatePrStack",
+          "name": "ConfiguredProvider_ReachesTheFactory_RatherThanHostnameDetection",
+          "dynamic": false
+        },
+        {
+          "suite": "handleValidatePrStack",
+          "name": "Router_InjectsTheDispatchConfig_SoTheArgIsNotADeadCarrier",
           "dynamic": false
         }
       ]

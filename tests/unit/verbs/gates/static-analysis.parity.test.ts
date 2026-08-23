@@ -36,6 +36,11 @@ import * as path from 'node:path';
 const mockRunStaticAnalysis = vi.fn();
 vi.mock('../../../../src/verbs/pure/static-analysis.js', () => ({
   runStaticAnalysis: (...args: unknown[]) => mockRunStaticAnalysis(...args),
+  // The handler composes the pure module's runner rather than declaring one of
+  // its own, so the mock has to supply it — an omission here fails the import,
+  // not the assertion, which is the right way round. It is never called: the
+  // mocked `runStaticAnalysis` above is what would have used it.
+  execCommandRunner: () => ({ exitCode: 0, stdout: '', stderr: '' }),
 }));
 
 import { EventStore } from '../../../../src/events/store.js';

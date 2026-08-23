@@ -132,6 +132,45 @@ describe('check_contract_drift registration + dispatch + steer', () => {
       'contracts verify shape, not meaning — keep exactly ONE semantic test for this boundary; delete redundant shape assertions',
     );
   });
+
+  it('UnresolvedBase_IsInconclusive_NotAPassAndNotADriftFinding', async () => {
+    // `/fake/repo` is not a repository, so no default branch can be detected and
+    // none was supplied. This gate compares generated contract artifacts across
+    // a diff range; with one end missing there is no range, and reporting
+    // `drift: false` would be a clean bill of health for a comparison that never
+    // ran.
+    const arm = await makeArm('contract-nobase-');
+    arms.push(arm);
+
+    const args: ContractDriftHandlerArgs = {
+      featureId: 'feat-nobase',
+      taskId: 'T-nobase',
+      repoRoot: '/fake/repo',
+      gitExec: gitMergeBase,
+      runCommand: cmdRunner({ diff: { code: 0, out: 'no breaking changes' } }),
+    };
+    const result = await handleContractDrift(args, arm.ctx.stateDir, arm.ctx.eventStore);
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      passed: boolean;
+      skipped?: boolean;
+      drift?: boolean;
+      discriminant?: string;
+      reason?: string;
+    };
+    expect(data.passed).toBe(false);
+    expect(data.skipped).toBe(true);
+    expect(data.discriminant).toBe('base-branch-unresolved');
+    expect(data.reason).toContain('no default branch');
+
+    // The carrier's skip marker is what makes the PROOF verdict inconclusive.
+    // Without it the row would read `fail`, naming a drift finding nobody
+    // observed; with `passed:true` it would mint proof from a gate that never
+    // ran. Indeterminate is the only honest one, and it fails closed.
+    const { normalizeGateVerdict } = await import('../../../../src/verbs/gates/gate-utils.js');
+    expect(normalizeGateVerdict(result)).toBe('indeterminate');
+  });
 });
 
 // ─── helper: a temp repo wiring a resolvable contract via .exarchos.yml ───────

@@ -2,7 +2,20 @@
 //
 // Pure TypeScript port of scripts/spec-coverage-check.sh.
 // Verifies test coverage for spec compliance by checking plan references
-// against on-disk test files and optional vitest execution.
+// against on-disk test files and, optionally, exercising them by running the
+// governed repository's own resolved test suite.
+//
+// ── What the execution leg does and does not establish ──────────────────────
+// It runs the resolved test command WHOLE, once, and reports that. It does not
+// hand the runner a declared test path: which argv form selects a single file
+// is per-runner knowledge that the toolchain source of truth does not carry,
+// and the naive form is wrong in the dangerous direction — `cargo test <path>`
+// reads its argument as a test-NAME substring, matches nothing, and exits
+// zero, which is a green verdict over an unexecuted file. Running the suite is
+// the claim this check can actually back on every toolchain the resolver
+// resolves, and it strictly covers the declared files it collects. The one
+// thing it cannot see is a declared file the suite does not collect at all;
+// per-file selection returns here when the registry carries a selector form.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -10,6 +23,9 @@ import { runCommandSync } from '../../utils/process.js';
 import { join } from 'node:path';
 import { toPosix } from '../../utils/paths.js';
 import type { ToolResult } from '../../format.js';
+import { resolveTestRuntime, type ResolvedRuntime } from '../../config/test-runtime-resolver.js';
+import { splitCommand } from '../../config/tokenize-command.js';
+import { classifyCommandFailure, inconclusiveReason } from '../pure/command-outcome.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -37,7 +53,12 @@ export interface SpecCoverageCheckArgs {
 }
 
 interface CheckEntry {
-  readonly status: 'PASS' | 'FAIL' | 'SKIP';
+  /**
+   * `SKIP` is a decision — the caller waived execution — and may leave a green
+   * report. `INDETERMINATE` is the absence of one: the check could not be
+   * performed, so the gate certifies nothing.
+   */
+  readonly status: 'PASS' | 'FAIL' | 'SKIP' | 'INDETERMINATE';
   readonly name: string;
   readonly detail?: string;
 }
@@ -52,6 +73,14 @@ interface SpecCoverageResult {
   readonly missing: readonly string[];
   /** plan phase: declared paths that are not valid test-path declarations. */
   readonly malformed: readonly string[];
+  /**
+   * Checks that could not be performed, one reason each — a peer of `missing`
+   * and `malformed`, reported to whoever called this action and to nothing
+   * else. It is deliberately NOT the gate runner's `skipped` descriptor: this
+   * action is not registered as a gate class, so a carrier spelled in that
+   * vocabulary would be read by no one while looking as though it were.
+   */
+  readonly indeterminate: readonly string[];
   readonly report: string;
 }
 
@@ -204,13 +233,19 @@ function generateReport(
 
   const passCount = checks.filter((c) => c.status === 'PASS').length;
   const failCount = checks.filter((c) => c.status === 'FAIL').length;
+  const unrunnable = checks.filter((c) => c.status === 'INDETERMINATE').length;
   const total = passCount + failCount;
 
   lines.push('');
   lines.push('---');
   lines.push('');
 
-  if (failCount === 0 && totalTests > 0) {
+  if (unrunnable > 0) {
+    lines.push(
+      `**Result: INDETERMINATE** (${unrunnable} check(s) could not run; ` +
+        `${passCount}/${total} of the rest passed)`,
+    );
+  } else if (failCount === 0 && totalTests > 0) {
     lines.push(`**Result: PASS** (${passCount}/${total} checks passed)`);
   } else {
     lines.push(`**Result: FAIL** (${failCount}/${total} checks failed)`);
@@ -309,17 +344,69 @@ function runPlanSyntaxCheck(
     found: wellFormed,
     missing: [],
     malformed,
+    indeterminate: [],
     report,
   };
 
   return { success: true, data: result };
 }
 
+// ─── Suite Runner ───────────────────────────────────────────────────────────
+
+/**
+ * Wall clock the suite is given. Generous, because a real suite legitimately
+ * runs for minutes and a bound this loose can only be reached by a hang — and
+ * declared, because a check with no bound is a check that can stop returning.
+ */
+const SUITE_TIMEOUT_MS = 15 * 60 * 1000;
+
+type SuiteRunner =
+  | {
+      readonly kind: 'resolved';
+      readonly command: string;
+      readonly cmd: string;
+      readonly args: readonly string[];
+    }
+  | { readonly kind: 'indeterminate'; readonly reason: string };
+
+/**
+ * The governed repository's own test command, taken from the toolchain source
+ * of truth. Naming one runner here meant this check could only ever discharge
+ * its obligation in a single ecosystem; a repository whose runtime does not
+ * resolve now gets no verdict rather than a spawn that was never going to work.
+ */
+function resolveSuiteRunner(repoRoot: string): SuiteRunner {
+  let runtime: ResolvedRuntime;
+  try {
+    runtime = resolveTestRuntime(repoRoot);
+  } catch (err) {
+    return { kind: 'indeterminate', reason: err instanceof Error ? err.message : String(err) };
+  }
+  if (runtime.source === 'unresolved' || runtime.test === null) {
+    return {
+      kind: 'indeterminate',
+      reason:
+        runtime.remediation ??
+        `no test command resolves for '${repoRoot}', so declared tests could not be exercised`,
+    };
+  }
+  try {
+    const { cmd, args } = splitCommand(runtime.test);
+    if (cmd === '') {
+      return { kind: 'indeterminate', reason: `empty test command: '${runtime.test}'` };
+    }
+    return { kind: 'resolved', command: runtime.test, cmd, args };
+  } catch (err) {
+    return { kind: 'indeterminate', reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /**
  * Post-implementation coverage validation (WFQ-010). Every declared test file
- * must exist on disk and, unless `skipRun`, its tests must actually run and
- * pass. This is the gate that must remain honest: real passing tests, not mere
- * declarations.
+ * must exist on disk — checked per file — and, unless `skipRun`, the suite
+ * that collects them must actually run and pass. This is the gate that must
+ * remain honest: really-executed tests, not mere declarations, and no claim
+ * finer-grained than what was executed.
  */
 function runImplementationCoverageCheck(
   planFile: string,
@@ -356,18 +443,38 @@ function runImplementationCoverageCheck(
     }
   }
 
-  // Check: tests pass (unless skipRun)
+  // Check: the declared tests actually run and pass (unless skipRun). The
+  // claim is deliberately suite-shaped — see the module header for why a
+  // declared path is not appended to the resolved command.
   if (skipRun) {
     checks.push({ status: 'SKIP', name: 'Test execution (--skip-run)' });
   } else if (testFiles.length > 0 && missingList.length === 0) {
-    for (const testFile of testFiles) {
+    const runner = resolveSuiteRunner(repoRoot);
+    if (runner.kind === 'indeterminate') {
+      checks.push({
+        status: 'INDETERMINATE',
+        name: 'Test execution',
+        detail: runner.reason,
+      });
+    } else {
+      const name = `Declared tests exercised by \`${runner.command}\``;
       try {
-        runCommandSync('npx', ['vitest', 'run', '--root', repoRoot, testFile], {
+        runCommandSync(runner.cmd, runner.args, {
+          cwd: repoRoot,
+          timeout: SUITE_TIMEOUT_MS,
           stdio: 'pipe',
         });
-        checks.push({ status: 'PASS', name: `Test passes: ${testFile}` });
-      } catch {
-        checks.push({ status: 'FAIL', name: `Test passes: ${testFile}` });
+        checks.push({ status: 'PASS', name });
+      } catch (err: unknown) {
+        // A runner that never started, or one killed at its wall clock, decided
+        // nothing about these tests. Only a real non-zero exit is a failure.
+        const failure = classifyCommandFailure(err);
+        const reason = inconclusiveReason(runner.command, failure);
+        checks.push(
+          reason === null
+            ? { status: 'FAIL', name, detail: `exit code ${failure.exitCode}` }
+            : { status: 'INDETERMINATE', name: 'Test execution', detail: reason },
+        );
       }
     }
   }
@@ -385,7 +492,10 @@ function runImplementationCoverageCheck(
   );
 
   const failCount = checks.filter((c) => c.status === 'FAIL').length;
-  const passed = failCount === 0 && testFiles.length > 0;
+  const unrunnable = checks
+    .filter((c) => c.status === 'INDETERMINATE')
+    .map((c) => c.detail ?? c.name);
+  const passed = failCount === 0 && unrunnable.length === 0 && testFiles.length > 0;
 
   const result: SpecCoverageResult = {
     phase: 'post-implementation',
@@ -394,6 +504,7 @@ function runImplementationCoverageCheck(
     found,
     missing: missingList,
     malformed: [],
+    indeterminate: unrunnable,
     report,
   };
 

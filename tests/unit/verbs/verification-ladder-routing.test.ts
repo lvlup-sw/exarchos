@@ -157,6 +157,9 @@ describe('verification-ladder self-routing (FIX-1)', () => {
         featureId: 'feat-low',
         taskId: 'T-low',
         repoRoot: '/fake/repo',
+        // Explicit: `/fake/repo` is not a repository, so nothing could DETECT a
+        // base — and these cases are about policy routing, not base resolution.
+        baseBranch: 'main',
         riskTier: 'low',
         boundaryTouching: false,
       },
@@ -183,6 +186,9 @@ describe('verification-ladder self-routing (FIX-1)', () => {
         featureId: 'feat-nb',
         taskId: 'T-nb',
         repoRoot: '/fake/repo',
+        // Explicit: `/fake/repo` is not a repository, so nothing could DETECT a
+        // base — and these cases are about policy routing, not base resolution.
+        baseBranch: 'main',
         riskTier: 'medium',
         boundaryTouching: false,
       },
@@ -208,6 +214,9 @@ describe('verification-ladder self-routing (FIX-1)', () => {
         featureId: 'feat-lb',
         taskId: 'T-lb',
         repoRoot: '/fake/repo',
+        // Explicit: `/fake/repo` is not a repository, so nothing could DETECT a
+        // base — and these cases are about policy routing, not base resolution.
+        baseBranch: 'main',
         riskTier: 'low',
         boundaryTouching: true,
       },
@@ -234,6 +243,9 @@ describe('verification-ladder self-routing (FIX-1)', () => {
         featureId: 'feat-lb2',
         taskId: 'T-lb2',
         repoRoot: '/fake/repo',
+        // Explicit: `/fake/repo` is not a repository, so nothing could DETECT a
+        // base — and these cases are about policy routing, not base resolution.
+        baseBranch: 'main',
         riskTier: 'low',
         boundaryTouching: true,
       },
@@ -255,6 +267,9 @@ describe('verification-ladder self-routing (FIX-1)', () => {
         featureId: 'feat-med',
         taskId: 'T-med',
         repoRoot: '/fake/repo',
+        // Explicit: `/fake/repo` is not a repository, so nothing could DETECT a
+        // base — and these cases are about policy routing, not base resolution.
+        baseBranch: 'main',
         riskTier: 'medium',
         boundaryTouching: false,
       },
@@ -278,6 +293,9 @@ describe('verification-ladder self-routing (FIX-1)', () => {
         featureId: 'feat-legacy',
         taskId: 'T-legacy',
         repoRoot: '/fake/repo',
+        // Explicit: `/fake/repo` is not a repository, so nothing could DETECT a
+        // base — and these cases are about policy routing, not base resolution.
+        baseBranch: 'main',
       },
       ctx,
     );

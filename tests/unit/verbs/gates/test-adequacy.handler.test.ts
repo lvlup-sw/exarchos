@@ -79,6 +79,9 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
         taskId: 'T-01',
         branch: 'feature/x',
         repoRoot: '/fake/repo',
+        // Explicit, so the case measures routing rather than whether this
+        // machine's checkout happens to have an `origin/HEAD`.
+        baseBranch: 'main',
       },
       ctx,
     );
@@ -125,6 +128,7 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
         featureId: 'feat-nonew',
         taskId: 'T-nonew',
         repoRoot: '/fake/repo',
+        baseBranch: 'main',
       },
       ctx,
     );
@@ -167,6 +171,9 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
         featureId: 'feat-oneshot',
         taskId: 'T-oneshot',
         repoRoot: '/fake/repo',
+        // Explicit: without it the gate stops at base resolution and the probe
+        // verdict this case is about is never reached.
+        baseBranch: 'main',
       },
       // Provide projectConfig so config-aware severity resolution engages.
       { ...ctx, projectConfig: DEFAULTS } as DispatchContext,
@@ -192,6 +199,7 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
       taskId: 'T-02',
       branch: 'feature/idem',
       repoRoot: '/fake/repo',
+      baseBranch: 'main',
       operationId: 'op-fixed-123',
     };
 
@@ -207,5 +215,72 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
         (e.data as { gateName?: string }).gateName === 'test-adequacy',
     );
     expect(gateEvents).toHaveLength(0);
+  });
+
+  it('CheckTestAdequacy_UnresolvedBase_IsDiffFailed_AndNeverProbes', async () => {
+    // `/fake/repo` is not a repository, so no default branch can be detected
+    // and no explicit one was supplied. The probe reverts source hunks derived
+    // from a diff — with no base there is no diff, so running it would probe an
+    // empty change set and report a clean kill probe that never happened.
+    const ctx = await makeCtx();
+
+    const result = await handleOrchestrate(
+      {
+        action: 'check_test_adequacy',
+        featureId: 'feat-nobase',
+        taskId: 'T-nobase',
+        repoRoot: '/fake/repo',
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      passed: boolean;
+      skipped?: boolean;
+      disposition?: string;
+      discriminant?: string;
+      report?: string;
+    };
+    expect(mockRunProbe).not.toHaveBeenCalled();
+
+    // The cause is named in the gate's OWN vocabulary. `diff-failed` is one of
+    // the four discriminants `INDETERMINATE_HANDLING` is total over, so the
+    // per-cause tier policy already rules on it; minting a discriminant of our
+    // own would put a second, unruled spelling of "could not run" beside the
+    // four the policy is defined over.
+    expect(data.discriminant).toBe('diff-failed');
+    expect(data.report).toContain('no default branch');
+
+    // And the ruling is that ruling, not a softer one invented here: a diff the
+    // gate could not compute is an execution failure of a probe that was
+    // supposed to run, so it blocks at EVERY tier and is never an advisory skip.
+    expect(data.disposition).toBe('blocked');
+    expect(data.passed).toBe(false);
+    expect(data.skipped).toBeUndefined();
+  });
+
+  it('CheckTestAdequacy_UnresolvedBase_BlocksEvenAtTheLowestTier', async () => {
+    // The tier axis is where an unmeasured obligation usually degrades to an
+    // advisory skip. `diff-failed` is declared `always-blocking`, so it must not
+    // — and pinning the low tier is what proves the handler routed through the
+    // policy rather than reproducing part of it.
+    const ctx = await makeCtx();
+
+    const result = await handleOrchestrate(
+      {
+        action: 'check_test_adequacy',
+        featureId: 'feat-nobase-low',
+        taskId: 'T-nobase-low',
+        repoRoot: '/fake/repo',
+        riskTier: 'low',
+      },
+      ctx,
+    );
+
+    const data = result.data as { passed: boolean; disposition?: string; skipped?: boolean };
+    expect(data.disposition).toBe('blocked');
+    expect(data.passed).toBe(false);
+    expect(data.skipped).toBeUndefined();
   });
 });

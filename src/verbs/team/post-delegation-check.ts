@@ -9,10 +9,13 @@
 
 import { existsSync } from 'node:fs';
 import { runCommandSync } from '../../utils/process.js';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { toPosix } from '../../utils/paths.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
+import { resolveTestRuntime, type ResolvedRuntime } from '../../config/test-runtime-resolver.js';
+import { splitCommand } from '../../config/tokenize-command.js';
+import { classifyCommandFailure, inconclusiveReason } from '../pure/command-outcome.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -40,11 +43,13 @@ interface CheckCounts {
   pass: number;
   fail: number;
   skip: number;
+  /** Checks that could not run at all — neither observed nor waived. */
+  indeterminate: number;
 }
 
 type CheckResult = {
   readonly label: string;
-  readonly outcome: 'PASS' | 'FAIL' | 'SKIP';
+  readonly outcome: 'PASS' | 'FAIL' | 'SKIP' | 'INDETERMINATE';
   readonly detail?: string;
 };
 
@@ -60,6 +65,17 @@ function checkFail(label: string, detail: string): CheckResult {
 
 function checkSkip(label: string): CheckResult {
   return { label, outcome: 'SKIP' };
+}
+
+/**
+ * The check could not be performed. Distinct from SKIP, and the distinction is
+ * the whole point: a SKIP is a decision (the operator waived the leg, or there
+ * was nothing to test), so it may leave a green report; an INDETERMINATE is the
+ * absence of a decision, and a blocking gate must not read as verified when it
+ * measured nothing.
+ */
+function checkIndeterminate(label: string, detail: string): CheckResult {
+  return { label, outcome: 'INDETERMINATE', detail };
 }
 
 // ─── State Parsing (delegated to resolve-state.ts) ─────────────────────────
@@ -127,25 +143,66 @@ function checkWorktreeTests(
       continue;
     }
 
-    if (!existsSync(toPosix(join(wtPath, 'package.json')))) {
-      results.push(checkSkip(`Worktree tests: ${wt} (no package.json)`));
+    // Which command verifies this worktree is a toolchain fact, resolved from
+    // the toolchain source of truth. Probing for a package.json and skipping
+    // when it is absent made every worktree of a non-Node repository record a
+    // green SKIP from a blocking gate that had verified nothing at all.
+    const resolution = resolveWorktreeTestCommand(wtPath);
+    if (resolution.kind === 'indeterminate') {
+      results.push(checkIndeterminate(`Worktree tests: ${wt}`, resolution.reason));
       continue;
     }
 
     try {
-      runCommandSync('npm', ['run', 'test:run'], {
+      runCommandSync(resolution.cmd, resolution.args, {
         cwd: wtPath,
         encoding: 'utf-8',
         timeout: 120_000,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
       results.push(checkPass(`Worktree tests: ${wt}`));
-    } catch {
-      results.push(checkFail(`Worktree tests: ${wt}`, 'npm run test:run failed'));
+    } catch (err: unknown) {
+      // A runner that never started, or one killed at its time limit, tested
+      // nothing in this worktree. Only a real non-zero exit is a failure.
+      const failure = classifyCommandFailure(err);
+      const reason = inconclusiveReason(resolution.command, failure);
+      results.push(
+        reason === null
+          ? checkFail(`Worktree tests: ${wt}`, `${resolution.command} failed`)
+          : checkIndeterminate(`Worktree tests: ${wt}`, reason),
+      );
     }
   }
 
   return results;
+}
+
+type WorktreeTestCommand =
+  | { readonly kind: 'resolved'; readonly command: string; readonly cmd: string; readonly args: readonly string[] }
+  | { readonly kind: 'indeterminate'; readonly reason: string };
+
+function resolveWorktreeTestCommand(worktreePath: string): WorktreeTestCommand {
+  let runtime: ResolvedRuntime;
+  try {
+    runtime = resolveTestRuntime(worktreePath);
+  } catch (err) {
+    return { kind: 'indeterminate', reason: err instanceof Error ? err.message : String(err) };
+  }
+  if (runtime.source === 'unresolved' || runtime.test === null) {
+    return {
+      kind: 'indeterminate',
+      reason: runtime.remediation ?? 'no test command resolves for this worktree',
+    };
+  }
+  try {
+    const { cmd, args } = splitCommand(runtime.test);
+    if (cmd === '') {
+      return { kind: 'indeterminate', reason: `empty test command: '${runtime.test}'` };
+    }
+    return { kind: 'resolved', command: runtime.test, cmd, args };
+  } catch (err) {
+    return { kind: 'indeterminate', reason: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 function checkStateConsistency(tasks: readonly TaskEntry[]): CheckResult {
@@ -197,7 +254,12 @@ function buildReport(
   lines.push('');
 
   const total = counts.pass + counts.fail;
-  if (counts.fail === 0) {
+  if (counts.indeterminate > 0) {
+    lines.push(
+      `**Result: INDETERMINATE** (${counts.indeterminate} check(s) could not run; ` +
+        `${counts.pass}/${total} of the rest passed)`,
+    );
+  } else if (counts.fail === 0) {
     lines.push(`**Result: PASS** (${counts.pass}/${total} checks passed)`);
   } else {
     lines.push(`**Result: FAIL** (${counts.fail}/${total} checks failed)`);
@@ -205,6 +267,14 @@ function buildReport(
 
   return lines.join('\n');
 }
+
+/** Outcome → counter field. One mapping, so a new outcome cannot go uncounted. */
+const COUNTER_FOR: Readonly<Record<CheckResult['outcome'], keyof CheckCounts>> = {
+  PASS: 'pass',
+  FAIL: 'fail',
+  SKIP: 'skip',
+  INDETERMINATE: 'indeterminate',
+};
 
 // ─── Handler ────────────────────────────────────────────────────────────────
 
@@ -220,11 +290,11 @@ export async function handlePostDelegationCheck(args: PostDelegationCheckArgs): 
   const state = resolveResult.state as unknown as StateFile;
   const { tasks = [] } = state;
   const checks: CheckResult[] = [];
-  const counts: CheckCounts = { pass: 0, fail: 0, skip: 0 };
+  const counts: CheckCounts = { pass: 0, fail: 0, skip: 0, indeterminate: 0 };
 
   function addCheck(result: CheckResult): void {
     checks.push(result);
-    counts[result.outcome === 'PASS' ? 'pass' : result.outcome === 'FAIL' ? 'fail' : 'skip']++;
+    counts[COUNTER_FOR[result.outcome]]++;
   }
 
   // Check 1: State file valid (already passed by parsing)
@@ -255,7 +325,11 @@ export async function handlePostDelegationCheck(args: PostDelegationCheckArgs): 
   // Check 5: State consistency
   addCheck(checkStateConsistency(tasks));
 
-  const passed = counts.fail === 0;
+  // A check that could not run leaves the gate with nothing to certify, so it
+  // cannot pass — and it is not a failure either, which is why the count is
+  // reported separately from `fail` rather than folded into it. The reasons
+  // themselves are in the report, beside the check they belong to.
+  const passed = counts.fail === 0 && counts.indeterminate === 0;
   const report = buildReport(stateFile ?? featureId ?? 'event-store', tasks, checks, counts);
 
   return {

@@ -19,6 +19,7 @@ import { runCommandSync } from '../../utils/process.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { defaultGitExec, resolvePolicySkip, SKIPPED_BY_POLICY } from './gate-utils.js';
+import { resolveDiffBase } from '../../vcs/resolve-base-branch.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
 import { runDurableGateProducer } from './durable-gate-producer.js';
 import { resolveTestRuntime } from '../../config/test-runtime-resolver.js';
@@ -33,6 +34,7 @@ import {
   interpretProbeVerdict,
   verdictOf,
   type ProbeResult,
+  type ProbeVerdict,
   type TestRunFn,
 } from './test-adequacy.js';
 import { assertNever } from '../../contract/error-families.js';
@@ -44,7 +46,11 @@ export interface TestAdequacyArgs {
   readonly taskId: string;
   /** The task branch (HEAD side of the diff). Defaults to the current branch. */
   readonly branch?: string;
-  /** Base ref the task diff is measured against. Defaults to 'main'. */
+  /**
+   * Base ref the task diff is measured against. Omit it and the repository's
+   * default branch is DETECTED; when nothing detects one the diff cannot be
+   * computed and the probe reports `diff-failed` rather than assuming a name.
+   */
   readonly baseBranch?: string;
   /**
    * Repo to probe. A literal path is used verbatim; `'auto'` resolves the
@@ -214,7 +220,7 @@ export async function handleTestAdequacy(
   );
   if (!pre.ok) return pre.result;
   const repoRoot = pre.repoRoot;
-  const baseRef = args.baseBranch || 'main';
+  const base = await resolveDiffBase(repoRoot, args.baseBranch);
 
   return runDurableGateProducer(
     {
@@ -222,7 +228,10 @@ export async function handleTestAdequacy(
       featureId: args.featureId,
       taskId: args.taskId,
       ...(args.branch ? { branch: args.branch } : {}),
-      baseRef,
+      // The evidence subject names the diff base it was scoped against. An
+      // unresolved base has no name to record, so the field is omitted rather
+      // than stamped with a literal the run never used.
+      ...(base.kind === 'resolved' ? { baseRef: base.branch } : {}),
       repoRoot,
       stateDir,
       eventStore,
@@ -251,6 +260,27 @@ export async function handleTestAdequacy(
           },
         };
       }
+
+      // No detected default branch means the task diff cannot be computed —
+      // which this gate already has a name for. `diff-failed` is one of the four
+      // discriminants the probe vocabulary is total over, and
+      // `INDETERMINATE_HANDLING` already rules on it: a diff we could not
+      // compute is an execution failure of a probe that was supposed to run, so
+      // it fails closed at EVERY tier. Minting a discriminant of our own here
+      // would put a second, unruled spelling of "could not run" alongside the
+      // four the tier policy is defined over — and `verdictOf` fails an
+      // unrecognised one closed anyway, so the parallel vocabulary would buy
+      // nothing but the drift.
+      if (base.kind === 'unresolved') {
+        return {
+          success: true,
+          data: carrierForVerdict(
+            { kind: 'indeterminate', cause: 'diff-failed', detail: base.reason },
+            args.riskTier,
+          ),
+        };
+      }
+      const baseRef = base.branch;
 
       const gitExec = args.gitExec ?? defaultGitExec;
       const runTests = args.runTests ?? buildDefaultRunTests(repoRoot);
@@ -316,15 +346,43 @@ interface AdequacyCarrier {
 function buildAdequacyCarrier(probe: ProbeResult, riskTier?: RiskTier): AdequacyCarrier {
   // `verdictOf` prefers the stamped union and otherwise reconstructs one
   // fail-closed, so even a legacy-shaped carrier is judged by the union.
-  const verdict = verdictOf(probe);
+  return carrierForVerdict(verdictOf(probe), riskTier, {
+    redObserved: probe.redObserved === true,
+    restoredClean: probe.restoredClean !== false,
+    probedTests: probe.probedTests ?? [],
+  });
+}
+
+/** The observable facts a carrier reports beside its verdict. */
+interface CarrierFacts {
+  readonly redObserved: boolean;
+  readonly restoredClean: boolean;
+  readonly probedTests: readonly string[];
+}
+
+/**
+ * The one place a carrier is built, so every path into this gate — a probe that
+ * ran, and a precondition that stopped one from running — is scored by the same
+ * tier policy. A caller that hand-assembled `passed` alongside a discriminant
+ * would be authoring the verdict, which is exactly what
+ * {@link interpretProbeVerdict} exists to be the sole authority on.
+ *
+ * Defaults describe a probe that never started: nothing was reverted, so there
+ * is nothing to have restored badly and no test was run.
+ */
+function carrierForVerdict(
+  verdict: ProbeVerdict,
+  riskTier?: RiskTier,
+  facts: CarrierFacts = { redObserved: false, restoredClean: true, probedTests: [] },
+): AdequacyCarrier {
   const interpretation = interpretProbeVerdict(verdict, riskTier);
 
   const base = {
     passed: interpretation.passed,
     disposition: interpretation.disposition,
-    redObserved: probe.redObserved === true,
-    restoredClean: probe.restoredClean !== false,
-    probedTests: probe.probedTests ?? [],
+    redObserved: facts.redObserved,
+    restoredClean: facts.restoredClean,
+    probedTests: facts.probedTests,
     ...(interpretation.report ? { report: interpretation.report } : {}),
   };
 

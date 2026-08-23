@@ -8,6 +8,15 @@
 import { execSync, execFileSync } from 'node:child_process';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
+import { runCommandSync } from '../../utils/process.js';
+import { resolveTestRuntime, type ResolvedRuntime } from '../../config/test-runtime-resolver.js';
+import { splitCommand } from '../../config/tokenize-command.js';
+import { classifyCommandFailure, inconclusiveReason } from '../pure/command-outcome.js';
+import {
+  detectToolchain,
+  resolveTestReportFormat,
+  type TestReportFormat,
+} from '../../config/toolchains.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import { emitGateEvent } from '../gates/gate-utils.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
@@ -27,15 +36,26 @@ interface SynthesisReadinessState {
 
 interface TestResult {
   passed: boolean;
-  passCount: number;
-  failCount: number;
+  /**
+   * Counts are present only when the resolved runner's carrier reports them.
+   * A runner whose whole verdict is its exit code has no counts to report, and
+   * a zero there would read as "ran, found nothing" rather than "not reported".
+   */
+  passCount?: number;
+  failCount?: number;
   output?: string;
+  /** The leg could not run at all: neither a pass nor a failure was observed. */
+  indeterminate?: true;
+  reason?: string;
 }
 
 interface TypecheckResult {
   passed: boolean;
   errorCount: number;
   errors?: string[];
+  /** The leg could not run at all: neither a pass nor a failure was observed. */
+  indeterminate?: true;
+  reason?: string;
 }
 
 interface StackResult {
@@ -52,39 +72,192 @@ interface PrepareSynthesisResult {
   typecheck: TypecheckResult;
   document: DocumentLegResult;
   stack: StackResult;
+  /**
+   * The carrier's own statement that it could not run to a conclusion.
+   *
+   * `prepare_synthesis` is a registered gate class, so this action's result
+   * really does reach `readGateSkipDescriptor` through the canonical runner,
+   * where it becomes an `indeterminate` verdict instead of a readiness answer
+   * the gate never computed. Set only when a leg went UNMEASURED and no other
+   * leg failed — an observed failure is a finding, and must stay one.
+   */
+  skipped?: true;
+  reason?: string;
+}
+
+// ─── Verification-Leg Resolution ───────────────────────────────────────────
+//
+// The tests and typecheck legs run the GOVERNED repository's own commands.
+// Which commands those are is a toolchain fact, so it is resolved from the
+// toolchain source of truth rather than spelled here: a literal package-manager
+// invocation makes both legs undischargeable on any repository that is not a
+// Node one, and this gate blocks synthesis.
+//
+// A repository whose runtime does not resolve gets NO verdict — not a pass, and
+// not a skip that reads as green. That is the `indeterminate` arm.
+
+/** Commands to run, plus how to read what the test runner prints. */
+interface ResolvedLegs {
+  readonly kind: 'resolved';
+  readonly test: string;
+  /** `null` when the resolved toolchain has no typecheck step at all. */
+  readonly typecheck: string | null;
+  readonly carrier: TestReportFormat;
+}
+
+interface UnresolvedLegs {
+  readonly kind: 'indeterminate';
+  readonly reason: string;
+}
+
+type LegResolution = ResolvedLegs | UnresolvedLegs;
+
+/**
+ * How the resolved test runner reports its result.
+ *
+ * Consulted only when the command came from built-in DETECTION. Every other
+ * layer — an override, `.exarchos.yml`, a user-declared toolchain, a committed
+ * task runner — supplies a command the built-in carrier table says nothing
+ * about, and reading a detected toolchain's row for it would attribute one
+ * runner's output grammar to another.
+ */
+function resolveCarrier(repoRoot: string, runtime: ResolvedRuntime): TestReportFormat {
+  if (runtime.source !== 'detection') {
+    return {
+      kind: 'unknown',
+      reason:
+        `the test command was supplied by '${runtime.source}' rather than by toolchain ` +
+        'detection, so how its runner reports a result is unknown',
+    };
+  }
+  return resolveTestReportFormat(detectToolchain(repoRoot)?.id ?? '');
+}
+
+function resolveLegs(repoRoot: string): LegResolution {
+  let runtime: ResolvedRuntime;
+  try {
+    runtime = resolveTestRuntime(repoRoot);
+  } catch (err) {
+    return { kind: 'indeterminate', reason: err instanceof Error ? err.message : String(err) };
+  }
+  if (runtime.source === 'unresolved' || runtime.test === null) {
+    return {
+      kind: 'indeterminate',
+      reason:
+        runtime.remediation ??
+        `no test command resolves for '${repoRoot}', so the suite could not be run`,
+    };
+  }
+  return {
+    kind: 'resolved',
+    test: runtime.test,
+    typecheck: runtime.typecheck,
+    carrier: resolveCarrier(repoRoot, runtime),
+  };
+}
+
+// ─── Command Execution ─────────────────────────────────────────────────────
+
+/**
+ * `repoRoot` is threaded as `cwd` on every leg below: the process this MCP
+ * server happens to have been launched in is never an implicit scan surface —
+ * the caller must name the tree it wants judged.
+ */
+interface CommandOutcome {
+  readonly ok: boolean;
+  readonly text: string;
+  /**
+   * Set when the run produced no verdict — the command could not be started,
+   * or it was killed at its wall clock. `ok: false` alone would make both read
+   * as a leg that ran and failed.
+   */
+  readonly inconclusive?: string;
+}
+
+function decodeStreams(chunks: readonly unknown[]): string {
+  return chunks
+    .map((chunk) => {
+      if (typeof chunk === 'string') return chunk;
+      if (chunk instanceof Buffer) return chunk.toString('utf-8');
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+/**
+ * Run a resolved command in `repoRoot`. argv form, not a shell string: the
+ * resolver's command may carry quoted arguments, and a shell would also give a
+ * crafted `.exarchos.yml` value somewhere to hide. `runCommandSync` is what
+ * still launches a package-manager `.cmd` shim on Windows.
+ */
+function runResolvedCommand(
+  command: string,
+  repoRoot: string,
+  timeoutMs: number,
+): CommandOutcome {
+  let cmd: string;
+  let args: readonly string[];
+  try {
+    ({ cmd, args } = splitCommand(command));
+  } catch (err) {
+    const text = err instanceof Error ? err.message : String(err);
+    return { ok: false, text, inconclusive: `\`${command}\` is not tokenizable: ${text}` };
+  }
+  if (cmd === '') {
+    return {
+      ok: false,
+      text: `empty command: '${command}'`,
+      inconclusive: `\`${command}\` resolves to no executable`,
+    };
+  }
+  try {
+    const output = runCommandSync(cmd, args, {
+      cwd: repoRoot,
+      encoding: 'buffer',
+      timeout: timeoutMs,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return { ok: true, text: decodeStreams([output]) };
+  } catch (err: unknown) {
+    const failure = classifyCommandFailure(err);
+    const text = decodeStreams([failure.stdout, failure.stderr]);
+    const reason = inconclusiveReason(command, failure);
+    return {
+      ok: false,
+      text: text === '' && reason !== null ? reason : text,
+      ...(reason === null ? {} : { inconclusive: reason }),
+    };
+  }
 }
 
 // ─── Test Runner ───────────────────────────────────────────────────────────
 
-/**
- * `repoRoot` is threaded as `cwd` on every leg below (DR-8 / #1756): the
- * process this MCP server happens to have been launched in is never an
- * implicit scan surface — the caller must name the tree it wants judged.
- */
-function runTestSuite(repoRoot: string): TestResult {
-  try {
-    const output = execSync('npm run test:run', {
-      cwd: repoRoot,
-      encoding: 'buffer',
-      timeout: 120_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    const text = output.toString('utf-8');
-    const { passCount, failCount } = parseTestOutput(text);
-    return { passed: true, passCount, failCount, output: text };
-  } catch (err: unknown) {
-    const execError = err as { stdout?: Buffer; stderr?: Buffer; status?: number };
-    const text = [execError.stdout, execError.stderr]
-      .filter((chunk): chunk is Buffer => chunk instanceof Buffer)
-      .map((chunk) => chunk.toString('utf-8'))
-      .join('\n');
-    const { passCount, failCount } = parseTestOutput(text);
-    return { passed: false, passCount, failCount, output: text };
+function runTestSuite(repoRoot: string, legs: ResolvedLegs): TestResult {
+  const outcome = runResolvedCommand(legs.test, repoRoot, 120_000);
+  if (outcome.inconclusive !== undefined) {
+    // The suite was not observed. Counts scraped from a truncated or empty
+    // transcript would be counts of nothing, so none are reported.
+    return { passed: false, indeterminate: true, reason: outcome.inconclusive, output: outcome.text };
   }
+  return {
+    passed: outcome.ok,
+    ...parseTestOutput(outcome.text, legs.carrier),
+    output: outcome.text,
+  };
 }
 
-function parseTestOutput(output: string): { passCount: number; failCount: number } {
-  // Match patterns like "10 passed" and "2 failed"
+/**
+ * Pass/fail counts, when the carrier says the runner prints them in a shape
+ * this parse understands. Anything else reports no counts rather than a count
+ * scraped out of a grammar it was never written for — the verdict itself comes
+ * from the exit code, which every runner carries honestly.
+ */
+function parseTestOutput(
+  output: string,
+  carrier: TestReportFormat,
+): { passCount?: number; failCount?: number } {
+  if (carrier.kind !== 'vitest-json') return {};
   const passMatch = output.match(/(\d+)\s+passed/);
   const failMatch = output.match(/(\d+)\s+failed/);
   return {
@@ -95,28 +268,39 @@ function parseTestOutput(output: string): { passCount: number; failCount: number
 
 // ─── Typecheck Runner ──────────────────────────────────────────────────────
 
-function runTypecheck(repoRoot: string): TypecheckResult {
-  try {
-    execSync('npm run typecheck', {
-      cwd: repoRoot,
-      encoding: 'buffer',
-      timeout: 60_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return { passed: true, errorCount: 0 };
-  } catch (err: unknown) {
-    const execError = err as { stdout?: Buffer; stderr?: Buffer; status?: number };
-    const text = [execError.stdout, execError.stderr]
-      .filter((chunk): chunk is Buffer => chunk instanceof Buffer)
-      .map((chunk) => chunk.toString('utf-8'))
-      .join('\n');
-    const errors = parseTypecheckErrors(text);
-    return { passed: false, errorCount: errors.length, errors };
+function runTypecheck(repoRoot: string, legs: ResolvedLegs): TypecheckResult {
+  // A null typecheck command is the RESOLVER'S OWN 'unresolved' answer for that
+  // field, not a project's withdrawal of the obligation. Reading it as a
+  // withdrawal turned every repository the resolver could not answer for into a
+  // green typecheck leg — proof minted from an absence. Only an explicit
+  // `typecheck:` in `.exarchos.yml` (or an override) discharges this leg; until
+  // one exists the obligation stands, unmeasured.
+  if (legs.typecheck === null) {
+    return {
+      passed: false,
+      errorCount: 0,
+      indeterminate: true,
+      reason:
+        `no typecheck command resolves for '${repoRoot}'. Declare one under ` +
+        '`typecheck:` in .exarchos.yml, or pass an override.',
+    };
   }
+  const outcome = runResolvedCommand(legs.typecheck, repoRoot, 60_000);
+  if (outcome.ok) return { passed: true, errorCount: 0 };
+  if (outcome.inconclusive !== undefined) {
+    return { passed: false, errorCount: 0, indeterminate: true, reason: outcome.inconclusive };
+  }
+  const errors = parseTypecheckErrors(outcome.text);
+  return { passed: false, errorCount: errors.length, errors };
 }
 
+/**
+ * Diagnostic lines from a failed typecheck. TypeScript's `error TS….` prefix is
+ * recognized because it lets the count mean something; any other compiler's
+ * output is reported whole rather than counted as zero errors on a leg that
+ * demonstrably failed.
+ */
 function parseTypecheckErrors(output: string): string[] {
-  // Match lines like "error TS2322: ..."
   const errorLines = output.split('\n').filter((line) => line.includes('error TS'));
   return errorLines.length > 0 ? errorLines : output.trim() ? [output.trim()] : [];
 }
@@ -162,7 +346,7 @@ function verifyStack(repoRoot: string): StackResult {
   }
 }
 
-// ─── DR-2: Document-Readiness Leg (#1594) ───────────────────────────────────
+// ─── Document-Readiness Leg (#1594) ─────────────────────────────────────────
 
 export type DocumentLegConfig = ResolvedProjectConfig['synthesis']['documentLeg'];
 
@@ -194,8 +378,8 @@ export interface DocumentLegResult {
  * — otherwise the leg is uncovered. Pure: the caller supplies the changed-file
  * list (from `git diff --name-only`), so the rule itself is deterministic and
  * directly testable. No doc-bearing surface touched ⇒ auto-waive (the
- * no-ceremony default for ordinary changes). INV-6: no workflow-type branch —
- * the same rule holds for every workflow type.
+ * no-ceremony default for ordinary changes). No workflow-type branch — the
+ * same rule holds for every workflow type.
  */
 export function evaluateDocumentLeg(
   files: readonly string[],
@@ -290,8 +474,8 @@ function checkTaskCompletion(
 // ─── Handler ───────────────────────────────────────────────────────────────
 
 /**
- * `repoRoot` is REQUIRED, not defaulted (DR-8 / #1756): before this task the
- * handler had no field at all naming the tree a readiness verdict was for,
+ * `repoRoot` is REQUIRED, not defaulted (#1756). With no field naming the tree
+ * a readiness verdict was for,
  * so every subprocess leg silently measured the ambient `process.cwd()` the
  * MCP server happened to be launched in. A required field makes an
  * unrelated-tree verdict a compile-time impossibility for every in-repo
@@ -385,7 +569,7 @@ async function executePrepareSynthesis(
       return { success: true, data: result };
     }
 
-    // 3b. DR-8 / #1756: from here on every leg shells out and must be told
+    // 3b. #1756: from here on every leg shells out and must be told
     //     which tree to measure. Refuse rather than silently falling back to
     //     the server's own ambient `process.cwd()` — a verdict about the
     //     wrong repo is worse than no verdict. (Deliberately checked AFTER
@@ -436,19 +620,27 @@ async function executePrepareSynthesis(
     }
     const repoRoot = args.repoRoot;
 
-    // 4. Run test suite
-    const tests = runTestSuite(repoRoot);
+    // 4. Resolve the two command legs from the toolchain source of truth, then
+    //    run them. An unresolvable runtime runs nothing and concludes nothing.
+    const legs = resolveLegs(repoRoot);
+
+    const tests: TestResult = legs.kind === 'resolved'
+      ? runTestSuite(repoRoot, legs)
+      : { passed: false, indeterminate: true, reason: legs.reason };
 
     // 5. Emit gate.executed event for test-suite (feeds flywheel)
     await emitGateEvent(store, streamId, 'test-suite', 'CI', tests.passed, {
       dimension: 'D1',
       phase: 'synthesize',
-      passCount: tests.passCount,
-      failCount: tests.failCount,
+      ...(tests.passCount !== undefined ? { passCount: tests.passCount } : {}),
+      ...(tests.failCount !== undefined ? { failCount: tests.failCount } : {}),
+      ...(tests.indeterminate ? { indeterminate: true, reason: tests.reason } : {}),
     });
 
     // 6. Run typecheck
-    const typecheck = runTypecheck(repoRoot);
+    const typecheck: TypecheckResult = legs.kind === 'resolved'
+      ? runTypecheck(repoRoot, legs)
+      : { passed: false, errorCount: 0, indeterminate: true, reason: legs.reason };
 
     // 7. Emit gate.executed event for typecheck (feeds flywheel)
     await emitGateEvent(store, streamId, 'typecheck', 'CI', typecheck.passed, {
@@ -456,12 +648,14 @@ async function executePrepareSynthesis(
       phase: 'synthesize',
       errorCount: typecheck.errorCount,
       errors: typecheck.errors,
+      ...(typecheck.indeterminate ? { indeterminate: true } : {}),
+      ...(typecheck.reason !== undefined ? { reason: typecheck.reason } : {}),
     });
 
     // 8. Verify branch stack
     const stack = verifyStack(repoRoot);
 
-    // 9. Evaluate the document-readiness leg (DR-2, #1594) and emit its gate.
+    // 9. Evaluate the document-readiness leg (#1594) and emit its gate.
     //    Roster order is task-completion→tests→typecheck→document→stack; gate
     //    EMISSION order here is immaterial (the readiness view folds
     //    gate.executed by name), so the leg is evaluated after the stack check.
@@ -509,12 +703,37 @@ async function executePrepareSynthesis(
       && readiness.stackHealthy;
 
     const allBlockers: string[] = [];
-    if (!readiness.testsPass) allBlockers.push('Test suite failed');
-    if (!readiness.typecheckPass) allBlockers.push('Typecheck failed');
+    const unmeasured: string[] = [];
+    if (tests.indeterminate) {
+      const why = tests.reason ?? 'no test command resolved';
+      unmeasured.push(`Test suite: ${why}`);
+      allBlockers.push(`Test suite could not be run — ${why}`);
+    } else if (!readiness.testsPass) {
+      allBlockers.push('Test suite failed');
+    }
+    if (typecheck.indeterminate) {
+      const why = typecheck.reason ?? 'no typecheck command resolved';
+      unmeasured.push(`Typecheck: ${why}`);
+      allBlockers.push(`Typecheck could not be run — ${why}`);
+    } else if (!readiness.typecheckPass) {
+      allBlockers.push('Typecheck failed');
+    }
     if (!readiness.documentReady) {
       allBlockers.push(documentLeg.message ?? 'Documentation not updated for a doc-bearing change');
     }
     if (!readiness.stackHealthy) allBlockers.push('Stack not healthy');
+
+    // An unmeasured leg makes the readiness answer unavailable rather than
+    // negative — but only while nothing else actually FAILED. A gate that
+    // observed a failure has produced a finding, and declaring itself skipped
+    // would erase the one thing it did establish.
+    const observedFailure =
+      !readiness.tasksComplete
+      || (!tests.indeterminate && !readiness.testsPass)
+      || (!typecheck.indeterminate && !readiness.typecheckPass)
+      || !readiness.documentReady
+      || !readiness.stackHealthy;
+    const unconcluded = unmeasured.length > 0 && !observedFailure;
 
     const result: PrepareSynthesisResult = {
       ready,
@@ -524,6 +743,7 @@ async function executePrepareSynthesis(
       typecheck,
       document: documentLeg,
       stack,
+      ...(unconcluded ? { skipped: true as const, reason: unmeasured.join('; ') } : {}),
     };
 
     return { success: true, data: result };

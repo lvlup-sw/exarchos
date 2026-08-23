@@ -129,6 +129,10 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
         taskId: 'T-01',
         branch,
         repoRoot,
+        // The fixture repo is `git init`ed with no remote, so nothing can
+        // DETECT a default branch. The caller knows it and says so — which is
+        // the precedence the resolver encodes, not a workaround for it.
+        baseBranch: 'main',
       },
       ctx,
     );

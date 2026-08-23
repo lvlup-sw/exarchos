@@ -7,6 +7,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import type { ToolResult } from '../../format.js';
+import { resolveDiffBase } from '../../vcs/resolve-base-branch.js';
 
 // ─── Argument & Result Types ─────────────────────────────────────────────────
 
@@ -114,15 +115,13 @@ function buildReport(apiFiles: readonly string[]): string {
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
-export function handleNeedsSchemaSync(args: NeedsSchemaSyncArgs): ToolResult {
+export async function handleNeedsSchemaSync(args: NeedsSchemaSyncArgs): Promise<ToolResult> {
   if (!args.repoRoot) {
     return {
       success: false,
       error: { code: 'INVALID_INPUT', message: 'repoRoot is required' },
     };
   }
-
-  const baseBranch = args.baseBranch ?? 'main';
 
   let changedFiles: readonly string[];
 
@@ -139,8 +138,18 @@ export function handleNeedsSchemaSync(args: NeedsSchemaSyncArgs): ToolResult {
     const diffContent = readFileSync(args.diffFile, 'utf-8');
     changedFiles = getChangedFilesFromDiff(diffContent);
   } else {
+    // Only the git path needs a base — a supplied diff file already carries the
+    // comparison. An undetectable default branch fails the same precondition an
+    // unrunnable `git diff` does, and reports through the same envelope.
+    const base = await resolveDiffBase(args.repoRoot, args.baseBranch);
+    if (base.kind === 'unresolved') {
+      return {
+        success: false,
+        error: { code: 'GIT_ERROR', message: base.reason },
+      };
+    }
     try {
-      changedFiles = getChangedFilesFromGit(args.repoRoot, baseBranch);
+      changedFiles = getChangedFilesFromGit(args.repoRoot, base.branch);
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : 'git diff failed';

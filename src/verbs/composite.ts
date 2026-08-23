@@ -160,6 +160,25 @@ function adaptArgsWithEventStore<T>(handler: (args: T) => ToolResult | Promise<T
 }
 
 /**
+ * Like {@link adaptArgs}, but threads the dispatch-time `ctx.projectConfig` into
+ * the handler's args. For a handler that resolves its own VCS provider: without
+ * the config the factory never sees `.exarchos.yml`'s `vcs.provider` and falls
+ * back to hostname detection, so an explicitly configured host is ignored. An
+ * arg-level `projectConfig` (a test's override) still wins, matching
+ * {@link adaptLadderGate}.
+ */
+function adaptArgsWithConfig<T>(handler: (args: T) => ToolResult | Promise<ToolResult>): ActionHandler {
+  return async (args, _stateDir, ctx) => {
+    const enriched =
+      ctx?.projectConfig !== undefined &&
+      (args as { projectConfig?: unknown }).projectConfig === undefined
+        ? { ...(args as Record<string, unknown>), projectConfig: ctx.projectConfig }
+        : args;
+    return handler(enriched as unknown as T);
+  };
+}
+
+/**
  * Wraps a typed handler that takes `(args, stateDir, eventStore)` — the
  * canonical shape for orchestrate handlers that need to append events.
  * Threads `ctx.eventStore` as the third positional arg so handlers
@@ -490,7 +509,9 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   assess_refactor_scope: adaptArgsWithEventStore(handleAssessRefactorScope),
   check_pr_comments: adaptArgs(handleCheckPrComments),
   validate_pr_body: adaptWithOptionalEventStore(handleValidatePrBody),
-  validate_pr_stack: adaptArgs(handleValidatePrStack),
+  // Resolves its own provider when the caller hands none, so it needs the config
+  // the factory reads `vcs.provider` from — see adaptArgsWithConfig.
+  validate_pr_stack: adaptArgsWithConfig(handleValidatePrStack),
   debug_review_gate: adaptArgs(handleDebugReviewGate),
   extract_fix_tasks: adaptArgsWithStateDirAndEventStore(handleExtractFixTasks),
   classify_review_items: adaptArgsWithEventStore(handleClassifyReviewItems),

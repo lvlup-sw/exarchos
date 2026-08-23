@@ -38,6 +38,15 @@ function makeIncompleteTask(id: string, status = 'in-progress') {
   return { id, status, branch: `branch-${id}` };
 }
 
+// The worktree test command is resolved from the worktree's own toolchain, so
+// a fixture worktree has to look like a repository the resolver recognizes.
+const NODE_MANIFEST = JSON.stringify({ scripts: { 'test:run': 'vitest run' } });
+
+/** `readFileSync` answering the manifest for package.json and the state otherwise. */
+function stateAndManifest(stateJson: string): (p: unknown) => string {
+  return (p: unknown) => (String(p).endsWith('package.json') ? NODE_MANIFEST : stateJson);
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('handlePostDelegationCheck', () => {
@@ -65,7 +74,7 @@ describe('handlePostDelegationCheck', () => {
       if (path === '/repo/wt-2/package.json') return true;
       return false;
     });
-    mockReadFileSync.mockReturnValue(stateJson);
+    mockReadFileSync.mockImplementation(stateAndManifest(stateJson));
     mockExecFileSync.mockReturnValue(Buffer.from(''));
 
     // Act
@@ -80,6 +89,135 @@ describe('handlePostDelegationCheck', () => {
     expect(data.passed).toBe(true);
     expect(data.checks.fail).toBe(0);
     expect(data.report).toContain('PASS');
+  });
+
+  // ─── Test 1b: the command comes from the resolver ─────────────────────
+
+  it('PostDelegation_UsesResolvedCommand', async () => {
+    const stateJson = makeState([makeCompleteTask('task-1', 'wt-1')]);
+    mockExistsSync.mockImplementation((p: unknown) => {
+      const path = String(p).replace(/^[A-Za-z]:/, '');
+      return (
+        path === '/tmp/state.json' ||
+        path === '/repo/wt-1' ||
+        path === '/repo/wt-1/package.json'
+      );
+    });
+    mockReadFileSync.mockImplementation(stateAndManifest(stateJson));
+    mockExecFileSync.mockReturnValue(Buffer.from(''));
+
+    const result = await handlePostDelegationCheck({
+      stateFile: '/tmp/state.json',
+      repoRoot: '/repo',
+    });
+
+    expect(result.success).toBe(true);
+    expect(mockExecFileSync).toHaveBeenCalledTimes(1);
+    const [program, argv, options] = mockExecFileSync.mock.calls[0] as [
+      string,
+      readonly string[],
+      { cwd?: string },
+    ];
+    expect(program).toBe('npm');
+    expect(argv).toEqual(['run', 'test:run']);
+    expect(String(options.cwd).replace(/^[A-Za-z]:/, '')).toBe('/repo/wt-1');
+  });
+
+  // ─── Test 1c: a worktree with no resolvable runtime ───────────────────
+
+  it('NonNodeWorktree_IsIndeterminate_NotSkip', async () => {
+    // The worktree exists but nothing in it names a test runtime. The gate
+    // used to record a green SKIP here — a blocking gate reporting verified
+    // when it had verified nothing.
+    const stateJson = makeState([makeCompleteTask('task-1', 'wt-1')]);
+    mockExistsSync.mockImplementation((p: unknown) => {
+      const path = String(p).replace(/^[A-Za-z]:/, '');
+      return path === '/tmp/state.json' || path === '/repo/wt-1';
+    });
+    mockReadFileSync.mockReturnValue(stateJson);
+
+    const result = await handlePostDelegationCheck({
+      stateFile: '/tmp/state.json',
+      repoRoot: '/repo',
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      passed: boolean;
+      report: string;
+      checks: { pass: number; fail: number; skip: number; indeterminate: number };
+    };
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+    expect(data.checks.indeterminate).toBe(1);
+    // Unconcluded, and counted apart from both a waived SKIP and a real FAIL.
+    expect(data.checks.skip).toBe(0);
+    expect(data.checks.fail).toBe(0);
+    expect(data.passed).toBe(false);
+    expect(data.report).toContain('INDETERMINATE');
+  });
+
+  // ─── Test 1d: a runner that never started is not a failing worktree ───
+
+  it('PostDelegation_RunnerNeverStarts_IsIndeterminate_NotFail', async () => {
+    const stateJson = makeState([makeCompleteTask('task-1', 'wt-1')]);
+    mockExistsSync.mockImplementation((p: unknown) => {
+      const path = String(p).replace(/^[A-Za-z]:/, '');
+      return (
+        path === '/tmp/state.json' ||
+        path === '/repo/wt-1' ||
+        path === '/repo/wt-1/package.json'
+      );
+    });
+    mockReadFileSync.mockImplementation(stateAndManifest(stateJson));
+    mockExecFileSync.mockImplementation(() => {
+      throw Object.assign(new Error('spawnSync npm ENOENT'), { code: 'ENOENT' });
+    });
+
+    const result = await handlePostDelegationCheck({
+      stateFile: '/tmp/state.json',
+      repoRoot: '/repo',
+    });
+
+    const data = result.data as {
+      passed: boolean;
+      report: string;
+      checks: { pass: number; fail: number; skip: number; indeterminate: number };
+    };
+    expect(data.checks.indeterminate).toBe(1);
+    expect(data.checks.fail).toBe(0);
+    expect(data.passed).toBe(false);
+    expect(data.report).toContain('ENOENT');
+  });
+
+  it('PostDelegation_RunnerNonZeroExit_IsStillAFailure', async () => {
+    // Discriminating twin: a process that RAN and exited non-zero is a real
+    // finding, and must not be softened into an unmeasured leg.
+    const stateJson = makeState([makeCompleteTask('task-1', 'wt-1')]);
+    mockExistsSync.mockImplementation((p: unknown) => {
+      const path = String(p).replace(/^[A-Za-z]:/, '');
+      return (
+        path === '/tmp/state.json' ||
+        path === '/repo/wt-1' ||
+        path === '/repo/wt-1/package.json'
+      );
+    });
+    mockReadFileSync.mockImplementation(stateAndManifest(stateJson));
+    mockExecFileSync.mockImplementation(() => {
+      throw Object.assign(new Error('Command failed'), { status: 1 });
+    });
+
+    const result = await handlePostDelegationCheck({
+      stateFile: '/tmp/state.json',
+      repoRoot: '/repo',
+    });
+
+    const data = result.data as {
+      passed: boolean;
+      checks: { pass: number; fail: number; skip: number; indeterminate: number };
+    };
+    expect(data.checks.fail).toBe(1);
+    expect(data.checks.indeterminate).toBe(0);
+    expect(data.passed).toBe(false);
   });
 
   // ─── Test 2: State file not found → error ────────────────────────────

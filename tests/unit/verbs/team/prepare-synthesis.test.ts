@@ -112,6 +112,43 @@ function tasksToEvents(tasks: Record<string, { status: string }>): unknown[] {
   return events;
 }
 
+/**
+ * `execFileSync` behaviour for the two resolved command legs: the leg whose
+ * script name is in `failing` throws the way a non-zero exit does, everything
+ * else succeeds. The legs are told apart by argv, not by call order, so the
+ * assertion does not silently move when a leg is added or reordered.
+ */
+function legRunner(failing: Record<string, string> = {}) {
+  return ((_program: string, argv?: readonly string[]) => {
+    const script = (argv ?? []).join(' ');
+    for (const [name, output] of Object.entries(failing)) {
+      if (script.includes(name)) {
+        const err = new Error(`${name} failed`) as Error & { stdout: Buffer; status: number };
+        err.stdout = Buffer.from(output);
+        err.status = 1;
+        throw err;
+      }
+    }
+    return Buffer.from('Tests: 10 passed, 0 failed');
+  }) as unknown as typeof execFileSync;
+}
+
+/**
+ * `execSync` behaviour for the git legs, dispatched on the command rather than
+ * on call order. Resolving the toolchain adds its own `git rev-parse` probe, so
+ * an ordinal mock queue silently shifts under a leg that is not even the
+ * subject of the test.
+ */
+function gitRunner(defaultBranch: string, log: string) {
+  return ((command: string) => {
+    if (command.includes('symbolic-ref')) {
+      return `refs/remotes/origin/${defaultBranch}\n` as unknown as Buffer;
+    }
+    if (command.includes('git log')) return Buffer.from(log);
+    return Buffer.from('');
+  }) as unknown as typeof execSync;
+}
+
 function createMockEventStore(events: unknown[] = []) {
   return {
     query: vi.fn().mockResolvedValue(events),
@@ -131,6 +168,15 @@ describe('handlePrepareSynthesis', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'prepare-synthesis-'));
+    // The tests and typecheck legs resolve their commands from the governed
+    // repository's toolchain, so the fixture tree has to be a repository the
+    // resolver recognizes. Without this the gate has nothing to run and says so
+    // — which is exactly what `UnresolvedRuntime_YieldsIndeterminate_NotFail`
+    // exercises, on a tree deliberately left bare.
+    await fs.writeFile(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
+    );
   });
 
   afterEach(async () => {
@@ -326,12 +372,12 @@ describe('handlePrepareSynthesis', () => {
     const mockMaterializer = createMockMaterializer(taskView);
     const mockStore = createMockEventStore();
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
-    // Tests and typecheck pass, then detect default branch, then git log returns commit info
-    vi.mocked(execSync)
-      .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))      // test suite
-      .mockReturnValueOnce(Buffer.from(''))                       // typecheck
-      .mockReturnValueOnce('refs/remotes/origin/main\n' as unknown as Buffer) // detectDefaultBranch
-      .mockReturnValueOnce(Buffer.from('* abc1234 feat: add feature\n* def5678 fix: bug fix')); // git log
+    // Tests and typecheck are resolved commands (execFileSync); the two legs
+    // still on execSync are the git ones.
+    vi.mocked(execFileSync).mockImplementation(legRunner());
+    vi.mocked(execSync).mockImplementation(
+      gitRunner('main', '* abc1234 feat: add feature\n* def5678 fix: bug fix'),
+    );
 
     // Act
     const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
@@ -362,12 +408,9 @@ describe('handlePrepareSynthesis', () => {
     const mockMaterializer = createMockMaterializer(taskView);
     const mockStore = createMockEventStore();
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
-    // Tests and typecheck pass, then detect default branch returns 'trunk', then git log
-    vi.mocked(execSync)
-      .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))       // test suite
-      .mockReturnValueOnce(Buffer.from(''))                        // typecheck
-      .mockReturnValueOnce('refs/remotes/origin/trunk\n' as unknown as Buffer) // detectDefaultBranch → trunk
-      .mockReturnValueOnce(Buffer.from('* abc1234 feat: add feature')); // git log
+    // Detect default branch returns 'trunk', then git log
+    vi.mocked(execFileSync).mockImplementation(legRunner());
+    vi.mocked(execSync).mockImplementation(gitRunner('trunk', '* abc1234 feat: add feature'));
 
     // Act
     await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
@@ -394,11 +437,8 @@ describe('handlePrepareSynthesis', () => {
     const mockStore = createMockEventStore();
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
     // Tests pass, typecheck passes, detect default branch, stack healthy
-    vi.mocked(execSync)
-      .mockReturnValueOnce(Buffer.from('Tests: 10 passed, 0 failed'))
-      .mockReturnValueOnce(Buffer.from(''))
-      .mockReturnValueOnce('refs/remotes/origin/main\n' as unknown as Buffer) // detectDefaultBranch
-      .mockReturnValueOnce(Buffer.from('main\n  feature-branch'));
+    vi.mocked(execFileSync).mockImplementation(legRunner());
+    vi.mocked(execSync).mockImplementation(gitRunner('main', 'main\n  feature-branch'));
 
     // Act
     const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
@@ -509,24 +549,27 @@ describe('handlePrepareSynthesis', () => {
     const mockMaterializer = createMockMaterializer(taskView);
     const mockStore = createMockEventStore();
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
-    // execSync throws on test failure (non-zero exit code)
-    const testError = new Error('Tests failed') as Error & { stdout: Buffer; status: number };
-    testError.stdout = Buffer.from('Tests: 3 passed, 2 failed');
-    testError.status = 1;
-    vi.mocked(execSync)
-      .mockImplementationOnce(() => { throw testError; })  // test suite fails
-      .mockReturnValueOnce(Buffer.from(''))                  // typecheck passes
-      .mockReturnValueOnce('refs/remotes/origin/main\n' as unknown as Buffer) // detectDefaultBranch
-      .mockReturnValueOnce(Buffer.from('main'));             // git log
+    // The resolved test command exits non-zero; typecheck still passes.
+    vi.mocked(execFileSync).mockImplementation(
+      legRunner({ 'test:run': 'Tests: 3 passed, 2 failed' }),
+    );
+    vi.mocked(execSync).mockImplementation(gitRunner('main', 'main'));
 
     // Act
     const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
     // Assert
     expect(result.success).toBe(true);
-    const data = result.data as { ready: boolean; tests: { passed: boolean } };
+    const data = result.data as {
+      ready: boolean;
+      tests: { passed: boolean; failCount?: number };
+      skipped?: true;
+    };
     expect(data.ready).toBe(false);
     expect(data.tests.passed).toBe(false);
+    // A failure is a measurement, not an absence of one.
+    expect(data.skipped).toBeUndefined();
+    expect(data.tests.failCount).toBe(2);
   });
 
   // ─── Test 11: Typecheck failure sets passed=false ─────────────────────────
@@ -539,14 +582,13 @@ describe('handlePrepareSynthesis', () => {
     const mockMaterializer = createMockMaterializer(taskView);
     const mockStore = createMockEventStore();
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
-    const typecheckError = new Error('Typecheck failed') as Error & { stdout: Buffer; status: number };
-    typecheckError.stdout = Buffer.from('error TS2322: Type string not assignable\nerror TS2345: Argument mismatch');
-    typecheckError.status = 1;
-    vi.mocked(execSync)
-      .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))     // test suite passes
-      .mockImplementationOnce(() => { throw typecheckError; })  // typecheck fails
-      .mockReturnValueOnce('refs/remotes/origin/main\n' as unknown as Buffer) // detectDefaultBranch
-      .mockReturnValueOnce(Buffer.from('main'));                // git log
+    vi.mocked(execFileSync).mockImplementation(
+      legRunner({
+        typecheck:
+          'error TS2322: Type string not assignable\nerror TS2345: Argument mismatch',
+      }),
+    );
+    vi.mocked(execSync).mockImplementation(gitRunner('main', 'main'));
 
     // Act
     const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
@@ -570,7 +612,13 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(getOrCreateMaterializer).mockReturnValue(
       mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>,
     );
-    vi.mocked(execSync).mockReturnValue(Buffer.from('src/registry.ts'));
+    vi.mocked(execSync).mockImplementation(gitRunner('main', 'main'));
+    // The changed-file leg is the `git diff` argv call; the command legs are
+    // the resolved test/typecheck ones and must not be answered with a diff.
+    vi.mocked(execFileSync).mockImplementation(((program: string) =>
+      program === 'git'
+        ? Buffer.from('src/registry.ts')
+        : Buffer.from('Tests: 1 passed, 0 failed')) as unknown as typeof execFileSync);
 
     // Act
     const result = await handlePrepareSynthesis(
@@ -608,7 +656,13 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(getOrCreateMaterializer).mockReturnValue(
       mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>,
     );
-    vi.mocked(execSync).mockReturnValue(Buffer.from('src/registry.ts'));
+    vi.mocked(execSync).mockImplementation(gitRunner('main', 'main'));
+    // The changed-file leg is the `git diff` argv call; the command legs are
+    // the resolved test/typecheck ones and must not be answered with a diff.
+    vi.mocked(execFileSync).mockImplementation(((program: string) =>
+      program === 'git'
+        ? Buffer.from('src/registry.ts')
+        : Buffer.from('Tests: 1 passed, 0 failed')) as unknown as typeof execFileSync);
 
     const result = await handlePrepareSynthesis(
       {
@@ -631,6 +685,266 @@ describe('handlePrepareSynthesis', () => {
     expect((docGate![1] as { data: { passed: boolean } }).data.passed).toBe(false);
     const data = result.data as { readiness: { documentReady: boolean } };
     expect(data.readiness.documentReady).toBe(true);
+  });
+
+  // ─── The two command legs come from the toolchain, not from a literal ────
+
+  it('TestsLeg_UsesResolvedCommand', async () => {
+    const mockStore = createMockEventStore(tasksToEvents({ t1: { status: 'completed' } }));
+    vi.mocked(getOrCreateMaterializer).mockReturnValue(
+      createMockMaterializer(
+        mockTaskDetailView({ t1: { status: 'completed' } }),
+      ) as unknown as ReturnType<typeof getOrCreateMaterializer>,
+    );
+    vi.mocked(execSync).mockImplementation(gitRunner('main', 'main'));
+    vi.mocked(execFileSync).mockImplementation(legRunner());
+
+    await handlePrepareSynthesis(
+      { featureId: 'test-feature', repoRoot: tmpDir },
+      tmpDir,
+      mockStore as unknown as EventStore,
+    );
+
+    const spawned = vi
+      .mocked(execFileSync)
+      .mock.calls.map((c) => [String(c[0]), ...((c[1] ?? []) as readonly string[])].join(' '));
+    // The resolver's npm profile for the fixture repo. No literal is spelled in
+    // the module: change the fixture's manifest and this command changes with it.
+    expect(spawned).toContain('npm run test:run');
+  });
+
+  it('TypecheckLeg_UsesResolvedCommand', async () => {
+    const mockStore = createMockEventStore(tasksToEvents({ t1: { status: 'completed' } }));
+    vi.mocked(getOrCreateMaterializer).mockReturnValue(
+      createMockMaterializer(
+        mockTaskDetailView({ t1: { status: 'completed' } }),
+      ) as unknown as ReturnType<typeof getOrCreateMaterializer>,
+    );
+    vi.mocked(execSync).mockImplementation(gitRunner('main', 'main'));
+    vi.mocked(execFileSync).mockImplementation(legRunner());
+
+    await handlePrepareSynthesis(
+      { featureId: 'test-feature', repoRoot: tmpDir },
+      tmpDir,
+      mockStore as unknown as EventStore,
+    );
+
+    const spawned = vi
+      .mocked(execFileSync)
+      .mock.calls.map((c) => [String(c[0]), ...((c[1] ?? []) as readonly string[])].join(' '));
+    expect(spawned).toContain('npm run typecheck');
+  });
+
+  it('ExitCodeOnlyCarrier_ReportsNoCounts_AndTypecheckIsUnmeasured', async () => {
+    // A Go worktree. Its runner resolves and its exit code is a complete
+    // verdict, but it prints no summary this parse understands — so the counts
+    // are absent rather than scraped out of another runner's grammar, even
+    // though the output here would satisfy the pattern.
+    //
+    // Go resolves NO typecheck command, and that is the resolver's own
+    // 'unresolved' answer, not the project withdrawing the obligation. So the
+    // leg is indeterminate: it does not pass, and it does not invent a command.
+    const goRepo = await fs.mkdtemp(path.join(os.tmpdir(), 'prepare-synthesis-go-'));
+    try {
+      await fs.writeFile(path.join(goRepo, 'go.mod'), 'module example.com/thing\n');
+      const mockStore = createMockEventStore(tasksToEvents({ t1: { status: 'completed' } }));
+      vi.mocked(getOrCreateMaterializer).mockReturnValue(
+        createMockMaterializer(
+          mockTaskDetailView({ t1: { status: 'completed' } }),
+        ) as unknown as ReturnType<typeof getOrCreateMaterializer>,
+      );
+      vi.mocked(execSync).mockImplementation(gitRunner('main', 'main'));
+      vi.mocked(execFileSync).mockImplementation(legRunner());
+
+      const result = await handlePrepareSynthesis(
+        { featureId: 'test-feature', repoRoot: goRepo },
+        goRepo,
+        mockStore as unknown as EventStore,
+      );
+
+      const data = result.data as {
+        skipped?: true;
+        reason?: string;
+        blockers?: string[];
+        tests: { passed: boolean; passCount?: number; failCount?: number };
+        typecheck: { passed: boolean; indeterminate?: true; reason?: string };
+        readiness: { typecheckPass: boolean };
+      };
+      const spawned = vi
+        .mocked(execFileSync)
+        .mock.calls.map((c) => [String(c[0]), ...((c[1] ?? []) as readonly string[])].join(' '));
+      expect(spawned).toContain('go test ./...');
+      expect(data.tests.passed).toBe(true);
+      expect(data.tests.passCount).toBeUndefined();
+      expect(data.tests.failCount).toBeUndefined();
+      // The leg the resolver could not answer for is unmeasured, NOT green.
+      expect(data.typecheck.indeterminate).toBe(true);
+      expect(data.typecheck.passed).toBe(false);
+      expect(data.readiness.typecheckPass).toBe(false);
+      expect(data.typecheck.reason).toContain('typecheck');
+      // Tests passed and nothing failed, so the whole carrier is unconcluded
+      // rather than reporting a failure nobody observed.
+      expect(data.skipped).toBe(true);
+      expect(data.reason).toContain('Typecheck');
+      expect(data.blockers?.some((b) => b.includes('Typecheck could not be run'))).toBe(true);
+      // No `go typecheck` was invented for a toolchain that has none.
+      expect(spawned.some((c) => c.includes('typecheck'))).toBe(false);
+    } finally {
+      await fs.rm(goRepo, { recursive: true, force: true });
+    }
+  });
+
+  it('TypecheckLeg_ObservedFailureElsewhere_IsNotSoftenedToSkipped', async () => {
+    // Discriminating twin: the same Go worktree, but the suite genuinely
+    // FAILS. A gate that observed a failure has produced a finding, so it must
+    // not declare itself skipped — that would erase the one thing it measured.
+    const goRepo = await fs.mkdtemp(path.join(os.tmpdir(), 'prepare-synthesis-go-fail-'));
+    try {
+      await fs.writeFile(path.join(goRepo, 'go.mod'), 'module example.com/thing\n');
+      const mockStore = createMockEventStore(tasksToEvents({ t1: { status: 'completed' } }));
+      vi.mocked(getOrCreateMaterializer).mockReturnValue(
+        createMockMaterializer(
+          mockTaskDetailView({ t1: { status: 'completed' } }),
+        ) as unknown as ReturnType<typeof getOrCreateMaterializer>,
+      );
+      vi.mocked(execSync).mockImplementation(gitRunner('main', 'main'));
+      // `go test ./...` exits non-zero: a real, observed suite failure.
+      vi.mocked(execFileSync).mockImplementation(legRunner({ test: 'FAIL' }));
+
+      const result = await handlePrepareSynthesis(
+        { featureId: 'test-feature', repoRoot: goRepo },
+        goRepo,
+        mockStore as unknown as EventStore,
+      );
+
+      const data = result.data as {
+        skipped?: true;
+        tests: { passed: boolean; indeterminate?: true };
+        typecheck: { indeterminate?: true };
+      };
+      expect(data.tests.passed).toBe(false);
+      expect(data.tests.indeterminate).toBeUndefined();
+      expect(data.typecheck.indeterminate).toBe(true);
+      expect(data.skipped).toBeUndefined();
+    } finally {
+      await fs.rm(goRepo, { recursive: true, force: true });
+    }
+  });
+
+  it('TestLeg_RunnerNeverStarts_IsIndeterminate_NotAFailingSuite', async () => {
+    // ENOENT carries no numeric exit status: nothing observed the suite. The
+    // leg is unmeasured rather than failing, and no counts are reported.
+    const goRepo = await fs.mkdtemp(path.join(os.tmpdir(), 'prepare-synthesis-enoent-'));
+    try {
+      await fs.writeFile(path.join(goRepo, 'go.mod'), 'module example.com/thing\n');
+      const mockStore = createMockEventStore(tasksToEvents({ t1: { status: 'completed' } }));
+      vi.mocked(getOrCreateMaterializer).mockReturnValue(
+        createMockMaterializer(
+          mockTaskDetailView({ t1: { status: 'completed' } }),
+        ) as unknown as ReturnType<typeof getOrCreateMaterializer>,
+      );
+      vi.mocked(execSync).mockImplementation(gitRunner('main', 'main'));
+      vi.mocked(execFileSync).mockImplementation(((program: string) => {
+        if (String(program) === 'go') {
+          // No numeric `status`: the process was never created.
+          throw Object.assign(new Error('spawnSync go ENOENT'), { code: 'ENOENT' });
+        }
+        return Buffer.from('');
+      }) as unknown as typeof execFileSync);
+
+      const result = await handlePrepareSynthesis(
+        { featureId: 'test-feature', repoRoot: goRepo },
+        goRepo,
+        mockStore as unknown as EventStore,
+      );
+
+      const data = result.data as {
+        skipped?: true;
+        reason?: string;
+        tests: { passed: boolean; indeterminate?: true; reason?: string; passCount?: number };
+      };
+      expect(data.tests.indeterminate).toBe(true);
+      expect(data.tests.passed).toBe(false);
+      expect(data.tests.reason).toContain('ENOENT');
+      expect(data.tests.passCount).toBeUndefined();
+      expect(data.skipped).toBe(true);
+      expect(data.reason).toContain('Test suite');
+    } finally {
+      await fs.rm(goRepo, { recursive: true, force: true });
+    }
+  });
+
+  it('UnresolvedRuntime_YieldsIndeterminate_NotFail', async () => {
+    // A governed repository with no resolvable test runtime — the case a
+    // literal `npm run test:run` could only ever answer with a spurious red.
+    const bareRepo = await fs.mkdtemp(path.join(os.tmpdir(), 'prepare-synthesis-bare-'));
+    try {
+      const mockStore = createMockEventStore(tasksToEvents({ t1: { status: 'completed' } }));
+      vi.mocked(getOrCreateMaterializer).mockReturnValue(
+        createMockMaterializer(
+          mockTaskDetailView({ t1: { status: 'completed' } }),
+        ) as unknown as ReturnType<typeof getOrCreateMaterializer>,
+      );
+      vi.mocked(execSync).mockImplementation(gitRunner('main', 'main'));
+      vi.mocked(execFileSync).mockImplementation(legRunner());
+
+      const result = await handlePrepareSynthesis(
+        { featureId: 'test-feature', repoRoot: bareRepo },
+        bareRepo,
+        mockStore as unknown as EventStore,
+      );
+
+      const data = result.data as {
+        ready: boolean;
+        skipped?: true;
+        reason?: string;
+        blockers?: string[];
+        tests: { passed: boolean; indeterminate?: true; reason?: string };
+        typecheck: { passed: boolean; indeterminate?: true };
+      };
+      // Nothing was spawned against the bare tree.
+      const spawned = vi
+        .mocked(execFileSync)
+        .mock.calls.filter((c) => String(c[0]) !== 'git');
+      expect(spawned).toHaveLength(0);
+      // Neither a pass nor a failure: the carrier declares it could not run,
+      // which is what the shared verdict normalizer reads as indeterminate.
+      expect(data.skipped).toBe(true);
+      expect(data.reason).toBeTruthy();
+      expect(data.tests.indeterminate).toBe(true);
+      expect(data.typecheck.indeterminate).toBe(true);
+      expect(data.ready).toBe(false);
+      expect(data.blockers?.some((b) => b.includes('could not be run'))).toBe(true);
+
+      // The durable row says the same thing the carrier does.
+      const testGate = mockStore.append.mock.calls.find((call: unknown[]) => {
+        const e = call[1] as { type: string; data: { gateName: string } };
+        return e.type === 'gate.executed' && e.data.gateName === 'test-suite';
+      });
+      expect(
+        (testGate![1] as { data: { details?: Record<string, unknown> } }).data.details
+          ?.['indeterminate'],
+      ).toBe(true);
+    } finally {
+      await fs.rm(bareRepo, { recursive: true, force: true });
+    }
+  });
+
+  it('NoNpmLiteral_RemainsInModule', async () => {
+    // The property, asserted on the source itself: a package-manager literal in
+    // this module is a command the governed repository never chose. The
+    // resolver is the only thing allowed to name one.
+    const source = await fs.readFile(
+      path.join(process.cwd(), 'src/verbs/team/prepare-synthesis.ts'),
+      'utf-8',
+    );
+    const code = source
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('//') && !line.trimStart().startsWith('*'))
+      .join('\n');
+    for (const literal of ['npm ', 'pnpm ', 'yarn ', 'npx ', 'bun ', 'test:run']) {
+      expect(code).not.toContain(literal);
+    }
   });
 
   // ─── DR-8 (#1756): repoRoot is threaded to every subprocess leg ───────────

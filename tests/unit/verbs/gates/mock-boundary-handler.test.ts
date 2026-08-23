@@ -13,7 +13,10 @@ import { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { handleOrchestrate } from '../../../../src/verbs/composite.js';
 import { TOOL_REGISTRY } from '../../../../src/registry.js';
-import { steerForFinding } from '../../../../src/verbs/gates/mock-boundary-handler.js';
+import {
+  handleMockBoundary,
+  steerForFinding,
+} from '../../../../src/verbs/gates/mock-boundary-handler.js';
 import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
@@ -159,5 +162,44 @@ describe('check_mock_boundary registration + dispatch + steer', () => {
     expect(steer).toMatch(/hermetic fixture/i);
     expect(steer).toMatch(/contract-verified stub/i);
     expect(steer).toMatch(/a fake/i);
+  });
+
+  it('UnresolvedBase_IsInconclusive_NotACleanBoundaryReport', async () => {
+    // `/fake/repo` is not a repository, so no default branch can be detected and
+    // none was supplied. This gate reads the diff for mocks of unowned
+    // dependencies; with no diff there are no findings, and `findings: []` would
+    // report a clean boundary that was never inspected.
+    const arm = await makeArm('mock-boundary-nobase-');
+    arms.push(arm);
+
+    const result = await handleMockBoundary(
+      {
+        featureId: 'feat-nobase',
+        taskId: 'T-nobase',
+        repoRoot: '/fake/repo',
+        gitExec: gitEmptyDiff,
+      },
+      arm.ctx.stateDir,
+      arm.ctx.eventStore,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      passed: boolean;
+      skipped?: boolean;
+      findings?: unknown[];
+      discriminant?: string;
+      reason?: string;
+    };
+    expect(data.passed).toBe(false);
+    expect(data.skipped).toBe(true);
+    expect(data.discriminant).toBe('base-branch-unresolved');
+    expect(data.reason).toContain('no default branch');
+
+    // The carrier's skip marker is what makes the PROOF verdict inconclusive.
+    // `fail` would name a boundary violation nobody observed; `pass` would mint
+    // proof from a gate that never ran. Indeterminate fails closed instead.
+    const { normalizeGateVerdict } = await import('../../../../src/verbs/gates/gate-utils.js');
+    expect(normalizeGateVerdict(result)).toBe('indeterminate');
   });
 });

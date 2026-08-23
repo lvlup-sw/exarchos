@@ -14,6 +14,24 @@ function gitDiffOutput(files: readonly string[]): string {
   return files.join('\n') + (files.length > 0 ? '\n' : '');
 }
 
+/**
+ * Route the two git calls the handler now makes.
+ *
+ * The base branch is DETECTED (`git symbolic-ref refs/remotes/origin/HEAD`)
+ * rather than assumed, so a single `mockReturnValue` would hand the file list
+ * back to the detector as well — and a file list is not a ref, so every test
+ * would take the unresolved path.
+ */
+function mockGit(files: readonly string[], defaultBranch: string | null = 'main'): void {
+  mockedExecFileSync.mockImplementation(((_cmd: string, args: readonly string[]) => {
+    if (args[0] === 'symbolic-ref') {
+      if (defaultBranch === null) throw new Error('no origin/HEAD');
+      return `refs/remotes/origin/${defaultBranch}\n`;
+    }
+    return gitDiffOutput(files);
+  }) as unknown as typeof execFileSync);
+}
+
 describe('Check Polish Scope', () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -21,12 +39,10 @@ describe('Check Polish Scope', () => {
   });
 
   it('under limits — 3 files, 1 module → scopeOk: true', async () => {
-    mockedExecFileSync.mockReturnValue(
-      gitDiffOutput(['src/foo.ts', 'src/bar.ts', 'src/baz.ts']),
-    );
+    mockGit(['src/foo.ts', 'src/bar.ts', 'src/baz.ts']);
 
     const { handleCheckPolishScope } = await import('../../../../src/verbs/gates/check-polish-scope.js');
-    const result = handleCheckPolishScope({ repoRoot: '/repo' });
+    const result = await handleCheckPolishScope({ repoRoot: '/repo' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckPolishScopeResult;
@@ -39,19 +55,17 @@ describe('Check Polish Scope', () => {
   });
 
   it('file count exceeds 5 → scopeOk: false', async () => {
-    mockedExecFileSync.mockReturnValue(
-      gitDiffOutput([
+    mockGit([
         'src/a.ts',
         'src/b.ts',
         'src/c.ts',
         'src/d.ts',
         'src/e.ts',
         'src/f.ts',
-      ]),
-    );
+    ]);
 
     const { handleCheckPolishScope } = await import('../../../../src/verbs/gates/check-polish-scope.js');
-    const result = handleCheckPolishScope({ repoRoot: '/repo' });
+    const result = await handleCheckPolishScope({ repoRoot: '/repo' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckPolishScopeResult;
@@ -62,12 +76,10 @@ describe('Check Polish Scope', () => {
   });
 
   it('module boundaries crossed (>2 dirs) → scopeOk: false', async () => {
-    mockedExecFileSync.mockReturnValue(
-      gitDiffOutput(['src/a.ts', 'lib/b.ts', 'tests/c.ts']),
-    );
+    mockGit(['src/a.ts', 'lib/b.ts', 'tests/c.ts']);
 
     const { handleCheckPolishScope } = await import('../../../../src/verbs/gates/check-polish-scope.js');
-    const result = handleCheckPolishScope({ repoRoot: '/repo' });
+    const result = await handleCheckPolishScope({ repoRoot: '/repo' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckPolishScopeResult;
@@ -77,9 +89,7 @@ describe('Check Polish Scope', () => {
   });
 
   it('missing test files → scopeOk: false', async () => {
-    mockedExecFileSync.mockReturnValue(
-      gitDiffOutput(['src/foo.ts', 'src/bar.ts']),
-    );
+    mockGit(['src/foo.ts', 'src/bar.ts']);
     // foo.test.ts exists, bar.test.ts does not
     mockedExistsSync.mockImplementation((p) => {
       const path = String(p);
@@ -87,7 +97,7 @@ describe('Check Polish Scope', () => {
     });
 
     const { handleCheckPolishScope } = await import('../../../../src/verbs/gates/check-polish-scope.js');
-    const result = handleCheckPolishScope({ repoRoot: '/repo' });
+    const result = await handleCheckPolishScope({ repoRoot: '/repo' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckPolishScopeResult;
@@ -96,12 +106,10 @@ describe('Check Polish Scope', () => {
   });
 
   it('architectural docs needed — structural files across >1 module → scopeOk: false', async () => {
-    mockedExecFileSync.mockReturnValue(
-      gitDiffOutput(['src/index.ts', 'lib/utils.ts']),
-    );
+    mockGit(['src/index.ts', 'lib/utils.ts']);
 
     const { handleCheckPolishScope } = await import('../../../../src/verbs/gates/check-polish-scope.js');
-    const result = handleCheckPolishScope({ repoRoot: '/repo' });
+    const result = await handleCheckPolishScope({ repoRoot: '/repo' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckPolishScopeResult;
@@ -110,21 +118,19 @@ describe('Check Polish Scope', () => {
   });
 
   it('multiple triggers fire together', async () => {
-    mockedExecFileSync.mockReturnValue(
-      gitDiffOutput([
+    mockGit([
         'src/a.ts',
         'src/b.ts',
         'lib/c.ts',
         'tests/d.ts',
         'pkg/e.ts',
         'pkg/index.ts',
-      ]),
-    );
+    ]);
     // No test files exist
     mockedExistsSync.mockReturnValue(false);
 
     const { handleCheckPolishScope } = await import('../../../../src/verbs/gates/check-polish-scope.js');
-    const result = handleCheckPolishScope({ repoRoot: '/repo' });
+    const result = await handleCheckPolishScope({ repoRoot: '/repo' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckPolishScopeResult;
@@ -140,10 +146,10 @@ describe('Check Polish Scope', () => {
   });
 
   it('empty diff → scopeOk: true', async () => {
-    mockedExecFileSync.mockReturnValue('');
+    mockGit([]);
 
     const { handleCheckPolishScope } = await import('../../../../src/verbs/gates/check-polish-scope.js');
-    const result = handleCheckPolishScope({ repoRoot: '/repo' });
+    const result = await handleCheckPolishScope({ repoRoot: '/repo' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckPolishScopeResult;
@@ -154,12 +160,14 @@ describe('Check Polish Scope', () => {
   });
 
   it('both git diff attempts fail → DIFF_FAILED error', async () => {
-    mockedExecFileSync.mockImplementation(() => {
+    mockedExecFileSync.mockImplementation(((_cmd: string, args: readonly string[]) => {
+      // The base resolves; only the diff itself fails.
+      if (args[0] === 'symbolic-ref') return 'refs/remotes/origin/main\n';
       throw new Error('git diff failed');
-    });
+    }) as unknown as typeof execFileSync);
 
     const { handleCheckPolishScope } = await import('../../../../src/verbs/gates/check-polish-scope.js');
-    const result = handleCheckPolishScope({ repoRoot: '/repo' });
+    const result = await handleCheckPolishScope({ repoRoot: '/repo' });
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('DIFF_FAILED');
@@ -168,16 +176,35 @@ describe('Check Polish Scope', () => {
     expect(result.data).toBeUndefined();
   });
 
-  it('default baseBranch is "main"', async () => {
-    mockedExecFileSync.mockReturnValue(gitDiffOutput(['src/foo.ts']));
+  it('DetectsTheDefaultBranch_RatherThanAssumingMain', async () => {
+    mockGit(['src/foo.ts'], 'trunk');
 
     const { handleCheckPolishScope } = await import('../../../../src/verbs/gates/check-polish-scope.js');
-    handleCheckPolishScope({ repoRoot: '/repo' });
+    await handleCheckPolishScope({ repoRoot: '/repo' });
 
     expect(mockedExecFileSync).toHaveBeenCalledWith(
       'git',
-      ['diff', '--name-only', 'main...HEAD'],
+      ['diff', '--name-only', 'trunk...HEAD'],
       expect.objectContaining({ cwd: '/repo' }),
+    );
+  });
+
+  it('UnresolvedBase_ReportsIt_AndNeverDiffsAgainstMain', async () => {
+    mockGit(['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/d.ts', 'src/e.ts', 'src/f.ts'], null);
+
+    const { handleCheckPolishScope } = await import('../../../../src/verbs/gates/check-polish-scope.js');
+    const result = await handleCheckPolishScope({ repoRoot: '/repo' });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('DIFF_FAILED');
+    // The six files above would have tripped the file-count trigger. Nothing is
+    // reported, because nothing was measured — a scope verdict against a branch
+    // the repository may not have is not a verdict.
+    expect(result.data).toBeUndefined();
+    expect(mockedExecFileSync).not.toHaveBeenCalledWith(
+      'git',
+      ['diff', '--name-only', 'main...HEAD'],
+      expect.anything(),
     );
   });
 });

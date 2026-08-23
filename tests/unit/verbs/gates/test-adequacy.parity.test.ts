@@ -48,6 +48,9 @@ const PARITY_ARGS = {
   taskId: 'T-parity',
   branch: 'feature/parity',
   repoRoot: PARITY_REPO_ROOT,
+  // Explicit, so both arms measure the same subject regardless of whether the
+  // machine running them has an `origin/HEAD` to detect.
+  baseBranch: 'main',
 } as const;
 
 function makePassResult() {

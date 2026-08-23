@@ -321,8 +321,8 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: true },
-    // DR-5: chains `npm run test:run` across every task worktree with a
-    // 120s per-worktree timeout; scales with the number of tasks.
+    // Chains each worktree's own resolved test command, with a 120s
+    // per-worktree timeout; scales with the number of tasks.
     longRunning: true,
     autoEmits: [
       { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },

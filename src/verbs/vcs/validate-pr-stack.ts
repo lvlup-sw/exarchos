@@ -7,12 +7,23 @@
 import type { VcsProvider, PrSummary } from '../../vcs/provider.js';
 import { requiresGitHub } from '../../vcs/require-github.js';
 import { createVcsProvider } from '../../vcs/factory.js';
+import type { ResolvedProjectConfig } from '../../config/resolve.js';
 import type { ToolResult } from '../../format.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface ValidatePrStackArgs {
   readonly baseBranch: string;
+  /**
+   * The resolved project config, injected by the dispatch adapter.
+   *
+   * It is what makes `.exarchos.yml`'s `vcs.provider` reach the factory. Without
+   * it the factory falls through to detection, which reads the git remote's
+   * HOSTNAME — so a self-hosted GitLab at `git.acme.internal`, or an enterprise
+   * GitHub, matches no pattern and resolves to the GitHub default. That is the
+   * setting being ignored precisely where a project stated it explicitly.
+   */
+  readonly projectConfig?: ResolvedProjectConfig;
 }
 
 interface PrEntry {
@@ -35,9 +46,6 @@ export async function handleValidatePrStack(
   args: ValidatePrStackArgs,
   provider?: VcsProvider,
 ): Promise<ToolResult> {
-  const vcsGuard = requiresGitHub(provider, 'validate_pr_stack');
-  if (vcsGuard) return vcsGuard;
-
   // 1. Validate args
   if (!args.baseBranch) {
     return {
@@ -47,7 +55,26 @@ export async function handleValidatePrStack(
   }
 
   const { baseBranch } = args;
-  const vcs = provider ?? await createVcsProvider();
+
+  // The guard runs against the RESOLVED provider, not the parameter.
+  //
+  // The composed router calls this handler with its args and nothing else, so
+  // `provider` is always undefined in production — and `requiresGitHub` reads an
+  // absent provider as "unconfigured, GitHub is implicit" and waves it through.
+  // Guarding the parameter therefore declared a graceful skip that no real call
+  // could ever reach: a GitLab or Azure DevOps repository fell past it into
+  // `listPrs`, which throws `UnsupportedOperationError` on both partials, and a
+  // BLOCKING synthesis gate reported a hard `GH_CLI_ERROR` for an obligation
+  // that simply does not apply to that host. Resolving first is what makes the
+  // declared skip reachable without the router having to hand the provider in.
+  //
+  // The config goes WITH the request: `createVcsProvider` consults
+  // `config.vcs.provider` first and only auto-detects when nothing was declared,
+  // so calling it bare would silently demote an explicit setting to a hostname
+  // guess.
+  const vcs = provider ?? (await createVcsProvider({ config: args.projectConfig }));
+  const vcsGuard = requiresGitHub(vcs, 'validate_pr_stack');
+  if (vcsGuard) return vcsGuard;
 
   // 2. Query open PRs via VcsProvider
   let prSummaries: PrSummary[];

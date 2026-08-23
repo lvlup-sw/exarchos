@@ -3,8 +3,13 @@
 // Validates a worktree path, delegates project-type/test-command resolution to
 // the unified test runtime resolver (`config/test-runtime-resolver.ts`), runs
 // the resolved test command, and returns a structured markdown report.
-// Ported from scripts/verify-worktree-baseline.sh; migrated to resolver in
-// refactor #1199 T08, intentionally closing the prior Python detection gap.
+// Every toolchain the resolver knows is reachable here — the label and the
+// marker list both come from the registry, so neither can name a shorter set
+// than the detector actually uses.
+//
+// The baseline has THREE outcomes, not two: a runner that never started, or one
+// killed at its wall clock, measured nothing and must not be recorded as a
+// failing baseline.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { existsSync } from 'node:fs';
@@ -13,13 +18,23 @@ import { runCommandSync } from '../../utils/process.js';
 import type { ToolResult } from '../../format.js';
 import { resolveTestRuntime, type ResolvedRuntime } from '../../config/test-runtime-resolver.js';
 import { splitCommand } from '../../config/tokenize-command.js';
+import { BUILTIN_TOOLCHAINS, detectToolchain } from '../../config/toolchains.js';
+import { classifyCommandFailure, inconclusiveReason } from '../pure/command-outcome.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
+
+/**
+ * Wall clock the baseline run is given. Declared rather than left to the
+ * platform default (there is none — `execFileSync` waits forever), because a
+ * check that can stop returning is worse than one that reports it could not
+ * conclude.
+ */
+const BASELINE_TIMEOUT_MS = 15 * 60 * 1000;
 
 interface VerifyWorktreeBaselineArgs {
   readonly worktreePath: string;
   /**
-   * T-08 (#1301): when supplied, the handler inspects the (main) worktree for
+   * #1301: when supplied, the handler inspects the (main) worktree for
    * uncommitted modifications and classifies each against this agent branch
    * tip. A working-tree blob byte-identical to the same path already committed
    * on the agent branch is flagged as a recoverable `leaked-committed` leak
@@ -30,7 +45,7 @@ interface VerifyWorktreeBaselineArgs {
   readonly agentBranch?: string;
 }
 
-// ─── T-08 (#1301): Leak Detection ─────────────────────────────────────────────
+// ─── Leak Detection (#1301) ──────────────────────────────────────────────────
 //
 // At merge time the orchestrator's MAIN worktree sometimes carries an
 // uncommitted modification that is byte-identical to a change already
@@ -38,8 +53,8 @@ interface VerifyWorktreeBaselineArgs {
 // leak"). Such a path FF-blocks the merge but is in fact safe to discard. This
 // backstop classifies each dirty path so the orchestrator can surface the
 // documented `git checkout -- <path>` remediation instead of treating the leak
-// as opaque dirt. INV-15: this is purely local git inspection — no
-// cross-process locking, no distributed primitives.
+// as opaque dirt. This is purely local git inspection — no cross-process
+// locking, no distributed primitives.
 
 type LeakClassification = 'leaked-committed' | 'dirty';
 
@@ -55,24 +70,16 @@ interface LeakDetection {
   readonly paths: readonly LeakPathEntry[];
 }
 
-type DetectedProjectType =
-  | 'Node.js'
-  | 'Node.js (bun)'
-  | 'Node.js (pnpm)'
-  | 'Node.js (yarn)'
-  | '.NET'
-  | 'Rust'
-  | 'Python';
-
 /**
- * Project type label. Detection paths use the narrow `DetectedProjectType`
- * union; config/override paths fall back to a source-tagged label when the
- * test command isn't in the built-in set.
+ * Human-readable project-type label. Detected repositories are labelled by the
+ * toolchain registry itself; config/override paths, which may name a command no
+ * toolchain owns, get a source tag instead.
  */
-type ProjectType = DetectedProjectType | 'Configured (.exarchos.yml)' | 'Override';
+const CONFIGURED_LABEL = 'Configured (.exarchos.yml)';
+const OVERRIDE_LABEL = 'Override';
 
 interface ProjectDetection {
-  readonly projectType: ProjectType;
+  readonly projectType: string;
   readonly testCommand: string;
   readonly cmd: string;
   readonly args: readonly string[];
@@ -81,22 +88,32 @@ interface ProjectDetection {
 // ─── Project Detection (delegates to resolver) ──────────────────────────────
 
 /**
- * Map a resolver test-command string to a human-readable project-type label.
- * Discriminates the widened `ProjectType` union from the resolver's
- * package-manager-aware test command.
+ * The registry's own label for whatever toolchain this worktree is.
+ *
+ * Previously derived by comparing the resolved test command against a list of
+ * command literals, which recognized four of the registry's toolchains and
+ * silently mislabelled the rest — and went stale the moment a command string
+ * changed. The registry already carries the label, so read it there: the
+ * package-manager nuance the literal list encoded (`pnpm test`, `bun test`)
+ * is not lost, because the report prints the resolved command on its own line.
  */
-function projectTypeFromTestCommand(test: string): DetectedProjectType | undefined {
-  if (test === 'npm run test:run') return 'Node.js';
-  if (test === 'bun test') return 'Node.js (bun)';
-  if (test === 'pnpm test') return 'Node.js (pnpm)';
-  if (test === 'yarn test') return 'Node.js (yarn)';
-  if (test === 'dotnet test') return '.NET';
-  if (test === 'cargo test') return 'Rust';
-  if (test === 'pytest') return 'Python';
-  return undefined;
+function projectTypeFromRegistry(worktreePath: string): string | undefined {
+  return detectToolchain(worktreePath)?.projectType;
 }
 
-function toProjectDetection(runtime: ResolvedRuntime): ProjectDetection | undefined {
+/**
+ * The marker files detection actually looks for, read off the registry so the
+ * "nothing recognized here" message cannot name a shorter list than the one the
+ * detector uses.
+ */
+function recognizedMarkers(): string {
+  return [...new Set(BUILTIN_TOOLCHAINS.flatMap((tc) => tc.markers))].join(', ');
+}
+
+function toProjectDetection(
+  runtime: ResolvedRuntime,
+  worktreePath: string,
+): ProjectDetection | undefined {
   // Honor the resolver's output regardless of source (#1109 MCP-parity):
   // a `.exarchos.yml`-supplied test command is just as authoritative as one
   // produced by detection, and overrides supplied to setup-worktree should be
@@ -113,18 +130,18 @@ function toProjectDetection(runtime: ResolvedRuntime): ProjectDetection | undefi
     return undefined;
   }
   if (cmd === '') return undefined;
-  // For config/override sources we may not have a built-in label for the test
-  // command (e.g., `make test`). Fall back to a source-tagged label so the
-  // report is still informative.
+  // A worktree may resolve a command with no toolchain behind it (a `make test`
+  // in `.exarchos.yml`, or an override). Fall back to a source-tagged label so
+  // the report is still informative.
   const projectType =
-    projectTypeFromTestCommand(runtime.test) ??
-    (runtime.source === 'config' ? 'Configured (.exarchos.yml)' : 'Override');
+    projectTypeFromRegistry(worktreePath) ??
+    (runtime.source === 'config' ? CONFIGURED_LABEL : OVERRIDE_LABEL);
   return { projectType, testCommand: runtime.test, cmd, args };
 }
 
 function detectProjectType(worktreePath: string): ProjectDetection | undefined {
   const runtime = resolveTestRuntime(worktreePath);
-  return toProjectDetection(runtime);
+  return toProjectDetection(runtime, worktreePath);
 }
 
 /** Run a git command in the worktree, returning trimmed stdout or `null` on error. */
@@ -177,7 +194,7 @@ function parsePorcelainPaths(porcelain: string): { path: string; tracked: boolea
 }
 
 /**
- * Blob-comparison helper (T-08 REFACTOR): is the working-tree content at
+ * Blob-comparison helper: is the working-tree content at
  * `path` byte-identical to the same path committed on `agentBranch`? Git
  * content-addresses blobs by SHA, so equal hashes ⇒ identical bytes. Returns
  * `false` if either side cannot be resolved (e.g. path absent on the branch).
@@ -233,13 +250,22 @@ function detectLeakedEdits(worktreePath: string, agentBranch: string): LeakDetec
 
 // ─── Report Formatting ──────────────────────────────────────────────────────
 
+/**
+ * What the baseline run established. `indeterminate` is not a softer `fail`:
+ * a runner that never started, or one killed at its wall clock, observed
+ * nothing about the worktree, and recording that as a failing baseline would
+ * send a caller off to fix tests that were never executed.
+ */
+type BaselineStatus = 'pass' | 'fail' | 'indeterminate';
+
 function formatReport(
   worktreePath: string,
   projectType: string,
   testCommand: string,
-  passed: boolean,
+  status: BaselineStatus,
   output: string,
   exitCode: number,
+  reason: string | undefined,
 ): string {
   const lines: string[] = [
     '## Baseline Verification Report',
@@ -258,8 +284,12 @@ function formatReport(
     '',
   ];
 
-  if (passed) {
+  if (status === 'pass') {
     lines.push('**Result: PASS** — baseline tests succeeded');
+  } else if (status === 'indeterminate') {
+    lines.push(
+      `**Result: INDETERMINATE** — the baseline was not measured (${reason ?? 'the command did not run to completion'})`,
+    );
   } else {
     lines.push(`**Result: FAIL** — baseline tests failed (exit code ${exitCode})`);
   }
@@ -309,14 +339,16 @@ export async function handleVerifyWorktreeBaseline(
       success: false,
       error: {
         code: 'UNKNOWN_PROJECT_TYPE',
-        message: `No recognized project files found in ${worktreePath} (package.json, *.csproj, Cargo.toml, pyproject.toml). Manual verification required.`,
+        message:
+          `No recognized project files found in ${worktreePath} (${recognizedMarkers()}). ` +
+          'Manual verification required.',
       },
     };
   }
 
   const { projectType, testCommand, cmd, args: cmdArgs } = detection;
 
-  // 3b. T-08 (#1301): merge-time leak backstop. Only runs when the caller
+  // 3b. Merge-time leak backstop (#1301). Only runs when the caller
   // supplies the agent branch tip to compare against — non-merge callers keep
   // the prior pure-baseline behavior.
   const leakDetection: LeakDetection | undefined = agentBranch
@@ -324,28 +356,54 @@ export async function handleVerifyWorktreeBaseline(
     : undefined;
 
   // 4. Run test command
-  let passed = true;
+  let status: BaselineStatus = 'pass';
   let output = '';
   let exitCode = 0;
+  let reason: string | undefined;
 
   try {
     output = runCommandSync(cmd, cmdArgs as string[], {
       encoding: 'utf-8',
       cwd: worktreePath,
+      timeout: BASELINE_TIMEOUT_MS,
       stdio: ['pipe', 'pipe', 'pipe'],
     }) as string;
   } catch (err: unknown) {
-    const execError = err as { status?: number; stdout?: string; stderr?: string };
-    passed = false;
-    exitCode = execError.status ?? 1;
-    output = [execError.stdout ?? '', execError.stderr ?? ''].filter(Boolean).join('\n');
+    const failure = classifyCommandFailure(err);
+    exitCode = failure.exitCode;
+    output = [failure.stdout, failure.stderr].filter(Boolean).join('\n');
+    const inconclusive = inconclusiveReason(testCommand, failure);
+    if (inconclusive === null) {
+      status = 'fail';
+    } else {
+      status = 'indeterminate';
+      reason = inconclusive;
+      if (output === '') output = inconclusive;
+    }
   }
 
   // 5. Build report and return
-  const report = formatReport(worktreePath, projectType, testCommand, passed, output, exitCode);
+  const report = formatReport(
+    worktreePath,
+    projectType,
+    testCommand,
+    status,
+    output,
+    exitCode,
+    reason,
+  );
 
   return {
     success: true,
-    data: { passed, projectType, testCommand, report, ...(leakDetection ? { leakDetection } : {}) },
+    data: {
+      // Only an observed green baseline is a pass; an unmeasured one is not.
+      passed: status === 'pass',
+      status,
+      projectType,
+      testCommand,
+      report,
+      ...(reason !== undefined ? { reason } : {}),
+      ...(leakDetection ? { leakDetection } : {}),
+    },
   };
 }

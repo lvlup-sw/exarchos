@@ -236,4 +236,68 @@ describe('handlePostMerge', () => {
     expect(callArgs.mergeSha).toBe('abc1234');
     expect(typeof callArgs.runCommand).toBe('function');
   });
+
+  // ─── Test 6: repoRoot reaches BOTH resolution and execution ────────────
+
+  it('handlePostMerge_ThreadsRepoRootIntoTheCheck_NotOnlyIntoTheRunner', async () => {
+    // The check resolves the test command from a tree and runs it in a tree.
+    // Handing the runner a cwd while leaving the check to resolve from this
+    // process's own directory would measure one tree with another's command.
+    mockCheckPostMerge.mockReturnValue(makePassingResult());
+
+    await handlePostMerge(
+      {
+        featureId: 'feat-123',
+        prUrl: 'https://github.com/org/repo/pull/42',
+        mergeSha: 'abc1234',
+        repoRoot: '/merged/tip',
+      },
+      STATE_DIR,
+      mockStore as unknown as EventStore,
+    );
+
+    const callArgs = mockCheckPostMerge.mock.calls[0][0] as { repoRoot?: string };
+    expect(callArgs.repoRoot).toBe('/merged/tip');
+  });
+
+  // ─── Test 7: the indeterminate arm survives the caller ─────────────────
+
+  it('handlePostMerge_IndeterminateCheck_IsNotCollapsedToAFailure', async () => {
+    // The pure check's third outcome used to die at this boundary: the caller
+    // read only `status === 'pass'` and dropped the rest, so a check that never
+    // ran was recorded as a regression that did.
+    mockCheckPostMerge.mockReturnValue({
+      status: 'indeterminate' as const,
+      reason: 'Test suite: `cargo test` could not be started (ENOENT)',
+      prUrl: 'https://github.com/org/repo/pull/42',
+      mergeSha: 'abc1234',
+      passCount: 1,
+      failCount: 0,
+      results: ['- **INDETERMINATE**: Test suite'],
+      findings: [],
+      report: '## Post-Merge Regression Report\n\n**Result: INDETERMINATE**',
+    });
+
+    const result = await handlePostMerge(
+      { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
+      STATE_DIR,
+      mockStore as unknown as EventStore,
+    );
+
+    const data = result.data as { passed: boolean; status: string; reason?: string };
+    expect(data.passed).toBe(false);
+    expect(data.status).toBe('indeterminate');
+    expect(data.reason).toContain('ENOENT');
+
+    // …and the durable row carries the same three-valued outcome, so a reader
+    // of the log can tell it apart from an observed regression.
+    const [, event] = mockStore.append.mock.calls[0] as [
+      string,
+      { data: { passed: boolean; details: Record<string, unknown> } },
+    ];
+    expect(event.data.passed).toBe(false);
+    expect(event.data.details.status).toBe('indeterminate');
+    expect(event.data.details.reason).toContain('ENOENT');
+    expect(event.data.details.findings).toEqual([]);
+  });
 });

@@ -34,6 +34,7 @@ import {
   LOAD_FAILURE_LIST_CAP,
 } from '../../../../src/verbs/pure/integration-suite.js';
 import type { Toolchain } from '../../../../src/config/toolchains.js';
+import type { IntegrationRuntime } from '../../../../src/verbs/pure/integration-suite.js';
 
 const STATE_DIR = '/tmp/test-integration-suite';
 
@@ -66,6 +67,21 @@ function vitestLoadFailureJson(): string {
   });
 }
 
+/**
+ * The gate's arguments for a case about what it CONCLUDES, not about how it
+ * resolves a command.
+ *
+ * `testScript` is load-bearing here, and not a workaround: the gate resolves its
+ * command from the repository for real, so a literal `repoRoot` that is not a
+ * repository resolves nothing and the runner is never called. Naming the script
+ * is the production input for exactly that situation — a repository whose script
+ * name the resolver cannot know — and it keeps these cases about the carrier
+ * instead of about detection, which has its own suite.
+ */
+function gateArgs(repoRoot: string) {
+  return { featureId: 'feat-1', repoRoot, testScript: 'test:run' };
+}
+
 /** A runner stub that returns the given vitest JSON on stdout with a non-zero exit. */
 function stubRunnerReturning(json: string, exitCode = 1) {
   return vi.fn(
@@ -90,11 +106,9 @@ describe('handleCheckIntegrationSuite', () => {
     // Arrange — runner emits the #1329 shape: 1 failed SUITE, 0 failed TESTS.
     const runner = stubRunnerReturning(vitestLoadFailureJson());
 
-    const args = { featureId: 'feat-1', repoRoot: '/repo' };
-
     // Act
     const result = await handleCheckIntegrationSuite(
-      args,
+      gateArgs('/repo'),
       STATE_DIR,
       mockStore as unknown as EventStore,
       runner,
@@ -127,7 +141,7 @@ describe('handleCheckIntegrationSuite', () => {
 
     // Act
     const result = await handleCheckIntegrationSuite(
-      { featureId: 'feat-1', repoRoot: '/repo' },
+      gateArgs('/repo'),
       STATE_DIR,
       mockStore as unknown as EventStore,
       runner,
@@ -146,7 +160,7 @@ describe('handleCheckIntegrationSuite', () => {
 
     // Act
     await handleCheckIntegrationSuite(
-      { featureId: 'feat-1', repoRoot: '/repo' },
+      gateArgs('/repo'),
       STATE_DIR,
       mockStore as unknown as EventStore,
       runner,
@@ -161,7 +175,7 @@ describe('handleCheckIntegrationSuite', () => {
 
     // Act
     await handleCheckIntegrationSuite(
-      { featureId: 'feat-1', repoRoot: '/worktrees/agent-x' },
+      gateArgs('/worktrees/agent-x'),
       STATE_DIR,
       mockStore as unknown as EventStore,
       runner,
@@ -182,7 +196,7 @@ describe('handleCheckIntegrationSuite', () => {
 
     // Act
     const result = await handleCheckIntegrationSuite(
-      { featureId: 'feat-1', repoRoot: '/repo' },
+      gateArgs('/repo'),
       STATE_DIR,
       mockStore as unknown as EventStore,
       runner,
@@ -198,7 +212,7 @@ describe('handleCheckIntegrationSuite', () => {
   it('CheckIntegrationSuite_MissingFeatureId_ReturnsError', async () => {
     const runner = stubRunnerReturning(vitestLoadFailureJson());
     const result = await handleCheckIntegrationSuite(
-      { featureId: '' },
+      { featureId: '', testScript: 'test:run' },
       STATE_DIR,
       mockStore as unknown as EventStore,
       runner,
@@ -233,7 +247,7 @@ describe('handleCheckIntegrationSuite', () => {
 
     // Act
     const result = await handleCheckIntegrationSuite(
-      { featureId: 'feat-1', repoRoot: '/repo' },
+      gateArgs('/repo'),
       STATE_DIR,
       mockStore as unknown as EventStore,
       runner,
@@ -348,7 +362,22 @@ describe('parseVitestResult', () => {
 
 describe('isSpawnFailure spawn-vs-shape classification (#1537)', () => {
   it('classifies recognized OS-level errnos with no numeric status as spawn failures', () => {
-    for (const code of ['ENOENT', 'EACCES', 'EPERM', 'ENOTDIR', 'ENOMEM']) {
+    for (const code of [
+      'ENOENT',
+      'EACCES',
+      'EPERM',
+      'ENOTDIR',
+      'ENOMEM',
+      // EINVAL is how Windows reports a `.cmd`/`.bat` shim that `execFile*`
+      // refuses to launch since the CVE-2024-27980 fix. Missing from the set, it
+      // read as a suite that failed rather than a launch that never happened —
+      // and the layered resolver can now name shims (`task`, `just`, `mise`) the
+      // shell-launch allowlist does not cover, so it is the routine case, not an
+      // exotic one.
+      'EINVAL',
+      'ENOEXEC',
+      'EAGAIN',
+    ]) {
       expect(isSpawnFailure({ code })).toBe(true);
     }
   });
@@ -376,13 +405,23 @@ describe('isSpawnFailure spawn-vs-shape classification (#1537)', () => {
 });
 
 describe('check_integration_suite command resolution (#1537, DR-15)', () => {
-  function stubToolchain(test: string | null): Toolchain {
-    return {
-      id: 'stub',
-      projectType: 'Stub',
-      markers: [],
+  /**
+   * A resolved runtime for a Node repository.
+   *
+   * Fixture RE-POINTED from an invented `id: 'stub'`: the id is what selects the
+   * result carrier, and 'stub' names no registry row, so a case asserting the
+   * vitest-JSON flag was describing a repository the registry cannot identify.
+   * The behaviour under test — the command comes from resolution rather than a
+   * hardcoded script name — is unchanged.
+   */
+  function nodeRuntime(test: string | null): IntegrationRuntime {
+    const toolchain: Toolchain = {
+      id: 'node',
+      projectType: 'Node.js',
+      markers: ['package.json'],
       commands: { test, typecheck: null, install: null, mutation: null, lint: null, contract: null },
     };
+    return { test, toolchain };
   }
 
   const passingVitestJson = JSON.stringify({
@@ -400,7 +439,7 @@ describe('check_integration_suite command resolution (#1537, DR-15)', () => {
         seen.push({ cmd, args });
         return { exitCode: 0, stdout: passingVitestJson, stderr: '' };
       },
-      detectToolchain: () => stubToolchain('npm run ws:test'),
+      resolveRuntime: () => nodeRuntime('npm run ws:test'),
     });
     // The command comes from the toolchain resolver, not a hardcoded test:run.
     expect(seen).toHaveLength(1);
@@ -418,7 +457,7 @@ describe('check_integration_suite command resolution (#1537, DR-15)', () => {
         seen.push({ cmd, args });
         return { exitCode: 0, stdout: passingVitestJson, stderr: '' };
       },
-      detectToolchain: () => stubToolchain('npm run should-not-be-used'),
+      resolveRuntime: () => nodeRuntime('npm run should-not-be-used'),
     });
     expect(seen[0].args).toContain('test:ci');
     expect(seen[0].args).not.toContain('should-not-be-used');
@@ -430,15 +469,19 @@ describe('check_integration_suite command resolution (#1537, DR-15)', () => {
     const result = runIntegrationSuite({
       repoRoot: '/monorepo',
       runCommand: (): CommandResult => ({ exitCode: 0, stdout: passingVitestJson, stderr: '' }),
-      detectToolchain: () => stubToolchain('npm run test:run'),
+      resolveRuntime: () => nodeRuntime('npm run test:run'),
     });
     expect(result.parseError).toBe(false);
     expect(result.passed).toBe(true);
     expect(result.totalTests).toBe(42);
   });
 
-  it('checkIntegrationSuite_RunnerSpawnFailure_DistinctFromJsonShapeMismatch', () => {
-    const spawn = runIntegrationSuite({
+  it('checkIntegrationSuite_RunnerNeverStarted_IsNotTheSameAsRanAndGarbled', () => {
+    // The two used to be two flavours of the SAME fail-closed verdict, told
+    // apart only by a `parseFailureKind` label. They are different outcomes: a
+    // runner that ran and returned unreadable output is a finding about the
+    // suite, and a runner that never started is not a reading of anything.
+    const neverStarted = runIntegrationSuite({
       repoRoot: '/repo',
       runCommand: (): CommandResult => ({
         exitCode: 127,
@@ -446,26 +489,28 @@ describe('check_integration_suite command resolution (#1537, DR-15)', () => {
         stderr: 'command not found',
         spawnError: 'ENOENT',
       }),
-      detectToolchain: () => stubToolchain('npm run test:run'),
+      resolveRuntime: () => nodeRuntime('npm run test:run'),
     });
-    const shape = runIntegrationSuite({
+    const ranAndGarbled = runIntegrationSuite({
       repoRoot: '/repo',
       runCommand: (): CommandResult => ({ exitCode: 0, stdout: 'not json at all', stderr: '' }),
-      detectToolchain: () => stubToolchain('npm run test:run'),
+      resolveRuntime: () => nodeRuntime('npm run test:run'),
     });
 
-    // Both fail closed — counts are non-authoritative either way.
-    expect(spawn.passed).toBe(false);
-    expect(shape.passed).toBe(false);
-    // ...but the failure KIND is distinct and surfaced in the report (#1537).
-    expect(spawn.parseFailureKind).toBe('spawn-failure');
-    expect(shape.parseFailureKind).toBe('shape-mismatch');
-    expect(spawn.report).not.toBe(shape.report);
-    expect(spawn.report.toLowerCase()).toContain('spawn');
+    expect(neverStarted.kind).toBe('indeterminate');
+    expect(neverStarted).not.toHaveProperty('passed');
+    expect(ranAndGarbled.kind).toBe('vitest-counts');
+    expect(ranAndGarbled.passed).toBe(false);
+    expect(ranAndGarbled.parseError).toBe(true);
+    expect(neverStarted.report).not.toBe(ranAndGarbled.report);
+    expect(neverStarted.report.toLowerCase()).toContain('spawn');
   });
 
   it('resolveIntegrationCommand_ExplicitScript_TakesPrecedence', () => {
-    const r = resolveIntegrationCommand('/repo', 'my:test', () => stubToolchain('cargo test'));
+    const r = resolveIntegrationCommand('/repo', 'my:test', () => ({
+      test: 'cargo test',
+      toolchain: undefined,
+    }));
     expect(r.cmd).toBe('npm');
     expect(r.args).toEqual(['run', 'my:test', '--', '--reporter=json']);
   });

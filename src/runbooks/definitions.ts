@@ -184,22 +184,32 @@ export const SYNTHESIS_FLOW: RunbookDefinition = {
       note: 'Fill <repoRoot> with the absolute path of the repo under synthesis; all four legs (tests, typecheck, stack, changed files) run there' },
     { tool: 'exarchos_orchestrate', action: 'validate_pr_stack', onFail: 'stop' },
     { tool: 'exarchos_orchestrate', action: 'validate_pr_body', onFail: 'stop' },
-    { tool: 'native:bash', action: 'gh_pr_create', onFail: 'stop',
-      note: 'Create PR via gh CLI' },
+    // The registered action goes through the VcsProvider seam, which all three
+    // providers implement — a `native:bash` `gh` step made this canonical flow
+    // executable on GitHub alone, and silently so: the runbook surface never
+    // resolves a native step against the registry, so nothing could report that
+    // the recipe did not apply. It also auto-emits `pr.created`, which the bash
+    // step could not, so the agent no longer has to append that record by hand.
+    { tool: 'exarchos_orchestrate', action: 'create_pr', onFail: 'stop',
+      params: { title: '<title>', body: '<body>', base: '<baseBranch>', head: '<head>' },
+      note: 'Create the PR through the provider seam (GitHub / GitLab / Azure DevOps)' },
     { tool: 'exarchos_event', action: 'append', onFail: 'stop',
       params: { type: 'state.patched' },
       note: 'Record PR URL in artifacts.prUrl — emit state.patched directly (DR-4: `set` MCP surface removed in v2.11)' },
   ],
   // T5a.1/DR-4 (v2.11): added `stream` and `event` template vars to cover
-  // the new `event.append` step's required schema fields.
-  templateVars: ['featureId', 'baseBranch', 'repoRoot', 'stream', 'event'],
+  // the new `event.append` step's required schema fields. `title`, `body` and
+  // `head` cover `create_pr`'s remaining required fields; its `base` binds to
+  // the `baseBranch` var the flow already declared.
+  templateVars: ['featureId', 'baseBranch', 'repoRoot', 'stream', 'event', 'title', 'body', 'head'],
   // T5a.1/DR-4 (v2.11): `set` removed. The `hsm.deprecated_action_invoked`
   // emission disappeared with it; remaining auto-emits are the canonical
   // event types this synthesis flow still produces. `state.patched` is
   // emitted via `event.append({type: 'state.patched'})` — that's a
   // `params.type` value rather than an action-level `autoEmits` entry,
-  // so it does not appear in the computed-from-registry view.
-  autoEmits: ['gate.executed'],
+  // so it does not appear in the computed-from-registry view. `pr.created`
+  // arrives with the seam-backed create step, which declares it unconditionally.
+  autoEmits: ['gate.executed', 'pr.created'],
 };
 
 export const SHEPHERD_ITERATION: RunbookDefinition = {

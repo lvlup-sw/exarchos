@@ -2,17 +2,25 @@
  * Post-Merge Regression Check
  *
  * Gate check for the synthesize -> cleanup boundary.
- * Verifies CI passed on the merge commit and runs the test suite
- * to detect regressions. CI status is queried via VcsProvider.
+ * Verifies CI passed on the merge commit and runs the merged repository's own
+ * resolved test suite to detect regressions. CI status is queried via
+ * VcsProvider.
  *
- * Exit code semantics (when used as a gate):
- *   0 = pass (CI green, tests pass)
- *   1 = findings (CI failure or test regression)
+ * `status` has THREE values, not two:
+ *   'pass'          — CI green and the suite ran and passed.
+ *   'fail'          — a regression was OBSERVED (CI failure, or a non-zero exit
+ *                     from a suite that really ran).
+ *   'indeterminate' — a check could not be performed: no test command resolves
+ *                     for this tree, the runner never started, or it was killed
+ *                     at its wall clock. Nothing failed; nothing was measured.
  */
 
 import type { VcsProvider, CiStatus, CiCheck as VcsCiCheck } from '../../vcs/provider.js';
 import { createVcsProvider } from '../../vcs/factory.js';
 import { runCommandSync } from '../../utils/process.js';
+import { resolveTestRuntime, type ResolvedRuntime } from '../../config/test-runtime-resolver.js';
+import { splitCommand } from '../../config/tokenize-command.js';
+import { classifyCommandFailure } from './command-outcome.js';
 
 // ============================================================
 // Types
@@ -22,11 +30,29 @@ export interface CommandResult {
   readonly exitCode: number;
   readonly stdout: string;
   readonly stderr: string;
+  /**
+   * Set when the command could not be SPAWNED at all — the process never ran,
+   * so `exitCode` is not authoritative and a non-zero value is not a
+   * regression. Distinct from an ordinary non-zero exit, which IS one.
+   */
+  readonly spawnError?: string;
+  /**
+   * Set when the runner was killed for exceeding its wall clock. The status
+   * belongs to the kill, not to the suite, so it decides nothing either.
+   */
+  readonly timedOut?: boolean;
 }
 
 export interface PostMergeOptions {
   prUrl: string;
   mergeSha: string;
+  /**
+   * The repository the regression check is about. It is BOTH where the test
+   * command is resolved from and where the default runner runs it, so the two
+   * can never disagree about which tree was measured. Defaults to the process's
+   * own directory, which is where the default runner already ran.
+   */
+  repoRoot?: string;
   /** Dependency-injected command runner for testing (used for test suite check). */
   runCommand?: (
     cmd: string,
@@ -37,7 +63,7 @@ export interface PostMergeOptions {
 }
 
 export interface PostMergeResult {
-  status: 'pass' | 'fail';
+  status: 'pass' | 'fail' | 'indeterminate';
   prUrl: string;
   mergeSha: string;
   passCount: number;
@@ -45,6 +71,14 @@ export interface PostMergeResult {
   results: string[];
   findings: string[];
   report: string;
+  /**
+   * Why `status` is `'indeterminate'`, when it is. Read by `handlePostMerge`,
+   * which surfaces it on the action's carrier and stamps it into the durable
+   * `gate.executed` row — so an unmeasured check is not recorded as an
+   * observed failure. `status` is the only discriminant; there is no second
+   * flag saying the same thing that could drift from it.
+   */
+  reason?: string;
 }
 
 // ============================================================
@@ -53,20 +87,24 @@ export interface PostMergeResult {
 
 function defaultCommandRunner(
   cmd: string,
-  args: readonly string[]
+  args: readonly string[],
+  cwd?: string
 ): CommandResult {
   try {
     const stdout = runCommandSync(cmd, args as string[], {
+      ...(cwd !== undefined ? { cwd } : {}),
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     }) as string;
     return { exitCode: 0, stdout, stderr: '' };
   } catch (err: unknown) {
-    const execErr = err as { status?: number; stdout?: string; stderr?: string };
+    const failure = classifyCommandFailure(err);
     return {
-      exitCode: execErr.status ?? 1,
-      stdout: execErr.stdout ?? '',
-      stderr: execErr.stderr ?? '',
+      exitCode: failure.exitCode,
+      stdout: failure.stdout,
+      stderr: failure.stderr,
+      ...(failure.kind === 'spawn' ? { spawnError: failure.detail } : {}),
+      ...(failure.kind === 'timeout' ? { timedOut: true } : {}),
     };
   }
 }
@@ -78,16 +116,57 @@ function defaultCommandRunner(
 const PASSING_STATUSES: ReadonlySet<VcsCiCheck['status']> = new Set(['pass', 'skipped']);
 
 // ============================================================
+// Test-command resolution
+// ============================================================
+
+type TestCommandResolution =
+  | { readonly kind: 'resolved'; readonly command: string; readonly cmd: string; readonly args: readonly string[] }
+  | { readonly kind: 'indeterminate'; readonly reason: string };
+
+/**
+ * The command that re-runs the merged repository's suite, taken from the
+ * toolchain source of truth. Spelling one package manager's invocation here
+ * made this check undischargeable on every repository that does not use it,
+ * and a regression check that cannot run must say so rather than pass.
+ */
+function resolveTestCommand(repoRoot: string): TestCommandResolution {
+  let runtime: ResolvedRuntime;
+  try {
+    runtime = resolveTestRuntime(repoRoot);
+  } catch (err) {
+    return { kind: 'indeterminate', reason: err instanceof Error ? err.message : String(err) };
+  }
+  if (runtime.source === 'unresolved' || runtime.test === null) {
+    return {
+      kind: 'indeterminate',
+      reason: runtime.remediation ?? `no test command resolves for '${repoRoot}'`,
+    };
+  }
+  try {
+    const { cmd, args } = splitCommand(runtime.test);
+    if (cmd === '') {
+      return { kind: 'indeterminate', reason: `empty test command: '${runtime.test}'` };
+    }
+    return { kind: 'resolved', command: runtime.test, cmd, args };
+  } catch (err) {
+    return { kind: 'indeterminate', reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ============================================================
 // Core logic
 // ============================================================
 
 export async function checkPostMerge(options: PostMergeOptions): Promise<PostMergeResult> {
   const { prUrl, mergeSha } = options;
-  const runCommand = options.runCommand ?? defaultCommandRunner;
+  const repoRoot = options.repoRoot ?? process.cwd();
+  const runCommand =
+    options.runCommand ?? ((cmd, args) => defaultCommandRunner(cmd, args, repoRoot));
   const vcs = options.provider ?? await createVcsProvider();
 
   const results: string[] = [];
   const findings: string[] = [];
+  const unrunnable: string[] = [];
   let passCount = 0;
   let failCount = 0;
 
@@ -149,17 +228,41 @@ export async function checkPostMerge(options: PostMergeOptions): Promise<PostMer
   // CHECK 2: Test Suite
   // --------------------------------------------------------
   function checkTestSuite(): void {
-    const testResult = runCommand('npm', ['run', 'test:run']);
-
-    if (testResult.exitCode !== 0) {
-      findings.push(
-        `FINDING [D4] [HIGH] criterion="test-suite" evidence="npm run test:run failed (merge-sha: ${mergeSha})"`
-      );
-      checkFail('Test suite', 'npm run test:run failed');
+    const resolution = resolveTestCommand(repoRoot);
+    if (resolution.kind === 'indeterminate') {
+      unrunnable.push(`Test suite: ${resolution.reason}`);
+      results.push(`- **INDETERMINATE**: Test suite -- ${resolution.reason}`);
       return;
     }
 
-    checkPass('Test suite (npm run test:run passed)');
+    const testResult = runCommand(resolution.cmd, resolution.args);
+
+    // A runner that never started, or one killed at its wall clock, observed no
+    // regression — its exit status belongs to the failure to run, not to the
+    // suite. Checked before the exit code is read, because reading it would
+    // report a regression nobody measured.
+    if (testResult.timedOut === true) {
+      const detail = `\`${resolution.command}\` was killed for exceeding its time limit`;
+      unrunnable.push(`Test suite: ${detail}`);
+      results.push(`- **INDETERMINATE**: Test suite -- ${detail}`);
+      return;
+    }
+    if (testResult.spawnError !== undefined) {
+      const detail = `\`${resolution.command}\` could not be started (${testResult.spawnError})`;
+      unrunnable.push(`Test suite: ${detail}`);
+      results.push(`- **INDETERMINATE**: Test suite -- ${detail}`);
+      return;
+    }
+
+    if (testResult.exitCode !== 0) {
+      findings.push(
+        `FINDING [D4] [HIGH] criterion="test-suite" evidence="${resolution.command} failed (merge-sha: ${mergeSha})"`
+      );
+      checkFail('Test suite', `${resolution.command} failed`);
+      return;
+    }
+
+    checkPass(`Test suite (${resolution.command} passed)`);
   }
 
   // Execute checks
@@ -183,14 +286,23 @@ export async function checkPostMerge(options: PostMergeOptions): Promise<PostMer
   reportLines.push('---');
   reportLines.push('');
 
-  if (failCount === 0) {
+  if (unrunnable.length > 0) {
+    reportLines.push(
+      `**Result: INDETERMINATE** (${unrunnable.length} check(s) could not run; ` +
+        `${passCount}/${total} of the rest passed)`,
+    );
+  } else if (failCount === 0) {
     reportLines.push(`**Result: PASS** (${passCount}/${total} checks passed)`);
   } else {
     reportLines.push(`**Result: FAIL** (${failCount}/${total} checks failed)`);
   }
 
+  const status: PostMergeResult['status'] =
+    unrunnable.length > 0 ? 'indeterminate' : failCount === 0 ? 'pass' : 'fail';
+
   return {
-    status: failCount === 0 ? 'pass' : 'fail',
+    status,
+    ...(unrunnable.length > 0 ? { reason: unrunnable.join('; ') } : {}),
     prUrl,
     mergeSha,
     passCount,

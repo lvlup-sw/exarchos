@@ -13,6 +13,7 @@ vi.mock('node:child_process', () => ({
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { handleVerifyWorktreeBaseline } from '../../../../src/verbs/gates/verify-worktree-baseline.js';
+import { BUILTIN_TOOLCHAINS } from '../../../../src/config/toolchains.js';
 
 // Helper: package.json contents declaring a `test:run` script (required by the
 // resolver's npm code path).
@@ -215,7 +216,10 @@ describe('handleVerifyWorktreeBaseline', () => {
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; projectType: string; testCommand: string };
-    expect(data.projectType).toBe('Node.js (bun)');
+    // The label is the registry's toolchain label. The package manager is not
+    // a separate project TYPE — it is visible on the command, which the report
+    // prints on its own line.
+    expect(data.projectType).toBe('Node.js');
     expect(data.testCommand).toBe('bun test');
     const calls = vi.mocked(execFileSync).mock.calls;
     const bunCall = calls.find((c) => String(c[0]).replace(/\.cmd$/, '') === 'bun');
@@ -255,8 +259,10 @@ describe('handleVerifyWorktreeBaseline', () => {
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; projectType: string; testCommand: string };
     expect(data.passed).toBe(true);
-    // pytest is in the built-in label set, so the projectType is recognized.
-    expect(data.projectType).toBe('Python');
+    // No Python marker is on disk — the command came from configuration alone,
+    // so the label says exactly that instead of inferring an ecosystem from the
+    // spelling of a command string.
+    expect(data.projectType).toBe('Configured (.exarchos.yml)');
     expect(data.testCommand).toBe('pytest');
   });
 
@@ -494,10 +500,114 @@ describe('handleVerifyWorktreeBaseline', () => {
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; projectType: string; testCommand: string };
-    expect(data.projectType).toBe('Node.js (pnpm)');
+    expect(data.projectType).toBe('Node.js');
     expect(data.testCommand).toBe('pnpm test');
     const calls = vi.mocked(execFileSync).mock.calls;
     const pnpmCall = calls.find((c) => String(c[0]).replace(/\.cmd$/, '') === 'pnpm');
     expect(pnpmCall?.[1]).toEqual(['test']);
+  });
+
+  it('WorktreeBaseline_LabelComesFromTheRegistry_NotStringEquality', async () => {
+    // A Go worktree. `go test ./...` was in none of the seven command literals
+    // the label used to be derived from, so this repository — detected, runnable
+    // and named by the registry — used to be reported as "Override".
+    vi.mocked(existsSync).mockImplementation((p) => {
+      const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
+      return s === '/worktree' || s === '/worktree/go.mod';
+    });
+    vi.mocked(readdirSync).mockReturnValue([]);
+    vi.mocked(readFileSync).mockImplementation((p) => {
+      throw new Error(`unexpected readFileSync: ${String(p)}`);
+    });
+    vi.mocked(execFileSync).mockReturnValue('ok\n');
+
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean; projectType: string; testCommand: string };
+    expect(data.projectType).toBe('Go');
+    expect(data.testCommand).toBe('go test ./...');
+  });
+
+  it('WorktreeBaseline_UnknownProjectMessage_NamesEveryRegistryMarker', async () => {
+    // The "nothing recognized here" message used to list four marker files out
+    // of the registry's whole set, so eight ecosystems were told to look for
+    // files that had nothing to do with them.
+    vi.mocked(existsSync).mockImplementation((p) => {
+      const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
+      return s === '/worktree';
+    });
+    vi.mocked(readdirSync).mockReturnValue([]);
+    vi.mocked(readFileSync).mockImplementation((p) => {
+      throw new Error(`unexpected readFileSync: ${String(p)}`);
+    });
+    vi.mocked(execFileSync).mockReturnValue('.git\n');
+
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
+
+    expect(result.success).toBe(false);
+    const message = result.error?.message ?? '';
+
+    // Non-empty-denominator floor. The loop below is a nested iteration over a
+    // live import: an emptied or renamed registry makes it iterate zero times
+    // and the test passes having asserted nothing. These two pin the
+    // denominator so the cover is a cover of something.
+    const markers = [...new Set(BUILTIN_TOOLCHAINS.flatMap((tc) => tc.markers))];
+    expect(BUILTIN_TOOLCHAINS.length).toBeGreaterThanOrEqual(12);
+    expect(markers.length).toBeGreaterThanOrEqual(BUILTIN_TOOLCHAINS.length);
+
+    for (const marker of markers) {
+      expect(message).toContain(marker);
+    }
+  });
+
+  // ─── A run that produced no verdict is not a failing baseline ──────────
+
+  it('WorktreeBaseline_RunnerNeverStarts_IsIndeterminate_NotFail', async () => {
+    // ENOENT carries no numeric exit status: the process never started, so it
+    // established nothing about this worktree's baseline. Reporting it as FAIL
+    // sends the caller off to fix tests that were never run.
+    vi.mocked(existsSync).mockImplementation((p) => {
+      const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
+      return s === '/worktree' || s === '/worktree/Cargo.toml';
+    });
+    vi.mocked(readdirSync).mockReturnValue([]);
+    vi.mocked(execFileSync).mockImplementation((cmd: unknown) => {
+      if (String(cmd) === 'git') return '.git\n';
+      throw Object.assign(new Error('spawnSync cargo ENOENT'), { code: 'ENOENT' });
+    });
+
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean; status: string; reason?: string; report: string };
+    expect(data.status).toBe('indeterminate');
+    expect(data.passed).toBe(false);
+    expect(data.reason).toContain('ENOENT');
+    expect(data.report).toContain('INDETERMINATE');
+    expect(data.report).not.toContain('**Result: FAIL**');
+  });
+
+  it('WorktreeBaseline_RunnerNonZeroExit_IsStillAFailingBaseline', async () => {
+    // Discriminating twin: a runner that RAN and exited non-zero is a real
+    // failing baseline and must stay one.
+    vi.mocked(existsSync).mockImplementation((p) => {
+      const s = String(p).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
+      return s === '/worktree' || s === '/worktree/Cargo.toml';
+    });
+    vi.mocked(readdirSync).mockReturnValue([]);
+    vi.mocked(execFileSync).mockImplementation((cmd: unknown) => {
+      if (String(cmd) === 'git') return '.git\n';
+      throw Object.assign(new Error('test failures'), { status: 101, stdout: 'boom' });
+    });
+
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean; status: string; report: string };
+    expect(data.status).toBe('fail');
+    expect(data.passed).toBe(false);
+    expect(data.report).toContain('**Result: FAIL**');
+    expect(data.report).toContain('101');
   });
 });

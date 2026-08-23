@@ -35,6 +35,18 @@ import { handleWorkflowDeterminism } from '../../../../src/verbs/gates/workflow-
 
 const STATE_DIR = '/tmp/test-workflow-determinism';
 
+/**
+ * The tests below hand the gate an explicit base so they measure the gate, not
+ * the machine: without one the handler DETECTS the repository's default branch,
+ * and a checkout with no `origin/HEAD` (a CI clone, a fresh worktree) would send
+ * every case down the inconclusive path. The detection path has its own case at
+ * the bottom of each file.
+ */
+const BASE = 'main';
+
+/** A path that is not a git repository, so detection cannot answer. */
+const NO_REPO = '/exarchos-not-a-repository';
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('handleWorkflowDeterminism', () => {
@@ -70,7 +82,7 @@ describe('handleWorkflowDeterminism', () => {
         report: '**Result: PASS** (4/4 checks passed)',
       });
 
-      const args = { featureId: 'feat-1' };
+      const args = { featureId: 'feat-1', baseBranch: BASE };
       const result = await handleWorkflowDeterminism(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(true);
@@ -99,7 +111,7 @@ describe('handleWorkflowDeterminism', () => {
         report: '**Result: FINDINGS** (3 findings detected)',
       });
 
-      const args = { featureId: 'feat-1' };
+      const args = { featureId: 'feat-1', baseBranch: BASE };
       const result = await handleWorkflowDeterminism(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(true);
@@ -124,7 +136,7 @@ describe('handleWorkflowDeterminism', () => {
         report: '**Result: PASS** (4/4 checks passed)',
       });
 
-      const args = { featureId: 'feat-1' };
+      const args = { featureId: 'feat-1', baseBranch: BASE };
       await handleWorkflowDeterminism(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(mockEmitGateEvent).toHaveBeenCalledTimes(1);
@@ -145,12 +157,49 @@ describe('handleWorkflowDeterminism', () => {
     it('handleWorkflowDeterminism_GitDiffFails_ReturnsError', async () => {
       mockGetDiff.mockReturnValue(null);
 
-      const args = { featureId: 'feat-1' };
+      const args = { featureId: 'feat-1', baseBranch: BASE };
       const result = await handleWorkflowDeterminism(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('DIFF_ERROR');
       expect(checkWorkflowDeterminism).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── Base-branch resolution ──────────────────────────────────────────────
+
+  describe('base branch', () => {
+    it('handleWorkflowDeterminism_UnresolvedBase_IsInconclusive_NotPass', async () => {
+      const result = await handleWorkflowDeterminism(
+        { featureId: 'feat-1', repoRoot: NO_REPO },
+        STATE_DIR,
+        mockStore as unknown as EventStore,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { passed: boolean; skipped?: boolean; discriminant?: string };
+      expect(data.passed).toBe(false);
+      expect(data.skipped).toBe(true);
+      expect(data.discriminant).toBe('base-branch-unresolved');
+      expect(mockGetDiff).not.toHaveBeenCalled();
+
+      // Indeterminate is a verdict, and this action declares `gate.executed`
+      // UNCONDITIONALLY. A success carrier without it is the drift the
+      // post-dispatch emission verifier reports — and it leaves the durable log
+      // unable to tell an unscoped run from one that never happened.
+      expect(mockEmitGateEvent).toHaveBeenCalledTimes(1);
+      const [, streamId, gateName, layer, passed, details] = mockEmitGateEvent.mock.calls[0]!;
+      expect(streamId).toBe('feat-1');
+      expect(gateName).toBe('workflow-determinism');
+      expect(layer).toBe('quality');
+      // Fail-closed on the wire, and the markers say WHY, so no reader takes it
+      // for a gate that ran and found a fault.
+      expect(passed).toBe(false);
+      expect(details).toMatchObject({
+        skipped: true,
+        discriminant: 'base-branch-unresolved',
+        findingCount: 0,
+      });
     });
   });
 });

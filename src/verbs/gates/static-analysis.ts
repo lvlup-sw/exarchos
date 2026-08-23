@@ -4,13 +4,12 @@
 // durable evidence runner.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { runCommandSync } from '../../utils/process.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { runDurableGateProducer } from './durable-gate-producer.js';
+import { resolveDiffBase } from '../../vcs/resolve-base-branch.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
-import { runStaticAnalysis } from '../pure/static-analysis.js';
-import type { RunCommandFn, CommandResult } from '../pure/static-analysis.js';
+import { execCommandRunner, runStaticAnalysis } from '../pure/static-analysis.js';
 
 // ─── Argument & Result Types ─────────────────────────────────────────────────
 
@@ -61,34 +60,6 @@ interface StaticAnalysisResult {
   readonly degraded?: boolean;
 }
 
-// ─── Command Runner Adapter ─────────────────────────────────────────────────
-
-/**
- * Wraps execFileSync to match the RunCommandFn signature expected by
- * the pure TypeScript runStaticAnalysis function.
- */
-const execCommandRunner: RunCommandFn = (
-  cmd: string,
-  args: readonly string[],
-  options?: { cwd?: string },
-): CommandResult => {
-  try {
-    const output = runCommandSync(cmd, args as string[], {
-      encoding: 'utf-8',
-      cwd: options?.cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }) as string;
-    return { exitCode: 0, stdout: output, stderr: '' };
-  } catch (err: unknown) {
-    const execErr = err as { status?: number; stdout?: string; stderr?: string };
-    return {
-      exitCode: execErr.status ?? 1,
-      stdout: execErr.stdout ?? '',
-      stderr: execErr.stderr ?? '',
-    };
-  }
-};
-
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
 export async function handleStaticAnalysis(
@@ -114,6 +85,7 @@ export async function handleStaticAnalysis(
   );
   if (!pre.ok) return pre.result;
   const repoRoot = pre.repoRoot;
+  const base = await resolveDiffBase(repoRoot, args.baseBranch);
 
   return runDurableGateProducer(
     {
@@ -121,7 +93,11 @@ export async function handleStaticAnalysis(
       featureId: args.featureId,
       ...(args.taskId ? { taskId: args.taskId } : {}),
       ...(args.branch ? { branch: args.branch } : {}),
-      baseRef: args.baseBranch ?? 'main',
+      // The diff base is a LABEL on the evidence subject here, not a range this
+      // gate reads — it lints and typechecks the tree it was pointed at. So an
+      // unresolved base withholds the label rather than yielding Indeterminate:
+      // the gate still ran, it just cannot name a base it never used.
+      ...(base.kind === 'resolved' ? { baseRef: base.branch } : {}),
       repoRoot,
       stateDir,
       eventStore,

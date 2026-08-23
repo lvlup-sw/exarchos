@@ -2,7 +2,8 @@
 //
 // Tests for the TypeScript port of scripts/spec-coverage-check.sh.
 // Verifies test coverage for spec compliance by checking plan references
-// against on-disk test files and optional vitest execution.
+// against on-disk test files and, optionally, running the governed
+// repository's own resolved test suite.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -56,6 +57,36 @@ const PLAN_WITHOUT_TESTS = [
   'Implement the widget.',
 ].join('\n');
 
+// The gate resolves its runner from the governed repository's toolchain, so a
+// fixture repo has to look like one. `/repo` is a Node repo carrying the script
+// the resolver's npm profile looks for.
+const NODE_MANIFEST = JSON.stringify({ scripts: { 'test:run': 'vitest run' } });
+
+/** `existsSync` for a resolvable Node repo at `/repo`, plus the named paths. */
+function nodeRepoFs(...present: readonly string[]): (p: unknown) => boolean {
+  const paths = new Set<string>(['/repo', '/repo/plan.md', '/repo/package.json', ...present]);
+  return (p: unknown) => paths.has(String(p));
+}
+
+/** `readFileSync` answering the manifest for package.json and the plan otherwise. */
+function planAndManifest(plan: string): (p: unknown) => string {
+  return (p: unknown) => (String(p).endsWith('package.json') ? NODE_MANIFEST : plan);
+}
+
+/** What `execFileSync` throws when the process RAN and exited non-zero. */
+function exitFailure(status: number): Error & { status: number } {
+  return Object.assign(new Error(`Command failed with exit code ${status}`), { status });
+}
+
+/**
+ * What `execFileSync` throws when the process never ran (`ENOENT`) or was
+ * killed at its wall clock (`ETIMEDOUT`): an errno and NO numeric `status`,
+ * which is exactly what makes the exit code unreadable.
+ */
+function spawnFailure(code: string): Error & { code: string } {
+  return Object.assign(new Error(`spawnSync npm ${code}`), { code });
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('handleSpecCoverageCheck', () => {
@@ -67,15 +98,10 @@ describe('handleSpecCoverageCheck', () => {
 
   it('allTestFilesExistAndPass_returnsPassed', () => {
     // Plan file exists, repo root exists
-    mockedExistsSync.mockImplementation((p: unknown) => {
-      const path = String(p);
-      if (path === '/repo/plan.md') return true;
-      if (path === '/repo') return true;
-      if (path === '/repo/src/widget.test.ts') return true;
-      if (path === '/repo/src/utils.test.ts') return true;
-      return false;
-    });
-    mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
+    mockedExistsSync.mockImplementation(
+      nodeRepoFs('/repo/src/widget.test.ts', '/repo/src/utils.test.ts'),
+    );
+    mockedReadFileSync.mockImplementation(planAndManifest(PLAN_WITH_TWO_TESTS));
     mockedExecFileSync.mockReturnValue(Buffer.from(''));
 
     const result = handleSpecCoverageCheck({
@@ -157,22 +183,12 @@ describe('handleSpecCoverageCheck', () => {
   // ─── 4. Test execution fails ──────────────────────────────────────────
 
   it('testExecutionFails_returnsFailedWithReport', () => {
-    mockedExistsSync.mockImplementation((p: unknown) => {
-      const path = String(p);
-      if (path === '/repo/plan.md') return true;
-      if (path === '/repo') return true;
-      if (path === '/repo/src/widget.test.ts') return true;
-      if (path === '/repo/src/utils.test.ts') return true;
-      return false;
-    });
-    mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
-    mockedExecFileSync.mockImplementation((_cmd: unknown, args?: unknown) => {
-      const argsArr = args as readonly string[];
-      // First test passes, second fails
-      if (argsArr && argsArr.some((a: string) => a.includes('utils.test.ts'))) {
-        throw new Error('Test failed');
-      }
-      return Buffer.from('');
+    mockedExistsSync.mockImplementation(
+      nodeRepoFs('/repo/src/widget.test.ts', '/repo/src/utils.test.ts'),
+    );
+    mockedReadFileSync.mockImplementation(planAndManifest(PLAN_WITH_TWO_TESTS));
+    mockedExecFileSync.mockImplementation(() => {
+      throw exitFailure(1);
     });
 
     const result = handleSpecCoverageCheck({
@@ -183,10 +199,13 @@ describe('handleSpecCoverageCheck', () => {
     expect(result.success).toBe(true);
     const data = result.data as {
       passed: boolean;
+      indeterminate: readonly string[];
       report: string;
     };
     expect(data.passed).toBe(false);
     expect(data.report).toContain('FAIL');
+    // A real non-zero exit IS a verdict, so nothing is unmeasured here.
+    expect(data.indeterminate).toEqual([]);
   });
 
   // ─── 5. skipRun skips execution ───────────────────────────────────────
@@ -219,6 +238,126 @@ describe('handleSpecCoverageCheck', () => {
     expect(data.found).toBe(2);
     // execFileSync should NOT have been called
     expect(mockedExecFileSync).not.toHaveBeenCalled();
+  });
+
+  // ─── 5b. The runner comes from the toolchain, not from a literal ───────
+
+  it('SpecCoverage_DoesNotSpawnNpxVitest', () => {
+    mockedExistsSync.mockImplementation(nodeRepoFs('/repo/src/widget.test.ts'));
+    mockedReadFileSync.mockImplementation(
+      planAndManifest(makePlanWithTests(['src/widget.test.ts'])),
+    );
+    mockedExecFileSync.mockReturnValue(Buffer.from(''));
+
+    const result = handleSpecCoverageCheck({ planFile: '/repo/plan.md', repoRoot: '/repo' });
+
+    expect(result.success).toBe(true);
+    expect(mockedExecFileSync).toHaveBeenCalledTimes(1);
+    const [program, argv] = mockedExecFileSync.mock.calls[0] as [string, readonly string[]];
+    // The resolver's npm profile, not a hard-coded vitest invocation.
+    expect(program).not.toBe('npx');
+    expect(program).toBe('npm');
+    expect(argv).toEqual(['run', 'test:run']);
+  });
+
+  it('SpecCoverage_DeclaredPathIsNotAppendedToTheResolvedCommand', () => {
+    // The resolver hands back a WHOLE-SUITE command. A declared test path
+    // appended to one is not a file selector on most runners — `cargo test
+    // <path>` filters by test NAME, matches nothing, and exits zero, which is a
+    // green verdict over a file that never ran. Two declared files, ONE spawn,
+    // and neither path anywhere in the argv.
+    mockedExistsSync.mockImplementation(
+      nodeRepoFs('/repo/src/widget.test.ts', '/repo/src/utils.test.ts'),
+    );
+    mockedReadFileSync.mockImplementation(planAndManifest(PLAN_WITH_TWO_TESTS));
+    mockedExecFileSync.mockReturnValue(Buffer.from(''));
+
+    const result = handleSpecCoverageCheck({ planFile: '/repo/plan.md', repoRoot: '/repo' });
+
+    expect(result.success).toBe(true);
+    expect(mockedExecFileSync).toHaveBeenCalledTimes(1);
+    const [, argv] = mockedExecFileSync.mock.calls[0] as [string, readonly string[]];
+    expect(argv.length).toBeGreaterThan(0);
+    for (const token of argv) {
+      expect(token).not.toContain('.test.ts');
+    }
+    // …and the report does not claim a per-file verdict it did not produce.
+    const { report } = result.data as { report: string };
+    expect(report).not.toContain('Test passes: src/widget.test.ts');
+  });
+
+  it('SpecCoverage_UnresolvedRuntime_IsIndeterminate_NotGreen', () => {
+    // A governed repository with no resolvable test runtime: the declared file
+    // exists, so nothing FAILS — the old literal spawn would have been the only
+    // thing standing between this and a green verdict on an unverified repo.
+    mockedExistsSync.mockImplementation((p: unknown) => {
+      const path = String(p);
+      return path === '/repo' || path === '/repo/plan.md' || path === '/repo/src/widget.test.ts';
+    });
+    mockedReadFileSync.mockReturnValue(makePlanWithTests(['src/widget.test.ts']));
+
+    const result = handleSpecCoverageCheck({ planFile: '/repo/plan.md', repoRoot: '/repo' });
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      passed: boolean;
+      indeterminate: readonly string[];
+      report: string;
+    };
+    expect(mockedExecFileSync).not.toHaveBeenCalled();
+    expect(data.passed).toBe(false);
+    expect(data.indeterminate).toHaveLength(1);
+    expect(data.indeterminate[0]).toBeTruthy();
+    expect(data.report).toContain('INDETERMINATE');
+  });
+
+  it('SpecCoverage_RunnerNeverStarts_IsIndeterminate_NotAFailingTest', () => {
+    // ENOENT: the command could not be launched, so it decided nothing about
+    // the declared tests. Reporting it as a test failure sends the reader off
+    // to fix tests that were never executed.
+    mockedExistsSync.mockImplementation(nodeRepoFs('/repo/src/widget.test.ts'));
+    mockedReadFileSync.mockImplementation(
+      planAndManifest(makePlanWithTests(['src/widget.test.ts'])),
+    );
+    mockedExecFileSync.mockImplementation(() => {
+      throw spawnFailure('ENOENT');
+    });
+
+    const result = handleSpecCoverageCheck({ planFile: '/repo/plan.md', repoRoot: '/repo' });
+
+    const data = result.data as {
+      passed: boolean;
+      indeterminate: readonly string[];
+      report: string;
+    };
+    expect(data.passed).toBe(false);
+    expect(data.indeterminate).toHaveLength(1);
+    expect(data.indeterminate[0]).toContain('ENOENT');
+    expect(data.report).toContain('INDETERMINATE');
+    // Discriminating: an unmeasured leg is NOT counted among the failures.
+    expect(data.report).not.toContain('**Result: FAIL**');
+  });
+
+  it('SpecCoverage_RunnerTimesOut_IsIndeterminate_NotAFailingTest', () => {
+    mockedExistsSync.mockImplementation(nodeRepoFs('/repo/src/widget.test.ts'));
+    mockedReadFileSync.mockImplementation(
+      planAndManifest(makePlanWithTests(['src/widget.test.ts'])),
+    );
+    mockedExecFileSync.mockImplementation(() => {
+      throw spawnFailure('ETIMEDOUT');
+    });
+
+    const result = handleSpecCoverageCheck({ planFile: '/repo/plan.md', repoRoot: '/repo' });
+
+    const data = result.data as {
+      passed: boolean;
+      indeterminate: readonly string[];
+      report: string;
+    };
+    expect(data.passed).toBe(false);
+    expect(data.indeterminate).toHaveLength(1);
+    expect(data.indeterminate[0]).toContain('time limit');
+    expect(data.report).toContain('INDETERMINATE');
   });
 
   // ─── 6. Plan file not found ───────────────────────────────────────────
@@ -549,15 +688,10 @@ describe('handleSpecCoverageCheck — post-implementation phase (WFQ-010)', () =
   it('postImplementationPhase_FilesExistAndPass_Passes', () => {
     // Exit proof (b, positive): once the files exist and their tests really
     // run and pass, the post-implementation phase passes.
-    mockedExistsSync.mockImplementation((p: unknown) => {
-      const path = String(p);
-      if (path === '/repo/plan.md') return true;
-      if (path === '/repo') return true;
-      if (path === '/repo/src/widget.test.ts') return true;
-      if (path === '/repo/src/utils.test.ts') return true;
-      return false;
-    });
-    mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
+    mockedExistsSync.mockImplementation(
+      nodeRepoFs('/repo/src/widget.test.ts', '/repo/src/utils.test.ts'),
+    );
+    mockedReadFileSync.mockImplementation(planAndManifest(PLAN_WITH_TWO_TESTS));
     mockedExecFileSync.mockReturnValue(Buffer.from(''));
 
     const result = handleSpecCoverageCheck({
@@ -568,28 +702,19 @@ describe('handleSpecCoverageCheck — post-implementation phase (WFQ-010)', () =
 
     expect(result.success).toBe(true);
     expect((result.data as { passed: boolean }).passed).toBe(true);
-    // Real execution happened for both declared tests.
-    expect(mockedExecFileSync).toHaveBeenCalledTimes(2);
+    // Real execution happened — once, over the repository's own suite.
+    expect(mockedExecFileSync).toHaveBeenCalledTimes(1);
   });
 
   it('postImplementationPhase_FilesExistButTestsFail_Fails', () => {
     // Post-implementation stays honest: present files whose tests do NOT pass
     // still fail.
-    mockedExistsSync.mockImplementation((p: unknown) => {
-      const path = String(p);
-      if (path === '/repo/plan.md') return true;
-      if (path === '/repo') return true;
-      if (path === '/repo/src/widget.test.ts') return true;
-      if (path === '/repo/src/utils.test.ts') return true;
-      return false;
-    });
-    mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
-    mockedExecFileSync.mockImplementation((_cmd: unknown, args?: unknown) => {
-      const argsArr = args as readonly string[];
-      if (argsArr && argsArr.some((a: string) => a.includes('utils.test.ts'))) {
-        throw new Error('Test failed');
-      }
-      return Buffer.from('');
+    mockedExistsSync.mockImplementation(
+      nodeRepoFs('/repo/src/widget.test.ts', '/repo/src/utils.test.ts'),
+    );
+    mockedReadFileSync.mockImplementation(planAndManifest(PLAN_WITH_TWO_TESTS));
+    mockedExecFileSync.mockImplementation(() => {
+      throw exitFailure(1);
     });
 
     const result = handleSpecCoverageCheck({

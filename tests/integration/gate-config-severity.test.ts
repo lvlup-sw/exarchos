@@ -123,7 +123,15 @@ describe('gate config severity', () => {
   ) {
     await seedActivePhaseAttempt(ctx.eventStore, featureId);
     return runAsTrustedCaller(ctx.stateDir, () =>
-      handleOrchestrate({ action, featureId, taskId, repoRoot: '/fake/repo' }, ctx),
+      // `baseBranch` is explicit because this suite's subject is the config
+      // knob, not base-branch detection. Since the diff base stopped defaulting
+      // to a literal, a repoRoot with no discoverable default branch makes the
+      // gate report `diff-failed` before it ever reaches the probe — which
+      // would make the assertions below pass for the wrong reason.
+      handleOrchestrate(
+        { action, featureId, taskId, repoRoot: '/fake/repo', baseBranch: 'main' },
+        ctx,
+      ),
     );
   }
 

@@ -30,7 +30,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -73,6 +73,15 @@ function observedExecSyncCommands(): string[] {
   return vi.mocked(execSync).mock.calls.map((call) => String(call[0]));
 }
 
+/** The argv-form legs, rendered as a command line for the same comparison. */
+function observedExecFileCommands(): string[] {
+  return vi
+    .mocked(execFileSync)
+    .mock.calls.map((call) =>
+      [String(call[0]), ...((call[1] ?? []) as readonly string[])].join(' '),
+    );
+}
+
 describe('prepare_synthesis production path (DR-8 / #1756)', () => {
   const cleanups: Array<() => void> = [];
   let ctx: DispatchContext;
@@ -86,8 +95,15 @@ describe('prepare_synthesis production path (DR-8 / #1756)', () => {
     vi.clearAllMocks();
     const stateDir = mkdtempSync(path.join(os.tmpdir(), 'ps-prodpath-state-'));
     cleanups.push(() => rmrf(stateDir));
-    // A tree that is NOT `process.cwd()` — the whole point of the fixture.
+    // A tree that is NOT `process.cwd()` — the whole point of the fixture. It
+    // carries a manifest because the two command legs resolve their commands
+    // from the governed repository's own toolchain; a bare tree resolves
+    // nothing and the legs correctly decline to run.
     repoRoot = mkdtempSync(path.join(os.tmpdir(), 'ps-prodpath-repo-'));
+    writeFileSync(
+      path.join(repoRoot, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
+    );
     cleanups.push(() => rmrf(repoRoot));
 
     const eventStore = new EventStore(stateDir);
@@ -151,8 +167,10 @@ describe('prepare_synthesis production path (DR-8 / #1756)', () => {
     expect(cwds).not.toContain(process.cwd());
 
     // The named legs, by the command each issues — so a future refactor that
-    // drops one cannot pass on the count alone.
-    const commands = observedExecSyncCommands();
+    // drops one cannot pass on the count alone. The two toolchain legs are argv
+    // spawns of the RESOLVED command (here, the fixture manifest's npm profile);
+    // the git legs are still shell-form.
+    const commands = [...observedExecSyncCommands(), ...observedExecFileCommands()];
     expect(commands).toContain('npm run test:run');
     expect(commands).toContain('npm run typecheck');
     expect(commands.some((c) => c.startsWith('git log '))).toBe(true);

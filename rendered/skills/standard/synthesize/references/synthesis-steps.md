@@ -67,8 +67,13 @@ mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
 
 The script queries GitHub's PR reviews API for each PR, filters for CodeRabbit reviews, and classifies the latest review state.
 
-**On `passed: true`:** All PRs are APPROVED or have no CodeRabbit review -- proceed to Step 5.
-**On `passed: false`:** At least one PR has CHANGES_REQUESTED or PENDING. The output identifies which PRs need attention. Route to fix cycle:
+Read `skipped` BEFORE `passed`. The check reports three outcomes, and two of them share `passed: false`:
+
+**`passed: true`** -- every PR carries a CodeRabbit APPROVED review. Proceed to Step 5.
+
+**`passed: false` with `skipped: true`** (`discriminant: "coderabbit-reviewer-absent"`) -- INDETERMINATE, not a failure. No CodeRabbit review exists on the PRs named in `reason`, which is what a repository this reviewer does not watch looks like. There is nothing to fix and nothing to re-check: shepherding a PR cannot summon a review from a bot that is not installed. Record the outcome and proceed to Step 5. An absent reviewer is not an approval either -- if this repository is supposed to have CodeRabbit, install it or remove this step, but do not read the absence as coverage.
+
+**`passed: false` with no `skipped`** -- a real disproof: at least one PR has CHANGES_REQUESTED or PENDING. The output identifies which PRs need attention. Route to fix cycle:
 ```typescript
 Skill({ skill: "exarchos:shepherd", args: "[PR_URL]" })
 ```

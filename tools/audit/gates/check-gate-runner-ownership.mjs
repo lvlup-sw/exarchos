@@ -31,6 +31,9 @@ const OWNER_CATEGORIES = new Set([
   'legacy-v3-reservation',
 ]);
 
+const unscopedRationale =
+  'Two observations, not two authorities. The second is the unscoped-run row: these three actions declare gate.executed with condition always, so a handler that returns success without appending one has drifted from its own registration and the post-dispatch emission verifier reports it. Returning early because no diff base could be detected is still a completed run with a verdict, and the row carries skipped + the discriminant so the log can tell "could not be scoped" from "never invoked". It is fail-closed (passed:false) and, like its sibling, produces no admission evidence.';
+
 const diagnosticRationale =
   'Compatibility gate.executed observation only; it is not v2.12 admission evidence or an enforcement authority.';
 const mergedRationale =
@@ -106,10 +109,10 @@ const DISPOSITIONS = Object.freeze([
     ['src/verbs/gates/check-event-emissions.ts', 1, 'orchestrate/check-event-emissions'],
     ['src/verbs/gates/check-exploration-depth.ts', 2, 'orchestrate/check-exploration-depth'],
     ['src/verbs/gates/check-invariant-conformance.ts', 1, 'orchestrate/check-invariant-conformance'],
-    ['src/verbs/gates/context-economy.ts', 1, 'orchestrate/context-economy'],
+    ['src/verbs/gates/context-economy.ts', 2, 'orchestrate/context-economy', unscopedRationale],
     ['src/verbs/gates/gate-utils.ts', 1, 'orchestrate/gate-utils'],
     ['src/verbs/gates/mutation-adequacy.ts', 3, 'orchestrate/mutation-adequacy'],
-    ['src/verbs/gates/operational-resilience.ts', 1, 'orchestrate/operational-resilience'],
+    ['src/verbs/gates/operational-resilience.ts', 2, 'orchestrate/operational-resilience', unscopedRationale],
     ['src/verbs/gates/plan-coverage.ts', 1, 'orchestrate/plan-coverage'],
     ['src/verbs/gates/post-merge.ts', 1, 'orchestrate/post-merge'],
     ['src/verbs/team/prepare-delegation.ts', 1, 'orchestrate/prepare-delegation'],
@@ -118,13 +121,13 @@ const DISPOSITIONS = Object.freeze([
     ['src/verbs/review/review-verdict.ts', 3, 'orchestrate/review-verdict'],
     ['src/verbs/gates/security-scan.ts', 1, 'orchestrate/security-scan'],
     ['src/verbs/tasks/task-decomposition.ts', 1, 'orchestrate/task-decomposition'],
-    ['src/verbs/gates/workflow-determinism.ts', 1, 'orchestrate/workflow-determinism'],
-  ].map(([file, count, owner]) => ({
+    ['src/verbs/gates/workflow-determinism.ts', 2, 'orchestrate/workflow-determinism', unscopedRationale],
+  ].map(([file, count, owner, rationale]) => ({
     file,
     kind: 'direct-gate-emitter',
     count,
     owner,
-    rationale: diagnosticRationale,
+    rationale: rationale ?? diagnosticRationale,
     category: 'diagnostic-observation',
   })),
   { file: 'src/verbs/vcs/assess-stack.ts', kind: 'manual-gate-event', count: 1, owner: 'orchestrate/assess-stack', rationale: 'Mirrors external CI check status for diagnostics; it does not produce admission evidence.', category: 'diagnostic-observation' },

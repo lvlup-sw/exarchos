@@ -21,6 +21,7 @@ import { runCommandSync } from '../../utils/process.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { defaultGitExec, resolvePolicySkip, SKIPPED_BY_POLICY } from './gate-utils.js';
+import { BASE_BRANCH_UNRESOLVED, resolveDiffBase } from '../../vcs/resolve-base-branch.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
 import { runDurableGateProducer } from './durable-gate-producer.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
@@ -50,7 +51,11 @@ export interface ContractDriftHandlerArgs {
   readonly taskId: string;
   /** The task branch (HEAD side of the diff). Defaults to the current branch. */
   readonly branch?: string;
-  /** Base ref the branch diverged from (merge-base target). Defaults to 'main'. */
+  /**
+   * Base ref the branch diverged from (merge-base target). Omit it and the
+   * repository's default branch is DETECTED; when nothing detects one the gate
+   * reports an inconclusive verdict rather than assuming a name.
+   */
   readonly baseBranch?: string;
   /**
    * Repo to check. A literal path is used verbatim; `'auto'` resolves the
@@ -142,7 +147,7 @@ export async function handleContractDrift(
   );
   if (!pre.ok) return pre.result;
   const repoRoot = pre.repoRoot;
-  const baseRef = args.baseBranch || 'main';
+  const base = await resolveDiffBase(repoRoot, args.baseBranch);
 
   return runDurableGateProducer(
     {
@@ -150,7 +155,10 @@ export async function handleContractDrift(
       featureId: args.featureId,
       taskId: args.taskId,
       ...(args.branch ? { branch: args.branch } : {}),
-      baseRef,
+      // The evidence subject names the diff base it was scoped against. An
+      // unresolved base has no name to record, so the field is omitted rather
+      // than stamped with a literal the run never used.
+      ...(base.kind === 'resolved' ? { baseRef: base.branch } : {}),
       repoRoot,
       stateDir,
       eventStore,
@@ -175,6 +183,26 @@ export async function handleContractDrift(
           },
         };
       }
+
+      // A diff-scoped gate with no detected default branch cannot say what it
+      // measured. The carrier declares itself skipped so the durable row and
+      // the verdict agree it never ran, instead of scoping against a branch the
+      // governed repository may not have.
+      if (base.kind === 'unresolved') {
+        return {
+          success: true,
+          data: {
+            passed: false,
+            skipped: true,
+            drift: false,
+            breaking: [],
+            report: base.reason,
+            discriminant: BASE_BRANCH_UNRESOLVED,
+            reason: base.reason,
+          },
+        };
+      }
+      const baseRef = base.branch;
 
       const gitExec = args.gitExec ?? defaultGitExec;
       const runCommand = args.runCommand ?? defaultRunCommand;

@@ -97,6 +97,8 @@ describe('check_test_adequacy toolchain test-glob threading (FIX-3)', () => {
           taskId: 'T-py',
           branch: 'feature/py',
           repoRoot,
+          // The fixture repo has no remote, so the base cannot be detected.
+          baseBranch: 'main',
           runTests,
         },
         ctx,

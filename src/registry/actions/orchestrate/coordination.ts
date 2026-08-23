@@ -178,8 +178,8 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: true, gateClass: 'prepare-synthesis' },
-    // DR-5: invokes `npm run test:run` + typecheck under the hood; seconds
-    // to minutes on non-trivial repos.  CLI adapter emits heartbeats.
+    // Invokes the repository's own resolved test and typecheck commands;
+    // seconds to minutes on non-trivial repos. CLI adapter emits heartbeats.
     longRunning: true,
     autoEmits: [
       { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },

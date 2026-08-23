@@ -106,6 +106,27 @@ describe('Runbook parameter shape (DR-3 / T-05): delegation stamp threading', ()
     expect(SYNTHESIS_FLOW.templateVars).toContain('repoRoot');
   });
 
+  it('SynthesisFlow_UsesCreatePrAction_NotBashGh', () => {
+    // The canonical flow used to create the PR with a `native:bash` `gh` step,
+    // which only a GitHub repository can run — and silently so, because the
+    // runbook surface never resolves a native step against the registry, so no
+    // check could report that the recipe did not apply to the host. The
+    // registered action goes through the provider seam all three implement.
+    const step = SYNTHESIS_FLOW.steps.find((s) => s.action === 'create_pr');
+    expect(step, 'synthesis-flow must create the PR through the registered action').toBeDefined();
+    expect(step?.tool).toBe('exarchos_orchestrate');
+
+    // Nothing in the flow reaches for the CLI directly any more.
+    const nativeGh = SYNTHESIS_FLOW.steps.filter(
+      (s) => s.tool.startsWith('native:') && /gh|pr[_-]?create/i.test(s.action),
+    );
+    expect(nativeGh.map((s) => `${s.tool}.${s.action}`)).toEqual([]);
+
+    // The seam-backed action records `pr.created` itself, so the runbook must
+    // say so — an agent reads `autoEmits` to decide it need not append the row.
+    expect(SYNTHESIS_FLOW.autoEmits).toContain('pr.created');
+  });
+
   it('CheckStaticAnalysis_NeverBindsTheStamp_T04Exclusion', () => {
     // T-04 deliberately did NOT bind riskTier/boundaryTouching on
     // check_static_analysis — its registry schema rejects those fields. If a

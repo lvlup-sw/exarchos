@@ -252,8 +252,14 @@ describe('migrated ladder gate durable evidence', () => {
             runTests: async () => ({ passed: true, output: '' }),
           }, root, eventStore);
         case 'integration-suite':
+          // `testScript` is not decoration: this gate resolves its command from
+          // the repository, and `root` is a bare temp directory, so without a
+          // named script nothing resolves and the stub runner is never reached.
+          // These cases are about the durable-evidence plumbing every ladder gate
+          // shares — command resolution has its own suite — so the fixture names
+          // the script rather than growing a Node project around it.
           return handleCheckIntegrationSuite(
-            common,
+            { ...common, testScript: 'test:run' },
             root,
             eventStore,
             () => ({
@@ -377,6 +383,38 @@ describe('migrated ladder gate durable evidence', () => {
       });
     }
     expect(evidenceEvents()).toHaveLength(1);
+  });
+
+  it('IntegrationSuite_CannotResolveACommand_RecordsIndeterminateNotPass', async () => {
+    // The arm the shared table above cannot express: this gate is the only one
+    // whose carrier omits `passed` entirely. What it must NOT do is record proof.
+    // Nothing downstream turns this verdict into a stop for this gate class, so
+    // the evidence row saying `indeterminate` and the report saying the rung is
+    // not cleared are the whole of what the system has — which is exactly why
+    // they are pinned here rather than assumed.
+    const eventStore = store as unknown as EventStore;
+    const result = await runWithDispatchContext(
+      trustedContext('integration-suite-indeterminate'),
+      () =>
+        handleCheckIntegrationSuite(
+          { featureId, taskId, branch: 'feature/task-008', repoRoot: root },
+          root,
+          eventStore,
+          () => {
+            throw new Error('the runner must never be reached');
+          },
+        ),
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.skipped).toBe(true);
+    expect(data.skipReason).toBe('no-toolchain');
+    expect(data).not.toHaveProperty('passed');
+    expect(String(data.report)).toContain('NOT cleared');
+    expect(evidenceEvents()[0]?.data).toMatchObject({
+      evidence: { verdict: 'indeterminate' },
+    });
   });
 
   it('LadderGate_SameOperationIsIdempotent_NewOperationSupersedes', async () => {

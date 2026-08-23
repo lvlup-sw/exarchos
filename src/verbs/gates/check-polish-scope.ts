@@ -15,6 +15,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ToolResult } from '../../format.js';
+import { resolveDiffBase } from '../../vcs/resolve-base-branch.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -90,7 +91,7 @@ function isStructuralFile(filePath: string): boolean {
 
 // ─── Handler ───────────────────────────────────────────────────────────────
 
-export function handleCheckPolishScope(args: CheckPolishScopeArgs): ToolResult {
+export async function handleCheckPolishScope(args: CheckPolishScopeArgs): Promise<ToolResult> {
   // Validate required repoRoot
   if (!args.repoRoot) {
     return {
@@ -100,7 +101,19 @@ export function handleCheckPolishScope(args: CheckPolishScopeArgs): ToolResult {
   }
 
   const { repoRoot } = args;
-  const baseBranch = args.baseBranch ?? 'main';
+
+  // Scoping the diff is a precondition of this check, and an undetectable
+  // default branch fails it exactly as an unrunnable `git diff` does — so it
+  // reports through the same envelope rather than naming a scope violation
+  // nobody measured.
+  const base = await resolveDiffBase(repoRoot, args.baseBranch);
+  if (base.kind === 'unresolved') {
+    return {
+      success: false,
+      error: { code: 'DIFF_FAILED', message: base.reason },
+    };
+  }
+  const baseBranch = base.branch;
 
   const modifiedFiles = getModifiedFiles(repoRoot, baseBranch);
 

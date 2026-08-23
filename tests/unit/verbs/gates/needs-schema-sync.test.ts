@@ -21,6 +21,33 @@ import { handleNeedsSchemaSync } from '../../../../src/verbs/gates/needs-schema-
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+/**
+ * Route the two git calls the handler now makes.
+ *
+ * The base branch is DETECTED (`git symbolic-ref refs/remotes/origin/HEAD`)
+ * rather than assumed, so a single `mockReturnValue` would hand the diff output
+ * back to the detector as well — and a file list is not a ref, so every test
+ * would take the unresolved path. Each test says what the repository's default
+ * branch is and what the diff returned.
+ */
+function mockGit(diffOutput: string, defaultBranch: string | null = 'main'): void {
+  mockExecFileSync.mockImplementation((_cmd: unknown, args: unknown) => {
+    const argv = args as readonly string[];
+    if (argv[0] === 'symbolic-ref') {
+      if (defaultBranch === null) throw new Error('no origin/HEAD');
+      return `refs/remotes/origin/${defaultBranch}\n`;
+    }
+    // Below `symbolic-ref` the resolver walks a LADDER of further git reads. A
+    // stub that answered every one of them with the diff would hand a file path
+    // to the rung that reads `init.defaultBranch` and see it resolved as a
+    // branch — so the stub answers the subcommand this handler actually issues
+    // and refuses the rest, which is what a repository with no detectable
+    // default branch does.
+    if (argv[0] !== 'diff') throw new Error(`git ${String(argv[0])}: no answer`);
+    return diffOutput;
+  });
+}
+
 type ResultData = {
   syncNeeded: boolean;
   report: string;
@@ -41,8 +68,8 @@ describe('handleNeedsSchemaSync', () => {
   // ─── Input Validation ───────────────────────────────────────────────────
 
   describe('input validation', () => {
-    it('returns error when repoRoot is empty', () => {
-      const result = handleNeedsSchemaSync({ repoRoot: '' });
+    it('returns error when repoRoot is empty', async () => {
+      const result = await handleNeedsSchemaSync({ repoRoot: '' });
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('repoRoot');
@@ -52,12 +79,11 @@ describe('handleNeedsSchemaSync', () => {
   // ─── No API Files Changed ──────────────────────────────────────────────
 
   describe('no API files changed', () => {
-    it('returns syncNeeded: false when no files match API patterns', () => {
-      mockExecFileSync.mockReturnValue(
-        'src/Utils/Helper.cs\nsrc/Services/FooService.cs\n',
+    it('returns syncNeeded: false when no files match API patterns', async () => {
+      mockGit('src/Utils/Helper.cs\nsrc/Services/FooService.cs\n',
       );
 
-      const result = handleNeedsSchemaSync({ repoRoot: '/repo' });
+      const result = await handleNeedsSchemaSync({ repoRoot: '/repo' });
 
       expect(result.success).toBe(true);
       const data = getData(result);
@@ -70,12 +96,11 @@ describe('handleNeedsSchemaSync', () => {
   // ─── Endpoints.cs Changed ─────────────────────────────────────────────
 
   describe('Endpoints.cs changed', () => {
-    it('returns syncNeeded: true when Endpoints.cs is modified', () => {
-      mockExecFileSync.mockReturnValue(
-        'src/Api/UsersEndpoints.cs\nsrc/Startup.cs\n',
+    it('returns syncNeeded: true when Endpoints.cs is modified', async () => {
+      mockGit('src/Api/UsersEndpoints.cs\nsrc/Startup.cs\n',
       );
 
-      const result = handleNeedsSchemaSync({ repoRoot: '/repo' });
+      const result = await handleNeedsSchemaSync({ repoRoot: '/repo' });
 
       expect(result.success).toBe(true);
       const data = getData(result);
@@ -88,12 +113,11 @@ describe('handleNeedsSchemaSync', () => {
   // ─── Models/*.cs Changed ──────────────────────────────────────────────
 
   describe('Models/*.cs changed', () => {
-    it('returns syncNeeded: true when Models/*.cs is modified', () => {
-      mockExecFileSync.mockReturnValue(
-        'src/Models/User.cs\nsrc/README.md\n',
+    it('returns syncNeeded: true when Models/*.cs is modified', async () => {
+      mockGit('src/Models/User.cs\nsrc/README.md\n',
       );
 
-      const result = handleNeedsSchemaSync({ repoRoot: '/repo' });
+      const result = await handleNeedsSchemaSync({ repoRoot: '/repo' });
 
       expect(result.success).toBe(true);
       const data = getData(result);
@@ -105,9 +129,8 @@ describe('handleNeedsSchemaSync', () => {
   // ─── Multiple API Patterns Matched ────────────────────────────────────
 
   describe('multiple API patterns matched', () => {
-    it('returns all matched API files', () => {
-      mockExecFileSync.mockReturnValue(
-        [
+    it('returns all matched API files', async () => {
+      mockGit([
           'src/Api/OrdersEndpoints.cs',
           'src/Models/Order.cs',
           'src/Requests/CreateOrderRequest.cs',
@@ -117,7 +140,7 @@ describe('handleNeedsSchemaSync', () => {
         ].join('\n') + '\n',
       );
 
-      const result = handleNeedsSchemaSync({ repoRoot: '/repo' });
+      const result = await handleNeedsSchemaSync({ repoRoot: '/repo' });
 
       expect(result.success).toBe(true);
       const data = getData(result);
@@ -136,12 +159,11 @@ describe('handleNeedsSchemaSync', () => {
   // ─── Non-API .cs Files ────────────────────────────────────────────────
 
   describe('non-API .cs files', () => {
-    it('returns syncNeeded: false for non-API .cs files', () => {
-      mockExecFileSync.mockReturnValue(
-        'src/Services/AuthService.cs\nsrc/Helpers/StringHelper.cs\nsrc/Program.cs\n',
+    it('returns syncNeeded: false for non-API .cs files', async () => {
+      mockGit('src/Services/AuthService.cs\nsrc/Helpers/StringHelper.cs\nsrc/Program.cs\n',
       );
 
-      const result = handleNeedsSchemaSync({ repoRoot: '/repo' });
+      const result = await handleNeedsSchemaSync({ repoRoot: '/repo' });
 
       expect(result.success).toBe(true);
       const data = getData(result);
@@ -153,7 +175,7 @@ describe('handleNeedsSchemaSync', () => {
   // ─── diffFile Mode ────────────────────────────────────────────────────
 
   describe('diffFile mode', () => {
-    it('parses pre-computed diff to extract file paths', () => {
+    it('parses pre-computed diff to extract file paths', async () => {
       mockExistsSync.mockReturnValue(true);
       mockReadFileSync.mockReturnValue(
         [
@@ -175,7 +197,7 @@ describe('handleNeedsSchemaSync', () => {
         ].join('\n'),
       );
 
-      const result = handleNeedsSchemaSync({
+      const result = await handleNeedsSchemaSync({
         repoRoot: '/repo',
         diffFile: '/tmp/changes.diff',
       });
@@ -191,10 +213,10 @@ describe('handleNeedsSchemaSync', () => {
       expect(mockExecFileSync).not.toHaveBeenCalled();
     });
 
-    it('returns error when diffFile does not exist', () => {
+    it('returns error when diffFile does not exist', async () => {
       mockExistsSync.mockReturnValue(false);
 
-      const result = handleNeedsSchemaSync({
+      const result = await handleNeedsSchemaSync({
         repoRoot: '/repo',
         diffFile: '/tmp/missing.diff',
       });
@@ -208,10 +230,10 @@ describe('handleNeedsSchemaSync', () => {
   // ─── Empty Diff ───────────────────────────────────────────────────────
 
   describe('empty diff', () => {
-    it('returns syncNeeded: false when diff is empty', () => {
-      mockExecFileSync.mockReturnValue('');
+    it('returns syncNeeded: false when diff is empty', async () => {
+      mockGit('');
 
-      const result = handleNeedsSchemaSync({ repoRoot: '/repo' });
+      const result = await handleNeedsSchemaSync({ repoRoot: '/repo' });
 
       expect(result.success).toBe(true);
       const data = getData(result);
@@ -220,43 +242,84 @@ describe('handleNeedsSchemaSync', () => {
     });
   });
 
-  // ─── Default baseBranch ───────────────────────────────────────────────
+  // ─── Base-branch resolution ───────────────────────────────────────────
 
-  describe('default baseBranch', () => {
-    it('defaults baseBranch to "main"', () => {
-      mockExecFileSync.mockReturnValue('');
+  describe('base branch', () => {
+    it('DetectsTheDefaultBranch_RatherThanAssumingMain', async () => {
+      mockGit('', 'trunk');
 
-      handleNeedsSchemaSync({ repoRoot: '/repo' });
+      await handleNeedsSchemaSync({ repoRoot: '/repo' });
 
       expect(mockExecFileSync).toHaveBeenCalledWith(
         'git',
-        ['diff', '--name-only', 'main...HEAD'],
+        ['diff', '--name-only', 'trunk...HEAD'],
         expect.objectContaining({ cwd: '/repo' }),
       );
     });
 
-    it('uses custom baseBranch when provided', () => {
-      mockExecFileSync.mockReturnValue('');
+    it('uses custom baseBranch when provided', async () => {
+      mockGit('');
 
-      handleNeedsSchemaSync({ repoRoot: '/repo', baseBranch: 'develop' });
+      await handleNeedsSchemaSync({ repoRoot: '/repo', baseBranch: 'develop' });
 
       expect(mockExecFileSync).toHaveBeenCalledWith(
         'git',
         ['diff', '--name-only', 'develop...HEAD'],
         expect.objectContaining({ cwd: '/repo' }),
       );
+      // An explicit base short-circuits detection entirely.
+      expect(mockExecFileSync).not.toHaveBeenCalledWith(
+        'git',
+        ['symbolic-ref', 'refs/remotes/origin/HEAD'],
+        expect.anything(),
+      );
+    });
+
+    it('UnresolvedBase_ReportsIt_AndNeverDiffsAgainstMain', async () => {
+      mockGit('src/Api/Endpoints.cs\n', null);
+
+      const result = await handleNeedsSchemaSync({ repoRoot: '/repo' });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('GIT_ERROR');
+      // The point of the check: no diff was attempted against an invented base,
+      // so the API file above is neither reported nor silently missed.
+      expect(mockExecFileSync).not.toHaveBeenCalledWith(
+        'git',
+        ['diff', '--name-only', 'main...HEAD'],
+        expect.anything(),
+      );
+    });
+
+    it('SuppliedDiffFile_NeedsNoBaseAtAll', async () => {
+      // The comparison already happened; nothing here has to detect a branch.
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue('+++ b/src/Api/Endpoints.cs\n');
+      mockGit('', null);
+
+      const result = await handleNeedsSchemaSync({
+        repoRoot: '/repo',
+        diffFile: '/tmp/changes.diff',
+      });
+
+      expect(result.success).toBe(true);
+      expect(getData(result).syncNeeded).toBe(true);
     });
   });
 
   // ─── Git Error Handling ───────────────────────────────────────────────
 
   describe('git error handling', () => {
-    it('returns GIT_ERROR when all git diff attempts fail', () => {
-      mockExecFileSync.mockImplementation(() => {
+    it('returns GIT_ERROR when all git diff attempts fail', async () => {
+      mockExecFileSync.mockImplementation((_cmd: unknown, args: unknown) => {
+        // The base resolves; only the diff itself fails.
+        if ((args as readonly string[])[0] === 'symbolic-ref') {
+          return 'refs/remotes/origin/main\n';
+        }
         throw new Error('git diff failed');
       });
 
-      const result = handleNeedsSchemaSync({ repoRoot: '/repo' });
+      const result = await handleNeedsSchemaSync({ repoRoot: '/repo' });
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('GIT_ERROR');

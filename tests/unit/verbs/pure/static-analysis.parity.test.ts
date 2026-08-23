@@ -11,10 +11,8 @@ import type { RunCommandFn, CommandResult } from '../../../../src/verbs/pure/sta
  *   - exit 0 → all checks pass, exit 1 → one or more fail
  *   - Missing scripts → SKIP (not counted in pass/fail totals)
  *
- * T-09 / DR-6 DEVIATION FROM BASH PARITY (deliberate, spec-mandated):
+ * DELIBERATE DEVIATION FROM BASH PARITY:
  *   The bash script let a SKIPped constituent leave the aggregate at PASS —
- *   that is precisely the defect DR-6 names
- *   (docs/specs/2026-08-04-wiring-closure-and-unified-integration-suite.md):
  *   `PASS (2/2)` rendered while `lint` and `quality-check` were silently
  *   skipped for absence of a script. Parity with the retired bash script is
  *   NO LONGER preserved for that case. A SKIP is now tallied first-class and
@@ -23,7 +21,24 @@ import type { RunCommandFn, CommandResult } from '../../../../src/verbs/pure/sta
  *   retained for the PASS (nothing skipped), FAIL and error cases.
  */
 
-// Mock node:fs so readPackageJson can resolve package.json without disk access
+// Mock node:fs so readPackageJson can resolve package.json without disk access.
+//
+// The fixture is a repository holding a package.json AND NOTHING ELSE. An
+// always-true `existsSync` was not that: it also claimed an `.exarchos.yml`,
+// and then handed back the package.json bytes when something read it — so the
+// gate saw a config file whose contents were a different file's. Naming the one
+// file that exists keeps the fixture describing a repository rather than a
+// filesystem that answers yes to everything.
+const FIXTURE_FILES: readonly string[] = ['package.json'];
+
+function fixtureHas(target: unknown): boolean {
+  const name = String(target).replace(/\\/g, '/');
+  // The repo root itself must still resolve — the gate stats it before anything
+  // else — so only a path that names a FILE is checked against the fixture.
+  if (!/\.[A-Za-z0-9]+$/.test(name)) return true;
+  return FIXTURE_FILES.some((file) => name.endsWith(`/${file}`) || name === file);
+}
+
 vi.mock('node:fs', () => ({
   readFileSync: vi.fn((_path: string) =>
     JSON.stringify({
@@ -33,7 +48,7 @@ vi.mock('node:fs', () => ({
       },
     })
   ),
-  existsSync: vi.fn(() => true),
+  existsSync: vi.fn((p: unknown) => fixtureHas(p)),
   statSync: vi.fn(() => ({ isDirectory: () => true })),
   // Defensive: detectToolchain lists the dir only for *.ext glob markers. Node
   // (an exact-name marker) short-circuits first today, but stub readdirSync so

@@ -2,7 +2,7 @@
 //
 // Queries CodeRabbit review state on PRs via VcsProvider. For each PR,
 // fetches review status, filters to CodeRabbit bot reviewers, and classifies:
-// approved -> pass, NONE -> pass, else -> fail.
+// approved -> pass, absent reviewer -> indeterminate, else -> fail.
 //
 // Migrated from direct `gh api` calls to VcsProvider.getReviewStatus().
 // ─────────────────────────────────────────────────────────────────────────────
@@ -22,14 +22,29 @@ export interface CheckCoderabbitArgs {
 export interface PrReviewResult {
   readonly pr: number;
   readonly state: string;
-  readonly verdict: 'pass' | 'fail' | 'skip';
+  readonly verdict: 'pass' | 'fail' | 'skip' | 'indeterminate';
 }
 
 interface CheckCoderabbitResult {
   readonly passed: boolean;
   readonly report: string;
   readonly results: readonly PrReviewResult[];
+  /** Present only when a PR carried no review from the recognized reviewer. */
+  readonly skipped?: true;
+  readonly discriminant?: string;
+  readonly reason?: string;
 }
+
+/**
+ * The discriminant carried when the recognized reviewer never reviewed.
+ *
+ * Exported because the outcome has a READER: the synthesize skill's step 4
+ * branches on it to tell an unmeasured obligation from a disproof, and without
+ * that branch a repository the vendor does not watch reads `passed: false` and
+ * is sent to a fix cycle that cannot fix anything. Naming the constant is what
+ * lets the guard on that documentation follow a rename.
+ */
+export const CODERABBIT_REVIEWER_ABSENT = 'coderabbit-reviewer-absent';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -90,8 +105,12 @@ export async function handleCheckCoderabbit(
         (r) => CODERABBIT_LOGINS.has(r.login),
       );
 
+      // An absent reviewer is not an approval. The check exists to establish
+      // that this reviewer looked at the PR, and nothing here establishes that
+      // — so it yields no verdict rather than the pass it used to mint, which
+      // read as coverage on every repository the reviewer does not watch.
       if (coderabbitReviewers.length === 0) {
-        results.push({ pr, state: 'NONE', verdict: 'pass' });
+        results.push({ pr, state: 'NONE', verdict: 'indeterminate' });
         continue;
       }
 
@@ -109,8 +128,12 @@ export async function handleCheckCoderabbit(
     }
   }
 
-  // Compute overall pass (skip doesn't count as fail)
-  const allPassed = results.every((r) => r.verdict !== 'fail');
+  // Overall verdict. `skip` is a withdrawn subject (an unusable PR number, so
+  // there was never an obligation); `indeterminate` is an OWED one that went
+  // unmeasured, so it withholds the pass instead of being counted as one.
+  const failCount = results.filter((r) => r.verdict === 'fail').length;
+  const unmeasured = results.filter((r) => r.verdict === 'indeterminate');
+  const allPassed = failCount === 0 && unmeasured.length === 0;
 
   // Build markdown report
   const lines: string[] = [];
@@ -124,16 +147,29 @@ export async function handleCheckCoderabbit(
     lines.push(`| #${r.pr} | ${r.state} | ${r.verdict} |`);
   }
   lines.push('');
+  const unmeasuredReason =
+    `no CodeRabbit review found on ${unmeasured.length} PR(s): ` +
+    `${unmeasured.map((r) => `#${r.pr}`).join(', ')}`;
   if (allPassed) {
     lines.push('**Result: PASS** — all PRs passed CodeRabbit review');
-  } else {
-    const failCount = results.filter((r) => r.verdict === 'fail').length;
+  } else if (failCount > 0) {
     lines.push(`**Result: FAIL** — ${failCount} PR(s) did not pass CodeRabbit review`);
+  } else {
+    lines.push(`**Result: INDETERMINATE** — ${unmeasuredReason}`);
   }
 
   const report = lines.join('\n');
 
-  const result: CheckCoderabbitResult = { passed: allPassed, report, results };
+  const result: CheckCoderabbitResult = {
+    passed: allPassed,
+    report,
+    results,
+    // Only when nothing FAILED but something went unmeasured: a real disproof
+    // is a conclusion, and stamping it as a skip would hide it.
+    ...(failCount === 0 && unmeasured.length > 0
+      ? { skipped: true, discriminant: CODERABBIT_REVIEWER_ABSENT, reason: unmeasuredReason }
+      : {}),
+  };
 
   return { success: true, data: result };
 }
