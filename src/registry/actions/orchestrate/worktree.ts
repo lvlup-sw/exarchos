@@ -7,7 +7,7 @@ import { ALL_PHASES, ROLE_LEAD, featureIdSchema } from '../../phases.js';
 import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
 
 function contracted(action: BuiltinActionDraft, contract: unknown): BuiltinToolAction {
-  return withActionContract(action, contract, { annotations: action.annotations }) as BuiltinToolAction;
+  return withActionContract(action, contract, { annotations: action.annotations });
 }
 
 const PRUNE_ANNOTATIONS = {

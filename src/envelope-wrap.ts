@@ -70,7 +70,11 @@ export function envelopeWrap(
 ): ToolResult {
   if (!result.success) return result;
 
-  const meta = (result._meta ?? {}) as Record<string, unknown>;
+  // `_meta` is `unknown` on the wire, so narrow it rather than assert it: a
+  // non-object value becomes an empty bag instead of a lie about its shape.
+  const rawMeta: unknown = result._meta;
+  const meta: Record<string, unknown> =
+    typeof rawMeta === 'object' && rawMeta !== null ? { ...rawMeta } : {};
   const perf = result._perf ?? { ms: Date.now() - startedAt };
   const hsmActions = nextActionsFromResult(result);
   const advertised = registryAdvertisementsFromResult(result);
@@ -84,8 +88,5 @@ export function envelopeWrap(
   if (advertised.length === 0) {
     return wrapWithPassthrough(result, envelope);
   }
-  return wrapWithPassthrough(result, {
-    ...envelope,
-    advertised_actions: advertised,
-  } as Envelope<unknown>);
+  return wrapWithPassthrough(result, { ...envelope, advertised_actions: advertised });
 }

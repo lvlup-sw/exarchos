@@ -2,7 +2,7 @@
 
 import type { ValidTransitionTarget } from './workflow/state-machine.js';
 import type { Correction } from './projections/telemetry/auto-correction.js';
-import type { NextAction } from './next-action.js';
+import type { NextAction, RegistryAdvertisement } from './next-action.js';
 import type { ProjectionDegradedDetail } from './projections/degraded-result.js';
 import {
   ANTHROPIC_NATIVE_CACHING,
@@ -135,6 +135,12 @@ export interface Envelope<T> {
    * actions, view/event-store/orchestrate composites).
    */
   readonly next_actions: readonly NextAction[];
+  /**
+   * Allow-decided registry ActionIds. Distinct from `next_actions`: these are
+   * ActionIds plus the workflow subject they were decided against, never phase
+   * names or control verbs. Absent when nothing was advertised.
+   */
+  readonly advertised_actions?: readonly RegistryAdvertisement[];
   readonly _eventHints?: unknown;
   /**
    * Runtime-specific prompt-cache hint (T051, DR-14).

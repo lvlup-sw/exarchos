@@ -6,7 +6,7 @@ import { ALL_PHASES, ROLE_LEAD } from '../../phases.js';
 import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
 
 function contracted(action: BuiltinActionDraft, contract: unknown): BuiltinToolAction {
-  return withActionContract(action, contract, { annotations: action.annotations }) as BuiltinToolAction;
+  return withActionContract(action, contract, { annotations: action.annotations });
 }
 
 export const mergeActions: readonly BuiltinToolAction[] = [

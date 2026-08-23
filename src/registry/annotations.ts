@@ -134,15 +134,11 @@ function readActionContract(action: object): unknown {
 }
 
 function replayAnnotationsOf(annotations: unknown): { readonly idempotent: boolean } | undefined {
-  if (
-    typeof annotations === 'object' &&
-    annotations !== null &&
-    'idempotent' in annotations &&
-    typeof Reflect.get(annotations, 'idempotent') === 'boolean'
-  ) {
-    return { idempotent: Reflect.get(annotations, 'idempotent') as boolean };
-  }
-  return undefined;
+  if (typeof annotations !== 'object' || annotations === null) return undefined;
+  // Read once and narrow the value, rather than probing twice and asserting
+  // the second read matches the first.
+  const idempotent: unknown = Reflect.get(annotations, 'idempotent');
+  return typeof idempotent === 'boolean' ? { idempotent } : undefined;
 }
 
 /**
@@ -204,7 +200,7 @@ export function validateAction(
   if (action.outputSchema === undefined) {
     throw new Error(`Action '${id}' is missing required outputSchema`);
   }
-  if (typeof (action.outputSchema as { parse?: unknown }).parse !== 'function') {
+  if (typeof Reflect.get(action.outputSchema, 'parse') !== 'function') {
     throw new Error(`Action '${id}' outputSchema is not a Zod schema`);
   }
   // ActionAnnotationsSchema is re-validated here (not just a presence

@@ -136,7 +136,20 @@ describe('DR-14: escape-hatch census', () => {
   // repo compiles"; that set simply got smaller. The typecheck hole itself is
   // the real finding and is tracked separately — this ledger records only that
   // the two gates still agree with each other.
-  const BASELINE: CastCounts = { nonNull: 72, asCast: 1698, asAny: 0 };
+  // Re-baselined for the action-contract surface. The paydown came first:
+  // decorative `as const` in contract literals became `satisfies` (which this
+  // census exempts by design), each closed vocabulary now declares its union
+  // instead of pinning an array and deriving it back, the validate-then-narrow
+  // sites became type predicates, and `Envelope` gained the field the wrapper
+  // was casting to reach. That took the delta from 77 to 24.
+  //
+  // What remains is boundary narrowing that has no cast-free form — dynamic
+  // `import()` results, parsed JSON snapshots, oracle fixtures — plus the
+  // `as const` this census counts although the module header defines its
+  // subject as assertions that "silence the checker without proving
+  // anything", which `as const` does not do. That mismatch is older than this
+  // change and is left as a separate question.
+  const BASELINE: CastCounts = { nonNull: 73, asCast: 1722, asAny: 0 };
 
   // Declared budget = MAX escape-hatch sites maintenance work may introduce
   // before the NEXT documented re-baseline. `as any` may never grow.

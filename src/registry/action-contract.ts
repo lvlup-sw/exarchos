@@ -150,6 +150,21 @@ const SYNTHESIS_GATE_SET = new Set<string>(SYNTHESIS_LEGS);
 const RESOURCE_KIND_SET = new Set<string>(ACTION_RESOURCE_KINDS);
 const HOST_OBLIGATION_SET = new Set<string>(HOST_OBLIGATIONS);
 const POSTCONDITION_SOURCE_SET = new Set<string>(POSTCONDITION_SOURCES);
+const CAPABILITY_NAMES: ReadonlySet<string> = new Set<string>(CAPABILITY_KEYS);
+
+// Predicates rather than assertions: each one proves the membership it claims,
+// so the narrowing survives review instead of being taken on trust.
+function isPostconditionWhen(value: unknown): value is PostconditionWhen {
+  return typeof value === 'string' && POSTCONDITION_WHEN_SET.has(value);
+}
+
+function isCapability(value: unknown): value is Capability {
+  return typeof value === 'string' && CAPABILITY_NAMES.has(value);
+}
+
+function isActionResourceKind(value: unknown): value is ActionResourceKind {
+  return typeof value === 'string' && RESOURCE_KIND_SET.has(value);
+}
 const POSTCONDITION_WHEN_SET = new Set<string>(POSTCONDITION_WHEN);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -219,7 +234,14 @@ function normalizeDeclaredSet<T>(
       `${dimension} declared values must be a non-empty array`,
     );
   }
-  return { kind: 'declared', values: values as [T, ...T[]] };
+  const [head, ...tail] = values;
+  if (head === undefined) {
+    throw new ActionContractError(
+      'EMPTY_DECLARED_SET',
+      `${dimension} declared values must be a non-empty array`,
+    );
+  }
+  return { kind: 'declared', values: [head, ...tail] };
 }
 
 function requirementKey(requirement: ActionRequirement): string {
@@ -298,13 +320,13 @@ function normalizePostcondition(value: unknown): ActionPostcondition {
       'ensure source must be durable-evidence or event-append',
     );
   }
-  if (typeof value.when !== 'string' || !POSTCONDITION_WHEN_SET.has(value.when)) {
+  if (!isPostconditionWhen(value.when)) {
     throw new ActionContractError(
       'INVALID_POSTCONDITION',
       'ensure when must be success, failure, or always',
     );
   }
-  const when = value.when as ActionPostcondition['when'];
+  const when = value.when;
   if (value.source === 'durable-evidence') {
     if (!nonEmptyString(value.evidenceType)) {
       throw new ActionContractError('INVALID_POSTCONDITION', 'durable-evidence ensure needs a non-empty evidenceType');
@@ -322,13 +344,13 @@ function normalizePostcondition(value: unknown): ActionPostcondition {
 }
 
 function normalizeCapability(value: unknown): Capability {
-  if (typeof value !== 'string' || !CAPABILITY_KEYS.has(value as Capability)) {
+  if (!isCapability(value)) {
     throw new ActionContractError(
       'UNKNOWN_CAPABILITY',
       `needs must use the closed capability vocabulary; '${String(value)}' is unknown`,
     );
   }
-  return value as Capability;
+  return value;
 }
 
 function resourceKey(resource: ActionResource): string {
@@ -343,16 +365,17 @@ function normalizeResource(value: unknown): ActionResource {
   if (!isRecord(value) || typeof value.kind !== 'string') {
     throw new ActionContractError('UNKNOWN_RESOURCE_KIND', 'resource must declare a kind and selector');
   }
-  if (!RESOURCE_KIND_SET.has(value.kind)) {
+  const kind = value.kind;
+  if (!isActionResourceKind(kind)) {
     throw new ActionContractError(
       'UNKNOWN_RESOURCE_KIND',
-      `resource kind '${value.kind}' is not stream, path, worktree, or git-ref`,
+      `resource kind '${kind}' is not stream, path, worktree, or git-ref`,
     );
   }
   if (!nonEmptyString(value.selector)) {
     throw new ActionContractError('EMPTY_RESOURCE_SELECTOR', 'resource selector must be a non-empty string');
   }
-  return { kind: value.kind as ActionResourceKind, selector: value.selector.trim() };
+  return { kind, selector: value.selector.trim() };
 }
 
 function emissionKey(emission: ActionEmission): string {
