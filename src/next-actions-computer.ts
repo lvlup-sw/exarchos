@@ -1,7 +1,9 @@
-import { NextAction } from './next-action.js';
+import { NextAction, RegistryAdvertisement, isControlOwnedVerb } from './next-action.js';
+import { getFullRegistry } from './registry.js';
 import type { HSMDefinition } from './workflow/state-machine.js';
 import { EXCLUDED_MERGE_PHASES } from './workflow/hsm-definitions.js';
 import type { DesignDepth } from './workflow/plan-depth-policy.js';
+import { evaluateActionAdmission } from './workflow/admission/action-admission.js';
 import {
   adjudicateOutboundEdges,
   defaultTranslationContext,
@@ -82,6 +84,12 @@ export interface NextActionsState {
    * facts must not have its affordances silently emptied.
    */
   admission?: AdmissionFacts | undefined;
+  /**
+   * Workflow-scoped ActionId admission inputs. Distinct from the HSM-edge
+   * `admission` carrier: registry advertisements use the shared ActionId
+   * evaluator and publish only an allow verdict.
+   */
+  actionAdmission?: ActionAdmissionFacts | undefined;
 }
 
 /**
@@ -109,6 +117,29 @@ export interface AdmissionFacts {
    * suppressed on facts the caller never supplied.
    */
   readonly eventLogAvailable?: boolean;
+}
+
+/**
+ * Trusted ActionId-admission inputs for the registry advertisement envelope.
+ *
+ * Feature/stream subject, persisted evidence, authorization, and HSM facts
+ * only. Wall-clock and request payload are not members. When this carrier
+ * is absent the computer publishes no registry ActionIds — topology alone
+ * is not an advertisement authority. The named exception is the control
+ * verb `merge_orchestrate`, which may still surface from recorded
+ * merge-pending topology on the HSM envelope.
+ */
+export interface ActionAdmissionFacts {
+  readonly subject: { readonly featureId: string; readonly stream: string };
+  readonly evidence: readonly unknown[];
+  readonly authorization?: unknown;
+  readonly hsmFacts?: { readonly phase: string; readonly phaseAttemptId?: string };
+  /**
+   * Optional ActionId subset. When omitted, every contracted, phase-eligible
+   * registry action is considered. Control-owned verbs and phase names are
+   * never candidates.
+   */
+  readonly actionIds?: readonly string[];
 }
 
 /** Hint attached to a published verb whose admission verdict was not `allow`. */
@@ -323,4 +354,113 @@ export function computeNextActions(
   }
 
   return actions;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isCapabilityGated(contract: unknown): boolean {
+  if (!isPlainRecord(contract)) return false;
+  const needs = contract.needs;
+  return isPlainRecord(needs) && needs.kind === 'declared';
+}
+
+function registryActionId(toolName: string, actionName: string): string {
+  return `${toolName}.${actionName}`;
+}
+
+/**
+ * The two next-action envelopes: HSM/control verbs and allow-only registry
+ * ActionIds. They are computed together so callers cannot accidentally
+ * publish one without applying the other's rule, but they stay distinct
+ * arrays — phase and control verbs never become ActionIds.
+ */
+export interface NextActionEnvelopes {
+  readonly control: readonly NextAction[];
+  readonly registry: readonly RegistryAdvertisement[];
+}
+
+export function computeNextActionEnvelopes(
+  state: NextActionsState,
+  hsm: HSMDefinition,
+): NextActionEnvelopes {
+  return {
+    control: computeNextActions(state, hsm),
+    registry: computeRegistryAdvertisements(state),
+  };
+}
+
+/**
+ * Publish registry ActionIds that the shared ActionId evaluator allows.
+ *
+ * Denied, indeterminate, and evaluation faults are omitted. Missing
+ * authorization omits capability-gated ActionIds rather than treating
+ * the gap as allow. Host-owned actions may appear when those local
+ * checks pass. Topology without this carrier publishes nothing.
+ */
+export function computeRegistryAdvertisements(
+  state: NextActionsState,
+): readonly RegistryAdvertisement[] {
+  const facts = state.actionAdmission;
+  const phase = facts?.hsmFacts?.phase ?? state.phase;
+  if (facts === undefined || !phase) return [];
+
+  const wanted =
+    facts.actionIds === undefined ? undefined : new Set(facts.actionIds);
+  const advertised: RegistryAdvertisement[] = [];
+  const hsmFacts =
+    facts.hsmFacts === undefined
+      ? { phase }
+      : facts.hsmFacts.phaseAttemptId === undefined
+        ? { phase: facts.hsmFacts.phase }
+        : {
+            phase: facts.hsmFacts.phase,
+            phaseAttemptId: facts.hsmFacts.phaseAttemptId,
+          };
+
+  for (const tool of getFullRegistry()) {
+    if (tool.hidden === true) continue;
+    for (const action of tool.actions) {
+      const actionId = registryActionId(tool.name, action.name);
+      if (wanted !== undefined && !wanted.has(actionId)) continue;
+      if (isControlOwnedVerb(action.name) || isControlOwnedVerb(actionId)) {
+        continue;
+      }
+      if (!('actionContract' in action)) continue;
+      if (action.phases.size === 0 || !action.phases.has(phase)) continue;
+
+      const contract = Reflect.get(action, 'actionContract');
+      if (facts.authorization === undefined && isCapabilityGated(contract)) {
+        continue;
+      }
+      if (facts.authorization === undefined) continue;
+
+      try {
+        const decision = evaluateActionAdmission(
+          actionId,
+          {
+            actionId,
+            subject: facts.subject,
+            evidence: facts.evidence,
+            authorization: facts.authorization,
+            hsmFacts,
+          },
+          contract,
+        );
+        if (decision.verdict !== 'allow') continue;
+        const parsed = RegistryAdvertisement.safeParse({
+          actionId,
+          subject: facts.subject,
+          digest: decision.digest,
+        });
+        if (!parsed.success) continue;
+        advertised.push(parsed.data);
+      } catch {
+        // An evaluation fault is not an allow and is not a topology fallback.
+      }
+    }
+  }
+
+  return advertised;
 }

@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { computeNextActions } from '../../src/next-actions-computer.js';
-import { NextAction } from '../../src/next-action.js';
+import {
+  computeNextActionEnvelopes,
+  computeNextActions,
+  computeRegistryAdvertisements,
+} from '../../src/next-actions-computer.js';
+import {
+  isControlOwnedVerb,
+  isRegistryAdvertisement,
+  NextAction,
+} from '../../src/next-action.js';
 import { getHSMDefinition, executeTransition, getInitialPhase } from '../../src/workflow/state-machine.js';
 import { findActionInRegistry } from '../../src/registry.js';
 import { getEdgeIR } from '../../src/workflow/admission/built-in-workflow-ir.js';
@@ -743,5 +751,221 @@ describe('computeNextActions — admission-derived affordances (DR-9, T-13)', ()
       hsm,
     ).map((a) => a.verb);
     expect(verbs.length).toBeGreaterThan(0);
+  });
+});
+
+// ─── Registry ActionId advertisements (allow-only, second envelope) ──────────
+//
+// Phase and control verbs stay on the HSM envelope. Registry ActionIds are
+// published only when the shared ActionId evaluator returns allow.
+
+const ADVERTISE_AT = '2026-01-01T00:00:00.000Z';
+const GET_ACTION_ID = 'exarchos_workflow.get';
+const HOST_OWNED_ACTION_ID = 'exarchos_orchestrate.check_coderabbit';
+const GATED_ACTION_ID = 'exarchos_orchestrate.check_polish_scope';
+const REQUIRES_ACTION_ID = 'exarchos_orchestrate.pre_synthesis_check';
+
+function advertiseAuth(capabilityIds: readonly string[] = ['fs:read', 'shell:exec']) {
+  return {
+    authorizationId: 'authorization-advertise-001',
+    posture: 'read-only' as const,
+    capabilityIds,
+    resolverVersion: '1.0',
+    resolvedAt: ADVERTISE_AT,
+  };
+}
+
+function advertiseFacts(over: {
+  readonly phase?: string;
+  readonly authorization?: unknown;
+  readonly evidence?: readonly unknown[];
+  readonly actionIds?: readonly string[];
+  readonly omitAuthorization?: boolean;
+  readonly featureId?: string;
+  readonly stream?: string;
+} = {}) {
+  return {
+    subject: {
+      featureId: over.featureId ?? 'feat-advertise',
+      stream: over.stream ?? over.featureId ?? 'feat-advertise',
+    },
+    evidence: over.evidence ?? [],
+    ...(over.omitAuthorization ? {} : { authorization: over.authorization ?? advertiseAuth() }),
+    hsmFacts: { phase: over.phase ?? 'plan' },
+    ...(over.actionIds === undefined ? {} : { actionIds: over.actionIds }),
+  };
+}
+
+describe('computeRegistryAdvertisements — allow-only ActionIds', () => {
+  it('NextActions_Denied_IsNotAdvertised', () => {
+    const ids = computeRegistryAdvertisements({
+      phase: 'synthesize',
+      workflowType: 'feature',
+      actionAdmission: advertiseFacts({
+        phase: 'synthesize',
+        actionIds: [REQUIRES_ACTION_ID],
+      }),
+    }).map((a) => a.actionId);
+    expect(ids).not.toContain(REQUIRES_ACTION_ID);
+  });
+
+  it('NextActions_Indeterminate_IsNotAdvertised', () => {
+    const ids = computeRegistryAdvertisements({
+      phase: 'plan',
+      workflowType: 'feature',
+      actionAdmission: advertiseFacts({
+        authorization: { posture: 'read-only' },
+        actionIds: [GET_ACTION_ID],
+      }),
+    }).map((a) => a.actionId);
+    expect(ids).not.toContain(GET_ACTION_ID);
+  });
+
+  it('NextActions_AdjudicationFault_IsNotAdvertised', () => {
+    const faultingAuth = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error('admission evaluation fault');
+        },
+      },
+    );
+    const ids = computeRegistryAdvertisements({
+      phase: 'plan',
+      workflowType: 'feature',
+      actionAdmission: advertiseFacts({
+        authorization: faultingAuth,
+        actionIds: [GET_ACTION_ID],
+      }),
+    }).map((a) => a.actionId);
+    expect(ids).not.toContain(GET_ACTION_ID);
+  });
+
+  it('NextActions_TopologyFallback_IsNotAdvertised', () => {
+    const hsm = getHSMDefinition('feature');
+    const { control, registry } = computeNextActionEnvelopes(
+      { phase: 'plan-review', workflowType: 'feature' },
+      hsm,
+    );
+    expect(control.map((a) => a.verb)).toContain('delegate');
+    expect(registry).toEqual([]);
+  });
+
+  it('NextActions_PhaseVerb_IsNotAnActionId', () => {
+    const hsm = getHSMDefinition('feature');
+    const { control, registry } = computeNextActionEnvelopes(
+      {
+        phase: 'plan-review',
+        workflowType: 'feature',
+        actionAdmission: advertiseFacts({
+          phase: 'plan-review',
+          actionIds: [GET_ACTION_ID],
+        }),
+      },
+      hsm,
+    );
+    const phaseVerb = control.find((a) => a.verb === 'plan-review' || a.verb === 'delegate');
+    expect(phaseVerb).toBeDefined();
+    expect(phaseVerb).not.toHaveProperty('actionId');
+    expect(isRegistryAdvertisement(phaseVerb)).toBe(false);
+    expect(registry.map((a) => a.actionId)).not.toContain('plan-review');
+    expect(registry.map((a) => a.actionId)).not.toContain('delegate');
+  });
+
+  it('NextActions_RetryWithTask_IsNotAnActionId', () => {
+    const parsed = NextAction.parse({
+      verb: 'retry_with_task',
+      reason: 're-invoke with task TTL',
+      ttl_suggestion_ms: 60_000,
+    });
+    expect(isControlOwnedVerb(parsed.verb)).toBe(true);
+    expect(parsed).not.toHaveProperty('actionId');
+    expect(isRegistryAdvertisement(parsed)).toBe(false);
+    const ids = computeRegistryAdvertisements({
+      phase: 'plan',
+      workflowType: 'feature',
+      actionAdmission: advertiseFacts({ actionIds: [GET_ACTION_ID, 'retry_with_task'] }),
+    }).map((a) => a.actionId);
+    expect(ids).not.toContain('retry_with_task');
+  });
+
+  it('NextActions_DivergentLoop_IsNotAnActionId', () => {
+    const hsm = getHSMDefinition('feature');
+    const { control, registry } = computeNextActionEnvelopes(
+      {
+        phase: 'plan',
+        workflowType: 'feature',
+        designDepth: 'deep',
+        actionAdmission: advertiseFacts({ actionIds: [GET_ACTION_ID] }),
+      },
+      hsm,
+    );
+    expect(control.map((a) => a.verb)).toContain('divergent_loop');
+    expect(isControlOwnedVerb('divergent_loop')).toBe(true);
+    expect(registry.map((a) => a.actionId)).not.toContain('divergent_loop');
+  });
+
+  it('NextActions_MissingAuth_OmitsCapabilityGatedActionIds', () => {
+    const ids = computeRegistryAdvertisements({
+      phase: 'plan',
+      workflowType: 'feature',
+      actionAdmission: advertiseFacts({
+        omitAuthorization: true,
+        actionIds: [GATED_ACTION_ID, GET_ACTION_ID],
+      }),
+    }).map((a) => a.actionId);
+    expect(ids).not.toContain(GATED_ACTION_ID);
+    expect(ids).not.toContain(GET_ACTION_ID);
+  });
+
+  it('NextActions_HostOwned_AdvertisedWhenLocalChecksPass', () => {
+    const advertised = computeRegistryAdvertisements({
+      phase: 'plan',
+      workflowType: 'feature',
+      actionAdmission: advertiseFacts({ actionIds: [HOST_OWNED_ACTION_ID] }),
+    });
+    const hostOwned = advertised.find((a) => a.actionId === HOST_OWNED_ACTION_ID);
+    expect(hostOwned).toBeDefined();
+    expect(hostOwned?.subject).toEqual({
+      featureId: 'feat-advertise',
+      stream: 'feat-advertise',
+    });
+  });
+
+  it('NextActions_MergeOrchestrate_RehydrateTopology_StillPublishes', () => {
+    const hsm = getHSMDefinition('feature');
+    const { control, registry } = computeNextActionEnvelopes(
+      {
+        phase: 'merge-pending',
+        workflowType: 'feature',
+        featureId: 'feat-x',
+        mergeOrchestrator: { phase: 'pending', taskId: 'T11' },
+      },
+      hsm,
+    );
+    expect(control.map((a) => a.verb)).toContain('merge_orchestrate');
+    expect(registry).toEqual([]);
+    expect(isControlOwnedVerb('merge_orchestrate')).toBe(true);
+  });
+
+  it('NextActions_Advertised_UsesWorkflowScopedSubject', () => {
+    const advertised = computeRegistryAdvertisements({
+      phase: 'plan',
+      workflowType: 'feature',
+      actionAdmission: advertiseFacts({
+        featureId: 'feat-alpha',
+        stream: 'stream-alpha',
+        actionIds: [GET_ACTION_ID],
+      }),
+    });
+    expect(advertised).toHaveLength(1);
+    expect(advertised[0]?.actionId).toBe(GET_ACTION_ID);
+    expect(advertised[0]?.subject).toEqual({
+      featureId: 'feat-alpha',
+      stream: 'stream-alpha',
+    });
+    expect(advertised[0]).not.toHaveProperty('target');
+    expect(advertised[0]).not.toHaveProperty('payload');
+    expect(advertised[0]).not.toHaveProperty('now');
   });
 });
