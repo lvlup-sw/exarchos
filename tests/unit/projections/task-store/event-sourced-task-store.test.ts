@@ -221,8 +221,14 @@ describe('EventSourcedTaskStore (#1272)', () => {
   });
 
   it('EventSourcedTaskStore_ListTasks_ReturnsCreatedTasks', async () => {
-    const t1 = await store.createTask({ ttl: 1000 }, 'r1', sampleRequest);
-    const t2 = await store.createTask({ ttl: 2000 }, 'r2', sampleRequest);
+    // TTLs long enough that they cannot expire DURING the test. `expiresAt` is
+    // `createdAt + ttl` on the wall clock and `listTasks` reaps on read, so the
+    // previous 1000ms/2000ms pair made this a race against its own runtime:
+    // on a slow runner the first task was reaped before the cold read and the
+    // listing came back one short. That reports as a hydration bug, which is
+    // the one thing this case is supposed to be able to tell you about.
+    const t1 = await store.createTask({ ttl: 600_000 }, 'r1', sampleRequest);
+    const t2 = await store.createTask({ ttl: 600_000 }, 'r2', sampleRequest);
     const { tasks } = await store.listTasks();
     const ids = tasks.map((t) => t.taskId).sort();
     expect(ids).toEqual([t1.taskId, t2.taskId].sort());
