@@ -183,6 +183,11 @@ export const EMISSION_INAPPLICABILITY_REASONS = [
    * stub to it would report drift that exists only in the fixture.
    */
   'handler-stubbed',
+  /**
+   * A read-only action reasoned that it appends nothing. The append check
+   * would ask the store for events that the action promised not to write.
+   */
+  'read-only-abstention',
 ] as const;
 
 export type EmissionInapplicabilityReason =
@@ -438,6 +443,12 @@ export interface EmissionVerifierCall {
    * the work owes no record of having done it.
    */
   readonly handlerSucceeded?: boolean;
+  /**
+   * A read-only action whose contract reasons that it appends nothing.
+   * The append check is skipped: there is no event-append obligation to
+   * observe, and querying for one would treat reasoned silence as drift.
+   */
+  readonly readOnlyAbstention?: boolean;
   /** Registration table for the lifecycle axis. Injectable for tests. */
   readonly annotations?: Readonly<Record<string, EventRegistration>>;
   /**
@@ -484,6 +495,15 @@ export async function runEmissionVerifierInterceptor(
     return {
       status: 'not-applicable',
       reason: 'handler-stubbed',
+      missingEvents: [],
+      lifecycleViolations: [],
+      required,
+    };
+  }
+  if (call.readOnlyAbstention === true) {
+    return {
+      status: 'not-applicable',
+      reason: 'read-only-abstention',
       missingEvents: [],
       lifecycleViolations: [],
       required,

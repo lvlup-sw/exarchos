@@ -11,7 +11,7 @@ import type { CapabilityResolver } from '../../workflow/capabilities/resolver.js
 import type { StorageBackend } from '../../storage/backend.js';
 import type { RootsClient } from '../../runtime/workspace/discovery.js';
 import type { ElicitationClient } from '../elicitation-dispatch.js';
-import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry, findActionInRegistry, normalizeActionContract } from '../../registry.js';
+import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry, findActionInRegistry, normalizeActionContract, type ToolAction } from '../../registry.js';
 // The response-economy seam lives in its own leaf (`./response-economy.js`) so
 // the telemetry middleware can import `enforceResponseEconomy` without the
 // dispatch ↔ middleware runtime import cycle (DR-4, task 009). Re-exported below
@@ -67,6 +67,10 @@ import { ADMISSION_EVENT_TYPES } from '../../workflow/admission/types.js';
 import { AdmissionEvidenceRecordedData } from '../../events/schemas.js';
 import type { CallerAuthorizationSnapshot } from '../caller-identity.js';
 import type { ActionContract } from '../../registry/action-contract.js';
+import {
+  observeActionPostconditions,
+  type ActionPostconditionObservation,
+} from './action-postconditions.js';
 
 // NOTE: `../telemetry/middleware.js` is intentionally NOT imported at module
 // top-level. The middleware instantiates a singleton TraceWriter at import,
@@ -357,6 +361,45 @@ function hostOwnedObligationResult(obligation: string): ToolResult {
   return {
     success: true,
     data: { obligation },
+  };
+}
+
+function actionIsReadOnly(tool: string, actionName: string, action: ToolAction | undefined): boolean {
+  return action?.annotations?.readOnly === true || isReadOnlyAction(tool, actionName);
+}
+
+function isReadOnlyReasonedAbstention(
+  tool: string,
+  actionName: string,
+  action: ToolAction | undefined,
+): boolean {
+  if (action === undefined) return false;
+  if (!actionIsReadOnly(tool, actionName, action)) return false;
+  const contract = readActionContract(action);
+  if (contract === undefined) return false;
+  return contract.ensures.kind === 'none' || contract.emissions.kind === 'none';
+}
+
+function formatMissingEnsures(missing: readonly { readonly source: string }[]): string {
+  return missing.map((item) => item.source).join(', ');
+}
+
+function ensureContractViolatedResult(
+  tool: string,
+  actionName: string,
+  result: ToolResult,
+  missing: readonly { readonly source: string }[],
+): ToolResult {
+  return {
+    success: false,
+    data: result.data,
+    error: {
+      code: 'ENSURE_CONTRACT_VIOLATED',
+      message:
+        `${tool}.${actionName} declared an ensure that was not observed after dispatch ` +
+        `(${formatMissingEnsures(missing)}). A branded witness or a declaration is not ` +
+        'observation — the store or the persisted-evidence reader must show the fact.',
+    },
   };
 }
 
@@ -1381,9 +1424,16 @@ export async function dispatch(
   // The fault is still ours rather than the caller's, which is what the mode is
   // for: an operator who wants the old behavior sets `advisory` and gets the
   // finding without the failure.
+  const dispatchedActionName = typeof args.action === 'string' ? args.action : '';
+  const dispatchedAction =
+    dispatchedActionName === '' ? undefined : findActionInRegistry(tool, dispatchedActionName);
+  const dispatchedContract = dispatchedAction === undefined ? undefined : readActionContract(dispatchedAction);
+  const observedStreamId = dispatchStreamId(args);
+  const readOnlyAbstention = isReadOnlyReasonedAbstention(tool, dispatchedActionName, dispatchedAction);
+
   const emissionVerdict = await runEmissionVerifierInterceptor(ctx.eventStore, {
     tool,
-    action: typeof args.action === 'string' ? args.action : '',
+    action: dispatchedActionName,
     operationId: dispatchCtx.operationId,
     // Both spellings of the same thing. A stream is named `featureId` on most
     // actions and `streamId` on those re-parented onto a stream they did not
@@ -1392,13 +1442,11 @@ export async function dispatch(
     // `not-applicable`, so an action with an unconditional contract was exempt
     // from the check by the NAME of its parameter. The residue is declared, not
     // silent: an action carrying neither still resolves `no-stream`.
-    streamId: dispatchStreamId(args),
-    declared:
-      typeof args.action === 'string'
-        ? findActionInRegistry(tool, args.action)?.autoEmits
-        : undefined,
+    streamId: observedStreamId,
+    declared: dispatchedAction?.autoEmits,
     handlerStubbed: STUBBED_COMPOSITES.has(tool),
     handlerSucceeded: result.success,
+    readOnlyAbstention,
     // The interceptor resolves the mode again for its own log level. Without
     // this the record read `enforcement: block` on a run that was configured
     // advisory and did not fail — the log and the outcome disagreeing about
@@ -1426,7 +1474,7 @@ export async function dispatch(
       error: {
         code: 'EMISSION_CONTRACT_VIOLATED',
         message:
-          `${tool}.${typeof args.action === 'string' ? args.action : ''} declares an ` +
+          `${tool}.${dispatchedActionName} declares an ` +
           `unconditional emission that did not land: ${undelivered.join(', ')}. ` +
           'THE OPERATION COMPLETED AND ITS EFFECTS ARE PERFORMED — do NOT retry this ' +
           'call; retrying repeats a mutation that already succeeded. Its result is ' +
@@ -1437,6 +1485,40 @@ export async function dispatch(
           '`events.emission-enforcement: advisory` in `.exarchos.yml`.',
       },
     });
+  }
+
+  // Host-owned actions never reach here: they returned the obligation before
+  // the handler ran, and they do not owe execute-path ensures. Stubbed
+  // composites are the same kind of non-execution as the emission verifier
+  // already exempts. Read-only reasoned abstention has no append to observe.
+  // A successful return after this point implies every applicable ensure was
+  // observed from the store or the persisted-evidence reader.
+  if (
+    dispatchedContract !== undefined &&
+    dispatchedContract.ensures.kind === 'declared' &&
+    !STUBBED_COMPOSITES.has(tool) &&
+    !readOnlyAbstention &&
+    observedStreamId !== undefined &&
+    observedStreamId.length > 0
+  ) {
+    let observation: ActionPostconditionObservation;
+    try {
+      observation = await observeActionPostconditions({
+        ensures: dispatchedContract.ensures,
+        store: ctx.eventStore,
+        evidence: ctx.eventStore,
+        streamId: observedStreamId,
+        operationId: dispatchCtx.operationId,
+        outcome: result.success ? 'success' : 'failure',
+      });
+    } catch {
+      observation = { status: 'violated' as const, missing: dispatchedContract.ensures.values };
+    }
+    if (observation.status === 'violated') {
+      return attachMeta(
+        ensureContractViolatedResult(tool, dispatchedActionName, result, observation.missing),
+      );
+    }
   }
 
   return attachMeta(result);
