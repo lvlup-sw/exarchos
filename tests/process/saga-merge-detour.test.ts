@@ -73,42 +73,35 @@ describe('#1208 — task.completed{worktreePath} auto-detours to merge-pending',
             },
           },
           {
-            // T-03/DR-1 closed the caller-evidence bypass for BLOCKING gates:
-            // `task_complete` now requires a durable `gate.executed` row for
-            // `static-analysis` and caller-supplied evidence can no longer
-            // stand in for it. Satisfy the gate via the documented
-            // operator-emitted shape (top-level `taskId`) that the
-            // task_complete tolerant reader accepts — this saga guards the
-            // #1208 detour contract, not the gate machinery.
+            // This saga's subject is the detour the rehydrate envelope makes
+            // when a worktree-bearing `task.completed` lands — not the
+            // admission that produces one. It used to reach that fact through
+            // `task_complete`, satisfying the blocking static-analysis gate by
+            // hand-appending a passing `gate.executed` row.
+            //
+            // That no longer works, and should not: over MCP the caller is a
+            // delegated agent, and a gate row from an agent now has to cite
+            // proof that resolves. Running the real gate here would need a
+            // toolchain in the hermetic fixture and would make this test a
+            // test of the gate surface, which its own contract says it is not.
+            //
+            // So seed the subject directly, exactly as the steps above seed
+            // `task.assigned`. The assertion below is unchanged: given the
+            // fact, the envelope must surface the merge verb. Note what stays
+            // impossible — `admission.evidence-recorded` is reserved against
+            // untrusted append, so the PROOF cannot be seeded even though the
+            // signal can.
             tool: 'exarchos_event',
             arguments: {
               action: 'append',
               stream: 'p2-detour',
               event: {
-                type: 'gate.executed',
+                type: 'task.completed',
                 data: {
-                  gateName: 'static-analysis',
-                  layer: 'validation',
-                  passed: true,
                   taskId: '001',
+                  worktreePath: env.gitDir,
+                  worktree: '.worktrees/001-detour',
                 },
-              },
-            },
-          },
-          {
-            tool: 'exarchos_orchestrate',
-            arguments: {
-              action: 'task_complete',
-              taskId: '001',
-              streamId: 'p2-detour',
-              evidence: {
-                type: 'manual',
-                output: 'auto-ack for #1208 regression',
-                passed: true,
-              },
-              result: {
-                worktreePath: env.gitDir,
-                worktree: '.worktrees/001-detour',
               },
             },
           },

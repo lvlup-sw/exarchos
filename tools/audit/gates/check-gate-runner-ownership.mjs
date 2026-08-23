@@ -39,10 +39,10 @@ const mergedRationale =
 /** @type {readonly {file:string, kind:string, count:number, owner:string, rationale:string, category:string}[]} */
 const DISPOSITIONS = Object.freeze([
   // Canonical evidence-production seams.
-  { file: 'src/verbs/gates/gate-runner.ts', kind: 'durable-runner', count: 3, owner: 'orchestrate/gate-runner', rationale: 'The canonical v2.12 runner owns normalized evidence execution and the awaited durable append.', category: 'canonical-runner' },
+  { file: 'src/verbs/gates/gate-runner.ts', kind: 'durable-runner', count: 4, owner: 'orchestrate/gate-runner', rationale: 'The canonical runner owns normalized evidence execution and the awaited durable append. The fourth is recordGateNotApplicable, which routes a configured-disabled gate through the SAME phase-gate seam and the same requirement id a real run discharges — so a disabled gate leaves owned proof that it was not owed, rather than leaving the obligation silently undischarged.', category: 'canonical-runner' },
   // The canonical runner's own `gate.executed` append literal also matches the
   // manual-gate-event detector; it is the ONE producer that literal names.
-  { file: 'src/verbs/gates/gate-runner.ts', kind: 'manual-gate-event', count: 1, owner: 'orchestrate/gate-runner', rationale: 'appendGateExecutedSignal inside the canonical runner is THE single gate.executed producer; the literal is its own append, not a bypass.', category: 'canonical-runner' },
+  { file: 'src/verbs/gates/gate-runner.ts', kind: 'manual-gate-event', count: 2, owner: 'orchestrate/gate-runner', rationale: 'appendGateExecutedSignal inside the canonical runner is THE gate.executed producer; that literal is its own append, not a bypass. The second is recordScopeFailure: a gate whose preconditions could not be resolved never reaches a provider, so there is no evidence to mint from and the durable seam cannot be used. It records an observation carrying verdict indeterminate so that "could not be scoped" stops being indistinguishable from "never invoked". It cannot discharge an obligation — admission requires passed===true — and it is the fail-closed direction. Its wire-level passed:false currently understates it; widening the event verdict is the follow-on that removes the compromise.', category: 'canonical-runner' },
   // The ownership census proves the seam live by invoking the real runner
   // twice (success + fail-closed witness) against throwaway in-memory stores.
   // Those invocations are observations of the canonical producer, not a
