@@ -140,7 +140,7 @@ for phase transitions, guards, and playbook guidance.
 
 ## Completion & Coverage
 
-There is **no separate design-completeness gate** in the collapsed flow — `check_design_completeness` is a deprecated alias. The design section's acceptance-criteria coverage is validated as part of `check_plan_coverage` over the unified artifact, run by `/exarchos:plan` once the `## Decomposition` section exists. Before chaining, confirm each `DR-N` carries acceptance criteria and at least one DR-N covers error handling / edge cases.
+There is **no separate design-completeness gate** in the collapsed flow — no action scores the design section on its own. The design section's acceptance-criteria coverage is validated as part of `check_plan_coverage` over the unified artifact, run by `/exarchos:plan` once the `## Decomposition` section exists. Before chaining, confirm each `DR-N` carries acceptance criteria and at least one DR-N covers error handling / edge cases.
 
 ## Transition
 

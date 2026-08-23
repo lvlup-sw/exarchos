@@ -409,12 +409,26 @@ describe('DR-4: outputSchema vacuity census', () => {
     //   the route a new action has to take. So one site crossed and one arrived
     //   capped, which is why the waiver count falls by one and the sum rises.
     //
-    // So 111/10/121 became 110/12/122, then 108/14/122, then 107/16/123.
+    //   THE GATE TRIAGE removed nine waived sites and added one capped one, and
+    //   the two halves are different facts. Eight declarations were DELETED
+    //   outright (five orchestrate gates plus one view name that nothing could
+    //   reach, and a deprecated alias), so their sites went away with them —
+    //   this is the one movement that legitimately shrinks the sum. The ninth
+    //   crossed nowhere either: the three diff scanners collapsed into a single
+    //   new action, and a new id cannot join the frozen key set, so
+    //   `check_diff_hygiene` arrived capped by the same route a new action always
+    //   has to take. Every retired waiver MOVED to the graveyard rather than
+    //   being deleted, so the seed key set — and its digest — is unchanged; what
+    //   fell is the number of LIVE waived sites, which is the number this census
+    //   is about.
+    //
+    // So 111/10/121 became 110/12/122, then 108/14/122, then 107/16/123, then
+    // 98/17/115.
     expect(sites).toHaveLength(waiverSites + cappedSites);
     expect(literalVacuousSites).toBe(0);
-    expect(waiverSites).toBe(107);
-    expect(cappedSites).toBe(16);
-    expect(waiverSites + cappedSites).toBe(123);
+    expect(waiverSites).toBe(98);
+    expect(cappedSites).toBe(17);
+    expect(waiverSites + cappedSites).toBe(115);
     // Two of the waivers carry an explicit named binding — the aliased vacuity
     // this census exists to see through.
     expect(namedBindingSites).toBe(2);
@@ -447,15 +461,23 @@ describe('DR-4: outputSchema vacuity census', () => {
     //     again: the two #1739 cutover verbs, whose waivers were seeded on
     //     arrival rather than inherited.
     //
-    // A paydown moves the split; an arrival moves the denominator. Reading the
-    // three together is what makes the ratchet legible.
-    expect(report.total).toBe(124);
-    expect(report.vacuousCount).toBe(108);
-    expect(report.substantiveCount).toBe(16);
+    //   the gate triage RETIRED EIGHT and CONSOLIDATED THREE INTO ONE —
+    //     108/16 -> 99/17 with the denominator 124 -> 116. This is the fourth
+    //     kind, and the only one that shrinks the denominator: a declaration
+    //     that is deleted takes its vacuity with it. The consolidation is an
+    //     arrival on the substantive side for the usual reason — a new id cannot
+    //     acquire a shrink-only waiver.
+    //
+    // A paydown moves the split; an arrival moves the denominator; a retirement
+    // moves both, downward. Reading the four together is what makes the ratchet
+    // legible.
+    expect(report.total).toBe(116);
+    expect(report.vacuousCount).toBe(99);
+    expect(report.substantiveCount).toBe(17);
     expect(countByReason(report)).toEqual({
-      'unknown-data': 107,
+      'unknown-data': 98,
       'wrapped-unknown-data': 1,
-      'typed-data': 16,
+      'typed-data': 17,
       'unreadable-envelope': 0,
     });
 

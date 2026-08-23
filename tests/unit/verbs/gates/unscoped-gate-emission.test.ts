@@ -15,10 +15,11 @@
 // hole the base-branch literal left behind, one layer further in.
 //
 // Two production shapes reach the same obligation and both are covered here:
-// the three quality gates that append through `emitGateEvent` directly, and the
-// three per-task ladder gates whose row is minted by the canonical runner from
-// the evidence record. The runner path is the one that would silently regress
-// if a future edit moved the base check outside `executeProvider`.
+// the quality gate that appends through `emitGateEvent` directly — one action
+// over a rule pack, appending one row per rule — and the three per-task ladder
+// gates whose row is minted by the canonical runner from the evidence record.
+// The runner path is the one that would silently regress if a future edit moved
+// the base check outside `executeProvider`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -39,9 +40,10 @@ import type { EventStore } from '../../../../src/events/store.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
 import type { ToolResult } from '../../../../src/format.js';
 import { normalizeGateVerdict } from '../../../../src/verbs/gates/gate-utils.js';
-import { handleContextEconomy } from '../../../../src/verbs/gates/context-economy.js';
-import { handleOperationalResilience } from '../../../../src/verbs/gates/operational-resilience.js';
-import { handleWorkflowDeterminism } from '../../../../src/verbs/gates/workflow-determinism.js';
+import {
+  DIFF_HYGIENE_RULES,
+  handleDiffHygiene,
+} from '../../../../src/verbs/gates/diff-hygiene.js';
 import { handleContractDrift } from '../../../../src/verbs/gates/contract-drift-handler.js';
 import { handleMockBoundary } from '../../../../src/verbs/gates/mock-boundary-handler.js';
 import { handleTestAdequacy } from '../../../../src/verbs/gates/test-adequacy-handler.js';
@@ -108,12 +110,25 @@ function trustedContext(sessionId: string) {
 }
 
 type GateId =
-  | 'context-economy'
-  | 'operational-resilience'
-  | 'workflow-determinism'
+  | 'diff-hygiene'
   | 'contract-drift'
   | 'mock-boundary'
   | 'test-adequacy';
+
+/**
+ * How many durable rows one invocation owes.
+ *
+ * `diff-hygiene` is one ACTION over a rule pack and each rule keeps its own row,
+ * so its debt is the pack's size — read off the pack rather than transcribed, or
+ * a rule dropped from the pack would silently lower the bar it is measured
+ * against.
+ */
+const ROWS_OWED: Readonly<Record<GateId, number>> = {
+  'diff-hygiene': DIFF_HYGIENE_RULES.length,
+  'contract-drift': 1,
+  'mock-boundary': 1,
+  'test-adequacy': 1,
+};
 
 /**
  * Every gate that resolves a diff base and can conclude it has none.
@@ -125,9 +140,7 @@ type GateId =
  * scope for this file.
  */
 const GATES: readonly GateId[] = [
-  'context-economy',
-  'operational-resilience',
-  'workflow-determinism',
+  'diff-hygiene',
   'contract-drift',
   'mock-boundary',
   'test-adequacy',
@@ -160,12 +173,8 @@ describe('a gate that cannot scope itself still records the verdict', () => {
     const common = { featureId: FEATURE_ID, taskId: TASK_ID, repoRoot };
     const invoke = async (): Promise<ToolResult> => {
       switch (gate) {
-        case 'context-economy':
-          return handleContextEconomy(common, stateDir, eventStore);
-        case 'operational-resilience':
-          return handleOperationalResilience(common, stateDir, eventStore);
-        case 'workflow-determinism':
-          return handleWorkflowDeterminism(common, stateDir, eventStore);
+        case 'diff-hygiene':
+          return handleDiffHygiene(common, stateDir, eventStore);
         case 'contract-drift':
           return handleContractDrift(common, stateDir, eventStore);
         case 'mock-boundary':
@@ -190,15 +199,20 @@ describe('a gate that cannot scope itself still records the verdict', () => {
       gateRows().length,
       `${gate} returned success without the gate.executed it declares ` +
         "with condition 'always' — the emission verifier reads that as drift",
-    ).toBe(1);
+    ).toBe(ROWS_OWED[gate]);
   });
 
   it.each(GATES)('UnscopedRun_NeverMintsProof [%s]', async (gate) => {
     const result = await run(gate);
 
     // Fail-closed on the wire: admission requires `passed === true`, so an
-    // unscoped run can never discharge an obligation.
-    expect((gateRows()[0]?.data as { passed?: boolean } | undefined)?.passed).toBe(false);
+    // unscoped run can never discharge an obligation. EVERY row, not just the
+    // first — a pack whose last rule reported a pass would clear a dimension it
+    // never measured.
+    expect(gateRows()).toHaveLength(ROWS_OWED[gate]);
+    for (const row of gateRows()) {
+      expect((row.data as { passed?: boolean }).passed).toBe(false);
+    }
     // And never a pass in the proof vocabulary either. `fail` is acceptable for
     // a gate whose own policy classes an uncomputable diff as an execution
     // failure; `pass` is not acceptable for any of them.
@@ -209,7 +223,7 @@ describe('a gate that cannot scope itself still records the verdict', () => {
     // Without this the fail-closed row above is indistinguishable from a gate
     // that ran and found a real fault, which would send an operator hunting for
     // a defect instead of a missing `origin/HEAD`.
-    await run('context-economy');
+    await run('diff-hygiene');
 
     const details = (gateRows()[0]?.data as { details?: Record<string, unknown> })?.details;
     expect(details).toMatchObject({

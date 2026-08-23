@@ -87,20 +87,8 @@ Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `deb
 
 Spec review only (not quality review - this is a fix, not new feature).
 
-Run the debug review gate to verify test coverage for the bug fix:
-
-```typescript
-exarchos_orchestrate({
-  action: "debug_review_gate",
-  repoRoot: "<path>",
-  baseBranch: "<branch>"
-})
-```
-
-**On `passed: true`:** Review passed -- tests added and passing.
-**On `passed: false`:** Gaps found -- missing tests or regressions.
-
-Additionally verify:
+Verify:
+- [ ] The regression test added in implement fails without the fix and passes with it
 - [ ] Fix matches RCA root cause
 - [ ] Fix matches design approach
 

@@ -272,13 +272,13 @@ describe('buildCli', () => {
 
   // ─── #1440 Op 1 (T7): --follow expansion to additional view actions ──────
   //
-  // The `isViewFollow` predicate currently inlines a two-arm disjunction
-  // over `workflow_status | shepherd_status`. Expansion adds three more
-  // pure ViewProjection-backed actions (`pipeline`, `convergence`,
+  // The `isViewFollow` predicate started as a two-arm disjunction over
+  // `workflow_status | shepherd_status`. Expansion added the remaining
+  // pure ViewProjection-backed actions (`pipeline`,
   // `delegation_timeline`) per the T1 orchestrator-inline idempotency
   // audit. These tests pin that the `--follow` option is REGISTERED for
-  // each of the five actions through the Commander tree — they fail
-  // BEFORE expansion because the predicate rejects the new three, so the
+  // every member through the Commander tree — they fail BEFORE expansion
+  // because the predicate rejects the added members, so the
   // `actionCmd.option('--follow', ...)` registration call is skipped and
   // the option simply doesn't exist on the command.
 
@@ -288,7 +288,6 @@ describe('buildCli', () => {
     { action: 'workflow_status', cliName: 'workflow_status' },
     { action: 'shepherd_status', cliName: 'shepherd_status' },
     { action: 'pipeline', cliName: 'ls' },
-    { action: 'convergence', cliName: 'convergence' },
     { action: 'delegation_timeline', cliName: 'delegation_timeline' },
   ];
 

@@ -65,7 +65,7 @@ Run the quality-evaluation gates via runbook — `exarchos_orchestrate({ action:
 1. `check_static_analysis` — lint + typecheck (D2). Must pass.
 2. `check_security_scan` — security pattern detection (D1).
 3. `prepare_review` — returns the deterministic check catalog (grep / structural / heuristic) + `pluginStatus`. Execute each check against the changed files; collect findings as `pluginFindings`.
-4. Optional D3–D5 gates (`check_context_economy`, `check_operational_resilience`, `check_workflow_determinism`) — advisory; feed the convergence view.
+4. `check_diff_hygiene` — the D3–D5 hygiene rule pack (context economy, operational resilience, workflow determinism) in one call; advisory, one durable `gate.executed` row per rule under that rule's own dimension.
 
 > **mutation-adequacy (HIGH tier only):** a **separate required dimension** that gates the HIGH risk tier at the `/review` boundary — see `@skills/mutation-adequacy/SKILL.md`. Do not run mutation testing in this skill; the closest in-scope proxy is the **Specific** test-desiderata property plus the delegation-time `check_test_adequacy` gate.
 
@@ -97,7 +97,7 @@ An audit-mode invariant you did not answer is **not** a passing invariant — it
 
 ## Verdict & fix loop
 
-Compute the verdict once over the merged finding set. Route it via the decision runbook — `exarchos_orchestrate({ action: "runbook", id: "review-escalation" })`. See `references/convergence-and-verdict.md`.
+Compute the verdict once over the merged finding set. Route it via the decision runbook — `exarchos_orchestrate({ action: "runbook", id: "review-escalation" })`.
 
 `check_review_verdict` takes the finding counts + the `pluginFindings`, emits the gate event, and returns APPROVED or NEEDS_FIXES:
 
@@ -109,8 +109,14 @@ exarchos_orchestrate({
   medium: nativeMediumCount,
   low: nativeLowCount,
   pluginFindings: catalogFindings,
+  dimensionResults: {
+    "D1": { passed: true, findingCount: 0 },
+    "D2": { passed: true, findingCount: 0 }
+  }
 })
 ```
+
+`dimensionResults` is how the gates above reach the verdict. Each gate wrote a durable `gate.executed` row carrying its own dimension — the hygiene pack one row per rule — so pass one entry per dimension you actually ran. A dimension with no row is **uncovered, not passing**: name it in the summary rather than omitting it.
 
 The fix loop is **bounded by the shared escalation policy** (config-resolvable `escalation.maxIterations`, default **5**) — the same bound the shepherd loop uses. `check_review_verdict` reads the event-sourced fix-cycle count and returns the escalate decision the loop MUST honor:
 
@@ -182,4 +188,4 @@ All transitions are automatic — this is not a human checkpoint. See `reference
 ## Schema discovery
 
 Use `exarchos_workflow({ action: "describe", actions: ["update"] })` and
-`exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_test_adequacy", "check_review_verdict", "check_invariant_conformance", "prepare_review"] })` for current parameter schemas.
+`exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_diff_hygiene", "check_test_adequacy", "check_review_verdict", "check_invariant_conformance", "prepare_review"] })` for current parameter schemas.

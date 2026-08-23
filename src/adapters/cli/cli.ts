@@ -294,9 +294,9 @@ export function resolvePackageVersion(): string {
  * MCP-side `tasks/get` retry path) doesn't mutate the timeline they
  * are observing.
  *
- * Audit (#1440 Op 1 / T1, orchestrator-inline 2026-05-17): all five
+ * Audit (#1440 Op 1 / T1, orchestrator-inline 2026-05-17): every
  * underlying handlers verified pure folds — see `workflow-status-view.ts`,
- * `shepherd-status-view.ts`, `pipeline-view.ts`, `convergence-view.ts`,
+ * `shepherd-status-view.ts`, `pipeline-view.ts`,
  * `delegation-timeline-view.ts`. The source-file idempotency cross-check
  * for the three NEW members lives in `cli/cli-follow-expansion.test.ts`
  * so any future write-surface regression fails CI before landing.
@@ -309,7 +309,6 @@ export const VIEW_FOLLOW_ACTIONS: ReadonlySet<string> = new Set([
   'workflow_status',
   'shepherd_status',
   'pipeline',
-  'convergence',
   'delegation_timeline',
 ]);
 
@@ -981,8 +980,8 @@ function registerActionCommand(
   // dispatch-core `EventSourcedTaskStore` polling loop (see
   // `cli/follow-loop.ts`). #1440 Op 1 (T7) expanded the set from the
   // original two-arm disjunction (workflow_status, shepherd_status) to
-  // include three more pure-projection view actions (pipeline,
-  // convergence, delegation_timeline). Like the event-query `--follow`,
+  // include more pure-projection view actions (pipeline,
+  // delegation_timeline). Like the event-query `--follow`,
   // this flag is registered outside `addFlagsFromSchema` so the MCP
   // tool schema for the underlying action stays one-shot — the
   // Tasks-augmented branch for the MCP arm is gated by the SDK

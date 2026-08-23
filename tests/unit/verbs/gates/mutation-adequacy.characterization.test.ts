@@ -71,9 +71,9 @@ describe('mutation-adequacy roster characterization (PIN)', () => {
     const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
     const actionNames = (orchestrate?.actions ?? []).map((a) => a.name);
 
-    it('exposes exactly 82 actions (WLM operational-core #1578 added serialize_merge; DR-4 (#1630) added check_exploration_depth; WLM foundation task 008 added acquire_worktree, release_worktree, prune_worktrees; #1587 retired check_tdd_compliance; #1581 task 018 added discover_bridge; #1739 added cutover_readiness + cutover_decide; task 068 added invariants_amend; the effect-ledger remedy added reconcile_worktrees and moved stack_place here from exarchos_view)', () => {
+    it('exposes exactly 75 actions (the gate triage retired check_convergence, check_design_completeness, check_coverage_thresholds, debug_review_gate and pre_synthesis_check, and folded check_context_economy + check_operational_resilience + check_workflow_determinism into check_diff_hygiene)', () => {
       expect(orchestrate).toBeDefined();
-      expect(actionNames).toHaveLength(82);
+      expect(actionNames).toHaveLength(75);
     });
 
     it('carries the mutation-adequacy action (R5 / task 003)', () => {
@@ -89,17 +89,13 @@ describe('mutation-adequacy roster characterization (PIN)', () => {
         'assess_stack',
         'check_ci',
         'check_coderabbit',
-        'check_context_economy',
         'check_contract_drift',
-        'check_convergence',
-        'check_coverage_thresholds',
-        'check_design_completeness',
+        'check_diff_hygiene',
         'check_event_emissions',
         'check_exploration_depth',
         'check_integration_suite',
         'check_invariant_conformance',
         'check_mock_boundary',
-        'check_operational_resilience',
         'check_plan_coverage',
         'check_polish_scope',
         'check_post_merge',
@@ -110,13 +106,11 @@ describe('mutation-adequacy roster characterization (PIN)', () => {
         'check_static_analysis',
         'check_task_decomposition',
         'check_test_adequacy',
-        'check_workflow_determinism',
         'classify_review_items',
         'create_issue',
         'create_pr',
         'cutover_decide',
         'cutover_readiness',
-        'debug_review_gate',
         'describe',
         'discover_bridge',
         'doctor',
@@ -136,7 +130,6 @@ describe('mutation-adequacy roster characterization (PIN)', () => {
         'needs_schema_sync',
         'onboard',
         'post_delegation_check',
-        'pre_synthesis_check',
         'prepare_delegation',
         'prepare_review',
         'prepare_synthesis',

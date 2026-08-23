@@ -63,7 +63,6 @@ const FUNCTIONAL_ALLOWLIST: ReadonlyArray<string> = [
 const PROSE_BUDGET: Readonly<Record<string, number>> = {
   'tools/audit/gates/check-measured-premises.mjs': 1,
   'tools/evals/evals/benchmarks/plan-format-corpus.ts': 1,
-  'src/verbs/gates/design-completeness.ts': 1,
   'src/verbs/tasks/discover-bridge.ts': 1,
   'src/verbs/team/prepare-review.ts': 1,
   // These three replace a single `src/registry.ts: 1` entry. The registry's
@@ -78,7 +77,9 @@ const PROSE_BUDGET: Readonly<Record<string, number>> = {
   // them, from identical text. So this is the honest count becoming visible,
   // and the budget it ratchets against is now a real one.
   'src/registry/actions/workflow.ts': 1,
-  'src/registry/actions/orchestrate/gates.ts': 2,
+  // Lowered from 2: the deprecated design-completeness alias that named the
+  // unified artifact directory in its description is retired.
+  'src/registry/actions/orchestrate/gates.ts': 1,
   'src/registry/actions/orchestrate/review-ops.ts': 1,
   'src/workflow/playbooks.ts': 2,
   'tests/helpers/preflight.ts': 1,

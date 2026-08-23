@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1212,
-    "parsedFiles": 1167,
+    "testFiles": 1207,
+    "parsedFiles": 1162,
     "shellFiles": 45,
-    "cases": 13541,
-    "dynamicTitles": 149,
+    "cases": 13490,
+    "dynamicTitles": 151,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -5275,6 +5275,27 @@
         }
       ]
     },
+    "tests/architecture/dimension-severity-path.test.ts": {
+      "file": "tests/architecture/dimension-severity-path.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "gate dimension — the severity path",
+          "name": "DimensionField_Survives_ForSeverityConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "gate dimension — the severity path",
+          "name": "DimensionDisable_StopsTheHandlerFromRunning",
+          "dynamic": false
+        },
+        {
+          "suite": "gate dimension — the severity path",
+          "name": "EveryDeclaredDimension_IsNameableInExarchosYml",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/architecture/directory-readmes.test.ts": {
       "file": "tests/architecture/directory-readmes.test.ts",
       "runner": "vitest:root",
@@ -5333,6 +5354,42 @@
         {
           "suite": "Documentation_EveryStatedRule_IsOneThatIsEnforced",
           "name": "the enforcement table is not empty",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/gate-reachability.test.ts": {
+      "file": "tests/architecture/gate-reachability.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "gate reachability",
+          "name": "Denominator_IsAsserted",
+          "dynamic": false
+        },
+        {
+          "suite": "gate reachability",
+          "name": "EveryGateFlaggedAction_IsReachable",
+          "dynamic": false
+        },
+        {
+          "suite": "gate reachability",
+          "name": "SeededUnreachableGate_IsNamed",
+          "dynamic": false
+        },
+        {
+          "suite": "gate reachability",
+          "name": "EmptyGatePopulation_FailsTheGuard",
+          "dynamic": false
+        },
+        {
+          "suite": "gate reachability",
+          "name": "OrphanCount_IsPinnedAtZeroOrDeclared",
+          "dynamic": false
+        },
+        {
+          "suite": "gate reachability",
+          "name": "GateDirectoryCap_IsRepinnedAfterShrinkage",
           "dynamic": false
         }
       ]
@@ -5732,6 +5789,11 @@
         },
         {
           "suite": "projection fold seam",
+          "name": "ProjectionFoldSeam_NoDanglingEntry_EveryNamedPathStillExists",
+          "dynamic": false
+        },
+        {
+          "suite": "projection fold seam",
           "name": "ProjectionFoldSeam_AllowlistEntries_CarryARationaleOwnerAndUnexpiredDate",
           "dynamic": false
         }
@@ -5990,6 +6052,17 @@
         {
           "suite": "ArtifactKind",
           "name": "NoRenderedFile_IsHandEdited",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/retired-public-names.test.ts": {
+      "file": "tests/architecture/retired-public-names.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "retired public names",
+          "name": "ConvergenceViewName_IsRemovedFromTheCliContract",
           "dynamic": false
         }
       ]
@@ -15872,11 +15945,6 @@
         {
           "suite": "runFollowLoop — #1440 Op 1 expansion to additional view actions",
           "name": "CliFollow_PipelineAction_EmitsNdjsonFrames",
-          "dynamic": false
-        },
-        {
-          "suite": "runFollowLoop — #1440 Op 1 expansion to additional view actions",
-          "name": "CliFollow_ConvergenceAction_EmitsNdjsonFrames",
           "dynamic": false
         },
         {
@@ -37013,67 +37081,6 @@
         }
       ]
     },
-    "tests/unit/projections/views/convergence-view.test.ts": {
-      "file": "tests/unit/projections/views/convergence-view.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "ConvergenceView",
-          "name": "exports the correct view name constant",
-          "dynamic": false
-        },
-        {
-          "suite": "ConvergenceView > init",
-          "name": "ConvergenceView_Init_ReturnsDefaultState",
-          "dynamic": false
-        },
-        {
-          "suite": "ConvergenceView > apply - gate.executed with dimension",
-          "name": "ConvergenceView_GateEventWithDimension_AddsToDimension",
-          "dynamic": false
-        },
-        {
-          "suite": "ConvergenceView > apply - dimension convergence",
-          "name": "ConvergenceView_AllGatesPass_DimensionConverges",
-          "dynamic": false
-        },
-        {
-          "suite": "ConvergenceView > apply - mixed results",
-          "name": "ConvergenceView_MixedResults_DimensionNotConverged",
-          "dynamic": false
-        },
-        {
-          "suite": "ConvergenceView > apply - gate.executed without dimension",
-          "name": "ConvergenceView_GateEventWithoutDimension_Ignored",
-          "dynamic": false
-        },
-        {
-          "suite": "ConvergenceView > apply - overall convergence",
-          "name": "ConvergenceView_AllDimensionsConverge_OverallConverged",
-          "dynamic": false
-        },
-        {
-          "suite": "ConvergenceView > apply - gate.executed with phase",
-          "name": "handleGateExecuted_WithPhaseInDetails_StoresPhaseOnGateResult",
-          "dynamic": false
-        },
-        {
-          "suite": "ConvergenceView > apply - gate.executed with phase",
-          "name": "handleGateExecuted_WithoutPhase_StoresUndefinedPhase",
-          "dynamic": false
-        },
-        {
-          "suite": "ConvergenceView > apply - non-gate events",
-          "name": "ConvergenceView_NonGateEvent_Ignored",
-          "dynamic": false
-        },
-        {
-          "suite": "ConvergenceView > apply - skipped gate (T-10)",
-          "name": "convergenceView_D2GateSkipped_RendersAsSkipNotPass",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/projections/views/delegation-readiness-view.test.ts": {
       "file": "tests/unit/projections/views/delegation-readiness-view.test.ts",
       "runner": "vitest:root",
@@ -37921,11 +37928,6 @@
         {
           "suite": "View Handlers > Fix 2 — synthesis_readiness distinguishes null (not measured) from false (failed)",
           "name": "SynthesisReadiness_TestsAndTypecheckNeverRan_ReportsNotMeasuredBlockers",
-          "dynamic": false
-        },
-        {
-          "suite": "View Handlers > Fix 2 — convergence falls back to state.reviews.findingsByDimension",
-          "name": "Convergence_StateFindingsCoverDimensions_RemovesFromUnchecked",
           "dynamic": false
         },
         {
@@ -39838,11 +39840,6 @@
         {
           "suite": "DR-8 analytic view contract (Task 024)",
           "name": "viewsContract_Provenance_StaysUnderEffectiveBudget_StripsInternalTaskIdsPagesRequirements",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-8 analytic view contract (Task 024)",
-          "name": "viewsContract_Convergence_StaysUnderEffectiveBudget_StripsGateResultsByDefault",
           "dynamic": false
         }
       ]
@@ -42002,7 +41999,7 @@
         },
         {
           "suite": "Runbook definitions",
-          "name": "QualityEvaluation_HasFiveSteps",
+          "name": "QualityEvaluation_HasFourSteps",
           "dynamic": false
         },
         {
@@ -48792,11 +48789,6 @@
         },
         {
           "suite": "handleOrchestrate > composite actions",
-          "name": "HandleOrchestrate_CheckDesignCompleteness_DelegatesToHandler",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOrchestrate > composite actions",
           "name": "HandleOrchestrate_CheckPlanCoverage_DelegatesToHandler",
           "dynamic": false
         },
@@ -49756,108 +49748,6 @@
         }
       ]
     },
-    "tests/unit/verbs/gates/check-convergence.test.ts": {
-      "file": "tests/unit/verbs/gates/check-convergence.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleCheckConvergence",
-          "name": "CheckConvergence_MissingFeatureId_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckConvergence",
-          "name": "CheckConvergence_AllDimensionsConverged_ReturnsPassed",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckConvergence",
-          "name": "CheckConvergence_SomeDimensionsFailing_ReturnsNotPassed",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckConvergence",
-          "name": "CheckConvergence_EmptyView_ReturnsNotPassed",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckConvergence",
-          "name": "CheckConvergence_EmitsGateEvent_FireAndForget",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckConvergence",
-          "name": "CheckConvergence_EmitsGateEvent_IncludesPhaseInDetails",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckConvergence",
-          "name": "CheckConvergence_GateEmissionFailure_DoesNotBreakHandler",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckConvergence",
-          "name": "CheckConvergence_UsesWorkflowIdAsStreamId",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckConvergence",
-          "name": "CheckConvergence_WithPhaseFilter_ReturnsOnlyMatchingGateResults",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckConvergence",
-          "name": "CheckConvergence_WithoutPhaseFilter_ReturnsAllResults",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckConvergence",
-          "name": "CheckConvergence_DimensionSummary_IncludesGateCounts",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/gates/check-coverage-thresholds.test.ts": {
-      "file": "tests/unit/verbs/gates/check-coverage-thresholds.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleCheckCoverageThresholds",
-          "name": "handleCheckCoverageThresholds_AllAbove_ReturnsPassed",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoverageThresholds",
-          "name": "handleCheckCoverageThresholds_LineBelowThreshold_ReturnsFailed",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoverageThresholds",
-          "name": "handleCheckCoverageThresholds_BranchBelowThreshold_ReturnsFailed",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoverageThresholds",
-          "name": "handleCheckCoverageThresholds_MissingCoverageFile_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoverageThresholds",
-          "name": "handleCheckCoverageThresholds_InvalidJson_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoverageThresholds",
-          "name": "handleCheckCoverageThresholds_ReportContainsMarkdownTable",
-          "dynamic": false
-        },
-        {
-          "suite": "handleCheckCoverageThresholds",
-          "name": "handleCheckCoverageThresholds_DefaultThresholds",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/gates/check-event-emissions.test.ts": {
       "file": "tests/unit/verbs/gates/check-event-emissions.test.ts",
       "runner": "vitest:root",
@@ -50279,62 +50169,6 @@
         }
       ]
     },
-    "tests/unit/verbs/gates/context-economy.test.ts": {
-      "file": "tests/unit/verbs/gates/context-economy.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleContextEconomy > input validation",
-          "name": "handleContextEconomy_MissingFeatureId_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleContextEconomy > clean code",
-          "name": "handleContextEconomy_CleanCode_ReturnsPassed",
-          "dynamic": false
-        },
-        {
-          "suite": "handleContextEconomy > findings detected",
-          "name": "handleContextEconomy_Findings_ReturnsFailWithCount",
-          "dynamic": false
-        },
-        {
-          "suite": "handleContextEconomy > gate event emission",
-          "name": "handleContextEconomy_EmitsGateEvent_WithD3Dimension",
-          "dynamic": false
-        },
-        {
-          "suite": "handleContextEconomy > phase in gate event details",
-          "name": "handleContextEconomy_EmitsGateEvent_IncludesPhaseInDetails",
-          "dynamic": false
-        },
-        {
-          "suite": "handleContextEconomy > git diff failure",
-          "name": "handleContextEconomy_GitDiffFails_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleContextEconomy > telemetry integration",
-          "name": "handleContextEconomy_WithTelemetryData_IncludesRuntimeMetricsInResult",
-          "dynamic": false
-        },
-        {
-          "suite": "handleContextEconomy > telemetry integration",
-          "name": "handleContextEconomy_WithoutTelemetryData_ReturnsZeroMetrics",
-          "dynamic": false
-        },
-        {
-          "suite": "handleContextEconomy > base branch",
-          "name": "handleContextEconomy_UnresolvedBase_IsInconclusive_NotPass",
-          "dynamic": false
-        },
-        {
-          "suite": "handleContextEconomy > base branch",
-          "name": "handleContextEconomy_ExplicitBase_IsUsedVerbatim",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/gates/contract-drift-handler.test.ts": {
       "file": "tests/unit/verbs/gates/contract-drift-handler.test.ts",
       "runner": "vitest:root",
@@ -50470,33 +50304,93 @@
         }
       ]
     },
-    "tests/unit/verbs/gates/design-completeness.test.ts": {
-      "file": "tests/unit/verbs/gates/design-completeness.test.ts",
+    "tests/unit/verbs/gates/diff-hygiene.test.ts": {
+      "file": "tests/unit/verbs/gates/diff-hygiene.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "handleDesignCompleteness (deprecated alias → check_plan_coverage, #1581 task 013) > input validation",
-          "name": "handleDesignCompleteness_MissingFeatureId_ReturnsError",
+          "suite": "the diff-hygiene rule pack > the oracle",
+          "name": "Corpus_CoversEveryRule_InBothDirections",
           "dynamic": false
         },
         {
-          "suite": "handleDesignCompleteness (deprecated alias → check_plan_coverage, #1581 task 013) > delegation",
-          "name": "CheckDesignCompleteness_DeprecatedAlias_DelegatesToPlanCoverage",
+          "suite": "the diff-hygiene rule pack > one action replaces three",
+          "name": "OneAction_ReplacesThree",
           "dynamic": false
         },
         {
-          "suite": "handleDesignCompleteness (deprecated alias → check_plan_coverage, #1581 task 013) > delegation",
-          "name": "handleDesignCompleteness_ResolvesArtifactFromState_WhenNoExplicitPath",
+          "suite": "the diff-hygiene rule pack > one action replaces three",
+          "name": "GateDirectory_ShrinksByTwo",
           "dynamic": false
         },
         {
-          "suite": "handleDesignCompleteness (deprecated alias → check_plan_coverage, #1581 task 013) > delegation",
-          "name": "handleDesignCompleteness_DelegationFailure_ReturnedVerbatim",
+          "suite": "the diff-hygiene rule pack > the pack is data",
+          "name": "RulePack_IsData_NotBranches",
           "dynamic": false
         },
         {
-          "suite": "handleDesignCompleteness (deprecated alias → check_plan_coverage, #1581 task 013) > artifact resolution failure",
-          "name": "handleDesignCompleteness_UnresolvableArtifact_ReturnsDeprecationError",
+          "suite": "the diff-hygiene rule pack > the pack is data",
+          "name": "AnEmptyPack_IsNotAPass",
+          "dynamic": false
+        },
+        {
+          "suite": "the diff-hygiene rule pack > every rule still fires exactly as it did",
+          "name": "EachRule_StillFires [%s]",
+          "dynamic": false
+        },
+        {
+          "suite": "the diff-hygiene rule pack > every rule still fires exactly as it did",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the diff-hygiene rule pack > every rule still fires exactly as it did",
+          "name": "TheDurableRows_AreUnchanged [%s]",
+          "dynamic": false
+        },
+        {
+          "suite": "the diff-hygiene rule pack > every rule still fires exactly as it did",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "the diff-hygiene rule pack > an unscoped run",
+          "name": "UnresolvedBase_IsInconclusive_NotPass",
+          "dynamic": false
+        },
+        {
+          "suite": "the diff-hygiene rule pack > an unscoped run",
+          "name": "UnscopedRun_StillAppendsOneRowPerRule",
+          "dynamic": false
+        },
+        {
+          "suite": "the diff-hygiene rule pack > carrier contracts",
+          "name": "MissingFeatureId_ReturnsError",
+          "dynamic": false
+        },
+        {
+          "suite": "the diff-hygiene rule pack > carrier contracts",
+          "name": "GitDiffFails_ReturnsError_AndScoresNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "the diff-hygiene rule pack > carrier contracts",
+          "name": "ExplicitBase_IsUsedVerbatim",
+          "dynamic": false
+        },
+        {
+          "suite": "the diff-hygiene rule pack > carrier contracts",
+          "name": "TelemetrySnapshot_TravelsOnTheCarrier",
+          "dynamic": false
+        },
+        {
+          "suite": "the diff-hygiene rule pack > carrier contracts",
+          "name": "AppendFailure_DoesNotFailTheGate",
+          "dynamic": false
+        },
+        {
+          "suite": "the diff-hygiene rule pack > the union property",
+          "name": "UnionOfRuleVerdicts_EqualsTheThreeCheckers",
           "dynamic": false
         }
       ]
@@ -51269,7 +51163,7 @@
         },
         {
           "suite": "mutation-adequacy roster characterization (PIN) > OrchestrateActionRoster_CurrentBuild_PinnedActionSet",
-          "name": "exposes exactly 82 actions (WLM operational-core #1578 added serialize_merge; DR-4 (#1630) added check_exploration_depth; WLM foundation task 008 added acquire_worktree, release_worktree, prune_worktrees; #1587 retired check_tdd_compliance; #1581 task 018 added discover_bridge; #1739 added cutover_readiness + cutover_decide; task 068 added invariants_amend; the effect-ledger remedy added reconcile_worktrees and moved stack_place here from exarchos_view)",
+          "name": "exposes exactly 75 actions (the gate triage retired check_convergence, check_design_completeness, check_coverage_thresholds, debug_review_gate and pre_synthesis_check, and folded check_context_economy + check_operational_resilience + check_workflow_determinism into check_diff_hygiene)",
           "dynamic": false
         },
         {
@@ -51737,42 +51631,6 @@
         }
       ]
     },
-    "tests/unit/verbs/gates/operational-resilience.test.ts": {
-      "file": "tests/unit/verbs/gates/operational-resilience.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleOperationalResilience > input validation",
-          "name": "handleOperationalResilience_MissingFeatureId_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOperationalResilience > clean code",
-          "name": "handleOperationalResilience_CleanCode_ReturnsPassed",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOperationalResilience > findings detected",
-          "name": "handleOperationalResilience_Findings_ReturnsFailWithCount",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOperationalResilience > gate event emission",
-          "name": "handleOperationalResilience_EmitsGateEvent_WithD4Dimension",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOperationalResilience > git diff failure",
-          "name": "handleOperationalResilience_GitDiffFails_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleOperationalResilience > base branch",
-          "name": "handleOperationalResilience_UnresolvedBase_IsInconclusive_NotPass",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/gates/plan-coverage.parity.test.ts": {
       "file": "tests/unit/verbs/gates/plan-coverage.parity.test.ts",
       "runner": "vitest:root",
@@ -52162,117 +52020,6 @@
         {
           "suite": "handlePostMerge",
           "name": "handlePostMerge_IndeterminateCheck_IsNotCollapsedToAFailure",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/gates/pre-synthesis-check.test.ts": {
-      "file": "tests/unit/verbs/gates/pre-synthesis-check.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "AllChecksPass_ReturnsPassed",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "UsesProviderListPrs_ForPrStackCheck",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "StateFileNotFound_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "PhaseNotSynthesize_ReturnsFailWithGuidance",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "IncompleteTasks_ReturnsFailWithDetails",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "ReviewsNotPassed_ReturnsFailWithDetails",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "TasksNeedsFixes_ReturnsFailWithDetails",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "SkipTests_SkipsTestExecution",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "SkipStack_SkipsPrStackCheck",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "MultipleReviewShapes_AllHandledCorrectly",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "NestedReviewShape_FailingSubReview_Detected",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "LegacyReviewShape_PassedFalse_Detected",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "InvalidJson_ReturnsFailWithDetail",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "NoTasks_ReturnsFailWithDetail",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "NoReviews_ReturnsFailWithDetail",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "RefactorOverhaulUpdateDocs_ShowsTransitionGuidance",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "DebugReviewPhase_ShowsTransitionGuidance",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "RefactorPolishTrack_NotSynthesisEligible",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "NoPrsForBranch_ReturnsFailForStack",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "FilelessMcpOnly_ResolvesFromEventStore_NoStateFileRequired",
-          "dynamic": false
-        },
-        {
-          "suite": "handlePreSynthesisCheck",
-          "name": "MalformedStateFileWithEventStoreFallback_SurfacesInvalidJson",
           "dynamic": false
         }
       ]
@@ -53376,42 +53123,6 @@
         {
           "suite": "handleVerifyWorktree",
           "name": "resolves relative paths correctly",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/gates/workflow-determinism.test.ts": {
-      "file": "tests/unit/verbs/gates/workflow-determinism.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleWorkflowDeterminism > input validation",
-          "name": "handleWorkflowDeterminism_MissingFeatureId_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleWorkflowDeterminism > clean code",
-          "name": "handleWorkflowDeterminism_CleanCode_ReturnsPassed",
-          "dynamic": false
-        },
-        {
-          "suite": "handleWorkflowDeterminism > findings detected",
-          "name": "handleWorkflowDeterminism_Findings_ReturnsFailWithCount",
-          "dynamic": false
-        },
-        {
-          "suite": "handleWorkflowDeterminism > gate event emission",
-          "name": "handleWorkflowDeterminism_EmitsGateEvent_WithD5Dimension",
-          "dynamic": false
-        },
-        {
-          "suite": "handleWorkflowDeterminism > git diff failure",
-          "name": "handleWorkflowDeterminism_GitDiffFails_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "handleWorkflowDeterminism > base branch",
-          "name": "handleWorkflowDeterminism_UnresolvedBase_IsInconclusive_NotPass",
           "dynamic": false
         }
       ]
@@ -55423,11 +55134,6 @@
       "cases": [
         {
           "suite": "exarchos_orchestrate CLI-vs-MCP parity",
-          "name": "OrchestrateParity_CheckDesignCompleteness_CliAndMcp_ReturnEqualPayload",
-          "dynamic": false
-        },
-        {
-          "suite": "exarchos_orchestrate CLI-vs-MCP parity",
           "name": "OrchestrateParity_CheckPlanCoverage_CliAndMcp_ReturnEqualPayload",
           "dynamic": false
         },
@@ -57304,52 +57010,6 @@
         {
           "suite": "handleClassifyReviewItems",
           "name": "OrchestrateClassifyReviewItems_EventStoreThrows_StillReturnsResult",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/verbs/review/debug-review-gate.test.ts": {
-      "file": "tests/unit/verbs/review/debug-review-gate.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "handleDebugReviewGate",
-          "name": "returns passed when test files exist and tests pass",
-          "dynamic": false
-        },
-        {
-          "suite": "handleDebugReviewGate",
-          "name": "returns failed when no test files in diff",
-          "dynamic": false
-        },
-        {
-          "suite": "handleDebugReviewGate",
-          "name": "returns failed when no changed files found",
-          "dynamic": false
-        },
-        {
-          "suite": "handleDebugReviewGate",
-          "name": "returns failed when npm test:run fails",
-          "dynamic": false
-        },
-        {
-          "suite": "handleDebugReviewGate",
-          "name": "skips test execution when skipRun is true",
-          "dynamic": false
-        },
-        {
-          "suite": "handleDebugReviewGate",
-          "name": "returns error when repoRoot does not exist",
-          "dynamic": false
-        },
-        {
-          "suite": "handleDebugReviewGate",
-          "name": "detects all supported test file extensions",
-          "dynamic": false
-        },
-        {
-          "suite": "handleDebugReviewGate",
-          "name": "returns error when baseBranch is empty",
           "dynamic": false
         }
       ]
@@ -60142,6 +59802,36 @@
         },
         {
           "suite": "handlePrepareSynthesis",
+          "name": "StackLeg_ProbeCannotRun_IsIndeterminate_NotAnUnhealthyStack",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "StackLeg_EmptyCommitRange_StaysAFinding_NotAnAbsence",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "DeclaredEmission_IsNowBacked",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "PhaseReadiness_IsReportedOnTheResult",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "NoTasks_IsNotAFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "OutstandingWork_IsOneLeg_NotTwo",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
           "name": "verifyStack_NonMainDefaultBranch_UsesDetectedBranch",
           "dynamic": false
         },
@@ -60233,6 +59923,36 @@
         {
           "suite": "handlePrepareSynthesis",
           "name": "PrepareSynthesis_RelativeRepoRoot_IsRefusedLikeAMissingOne",
+          "dynamic": false
+        },
+        {
+          "suite": "phase readiness (absorbed, derived from the state machine)",
+          "name": "PhaseReadiness_CoversOneshotAndDiscovery",
+          "dynamic": false
+        },
+        {
+          "suite": "phase readiness (absorbed, derived from the state machine)",
+          "name": "PhaseReadiness_ReviewPhase_NamesTheRemainingTransition",
+          "dynamic": false
+        },
+        {
+          "suite": "phase readiness (absorbed, derived from the state machine)",
+          "name": "PhaseReadiness_PolishTrack_IsUnreachable_NotAnUnknownWorkflow",
+          "dynamic": false
+        },
+        {
+          "suite": "phase readiness (absorbed, derived from the state machine)",
+          "name": "PhaseReadiness_UnregisteredWorkflowType_IsNotApplicable_NotAFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "phase readiness (absorbed, derived from the state machine)",
+          "name": "PhaseReadiness_EveryBuiltInWorkflowType_GetsAnAnswer",
+          "dynamic": false
+        },
+        {
+          "suite": "the departing gate leaves nothing behind",
+          "name": "PreSynthesisCheck_IsNoLongerDeclared",
           "dynamic": false
         },
         {
@@ -63305,11 +63025,6 @@
         {
           "suite": "projections/views/tools.ts composite error paths > HandleViewShepherdStatus_QueryThrowsNonError_ReturnsViewError",
           "name": "should return VIEW_ERROR when queryDeltaEvents throws a string error",
-          "dynamic": false
-        },
-        {
-          "suite": "projections/views/tools.ts composite error paths > HandleViewConvergence_QueryThrowsError_ReturnsViewError",
-          "name": "should return VIEW_ERROR when queryDeltaEvents throws an Error",
           "dynamic": false
         },
         {
@@ -70315,7 +70030,7 @@
         },
         {
           "suite": "Feature workflow playbooks",
-          "name": "getPlaybook_FeatureSynthesize_HasPreSynthesisScript",
+          "name": "getPlaybook_FeatureSynthesize_NamesTheSynthesisReadinessGate",
           "dynamic": false
         },
         {

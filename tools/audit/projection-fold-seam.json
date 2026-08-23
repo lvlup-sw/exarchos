@@ -63,6 +63,7 @@
     "why": "The pre-fix bypass copied verbatim from src/workflow/handlers/get.ts@529348175. The guard must report it. A guard with no failing subject has no evidence that it works.",
     "expectedMember": "materialize"
   },
-  "minimumCallSites": 1,
+  "minimumCallSitesWhy": "A floor of 1 proves the seam is not dead; it cannot see the seam SHRINKING. Retiring the convergence view removed two of its callers at once, and a floor of 1 would have absorbed that silently — so the floor is the measured surviving population, and a caller leaving the seam has to be argued in this file rather than noticed by nobody.",
+  "minimumCallSites": 20,
   "minimumScannedFiles": 200
 }

@@ -36,7 +36,6 @@ vi.mock('../../../../src/projections/views/tools.js', async (importOriginal) => 
     handleViewSynthesisReadiness: vi.fn().mockResolvedValue({ success: true, data: { ready: false, blockers: [] } }),
     handleViewShepherdStatus: vi.fn().mockResolvedValue({ success: true, data: { overallStatus: 'unknown', prs: [], iteration: 0, maxIterations: 5 } }),
     handleViewProvenance: vi.fn().mockResolvedValue({ success: true, data: { featureId: '', requirements: [], coverage: 0, orphanTasks: [] } }),
-    handleViewConvergence: vi.fn().mockResolvedValue({ success: true, data: { workflows: [] } }),
   };
 });
 

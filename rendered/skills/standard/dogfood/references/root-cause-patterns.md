@@ -41,7 +41,7 @@ Each pattern includes a **Debug trace check** showing which MCP self-service que
 
 **Diagnosis:** Check if the gate has exemption logic for the task's characteristics (file types changed, task category). If not, the gate needs conditional enforcement.
 
-**Debug trace check:** Use `exarchos_orchestrate describe(actions: ['check_test_adequacy'])` to inspect gate metadata (blocking, dimension). Use `exarchos_view convergence` to see if this gate is systematically failing. Use `exarchos_workflow get` to check task metadata that should trigger exemptions.
+**Debug trace check:** Use `exarchos_orchestrate describe(actions: ['check_test_adequacy'])` to inspect gate metadata (blocking, dimension). Use `exarchos_view gate_reliability` to see whether this gate is systemically unreliable. Use `exarchos_workflow get` to check task metadata that should trigger exemptions.
 
 **Examples:** TDD gate on docs-only tasks
 

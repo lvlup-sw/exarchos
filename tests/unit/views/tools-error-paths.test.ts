@@ -4,7 +4,6 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import {
   handleViewShepherdStatus,
-  handleViewConvergence,
   handleViewProvenance,
   resetMaterializerCache,
 } from '../../../src/projections/views/tools.js';
@@ -59,24 +58,6 @@ describe('projections/views/tools.ts composite error paths', () => {
       expect(result.error!.code).toBe('VIEW_ERROR');
       // Non-Error objects are stringified via String()
       expect(result.error!.message).toBe('string error from query');
-    });
-  });
-
-  // ─── T-12.2: Convergence — queryDeltaEvents throws Error ──────────────────
-
-  describe('HandleViewConvergence_QueryThrowsError_ReturnsViewError', () => {
-    it('should return VIEW_ERROR when queryDeltaEvents throws an Error', async () => {
-      const storeModule = await import('../../../src/events/store.js');
-      vi.spyOn(storeModule.EventStore.prototype, 'query').mockImplementation(() => {
-        throw new Error('connection lost');
-      });
-
-      const result = await handleViewConvergence({}, tempDir, store);
-
-      expect(result.success).toBe(false);
-      expect(result.error).toBeDefined();
-      expect(result.error!.code).toBe('VIEW_ERROR');
-      expect(result.error!.message).toBe('connection lost');
     });
   });
 

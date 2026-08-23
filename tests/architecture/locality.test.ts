@@ -53,8 +53,11 @@ const EXEMPTIONS: Record<string, Exemption> = {
       'One module per quality gate — small, independent, uniform. Breadth here is a count of ' +
       'gates, not coupling, which is the honest case for an exemption. Reducing it means grouping ' +
       'the gates into families under subdirectories; until someone does, the count is pinned so ' +
-      'adding a gate is a deliberate act rather than a drift.',
-    grantedAt: 40,
+      'adding a gate is a deliberate act rather than a drift. Re-pinned downward after the gate ' +
+      'triage retired five modules and folded three diff scanners into one rule pack: the pin ' +
+      'records what the directory actually holds, so the headroom a retirement creates cannot be ' +
+      'spent silently by the next addition.',
+    grantedAt: 34,
   },
   'src/workflow': {
     reason:

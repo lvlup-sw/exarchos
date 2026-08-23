@@ -86,23 +86,52 @@ function trackedTestFiles(): string[] {
  * could stay green while the check it claims to prove was broken, which is the
  * failure mode a kill probe exists to rule out. Both now call this.
  *
- * A baseline path is accounted for when it is still tracked, or when a
- * relocation points at something that is.
+ * A baseline path is accounted for when it is still tracked, when a relocation
+ * points at something that is, or when the path the chain ends at is named in
+ * the retirement register — a test deleted ON PURPOSE. Nothing else counts: a
+ * deletion with no register row is indistinguishable from a suite dropped by a
+ * stale glob, which is the whole reason this oracle exists.
  */
 function unaccountedFor(
   baselinePaths: readonly string[],
   current: ReadonlySet<string>,
   relocations: readonly { from: string; to: string }[],
+  retired: ReadonlySet<string> = new Set(),
 ): string[] {
-  const relocated = new Map(relocations.map((r) => [r.from, r.to]));
+  const landingOf = relocationResolver(relocations);
 
-  // The ledger is APPEND-ONLY — every move task adds a hop rather than
-  // rewriting an existing one — so a file that has moved twice is recorded as
-  // two entries, and following one hop reports it as lost. A file relocated
-  // into `tests/` and later moved again within it is the ordinary case, not an
-  // exotic one. The `seen` set bounds the walk: a cycle would otherwise hang
-  // here, and a ledger can contain one by mistake.
-  const resolve = (start: string): string => {
+  return baselinePaths.filter((rel) => {
+    if (current.has(rel)) return false;
+    const landed = landingOf(rel);
+    if (current.has(landed)) return false;
+    // A deliberate deletion is accounted for only when the register below names
+    // the path the chain ENDED at. The parameter defaults to empty so every
+    // caller that does not opt in — including all four kill probes — keeps
+    // driving the un-amnestied path.
+    return !retired.has(landed);
+  });
+}
+
+/**
+ * Follow a path through the ledger to where it finally landed.
+ *
+ * The ledger is APPEND-ONLY — every move task adds a hop rather than
+ * rewriting an existing one — so a file that has moved twice is recorded as
+ * two entries, and following one hop reports it as lost. A file relocated
+ * into `tests/` and later moved again within it is the ordinary case, not an
+ * exotic one. The `seen` set bounds the walk: a cycle would otherwise hang
+ * here, and a ledger can contain one by mistake.
+ *
+ * Hoisted out of {@link unaccountedFor} so the retirement register's own
+ * assertions resolve chains the SAME way the reconciliation does — a register
+ * checked against a second, hand-rolled walk could agree with itself while
+ * disagreeing with the check it exists to serve.
+ */
+function relocationResolver(
+  relocations: readonly { from: string; to: string }[],
+): (start: string) => string {
+  const relocated = new Map(relocations.map((r) => [r.from, r.to]));
+  return (start: string): string => {
     let at = start;
     const seen = new Set<string>([at]);
     for (;;) {
@@ -112,11 +141,6 @@ function unaccountedFor(
       at = next;
     }
   };
-
-  return baselinePaths.filter((rel) => {
-    if (current.has(rel)) return false;
-    return !current.has(resolve(rel));
-  });
 }
 
 /**
@@ -138,6 +162,115 @@ const FORMER_TEST_ROOTS: ReadonlyArray<{ prefix: string; task: string }> = [
   // correctly, since there would be nothing there to reconcile.
   { prefix: 'eslint-rules/', task: '036' },
   { prefix: 'renovate-config/', task: '036' },
+];
+
+/**
+ * Tests deleted ON PURPOSE by the gate-triage pass, and why each one went.
+ *
+ * The ledger records where a test WENT. It has no way to say a test was
+ * retired, so a deliberate deletion reaches {@link unaccountedFor} looking
+ * exactly like a suite silently dropped by a stale include glob — the one
+ * failure this whole oracle exists to catch. Recording the retirement keeps the
+ * two distinguishable, instead of relaxing the check that tells them apart.
+ *
+ * Same shape as the register in `retired-public-names.test.ts`: the set is
+ * DATA, every row states a reason a reviewer reads before deleting anything
+ * else, and `TestInventory_RetirementRegister_IsHonestAndNotInert` refuses a
+ * row that is stale (its file is back) or inert (no chain ever ended there).
+ *
+ * `path` is the path the relocation chain ENDS at, not where the test started.
+ */
+interface RetiredTest {
+  /** Where the chain landed — the file that was actually deleted. */
+  readonly path: string;
+  /** Why it went, in one line. */
+  readonly why: string;
+}
+
+const RETIRED_TESTS: readonly RetiredTest[] = [
+  {
+    path: 'tests/unit/verbs/gates/design-completeness.test.ts',
+    why:
+      'check_design_completeness was a self-declared deprecated alias that delegated to ' +
+      'check_plan_coverage, so every case here exercised the survivor through one extra hop.',
+  },
+  {
+    path: 'tests/unit/verbs/gates/check-coverage-thresholds.test.ts',
+    why:
+      'check_coverage_thresholds is retired: it read Istanbul/Jest coverage-summary.json ' +
+      'shapes directly, which is the toolchain literal this spec exists to remove, and no ' +
+      'runbook chain or resolver sequence reached it.',
+  },
+  {
+    path: 'tests/unit/verbs/gates/check-convergence.test.ts',
+    why:
+      'check_convergence attributed a gate result by reading details.dimension, which the ' +
+      'durable gate runner never stamps, so its aggregate verdict was unsatisfiable on any ' +
+      'automated path. gate.dimension itself is kept; only this consumer retires.',
+  },
+  {
+    path: 'tests/unit/projections/views/convergence-view.test.ts',
+    why:
+      'ConvergenceView and the convergence CLI view name retire with check_convergence — an ' +
+      'INV-2 contract change called out as such. The surviving surfaces are pinned by ' +
+      'tests/architecture/retired-public-names.test.ts.',
+  },
+  {
+    path: 'tests/unit/verbs/gates/context-economy.test.ts',
+    why:
+      'Consolidated: check_context_economy was measured to be one of exactly three getDiff ' +
+      'callers among the gates, structurally identical to the other two. Its coverage moved ' +
+      'to the single diff-scanner in tests/unit/verbs/gates/diff-hygiene.test.ts.',
+  },
+  {
+    path: 'tests/unit/verbs/gates/operational-resilience.test.ts',
+    why:
+      'Consolidated with context-economy and workflow-determinism into the one diff-scanner ' +
+      'with a rule pack; its coverage moved to tests/unit/verbs/gates/diff-hygiene.test.ts.',
+  },
+  {
+    path: 'tests/unit/verbs/gates/workflow-determinism.test.ts',
+    why:
+      'Consolidated with context-economy and operational-resilience into the one diff-scanner ' +
+      'with a rule pack; its coverage moved to tests/unit/verbs/gates/diff-hygiene.test.ts.',
+  },
+  {
+    path: 'tests/unit/verbs/gates/pre-synthesis-check.test.ts',
+    why:
+      'pre_synthesis_check was a blocking orphan nothing invoked. It folded INTO ' +
+      'prepare_synthesis, carrying its resolver and provider seams across, so its cases now ' +
+      'run against the survivor in tests/unit/verbs/team/prepare-synthesis.test.ts.',
+  },
+  {
+    path: 'tests/unit/verbs/review/debug-review-gate.test.ts',
+    why:
+      'debug_review_gate held the last npm run test:run literal in the gate population and no ' +
+      'chain reached it. Recorded operator decision of 2026-08-22 was to delete rather than ' +
+      'wire it, closing the literal and the orphan together.',
+  },
+];
+
+/** The retired chain terminuses, in the shape {@link unaccountedFor} wants. */
+const retiredPaths = (): ReadonlySet<string> => new Set(RETIRED_TESTS.map((r) => r.path));
+
+/**
+ * Retired CASE ids — the same register, one level down.
+ *
+ * A file can survive while a case inside it goes, and the path-independent
+ * identity cannot tell a deleted case from a renamed one. This names the cases
+ * the triage pass deleted along with the code they covered, so the task 002
+ * audit below stays a real check rather than being relaxed to accommodate them.
+ */
+const RETIRED_CASES: readonly RetiredTest[] = [
+  {
+    path:
+      'projections/views/tools.ts composite error paths > ' +
+      'HandleViewConvergence_QueryThrowsError_ReturnsViewError::should return VIEW_ERROR when ' +
+      'queryDeltaEvents throws an Error',
+    why:
+      'The error path of the convergence view handler, which retires with the view itself. ' +
+      'Its subject is gone, so the case cannot be re-homed onto a survivor.',
+  },
 ];
 
 describe('test inventory', () => {
@@ -250,7 +383,7 @@ describe('test inventory', () => {
       ).toBeGreaterThan(0);
 
       expect(
-        unaccountedFor(fromHere, current, inventory.relocations),
+        unaccountedFor(fromHere, current, inventory.relocations, retiredPaths()),
         `tests lost from ${prefix} (task ${task})`,
       ).toEqual([]);
     }
@@ -275,10 +408,98 @@ describe('test inventory', () => {
     const resurrected = reconciliation.renames.filter((r) => current.has(r.from));
     expect(resurrected.map((r) => r.from), 'a retired case id is live again — re-audit').toEqual([]);
 
-    const missingDestinations = reconciliation.renames.filter((r) => !current.has(r.to));
+    // The case-level register, held to the same two conditions as the file-level
+    // one: a retired case must actually be GONE, and it must actually be a
+    // destination this ledger names. Either one failing makes the exemption a
+    // hole rather than a record.
+    const retiredCases = new Set(RETIRED_CASES.map((c) => c.path));
+    const destinations = new Set(reconciliation.renames.map((r) => r.to));
+    for (const { path: id, why } of RETIRED_CASES) {
+      expect(why.length, `a retired case is registered with no stated reason: ${id}`).toBeGreaterThan(40);
+      expect(current.has(id), `\`${id}\` is registered as retired but is live — drop the row`).toBe(false);
+      expect(
+        destinations.has(id),
+        `\`${id}\` is registered as retired but is not a rename destination — inert row`,
+      ).toBe(true);
+    }
+
+    const missingDestinations = reconciliation.renames.filter(
+      (r) => !current.has(r.to) && !retiredCases.has(r.to),
+    );
     expect(
       missingDestinations.map((r) => `${r.from}  ->  ${r.to}`),
       'a rename destination no longer exists — the case was lost after all',
+    ).toEqual([]);
+  });
+
+  it('TestInventory_RetirementRegister_IsHonestAndNotInert', () => {
+    // An escape hatch is only as good as the conditions on using it. Two, and
+    // a row has to satisfy both:
+    //
+    //   STALE — the file is tracked again. The row now exempts a live test from
+    //     reconciliation, which is worse than no register at all.
+    //   INERT — no relocation chain ends at the path. Nothing was ever exempted,
+    //     so the row proves nothing and is most likely a typo, which would leave
+    //     the real deletion unaccounted for while reading as handled.
+    const current = new Set(trackedTestFiles());
+    const landingOf = relocationResolver(inventory.relocations);
+    const landings = new Set(inventory.relocations.map((r) => landingOf(r.from)));
+
+    // Denominator: an empty register would make the loop below pass by never
+    // running, which is how this repo's guards go vacuous rather than red.
+    expect(
+      RETIRED_TESTS.length,
+      'the retirement register is empty — this check governs nothing',
+    ).toBeGreaterThan(0);
+    expect(landings.size, 'the relocation ledger resolves no landings').toBeGreaterThan(100);
+
+    const paths = RETIRED_TESTS.map((r) => r.path);
+    expect(new Set(paths).size, 'the register names the same path twice').toBe(paths.length);
+
+    for (const { path: retired, why } of RETIRED_TESTS) {
+      expect(why.length, `${retired} is retired with no stated reason`).toBeGreaterThan(40);
+      expect(
+        current.has(retired),
+        `${retired} is registered as retired but is tracked again — drop the row`,
+      ).toBe(false);
+      expect(
+        landings.has(retired),
+        `no relocation chain ends at ${retired}, so registering it retires nothing — ` +
+          'check the path against the ledger',
+      ).toBe(true);
+    }
+  });
+
+  it('TestInventory_DeletionWithoutARetirement_IsStillReported', () => {
+    // The kill probe for the register: it must exempt the paths it NAMES and
+    // nothing else. A register that widened into a blanket amnesty would turn
+    // every case above green while the oracle stopped watching — the same
+    // shape as the membership-only check the reconciliation already rejects.
+    const current = new Set(trackedTestFiles());
+    const from = 'src/__deleted-without-a-record__.test.ts';
+    const to = 'tests/unit/__deleted-without-a-record__.test.ts';
+
+    expect(
+      unaccountedFor(
+        [from],
+        current,
+        [...inventory.relocations, { from, to }],
+        retiredPaths(),
+      ),
+      'a deletion absent from the retirement register was treated as accounted for',
+    ).toEqual([from]);
+
+    // And the converse, so the case above is not passing because the register
+    // is simply being ignored: the SAME dangling chain reconciles clean once
+    // its landing is registered.
+    expect(
+      unaccountedFor(
+        [from],
+        current,
+        [...inventory.relocations, { from, to }],
+        new Set([...retiredPaths(), to]),
+      ),
+      'a registered retirement was still reported as lost',
     ).toEqual([]);
   });
 

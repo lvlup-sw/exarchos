@@ -28,7 +28,7 @@ Three distinct failure modes require different fixes — code changes, documenta
 
 Per `docs/designs/archive/2026-03-09-platform-agnosticity.md`: the MCP server is the self-sufficient, platform-agnostic core. The debug trace relies entirely on MCP tools — not conversation introspection — so it works for any MCP client. Conversation scanning is supplementary.
 
-**Diagnostic self-service tools:** `describe(topology)` for HSM verification, `describe(playbook)` for adherence checks, `describe(eventTypes, emissionGuide)` for event schema/catalog comparison, `describe(actions)` for schema/gate metadata, `runbook(phase)` for step conformance, `pipeline`/`convergence`/`telemetry` views for health metrics.
+**Diagnostic self-service tools:** `describe(topology)` for HSM verification, `describe(playbook)` for adherence checks, `describe(eventTypes, emissionGuide)` for event schema/catalog comparison, `describe(actions)` for schema/gate metadata, `runbook(phase)` for step conformance, `pipeline`/`telemetry`/`gate_reliability` views for health metrics.
 
 ## Triggers
 
@@ -80,7 +80,7 @@ Use `exarchos_event query(stream)` on the workflow's event stream. Look for:
 
 1. **Schema verification** — `exarchos_orchestrate describe(actions: [...])` for authoritative schemas. Compare agent's parameters against schema to detect stale skill docs or improvisation.
 2. **Gate metadata** — Describe output includes `{ blocking, dimension, autoEmits }`. Check: did the agent treat blocking/non-blocking correctly? Did expected auto-emissions fire?
-3. **Gate convergence** — `exarchos_view convergence` for per-dimension (D1-D5) pass rates. Low convergence suggests systemic gate issues.
+3. **Gate outcomes** — every gate writes a durable `gate.executed` row carrying its own dimension. Read them with `exarchos_event query(stream: "<featureId>")` and group by dimension for D1-D5 coverage; a dimension with no row is uncovered, not passing. `exarchos_view gate_reliability` adds the per-gate false-positive rate and verdict provenance — a high rate suggests a systemic gate issue.
 
 #### 1f. Runbook Conformance Check
 

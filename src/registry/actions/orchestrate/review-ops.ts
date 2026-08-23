@@ -20,33 +20,12 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
     outputSchema: vacuityWaiver('exarchos_orchestrate.reconcile_state'),
     annotations: LOCAL_MUTATION,
   },
-  {
-    name: 'pre_synthesis_check',
-    description: 'Run pre-synthesis checks: task completion, reviews, tests, and stack health',
-    schema: z.object({
-      // featureId OR stateFile — the handler enforces "at least one source".
-      featureId: z.string().min(1).optional(),
-      // INV-1: the event store is the sole source of truth. `stateFile` is an
-      // optional override; when omitted the gate materializes state from the
-      // event store via `featureId` (MCP-only workflows have no `.state.json`).
-      stateFile: z.string().min(1).optional(),
-      repoRoot: z.string().optional(),
-      skipTests: z.boolean().optional(),
-      skipStack: z.boolean().optional(),
-      testCommand: z.string().optional(),
-    }),
-    phases: new Set<string>(['synthesize']),
-    roles: ROLE_LEAD,
-    gate: { blocking: true },
-    // DR-5: runs the full project test suite + typecheck + build + stack
-    // assessment; routinely seconds-to-minutes on real repos.
-    longRunning: true,
-    autoEmits: [
-      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
-    ],
-    outputSchema: vacuityWaiver('exarchos_orchestrate.pre_synthesis_check'),
-    annotations: LOCAL_MUTATION,
-  },
+  // `pre_synthesis_check` stood here. It was a blocking gate no runbook, skill
+  // or handler ever invoked, duplicating the readiness legs `prepare_synthesis`
+  // already owns — and it declared an UNCONDITIONAL primary `gate.executed`
+  // that its handler never made, so the population carried a promise nothing
+  // could keep. Its two better seams were carried into `prepare_synthesis`
+  // before it went; the rest of it went with it.
   {
     name: 'check_coderabbit',
     description: 'Query CodeRabbit review state on GitHub PRs — APPROVED/NONE → pass, else fail',

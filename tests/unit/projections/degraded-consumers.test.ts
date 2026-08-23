@@ -167,10 +167,6 @@ describe('#1855 — every readiness/workflow/reliability consumer answers', () =
       run: () => handleWorkflow({ action: 'get', featureId: STREAM }, ctx),
     },
     {
-      label: 'exarchos_orchestrate check_convergence (reliability)',
-      run: () => handleOrchestrate({ action: 'check_convergence', featureId: STREAM }, ctx),
-    },
-    {
       label: 'exarchos_orchestrate check_event_emissions (reliability)',
       run: () => handleOrchestrate({ action: 'check_event_emissions', featureId: STREAM }, ctx),
     },

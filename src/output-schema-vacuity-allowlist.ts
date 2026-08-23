@@ -129,16 +129,11 @@ export const VACUITY_ALLOWLIST = Object.freeze({
   'exarchos_orchestrate.assess_stack': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_ci': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_coderabbit': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_orchestrate.check_context_economy': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_contract_drift': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_orchestrate.check_convergence': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_orchestrate.check_coverage_thresholds': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_orchestrate.check_design_completeness': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_event_emissions': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_exploration_depth': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_integration_suite': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_mock_boundary': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_orchestrate.check_operational_resilience': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_plan_coverage': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_polish_scope': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_post_merge': { owner: 'orchestration', expires: '2027-02-28' },
@@ -149,11 +144,9 @@ export const VACUITY_ALLOWLIST = Object.freeze({
   'exarchos_orchestrate.check_static_analysis': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_task_decomposition': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_test_adequacy': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_orchestrate.check_workflow_determinism': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.classify_review_items': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.create_issue': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.create_pr': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_orchestrate.debug_review_gate': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.describe': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.discover_bridge': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.doctor': { owner: 'orchestration', expires: '2027-02-28' },
@@ -172,7 +165,6 @@ export const VACUITY_ALLOWLIST = Object.freeze({
   'exarchos_orchestrate.needs_schema_sync': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.onboard': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.post_delegation_check': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_orchestrate.pre_synthesis_check': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.prepare_delegation': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.prepare_review': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.prepare_synthesis': { owner: 'orchestration', expires: '2027-02-28' },
@@ -197,7 +189,6 @@ export const VACUITY_ALLOWLIST = Object.freeze({
   'exarchos_orchestrate.verify_worktree_baseline': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_sync.now': { owner: 'workflow-platform', expires: '2026-12-06' },
   'exarchos_view.code_quality': { owner: 'views', expires: '2027-01-17' },
-  'exarchos_view.convergence': { owner: 'views', expires: '2027-01-17' },
   'exarchos_view.delegation_readiness': { owner: 'views', expires: '2027-01-17' },
   'exarchos_view.delegation_timeline': { owner: 'views', expires: '2027-01-17' },
   'exarchos_view.describe': { owner: 'views', expires: '2027-01-17' },
@@ -288,6 +279,81 @@ export const VACUITY_RETIRED: Readonly<Record<string, VacuityRetiredEntry>> = Ob
   'exarchos_view.stack_place': {
     owner: 'views',
     retiredAt: '2026-08-17',
+  },
+  // RETIRED BY DELETION, not by paydown. The `convergence` view name and its
+  // projection were removed: the view attributed a gate result by reading
+  // `details.dimension`, which the durable gate runner never stamps, so the
+  // only two D2 gates were invisible to it and D2 could never converge. The
+  // waiver MOVED here rather than being deleted so the seed key set — and
+  // therefore `VACUITY_SEED_KEY_SET_DIGEST` — is unchanged; tooth 2 would
+  // otherwise report it stale forever against a declaration that no longer
+  // exists.
+  'exarchos_view.convergence': {
+    owner: 'views',
+    retiredAt: '2026-08-22',
+  },
+  // RETIRED BY DELETION, not by paydown. `pre_synthesis_check` was a blocking
+  // gate nothing invoked, duplicating legs `prepare_synthesis` already owns.
+  // The waiver MOVED here for the same reason as the row above it: deleting the
+  // line would shrink the seed key set the digest pins, and leaving it in the
+  // allowlist would have tooth 2 report it stale against a declaration that no
+  // longer exists.
+  'exarchos_orchestrate.pre_synthesis_check': {
+    owner: 'orchestration',
+    retiredAt: '2026-08-22',
+  },
+  // RETIRED BY DELETION, not by paydown. `check_coverage_thresholds` parsed one
+  // ecosystem's `coverage-summary.json` and nothing else, so on any other
+  // carrier its only outcome was an `INVALID_JSON` error envelope — the shape a
+  // gate that cannot conclude must not return. It recorded nothing and no
+  // runbook or resolver reached it. Same MOVE rationale as the rows above.
+  'exarchos_orchestrate.check_coverage_thresholds': {
+    owner: 'orchestration',
+    retiredAt: '2026-08-22',
+  },
+  // RETIRED BY DELETION, not by paydown. `debug_review_gate` was blocking,
+  // orphaned and silent, and its stated job — test files exist and pass for the
+  // changed files — is `check_test_adequacy`'s, which is already bound to
+  // `debug-implement`. Same MOVE rationale as the rows above.
+  'exarchos_orchestrate.debug_review_gate': {
+    owner: 'orchestration',
+    retiredAt: '2026-08-22',
+  },
+  // RETIRED BY DELETION, not by paydown. `check_convergence` required every one
+  // of D1-D5 to have converged, and D2 was stamped by nobody: the durable gate
+  // runner writes no `details.dimension`, and both D2 gates route through it.
+  // Its verdict was therefore false on every input. Same MOVE rationale as the
+  // rows above.
+  'exarchos_orchestrate.check_convergence': {
+    owner: 'orchestration',
+    retiredAt: '2026-08-23',
+  },
+  // RETIRED BY DELETION, not by paydown. `check_design_completeness` was a
+  // deprecated alias that delegated to `check_plan_coverage` on the unified
+  // artifact; the acceptance-criteria check it once owned folded into that gate.
+  // Same MOVE rationale as the rows above.
+  'exarchos_orchestrate.check_design_completeness': {
+    owner: 'orchestration',
+    retiredAt: '2026-08-23',
+  },
+  // RETIRED BY CONSOLIDATION, not by paydown. The three diff scanners are one
+  // action now — `check_diff_hygiene`, whose rule pack still writes one durable
+  // row per rule under each rule's own gate name and dimension, so the severity
+  // keys these ids used to address resolve unchanged. The new action declares a
+  // real capped output schema rather than inheriting a waiver, which is why
+  // these three ids are retired rather than renamed: a waiver id is the literal
+  // union of the seeded keys, and a new id could not join it.
+  'exarchos_orchestrate.check_context_economy': {
+    owner: 'orchestration',
+    retiredAt: '2026-08-23',
+  },
+  'exarchos_orchestrate.check_operational_resilience': {
+    owner: 'orchestration',
+    retiredAt: '2026-08-23',
+  },
+  'exarchos_orchestrate.check_workflow_determinism': {
+    owner: 'orchestration',
+    retiredAt: '2026-08-23',
   },
 });
 

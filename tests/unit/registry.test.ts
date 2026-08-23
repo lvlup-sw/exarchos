@@ -739,7 +739,11 @@ describe('TOOL_REGISTRY', () => {
       // reclaim and the launch / merge reconcilers, moved off `exarchos_view.ps
       // probe:true`) and re-parented `stack_place` from `exarchos_view`, so the
       // second is a MOVE and not a new capability: 80 → 82.
-      expect(composite!.actions).toHaveLength(82);
+      // The gate triage retired five actions outright (check_convergence,
+      // check_design_completeness, check_coverage_thresholds, debug_review_gate,
+      // pre_synthesis_check) and folded the three diff scanners into one
+      // check_diff_hygiene, so the surface loses seven: 82 → 75.
+      expect(composite!.actions).toHaveLength(75);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -751,7 +755,6 @@ describe('TOOL_REGISTRY', () => {
           'prepare_delegation',
           'prepare_synthesis',
           'assess_stack',
-          'check_design_completeness',
           'check_plan_coverage',
           'check_test_adequacy',
           'check_contract_drift',
@@ -760,11 +763,8 @@ describe('TOOL_REGISTRY', () => {
           'check_task_decomposition',
           'check_static_analysis',
           'check_security_scan',
-          'check_context_economy',
-          'check_operational_resilience',
-          'check_workflow_determinism',
+          'check_diff_hygiene',
           'check_review_verdict',
-          'check_convergence',
           'check_provenance_chain',
           'check_event_emissions',
           'extract_task',
@@ -772,12 +772,10 @@ describe('TOOL_REGISTRY', () => {
           'verify_worktree',
           'select_debug_track',
           'investigation_timer',
-          'check_coverage_thresholds',
           'assess_refactor_scope',
           'check_pr_comments',
           'validate_pr_body',
           'validate_pr_stack',
-          'debug_review_gate',
           'extract_fix_tasks',
           'generate_traceability',
           'spec_coverage_check',
@@ -786,7 +784,6 @@ describe('TOOL_REGISTRY', () => {
           'verify_delegation_saga',
           'post_delegation_check',
           'reconcile_state',
-          'pre_synthesis_check',
           'check_coderabbit',
           'check_polish_scope',
           'needs_schema_sync',
@@ -1753,9 +1750,9 @@ describe('Gate Metadata', () => {
     // that returns missing event suggestions, not a gate with blocking/dimension metadata.
     const expectedCheckActions = new Set([
       'check_static_analysis', 'check_security_scan',
-      'check_context_economy', 'check_operational_resilience', 'check_workflow_determinism',
-      'check_review_verdict', 'check_convergence', 'check_provenance_chain',
-      'check_design_completeness', 'check_plan_coverage', 'check_task_decomposition',
+      'check_diff_hygiene',
+      'check_review_verdict', 'check_provenance_chain',
+      'check_plan_coverage', 'check_task_decomposition',
       'check_post_merge',
     ]);
     const visited = new Set<string>();
@@ -2080,15 +2077,16 @@ describe('Plugin Integration Registry Wiring', () => {
   });
 });
 
-// #1499 — WS2 migrated pre_synthesis_check / verify_review_triage /
-// extract_fix_tasks to resolveWorkflowState (event-store fallback). featureId
-// MUST stay optional so the shipped stateFile-only skill callers
-// (quality-review Step 0.5, delegation fix-mode) are not rejected at the
-// dispatch boundary. The "at least one source" cross-field rule lives in the
-// handlers (Zod single-field `.min(1)` can't express it).
+// #1499 — WS2 migrated verify_review_triage / extract_fix_tasks to
+// resolveWorkflowState (event-store fallback). featureId MUST stay optional so
+// the shipped stateFile-only skill callers (quality-review Step 0.5, delegation
+// fix-mode) are not rejected at the dispatch boundary. The "at least one
+// source" cross-field rule lives in the handlers (Zod single-field `.min(1)`
+// can't express it). `pre_synthesis_check` was the third member and is retired;
+// its legs live in `prepare_synthesis`, which resolves state from the event
+// store alone and therefore declares no `stateFile` override to guard.
 describe('#1499 state-source migration schema (regression guard)', () => {
   it.each([
-    'pre_synthesis_check',
     'verify_review_triage',
     'extract_fix_tasks',
   ])('%s accepts a stateFile-only input (featureId optional)', (action) => {
@@ -2940,13 +2938,9 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.check_static_analysis': 2000,
   'exarchos_orchestrate.check_integration_suite': 2000,
   'exarchos_orchestrate.check_security_scan': 2000,
-  'exarchos_orchestrate.check_context_economy': 2000,
-  'exarchos_orchestrate.check_operational_resilience': 2000,
-  'exarchos_orchestrate.check_workflow_determinism': 2000,
+  'exarchos_orchestrate.check_diff_hygiene': 2000,
   'exarchos_orchestrate.check_review_verdict': 2000,
-  'exarchos_orchestrate.check_convergence': 2000,
   'exarchos_orchestrate.check_provenance_chain': 2000,
-  'exarchos_orchestrate.check_design_completeness': 2000,
   'exarchos_orchestrate.check_plan_coverage': 2000,
   'exarchos_orchestrate.check_exploration_depth': 2000,
   'exarchos_orchestrate.check_test_adequacy': 2000,
@@ -2962,12 +2956,10 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.verify_worktree': 2000,
   'exarchos_orchestrate.select_debug_track': 2000,
   'exarchos_orchestrate.investigation_timer': 2000,
-  'exarchos_orchestrate.check_coverage_thresholds': 2000,
   'exarchos_orchestrate.assess_refactor_scope': 2000,
   'exarchos_orchestrate.check_pr_comments': 2000,
   'exarchos_orchestrate.validate_pr_body': 2000,
   'exarchos_orchestrate.validate_pr_stack': 2000,
-  'exarchos_orchestrate.debug_review_gate': 2000,
   'exarchos_orchestrate.extract_fix_tasks': 2000,
   'exarchos_orchestrate.classify_review_items': 2000,
   'exarchos_orchestrate.generate_traceability': 2000,
@@ -2981,7 +2973,6 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.stack_place': 2000,
   'exarchos_orchestrate.reconcile_worktrees': 2000,
   'exarchos_orchestrate.stack_place': 2000,
-  'exarchos_orchestrate.pre_synthesis_check': 2000,
   'exarchos_orchestrate.check_coderabbit': 2000,
   'exarchos_orchestrate.check_polish_scope': 2000,
   'exarchos_orchestrate.needs_schema_sync': 2000,
@@ -3030,7 +3021,6 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_view.provenance': 2000,
   'exarchos_view.synthesis_readiness': 2000,
   'exarchos_view.shepherd_status': 2000,
-  'exarchos_view.convergence': 2000,
   'exarchos_view.gate_reliability': 2000,
   'exarchos_view.quality_hints': 2000,
   'exarchos_view.invariants_effective': 2000,
@@ -3326,6 +3316,14 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       report: cutoverGateReport,
       durableEvidence: cutoverDurableEvidence,
     },
+    // The consolidated diff-hygiene gate. A NEW action cannot acquire a
+    // shrink-only vacuity waiver, so it was declared substantively from the
+    // start. Its minimal emittable shape is the inconclusive carrier — no diff
+    // base could be detected, so nothing was scored and `rules` is empty — which
+    // is a smaller payload than any scored run.
+    'exarchos_orchestrate.check_diff_hygiene': {
+      passed: false, findingCount: 0, report: '', rules: [],
+    },
   };
   function baselineEnvelope(data: Record<string, unknown>): Record<string, unknown> {
     return {
@@ -3453,7 +3451,6 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
         ['eval_results', { detail: true, offset: '1' }, ['detail', 'offset']],
         ['quality_correlation', { detail: true, limit: '5', offset: '1' }, ['detail', 'limit', 'offset']],
         ['quality_attribution', { detail: true, limit: '5', offset: '1' }, ['detail', 'limit', 'offset']],
-        ['convergence', { detail: true, limit: '5', offset: '1' }, ['detail', 'limit', 'offset']],
       ];
       for (const [name, input, expectedKeys] of cases) {
         const schema = findAction('exarchos_view', name).schema;
@@ -3495,7 +3492,13 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       // carrying its waiver across would have swapped one seeded key for
       // another — the edit the seed digest exists to redden — so the only legal
       // move was to write the real schema.
-      expect(actions.length).toBe(16);
+      //
+      // The 17th is `check_diff_hygiene`, the consolidation of the three diff
+      // scanners. It took the first route: a new action, declared substantively,
+      // because its id could not join the frozen waiver key set. The three ids it
+      // replaces retired to the graveyard rather than being deleted, so the seed
+      // digest is unchanged.
+      expect(actions.length).toBe(17);
       for (const { tool, action } of actions) {
         const parsed = action.outputSchema.safeParse(cappedEnvelope());
         expect(
@@ -3764,10 +3767,11 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       expect(violations, `owner-set inconsistency:\n${violations.join('\n')}`).toEqual([]);
 
       // Canonical conforming shape 1 — a wide fan-in inside ONE area. Every
-      // gate declaration lives under `actions/orchestrate/`, so the 24 edges
-      // share an owner and the primary count is unconstrained.
+      // gate declaration lives under `actions/orchestrate/`, so the 19 edges
+      // share an owner and the primary count is unconstrained. Was 24 before
+      // the gate triage: five retired actions and three folded into one.
       const gateExecuted = byEvent.get('gate.executed') ?? [];
-      expect(gateExecuted).toHaveLength(24);
+      expect(gateExecuted).toHaveLength(19);
       expect([...new Set(gateExecuted.map((e) => e.emission.owner))]).toEqual(['orchestrate']);
 
       // Canonical conforming shape 2 — a narrow fan-in ACROSS two areas.

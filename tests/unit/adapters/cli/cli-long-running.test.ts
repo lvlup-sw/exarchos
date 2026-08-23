@@ -85,8 +85,9 @@ const HEARTBEAT_PATTERN = /\[heartbeat\].*\n/;
 // drift.  See task 023 / F-023-4 for the audit that produced this list.
 const EXPECTED_LONG_RUNNING_ACTIONS: ReadonlySet<string> = new Set([
   // Synthesis-path actions: shell out to `npm run test:run`, typecheck, build.
+  // `pre_synthesis_check` folded INTO `prepare_synthesis` and is no longer an
+  // action, so the survivor carries the flag for both.
   'prepare_synthesis',
-  'pre_synthesis_check',
   // Gate actions that chain shell-invoked tooling across multiple targets.
   'assess_stack',
   'check_static_analysis',

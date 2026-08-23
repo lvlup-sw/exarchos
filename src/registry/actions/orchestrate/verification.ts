@@ -105,21 +105,6 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     annotations: READ_ONLY_LOCAL,
   },
   {
-    name: 'check_coverage_thresholds',
-    description: 'Check code coverage metrics against threshold values',
-    schema: z.object({
-      coverageFile: z.string().min(1),
-      lineThreshold: z.number().optional(),
-      branchThreshold: z.number().optional(),
-      functionThreshold: z.number().optional(),
-    }),
-    phases: REVIEW_PHASES,
-    roles: ROLE_LEAD,
-    gate: { blocking: false, dimension: 'D3' },
-    outputSchema: vacuityWaiver('exarchos_orchestrate.check_coverage_thresholds'),
-    annotations: READ_ONLY_LOCAL,
-  },
-  {
     name: 'assess_refactor_scope',
     description: 'Assess refactoring scope and recommend polish or overhaul track',
     schema: z.object({
@@ -175,20 +160,6 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     gate: { blocking: true },
     outputSchema: vacuityWaiver('exarchos_orchestrate.validate_pr_stack'),
     annotations: READ_ONLY_LOCAL,
-  },
-  {
-    name: 'debug_review_gate',
-    description: 'Run debug-track review gate: verify test files exist and pass for changed files',
-    schema: z.object({
-      repoRoot: z.string().min(1),
-      baseBranch: z.string().min(1),
-      skipRun: z.boolean().optional(),
-    }),
-    phases: new Set<string>(['debug-review']),
-    roles: ROLE_LEAD,
-    gate: { blocking: true },
-    outputSchema: vacuityWaiver('exarchos_orchestrate.debug_review_gate'),
-    annotations: LOCAL_MUTATION,
   },
   {
     name: 'extract_fix_tasks',

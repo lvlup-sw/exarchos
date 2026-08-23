@@ -1,9 +1,9 @@
 {
-  "note": "P05-02 packaged action/CLI proof coverage baseline. Regenerate with EXARCHOS_WRITE_PACKAGED_BASELINE=1 npx vitest run test/process/packaged-proof.test.ts from servers/exarchos-mcp. 'missing' entries are accepted, documented gaps the ratchet holds the line at; the compiled-process test fails if any NEW denominator item goes unexercised through the shipped binary.",
+  "note": "P05-02 packaged action/CLI proof coverage baseline. Regenerate with EXARCHOS_WRITE_PACKAGED_BASELINE=1 npx vitest run tests/core/process/packaged-proof.test.ts. 'missing' entries are accepted, documented gaps the ratchet holds the line at; the compiled-process test fails if any NEW denominator item goes unexercised through the shipped binary. The actions and cancellationPaths totals fell with the gate triage, which deleted eight registered actions and folded three into one; every one of them was covered, so both dimensions lose the same count from total and from covered and the accepted-gap lists are untouched.",
   "dimensions": {
     "actions": {
-      "total": 124,
-      "covered": 124,
+      "total": 116,
+      "covered": 116,
       "missing": []
     },
     "presentationAliases": {
@@ -34,8 +34,8 @@
       ]
     },
     "cancellationPaths": {
-      "total": 14,
-      "covered": 14,
+      "total": 13,
+      "covered": 13,
       "missing": []
     }
   }

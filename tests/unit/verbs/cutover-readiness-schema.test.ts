@@ -229,12 +229,16 @@ describe('Task 083 — the waiver rows left the allowlist', () => {
     expect(VACUITY_RETIRED_IDS).toContain(READINESS_ID);
     expect(VACUITY_RETIRED_IDS).toContain(DECIDE_ID);
     // The shrink, stated as a number so a silent re-add is visible. The seed
-    // was 112 ids; four are now retired — the fourth is `stack_place`, whose
+    // was 112 ids. Four left by paydown — the fourth is `stack_place`, whose
     // re-parenting onto `exarchos_orchestrate` could not carry its waiver across
     // (a waiver is keyed by action id, and swapping one seeded key for another
-    // is what the seed digest reddens), so the debt was paid instead.
-    expect(VACUITY_ALLOWLIST_IDS.length).toBe(108);
-    expect(VACUITY_RETIRED_IDS.length).toBe(4);
+    // is what the seed digest reddens), so the debt was paid instead. Nine more
+    // left by RETIREMENT: the gate triage deleted five actions and one view name
+    // outright, and folded three diff scanners into a single new action whose id
+    // could not join the frozen key set. Same graveyard, different reason — and
+    // the sum is still 112, which is the whole point of the move.
+    expect(VACUITY_ALLOWLIST_IDS.length).toBe(99);
+    expect(VACUITY_RETIRED_IDS.length).toBe(13);
   });
 
   it('CutoverVerbs_SeedKeySet_UnchangedBecausePaydownIsAMove', () => {

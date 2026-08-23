@@ -1,9 +1,10 @@
 import { coercedNonnegativeInt, coercedPositiveInt } from '../../../coerce.js';
-import { vacuityWaiver } from '../../../output-schema-declaration.js';
+import { vacuityWaiver, withCappedShape } from '../../../output-schema-declaration.js';
 import { z } from 'zod';
 import { LOCAL_MUTATION } from '../../annotations.js';
 import { DELEGATE_PHASES, PLAN_PHASES, REVIEW_PHASES, ROLE_LEAD, STACK_PHASES } from '../../phases.js';
 import type { BuiltinToolAction } from '../../types.js';
+import { DiffHygieneOutputSchema } from '../../../verbs/gates/diff-hygiene.js';
 
 export const gateActions: readonly BuiltinToolAction[] = [
   {
@@ -94,8 +95,16 @@ export const gateActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   },
   {
-    name: 'check_context_economy',
-    description: 'Check code complexity impacting LLM context consumption. Emits gate.executed event with dimension D3.',
+    name: 'check_diff_hygiene',
+    description:
+      'Scan the branch diff for quality-hygiene findings under one rule pack: context economy ' +
+      '(D3 — source-file length, diff breadth, generated bulk), operational resilience ' +
+      '(D4 — empty catches, swallowed errors, console.log, unbounded retry loops) and workflow ' +
+      'determinism (D5 — .only/.skip, unmocked time and randomness, debug artifacts in tests). ' +
+      'Replaces check_context_economy, check_operational_resilience and check_workflow_determinism. ' +
+      'Each rule keeps its own gate.executed row under its own gate name and dimension, so ' +
+      '`.exarchos.yml` per-gate and per-dimension severity keys resolve unchanged. An undetectable ' +
+      'base branch yields an inconclusive carrier that records its verdict, never a silent pass.',
     schema: z.object({
       featureId: z.string().min(1),
       repoRoot: z.string().optional(),
@@ -103,45 +112,19 @@ export const gateActions: readonly BuiltinToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
+    // The pack spans D3-D5 and each rule's own dimension travels on its durable
+    // row; this action-level field is the coarse handle. D3 is the one no other
+    // action declares, so naming it here keeps `review.dimensions.D3` addressing
+    // something (D4 is also declared by check_post_merge, D5 by
+    // check_task_decomposition).
     gate: { blocking: false, dimension: 'D3' },
+    // One declaration, three rows per call — one per rule, the same shape the
+    // three retired actions produced. check_review_verdict is the existing
+    // precedent for a single declaration backing several rows.
     autoEmits: [
       { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
-    outputSchema: vacuityWaiver('exarchos_orchestrate.check_context_economy'),
-    annotations: LOCAL_MUTATION,
-  },
-  {
-    name: 'check_operational_resilience',
-    description: 'Check for operational anti-patterns (empty catches, swallowed errors, console.log). Emits gate.executed event with dimension D4.',
-    schema: z.object({
-      featureId: z.string().min(1),
-      repoRoot: z.string().optional(),
-      baseBranch: z.string().optional(),
-    }),
-    phases: REVIEW_PHASES,
-    roles: ROLE_LEAD,
-    gate: { blocking: false, dimension: 'D4' },
-    autoEmits: [
-      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
-    ],
-    outputSchema: vacuityWaiver('exarchos_orchestrate.check_operational_resilience'),
-    annotations: LOCAL_MUTATION,
-  },
-  {
-    name: 'check_workflow_determinism',
-    description: 'Check test reliability and determinism (.only/.skip, non-deterministic time/random, debug artifacts). Emits gate.executed event with dimension D5.',
-    schema: z.object({
-      featureId: z.string().min(1),
-      repoRoot: z.string().optional(),
-      baseBranch: z.string().optional(),
-    }),
-    phases: REVIEW_PHASES,
-    roles: ROLE_LEAD,
-    gate: { blocking: false, dimension: 'D5' },
-    autoEmits: [
-      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
-    ],
-    outputSchema: vacuityWaiver('exarchos_orchestrate.check_workflow_determinism'),
+    outputSchema: withCappedShape(DiffHygieneOutputSchema),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -183,28 +166,6 @@ export const gateActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   },
   {
-    name: 'check_convergence',
-    description: 'Query D1-D5 convergence status from gate.executed events. Emits gate.executed event on each invocation. Returns overall pass/fail and per-dimension summary.',
-    schema: z.object({
-      featureId: z.string().min(1),
-      workflowId: z.string().optional(),
-    }),
-    phases: REVIEW_PHASES,
-    roles: ROLE_LEAD,
-    gate: { blocking: false },
-    autoEmits: [
-      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
-    ],
-    outputSchema: vacuityWaiver('exarchos_orchestrate.check_convergence'),
-    // sentry HIGH on PR #1369: although `check_convergence` reads
-    // existing gate state, the handler `emitGateEvent`s on every call,
-    // so the action is not readOnly — annotating it as such would let
-    // readonly-capability clients mutate the event store. LOCAL_MUTATION
-    // matches the actual write surface (matches the rest of the check_*
-    // family that emits gate.executed).
-    annotations: LOCAL_MUTATION,
-  },
-  {
     name: 'check_provenance_chain',
     description: 'Verify design requirement traceability (DR-N) from design doc to plan tasks. Emits gate.executed event with dimension D1.',
     schema: z.object({
@@ -219,33 +180,6 @@ export const gateActions: readonly BuiltinToolAction[] = [
       { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_provenance_chain'),
-    annotations: LOCAL_MUTATION,
-  },
-  {
-    name: 'check_design_completeness',
-    description: 'DEPRECATED (#1581): delegates to check_plan_coverage on the unified docs/specs/ artifact; its acceptance-criteria check folded into plan-coverage. Use check_plan_coverage. Removed in a future minor version.',
-    deprecated: true,
-    schema: z.object({
-      featureId: z.string().min(1),
-      stateFile: z.string().optional(),
-      designPath: z.string().optional(),
-      // Unified-artifact delegation: when design and plan are one docs/specs/
-      // file, planPath == designPath. Optional — the handler also resolves the
-      // path from workflow-state artifacts.
-      planPath: z.string().optional(),
-    }),
-    // Deprecated alias: callable in the (post-collapse) plan phase. Deliberately
-    // NOT the full PLAN_PHASES set — that set marks an action as a canonical
-    // plan-structure gate (see the `setEqualsNames(a.phases, PLAN_PHASE_NAMES)`
-    // binding pin in phase-kind.test.ts); this alias is being excised from the
-    // chains (task 014), so it must not register as a bound plan gate.
-    phases: new Set<string>(['plan']),
-    roles: ROLE_LEAD,
-    gate: { blocking: false, dimension: 'D1' },
-    autoEmits: [
-      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
-    ],
-    outputSchema: vacuityWaiver('exarchos_orchestrate.check_design_completeness'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -507,6 +441,12 @@ export const gateActions: readonly BuiltinToolAction[] = [
       featureId: z.string().min(1),
       prUrl: z.string().min(1),
       mergeSha: z.string().min(1),
+      // The repository the check is about — both where the test command is
+      // resolved and where it runs. The handler and the pure check already
+      // thread it; undeclared, action-level schema parsing strips it before
+      // the handler sees it and the gate measures the server process's own
+      // tree instead of the one that was just merged.
+      repoRoot: z.string().min(1).optional(),
     }),
     phases: new Set<string>(['synthesize']),
     roles: ROLE_LEAD,

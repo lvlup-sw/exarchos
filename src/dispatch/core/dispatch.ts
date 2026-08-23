@@ -282,12 +282,12 @@ export const READ_ONLY_ACTIONS = {
   // `merge_orchestrate`, `merge_pr`, `create_pr`, `create_issue`,
   // `add_pr_comment`, `init`, `prune_stale_workflows`,
   // `request_synthesize`, `finalize_oneshot`, `reconcile_state`,
-  // `extract_fix_tasks`, `pre_synthesis_check`, `post_delegation_check`,
-  // `debug_review_gate`, `check_pr_comments` (queries gh state but is
+  // `extract_fix_tasks`, `post_delegation_check`,
+  // `check_pr_comments` (queries gh state but is
   // grouped with synthesis review actions and may emit), and the
   // `review_triage` orchestrator. Also excluded from the readonly
-  // tier: `doctor` (`diagnostic.executed`) and `check_convergence`
-  // (`gate.executed`) — sentry HIGH on PR #1369 caught these two as
+  // tier: `doctor` (`diagnostic.executed`) — sentry HIGH on PR #1369
+  // caught it, alongside the since-retired `check_convergence`, as
   // mis-annotated `readOnly: true` while their handlers do
   // `eventStore.append()` on every call. The remaining `check_*`
   // actions stay in this set: they are intentionally annotated
@@ -302,19 +302,15 @@ export const READ_ONLY_ACTIONS = {
     'agent_spec',
     'check_static_analysis',
     'check_security_scan',
-    'check_context_economy',
-    'check_operational_resilience',
-    'check_workflow_determinism',
+    'check_diff_hygiene',
     'check_review_verdict',
     'check_provenance_chain',
-    'check_design_completeness',
     'check_plan_coverage',
     'check_post_merge',
     'check_task_decomposition',
     'check_event_emissions',
     'check_coderabbit',
     'check_polish_scope',
-    'check_coverage_thresholds',
     'check_ci',
     'extract_task',
     'review_diff',

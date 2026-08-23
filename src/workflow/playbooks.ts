@@ -545,7 +545,7 @@ register({
   events: [
     {
       type: 'gate.executed',
-      when: 'After pre-synthesis-check.sh and validate-pr-stack.sh',
+      when: 'After prepare_synthesis and validate_pr_stack',
       fields: ['gateName', 'layer', 'passed'],
     },
     { type: 'shepherd.started', when: 'On first assess-stack invocation' },
@@ -555,12 +555,12 @@ register({
   transitionCriteria: 'PR created and enqueued → completed',
   guardPrerequisites: 'artifacts.pr exists',
   validationScripts: [
-    'pre_synthesis_check',
+    'prepare_synthesis',
     'validate_pr_stack',
   ],
   humanCheckpoint: true,
   compactGuidance:
-    'You are creating PRs via GitHub CLI. Run pre-synthesis-check.sh first. Use exarchos_event to emit gate.executed results. Wait for user confirmation to merge. This is a human checkpoint — pause and confirm before proceeding. Key decision: single PR vs stacked PRs based on change scope. Anti-pattern: merging without CI green on all checks. Escalate: CI fails 3+ times on the same issue.',
+    'You are creating PRs via GitHub CLI. Run prepare_synthesis first. Use exarchos_event to emit gate.executed results. Wait for user confirmation to merge. This is a human checkpoint — pause and confirm before proceeding. Key decision: single PR vs stacked PRs based on change scope. Anti-pattern: merging without CI green on all checks. Escalate: CI fails 3+ times on the same issue.',
 });
 
 register(
@@ -1149,7 +1149,7 @@ register({
   transitionCriteria: 'PR URL exists → completed',
   guardPrerequisites: 'artifacts.pr exists',
   validationScripts: [
-    'pre_synthesis_check',
+    'prepare_synthesis',
     'validate_pr_stack',
   ],
   humanCheckpoint: true,
@@ -1295,17 +1295,17 @@ export const oneshotPlaybook: readonly PhasePlaybook[] = [
     events: [
       {
         type: 'gate.executed',
-        when: 'After pre-synthesis-check.sh runs',
+        when: 'After prepare_synthesis runs',
         fields: ['gateName', 'layer', 'passed'],
       },
     ],
     transitionCriteria: 'PR merged → completed',
     guardPrerequisites:
       'artifacts.pr exists AND PR merge verified (merge.verified or shepherd.completed event)',
-    validationScripts: ['pre_synthesis_check'],
+    validationScripts: ['prepare_synthesis'],
     humanCheckpoint: true,
     compactGuidance:
-      'Oneshot synthesis reuses the existing synthesize pipeline. Create the PR via GitHub CLI (gh pr create), run pre-synthesis-check.sh, emit gate.executed via exarchos_event. Wait for merge verification before transitioning to completed. This is a human checkpoint — pause and confirm before merge. Anti-pattern: merging without CI green.',
+      'Oneshot synthesis reuses the existing synthesize pipeline. Create the PR via GitHub CLI (gh pr create), run prepare_synthesis, emit gate.executed via exarchos_event. Wait for merge verification before transitioning to completed. This is a human checkpoint — pause and confirm before merge. Anti-pattern: merging without CI green.',
   },
   terminalPlaybook(
     'oneshot',

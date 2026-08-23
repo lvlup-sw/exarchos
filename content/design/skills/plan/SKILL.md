@@ -180,10 +180,10 @@ exarchos_orchestrate({
 ```
 
 - **passed: true** — All tasks well-decomposed; proceed to 5b
-- **passed: false** — Findings recorded as D5 gate events for the ConvergenceView. Present findings to the user for awareness but do not block plan approval.
+- **passed: false** — Findings recorded as durable D5 `gate.executed` rows. Present findings to the user for awareness but do not block plan approval.
 - **error** — Input error (missing file, no task headers); check arguments
 
-**Advisory:** This gate verifies task structure quality but does not block plan approval. Findings are recorded for convergence tracking.
+**Advisory:** This gate verifies task structure quality but does not block plan approval. Its findings ride the D5 dimension on the durable gate log into the review verdict.
 
 **5b. Spec coverage check** — validate the planned test paths as declarations:
 
@@ -268,18 +268,6 @@ for orchestrate action schemas.
 - [ ] Provenance chain checked — `exarchos_orchestrate({ action: "check_provenance_chain" })` passed (blocking; gaps must be resolved before proceeding)
 - [ ] Task decomposition checked — `exarchos_orchestrate({ action: "check_task_decomposition" })` run (advisory; findings presented but non-blocking)
 - [ ] Spec coverage check passed — `exarchos_orchestrate({ action: "spec_coverage_check" })` passed: true
-- [ ] Coverage thresholds met — `exarchos_orchestrate({ action: "check_coverage_thresholds" })` passed: true:
-
-```typescript
-exarchos_orchestrate({
-  action: "check_coverage_thresholds",
-  coverageFile: "coverage/coverage-summary.json",
-  lineThreshold: 80,
-  branchThreshold: 70,
-  functionThreshold: 100
-})
-```
-
 - [ ] Unified spec saved to `docs/specs/` (Design & Rationale + Decomposition in one doc)
 - [ ] State file updated with `artifacts.plan` = unified spec path and tasks
 

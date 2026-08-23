@@ -42,19 +42,23 @@ diff. The handler automatically emits a `gate.executed` event with dimension D1.
 **On `passed: true`:** No security patterns detected.
 **On `passed: false`:** Potential security issues found — include in review report.
 
-## Step 2.6: Extended Quality Gates (Optional)
+## Step 2.6: Diff Hygiene (D3-D5)
 
-When available, run additional quality gates for D3-D5 dimensions:
+One rule pack over the branch diff covers all three hygiene dimensions:
 
 ```typescript
-// D3: Context Economy — code complexity impacting LLM context
-exarchos_orchestrate({ action: "check_context_economy", featureId: "<id>", repoRoot: "<repo-root>", baseBranch: "main" })
-
-// D4: Operational Resilience — empty catches (excluding intentional fire-and-forget telemetry), swallowed errors, console.log
-exarchos_orchestrate({ action: "check_operational_resilience", featureId: "<id>", repoRoot: "<repo-root>", baseBranch: "main" })
-
-// D5: Workflow Determinism — .only/.skip, non-deterministic time/random, debug artifacts
-exarchos_orchestrate({ action: "check_workflow_determinism", featureId: "<id>", repoRoot: "<repo-root>", baseBranch: "main" })
+exarchos_orchestrate({
+  action: "check_diff_hygiene",
+  featureId: "<id>",
+  repoRoot: "<repo-root>",
+  baseBranch: "main"
+})
 ```
 
-Each handler automatically emits `gate.executed` events with the appropriate dimension. Findings from these checks are advisory and feed into the convergence view but do not independently block the review.
+The rules are context economy (D3 — source-file length, diff breadth, generated bulk), operational resilience (D4 — empty catches excluding intentional fire-and-forget telemetry, swallowed errors, console.log, unbounded retry loops) and workflow determinism (D5 — `.only`/`.skip`, non-deterministic time and randomness, debug artifacts in tests). Per-rule verdicts come back on `rules[]`.
+
+Each rule emits its own durable `gate.executed` event under its own gate name and dimension, so per-gate and per-dimension severity keys in `.exarchos.yml` resolve per rule. Findings are advisory — they reach the verdict as per-dimension results but do not independently block the review.
+
+**On `passed: true`:** No hygiene findings in any rule.
+**On `passed: false`:** At least one rule found something — include it in the review report.
+**On `skipped: true`:** The base branch could not be resolved, so the diff had only one end. Every rule records an inconclusive verdict rather than a silent pass; re-run with an explicit `baseBranch`.

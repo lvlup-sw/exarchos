@@ -532,7 +532,6 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     consumedBy: [
       'workflow-state@v1',
       'code-quality',
-      'convergence',
       'delegation-readiness',
       'synthesis-readiness',
     ],

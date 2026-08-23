@@ -72,11 +72,16 @@ describe('Runbook definitions', () => {
   });
 
   it('QualityEvaluation_HasFiveSteps', () => {
-    // Task 027 / DR-15: check_invariant_conformance was wired in as a review
-    // dimension when it became a blocking gate (it now emits deterministic
-    // check-mode findings), so the review runbook grew from 4 → 5 steps.
+    // check_invariant_conformance was wired in as a review dimension when it
+    // became a blocking gate (it emits deterministic check-mode findings),
+    // taking the review runbook from 4 to 5 steps. Retiring check_convergence —
+    // whose verdict was false on every input because no producer stamped the
+    // dimension its D2 arm read — did NOT take it back to 4: check_diff_hygiene
+    // takes that slot, so the chain is the same length with a step that can
+    // actually produce the D3-D5 dimensions the retired trio never did.
     expect(QUALITY_EVALUATION.steps).toHaveLength(5);
     expect(QUALITY_EVALUATION.steps[0].action).toBe('check_static_analysis');
+    expect(QUALITY_EVALUATION.steps[2].action).toBe('check_diff_hygiene');
     expect(QUALITY_EVALUATION.steps[3].action).toBe('check_invariant_conformance');
     expect(QUALITY_EVALUATION.steps[4].action).toBe('check_review_verdict');
     expect(QUALITY_EVALUATION.phase).toBe('review');

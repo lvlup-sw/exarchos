@@ -293,18 +293,18 @@ exarchos_orchestrate({
 \`\`\`
 
 6. **Update workflow state** — set each passing \`tasks[].status\` to \`"complete"\` via \`exarchos_workflow update\`
-7. **Delegation completion gate (D4, advisory)** — after ALL tasks pass, run an operational resilience check on the full branch diff before transitioning to review:
+7. **Delegation completion gate (D3-D5, advisory)** — after ALL tasks pass, run the diff-hygiene rule pack on the full branch diff before transitioning to review:
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_operational_resilience",
+  action: "check_diff_hygiene",
   featureId: "<featureId>",
   repoRoot: ".",
   baseBranch: "main"
 })
 \`\`\`
 
-This is advisory — findings are recorded for the convergence view but do not block the delegation→review transition. Include findings in the delegation summary for review-phase attention.
+This is advisory — each rule records its own durable \`gate.executed\` row under its own dimension, but nothing here blocks the delegation→review transition. Include findings in the delegation summary for review-phase attention.
 
 8. **Schema sync** — if any task modified API files (\`*Endpoints.cs\`, \`Models/*.cs\`), run \`npm run sync:schemas\`
 
@@ -566,7 +566,7 @@ still fails after rebase:
 
 3. **Record the incident** by emitting a \`merge.aborted\` event with
    \`reason: "ancestry-rebase-conflict"\` and the failing branch's pre-rebase
-   SHA so the convergence view captures the rollback.
+   SHA so the durable event log captures the rollback.
 
 ### Why no auto-rebase yet
 
@@ -755,7 +755,7 @@ for phase transitions, guards, and playbook guidance.
 
 ## Completion & Coverage
 
-There is **no separate design-completeness gate** in the collapsed flow — \`check_design_completeness\` is a deprecated alias. The design section's acceptance-criteria coverage is validated as part of \`check_plan_coverage\` over the unified artifact, run by \`/exarchos:plan\` once the \`## Decomposition\` section exists. Before chaining, confirm each \`DR-N\` carries acceptance criteria and at least one DR-N covers error handling / edge cases.
+There is **no separate design-completeness gate** in the collapsed flow — no action scores the design section on its own. The design section's acceptance-criteria coverage is validated as part of \`check_plan_coverage\` over the unified artifact, run by \`/exarchos:plan\` once the \`## Decomposition\` section exists. Before chaining, confirm each \`DR-N\` carries acceptance criteria and at least one DR-N covers error handling / edge cases.
 
 ## Transition
 
@@ -1276,18 +1276,18 @@ exarchos_orchestrate({
 \`\`\`
 
 6. **Update workflow state** — set each passing \`tasks[].status\` to \`"complete"\` via \`exarchos_workflow update\`
-7. **Delegation completion gate (D4, advisory)** — after ALL tasks pass, run an operational resilience check on the full branch diff before transitioning to review:
+7. **Delegation completion gate (D3-D5, advisory)** — after ALL tasks pass, run the diff-hygiene rule pack on the full branch diff before transitioning to review:
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_operational_resilience",
+  action: "check_diff_hygiene",
   featureId: "<featureId>",
   repoRoot: ".",
   baseBranch: "main"
 })
 \`\`\`
 
-This is advisory — findings are recorded for the convergence view but do not block the delegation→review transition. Include findings in the delegation summary for review-phase attention.
+This is advisory — each rule records its own durable \`gate.executed\` row under its own dimension, but nothing here blocks the delegation→review transition. Include findings in the delegation summary for review-phase attention.
 
 8. **Schema sync** — if any task modified API files (\`*Endpoints.cs\`, \`Models/*.cs\`), run \`npm run sync:schemas\`
 
@@ -1518,7 +1518,7 @@ still fails after rebase:
 
 3. **Record the incident** by emitting a \`merge.aborted\` event with
    \`reason: "ancestry-rebase-conflict"\` and the failing branch's pre-rebase
-   SHA so the convergence view captures the rollback.
+   SHA so the durable event log captures the rollback.
 
 ### Why no auto-rebase yet
 
@@ -1705,7 +1705,7 @@ for phase transitions, guards, and playbook guidance.
 
 ## Completion & Coverage
 
-There is **no separate design-completeness gate** in the collapsed flow — \`check_design_completeness\` is a deprecated alias. The design section's acceptance-criteria coverage is validated as part of \`check_plan_coverage\` over the unified artifact, run by \`plan\` once the \`## Decomposition\` section exists. Before chaining, confirm each \`DR-N\` carries acceptance criteria and at least one DR-N covers error handling / edge cases.
+There is **no separate design-completeness gate** in the collapsed flow — no action scores the design section on its own. The design section's acceptance-criteria coverage is validated as part of \`check_plan_coverage\` over the unified artifact, run by \`plan\` once the \`## Decomposition\` section exists. Before chaining, confirm each \`DR-N\` carries acceptance criteria and at least one DR-N covers error handling / edge cases.
 
 ## Transition
 
@@ -2222,18 +2222,18 @@ exarchos_orchestrate({
 \`\`\`
 
 6. **Update workflow state** — set each passing \`tasks[].status\` to \`"complete"\` via \`exarchos_workflow update\`
-7. **Delegation completion gate (D4, advisory)** — after ALL tasks pass, run an operational resilience check on the full branch diff before transitioning to review:
+7. **Delegation completion gate (D3-D5, advisory)** — after ALL tasks pass, run the diff-hygiene rule pack on the full branch diff before transitioning to review:
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_operational_resilience",
+  action: "check_diff_hygiene",
   featureId: "<featureId>",
   repoRoot: ".",
   baseBranch: "main"
 })
 \`\`\`
 
-This is advisory — findings are recorded for the convergence view but do not block the delegation→review transition. Include findings in the delegation summary for review-phase attention.
+This is advisory — each rule records its own durable \`gate.executed\` row under its own dimension, but nothing here blocks the delegation→review transition. Include findings in the delegation summary for review-phase attention.
 
 8. **Schema sync** — if any task modified API files (\`*Endpoints.cs\`, \`Models/*.cs\`), run \`npm run sync:schemas\`
 
@@ -2460,7 +2460,7 @@ still fails after rebase:
 
 3. **Record the incident** by emitting a \`merge.aborted\` event with
    \`reason: "ancestry-rebase-conflict"\` and the failing branch's pre-rebase
-   SHA so the convergence view captures the rollback.
+   SHA so the durable event log captures the rollback.
 
 ### Why no auto-rebase yet
 
@@ -2647,7 +2647,7 @@ for phase transitions, guards, and playbook guidance.
 
 ## Completion & Coverage
 
-There is **no separate design-completeness gate** in the collapsed flow — \`check_design_completeness\` is a deprecated alias. The design section's acceptance-criteria coverage is validated as part of \`check_plan_coverage\` over the unified artifact, run by \`/plan\` once the \`## Decomposition\` section exists. Before chaining, confirm each \`DR-N\` carries acceptance criteria and at least one DR-N covers error handling / edge cases.
+There is **no separate design-completeness gate** in the collapsed flow — no action scores the design section on its own. The design section's acceptance-criteria coverage is validated as part of \`check_plan_coverage\` over the unified artifact, run by \`/plan\` once the \`## Decomposition\` section exists. Before chaining, confirm each \`DR-N\` carries acceptance criteria and at least one DR-N covers error handling / edge cases.
 
 ## Transition
 
@@ -3169,18 +3169,18 @@ exarchos_orchestrate({
 \`\`\`
 
 6. **Update workflow state** — set each passing \`tasks[].status\` to \`"complete"\` via \`exarchos_workflow update\`
-7. **Delegation completion gate (D4, advisory)** — after ALL tasks pass, run an operational resilience check on the full branch diff before transitioning to review:
+7. **Delegation completion gate (D3-D5, advisory)** — after ALL tasks pass, run the diff-hygiene rule pack on the full branch diff before transitioning to review:
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_operational_resilience",
+  action: "check_diff_hygiene",
   featureId: "<featureId>",
   repoRoot: ".",
   baseBranch: "main"
 })
 \`\`\`
 
-This is advisory — findings are recorded for the convergence view but do not block the delegation→review transition. Include findings in the delegation summary for review-phase attention.
+This is advisory — each rule records its own durable \`gate.executed\` row under its own dimension, but nothing here blocks the delegation→review transition. Include findings in the delegation summary for review-phase attention.
 
 8. **Schema sync** — if any task modified API files (\`*Endpoints.cs\`, \`Models/*.cs\`), run \`npm run sync:schemas\`
 
@@ -3412,7 +3412,7 @@ still fails after rebase:
 
 3. **Record the incident** by emitting a \`merge.aborted\` event with
    \`reason: "ancestry-rebase-conflict"\` and the failing branch's pre-rebase
-   SHA so the convergence view captures the rollback.
+   SHA so the durable event log captures the rollback.
 
 ### Why no auto-rebase yet
 
@@ -3599,7 +3599,7 @@ for phase transitions, guards, and playbook guidance.
 
 ## Completion & Coverage
 
-There is **no separate design-completeness gate** in the collapsed flow — \`check_design_completeness\` is a deprecated alias. The design section's acceptance-criteria coverage is validated as part of \`check_plan_coverage\` over the unified artifact, run by \`plan\` once the \`## Decomposition\` section exists. Before chaining, confirm each \`DR-N\` carries acceptance criteria and at least one DR-N covers error handling / edge cases.
+There is **no separate design-completeness gate** in the collapsed flow — no action scores the design section on its own. The design section's acceptance-criteria coverage is validated as part of \`check_plan_coverage\` over the unified artifact, run by \`plan\` once the \`## Decomposition\` section exists. Before chaining, confirm each \`DR-N\` carries acceptance criteria and at least one DR-N covers error handling / edge cases.
 
 ## Transition
 
@@ -4097,18 +4097,18 @@ exarchos_orchestrate({
 \`\`\`
 
 6. **Update workflow state** — set each passing \`tasks[].status\` to \`"complete"\` via \`exarchos_workflow update\`
-7. **Delegation completion gate (D4, advisory)** — after ALL tasks pass, run an operational resilience check on the full branch diff before transitioning to review:
+7. **Delegation completion gate (D3-D5, advisory)** — after ALL tasks pass, run the diff-hygiene rule pack on the full branch diff before transitioning to review:
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_operational_resilience",
+  action: "check_diff_hygiene",
   featureId: "<featureId>",
   repoRoot: ".",
   baseBranch: "main"
 })
 \`\`\`
 
-This is advisory — findings are recorded for the convergence view but do not block the delegation→review transition. Include findings in the delegation summary for review-phase attention.
+This is advisory — each rule records its own durable \`gate.executed\` row under its own dimension, but nothing here blocks the delegation→review transition. Include findings in the delegation summary for review-phase attention.
 
 8. **Schema sync** — if any task modified API files (\`*Endpoints.cs\`, \`Models/*.cs\`), run \`npm run sync:schemas\`
 
@@ -4335,7 +4335,7 @@ still fails after rebase:
 
 3. **Record the incident** by emitting a \`merge.aborted\` event with
    \`reason: "ancestry-rebase-conflict"\` and the failing branch's pre-rebase
-   SHA so the convergence view captures the rollback.
+   SHA so the durable event log captures the rollback.
 
 ### Why no auto-rebase yet
 
@@ -4522,7 +4522,7 @@ for phase transitions, guards, and playbook guidance.
 
 ## Completion & Coverage
 
-There is **no separate design-completeness gate** in the collapsed flow — \`check_design_completeness\` is a deprecated alias. The design section's acceptance-criteria coverage is validated as part of \`check_plan_coverage\` over the unified artifact, run by \`plan\` once the \`## Decomposition\` section exists. Before chaining, confirm each \`DR-N\` carries acceptance criteria and at least one DR-N covers error handling / edge cases.
+There is **no separate design-completeness gate** in the collapsed flow — no action scores the design section on its own. The design section's acceptance-criteria coverage is validated as part of \`check_plan_coverage\` over the unified artifact, run by \`plan\` once the \`## Decomposition\` section exists. Before chaining, confirm each \`DR-N\` carries acceptance criteria and at least one DR-N covers error handling / edge cases.
 
 ## Transition
 
@@ -5043,18 +5043,18 @@ exarchos_orchestrate({
 \`\`\`
 
 6. **Update workflow state** — set each passing \`tasks[].status\` to \`"complete"\` via \`exarchos_workflow update\`
-7. **Delegation completion gate (D4, advisory)** — after ALL tasks pass, run an operational resilience check on the full branch diff before transitioning to review:
+7. **Delegation completion gate (D3-D5, advisory)** — after ALL tasks pass, run the diff-hygiene rule pack on the full branch diff before transitioning to review:
 
 \`\`\`typescript
 exarchos_orchestrate({
-  action: "check_operational_resilience",
+  action: "check_diff_hygiene",
   featureId: "<featureId>",
   repoRoot: ".",
   baseBranch: "main"
 })
 \`\`\`
 
-This is advisory — findings are recorded for the convergence view but do not block the delegation→review transition. Include findings in the delegation summary for review-phase attention.
+This is advisory — each rule records its own durable \`gate.executed\` row under its own dimension, but nothing here blocks the delegation→review transition. Include findings in the delegation summary for review-phase attention.
 
 8. **Schema sync** — if any task modified API files (\`*Endpoints.cs\`, \`Models/*.cs\`), run \`npm run sync:schemas\`
 
@@ -5285,7 +5285,7 @@ still fails after rebase:
 
 3. **Record the incident** by emitting a \`merge.aborted\` event with
    \`reason: "ancestry-rebase-conflict"\` and the failing branch's pre-rebase
-   SHA so the convergence view captures the rollback.
+   SHA so the durable event log captures the rollback.
 
 ### Why no auto-rebase yet
 
@@ -5472,7 +5472,7 @@ for phase transitions, guards, and playbook guidance.
 
 ## Completion & Coverage
 
-There is **no separate design-completeness gate** in the collapsed flow — \`check_design_completeness\` is a deprecated alias. The design section's acceptance-criteria coverage is validated as part of \`check_plan_coverage\` over the unified artifact, run by \`/plan\` once the \`## Decomposition\` section exists. Before chaining, confirm each \`DR-N\` carries acceptance criteria and at least one DR-N covers error handling / edge cases.
+There is **no separate design-completeness gate** in the collapsed flow — no action scores the design section on its own. The design section's acceptance-criteria coverage is validated as part of \`check_plan_coverage\` over the unified artifact, run by \`/plan\` once the \`## Decomposition\` section exists. Before chaining, confirm each \`DR-N\` carries acceptance criteria and at least one DR-N covers error handling / edge cases.
 
 ## Transition
 
@@ -6654,7 +6654,7 @@ Three distinct failure modes require different fixes — code changes, documenta
 
 Per \`docs/designs/archive/2026-03-09-platform-agnosticity.md\`: the MCP server is the self-sufficient, platform-agnostic core. The debug trace relies entirely on MCP tools — not conversation introspection — so it works for any MCP client. Conversation scanning is supplementary.
 
-**Diagnostic self-service tools:** \`describe(topology)\` for HSM verification, \`describe(playbook)\` for adherence checks, \`describe(eventTypes, emissionGuide)\` for event schema/catalog comparison, \`describe(actions)\` for schema/gate metadata, \`runbook(phase)\` for step conformance, \`pipeline\`/\`convergence\`/\`telemetry\` views for health metrics.
+**Diagnostic self-service tools:** \`describe(topology)\` for HSM verification, \`describe(playbook)\` for adherence checks, \`describe(eventTypes, emissionGuide)\` for event schema/catalog comparison, \`describe(actions)\` for schema/gate metadata, \`runbook(phase)\` for step conformance, \`pipeline\`/\`telemetry\`/\`gate_reliability\` views for health metrics.
 
 ## Triggers
 
@@ -6706,7 +6706,7 @@ Use \`exarchos_event query(stream)\` on the workflow's event stream. Look for:
 
 1. **Schema verification** — \`exarchos_orchestrate describe(actions: [...])\` for authoritative schemas. Compare agent's parameters against schema to detect stale skill docs or improvisation.
 2. **Gate metadata** — Describe output includes \`{ blocking, dimension, autoEmits }\`. Check: did the agent treat blocking/non-blocking correctly? Did expected auto-emissions fire?
-3. **Gate convergence** — \`exarchos_view convergence\` for per-dimension (D1-D5) pass rates. Low convergence suggests systemic gate issues.
+3. **Gate outcomes** — every gate writes a durable \`gate.executed\` row carrying its own dimension. Read them with \`exarchos_event query(stream: "<featureId>")\` and group by dimension for D1-D5 coverage; a dimension with no row is uncovered, not passing. \`exarchos_view gate_reliability\` adds the per-gate false-positive rate and verdict provenance — a high rate suggests a systemic gate issue.
 
 #### 1f. Runbook Conformance Check
 
@@ -8500,10 +8500,10 @@ exarchos_orchestrate({
 \`\`\`
 
 - **passed: true** — All tasks well-decomposed; proceed to 5b
-- **passed: false** — Findings recorded as D5 gate events for the ConvergenceView. Present findings to the user for awareness but do not block plan approval.
+- **passed: false** — Findings recorded as durable D5 \`gate.executed\` rows. Present findings to the user for awareness but do not block plan approval.
 - **error** — Input error (missing file, no task headers); check arguments
 
-**Advisory:** This gate verifies task structure quality but does not block plan approval. Findings are recorded for convergence tracking.
+**Advisory:** This gate verifies task structure quality but does not block plan approval. Its findings ride the D5 dimension on the durable gate log into the review verdict.
 
 **5b. Spec coverage check** — validate the planned test paths as declarations:
 
@@ -8588,18 +8588,6 @@ for orchestrate action schemas.
 - [ ] Provenance chain checked — \`exarchos_orchestrate({ action: "check_provenance_chain" })\` passed (blocking; gaps must be resolved before proceeding)
 - [ ] Task decomposition checked — \`exarchos_orchestrate({ action: "check_task_decomposition" })\` run (advisory; findings presented but non-blocking)
 - [ ] Spec coverage check passed — \`exarchos_orchestrate({ action: "spec_coverage_check" })\` passed: true
-- [ ] Coverage thresholds met — \`exarchos_orchestrate({ action: "check_coverage_thresholds" })\` passed: true:
-
-\`\`\`typescript
-exarchos_orchestrate({
-  action: "check_coverage_thresholds",
-  coverageFile: "coverage/coverage-summary.json",
-  lineThreshold: 80,
-  branchThreshold: 70,
-  functionThreshold: 100
-})
-\`\`\`
-
 - [ ] Unified spec saved to \`docs/specs/\` (Design & Rationale + Decomposition in one doc)
 - [ ] State file updated with \`artifacts.plan\` = unified spec path and tasks
 
@@ -9158,7 +9146,7 @@ Run the quality-evaluation gates via runbook — \`exarchos_orchestrate({ action
 1. \`check_static_analysis\` — lint + typecheck (D2). Must pass.
 2. \`check_security_scan\` — security pattern detection (D1).
 3. \`prepare_review\` — returns the deterministic check catalog (grep / structural / heuristic) + \`pluginStatus\`. Execute each check against the changed files; collect findings as \`pluginFindings\`.
-4. Optional D3–D5 gates (\`check_context_economy\`, \`check_operational_resilience\`, \`check_workflow_determinism\`) — advisory; feed the convergence view.
+4. \`check_diff_hygiene\` — the D3–D5 hygiene rule pack (context economy, operational resilience, workflow determinism) in one call; advisory, one durable \`gate.executed\` row per rule under that rule's own dimension.
 
 > **mutation-adequacy (HIGH tier only):** a **separate required dimension** that gates the HIGH risk tier at the \`/review\` boundary — see \`@skills/mutation-adequacy/SKILL.md\`. Do not run mutation testing in this skill; the closest in-scope proxy is the **Specific** test-desiderata property plus the delegation-time \`check_test_adequacy\` gate.
 
@@ -9190,7 +9178,7 @@ An audit-mode invariant you did not answer is **not** a passing invariant — it
 
 ## Verdict & fix loop
 
-Compute the verdict once over the merged finding set. Route it via the decision runbook — \`exarchos_orchestrate({ action: "runbook", id: "review-escalation" })\`. See \`references/convergence-and-verdict.md\`.
+Compute the verdict once over the merged finding set. Route it via the decision runbook — \`exarchos_orchestrate({ action: "runbook", id: "review-escalation" })\`.
 
 \`check_review_verdict\` takes the finding counts + the \`pluginFindings\`, emits the gate event, and returns APPROVED or NEEDS_FIXES:
 
@@ -9202,8 +9190,14 @@ exarchos_orchestrate({
   medium: nativeMediumCount,
   low: nativeLowCount,
   pluginFindings: catalogFindings,
+  dimensionResults: {
+    "D1": { passed: true, findingCount: 0 },
+    "D2": { passed: true, findingCount: 0 }
+  }
 })
 \`\`\`
+
+\`dimensionResults\` is how the gates above reach the verdict. Each gate wrote a durable \`gate.executed\` row carrying its own dimension — the hygiene pack one row per rule — so pass one entry per dimension you actually ran. A dimension with no row is **uncovered, not passing**: name it in the summary rather than omitting it.
 
 The fix loop is **bounded by the shared escalation policy** (config-resolvable \`escalation.maxIterations\`, default **5**) — the same bound the shepherd loop uses. \`check_review_verdict\` reads the event-sourced fix-cycle count and returns the escalate decision the loop MUST honor:
 
@@ -9275,7 +9269,7 @@ All transitions are automatic — this is not a human checkpoint. See \`referenc
 ## Schema discovery
 
 Use \`exarchos_workflow({ action: "describe", actions: ["update"] })\` and
-\`exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_test_adequacy", "check_review_verdict", "check_invariant_conformance", "prepare_review"] })\` for current parameter schemas.
+\`exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_diff_hygiene", "check_test_adequacy", "check_review_verdict", "check_invariant_conformance", "prepare_review"] })\` for current parameter schemas.
 "
 `;
 

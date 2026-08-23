@@ -11,7 +11,7 @@ import { scopeHiddenAffordance } from './inventory-contract.js';
 // the SAME contract to the analytic + correlation views in this file
 // (`code_quality`, `eval_results`, `quality_hints`, `quality_correlation`,
 // `quality_attribution`, `session_provenance`, `delegation_readiness`,
-// `synthesis_readiness`, `shepherd_status`, `provenance`, `convergence`):
+// `synthesis_readiness`, `shepherd_status`, `provenance`):
 //   • compact-by-default — each view strips its heaviest SECONDARY sub-structure
 //     by default and restores it under `detail: true` (the universal facet);
 //   • `page` metadata on the views whose dominant payload is a nested LIST

@@ -160,7 +160,6 @@ export const LEGACY_SHAPE_DEBT: readonly string[] = Object.freeze([
   'tests/unit/verbs/onboard/onboard.failuremodes.test.ts',
   'tests/unit/verbs/onboard/onboard.parity.test.ts',
   'tests/unit/verbs/parity.test.ts',
-  'tests/unit/verbs/gates/pre-synthesis-check.test.ts',
   'tests/unit/verbs/team/prepare-delegation.test.ts',
   'tests/unit/verbs/team/prune-stale-workflows.test.ts',
   'tests/unit/verbs/pure/design-completeness.parity.test.ts',

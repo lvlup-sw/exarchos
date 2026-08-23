@@ -28,7 +28,7 @@
  *      refactor makes the scanner blind to that shape, this goes red here
  *      instead of going quiet in production.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -57,6 +57,16 @@ interface Policy {
   readonly killFixture: { readonly path: string; readonly expectedMember: string };
   readonly minimumCallSites: number;
   readonly minimumScannedFiles: number;
+}
+
+/** Every repo-relative path this policy names, with the field that named it. */
+function policyPaths(): readonly { readonly field: string; readonly path: string }[] {
+  return [
+    { field: 'seam.module', path: POLICY.seam.module },
+    { field: 'seam.definitionModule', path: POLICY.seam.definitionModule },
+    { field: 'killFixture.path', path: POLICY.killFixture.path },
+    ...POLICY.allowlist.map((entry) => ({ field: `allowlist[${entry.file}]`, path: entry.file })),
+  ];
 }
 
 const POLICY: Policy = JSON.parse(
@@ -197,6 +207,32 @@ describe('projection fold seam', () => {
       'const view = materializer.materializeFresh<T>(VIEW, bounded);',
     );
     expect(bounded, 'a permitted member must not be reported as a violation').toEqual([]);
+  });
+
+  it('ProjectionFoldSeam_NoDanglingEntry_EveryNamedPathStillExists', () => {
+    // A policy is only as honest as its references. Deleting a module that the
+    // policy names — a seam file, a kill fixture, an allowlisted bypass — leaves
+    // an entry that points at nothing: the exemption still reads as deliberate
+    // while it protects a file that is gone, and the scanner quietly stops
+    // finding the shape it was written for. Retiring the convergence view took
+    // two callers of the seam out in one change, which is exactly the moment an
+    // entry goes stale without anything going red.
+    const named = policyPaths();
+
+    // The denominator. An empty list would make the loop below pass by never
+    // running, which is the same fail-open shape the rest of this file guards.
+    expect(
+      named.length,
+      'the policy named no paths at all — the reader is broken, not the policy',
+    ).toBeGreaterThanOrEqual(3);
+
+    const dangling = named.filter(({ path: relative }) => !existsSync(path.join(REPO_ROOT, relative)));
+
+    expect(
+      dangling,
+      'the policy names a file that no longer exists; delete the entry or point it at the ' +
+        'module that replaced it — an exemption for an absent file protects nothing',
+    ).toEqual([]);
   });
 
   it('ProjectionFoldSeam_AllowlistEntries_CarryARationaleOwnerAndUnexpiredDate', () => {

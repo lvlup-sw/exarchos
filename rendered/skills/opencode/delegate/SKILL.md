@@ -256,18 +256,18 @@ exarchos_orchestrate({
 ```
 
 6. **Update workflow state** — set each passing `tasks[].status` to `"complete"` via `exarchos_workflow update`
-7. **Delegation completion gate (D4, advisory)** — after ALL tasks pass, run an operational resilience check on the full branch diff before transitioning to review:
+7. **Delegation completion gate (D3-D5, advisory)** — after ALL tasks pass, run the diff-hygiene rule pack on the full branch diff before transitioning to review:
 
 ```typescript
 exarchos_orchestrate({
-  action: "check_operational_resilience",
+  action: "check_diff_hygiene",
   featureId: "<featureId>",
   repoRoot: ".",
   baseBranch: "main"
 })
 ```
 
-This is advisory — findings are recorded for the convergence view but do not block the delegation→review transition. Include findings in the delegation summary for review-phase attention.
+This is advisory — each rule records its own durable `gate.executed` row under its own dimension, but nothing here blocks the delegation→review transition. Include findings in the delegation summary for review-phase attention.
 
 8. **Schema sync** — if any task modified API files (`*Endpoints.cs`, `Models/*.cs`), run `npm run sync:schemas`
 
@@ -498,7 +498,7 @@ still fails after rebase:
 
 3. **Record the incident** by emitting a `merge.aborted` event with
    `reason: "ancestry-rebase-conflict"` and the failing branch's pre-rebase
-   SHA so the convergence view captures the rollback.
+   SHA so the durable event log captures the rollback.
 
 ### Why no auto-rebase yet
 

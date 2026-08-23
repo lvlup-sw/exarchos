@@ -229,15 +229,14 @@ describe('plan-structure resolver (DR-9)', () => {
     }).map((g) => g.gate);
     expect(planChain.some(isDesignCompleteness)).toBe(false);
 
-    const entry = TOOL_REGISTRY.flatMap((t) => t.actions).find(
-      (a) => a.name === 'check_design_completeness',
-    );
-    expect(entry).toBeDefined();
-    // (3) It is NOT a PLAN_PHASE_NAMES-bound plan gate, so it cannot slip back
-    // into the plan-structure binding (the binding pin above).
-    expect(setEqualsNames(entry!.phases, PLAN_PHASE_NAMES)).toBe(false);
-    // (4) And it survives only as a deprecated alias.
-    expect(entry!.deprecated).toBe(true);
+    // (3) And it is no longer DECLARED. It used to survive as a deprecated
+    // alias delegating to `check_plan_coverage`; the triage pass deleted the
+    // alias outright, which is strictly stronger than the binding pin this
+    // case used to make: a name the registry does not carry cannot be resolved
+    // back into either chain by any binding at all.
+    const declared = TOOL_REGISTRY.flatMap((t) => t.actions).map((a) => a.name);
+    expect(declared.length, 'the registry is empty, so absence proves nothing').toBeGreaterThan(0);
+    expect(declared, 'the retired alias is declared again').not.toContain('check_design_completeness');
   });
 
   it('PlanStructureResolver_DeepDepth_AddsExplorationObligation', () => {

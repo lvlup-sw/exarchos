@@ -33,5 +33,4 @@ export { handleViewDelegationReadiness } from './handlers/delegation-readiness.j
 export { handleViewSynthesisReadiness } from './handlers/synthesis-readiness.js';
 export { handleViewShepherdStatus } from './handlers/shepherd-status.js';
 export { handleViewProvenance } from './handlers/provenance.js';
-export { handleViewConvergence } from './handlers/convergence.js';
 export { handleViewGateReliability } from './handlers/gate-reliability.js';

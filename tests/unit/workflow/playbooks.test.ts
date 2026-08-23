@@ -107,12 +107,12 @@ describe('Feature workflow playbooks', () => {
     expect(playbook.validationScripts).toEqual([]);
   });
 
-  it('getPlaybook_FeatureSynthesize_HasPreSynthesisScript', () => {
+  it('getPlaybook_FeatureSynthesize_NamesTheSynthesisReadinessGate', () => {
+    // The playbook used to name `pre_synthesis_check`, a blocking gate nothing
+    // invoked, which `prepare_synthesis` absorbed. A validation script naming a
+    // deleted action is guidance an agent cannot follow.
     const playbook = getPlaybook('feature', 'synthesize')!;
-    const hasPreSynthesis = playbook.validationScripts.some((s) =>
-      s.includes('pre_synthesis'),
-    );
-    expect(hasPreSynthesis).toBe(true);
+    expect(playbook.validationScripts).toContain('prepare_synthesis');
   });
 
   it('getPlaybook_FeatureSynthesize_IsHumanCheckpoint', () => {

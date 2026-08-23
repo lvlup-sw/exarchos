@@ -1,6 +1,5 @@
 import { TELEMETRY_VIEW, telemetryProjection } from '../../telemetry/telemetry-projection.js';
 import { CODE_QUALITY_VIEW, codeQualityProjection } from '../code-quality-view.js';
-import { CONVERGENCE_VIEW, convergenceProjection } from '../convergence-view.js';
 import { DELEGATION_READINESS_VIEW, delegationReadinessProjection } from '../delegation-readiness-view.js';
 import { DELEGATION_TIMELINE_VIEW, delegationTimelineProjection } from '../delegation-timeline-view.js';
 import { EVAL_RESULTS_VIEW, evalResultsProjection } from '../eval-results-view.js';
@@ -46,7 +45,6 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   materializer.register(SYNTHESIS_READINESS_VIEW, synthesisReadinessProjection);
   materializer.register(SHEPHERD_STATUS_VIEW, shepherdStatusProjection);
   materializer.register(PROVENANCE_VIEW, provenanceProjection);
-  materializer.register(CONVERGENCE_VIEW, convergenceProjection);
   materializer.register(GATE_RELIABILITY_VIEW, gateReliabilityProjection);
   return materializer;
 }

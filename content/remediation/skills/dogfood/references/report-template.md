@@ -25,7 +25,7 @@
 | Workflows inspected | X |
 | Events reviewed | Y |
 | Describe queries issued | Z |
-| Views consulted | [pipeline, convergence, telemetry, ...] |
+| Views consulted | [pipeline, telemetry, gate_reliability, ...] |
 | Trace-only findings | W |
 
 ### Playbook Adherence

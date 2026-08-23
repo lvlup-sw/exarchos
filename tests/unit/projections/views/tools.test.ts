@@ -29,7 +29,6 @@ import {
   handleViewSynthesisReadiness,
   handleViewShepherdStatus,
   handleViewProvenance,
-  handleViewConvergence,
 } from '../../../../src/projections/views/tools.js';
 import { EventStore } from '../../../../src/events/store.js';
 import { TOOL_REGISTRY, resolveEconomyBudget } from '../../../../src/registry.js';
@@ -337,7 +336,7 @@ describe('DR-8 inventory view contract (Task 013)', () => {
 // in Task 024 (`code_quality`, `eval_results`, `quality_hints`,
 // `quality_correlation`, `quality_attribution`, `session_provenance`,
 // `delegation_readiness`, `synthesis_readiness`, `shepherd_status`,
-// `provenance`, `convergence`): compact-by-default with `detail: true` restoring
+// `provenance`): compact-by-default with `detail: true` restoring
 // the stripped sub-structure, `page` metadata on the list-shaped views, P5 scope
 // perceivability (`scope` + `unscopedTotal`) on the filter-scoped views, and a
 // DR-2-style token-budget guard per view.
@@ -632,24 +631,5 @@ describe('DR-8 analytic view contract (Task 024)', () => {
     expect(asRecord(compact.data)._completedTaskIds).toBeUndefined();
     expect(asRecord(detail.data)._completedTaskIds).toBeDefined();
     expect(estimateOutputTokens(compact.data)).toBeLessThanOrEqual(effectiveBudget('provenance'));
-  });
-
-  it('viewsContract_Convergence_StaysUnderEffectiveBudget_StripsGateResultsByDefault', async () => {
-    const streamId = 'cv';
-    await store.append(streamId, {
-      type: 'gate.executed',
-      data: { gateName: 'design-completeness', layer: 'validation', passed: true, duration: 500, details: { dimension: 'D1' } },
-    });
-
-    const compact = await handleViewConvergence({ workflowId: streamId }, tmpDir, store);
-    const detail = await handleViewConvergence({ workflowId: streamId, detail: true }, tmpDir, store);
-    expect(compact.success).toBe(true);
-    const compactDim = asRecord(asRecord(compact.data).dimensions)['D1'] as Record<string, unknown>;
-    const detailDim = asRecord(asRecord(detail.data).dimensions)['D1'] as Record<string, unknown>;
-    expect(compactDim).toBeDefined();
-    expect(compactDim).toHaveProperty('converged');
-    expect(compactDim).not.toHaveProperty('gateResults');
-    expect(detailDim).toHaveProperty('gateResults');
-    expect(estimateOutputTokens(compact.data)).toBeLessThanOrEqual(effectiveBudget('convergence'));
   });
 });

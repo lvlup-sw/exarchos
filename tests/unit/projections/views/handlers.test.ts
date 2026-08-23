@@ -16,7 +16,6 @@ import {
   handleViewQualityAttribution,
   handleViewProvenance,
   handleViewSynthesisReadiness,
-  handleViewConvergence,
 } from '../../../../src/projections/views/tools.js';
 import { EventStore } from '../../../../src/events/store.js';
 import { TOOL_REGISTRY } from '../../../../src/registry.js';
@@ -1481,38 +1480,6 @@ describe('View Handlers', () => {
       expect(data.blockers).not.toContain('typecheck not passing');
       expect(data.blockers).toContain('tests not measured');
       expect(data.blockers).toContain('typecheck not measured');
-    });
-  });
-
-  describe('Fix 2 — convergence falls back to state.reviews.findingsByDimension', () => {
-    it('Convergence_StateFindingsCoverDimensions_RemovesFromUnchecked', async () => {
-      // GIVEN: state.reviews.findingsByDimension stamps findings for D1 + D2,
-      // but no gate.executed events ever fired for those dimensions. Pre-fix
-      // the convergence view kept D1 + D2 in uncheckedDimensions because it
-      // only consumed gate events. Post-fix the state.json fallback kicks in.
-      const featureId = 'wf-fix2-convergence';
-      await writeStateJson(tmpDir, featureId, {
-        reviews: {
-          findingsByDimension: {
-            D1: [{ severity: 'low', summary: 'minor doc nit' }],
-            D2: [],
-          },
-        },
-      });
-
-      const result = await handleViewConvergence(
-        { workflowId: featureId },
-        tmpDir,
-        store,
-      );
-
-      expect(result.success).toBe(true);
-      const data = result.data as { uncheckedDimensions: string[] };
-      // D1 and D2 must NOT appear in uncheckedDimensions — state.json
-      // covered them. Other dimensions may still be unchecked depending on
-      // the projection's defaults.
-      expect(data.uncheckedDimensions).not.toContain('D1');
-      expect(data.uncheckedDimensions).not.toContain('D2');
     });
   });
 });

@@ -1,8 +1,17 @@
 // ─── Prepare Synthesis Composite Action ─────────────────────────────────────
 //
-// Orchestrates pre-synthesis readiness checks: task completion, test suite,
-// typecheck, and branch stack health. Emits gate.executed events for both
-// SynthesisReadinessView and CodeQualityView flywheel integration.
+// The synthesis-readiness gate: task completion, the governed repository's own
+// test and typecheck commands, documentation coverage, and branch-stack health.
+// Alongside those five it REPORTS where the workflow stands relative to its
+// `synthesize` phase, so a caller standing in a review phase learns what is
+// still between it and synthesis. Emits gate.executed for the readiness and
+// code-quality views.
+//
+// This action absorbed an orphaned near-duplicate that nothing invoked. Two of
+// that module's habits were better than what stood here and were carried over;
+// the rest were deliberately left behind. Each decision is recorded beside the
+// leg it belongs to rather than in a list here, so it stays true when the leg
+// changes.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { execSync, execFileSync } from 'node:child_process';
@@ -18,6 +27,7 @@ import {
   type TestReportFormat,
 } from '../../config/toolchains.js';
 import { resolveWorkflowState } from '../resolve-state.js';
+import { getHSMDefinition, type HSMDefinition } from '../../workflow/state-machine.js';
 import { emitGateEvent } from '../gates/gate-utils.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
 import { globToRegExp } from '../../architecture/glob-to-regexp.js';
@@ -62,6 +72,9 @@ interface StackResult {
   healthy: boolean;
   branches?: string[];
   error?: string;
+  /** The leg could not run at all: neither a healthy nor an unhealthy stack was observed. */
+  indeterminate?: true;
+  reason?: string;
 }
 
 interface PrepareSynthesisResult {
@@ -72,6 +85,8 @@ interface PrepareSynthesisResult {
   typecheck: TypecheckResult;
   document: DocumentLegResult;
   stack: StackResult;
+  /** Where the workflow stands relative to `synthesize`. Reported, never blocking. */
+  phase: PhaseReadiness;
   /**
    * The carrier's own statement that it could not run to a conclusion.
    *
@@ -83,6 +98,124 @@ interface PrepareSynthesisResult {
    */
   skipped?: true;
   reason?: string;
+}
+
+// ─── Phase Readiness ───────────────────────────────────────────────────────
+
+const SYNTHESIZE_PHASE = 'synthesize';
+
+/** One hop on the way to `synthesize`, named with the guard that opens it. */
+export interface PhaseTransitionStep {
+  readonly from: string;
+  readonly to: string;
+  readonly guard?: string;
+}
+
+/**
+ * Where the workflow stands relative to its `synthesize` phase.
+ *
+ * Derived from the workflow type's OWN state machine, never from a table of
+ * phase names kept here. The absorbed predecessor carried such a table —
+ * eighteen literal phase ids under cases for three workflow types, and a
+ * `default:` arm that failed everything else — so `oneshot`, which has a real
+ * SYNTHESIZE phase, could never pass it, and `discovery`, which has no
+ * synthesize phase at all, was told it had FAILED rather than that the question
+ * did not apply to it. A machine that gains a phase, or a workflow type
+ * registered at runtime, is covered here by construction.
+ *
+ * REPORTED, never blocking. This action is registered for the review phases as
+ * well as `synthesize`, so "not there yet" is its ordinary calling condition
+ * rather than a finding; blocking on it would make the gate fail in three of
+ * the four phases it is registered for. Refusing an illegal move is the
+ * transition guards' job — this leg only says which moves are left.
+ */
+export type PhaseReadiness =
+  | { readonly kind: 'at-synthesize' }
+  | { readonly kind: 'reachable'; readonly transitions: readonly PhaseTransitionStep[] }
+  | { readonly kind: 'unreachable'; readonly reason: string }
+  | { readonly kind: 'not-applicable'; readonly reason: string };
+
+/**
+ * Fewest transitions from `from` to `to`, or `null` when the target is not
+ * reachable. Breadth-first, so a fix-cycle edge back to an earlier phase can
+ * never lengthen the answer.
+ */
+function shortestTransitionPath(
+  hsm: HSMDefinition,
+  from: string,
+  to: string,
+): readonly PhaseTransitionStep[] | null {
+  if (hsm.states[from] === undefined) return null;
+  const arrivedBy = new Map<string, PhaseTransitionStep>();
+  const seen = new Set<string>([from]);
+  const queue: string[] = [from];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (current === undefined || current === to) break;
+    for (const transition of hsm.transitions) {
+      if (transition.from !== current || seen.has(transition.to)) continue;
+      seen.add(transition.to);
+      arrivedBy.set(transition.to, {
+        from: transition.from,
+        to: transition.to,
+        ...(transition.guard ? { guard: transition.guard.id } : {}),
+      });
+      queue.push(transition.to);
+    }
+  }
+
+  const path: PhaseTransitionStep[] = [];
+  let cursor = to;
+  while (cursor !== from) {
+    const step = arrivedBy.get(cursor);
+    if (step === undefined) return null;
+    path.unshift(step);
+    cursor = step.from;
+  }
+  return path;
+}
+
+/**
+ * Ask the workflow type's state machine how far the current phase is from
+ * synthesis. Exported for direct testing: it is pure, and its whole value is
+ * that it holds no phase names of its own.
+ */
+export function assessPhaseReadiness(
+  workflowType: string,
+  phase: string,
+  hsm?: HSMDefinition,
+): PhaseReadiness {
+  let machine: HSMDefinition;
+  try {
+    machine = hsm ?? getHSMDefinition(workflowType);
+  } catch {
+    return {
+      kind: 'not-applicable',
+      reason:
+        `'${workflowType}' has no registered state machine, so the path to ` +
+        `'${SYNTHESIZE_PHASE}' cannot be derived`,
+    };
+  }
+
+  if (machine.states[SYNTHESIZE_PHASE] === undefined) {
+    return {
+      kind: 'not-applicable',
+      reason: `the '${workflowType}' workflow has no '${SYNTHESIZE_PHASE}' phase`,
+    };
+  }
+  if (phase === SYNTHESIZE_PHASE) return { kind: 'at-synthesize' };
+
+  const transitions = shortestTransitionPath(machine, phase, SYNTHESIZE_PHASE);
+  if (transitions === null) {
+    return {
+      kind: 'unreachable',
+      reason:
+        `no transition path runs from '${phase}' to '${SYNTHESIZE_PHASE}' in the ` +
+        `'${workflowType}' workflow`,
+    };
+  }
+  return { kind: 'reachable', transitions };
 }
 
 // ─── Verification-Leg Resolution ───────────────────────────────────────────
@@ -325,10 +458,25 @@ function detectDefaultBranch(repoRoot: string): string {
 
 // ─── Stack Verifier ────────────────────────────────────────────────────────
 
+/**
+ * Whether there is anything to synthesize: commits on HEAD that the base branch
+ * does not have. That is a VERSION-CONTROL question, so it is asked of git
+ * directly. Whether a pull request exists on the host for this branch is a
+ * different obligation with its own gate, sequenced immediately after this
+ * action in the synthesis runbook — asking it here would duplicate the very
+ * next step, and would make a repository on a non-GitHub host need a skip this
+ * leg has no reason to want.
+ *
+ * A git failure is NOT an unhealthy stack. This is the half of the absorbed
+ * predecessor worth keeping: it recorded a leg it could not run as unrun rather
+ * than as failed. An EMPTY commit range is a finding — nothing has been built
+ * yet — but a range that could not be resolved establishes nothing at all, and
+ * the two were previously indistinguishable at `healthy: false`.
+ */
 function verifyStack(repoRoot: string): StackResult {
+  const range = `${detectDefaultBranch(repoRoot)}..HEAD`;
   try {
-    const baseBranch = detectDefaultBranch(repoRoot);
-    const output = execSync(`git log --oneline --graph ${baseBranch}..HEAD`, {
+    const output = execSync(`git log --oneline --graph ${range}`, {
       cwd: repoRoot,
       encoding: 'buffer',
       timeout: 15_000,
@@ -341,8 +489,16 @@ function verifyStack(repoRoot: string): StackResult {
       .filter(Boolean);
     return { healthy: branches.length > 0, branches };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { healthy: false, branches: [], error: message };
+    const command = `git log ${range}`;
+    const failure = classifyCommandFailure(err);
+    // A non-zero exit from `git log <range>` is not a verdict about the stack
+    // either: it means the RANGE did not resolve (an unknown base ref, or no
+    // repository here), so the leg was never scoped.
+    const reason =
+      inconclusiveReason(command, failure) ??
+      `\`${command}\` could not resolve the commit range (${failure.detail}), ` +
+        'so the stack was not measured';
+    return { healthy: false, branches: [], error: failure.detail, indeterminate: true, reason };
   }
 }
 
@@ -545,7 +701,19 @@ async function executePrepareSynthesis(
     }
     const tasks = (resolved.state.tasks as ResolvedTaskEntry[] | undefined) ?? [];
 
-    // 3. Check task completion — early return if tasks not all complete
+    // 2b. How far the workflow is from `synthesize`, per its own state machine.
+    //     Reported on every path below, including the early return: a caller
+    //     told "not ready" is owed the reason it is standing where it is.
+    const phase = assessPhaseReadiness(
+      typeof resolved.state['workflowType'] === 'string' ? resolved.state['workflowType'] : 'feature',
+      typeof resolved.state['phase'] === 'string' ? resolved.state['phase'] : 'unknown',
+    );
+
+    // 3. Check task completion — early return if tasks not all complete.
+    //    An EMPTY task list is complete, not a failure: a workflow that
+    //    delegated nothing (a oneshot, say) has nothing outstanding, and the
+    //    absorbed predecessor's "no tasks found" failure made every such
+    //    workflow unsynthesizable.
     const { allComplete, blockers } = checkTaskCompletion(tasks);
     if (!allComplete) {
       const readiness: SynthesisReadinessState = {
@@ -564,6 +732,7 @@ async function executePrepareSynthesis(
         typecheck: { passed: false, errorCount: 0 },
         document: { evaluated: false, covered: false, severity: 'advisory', surfaceFiles: [] },
         stack: { healthy: false },
+        phase,
       };
 
       return { success: true, data: result };
@@ -721,7 +890,13 @@ async function executePrepareSynthesis(
     if (!readiness.documentReady) {
       allBlockers.push(documentLeg.message ?? 'Documentation not updated for a doc-bearing change');
     }
-    if (!readiness.stackHealthy) allBlockers.push('Stack not healthy');
+    if (stack.indeterminate) {
+      const why = stack.reason ?? 'the commit range could not be resolved';
+      unmeasured.push(`Stack: ${why}`);
+      allBlockers.push(`Stack health could not be determined — ${why}`);
+    } else if (!readiness.stackHealthy) {
+      allBlockers.push('Stack not healthy');
+    }
 
     // An unmeasured leg makes the readiness answer unavailable rather than
     // negative — but only while nothing else actually FAILED. A gate that
@@ -732,7 +907,7 @@ async function executePrepareSynthesis(
       || (!tests.indeterminate && !readiness.testsPass)
       || (!typecheck.indeterminate && !readiness.typecheckPass)
       || !readiness.documentReady
-      || !readiness.stackHealthy;
+      || (!stack.indeterminate && !readiness.stackHealthy);
     const unconcluded = unmeasured.length > 0 && !observedFailure;
 
     const result: PrepareSynthesisResult = {
@@ -743,6 +918,7 @@ async function executePrepareSynthesis(
       typecheck,
       document: documentLeg,
       stack,
+      phase,
       ...(unconcluded ? { skipped: true as const, reason: unmeasured.join('; ') } : {}),
     };
 

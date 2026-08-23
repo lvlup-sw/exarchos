@@ -1,10 +1,10 @@
 /**
- * cli-follow-expansion — `--follow` expansion to view {pipeline,convergence,delegation_timeline} (#1440 Op 1, T7).
+ * cli-follow-expansion — `--follow` expansion to view {pipeline,delegation_timeline} (#1440 Op 1, T7).
  *
  * Pin two contracts independently from the broader `follow-loop.test.ts` to
  * keep the diff focused:
  *
- *   1. `runFollowLoop` accepts the three new `FollowSubcommand` values and
+ *   1. `runFollowLoop` accepts the added `FollowSubcommand` values and
  *      emits NDJSON-shaped transition frames identical to the existing
  *      workflow_status/shepherd_status entry points (only the prefix
  *      bracket differs).
@@ -92,46 +92,6 @@ describe('runFollowLoop — #1440 Op 1 expansion to additional view actions', ()
     expect(result.transitions).toBeGreaterThanOrEqual(2);
   });
 
-  it('CliFollow_ConvergenceAction_EmitsNdjsonFrames', async () => {
-    // Convergence view surfaces D1-D5 gate convergence. Useful during a
-    // synthesis push to watch dimensions land sequentially.
-    const taskId = 'task-convergence-002';
-    const script: Task[] = [
-      {
-        taskId,
-        status: 'working',
-        ttl: 60_000,
-        createdAt: ISO_FIXED,
-        lastUpdatedAt: ISO_FIXED,
-        statusMessage: 'D1 pending',
-      },
-      {
-        taskId,
-        status: 'completed',
-        ttl: 60_000,
-        createdAt: ISO_FIXED,
-        lastUpdatedAt: '2026-05-17T00:00:02.000Z',
-        statusMessage: 'D1-D5 converged',
-      },
-    ];
-    const stdout = new PassThrough();
-    const store = scriptedStore(taskId, script);
-
-    const result = await runFollowLoop({
-      taskStore: store,
-      taskId,
-      pollIntervalMs: 1,
-      stdout,
-      subcommand: 'convergence',
-    });
-
-    const text = drain(stdout);
-    expect(text).toContain('[convergence]');
-    expect(text).toContain(taskId);
-    expect(text).toContain('D1-D5 converged');
-    expect(result.terminalStatus).toBe('completed');
-  });
-
   it('CliFollow_DelegationTimelineAction_EmitsNdjsonFrames', async () => {
     // Delegation timeline drives bottleneck detection in flight. Operators
     // typically tail this during multi-agent dispatch waves.
@@ -167,7 +127,7 @@ describe('runFollowLoop — #1440 Op 1 expansion to additional view actions', ()
 
 describe('view handlers — #1440 Op 1 idempotency cross-check (T1 audit)', () => {
   // Cross-check the orchestrator-inline T1 idempotency audit at the
-  // source-file level. The three new --follow targets MUST be pure
+  // source-file level. The added --follow targets MUST be pure
   // `ViewProjection` folds — no `eventStore.append`, no `emit`, no
   // `*.polled` events. If a future edit introduces a write surface this
   // test fails BEFORE the per-handler test, surfacing the regression at
@@ -175,7 +135,6 @@ describe('view handlers — #1440 Op 1 idempotency cross-check (T1 audit)', () =
   const VIEWS_DIR = path.resolve(__dirname, '../../../src/projections/views');
   const FOLLOW_TARGETS = [
     'pipeline-view.ts',
-    'convergence-view.ts',
     'delegation-timeline-view.ts',
   ];
   // Strings that would indicate a write side-effect on a poll path. The

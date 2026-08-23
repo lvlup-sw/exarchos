@@ -1,0 +1,1378 @@
+{
+  "scored": {
+    "atBreadthThreshold": {
+      "context-economy": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (3/3 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            true,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (all operational resilience checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            true,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "## Workflow Determinism Report\n\nNo determinism issues detected.\n\n---\n\n**Result: PASS** (4/4 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            true,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      }
+    },
+    "atSourceLengthThreshold": {
+      "context-economy": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (3/3 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            true,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (all operational resilience checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            true,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "## Workflow Determinism Report\n\nNo determinism issues detected.\n\n---\n\n**Result: PASS** (4/4 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            true,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      }
+    },
+    "blank": {
+      "context-economy": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (0/0 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            true,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (all operational resilience checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            true,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "## Workflow Determinism Report\n\nNo determinism issues detected.\n\n---\n\n**Result: PASS** (4/4 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            true,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      }
+    },
+    "boundedRetry": {
+      "context-economy": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (3/3 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            true,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (all operational resilience checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            true,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "## Workflow Determinism Report\n\nNo determinism issues detected.\n\n---\n\n**Result: PASS** (4/4 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            true,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      }
+    },
+    "bulkWithoutMarker": {
+      "context-economy": {
+        "passed": false,
+        "findingCount": 1,
+        "report": "- **LOW**: `data/table.json` — 1001 added lines (possible generated file, threshold: 1000)\n\nResult: FINDINGS (1 findings detected)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            false,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 1
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (all operational resilience checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            true,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "## Workflow Determinism Report\n\nNo determinism issues detected.\n\n---\n\n**Result: PASS** (4/4 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            true,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      }
+    },
+    "cleanSource": {
+      "context-economy": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (3/3 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            true,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (all operational resilience checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            true,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "## Workflow Determinism Report\n\nNo determinism issues detected.\n\n---\n\n**Result: PASS** (4/4 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            true,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      }
+    },
+    "consoleLogInSource": {
+      "context-economy": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (3/3 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            true,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": false,
+        "findingCount": 1,
+        "report": "- **MEDIUM**: `src/trace.ts` — console.log in source file\n\nResult: FINDINGS (1 findings detected)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            false,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 1
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "## Workflow Determinism Report\n\nNo determinism issues detected.\n\n---\n\n**Result: PASS** (4/4 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            true,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      }
+    },
+    "consoleLogInTest": {
+      "context-economy": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (3/3 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            true,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (all operational resilience checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            true,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": false,
+        "findingCount": 1,
+        "report": "## Workflow Determinism Report\n\n**Findings (1):**\n\n- **LOW** `src/trace.test.ts:2` — Debug artifact in test file: `console.log(\"here\");`\n\n---\n\n**Result: FINDINGS** (1 finding detected)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            false,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 1
+            }
+          ]
+        ]
+      }
+    },
+    "empty": {
+      "context-economy": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (0/0 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            true,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (all operational resilience checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            true,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "## Workflow Determinism Report\n\nNo determinism issues detected.\n\n---\n\n**Result: PASS** (4/4 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            true,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      }
+    },
+    "emptyCatch": {
+      "context-economy": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (3/3 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            true,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": false,
+        "findingCount": 1,
+        "report": "- **HIGH**: `src/handler.ts` — Empty catch block detected\n\nResult: FINDINGS (1 findings detected)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            false,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 1
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "## Workflow Determinism Report\n\nNo determinism issues detected.\n\n---\n\n**Result: PASS** (4/4 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            true,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      }
+    },
+    "focusedTest": {
+      "context-economy": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (3/3 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            true,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (all operational resilience checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            true,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": false,
+        "findingCount": 1,
+        "report": "## Workflow Determinism Report\n\n**Findings (1):**\n\n- **HIGH** `src/feature.test.ts:1` — Test focus/skip modifier: `describe.only(\"feature\", () => {`\n\n---\n\n**Result: FINDINGS** (1 finding detected)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            false,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 1
+            }
+          ]
+        ]
+      }
+    },
+    "generatedMarker": {
+      "context-economy": {
+        "passed": false,
+        "findingCount": 1,
+        "report": "- **LOW**: `src/generated/client.ts` — Generated file detected in diff (2 added lines)\n\nResult: FINDINGS (1 findings detected)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            false,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 1
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (all operational resilience checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            true,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "## Workflow Determinism Report\n\nNo determinism issues detected.\n\n---\n\n**Result: PASS** (4/4 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            true,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      }
+    },
+    "headerOnly": {
+      "context-economy": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (3/3 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            true,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (all operational resilience checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            true,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "## Workflow Determinism Report\n\nNo determinism issues detected.\n\n---\n\n**Result: PASS** (4/4 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            true,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      }
+    },
+    "mockedClock": {
+      "context-economy": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (3/3 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            true,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (all operational resilience checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            true,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "## Workflow Determinism Report\n\nNo determinism issues detected.\n\n---\n\n**Result: PASS** (4/4 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            true,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      }
+    },
+    "multiRule": {
+      "context-economy": {
+        "passed": false,
+        "findingCount": 1,
+        "report": "- **MEDIUM**: `src/big.ts` — Source file exceeds 400 lines (401 added lines)\n\nResult: FINDINGS (1 findings detected)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            false,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 1
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": false,
+        "findingCount": 2,
+        "report": "- **HIGH**: `src/handler.ts` — Empty catch block detected\n- **MEDIUM**: `src/handler.ts` — console.log in source file\n\nResult: FINDINGS (2 findings detected)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            false,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 2
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": false,
+        "findingCount": 3,
+        "report": "## Workflow Determinism Report\n\n**Findings (3):**\n\n- **HIGH** `src/feature.test.ts:1` — Test focus/skip modifier: `describe.only(\"feature\", () => {`\n- **MEDIUM** `src/feature.test.ts:2` — Non-deterministic time without fake timers: `console.log(Date.now());`\n- **LOW** `src/feature.test.ts:2` — Debug artifact in test file: `console.log(Date.now());`\n\n---\n\n**Result: FINDINGS** (3 findings detected)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            false,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 3
+            }
+          ]
+        ]
+      }
+    },
+    "nonTestLookalike": {
+      "context-economy": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (3/3 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            true,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (all operational resilience checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            true,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "## Workflow Determinism Report\n\nNo determinism issues detected.\n\n---\n\n**Result: PASS** (4/4 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            true,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      }
+    },
+    "oversizeSource": {
+      "context-economy": {
+        "passed": false,
+        "findingCount": 1,
+        "report": "- **MEDIUM**: `src/huge.ts` — Source file exceeds 400 lines (401 added lines)\n\nResult: FINDINGS (1 findings detected)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            false,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 1
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (all operational resilience checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            true,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "## Workflow Determinism Report\n\nNo determinism issues detected.\n\n---\n\n**Result: PASS** (4/4 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            true,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      }
+    },
+    "skippedTest": {
+      "context-economy": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (3/3 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            true,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (all operational resilience checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            true,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": false,
+        "findingCount": 1,
+        "report": "## Workflow Determinism Report\n\n**Findings (1):**\n\n- **HIGH** `src/feature.spec.ts:1` — Test focus/skip modifier: `it.skip(\"works\", () => { expect(1).toBe(1); });`\n\n---\n\n**Result: FINDINGS** (1 finding detected)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            false,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 1
+            }
+          ]
+        ]
+      }
+    },
+    "swallowedError": {
+      "context-economy": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (3/3 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            true,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": false,
+        "findingCount": 1,
+        "report": "- **MEDIUM**: `src/service.ts` — Possible swallowed error in catch block\n\nResult: FINDINGS (1 findings detected)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            false,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 1
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "## Workflow Determinism Report\n\nNo determinism issues detected.\n\n---\n\n**Result: PASS** (4/4 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            true,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      }
+    },
+    "unboundedRetry": {
+      "context-economy": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (3/3 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            true,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": false,
+        "findingCount": 1,
+        "report": "- **MEDIUM**: `src/poller.ts` — Unbounded retry loop (while(true)/for(;;) without break/max)\n\nResult: FINDINGS (1 findings detected)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            false,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 1
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "## Workflow Determinism Report\n\nNo determinism issues detected.\n\n---\n\n**Result: PASS** (4/4 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            true,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      }
+    },
+    "unmockedClock": {
+      "context-economy": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (3/3 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            true,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (all operational resilience checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            true,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": false,
+        "findingCount": 1,
+        "report": "## Workflow Determinism Report\n\n**Findings (1):**\n\n- **MEDIUM** `src/clock.test.ts:2` — Non-deterministic time without fake timers: `const at = Date.now();`\n\n---\n\n**Result: FINDINGS** (1 finding detected)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            false,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 1
+            }
+          ]
+        ]
+      }
+    },
+    "unmockedRandom": {
+      "context-economy": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (3/3 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            true,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (all operational resilience checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            true,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": false,
+        "findingCount": 1,
+        "report": "## Workflow Determinism Report\n\n**Findings (1):**\n\n- **MEDIUM** `src/random.test.ts:2` — Non-deterministic Math.random() without mock: `const pick = Math.random();`\n\n---\n\n**Result: FINDINGS** (1 finding detected)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            false,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 1
+            }
+          ]
+        ]
+      }
+    },
+    "wideDiff": {
+      "context-economy": {
+        "passed": false,
+        "findingCount": 1,
+        "report": "- **MEDIUM**: Diff breadth: 31 files changed (threshold: 30)\n\nResult: FINDINGS (1 findings detected)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "context-economy",
+            "quality",
+            false,
+            {
+              "dimension": "D3",
+              "phase": "review",
+              "findingCount": 1
+            }
+          ]
+        ]
+      },
+      "operational-resilience": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "Result: PASS (all operational resilience checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "operational-resilience",
+            "quality",
+            true,
+            {
+              "dimension": "D4",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      },
+      "workflow-determinism": {
+        "passed": true,
+        "findingCount": 0,
+        "report": "## Workflow Determinism Report\n\nNo determinism issues detected.\n\n---\n\n**Result: PASS** (4/4 checks passed)",
+        "emissions": [
+          [
+            "feat-baseline",
+            "workflow-determinism",
+            "quality",
+            true,
+            {
+              "dimension": "D5",
+              "phase": "review",
+              "findingCount": 0
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "unscoped": {
+    "context-economy": {
+      "success": true,
+      "data": {
+        "passed": false,
+        "findingCount": 0,
+        "report": "no default branch for '/exarchos-not-a-repository': nothing answered — tried the VCS provider [not supplied], 'git symbolic-ref refs/remotes/origin/HEAD' [authoritative], 'git remote show origin' [authoritative], 'git config init.defaultBranch (verified to exist)' [inferred]",
+        "skipped": true,
+        "discriminant": "base-branch-unresolved",
+        "reason": "no default branch for '/exarchos-not-a-repository': nothing answered — tried the VCS provider [not supplied], 'git symbolic-ref refs/remotes/origin/HEAD' [authoritative], 'git remote show origin' [authoritative], 'git config init.defaultBranch (verified to exist)' [inferred]"
+      },
+      "diffAttempted": false,
+      "emissions": [
+        [
+          "feat-baseline",
+          "context-economy",
+          "quality",
+          false,
+          {
+            "dimension": "D3",
+            "phase": "review",
+            "findingCount": 0,
+            "skipped": true,
+            "discriminant": "base-branch-unresolved",
+            "reason": "no default branch for '/exarchos-not-a-repository': nothing answered — tried the VCS provider [not supplied], 'git symbolic-ref refs/remotes/origin/HEAD' [authoritative], 'git remote show origin' [authoritative], 'git config init.defaultBranch (verified to exist)' [inferred]"
+          }
+        ]
+      ]
+    },
+    "operational-resilience": {
+      "success": true,
+      "data": {
+        "passed": false,
+        "findingCount": 0,
+        "report": "no default branch for '/exarchos-not-a-repository': nothing answered — tried the VCS provider [not supplied], 'git symbolic-ref refs/remotes/origin/HEAD' [authoritative], 'git remote show origin' [authoritative], 'git config init.defaultBranch (verified to exist)' [inferred]",
+        "skipped": true,
+        "discriminant": "base-branch-unresolved",
+        "reason": "no default branch for '/exarchos-not-a-repository': nothing answered — tried the VCS provider [not supplied], 'git symbolic-ref refs/remotes/origin/HEAD' [authoritative], 'git remote show origin' [authoritative], 'git config init.defaultBranch (verified to exist)' [inferred]"
+      },
+      "diffAttempted": false,
+      "emissions": [
+        [
+          "feat-baseline",
+          "operational-resilience",
+          "quality",
+          false,
+          {
+            "dimension": "D4",
+            "phase": "review",
+            "findingCount": 0,
+            "skipped": true,
+            "discriminant": "base-branch-unresolved",
+            "reason": "no default branch for '/exarchos-not-a-repository': nothing answered — tried the VCS provider [not supplied], 'git symbolic-ref refs/remotes/origin/HEAD' [authoritative], 'git remote show origin' [authoritative], 'git config init.defaultBranch (verified to exist)' [inferred]"
+          }
+        ]
+      ]
+    },
+    "workflow-determinism": {
+      "success": true,
+      "data": {
+        "passed": false,
+        "findingCount": 0,
+        "report": "no default branch for '/exarchos-not-a-repository': nothing answered — tried the VCS provider [not supplied], 'git symbolic-ref refs/remotes/origin/HEAD' [authoritative], 'git remote show origin' [authoritative], 'git config init.defaultBranch (verified to exist)' [inferred]",
+        "skipped": true,
+        "discriminant": "base-branch-unresolved",
+        "reason": "no default branch for '/exarchos-not-a-repository': nothing answered — tried the VCS provider [not supplied], 'git symbolic-ref refs/remotes/origin/HEAD' [authoritative], 'git remote show origin' [authoritative], 'git config init.defaultBranch (verified to exist)' [inferred]"
+      },
+      "diffAttempted": false,
+      "emissions": [
+        [
+          "feat-baseline",
+          "workflow-determinism",
+          "quality",
+          false,
+          {
+            "dimension": "D5",
+            "phase": "review",
+            "findingCount": 0,
+            "skipped": true,
+            "discriminant": "base-branch-unresolved",
+            "reason": "no default branch for '/exarchos-not-a-repository': nothing answered — tried the VCS provider [not supplied], 'git symbolic-ref refs/remotes/origin/HEAD' [authoritative], 'git remote show origin' [authoritative], 'git config init.defaultBranch (verified to exist)' [inferred]"
+          }
+        ]
+      ]
+    }
+  }
+}

@@ -88,7 +88,15 @@ export const QUALITY_EVALUATION: RunbookDefinition = {
   steps: [
     { tool: 'exarchos_orchestrate', action: 'check_static_analysis', onFail: 'stop' },
     { tool: 'exarchos_orchestrate', action: 'check_security_scan', onFail: 'continue' },
-    { tool: 'exarchos_orchestrate', action: 'check_convergence', onFail: 'continue' },
+    // The consolidated diff-hygiene rule pack — context economy, operational
+    // resilience and workflow determinism, one action, one durable row per
+    // rule under each rule's own gate name and dimension. The three actions it
+    // replaces were declared but reached by no chain and no resolver, so the
+    // three review dimensions they were supposed to produce were never
+    // produced. Advisory: a hygiene finding informs the verdict step below, it
+    // does not halt the chain.
+    { tool: 'exarchos_orchestrate', action: 'check_diff_hygiene', onFail: 'continue',
+      note: 'Scans the branch diff for D3/D4/D5 hygiene findings; one gate.executed row per rule' },
     // DR-15 / task 027: invariant conformance as a review dimension. Now that
     // INV-13/14/16 carry mode:check (alongside INV-4), this gate produces
     // deterministic mechanical findings; a blocking-severity check violation

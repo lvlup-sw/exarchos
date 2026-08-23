@@ -142,8 +142,6 @@ describe('Runbook drift detection', () => {
       'exarchos_orchestrate.check_provenance_chain',
       'exarchos_orchestrate.check_plan_coverage',
       'exarchos_orchestrate.check_exploration_depth',
-      'exarchos_orchestrate.debug_review_gate',
-      'exarchos_orchestrate.pre_synthesis_check',
     ]);
 
     // Collect all blocking gate actions from the registry

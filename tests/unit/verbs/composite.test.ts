@@ -29,9 +29,6 @@ vi.mock('../../../src/verbs/vcs/assess-stack.js', () => ({
   handleAssessStack: vi.fn(),
 }));
 
-vi.mock('../../../src/verbs/gates/design-completeness.js', () => ({
-  handleDesignCompleteness: vi.fn(),
-}));
 
 vi.mock('../../../src/verbs/gates/plan-coverage.js', () => ({
   handlePlanCoverage: vi.fn(),
@@ -125,7 +122,6 @@ import { handleReviewTriage } from '../../../src/review/tools.js';
 import { handlePrepareDelegation } from '../../../src/verbs/team/prepare-delegation.js';
 import { handlePrepareSynthesis } from '../../../src/verbs/team/prepare-synthesis.js';
 import { handleAssessStack } from '../../../src/verbs/vcs/assess-stack.js';
-import { handleDesignCompleteness } from '../../../src/verbs/gates/design-completeness.js';
 import { handlePlanCoverage } from '../../../src/verbs/gates/plan-coverage.js';
 import { handlePostMerge } from '../../../src/verbs/gates/post-merge.js';
 import { handleAgentSpec } from '../../../src/runtime/agents/handler.js';
@@ -457,28 +453,6 @@ describe('handleOrchestrate', () => {
       expectEnvelopedSuccess(result, expected);
       expect(handleAssessStack).toHaveBeenCalledWith(
         { featureId: 'feat-789', prNumbers: [101, 102] },
-        STATE_DIR,
-        CTX.eventStore,
-      );
-    });
-
-    it('HandleOrchestrate_CheckDesignCompleteness_DelegatesToHandler', async () => {
-      // Arrange
-      const expected = successResult({ passed: true, advisory: true, findings: [] });
-      vi.mocked(handleDesignCompleteness).mockResolvedValue(expected);
-      const args = {
-        action: 'check_design_completeness',
-        featureId: 'feat-200',
-        designPath: '/tmp/design.md',
-      };
-
-      // Act
-      const result = await handleOrchestrate(args, CTX);
-
-      // Assert
-      expectEnvelopedSuccess(result, expected);
-      expect(handleDesignCompleteness).toHaveBeenCalledWith(
-        { featureId: 'feat-200', designPath: '/tmp/design.md' },
         STATE_DIR,
         CTX.eventStore,
       );

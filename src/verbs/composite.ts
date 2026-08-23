@@ -26,7 +26,6 @@ import { handleReviewTriage } from '../review/tools.js';
 import { handlePrepareDelegation } from './team/prepare-delegation.js';
 import { handlePrepareSynthesis } from './team/prepare-synthesis.js';
 import { handleAssessStack } from './vcs/assess-stack.js';
-import { handleDesignCompleteness } from './gates/design-completeness.js';
 import { handlePlanCoverage } from './gates/plan-coverage.js';
 import { handleCheckExplorationDepth } from './gates/check-exploration-depth.js';
 import { handleTestAdequacy } from './gates/test-adequacy-handler.js';
@@ -37,11 +36,8 @@ import { handlePostMerge } from './gates/post-merge.js';
 import { handleStaticAnalysis } from './gates/static-analysis.js';
 import { handleCheckIntegrationSuite } from './gates/check-integration-suite.js';
 import { handleSecurityScan } from './gates/security-scan.js';
-import { handleContextEconomy } from './gates/context-economy.js';
-import { handleOperationalResilience } from './gates/operational-resilience.js';
-import { handleWorkflowDeterminism } from './gates/workflow-determinism.js';
+import { handleDiffHygiene } from './gates/diff-hygiene.js';
 import { handleReviewVerdict } from './review/review-verdict.js';
-import { handleCheckConvergence } from './gates/check-convergence.js';
 import { handleProvenanceChain } from './gates/provenance-chain.js';
 import { handleTaskDecomposition } from './tasks/task-decomposition.js';
 import { handleCheckEventEmissions } from './gates/check-event-emissions.js';
@@ -51,12 +47,10 @@ import { handleReviewDiff } from './review/review-diff.js';
 import { handleVerifyWorktree } from './gates/verify-worktree.js';
 import { handleSelectDebugTrack } from './review/select-debug-track.js';
 import { handleInvestigationTimer } from './review/investigation-timer.js';
-import { handleCheckCoverageThresholds } from './gates/check-coverage-thresholds.js';
 import { handleAssessRefactorScope } from './gates/assess-refactor-scope.js';
 import { handleCheckPrComments } from './vcs/check-pr-comments.js';
 import { handleValidatePrBody } from './vcs/validate-pr-body.js';
 import { handleValidatePrStack } from './vcs/validate-pr-stack.js';
-import { handleDebugReviewGate } from './review/debug-review-gate.js';
 import { handleExtractFixTasks } from './tasks/extract-fix-tasks.js';
 import { handleClassifyReviewItems } from './review/classify-review-items.js';
 import { handleGenerateTraceability } from './gates/generate-traceability.js';
@@ -66,7 +60,6 @@ import { handleSetupWorktree, type SetupWorktreeArgs } from './team/setup-worktr
 import { handleVerifyDelegationSaga } from './team/verify-delegation-saga.js';
 import { handlePostDelegationCheck } from './team/post-delegation-check.js';
 import { handleReconcileState } from './reconcile-state.js';
-import { handlePreSynthesisCheck } from './gates/pre-synthesis-check.js';
 import { handleCheckCoderabbit } from './vcs/check-coderabbit.js';
 import { handleCheckPolishScope } from './gates/check-polish-scope.js';
 import { handleNeedsSchemaSync } from './gates/needs-schema-sync.js';
@@ -467,7 +460,6 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   prepare_delegation: adaptWithCtx(handlePrepareDelegation),
   prepare_synthesis: adaptWithEventStoreAndConfig(handlePrepareSynthesis),
   assess_stack: adaptWithEventStoreAndConfig(handleAssessStack),
-  check_design_completeness: adaptWithEventStore(handleDesignCompleteness),
   check_plan_coverage: adaptWithEventStore(handlePlanCoverage),
   // DR-4 (Gap B): deep-only Exploration-citation gate. Self-skips at
   // thin/standard depth; at deep it verifies the spec's `### Exploration`
@@ -492,11 +484,8 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_static_analysis: adaptLadderGate('check_static_analysis', 'D2', handleStaticAnalysis),
   check_integration_suite: adaptLadderGate('check_integration_suite', 'D2', handleCheckIntegrationSuite),
   check_security_scan: adaptWithEventStore(handleSecurityScan),
-  check_context_economy: adaptWithEventStore(handleContextEconomy),
-  check_operational_resilience: adaptWithEventStore(handleOperationalResilience),
-  check_workflow_determinism: adaptWithEventStore(handleWorkflowDeterminism),
+  check_diff_hygiene: adaptWithEventStore(handleDiffHygiene),
   check_review_verdict: adaptWithEventStoreAndConfig(handleReviewVerdict),
-  check_convergence: adaptWithEventStore(handleCheckConvergence),
   check_provenance_chain: adaptWithEventStore(handleProvenanceChain),
   check_task_decomposition: adaptWithEventStore(handleTaskDecomposition),
   check_event_emissions: adaptWithEventStore(handleCheckEventEmissions),
@@ -506,14 +495,12 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   verify_worktree: adapt(handleVerifyWorktree),
   select_debug_track: adaptWithOptionalEventStore(handleSelectDebugTrack),
   investigation_timer: adaptWithOptionalEventStore(handleInvestigationTimer),
-  check_coverage_thresholds: adaptArgs(handleCheckCoverageThresholds),
   assess_refactor_scope: adaptArgsWithEventStore(handleAssessRefactorScope),
   check_pr_comments: adaptArgs(handleCheckPrComments),
   validate_pr_body: adaptWithOptionalEventStore(handleValidatePrBody),
   // Resolves its own provider when the caller hands none, so it needs the config
   // the factory reads `vcs.provider` from — see adaptArgsWithConfig.
   validate_pr_stack: adaptArgsWithConfig(handleValidatePrStack),
-  debug_review_gate: adaptArgs(handleDebugReviewGate),
   extract_fix_tasks: adaptArgsWithStateDirAndEventStore(handleExtractFixTasks),
   classify_review_items: adaptArgsWithEventStore(handleClassifyReviewItems),
   generate_traceability: adaptArgs(handleGenerateTraceability),
@@ -523,7 +510,6 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   verify_delegation_saga: adaptArgs(handleVerifyDelegationSaga),
   post_delegation_check: adaptArgsWithEventStore(handlePostDelegationCheck),
   reconcile_state: adaptArgsWithEventStore(handleReconcileState),
-  pre_synthesis_check: adaptArgsWithStateDirAndEventStore(handlePreSynthesisCheck),
   check_coderabbit: adaptArgs(handleCheckCoderabbit),
   check_polish_scope: adaptArgs(handleCheckPolishScope),
   needs_schema_sync: adaptArgs(handleNeedsSchemaSync),
@@ -778,13 +764,12 @@ function validateInvariantsAmendArgs(
 /**
  * #1855 — the orchestrate degraded gate is gone, and its removal is the fix.
  *
- * The four guarded actions — `prepare_delegation`, `prepare_synthesis`,
- * `check_convergence`, `check_event_emissions` — were guarded because each
- * decides whether to dispatch agents or whether a phase converged, and each
- * read a materialized fold to do it. The reasoning was sound; the mechanism was
- * not. The gate could only consult a durable verdict published by a different
- * surface, so a stale marker refused a healthy stream and a fresh fold could
- * not clear one.
+ * The guarded actions — `prepare_delegation`, `prepare_synthesis`,
+ * `check_event_emissions` — were guarded because each decides whether to
+ * dispatch agents or whether a phase is ready, and each read a materialized
+ * fold to do it. The reasoning was sound; the mechanism was not. The gate could
+ * only consult a durable verdict published by a different surface, so a stale
+ * marker refused a healthy stream and a fresh fold could not clear one.
  *
  * Each of those handlers now folds to the stream's durable tail through
  * `projections/fold-at-tail.ts` before it decides, which is what the gate was

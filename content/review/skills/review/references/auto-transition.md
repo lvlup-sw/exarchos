@@ -35,10 +35,9 @@ Quality-review itself is NOT a human checkpoint — it auto-continues. However, 
 Gate events are automatically emitted by the orchestrate handlers — do NOT manually emit `gate.executed` events via `exarchos_event`.
 
 1. **Read CI status** via `exarchos_orchestrate({ action: "check_ci", prId: "<number>" })`
-2. **Gate events** — emitted automatically by `check_static_analysis`, `check_security_scan`, `check_context_economy`, `check_operational_resilience`, `check_workflow_determinism`, and `check_review_verdict` handlers
+2. **Gate events** — emitted automatically by `check_static_analysis`, `check_security_scan`, `check_diff_hygiene`, and `check_review_verdict` handlers. Every row is durable and carries its own dimension (the hygiene pack writes one row per rule), and the verdict step reads them back as `dimensionResults`
 3. **Read unified status** via `exarchos_view` with `action: "tasks"`, `fields: ["taskId", "status", "title"]`, `limit: 20`
-4. **Query convergence** via `exarchos_view` with `action: "convergence"`, `workflowId: "<featureId>"` for per-dimension gate results
-5. **When all per-PR gates pass**, apply `stack-ready` label to the PR
+4. **When all per-PR gates pass**, apply `stack-ready` label to the PR
 
 ## Performance Notes
 

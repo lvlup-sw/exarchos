@@ -53,9 +53,13 @@ import {
   handlePrepareSynthesis,
   evaluateDocumentLeg,
   documentLegBlocks,
+  assessPhaseReadiness,
   type DocumentLegConfig,
+  type PhaseReadiness,
 } from '../../../../src/verbs/team/prepare-synthesis.js';
 import type { ResolvedProjectConfig } from '../../../../src/config/resolve.js';
+import { listWorkflowTypes } from '../../../../src/workflow/state-machine.js';
+import { orchestrateActions } from '../../../../src/registry/actions/orchestrate/index.js';
 
 // ─── Test Helpers ──────────────────────────────────────────────────────────
 
@@ -396,6 +400,153 @@ describe('handlePrepareSynthesis', () => {
     expect(data.stack).toBeDefined();
     expect(data.stack.healthy).toBe(true);
     expect(data.stack.branches).toBeDefined();
+  });
+
+  // ─── Absorbed seam: an unrunnable stack probe records no verdict ─────────
+
+  it('StackLeg_ProbeCannotRun_IsIndeterminate_NotAnUnhealthyStack', async () => {
+    // The absorbed gate's one habit worth keeping on this leg: it recorded a
+    // check it could not run as unrun, never as failed. Here git itself is
+    // unavailable, so nothing was established about the stack — and
+    // `healthy: false` alone reads as "measured, and there is nothing there".
+    const mockStore = createMockEventStore(tasksToEvents({ t1: { status: 'completed' } }));
+    vi.mocked(execFileSync).mockImplementation(legRunner());
+    vi.mocked(execSync).mockImplementation(((command: string) => {
+      if (command.includes('symbolic-ref')) {
+        return 'refs/remotes/origin/main\n' as unknown as Buffer;
+      }
+      const err = new Error('spawn git ENOENT') as Error & { code: string };
+      err.code = 'ENOENT';
+      throw err;
+    }) as unknown as typeof execSync);
+
+    const result = await handlePrepareSynthesis(
+      { featureId: 'f', repoRoot: tmpDir },
+      tmpDir,
+      mockStore as unknown as EventStore,
+    );
+
+    const data = result.data as {
+      ready: boolean;
+      skipped?: true;
+      reason?: string;
+      stack: { healthy: boolean; indeterminate?: true; reason?: string };
+      blockers?: string[];
+    };
+    expect(data.stack.indeterminate).toBe(true);
+    expect(data.stack.reason).toBeDefined();
+    expect(data.ready).toBe(false);
+    // Unmeasured with nothing else failing ⇒ the whole gate reports itself
+    // unconcluded, which is what the runner turns into an indeterminate
+    // verdict rather than a readiness answer it never computed.
+    expect(data.skipped).toBe(true);
+    expect(data.reason).toContain('Stack');
+    expect((data.blockers ?? []).some((b) => b.includes('could not be determined'))).toBe(true);
+  });
+
+  it('StackLeg_EmptyCommitRange_StaysAFinding_NotAnAbsence', async () => {
+    // The inverse guard: git RAN and reported no commits ahead of base. That is
+    // a measured, failing stack — it must not be softened into "unmeasured".
+    const mockStore = createMockEventStore(tasksToEvents({ t1: { status: 'completed' } }));
+    vi.mocked(execFileSync).mockImplementation(legRunner());
+    vi.mocked(execSync).mockImplementation(gitRunner('main', ''));
+
+    const result = await handlePrepareSynthesis(
+      { featureId: 'f', repoRoot: tmpDir },
+      tmpDir,
+      mockStore as unknown as EventStore,
+    );
+
+    const data = result.data as {
+      skipped?: true;
+      stack: { healthy: boolean; indeterminate?: true };
+      blockers?: string[];
+    };
+    expect(data.stack.healthy).toBe(false);
+    expect(data.stack.indeterminate).toBeUndefined();
+    expect(data.skipped).toBeUndefined();
+    expect(data.blockers).toContain('Stack not healthy');
+  });
+
+  // ─── The declared emission the absorbed gate could not make ──────────────
+
+  it('DeclaredEmission_IsNowBacked', async () => {
+    const mockStore = createMockEventStore(tasksToEvents({ t1: { status: 'completed' } }));
+    vi.mocked(execFileSync).mockImplementation(legRunner());
+    vi.mocked(execSync).mockImplementation(gitRunner('main', '* abc1234 feat: work'));
+
+    await handlePrepareSynthesis(
+      { featureId: 'f', repoRoot: tmpDir },
+      tmpDir,
+      mockStore as unknown as EventStore,
+    );
+
+    const appended = mockStore.append.mock.calls
+      .map((call) => (call[1] as { type?: string } | undefined)?.type)
+      .filter((type): type is string => typeof type === 'string');
+    expect(appended).toContain('gate.executed');
+  });
+
+  it('PhaseReadiness_IsReportedOnTheResult', async () => {
+    const mockStore = createMockEventStore(tasksToEvents({ t1: { status: 'completed' } }));
+    vi.mocked(execFileSync).mockImplementation(legRunner());
+    vi.mocked(execSync).mockImplementation(gitRunner('main', '* abc1234 feat: work'));
+
+    const result = await handlePrepareSynthesis(
+      { featureId: 'f', repoRoot: tmpDir },
+      tmpDir,
+      mockStore as unknown as EventStore,
+    );
+
+    const data = result.data as { phase?: PhaseReadiness };
+    expect(data.phase).toBeDefined();
+    expect(typeof data.phase?.kind).toBe('string');
+  });
+
+  it('NoTasks_IsNotAFailure', async () => {
+    // A workflow that delegated nothing has nothing outstanding. The absorbed
+    // gate failed on an empty task list, which made every oneshot workflow —
+    // the one type whose playbook named it exclusively — unsynthesizable.
+    const mockStore = createMockEventStore([]);
+    vi.mocked(execFileSync).mockImplementation(legRunner());
+    vi.mocked(execSync).mockImplementation(gitRunner('main', '* abc1234 feat: work'));
+
+    const result = await handlePrepareSynthesis(
+      { featureId: 'f', repoRoot: tmpDir },
+      tmpDir,
+      mockStore as unknown as EventStore,
+    );
+
+    const data = result.data as { readiness: { tasksComplete: boolean }; blockers?: string[] };
+    expect(data.readiness.tasksComplete).toBe(true);
+    expect((data.blockers ?? []).some((b) => b.toLowerCase().includes('task'))).toBe(false);
+  });
+
+  it('OutstandingWork_IsOneLeg_NotTwo', async () => {
+    // The absorbed gate carried a separate "no outstanding fix requests" leg
+    // that looked for a `needs_fixes` task status. The canonical projection
+    // never produces that value — it produces in_progress / complete / failed —
+    // so the leg only ever fired on a state FILE. Task completion subsumes the
+    // obligation for every status the event log can actually reach.
+    const mockStore = createMockEventStore(
+      tasksToEvents({ t8: { status: 'completed' }, t9: { status: 'failed' } }),
+    );
+    vi.mocked(execFileSync).mockImplementation(legRunner());
+    vi.mocked(execSync).mockImplementation(gitRunner('main', '* abc1234 feat: work'));
+
+    const result = await handlePrepareSynthesis(
+      { featureId: 'f', repoRoot: tmpDir },
+      tmpDir,
+      mockStore as unknown as EventStore,
+    );
+
+    const data = result.data as {
+      readiness: { tasksComplete: boolean };
+      blockers?: string[];
+    };
+    expect(data.readiness.tasksComplete).toBe(false);
+    expect((data.blockers ?? []).some((b) => b.includes('t9'))).toBe(true);
+    expect((data.blockers ?? []).some((b) => b.includes('t8'))).toBe(false);
   });
 
   // ─── Test 5b: Non-main default branch propagates to git log command ──────
@@ -1082,6 +1233,83 @@ describe('handlePrepareSynthesis', () => {
     );
     expect(accepted.error?.message ?? '').not.toContain('absolute');
     expect(accepted.error?.code).not.toBe('INVALID_INPUT');
+  });
+});
+
+// ─── The absorbed pre-synthesis gate ────────────────────────────────────────
+//
+// `prepare_synthesis` absorbed a blocking gate nothing invoked. These cover the
+// two seams that came across, the leg that was repaired on the way, and the
+// promise the departing gate could not keep.
+
+describe('phase readiness (absorbed, derived from the state machine)', () => {
+  it('PhaseReadiness_CoversOneshotAndDiscovery', () => {
+    // The absorbed gate switched on workflowType with arms for feature,
+    // refactor and debug and a default that failed unconditionally. `oneshot`
+    // has a real SYNTHESIZE phase and could never pass it; `discovery` has no
+    // synthesize phase at all and was told it had FAILED rather than that the
+    // question does not apply.
+    expect(assessPhaseReadiness('oneshot', 'synthesize')).toEqual({ kind: 'at-synthesize' });
+
+    const fromImplementing = assessPhaseReadiness('oneshot', 'implementing');
+    expect(fromImplementing.kind).toBe('reachable');
+    expect(
+      fromImplementing.kind === 'reachable' ? fromImplementing.transitions : [],
+    ).toEqual([{ from: 'implementing', to: 'synthesize', guard: 'synthesis-opted-in' }]);
+
+    const discovery = assessPhaseReadiness('discovery', 'synthesizing');
+    expect(discovery.kind).toBe('not-applicable');
+    expect(discovery.kind === 'not-applicable' ? discovery.reason : '').toContain('discovery');
+  });
+
+  it('PhaseReadiness_ReviewPhase_NamesTheRemainingTransition', () => {
+    const readiness = assessPhaseReadiness('feature', 'review');
+    expect(readiness.kind).toBe('reachable');
+    const steps = readiness.kind === 'reachable' ? readiness.transitions : [];
+    expect(steps.map((s) => s.to)).toEqual(['synthesize']);
+    expect(steps[0]?.guard).toBeDefined();
+  });
+
+  it('PhaseReadiness_PolishTrack_IsUnreachable_NotAnUnknownWorkflow', () => {
+    // The polish track completes directly. That is "no path", which is a
+    // different answer from "this workflow has no synthesize phase".
+    const readiness = assessPhaseReadiness('refactor', 'polish-validate');
+    expect(readiness.kind).toBe('unreachable');
+  });
+
+  it('PhaseReadiness_UnregisteredWorkflowType_IsNotApplicable_NotAFailure', () => {
+    const readiness = assessPhaseReadiness('no-such-workflow', 'synthesize');
+    expect(readiness.kind).toBe('not-applicable');
+  });
+
+  it('PhaseReadiness_EveryBuiltInWorkflowType_GetsAnAnswer', () => {
+    // The denominator: the leg holds no phase table of its own, so a workflow
+    // type it has never heard of must still resolve. A default arm that failed
+    // unconditionally is what this asserts cannot come back.
+    const types = listWorkflowTypes().workflowTypes;
+    expect(types.length).toBeGreaterThan(2);
+
+    // Every built-in type either reaches synthesize from its initial phase or
+    // has no synthesize phase to reach. None of them is simply refused.
+    //
+    // Collected as the offending types rather than quantified to a boolean: a
+    // failing `every` reports only `false`, which says a type was refused but
+    // not WHICH — and the answer is the whole content of the finding.
+    const answered: ReadonlySet<PhaseReadiness['kind']> = new Set(['reachable', 'not-applicable']);
+    const refused = types
+      .map(({ name, initialPhase }) => ({ name, kind: assessPhaseReadiness(name, initialPhase).kind }))
+      .filter(({ kind }) => !answered.has(kind));
+
+    expect(refused, 'a built-in workflow type was refused rather than answered').toEqual([]);
+  });
+});
+
+describe('the departing gate leaves nothing behind', () => {
+  it('PreSynthesisCheck_IsNoLongerDeclared', () => {
+    // Its declaration promised an unconditional primary `gate.executed` its
+    // handler never appended. Removing it is what makes the remaining
+    // population honest about what it records.
+    expect(orchestrateActions.map((a) => a.name)).not.toContain('pre_synthesis_check');
   });
 });
 

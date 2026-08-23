@@ -1,7 +1,7 @@
 // ─── CLI-vs-MCP Parity Tests for exarchos_orchestrate ──────────────────────
 //
 // Implements DR-3 (CLI output parity with MCP) for a fast subset of orchestrate
-// actions: check_design_completeness, check_plan_coverage, task_claim, task_complete.
+// actions: check_plan_coverage, task_claim, task_complete.
 //
 // For each action, we invoke the handler twice:
 //   • CLI arm — via `buildCli(ctx).parseAsync([...])`, capturing JSON stdout.
@@ -148,23 +148,6 @@ Unit tests for all components.
 - None blocking.
 `;
 
-// #1581 task 013: check_design_completeness is now a deprecated alias that
-// delegates to check_plan_coverage on the UNIFIED docs/specs/ artifact (design
-// + decomposition in one file). The parity test below feeds this fixture so the
-// delegated plan-coverage run succeeds (every design section is covered by a
-// task) and CLI/MCP return equal payloads.
-const UNIFIED_SPEC = `${MINIMAL_DESIGN}
-## Decomposition
-
-### Task 001: Build the Widget Component
-**Implements:** DR-1
-Render the main UI.
-
-### Task 002: Build the API Client
-**Implements:** DR-2
-Handle data fetching.
-`;
-
 const MINIMAL_PLAN = `# Implementation Plan
 
 ## Technical Design
@@ -197,37 +180,6 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
     }
     arms = [];
     vi.restoreAllMocks();
-  });
-
-  it('OrchestrateParity_CheckDesignCompleteness_CliAndMcp_ReturnEqualPayload', async () => {
-    // Arrange — two isolated arms, each with its own copy of the design fixture.
-    const cliArm = await createArm('parity-design-cli-');
-    arms.push(cliArm);
-    const cliDesign = path.join(cliArm.stateDir, 'design.md');
-    await writeFile(cliDesign, UNIFIED_SPEC, 'utf-8');
-
-    // Act (CLI)
-    resetMaterializerCache();
-    const cliResult = await callCli(cliArm.ctx, 'check_design_completeness', {
-      featureId: 'parity-feat',
-      designPath: cliDesign,
-    });
-
-    const mcpArm = await createArm('parity-design-mcp-');
-    arms.push(mcpArm);
-    const mcpDesign = path.join(mcpArm.stateDir, 'design.md');
-    await writeFile(mcpDesign, UNIFIED_SPEC, 'utf-8');
-
-    // Act (MCP)
-    resetMaterializerCache();
-    const mcpResult = await callMcp(mcpArm.ctx, 'check_design_completeness', {
-      featureId: 'parity-feat',
-      designPath: mcpDesign,
-    });
-
-    // Assert — payloads equal modulo timestamps/UUIDs/perf
-    expect(normalize(cliResult)).toEqual(normalize(mcpResult));
-    expect(cliResult.success).toBe(true);
   });
 
   it('OrchestrateParity_CheckPlanCoverage_CliAndMcp_ReturnEqualPayload', async () => {

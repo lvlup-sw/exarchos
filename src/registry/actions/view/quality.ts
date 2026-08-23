@@ -158,22 +158,6 @@ export const qualityViewActions: readonly BuiltinToolAction[] = [
     annotations: READ_ONLY_LOCAL,
   },
   {
-    name: 'convergence',
-    description: 'Per-dimension gate convergence status (D1-D5) from gate.executed events',
-    schema: z.object({
-      workflowId: z.string().optional(),
-      // DR-8 (Task 024) — paging + detail on the analytic view batch;
-      // handler rides Task 024.
-      limit: coercedPositiveInt().optional(),
-      offset: coercedNonnegativeInt().optional(),
-      detail: z.boolean().optional(),
-    }),
-    phases: ALL_PHASES,
-    roles: ROLE_ANY,
-    outputSchema: vacuityWaiver('exarchos_view.convergence'),
-    annotations: READ_ONLY_LOCAL,
-  },
-  {
     name: 'gate_reliability',
     description:
       'Diagnostic gate reliability: per-gate false-positive rate and verdict provenance from admission evidence/contradiction events (no admission authority)',

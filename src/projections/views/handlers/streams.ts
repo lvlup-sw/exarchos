@@ -62,7 +62,7 @@ export async function readWorkflowStateJson(
     // Corrupt JSON: surface a warning so the corruption is observable in
     // logs even though we keep serving views from the projection. Without
     // this, a long-lived bad state.json would silently disagree with
-    // workflow_status / synthesis_readiness / convergence forever.
+    // workflow_status / synthesis_readiness forever.
     logger.warn(
       { err: err instanceof Error ? err.message : String(err), file },
       'readWorkflowStateJson: failed to parse state.json — falling back to projection',

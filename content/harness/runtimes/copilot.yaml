@@ -21,7 +21,7 @@
 #
 # Spawn primitive — local `task --agent <name>`:
 #   Exarchos's worktree fan-out is in-session: the orchestrator dispatches
-#   subagents, monitors their progress, and feeds results into convergence
+#   subagents, monitors their progress, and feeds results into the review
 #   gates within the same workflow. The `task` tool with `--agent <name>`
 #   gives us exactly that shape — local, in-session, isolated context per
 #   subagent, results returned inline. (The other Copilot delegation

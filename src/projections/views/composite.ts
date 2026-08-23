@@ -25,7 +25,6 @@ import {
   handleViewSynthesisReadiness,
   handleViewShepherdStatus,
   handleViewProvenance,
-  handleViewConvergence,
   handleViewGateReliability,
   getOrCreateMaterializer,
 } from './tools.js';
@@ -449,16 +448,6 @@ async function dispatchViewAction(
         startedAt,
       );
 
-    case 'convergence':
-      return wrapView(
-        await handleViewConvergence(
-          rest as { workflowId?: string },
-          stateDir,
-          eventStore,
-        ),
-        startedAt,
-      );
-
     // BASE-002 — the gate-reliability read model reaches production through
     // this action. It is diagnostic-only: no admission or transition authority.
     case 'gate_reliability':
@@ -573,7 +562,6 @@ async function dispatchViewAction(
             'synthesis_readiness',
             'shepherd_status',
             'provenance',
-            'convergence',
             'gate_reliability',
             'invariants_effective',
             'worktrees',

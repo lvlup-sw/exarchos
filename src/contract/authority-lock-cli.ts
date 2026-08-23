@@ -82,7 +82,23 @@ const LOCK_NOTE =
   'registered to `exarchos_orchestrate` while being appended from a `exarchos_view` ' +
   'action, so the registry and the tree disagreed about who performs the effect. No event ' +
   'schema, no invariant and no wire format changed; `ps` loses its `probe` parameter and ' +
-  'becomes genuinely read-only, which is the user-visible half.';
+  'becomes genuinely read-only, which is the user-visible half. ' +
+  'RE-APPROVED for the gate-population triage. Like the remedy above and unlike the ' +
+  'release bump, this is a REAL surface change: the `action-id-registry` digest moves ' +
+  'because EIGHT actions were retired, not renamed — `check_convergence`, ' +
+  '`check_coverage_thresholds` and `check_design_completeness` (a self-declared ' +
+  'deprecated alias) are deleted outright; `check_context_economy`, ' +
+  '`check_operational_resilience` and `check_workflow_determinism` were measured to be ' +
+  'exactly the three `getDiff` callers among the gates and are consolidated into one ' +
+  '`check_diff_hygiene` scanner with a rule pack; `pre_synthesis_check` folds into ' +
+  '`prepare_synthesis`, carrying its resolver and provider seams across; and ' +
+  '`debug_review_gate` is deleted, closing the last `npm run test:run` literal in the ' +
+  'gate population. The `convergence` view retires with `check_convergence` — it ' +
+  'attributed results by reading `details.dimension`, which the durable gate runner ' +
+  'never stamps, so its verdict was unsatisfiable on every automated path. That view ' +
+  'name is an INV-2 CONTRACT CHANGE and is called out as one rather than folded in ' +
+  'quietly: `gate.dimension` itself is KEPT, and only the convergence consumer goes. ' +
+  'Net action count 124 to 116. No event schema and no wire format changed.';
 
 /**
  * Who/what the freeze records as the approver of the CURRENT snapshot. Bump
@@ -90,10 +106,12 @@ const LOCK_NOTE =
  * lockfile carries the provenance of the approval rather than of the tool.
  */
 export const CURRENT_APPROVER =
-  'Reed (re-approved for the effect-ledger remedy: reconcile_worktrees added and ' +
-  'stack_place re-parented onto exarchos_orchestrate, closing three provider ' +
-  'disagreements; decision recorded on their instruction). Previously: Reed ' +
-  '(v2.12.0-preview.4 release bump)';
+  'Reed (re-approved for the gate-population triage: eight gate actions retired — three ' +
+  'deleted, three consolidated into check_diff_hygiene, one folded into prepare_synthesis, ' +
+  'one deleted with the last test-runner literal — and the convergence view retired as a ' +
+  'declared INV-2 contract change; decision recorded on their instruction). Previously: ' +
+  'Reed (effect-ledger remedy: reconcile_worktrees added and stack_place re-parented onto ' +
+  'exarchos_orchestrate)';
 
 export function regenerateAuthorityLock(approvedBy = CURRENT_APPROVER): string {
   const paths = defaultSourcePaths();

@@ -30,7 +30,6 @@ export type FollowSubcommand =
   | 'workflow_status'
   | 'shepherd_status'
   | 'pipeline'
-  | 'convergence'
   | 'delegation_timeline';
 
 export interface FollowTransition {
