@@ -56,6 +56,8 @@ import {
   callMcp as harnessCallMcp,
   normalize as harnessNormalize,
 } from '../../../../tests/unit/parity-harness.js';
+import { createMcpDispatchContext } from '../../../../src/adapters/mcp/mcp.js';
+import { buildDefaultProcessResolver } from '../../../../src/workflow/capabilities/resolver.js';
 import { rmrfAsync } from '../../../test-helpers/temp-dir.js';
 
 import { handleViewPs } from '../../../../src/projections/views/lifecycle/ps.js';
@@ -117,11 +119,50 @@ const viewStub: CompositeHandler = async (args, ctx): Promise<ToolResult> => {
 
 // ─── Arm + normalization helpers ─────────────────────────────────────────────
 
+/**
+ * The shared context the three carriers run against, provisioned the way the
+ * real process entrypoint provisions it.
+ *
+ * The `capabilityResolver` is the load-bearing part. Admission re-evaluates an
+ * action's declared `needs` against the TRUSTED CALLER SUBJECT, so a context
+ * carrying no resolver and no identity is not a neutral fixture — it is an
+ * anonymous caller holding nothing, which neither adapter can produce. Under
+ * that subject `export` (which needs `fs:read` + `fs:write`) is denied, and the
+ * denial would read as a carrier divergence when it is really a subject
+ * difference: `buildCli` stamps a local-operator identity of its own, so only
+ * the MCP arm stayed anonymous.
+ *
+ * Wiring the resolver holds the subject EQUAL across the three arms, which is
+ * the only way this suite can attribute a divergence to the carrier. It also
+ * makes the parity claim say something stronger than it did: admission is
+ * decided by the subject, not by the carrier the call arrived on.
+ */
 async function createContext(prefix: string): Promise<{ stateDir: string; ctx: DispatchContext }> {
   const stateDir = await mkdtemp(path.join(tmpdir(), prefix));
   const eventStore = new EventStore(stateDir);
   await eventStore.initialize();
-  return { stateDir, ctx: { stateDir, eventStore, enableTelemetry: false } };
+  return {
+    stateDir,
+    ctx: {
+      stateDir,
+      eventStore,
+      enableTelemetry: false,
+      capabilityResolver: buildDefaultProcessResolver(),
+    },
+  };
+}
+
+/**
+ * The MCP arm's context, stamped with the session identity the MCP adapter
+ * stamps. The CLI arm gets its local-operator identity from `buildCli`; without
+ * the mirror here the two arms would differ in caller identity for no reason
+ * the carrier controls.
+ */
+function mcpContext(ctx: DispatchContext): DispatchContext {
+  return createMcpDispatchContext(ctx, {
+    sessionId: 'lifecycle-parity-session',
+    clientInfo: { name: 'lifecycle-parity', version: '0.0.0' },
+  });
 }
 
 /**
@@ -310,7 +351,7 @@ describe('lifecycle-verb three-path CLI parity (DR-7 / DR-8, task-015)', () => {
       cleanups.push(stateDir);
 
       // Path 1 — MCP tool-call.
-      const mcp = await harnessCallMcp(ctx, 'exarchos_view', { action, ...flags });
+      const mcp = await harnessCallMcp(mcpContext(ctx), 'exarchos_view', { action, ...flags });
       // Path 2 — `vw <verb>` subcommand.
       const { result: sub, exitCode: subExit } = await harnessCallCli(ctx, 'vw', action, flags);
       // Path 3 — top-level `<verb>` (the DR-7 promotion; `describe` for inspect).
