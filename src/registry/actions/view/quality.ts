@@ -11,11 +11,11 @@ const READ_ONLY_VIEW_CONTRACT = {
   ensures: none('read-only view returns an ephemeral projection with no durable postcondition'),
   needs: none('read-only view folds in-process projections'),
   touches: {
-    frame: 'single-machine' as const,
+    frame: 'single-machine',
     resources: none('read-only view does not claim exclusive stream, path, worktree, or git-ref ownership'),
   },
-  executionAuthority: { kind: 'local' as const },
-  replay: { kind: 'safe-repeat' as const },
+  executionAuthority: { kind: 'local' },
+  replay: { kind: 'safe-repeat' },
   emissions: none('read-only view emits no catalog events'),
 };
 
