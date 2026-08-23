@@ -437,8 +437,9 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
       enforceFrom: Object.freeze({
         kind: 'already-enforced',
         by:
-          'the P05-05 reachability census (`contract/reachability/graph.ts`), which resolves every ' +
-          'public action to exactly ONE schema/route/handler/output and fails on `missing` or `ambiguous`',
+          'the ActionId-scoped closure instrument (`src/contract/action-contract-closure.ts`), which ' +
+          'reports omitted dimensions, orphan projections, and advertise/execute disagreement against ' +
+          'the declared contract',
       }),
       provenance: Object.freeze({ kind: 'derived', from: 'declaration-kinds' }),
       measured:

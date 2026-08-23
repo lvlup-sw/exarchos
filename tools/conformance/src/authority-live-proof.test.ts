@@ -644,21 +644,24 @@ describe('authority census — the live proof fails closed', () => {
     ]);
 
     // The live report and the committed report agree, finding for finding, over
-    // the WHOLE table. That is the corroboration this task exists to produce:
-    // task 024's rows for these two boundaries were not merely plausible, they
-    // are what the tree says. Task 025's `action-contract` row is untouched and
-    // still reports its stale `already-enforced` claim.
+    // the WHOLE table. That is the corroboration this proof exists to produce:
+    // the measured rows for these boundaries were not merely plausible, they
+    // are what the tree says. The action-contract row names the closure
+    // instrument and is closed; it does not report an enforcement stale-exception.
     const committedReport = runAuthorityCensus();
     const liveReport = runAuthorityCensus(liveTopology(measured));
     expect(liveReport.findings.map(tupleOf)).toEqual(committedReport.findings.map(tupleOf));
     expect(liveReport.representationCount).toBe(committedReport.representationCount);
     expect(liveReport.bindingSubjectCount).toBe(committedReport.bindingSubjectCount);
-    expect(liveReport.closedBoundaries).toEqual([]);
+    expect(liveReport.closedBoundaries).toEqual(['action-contract']);
     expect(
       liveReport.findings.some(
-        (f) => f.boundary === 'action-contract' && f.hop === 'enforcement',
+        (f) =>
+          f.boundary === 'action-contract' &&
+          f.hop === 'enforcement' &&
+          f.kind === 'stale-exception',
       ),
-    ).toBe(true);
+    ).toBe(false);
 
     // `bindingFor` is total over the two outcomes, and the rule is the one thing
     // this module decides: all-derived is bound, anything else is not.

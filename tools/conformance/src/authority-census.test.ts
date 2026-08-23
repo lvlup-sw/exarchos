@@ -14,9 +14,9 @@
 // is {contract/authority-digest.ts, contract/request-context.ts, …}; neither is
 // reachable from the other, so the module graph agrees they are two. Semantically
 // they are a committed human judgement about the tree (the rows) and a shipped
-// executable census (P05-05) — and the central finding below is precisely a
-// DISAGREEMENT between them: the `action-contract` row claims P05-05 enforces it,
-// and running P05-05 shows it cannot.
+// executable census. The action-contract row names the ActionId-scoped closure
+// instrument, not the wiring reachability walk; those two instruments stay
+// distinct, and a row that named the forward-only walk would still be stale.
 import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
 import { fromSubjectPackage } from './subject-root.js';
@@ -844,7 +844,6 @@ describe('authority census — the live topology', () => {
     // relabel does not even reach this pin unless it names a real authority.
     const report = runAuthorityCensus();
     const expected = [
-      'action-contract | enforcement | stale-exception | the P05-05 reachability census (`contract/reachability/graph.ts`), which resolves every public action to exactly ONE schema/route/handler/output and fails on `missing` or `ambiguous`',
       'capability-posture | binding | missing | agent-spec YAML',
       'capability-posture | binding | missing | delegate skill prose',
       'capability-posture | binding | missing | the INV-11 invariants-catalog text',
@@ -863,12 +862,10 @@ describe('authority census — the live topology', () => {
     expect(tuplesOf(report)).toEqual(expected);
     expect(report.ok).toBe(false);
 
-    // ZERO of the eight boundaries are closed today. The table's own tests
-    // record `action-contract` as the one row whose authority and bindings hold;
-    // the census adds the third question — is it ENFORCED? — and the answer is
-    // no, so no boundary is closed.
-    expect(report.closedBoundaries).toEqual([]);
-    expect(report.openBoundaries).toHaveLength(8);
+    // `action-contract` is the one row whose authority, bindings, and named
+    // instrument all hold. The other seven stay open.
+    expect(report.closedBoundaries).toEqual(['action-contract']);
+    expect(report.openBoundaries).toHaveLength(7);
 
     // Denominators, reported and non-trivial (DR-30: "the denominator is
     // reported and ratcheted"), derived against the same independent
@@ -898,13 +895,12 @@ describe('authority census — the live topology', () => {
     // from, not three: its authority hop resolves (the plan's `emits` set is the
     // single authority) and one of its two representations is bound, so the
     // promotion sink is the only subject left to count.
-    expect(perWave.map((r) => r.blocking.length)).toEqual([5, 6, 9, 11, 14]);
+    expect(perWave.map((r) => r.blocking.length)).toEqual([4, 5, 8, 10, 13]);
     expect(perWave.map((r) => r.ok)).toEqual([false, false, false, false, false]);
 
     // Wave 1 counts exactly these — no wave-2+ subject leaks in early.
     const wave1 = perWave[0];
     expect([...new Set(wave1?.blocking.map((f) => f.boundary))].sort()).toEqual([
-      'action-contract',
       'phase-sequencing',
       'response-shape',
     ]);
@@ -923,34 +919,47 @@ describe('authority census — the live topology', () => {
     );
   });
 
-  it('AuthorityCensus_ActionContractRow_ClaimsAnInstrumentThatDoesNotDischargeG5', () => {
-    // The verdict on the one `already-enforced` row, stated where CI can see it.
-    // The row names the P05-05 census; the census is registered; and the probe
-    // above shows it walks authority → representation only. So the claim is
-    // stale and the row belongs on a wave — the row is a live failing subject
-    // for the enforcement hop, which is why the hop is not vacuous.
+  it('AuthorityCensus_ActionContract_UsesClosureInstrument', () => {
+    // The one `already-enforced` row names the ActionId-scoped closure
+    // instrument, not the wiring reachability walk. The closure instrument
+    // walks representations back to the declared contract, so the claim
+    // discharges the population standard and the stale-exception is gone
+    // because the claim is true — not because the row was deferred.
     const actionContract = topologyRows().find((r) => r.boundary === 'action-contract');
     if (actionContract === undefined) throw new Error('the action-contract row is missing');
     expect(actionContract.enforceFrom.kind).toBe('already-enforced');
 
     const claim =
       actionContract.enforceFrom.kind === 'already-enforced' ? actionContract.enforceFrom.by : '';
+    expect(claim).toContain('action-contract-closure.ts');
+    expect(claim).not.toContain('contract/reachability/graph.ts');
     expect(matchingInstruments(claim, ENFORCEMENT_INSTRUMENTS).map((i) => i.id)).toEqual([
-      'p05-05-reachability-census',
+      'action-contract-closure',
     ]);
 
-    const report = runAuthorityCensus();
-    const finding = report.findings.find((f) => f.boundary === 'action-contract');
-    expect(finding?.hop).toBe('enforcement');
-    expect(finding?.kind).toBe('stale-exception');
-    expect(finding?.blocking).toBe(true);
+    const closure = ENFORCEMENT_INSTRUMENTS.find((i) => i.id === 'action-contract-closure');
+    expect(closure?.module).toContain('action-contract-closure.ts');
+    expect(closure?.marker).toContain('action-contract-closure.ts');
+    expect(coversPopulation(closure?.direction ?? 'authority-to-representation')).toBe(true);
 
-    // Its authority and bindings DO hold — the row is open on the enforcement
-    // question alone. Stating that keeps the finding narrow and checkable.
-    expect(declaredAuthorities(actionContract)).toHaveLength(1);
-    expect(report.boundaries.find((b) => b.boundary === 'action-contract')?.findings).toHaveLength(
-      1,
+    const wiring = ENFORCEMENT_INSTRUMENTS.find((i) => i.id === 'p05-05-reachability-census');
+    expect(wiring, 'the wiring census stays registered').toBeDefined();
+    expect(coversPopulation(wiring?.direction ?? 'both')).toBe(false);
+
+    const report = runAuthorityCensus();
+    const enforcementFindings = report.findings.filter(
+      (f) => f.boundary === 'action-contract' && f.hop === 'enforcement',
     );
+    expect(enforcementFindings).toEqual([]);
+    expect(
+      report.findings.some(
+        (f) => f.boundary === 'action-contract' && f.kind === 'stale-exception',
+      ),
+    ).toBe(false);
+
+    expect(declaredAuthorities(actionContract)).toHaveLength(1);
+    expect(report.boundaries.find((b) => b.boundary === 'action-contract')?.findings).toEqual([]);
+    expect(report.closedBoundaries).toContain('action-contract');
   });
 
   it('AuthorityCensus_PhaseExpectedEvents_IsReportedUnboundOnBothRowsCarryingIt', () => {
