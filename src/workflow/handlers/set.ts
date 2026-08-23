@@ -2,60 +2,21 @@ import { buildValidatedEvent } from '../../events/event-factory.js';
 import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
 import { workflowLogger } from '../../logger.js';
-import { foldToTail, ProjectionCoverageError, type FoldAtTail } from '../../projections/fold-at-tail.js';
-import { WORKFLOW_STATE_VIEW, type WorkflowStateView } from '../../projections/views/workflow-state-projection.js';
 import { recordLiveTransition } from '../admission/live-shadow-observer.js';
 import { buildCheckpointMeta, type CheckpointEnforcementConfig, incrementOperations, resetCounter, shouldEnforceCheckpoint } from '../checkpoint.js';
 import { hsmTransitionGuard } from '../hsm-transition-guard.js';
 import { allocatePhaseAttemptId, readPhaseAttemptId } from '../phase-attempt-id.js';
 import { resolveGateSet } from '../phase-kind.js';
 import { ErrorCode } from '../schemas.js';
-import { applyDotPath, hydrateEventsFromStore, readStateFile, StateStoreError, VersionConflictError, writeStateFile } from '../state-store.js';
+import { applyDotPath, hydrateEventsFromStore, readStateFile, StateStoreError, validateStateForWrite, VersionConflictError, writeStateFile } from '../state-store.js';
 import type { SetInput, WorkflowState } from '../types.js';
 import { resolveBoundaryTouching, resolveRiskTier } from '../verification-policy-resolver.js';
 import * as path from 'node:path';
-import { CURRENT_ES_VERSION, isEventSourced, moduleViewMaterializer } from './shared.js';
+import { CURRENT_ES_VERSION, isEventSourced } from './shared.js';
 
 // ─── handleSet ──────────────────────────────────────────────────────────────
 
 const MAX_CAS_RETRIES = 3;
-
-/**
- * The fold a post-write state snapshot is stamped from, or `undefined` when no
- * fold can be shown to cover the tail.
- *
- * A coverage failure is the one throw `foldToTail` makes by design, and here it
- * must not propagate: `handleSet` reaches this point only AFTER its events are
- * durable, so a failure would report a committed mutation as an error. Skipping
- * the refresh leaves the planner's stamp stale, which is exactly what the
- * caller's own `VersionConflictError` arm already tolerates — and the canonical
- * read path folds from the event log rather than that stamp.
- *
- * Every other fault still propagates. An unreadable event store is a genuine
- * failure, not a stale-projection condition, and this block's contract has
- * always been to surface it.
- */
-async function foldSnapshotSource(
-  eventStore: EventStore,
-  featureId: string,
-): Promise<FoldAtTail<WorkflowStateView> | undefined> {
-  try {
-    return await foldToTail<WorkflowStateView>(
-      eventStore,
-      moduleViewMaterializer!,
-      featureId,
-      WORKFLOW_STATE_VIEW,
-    );
-  } catch (err) {
-    if (!(err instanceof ProjectionCoverageError)) throw err;
-    workflowLogger.warn(
-      { featureId, err },
-      'state snapshot skipped: no fold could be shown to cover the durable tail. ' +
-        'The mutation is already committed; the planner stamp stays at its previous revision.',
-    );
-    return undefined;
-  }
-}
 
 /**
  * Update fields and/or transition phase on a workflow state file.
@@ -70,9 +31,9 @@ async function foldSnapshotSource(
  *
  * **ES v2 field updates:** For workflows with `_esVersion === 2`, field
  * updates emit a `state.patched` event with the patch delta before
- * writing. After the CAS write succeeds, the state file is overwritten
- * with a snapshot re-materialized from the full event stream, ensuring
- * the file is always a derived artifact. That event is keyed
+ * writing. The file is NOT re-materialized from the fold afterwards — see
+ * the note at that site for why the projection cannot produce a schema-valid
+ * state file. Reads are event-derived regardless (`handleGet`). That event is keyed
  * `${featureId}:patch:${expectedVersion}:${fieldsHash}`, which guarantees
  * only **one event per (featureId, base-version, field-name-set)** — the
  * key covers field NAMES, not values, so two different patches to the same
@@ -635,6 +596,17 @@ export async function handleSet(
       && eventStore
       && updateKeys.length > 0
     ) {
+      // Do not record a mutation the write is about to reject. The event-first
+      // contract guarantees an applied patch is always recorded; without this it
+      // did not guarantee the converse, so a schema-invalid patch stayed in the
+      // log after the write refused it — and an event-derived read then served
+      // the value the caller was told had failed. Same schema, same `_version`
+      // bump, same rule the write itself applies.
+      const invalid = validateStateForWrite(mutableState as WorkflowState);
+      if (invalid !== undefined) {
+        return { success: false, error: { code: ErrorCode.INVALID_INPUT, message: invalid } };
+      }
+
       try {
         const fieldsHash = [...updateKeys].sort().join(',');
         const idempotencyKey = `${input.featureId}:patch:${expectedVersion}:${fieldsHash}`;
@@ -742,52 +714,26 @@ export async function handleSet(
     // After the CAS write succeeds, overwrite the state file with a
     // snapshot derived from the full event stream. This ensures the
     // state file is always a derived artifact of the event log.
-    // The events are ALREADY DURABLE by this point, so nothing below may fail
-    // the mutation. `<featureId>.state.json` is the planner's secondary stamp;
-    // refreshing it is a follow-up, and reporting a landed write as an error
-    // would invite the caller to retry a write that already committed. The
-    // `VersionConflictError` arm below has always applied that rule to the
-    // write half of this step; `foldSnapshotSource` applies it to the read half.
-    const folded = isEventSourced(state) && eventStore && moduleViewMaterializer
-      ? await foldSnapshotSource(eventStore, input.featureId)
-      : undefined;
-
-    if (folded !== undefined) {
-      // #1855 — the snapshot is stamped from a fold proven to cover the tail,
-      // and the sequence stamped alongside it is that same fold's cursor.
-      // Computing them separately — a fold here, a re-read of the event list
-      // there — is how a stamp comes to name a sequence its own payload has not
-      // seen.
-      const materialized = folded.view;
-
-      // Merge materialized state with checkpoint/version metadata from the
-      // mutable state (checkpoint tracking is not event-sourced)
-      const latestSequence = folded.sequence > 0
-        ? folded.sequence
-        : mutableState._eventSequence;
-      const snapshot = {
-        ...(materialized as unknown as Record<string, unknown>),
-        _version: (mutableState._version as number),
-        _eventSequence: latestSequence,
-        _esVersion: CURRENT_ES_VERSION,
-        _checkpoint: mutableState._checkpoint,
-        updatedAt: mutableState.updatedAt,
-      };
-
-      try {
-        await writeStateFile(
-          stateFile,
-          snapshot as unknown as WorkflowState,
-          { expectedVersion: mutableState._version as number, skipValidation: true },
-        );
-      } catch (err) {
-        if (err instanceof VersionConflictError) {
-          // Another writer updated the state after our CAS write; skip rematerialization
-        } else {
-          throw err;
-        }
-      }
-    }
+    // ─── Why there is no state-file re-materialization here ────────────
+    //
+    // This block used to rebuild `<featureId>.state.json` from the event fold
+    // after every mutation, so the file would stay a derived artifact of the
+    // log. It never ran: it was gated on a materializer that nothing in `src/`
+    // ever configured.
+    //
+    // Wiring it revealed that it cannot run as written. A planner writes a
+    // partial task through `workflow set` and the normal write path validates
+    // and defaults it; the fold applies the same patch VERBATIM, so a task
+    // without a `title` reaches the snapshot, which wrote it back with
+    // `skipValidation: true`. The next read then rejects the whole file — after
+    // the mutation that wrote it has already committed.
+    // `WorkflowStateFold_PatchedTask_ViolatesStateSchema` pins that gap, so
+    // this is evidence rather than an assertion, and so the block is not
+    // restored before the shapes are reconciled.
+    //
+    // Nothing regresses by its absence, because it never executed. Reads are
+    // event-derived regardless: `handleGet` folds the log and merges the
+    // file-owned fields on top.
 
     // Event-first: events already appended before CAS write with idempotency keys.
     // State write is the follow-up materialization step.

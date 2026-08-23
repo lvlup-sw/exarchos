@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1197,
-    "parsedFiles": 1152,
+    "testFiles": 1199,
+    "parsedFiles": 1154,
     "shellFiles": 45,
-    "cases": 13325,
+    "cases": 13337,
     "dynamicTitles": 144,
     "unparseableFiles": 0
   },
@@ -5529,7 +5529,7 @@
         },
         {
           "suite": "projection fold seam",
-          "name": "ProjectionFoldSeam_AllowlistEntries_CarryAnOwnerAndAnUnexpiredDate",
+          "name": "ProjectionFoldSeam_AllowlistEntries_CarryARationaleOwnerAndUnexpiredDate",
           "dynamic": false
         }
       ]
@@ -5648,6 +5648,27 @@
         {
           "suite": "published-path facades",
           "name": "PublishedPathFacades_AreClassifiedByShapeNotByName",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/reachable-controls.test.ts": {
+      "file": "tests/architecture/reachable-controls.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "reachable controls",
+          "name": "ReachableControls_NoEnabler_IsCalledOnlyFromTests",
+          "dynamic": false
+        },
+        {
+          "suite": "reachable controls",
+          "name": "ReachableControls_KillFixture_IsReportedByTheSameScanner",
+          "dynamic": false
+        },
+        {
+          "suite": "reachable controls",
+          "name": "ReachableControls_AllowlistEntries_CarryAReasonOwnerAndUnexpiredDate",
           "dynamic": false
         }
       ]
@@ -6530,7 +6551,7 @@
         },
         {
           "suite": "T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)",
-          "name": "Governance_Dr4_DegradedProjection_IsNeverServedAsSuccess",
+          "name": "Governance_ProjectionDerivedRead_AnswersFromTheDurableTail",
           "dynamic": false
         },
         {
@@ -33214,23 +33235,43 @@
           "dynamic": false
         },
         {
-          "suite": "#1855 — the guarantee CB-8 bought, kept",
+          "suite": "#1855 — a read never answers from a fold behind the tail",
           "name": "FoldAtTail_RewoundFold_AnswersFromTheTailNotFromTheStaleFold",
           "dynamic": false
         },
         {
-          "suite": "#1855 — the guarantee CB-8 bought, kept",
+          "suite": "#1855 — a read never answers from a fold behind the tail",
           "name": "FoldAtTail_ContradictoryFold_IsDiscardedAndReplayedFromTheLog",
           "dynamic": false
         },
         {
-          "suite": "#1855 — the guarantee CB-8 bought, kept",
+          "suite": "#1855 — a read never answers from a fold behind the tail",
           "name": "FoldAtTail_ColdStream_CoversTheTailWithNoWarmFold",
           "dynamic": false
         },
         {
-          "suite": "#1855 — the guarantee CB-8 bought, kept",
+          "suite": "#1855 — a read never answers from a fold behind the tail",
+          "name": "FoldAtTail_AppendLandsMidFold_SequenceStaysOnThePinnedTail",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — a read never answers from a fold behind the tail",
+          "name": "FoldPairToTail_TwoViews_ShareOneSequence",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — a read never answers from a fold behind the tail",
           "name": "FoldAtTail_EmptyStream_IsCoveredAtSequenceZero",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — a committed mutation is never reported as a failure",
+          "name": "WorkflowUpdate_CoverageUnprovable_StillReportsTheCommittedWrite",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — a committed mutation is never reported as a failure",
+          "name": "FoldAtTail_UnprovableCoverage_ThrowsRatherThanAnswering",
           "dynamic": false
         }
       ]
@@ -70865,6 +70906,37 @@
           "suite": "single-composer guard > scanner-form coverage",
           "name": "<dynamic-case-2>",
           "dynamic": true
+        }
+      ]
+    },
+    "tests/unit/workflow/state-fold-merge.test.ts": {
+      "file": "tests/unit/workflow/state-fold-merge.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "ES v2 get — the fold merged with the file",
+          "name": "WorkflowGet_EventDerivedRead_KeepsEveryFileOwnedField",
+          "dynamic": false
+        },
+        {
+          "suite": "ES v2 get — the fold merged with the file",
+          "name": "WorkflowGet_EventDerivedRead_AddsWhatOnlyTheFoldKnows",
+          "dynamic": false
+        },
+        {
+          "suite": "ES v2 get — the fold merged with the file",
+          "name": "WorkflowGet_AsOf_AnswersHistoricallyRatherThanWithTipState",
+          "dynamic": false
+        },
+        {
+          "suite": "ES v2 get — the fold merged with the file",
+          "name": "WorkflowGet_AsOfPastTheTip_IsIdenticalToTheLiveRead",
+          "dynamic": false
+        },
+        {
+          "suite": "why the state file is not re-materialized from the fold",
+          "name": "WorkflowStateFold_PatchedTask_ViolatesStateSchema",
+          "dynamic": false
         }
       ]
     },

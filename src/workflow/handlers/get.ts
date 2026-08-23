@@ -3,6 +3,7 @@ import type { ToolResult } from '../../format.js';
 import { resolveAsOfEvents } from '../../projections/cursor.js';
 import { foldToTail } from '../../projections/fold-at-tail.js';
 import { WORKFLOW_STATE_VIEW, type WorkflowStateView } from '../../projections/views/workflow-state-projection.js';
+import { getOrCreateMaterializer } from '../../projections/views/tools.js';
 import { buildCheckpointMeta } from '../checkpoint.js';
 import { getPlaybook } from '../playbooks.js';
 import { ErrorCode } from '../schemas.js';
@@ -10,7 +11,7 @@ import { readStateFile, StateStoreError } from '../state-store.js';
 import type { GetInput, WorkflowState } from '../types.js';
 import * as path from 'node:path';
 import { resolveDotPath } from './dot-path.js';
-import { isEventSourced, moduleViewMaterializer, stripInternalFields } from './shared.js';
+import { isEventSourced, mergeFileOwnedFields, stripInternalFields } from './shared.js';
 
 // ─── handleGet ──────────────────────────────────────────────────────────────
 
@@ -48,12 +49,15 @@ export async function handleGet(
   }
 
   // Version discriminator: ES v2 workflows materialize from events
-  const useEventSource = isEventSourced(state)
-    && eventStore !== null
-    && moduleViewMaterializer !== null;
+  // `!= null` deliberately, not `!== null`: the parameter is typed
+  // `EventStore | null`, but callers reach this through loosely-typed adapters
+  // and an `undefined` store used to be harmless — the path was gated on a
+  // materializer that was never set, so it never ran. Now that it does run,
+  // letting `undefined` through means folding against nothing.
+  const useEventSource = isEventSourced(state) && eventStore != null;
 
   if (useEventSource) {
-    return handleGetFromEvents(input, state, eventStore!);
+    return handleGetFromEvents(input, state, eventStore, stateDir);
   }
 
   // Legacy path: read directly from state file
@@ -67,7 +71,9 @@ async function handleGetFromEvents(
   input: GetInput,
   fileState: WorkflowState,
   eventStore: EventStore,
+  stateDir: string,
 ): Promise<ToolResult> {
+  const materializer = getOrCreateMaterializer(stateDir);
 
   // #1555 — an `asOf` (bounded-fold) read folds `events[0..N]` through the
   // cache-bypassing fresh fold. This is load-bearing: `materialize` is
@@ -82,7 +88,7 @@ async function handleGetFromEvents(
   let materialized: WorkflowStateView;
   if (input.asOf !== undefined) {
     const bounded = resolveAsOfEvents(await eventStore.query(input.featureId), input.asOf);
-    materialized = moduleViewMaterializer!.materializeFresh<WorkflowStateView>(
+    materialized = materializer.materializeFresh<WorkflowStateView>(
       WORKFLOW_STATE_VIEW,
       bounded,
     );
@@ -93,7 +99,7 @@ async function handleGetFromEvents(
     // published elsewhere and refuse. It now establishes its own coverage.
     materialized = (await foldToTail<WorkflowStateView>(
       eventStore,
-      moduleViewMaterializer!,
+      materializer,
       input.featureId,
       WORKFLOW_STATE_VIEW,
     )).view;
@@ -103,11 +109,20 @@ async function handleGetFromEvents(
   // Checkpoint meta comes from state file (not materialized) since it's the
   // authoritative source for checkpoint tracking.
   const meta = buildCheckpointMeta(fileState._checkpoint);
-  return projectState(input, materializedRecord, meta);
+  // Both arms merge, including the bounded one. A bound past the tip excludes
+  // nothing, so it IS the live read and must answer identically — differing
+  // there would be an artifact of which branch ran, not a fact about the
+  // stream. And the merged fields carry no history to distort: the projection
+  // models no `_version` at any sequence, `_esVersion` is a format marker
+  // rather than state, and the file's `_checkpoint` already reaches a bounded
+  // response through `_meta` above regardless of this branch.
+  return projectState(input, mergeFileOwnedFields(materializedRecord, fileState), meta);
 }
 
 /**
- * Legacy read path: read directly from state file (v1 workflows or missing dependencies).
+ * Legacy read path: read directly from state file (v1 workflows, or no event
+ * store). Not the ES v2 path — that folds the log and merges the file's own
+ * fields on top; see `handleGetFromEvents`.
  */
 function handleGetFromStateFile(
   input: GetInput,

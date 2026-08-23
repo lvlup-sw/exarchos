@@ -6,8 +6,7 @@ import {
   handleGet,
   handleInit,
   handleSet,
-  configureWorkflowMaterializer,
-} from '../../../src/workflow/tools.js';
+  } from '../../../src/workflow/tools.js';
 import { getRequiredReviews } from '../../../src/workflow/review-contract.js';
 
 describe('handleGet playbook field', () => {
@@ -18,7 +17,6 @@ describe('handleGet playbook field', () => {
   });
 
   afterEach(async () => {
-    configureWorkflowMaterializer(null);
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
@@ -149,7 +147,6 @@ describe('review-contract wiring through handleSet', () => {
   });
 
   afterEach(async () => {
-    configureWorkflowMaterializer(null);
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 

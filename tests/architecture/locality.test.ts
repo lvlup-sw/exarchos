@@ -81,8 +81,11 @@ const EXEMPTIONS: Record<string, Exemption> = {
       '+1 for projection-fold-seam.json: the policy data behind the guard that keeps a ' +
       'projection-derived answer from escaping without evidence its fold covers the event tail. ' +
       'It sits at this level because that is where every other guard reads its policy from, and ' +
-      'splitting one policy file into a subdirectory of its own would cost more than it saves.',
-    grantedAt: 53,
+      'splitting one policy file into a subdirectory of its own would cost more than it saves. ' +
+      '+1 for reachable-controls.json, on the same argument: the policy behind the guard that ' +
+      'fails a control whose enabling call exists only in tests, so a gated path cannot go dark ' +
+      'while its branches read as shipped.',
+    grantedAt: 54,
   },
   'tools/audit/gates': {
     reason:

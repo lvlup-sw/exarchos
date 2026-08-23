@@ -48,7 +48,6 @@ import {
   type WorkflowStateView,
 } from '../../../src/projections/views/workflow-state-projection.js';
 import { ViewMaterializer } from '../../../src/projections/views/materializer.js';
-import { configureWorkflowMaterializer } from '../../../src/workflow/tools.js';
 import { handleWorkflow } from '../../../src/workflow/composite.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
@@ -370,7 +369,6 @@ describe('#1855 — a committed mutation is never reported as a failure', () => 
     // reachability gap itself is a separate finding.
     const materializer = new ViewMaterializer();
     materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
-    configureWorkflowMaterializer(materializer);
 
     await seedWorkflow();
 
@@ -386,7 +384,6 @@ describe('#1855 — a committed mutation is never reported as a failure', () => 
       expect(update.error?.code).not.toBe('INTERNAL_ERROR');
     } finally {
       lying.close();
-      configureWorkflowMaterializer(null);
     }
 
     // …and the write really did land: a healthy read sees it.
