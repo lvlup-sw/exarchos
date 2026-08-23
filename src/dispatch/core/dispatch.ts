@@ -11,7 +11,7 @@ import type { CapabilityResolver } from '../../workflow/capabilities/resolver.js
 import type { StorageBackend } from '../../storage/backend.js';
 import type { RootsClient } from '../../runtime/workspace/discovery.js';
 import type { ElicitationClient } from '../elicitation-dispatch.js';
-import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry, findActionInRegistry } from '../../registry.js';
+import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry, findActionInRegistry, normalizeActionContract } from '../../registry.js';
 // The response-economy seam lives in its own leaf (`./response-economy.js`) so
 // the telemetry middleware can import `enforceResponseEconomy` without the
 // dispatch ↔ middleware runtime import cycle (DR-4, task 009). Re-exported below
@@ -323,8 +323,11 @@ async function readTrustedAdmissionEvidence(
 
 function readActionContract(action: object): ActionContract | undefined {
   if (!('actionContract' in action)) return undefined;
-  const contract = Reflect.get(action, 'actionContract');
-  return isPlainAdmissionRecord(contract) ? (contract as ActionContract) : undefined;
+  try {
+    return normalizeActionContract(Reflect.get(action, 'actionContract'));
+  } catch {
+    return undefined;
+  }
 }
 
 function hostObligationOf(contract: ActionContract | undefined): string | undefined {
