@@ -68,13 +68,10 @@ describe('action-contract closure kill fixtures', () => {
     );
     expect(target, 'live tree has no advertised/executed pair to disagree').toBeDefined();
 
-    const executed = isRecord(target!.executed) ? target!.executed : {};
     const killed: ActionContractClosureSubject = {
       ...target!,
-      executed: {
-        ...executed,
-        needs: { kind: 'declared', values: ['fs:read'] },
-      },
+      advertised: { verdict: 'allow', digest: { algorithm: 'sha256', value: 'a'.repeat(64) } },
+      executed: { verdict: 'deny' },
     };
     const result = evaluateActionContractClosure({ subjects: [killed] });
     expect(result.closed).toBe(false);

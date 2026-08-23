@@ -19,7 +19,6 @@ import {
   clearCustomTools,
   registerCustomTool,
   setCustomToolActionHandler,
-  type CompositeTool,
 } from '../../src/registry.js';
 import { unregisteredActionOutputSchema } from '../../src/output-schema-declaration.js';
 import {
@@ -238,7 +237,6 @@ function registerProbe(input: {
   readonly action: string;
   readonly contract: ActionContract;
   readonly annotations?: typeof LOCAL_MUTATION | typeof READ_ONLY_LOCAL;
-  readonly autoEmits?: CompositeTool['actions'][number]['autoEmits'];
   readonly handler: (args: Record<string, unknown>) => Promise<unknown>;
 }): void {
   registerCustomTool({
@@ -254,7 +252,6 @@ function registerProbe(input: {
           roles: new Set<string>(['any']),
           annotations: input.annotations ?? LOCAL_MUTATION,
           outputSchema: unregisteredActionOutputSchema(),
-          ...(input.autoEmits === undefined ? {} : { autoEmits: input.autoEmits }),
         },
         input.contract,
       ),
@@ -444,9 +441,6 @@ describe('dispatch gates success on applicable ensures', () => {
     registerProbe({
       action: 'peek',
       annotations: READ_ONLY_LOCAL,
-      autoEmits: [
-        { event: 'workflow.started', condition: 'always', owner: 'probe', role: 'primary' },
-      ],
       contract: probeContract({
         ensures: none('read-only probe returns an ephemeral document with no durable postcondition'),
         emissions: none('read-only probe emits no catalog events'),

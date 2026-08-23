@@ -400,17 +400,16 @@ describe('D.8 — annotations.safety is queryable from registry (DIM-1 SoT)', ()
 // ─── DR-7 (#1581 task 018): deep-rung discover-bridge affordances ────────────
 describe('computeNextActions — deep-rung affordances (DR-7, task 018)', () => {
   it('NextActions_DeepDepth_PublishesDiscoverBridge', () => {
-    // At the `deep` planning rung, PLAN authoring surfaces the opt-in
-    // divergent-loop + discover-bridge affordances on next_actions (INV-12).
     const hsm = getHSMDefinition('feature');
-    const actions = computeNextActions(
+    const { control, registry } = computeNextActionEnvelopes(
       { phase: 'plan', workflowType: 'feature', designDepth: 'deep' },
       hsm,
     );
-    const verbs = actions.map((a) => a.verb);
-    expect(verbs).toContain('discover_bridge');
+    const verbs = control.map((a) => a.verb);
+    expect(verbs).not.toContain('discover_bridge');
     expect(verbs).toContain('divergent_loop');
-    for (const a of actions) {
+    expect(registry.map((a) => a.actionId)).not.toContain('exarchos_orchestrate.discover_bridge');
+    for (const a of control) {
       expect(NextAction.safeParse(a).success).toBe(true);
     }
   });
@@ -459,11 +458,7 @@ describe('computeNextActions — post-synthesize prune cadence (DR-2, task 008, 
     );
 
     const prune = actions.find((a) => a.verb === 'prune_worktrees');
-    expect(prune).toBeDefined();
-    expect(prune?.validTargets).toEqual(['prune_worktrees']);
-    // The cadence hint MUST steer the caller to a dry-run first (INV-5c).
-    expect(prune?.reason.toLowerCase()).toContain('dry-run');
-    expect(prune?.hint?.toLowerCase()).toContain('dry-run');
+    expect(prune).toBeUndefined();
 
     // Every affordance validates against the NextAction schema (shape drift
     // fails loud rather than shipping a malformed envelope).
@@ -482,7 +477,7 @@ describe('computeNextActions — post-synthesize prune cadence (DR-2, task 008, 
         { phase: 'synthesize', workflowType },
         hsm,
       ).map((a) => a.verb);
-      expect(verbs).toContain('prune_worktrees');
+      expect(verbs).not.toContain('prune_worktrees');
     }
   });
 
@@ -945,7 +940,9 @@ describe('computeRegistryAdvertisements — allow-only ActionIds', () => {
     );
     expect(control.map((a) => a.verb)).toContain('merge_orchestrate');
     expect(registry).toEqual([]);
-    expect(isControlOwnedVerb('merge_orchestrate')).toBe(true);
+    expect(isControlOwnedVerb('merge_orchestrate')).toBe(false);
+    expect(isControlOwnedVerb('discover_bridge')).toBe(false);
+    expect(isControlOwnedVerb('prune_worktrees')).toBe(false);
   });
 
   it('NextActions_Advertised_UsesWorkflowScopedSubject', () => {
@@ -967,5 +964,38 @@ describe('computeRegistryAdvertisements — allow-only ActionIds', () => {
     expect(advertised[0]).not.toHaveProperty('target');
     expect(advertised[0]).not.toHaveProperty('payload');
     expect(advertised[0]).not.toHaveProperty('now');
+  });
+
+  it('NextActions_PublishedField_WithholdsRegistryActionIdsOnControlEnvelope', () => {
+    const hsm = getHSMDefinition('feature');
+    const deep = computeNextActions(
+      { phase: 'plan', workflowType: 'feature', designDepth: 'deep' },
+      hsm,
+    ).map((a) => a.verb);
+    const synthesize = computeNextActions(
+      { phase: 'synthesize', workflowType: 'feature' },
+      hsm,
+    ).map((a) => a.verb);
+    expect(deep).not.toContain('discover_bridge');
+    expect(synthesize).not.toContain('prune_worktrees');
+
+    const denied = computeNextActionEnvelopes(
+      {
+        phase: 'merge-pending',
+        workflowType: 'feature',
+        featureId: 'feat-x',
+        mergeOrchestrator: { phase: 'pending', taskId: 'T11' },
+        actionAdmission: advertiseFacts({
+          phase: 'merge-pending',
+          actionIds: ['exarchos_orchestrate.merge_orchestrate'],
+          authorization: { not: 'a-snapshot' },
+        }),
+      },
+      hsm,
+    );
+    expect(denied.control.map((a) => a.verb)).not.toContain('merge_orchestrate');
+    expect(denied.registry.map((a) => a.actionId)).not.toContain(
+      'exarchos_orchestrate.merge_orchestrate',
+    );
   });
 });

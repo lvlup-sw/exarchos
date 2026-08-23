@@ -29,6 +29,7 @@ import {
 import type { ToolAction, CompositeTool, ActionAnnotations } from '../../src/registry.js';
 import {
   ActionContractError,
+  contractEmissionsOf,
   none,
   normalizeActionContract,
   type ActionContract,
@@ -1011,7 +1012,7 @@ describe('TOOL_REGISTRY', () => {
     // Still a review-phase, lead-role gate that auto-emits gate.executed.
     expect(action!.phases.has('review')).toBe(true);
     expect(action!.roles.has('lead')).toBe(true);
-    expect(action!.autoEmits?.some((e) => e.event === 'gate.executed')).toBe(true);
+    expect(contractEmissionsOf(action!).some((e) => e.event === 'gate.executed')).toBe(true);
 
     // Visible (non-hidden) composite tools stay within the 15-tool budget.
     const visibleTools = TOOL_REGISTRY.filter((t) => !t.hidden);
@@ -1063,7 +1064,7 @@ describe('TOOL_REGISTRY', () => {
     expect(action!.description.toLowerCase()).toContain('do not use');
 
     // autoEmits declares both authoring events (INV-1).
-    const events = (action!.autoEmits ?? []).map((e) => e.event);
+    const events = contractEmissionsOf(action!).map((e) => e.event);
     expect(events).toContain('invariant.authored');
     expect(events).toContain('catalog.registered');
 
@@ -1944,10 +1945,11 @@ describe('AutoEmits Drift Tests', () => {
 
     for (const tool of TOOL_REGISTRY) {
       for (const action of tool.actions) {
-        if (!action.autoEmits || action.autoEmits.length === 0) continue;
+        const emissions = contractEmissionsOf(action);
+        if (emissions.length === 0) continue;
         anyPopulated = true;
 
-        for (const emission of action.autoEmits) {
+        for (const emission of emissions) {
           const source = (EVENT_EMISSION_REGISTRY as Record<string, string>)[emission.event];
           if (!source) {
             violations.push(
@@ -1974,7 +1976,7 @@ describe('AutoEmits Drift Tests', () => {
       for (const action of tool.actions) {
         const matchesPattern = emitsPatterns.some((p) => p.test(action.description));
         if (matchesPattern) {
-          if (!action.autoEmits || action.autoEmits.length === 0) {
+          if (contractEmissionsOf(action).length === 0) {
             violations.push(
               `${tool.name}.${action.name}: description mentions emissions but autoEmits is empty/undefined. Description: "${action.description}"`,
             );
@@ -1996,9 +1998,10 @@ describe('AutoEmits Drift Tests', () => {
     const violations: string[] = [];
     for (const tool of TOOL_REGISTRY) {
       for (const action of tool.actions) {
-        if (!action.autoEmits || action.autoEmits.length === 0) continue;
+        const emissions = contractEmissionsOf(action);
+        if (emissions.length === 0) continue;
         if (action.annotations?.readOnly === true) {
-          const events = action.autoEmits.map((e) => e.event).join(', ');
+          const events = emissions.map((e) => e.event).join(', ');
           violations.push(
             `${tool.name}.${action.name}: declares autoEmits [${events}] but annotations.readOnly === true`,
           );
@@ -2585,12 +2588,22 @@ describe('validateAction', () => {
 
   it('ValidateAction_ValidAction_DoesNotThrow', async () => {
     const validateAction = await importValidateAction();
+    const reasonedNone = none('registration fixture has no additional obligations');
     expect(() =>
       validateAction(
         {
           name: 'ok',
           outputSchema: z.object({ success: z.boolean() }),
           annotations: validAnnotations,
+          actionContract: {
+            requires: reasonedNone,
+            ensures: reasonedNone,
+            needs: reasonedNone,
+            touches: { frame: 'single-machine', resources: reasonedNone },
+            executionAuthority: { kind: 'local' },
+            replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+            emissions: reasonedNone,
+          },
         },
         'exarchos_event',
       ),
@@ -2607,6 +2620,20 @@ describe('validateAction', () => {
     replay: { kind: 'claim-required', scope: 'stream-subject-request' },
     emissions: reasonedNone,
     ...overrides,
+  });
+
+  it('ValidateAction_MissingContract_FailsAtLoad', () => {
+    expect(() =>
+      validateAction(
+        {
+          name: 'probe',
+          outputSchema: z.object({ success: z.boolean() }),
+          annotations: validAnnotations,
+        },
+        'exarchos_workflow',
+        'load',
+      ),
+    ).toThrow(ActionContractError);
   });
 
   it('ValidateAction_MissingContract_FailsAtRegistration', () => {
@@ -3771,7 +3798,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       const edges: { tool: string; action: string; emission: AutoEmission }[] = [];
       for (const tool of TOOL_REGISTRY) {
         for (const action of tool.actions) {
-          for (const emission of action.autoEmits ?? []) {
+          for (const emission of contractEmissionsOf(action)) {
             edges.push({ tool: tool.name, action: action.name, emission });
           }
         }
@@ -3819,6 +3846,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       // here alongside the declarations that introduce it.
       expect([...new Set(edges.map((e) => e.emission.owner))].sort()).toEqual([
         'orchestrate',
+        'view',
         'workflow',
       ]);
 

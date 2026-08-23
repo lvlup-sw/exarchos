@@ -5,10 +5,10 @@ import { z } from 'zod';
 import { declared, none, withActionContract, type ActionContract } from '../../action-contract.js';
 import { LOCAL_MUTATION, REMOTE_MUTATION } from '../../annotations.js';
 import { DELEGATE_PHASES, REVIEW_PHASES, ROLE_ANY, ROLE_LEAD, ROLE_TEAMMATE, STACK_PHASES, SYNTHESIS_REVIEW_PHASES } from '../../phases.js';
-import type { BuiltinToolAction } from '../../types.js';
+import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
 
 function withContract(
-  action: BuiltinToolAction,
+  action: BuiltinActionDraft,
   partial: {
     readonly requires?: ActionContract['requires'];
     readonly ensures: ActionContract['ensures'];
@@ -61,9 +61,6 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_TEAMMATE,
-    autoEmits: [
-      { event: 'task.claimed', condition: 'always', role: 'primary', owner: 'orchestrate' },
-    ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.task_claim'),
     annotations: LOCAL_MUTATION,
   }, {
@@ -94,9 +91,6 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_TEAMMATE,
-    autoEmits: [
-      { event: 'task.completed', condition: 'always', role: 'primary', owner: 'orchestrate' },
-    ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.task_complete'),
     annotations: LOCAL_MUTATION,
   }, {
@@ -123,9 +117,6 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_TEAMMATE,
-    autoEmits: [
-      { event: 'task.failed', condition: 'always', role: 'primary', owner: 'orchestrate' },
-    ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.task_fail'),
     annotations: LOCAL_MUTATION,
   }, {
@@ -155,9 +146,6 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     // `review/tools.ts::emitRoutedEvents` appends one row per dispatched review, from this
     // handler. The action declared no emissions at all, which left the registration claiming a
     // consumer folds an event that nothing in the registry said anyone emits.
-    autoEmits: [
-      { event: 'review.routed', condition: 'conditional', description: 'One per PR routed; none when nothing is dispatched', role: 'primary', owner: 'orchestrate' },
-    ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.review_triage'),
     annotations: LOCAL_MUTATION,
   }, {
@@ -219,9 +207,6 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
-    autoEmits: [
-      { event: 'quality.hint.generated', condition: 'conditional', description: 'When hints exist', role: 'primary', owner: 'orchestrate' },
-    ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.prepare_delegation'),
     annotations: LOCAL_MUTATION,
   }, {
@@ -256,9 +241,6 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     // DR-5: invokes `npm run test:run` + typecheck under the hood; seconds
     // to minutes on non-trivial repos.  CLI adapter emits heartbeats.
     longRunning: true,
-    autoEmits: [
-      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
-    ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.prepare_synthesis'),
     annotations: LOCAL_MUTATION,
   }, {
@@ -292,9 +274,6 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     }),
     phases: STACK_PHASES,
     roles: ROLE_ANY,
-    autoEmits: [
-      { event: 'stack.position-filled', condition: 'always', role: 'primary', owner: 'orchestrate' },
-    ],
     outputSchema: withCappedShape(StackPlaceOutputSchema),
     annotations: LOCAL_MUTATION,
   }, {
@@ -326,16 +305,6 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     // DR-5: shells out to `gh` across each PR in the stack; latency scales
     // with stack depth + GitHub API round-trip time.
     longRunning: true,
-    autoEmits: [
-      { event: 'shepherd.started', condition: 'conditional', description: 'First invocation (idempotent)', role: 'primary', owner: 'orchestrate' },
-      { event: 'shepherd.approval_requested', condition: 'conditional', description: 'When approval needed', role: 'primary', owner: 'orchestrate' },
-      { event: 'shepherd.completed', condition: 'conditional', description: 'When PR merged', role: 'primary', owner: 'orchestrate' },
-      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
-      // The same handler appends these two from the same dispatch. It cannot be the emitter of
-      // four of its appends and not of the other two, so the omission was in the declaration.
-      { event: 'ci.status', condition: 'conditional', description: 'One per PR assessed; none when the stack is empty', role: 'primary', owner: 'orchestrate' },
-      { event: 'shepherd.escalated', condition: 'conditional', description: 'When the auto-fix bound is reached', role: 'primary', owner: 'orchestrate' },
-    ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.assess_stack'),
     // sentry LOW on PR #1369: `assess_stack` reads GitHub PR state but
     // also emits 3 shepherd lifecycle events + gate.executed on every

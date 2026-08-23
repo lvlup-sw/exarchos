@@ -54,7 +54,6 @@ import {
 } from '../undeclared-parameters.js';
 import { applyInferredValues } from './inferred-values.js';
 import path from 'node:path';
-import { readFile } from 'node:fs/promises';
 import {
   detectActiveStoreDivergence,
   describeStoreDivergence,
@@ -62,16 +61,20 @@ import {
   toPosix,
   ALLOW_STORE_DIVERGENCE_ENV,
 } from '../../utils/paths.js';
+import { workflowStateProjection } from '../../projections/views/workflow-state-projection.js';
 import type { EventSourcedTaskStore } from '../../projections/task-store/event-sourced-task-store.js';
 import { evaluateActionAdmission } from '../../workflow/admission/action-admission.js';
+import { POLICY_CAPABILITY } from '../../workflow/admission/policy-authority.js';
 import { ADMISSION_EVENT_TYPES } from '../../workflow/admission/types.js';
 import { AdmissionEvidenceRecordedData } from '../../events/schemas.js';
 import type { CallerAuthorizationSnapshot } from '../caller-identity.js';
-import type { ActionContract } from '../../registry/action-contract.js';
+import type { ActionContract, ActionRequirement } from '../../registry/action-contract.js';
 import {
+  applicableEnsures,
   observeActionPostconditions,
   type ActionPostconditionObservation,
 } from './action-postconditions.js';
+import { INFRA_STREAM_IDS } from './infra-streams.js';
 
 // NOTE: `../telemetry/middleware.js` is intentionally NOT imported at module
 // top-level. The middleware instantiates a singleton TraceWriter at import,
@@ -247,10 +250,6 @@ export function extractSingleMissingRequiredField(
   return key;
 }
 
-function isPlainAdmissionRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
 function registryActionId(tool: string, actionName: string): string {
   return `${tool}.${actionName}`;
 }
@@ -273,38 +272,114 @@ function workflowSubjectFromArgs(
   return { featureId, stream };
 }
 
+const POLICY_CAPABILITY_IDS = new Set<string>(Object.values(POLICY_CAPABILITY));
+
+/**
+ * Admission capabilities come from the trusted caller snapshot — the same
+ * grant `snapshotCallerAuthorization` already computed, including the
+ * local-operator baseline. Resolver `list()` is handshake / cache-hint
+ * surface, not the ActionId need set; mixing the two denied every CLI
+ * doctor/merge call whose resolver only advertised `anthropic_native_caching`.
+ * Policy issuer tokens are not Capability-enum members, so a local operator
+ * receives them here, and an MCP resolver may add them explicitly.
+ */
+function admissionCapabilityIds(
+  snapshot: CallerAuthorizationSnapshot | undefined,
+  resolver: DispatchContext['capabilityResolver'],
+): readonly string[] {
+  const held = new Set<string>();
+  if (snapshot !== undefined) {
+    for (const capability of snapshot.capabilities) held.add(capability);
+    if (
+      snapshot.identity.kind === 'local-operator' ||
+      snapshot.posture === 'shared-mutating'
+    ) {
+      held.add(POLICY_CAPABILITY.ISSUE_GATE_EVIDENCE);
+      held.add(POLICY_CAPABILITY.ISSUE_APPROVAL);
+      held.add(POLICY_CAPABILITY.GRANT_WAIVER);
+    }
+  }
+  if (resolver !== undefined) {
+    for (const capability of resolver.list()) {
+      if (POLICY_CAPABILITY_IDS.has(capability)) held.add(capability);
+    }
+  }
+  return [...held];
+}
+
 function admissionAuthorizationFromCaller(
   snapshot: CallerAuthorizationSnapshot | undefined,
   resolver: DispatchContext['capabilityResolver'],
-): unknown | undefined {
-  if (snapshot === undefined) return undefined;
-  const capabilityIds = resolver === undefined ? snapshot.capabilities : resolver.list();
-  if (capabilityIds.length === 0) return undefined;
+): {
+  readonly authorizationId: string;
+  readonly posture: 'read-only' | 'task-isolated' | 'shared-mutating';
+  readonly capabilityIds: readonly string[];
+  readonly resolverVersion: string;
+  readonly resolvedAt: string;
+} {
   return {
-    authorizationId: snapshot.identity.subjectId,
-    posture: snapshot.posture,
-    capabilityIds,
-    resolverVersion: snapshot.resolver.version,
-    resolvedAt: snapshot.resolvedAt,
+    authorizationId: snapshot?.identity.subjectId ?? 'anonymous',
+    posture: snapshot?.posture ?? 'read-only',
+    capabilityIds: admissionCapabilityIds(snapshot, resolver),
+    resolverVersion: snapshot?.resolver.version ?? 'none',
+    resolvedAt: snapshot?.resolvedAt ?? '1970-01-01T00:00:00.000Z',
   };
 }
 
+function contractNeedsSatisfied(
+  contract: ActionContract,
+  capabilityIds: readonly string[],
+): boolean {
+  if (contract.needs.kind === 'none') return true;
+  const held = new Set(capabilityIds);
+  return contract.needs.values.every((capability) => held.has(capability));
+}
+
+function requiresOnlyApprovals(requires: ActionContract['requires']): boolean {
+  if (requires.kind === 'none') return true;
+  return requires.values.every(
+    (requirement: ActionRequirement) =>
+      'kind' in requirement && requirement.kind === 'approvals',
+  );
+}
+
+function observationStreamId(
+  args: Record<string, unknown>,
+  contract: ActionContract | undefined,
+): string | undefined {
+  const fromArgs = dispatchStreamId(args);
+  if (fromArgs !== undefined) return fromArgs;
+  const resources = contract?.touches.resources;
+  if (resources === undefined || resources.kind !== 'declared') return undefined;
+  for (const resource of resources.values) {
+    if (resource.kind === 'stream' && INFRA_STREAM_IDS.has(resource.selector)) {
+      return resource.selector;
+    }
+  }
+  return undefined;
+}
+
 async function readTrustedHsmFacts(
-  stateDir: string,
+  eventStore: EventStore,
   featureId: string,
 ): Promise<{ readonly phase: string; readonly phaseAttemptId?: string } | undefined> {
   try {
-    const raw = await readFile(path.join(stateDir, `${featureId}.state.json`), 'utf8');
-    const parsed: unknown = JSON.parse(raw);
-    if (!isPlainAdmissionRecord(parsed)) return undefined;
-    if (typeof parsed.phase !== 'string' || parsed.phase.length === 0) return undefined;
+    const events = await eventStore.query(featureId);
+    let view = workflowStateProjection.init();
+    for (const event of events) {
+      view = workflowStateProjection.apply(view, event);
+    }
+    if (typeof view.featureId !== 'string' || view.featureId.length === 0) {
+      return undefined;
+    }
+    if (typeof view.phase !== 'string' || view.phase.length === 0) return undefined;
     const phaseAttemptId =
-      typeof parsed.phaseAttemptId === 'string' && parsed.phaseAttemptId.length > 0
-        ? parsed.phaseAttemptId
+      typeof view.phaseAttemptId === 'string' && view.phaseAttemptId.length > 0
+        ? view.phaseAttemptId
         : undefined;
     return phaseAttemptId === undefined
-      ? { phase: parsed.phase }
-      : { phase: parsed.phase, phaseAttemptId };
+      ? { phase: view.phase }
+      : { phase: view.phase, phaseAttemptId };
   } catch {
     return undefined;
   }
@@ -378,7 +453,7 @@ function isReadOnlyReasonedAbstention(
   if (!actionIsReadOnly(tool, actionName, action)) return false;
   const contract = readActionContract(action);
   if (contract === undefined) return false;
-  return contract.ensures.kind === 'none' || contract.emissions.kind === 'none';
+  return contract.ensures.kind === 'none';
 }
 
 function formatMissingEnsures(missing: readonly { readonly source: string }[]): string {
@@ -411,10 +486,13 @@ function ensureContractViolatedResult(
  * persisted evidence, authorization, and HSM facts. Request payload (including
  * a transition target) and a fresh wall-clock are not snapshot members.
  *
- * Missing trusted inputs skip this gate so cold probes and create paths stay
- * side-effect-free. A constructed snapshot that is not allow fails closed.
- * Host-owned actions return their declared obligation without executing host
- * work. Transition remains one ActionId; its request target is still decided
+ * Missing or invalid contracts deny. Capability failure denies. Declared
+ * requires without a store-backed subject or HSM fold deny — they never
+ * skip and they never invent a fake unscoped snapshot. Actions that
+ * abstain from requires are admitted from needs alone. Host-owned
+ * actions whose only requires are approvals return the obligation after
+ * needs pass: the approval is the host's job, not a prior local fact.
+ * Transition remains one ActionId; its request target is still decided
  * by the HSM transition guard after this gate.
  */
 async function evaluateDispatchAdmission(input: {
@@ -426,24 +504,36 @@ async function evaluateDispatchAdmission(input: {
   readonly authorization: CallerAuthorizationSnapshot | undefined;
 }): Promise<ToolResult | null> {
   const contract = readActionContract(input.action);
-  const obligation = hostObligationOf(contract);
-  const subject = workflowSubjectFromArgs(input.args);
+  const actionId = registryActionId(input.tool, input.actionName);
+  if (contract === undefined) {
+    return admissionDeniedResult(input.tool, input.actionName, 'missing-or-invalid-contract');
+  }
+
   const authorization = admissionAuthorizationFromCaller(
     input.authorization,
     input.ctx.capabilityResolver,
   );
+  if (!contractNeedsSatisfied(contract, authorization.capabilityIds)) {
+    return admissionDeniedResult(input.tool, input.actionName, 'missing-capabilities');
+  }
 
-  if (subject === undefined || authorization === undefined || contract === undefined) {
+  const obligation = hostObligationOf(contract);
+  const hostApprovalOnly =
+    obligation !== undefined && requiresOnlyApprovals(contract.requires);
+  if (contract.requires.kind === 'none' || hostApprovalOnly) {
     return obligation === undefined ? null : hostOwnedObligationResult(obligation);
   }
 
-  const hsmFacts = await readTrustedHsmFacts(input.ctx.stateDir, subject.featureId);
-  if (hsmFacts === undefined) {
-    return obligation === undefined ? null : hostOwnedObligationResult(obligation);
+  const subject = workflowSubjectFromArgs(input.args);
+  const hsmFacts =
+    subject === undefined
+      ? undefined
+      : await readTrustedHsmFacts(input.ctx.eventStore, subject.featureId);
+  if (subject === undefined || hsmFacts === undefined) {
+    return admissionDeniedResult(input.tool, input.actionName, 'missing-trusted-inputs');
   }
 
   const evidence = await readTrustedAdmissionEvidence(input.ctx.eventStore, subject.stream);
-  const actionId = registryActionId(input.tool, input.actionName);
   const decision = evaluateActionAdmission(
     actionId,
     {
@@ -1429,7 +1519,7 @@ export async function dispatch(
   const dispatchedAction =
     dispatchedActionName === '' ? undefined : findActionInRegistry(tool, dispatchedActionName);
   const dispatchedContract = dispatchedAction === undefined ? undefined : readActionContract(dispatchedAction);
-  const observedStreamId = dispatchStreamId(args);
+  const observedStreamId = observationStreamId(args, dispatchedContract);
   const readOnlyAbstention = isReadOnlyReasonedAbstention(tool, dispatchedActionName, dispatchedAction);
 
   const emissionVerdict = await runEmissionVerifierInterceptor(ctx.eventStore, {
@@ -1499,10 +1589,25 @@ export async function dispatch(
     dispatchedContract !== undefined &&
     dispatchedContract.ensures.kind === 'declared' &&
     !STUBBED_COMPOSITES.has(tool) &&
-    !readOnlyAbstention &&
-    observedStreamId !== undefined &&
-    observedStreamId.length > 0
+    !readOnlyAbstention
   ) {
+    const applicable = applicableEnsures(
+      dispatchedContract.ensures,
+      result.success ? 'success' : 'failure',
+    );
+    if (applicable.length === 0) {
+      return attachMeta(result);
+    }
+    if (observedStreamId === undefined || observedStreamId.length === 0) {
+      return attachMeta(
+        ensureContractViolatedResult(
+          tool,
+          dispatchedActionName,
+          result,
+          applicable,
+        ),
+      );
+    }
     let observation: ActionPostconditionObservation;
     try {
       observation = await observeActionPostconditions({

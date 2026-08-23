@@ -114,8 +114,10 @@ export type {
   ContractedToolAction,
   CompositeTool,
   BuiltinToolAction,
+  BuiltinActionDraft,
   BuiltinCompositeTool,
   ExtensionToolAction,
+  ExtensionActionDraft,
   ExtensionCompositeTool,
 } from './types.js';
 

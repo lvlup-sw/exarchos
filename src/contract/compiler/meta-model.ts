@@ -348,12 +348,12 @@ function deriveAuthorizationPolicy(action: ToolAction): AuthorizationPolicy {
   };
 }
 
-function deriveEvidencePolicy(action: ToolAction, contract: ActionContract | undefined): EvidencePolicy {
+function deriveEvidencePolicy(
+  _action: ToolAction,
+  contract: ActionContract | undefined,
+): EvidencePolicy {
   if (contract !== undefined) return evidenceFromContract(contract);
-  const autoEmits = (action.autoEmits ?? [])
-    .map((e) => ({ event: e.event, condition: e.condition }))
-    .sort((x, y) => byString(x.event, y.event) || byString(x.condition, y.condition));
-  return { autoEmits };
+  return { autoEmits: [] };
 }
 
 function deriveEffectPolicy(action: ToolAction): EffectPolicy {

@@ -5,8 +5,7 @@ import { SnapshotStore } from '../../projections/views/snapshot-store.js';
 import type { DispatchContext } from './dispatch.js';
 import type { StorageBackend } from '../../storage/backend.js';
 import {
-  ANTHROPIC_NATIVE_CACHING,
-  createInMemoryResolver,
+  buildDefaultProcessResolver,
   type CapabilityResolver,
 } from '../../workflow/capabilities/resolver.js';
 
@@ -47,28 +46,13 @@ function hasJsProjectConfig(projectRoot: string): boolean {
 }
 
 /**
- * Resolve the runtime capability set used by composite tools to decide
- * whether to emit cache-control hints (T051, DR-14).
- *
- * Default behaviour is "always-on": every dispatch context reports
- * `anthropic_native_caching`, so consumers that understand the hint
- * (Anthropic-native runtimes wrapping the response in `cache_control:
- * { type: 'ephemeral', ttl: '1h' }` around the stable prefix) get the
- * boundary signal, and consumers that don't ignore the field per the
- * standard JSON-wire convention. The followups doc (T051) treats this
- * as the safe default — extending the resolver to a real protocol
- * handshake is a follow-up enhancement, not a blocker.
- *
- * Set `EXARCHOS_DISABLE_CACHE_HINTS=1` to opt out — the resolver
- * returns empty and `applyCacheHints` becomes a no-op. Useful when a
- * downstream consumer is observed mishandling the field, or for
- * benchmarks that want the minimal envelope shape.
+ * Resolve the process capability set. The local CLI and MCP server both
+ * mutate this machine; the default grant is the shared-mutating posture
+ * plus the cache-hint token. Handshake-only lists are not the ActionId
+ * need set. `EXARCHOS_DISABLE_CACHE_HINTS=1` drops the hint token only.
  */
 function buildDefaultCapabilityResolver(): CapabilityResolver {
-  if (process.env.EXARCHOS_DISABLE_CACHE_HINTS === '1') {
-    return createInMemoryResolver([]);
-  }
-  return createInMemoryResolver([ANTHROPIC_NATIVE_CACHING]);
+  return buildDefaultProcessResolver();
 }
 
 // ─── Context Options ────────────────────────────────────────────────────────

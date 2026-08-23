@@ -6,9 +6,9 @@ import { declared, none, withActionContract } from '../../action-contract.js';
 import { COMPENSABLE_LOCAL, LOCAL_MUTATION, READ_ONLY_LOCAL } from '../../annotations.js';
 import { RUNBOOK_ECONOMY_BUDGET_TOKENS } from '../../hints.js';
 import { ALL_PHASES, ROLE_ANY, ROLE_LEAD, featureIdSchema } from '../../phases.js';
-import type { BuiltinToolAction } from '../../types.js';
+import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
 
-function contracted(action: BuiltinToolAction, contract: unknown): BuiltinToolAction {
+function contracted(action: BuiltinActionDraft, contract: unknown): BuiltinToolAction {
   return withActionContract(action, contract, { annotations: action.annotations });
 }
 
@@ -53,9 +53,6 @@ export const lifecycleOpsActions: readonly BuiltinToolAction[] = [
         }),
       phases: ALL_PHASES,
       roles: ROLE_LEAD,
-      autoEmits: [
-        { event: 'workflow.pruned', condition: 'conditional', description: 'Per pruned workflow when dryRun is false', role: 'primary', owner: 'orchestrate' },
-      ],
       outputSchema: vacuityWaiver('exarchos_orchestrate.prune_stale_workflows'),
       annotations: COMPENSABLE_LOCAL,
     },
@@ -93,9 +90,6 @@ export const lifecycleOpsActions: readonly BuiltinToolAction[] = [
       // the "I know I'll want a PR" signal during planning.
       phases: new Set<string>(['plan', 'implementing']),
       roles: ROLE_LEAD,
-      autoEmits: [
-        { event: 'synthesize.requested', condition: 'always', role: 'primary', owner: 'orchestrate' },
-      ],
       // T9 (#1440 Op 2, preview-4 design §4.3): the registry-canonical
       // name for the design's "synthesize" verb — PR creation flow flipped
       // by emitting `synthesize.requested` to the choice-state guard.
@@ -214,15 +208,6 @@ export const lifecycleOpsActions: readonly BuiltinToolAction[] = [
       }),
       phases: ALL_PHASES,
       roles: ROLE_ANY,
-      autoEmits: [
-        { event: 'diagnostic.executed', condition: 'conditional', description: 'On the read-only path (no --fix)', role: 'primary', owner: 'orchestrate' },
-        // The two onboarding rows fire ONLY on the --fix repair path, backstopping
-        // an environment that `onboard` already provisioned and that has since
-        // drifted — `onboard` stays the primary declarer of both. No expiry: the
-        // repair path is permanent infrastructure, not a time-boxed stopgap.
-        { event: 'onboard.requested', condition: 'conditional', description: 'Under --fix (shared reconciler intent)', role: 'recovery', owner: 'orchestrate' },
-        { event: 'onboard.executed', condition: 'conditional', description: 'Under --fix (shared reconciler result)', role: 'recovery', owner: 'orchestrate' },
-      ],
       outputSchema: vacuityWaiver('exarchos_orchestrate.doctor'),
       // sentry HIGH on PR #1369: `doctor` emits `diagnostic.executed` on
       // every invocation (see `autoEmits` above and
@@ -238,7 +223,10 @@ export const lifecycleOpsActions: readonly BuiltinToolAction[] = [
       needs: declared('fs:read', 'fs:write'),
       touches: {
         frame: 'single-machine',
-        resources: declared({ kind: 'path', selector: '.exarchos' }),
+        resources: declared(
+          { kind: 'stream', selector: 'exarchos-doctor' },
+          { kind: 'path', selector: '.exarchos' },
+        ),
       },
       executionAuthority: { kind: 'local' },
       replay: { kind: 'claim-required', scope: 'stream-subject-request' },

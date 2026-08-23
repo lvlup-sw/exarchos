@@ -41,7 +41,7 @@ import {
   type EffectOwnershipRule,
 } from '../../../src/architecture/effect-ledger.js';
 import { EVENT_ANNOTATIONS } from '../../../src/events/event-annotations.js';
-import { TOOL_REGISTRY } from '../../../src/registry.js';
+import { TOOL_REGISTRY, contractEmissionsOf } from '../../../src/registry.js';
 import {
   EVENT_LIFECYCLES,
   EVENT_TIERS,
@@ -2058,7 +2058,7 @@ describe('StaleCover — a capability weld that nothing declares it emits', () =
     const namedByAnEdge = new Set<string>();
     for (const tool of TOOL_REGISTRY) {
       for (const action of tool.actions) {
-        for (const emission of action.autoEmits ?? []) namedByAnEdge.add(emission.event);
+        for (const emission of contractEmissionsOf(action)) namedByAnEdge.add(emission.event);
       }
     }
     for (const row of MODULE_EMISSIONS) namedByAnEdge.add(row.event);

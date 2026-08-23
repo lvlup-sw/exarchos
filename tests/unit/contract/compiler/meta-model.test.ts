@@ -405,10 +405,7 @@ describe('DR-11 — the meta-model is audited against the shipped runtime surfac
 
 describe('deriveMetaModel — action-contract projection', () => {
   it('DeriveMetaModel_DoesNotReconstructFromAnnotations', () => {
-    const autoEmits = [
-      { event: 'workflow.started' as const, condition: 'always' as const, owner: 'annotated', role: 'primary' as const },
-    ];
-    const annotatedOnly = makeAction({ name: 'annotated', autoEmits });
+    const annotatedOnly = makeAction({ name: 'annotated' });
     const declared = validContract({
       emissions: {
         kind: 'declared',
@@ -422,14 +419,14 @@ describe('deriveMetaModel — action-contract projection', () => {
         ],
       },
     });
-    const contracted = withDeclaredContract(makeAction({ name: 'contracted', autoEmits }), declared);
+    const contracted = withDeclaredContract(makeAction({ name: 'contracted' }), declared);
 
     const annotatedEntry = deriveActionMetaModel(makeTool('exarchos_probe', [annotatedOnly]), annotatedOnly);
     const contractedEntry = deriveActionMetaModel(makeTool('exarchos_probe', [contracted]), contracted);
 
     expect(annotatedEntry.actionContract).toBeUndefined();
     expect(annotatedEntry.policy.actionContract).toBeUndefined();
-    expect(annotatedEntry.policy.evidence.autoEmits).toEqual([{ event: 'workflow.started', condition: 'always' }]);
+    expect(annotatedEntry.policy.evidence.autoEmits).toEqual([]);
 
     expect(contractedEntry.actionContract).toEqual(normalizeActionContract(declared));
     expect(contractedEntry.policy.actionContract).toEqual(contractedEntry.actionContract);

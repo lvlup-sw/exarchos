@@ -119,12 +119,10 @@ export function validateAnnotations(a: unknown, actionName: string): asserts a i
 /**
  * How `validateAction` treats a missing `actionContract` block.
  *
- * `load` is the built-in module-load loop: live declarations are still
- * migrating onto the block, so absence is skipped and a present block is
- * still normalized. `registration` is the admission path for custom and
- * extension tools — the block is required and must normalize completely.
- * The contracted type still requires the field; this mode only
- * accommodates unmigrated built-in literals.
+ * Both `load` (built-in module-load loop) and `registration` (custom and
+ * extension tools) require a complete block. The mode is retained so
+ * call sites can name which door they came through; it does not skip
+ * admission.
  */
 export type ActionRegistrationMode = 'load' | 'registration';
 
@@ -193,14 +191,14 @@ export function admitActionContract(
  * the fully-qualified `${toolName}.${action.name}` identifier so the
  * operator can navigate from a failed import directly to the offender.
  *
- * `actionContract` is required on the registration path. The built-in
- * load loop still admits unmigrated declarations that omit the block;
- * a present block is always normalized against annotations.
+ * `actionContract` is required on every admission door. Built-in load
+ * and extension registration share `admitActionContract`; omitting the
+ * block fails the import or the register call.
  */
 export function validateAction(
   action: { name: string; outputSchema?: z.ZodType; annotations?: unknown },
   toolName: string,
-  mode: ActionRegistrationMode = 'load',
+  _mode: ActionRegistrationMode = 'load',
 ): void {
   const id = `${toolName}.${action.name}`;
   if (action.outputSchema === undefined) {
@@ -213,9 +211,7 @@ export function validateAction(
   // check) so a hand-edited field set that drifts from the schema fails
   // at the same boundary as a missing declaration.
   validateAnnotations(action.annotations, id);
-  if (mode === 'registration' || readActionContract(action) !== undefined) {
-    admitActionContract(action, toolName);
-  }
+  admitActionContract(action, toolName);
 }
 
 // ─── Shared Annotation Presets (Wave 0 E.1-E.5, design §2.4) ────────

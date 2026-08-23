@@ -4,7 +4,11 @@ import { z } from 'zod';
 import { declared, none, withActionContract } from '../../action-contract.js';
 import { COMPENSABLE_REMOTE, LOCAL_MUTATION_IDEMPOTENT } from '../../annotations.js';
 import { ALL_PHASES, ROLE_LEAD, featureIdSchema } from '../../phases.js';
-import type { BuiltinToolAction } from '../../types.js';
+import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
+
+function contracted(action: BuiltinActionDraft, contract: unknown): BuiltinToolAction {
+  return withActionContract(action, contract, { annotations: action.annotations }) as BuiltinToolAction;
+}
 
 const PRUNE_ANNOTATIONS = {
   safety: 'compensable',
@@ -19,7 +23,7 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
   // INV-5d: ACTIONS on exarchos_orchestrate, NOT a fifth visible tool. Each
   // delegates to the in-process `WorktreeManager` facade (INV-2 — adapters
   // carry zero behavior). `worktrees` (the read) rides exarchos_view.
-  withActionContract(
+  contracted(
     {
       name: 'acquire_worktree',
       surface: 'worktree',
@@ -49,10 +53,6 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
         ),
       phases: ALL_PHASES,
       roles: ROLE_LEAD,
-      autoEmits: [
-        { event: 'worktree.adopted', condition: 'conditional', description: 'Per on-disk worktree not yet tracked', role: 'primary', owner: 'orchestrate' },
-        { event: 'worktree.reserved', condition: 'always', role: 'primary', owner: 'orchestrate' },
-      ],
       outputSchema: withCappedShape(AcquireWorktreeOutputSchema),
       annotations: LOCAL_MUTATION_IDEMPOTENT,
     },
@@ -79,10 +79,9 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
         },
         { event: 'worktree.reserved', condition: 'always', owner: 'orchestrate', role: 'primary' },
       ),
-    },
-    { annotations: LOCAL_MUTATION_IDEMPOTENT },
+    }
   ),
-  withActionContract(
+  contracted(
     {
       name: 'release_worktree',
       surface: 'worktree',
@@ -93,9 +92,6 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
       }),
       phases: ALL_PHASES,
       roles: ROLE_LEAD,
-      autoEmits: [
-        { event: 'worktree.released', condition: 'always', role: 'primary', owner: 'orchestrate' },
-      ],
       outputSchema: withCappedShape(ReleaseWorktreeOutputSchema),
       annotations: LOCAL_MUTATION_IDEMPOTENT,
     },
@@ -110,10 +106,9 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
       executionAuthority: { kind: 'local' },
       replay: { kind: 'safe-repeat' },
       emissions: declared({ event: 'worktree.released', condition: 'always', owner: 'orchestrate', role: 'primary' }),
-    },
-    { annotations: LOCAL_MUTATION_IDEMPOTENT },
+    }
   ),
-  withActionContract(
+  contracted(
     {
       name: 'prune_worktrees',
       surface: 'worktree',
@@ -132,16 +127,6 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
       }),
       phases: ALL_PHASES,
       roles: ROLE_LEAD,
-      autoEmits: [
-        { event: 'worktree.remove.requested', condition: 'conditional', description: 'Per delete-eligible candidate on an apply run', role: 'primary', owner: 'orchestrate' },
-        { event: 'worktree.remove.executed', condition: 'conditional', description: 'After each git worktree remove succeeds', role: 'primary', owner: 'orchestrate' },
-        // `WorktreeManager.prune()` appends the pair around the safety ladder — the start before it
-        // runs, the terminal in a `finally` — and this action is that method's only caller. It
-        // already declares the two removal events appended deeper in the same ladder, so the effect
-        // was always this action's and only the declaration was missing.
-        { event: 'prune.executing_started', condition: 'conditional', description: 'Once per prune pass, before the safety ladder', role: 'primary', owner: 'orchestrate' },
-        { event: 'prune.executed', condition: 'conditional', description: 'Closes the pass exactly once, including on a throw', role: 'primary', owner: 'orchestrate' },
-      ],
       // prune_worktrees → compensable + destructive (the two-event delete split
       // is the compensating recovery seam) AND idempotent (a re-run re-classifies
       // and deletes only what is still eligible). No preset carries this exact
@@ -199,8 +184,7 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
           description: 'Closes the pass exactly once, including on a throw',
         },
       ),
-    },
-    { annotations: PRUNE_ANNOTATIONS },
+    }
   ),
   // ─── Ground-truth reconcilers (moved off the read side) ───────────────────
   // These three passes ran under `exarchos_view.ps probe:true`. They append,
@@ -210,7 +194,7 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
   // by the surface that performs them: `launch.executed` and
   // `worktree.orphan_detected` were registered to `exarchos_orchestrate` and
   // emitted from `exarchos_view`, which is the disagreement this closes.
-  withActionContract(
+  contracted(
     {
       name: 'reconcile_worktrees',
       surface: 'worktree',
@@ -223,12 +207,6 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
       schema: z.object({}),
       phases: ALL_PHASES,
       roles: ROLE_LEAD,
-      autoEmits: [
-        { event: 'worktree.released', condition: 'conditional', description: 'Per reservation whose owner is provably dead and whose path is free', role: 'primary', owner: 'orchestrate' },
-        { event: 'worktree.orphan_detected', condition: 'conditional', description: 'Per reservation whose owner is provably dead and whose path a live foreign process still occupies', role: 'primary', owner: 'orchestrate' },
-        { event: 'launch.executed', condition: 'conditional', description: 'Closes an in-flight launch whose supervisor died without running teardown', role: 'primary', owner: 'orchestrate' },
-        { event: 'worktree.merge_executed', condition: 'conditional', description: 'Frees a merge lease whose holder is provably dead', role: 'primary', owner: 'orchestrate' },
-      ],
       outputSchema: withCappedShape(ReconcileWorktreesOutputSchema),
       // Heals converge and destroy nothing on disk — the reclaim frees a
       // RESERVATION, not a worktree. Same tuple `ps` used to carry for the same
@@ -279,8 +257,7 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
           description: 'Frees a merge lease whose holder is provably dead',
         },
       ),
-    },
-    { annotations: LOCAL_MUTATION_IDEMPOTENT },
+    }
   ),
   // ─── Integration-branch merge serializer (WLM operational core, DR-7) ──────
   // INV-5d: an ACTION on exarchos_orchestrate, NOT a fifth visible tool. An
@@ -290,7 +267,7 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
   // `worktrees` stream), enforcing at most one in-flight merge per integration
   // ref. It then composes `merge_orchestrate` UNCHANGED for the git work. No
   // flock / PID file / advisory-lock library — the lease IS the serialization.
-  withActionContract(
+  contracted(
     {
       name: 'serialize_merge',
       surface: 'worktree',
@@ -320,10 +297,6 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
       // Descriptive only (NOT the control point — the handler applies the dry-run
       // default). On the default dry-run NOTHING is emitted; both lease events fire
       // only on an apply run (dryRun:false).
-      autoEmits: [
-        { event: 'worktree.merge_requested', condition: 'conditional', description: 'The lease CLAIM (single-writer per integrationRef) — apply run only (dryRun:false)', role: 'primary', owner: 'orchestrate' },
-        { event: 'worktree.merge_executed', condition: 'conditional', description: 'The lease RELEASE (plain keyed append) — apply run only (dryRun:false)', role: 'primary', owner: 'orchestrate' },
-      ],
       // Multi-step serialized merge (wait → claim → compose merge_orchestrate →
       // release) is the canonical long-running verb — advisory Tasks-augmented
       // dispatch, mirroring merge_orchestrate.
@@ -366,7 +339,6 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
           description: 'The lease RELEASE (plain keyed append) — apply run only (dryRun:false)',
         },
       ),
-    },
-    { annotations: COMPENSABLE_REMOTE },
+    }
   ),
 ];

@@ -22,6 +22,12 @@ function closedContract(overrides: Record<string, unknown> = {}): Record<string,
   };
 }
 
+const ALLOW_DIGEST = { algorithm: 'sha256' as const, value: 'a'.repeat(64) };
+
+function allowDecision() {
+  return { verdict: 'allow' as const, digest: ALLOW_DIGEST };
+}
+
 function subject(
   actionId: string,
   overrides: Partial<ActionContractClosureSubject> = {},
@@ -29,8 +35,8 @@ function subject(
   return {
     actionId,
     contract: closedContract(),
-    advertised: closedContract(),
-    executed: closedContract(),
+    advertised: allowDecision(),
+    executed: allowDecision(),
     ...overrides,
   };
 }
@@ -136,8 +142,8 @@ describe('action-contract closure', () => {
   it('Closure_ParityDisagreement_IsReported', () => {
     const result = evaluate([
       subject('exarchos_view.status', {
-        advertised: closedContract({ needs: { kind: 'none', because: 'advertise abstains' } }),
-        executed: closedContract({ needs: { kind: 'declared', values: ['fs:read'] } }),
+        advertised: allowDecision(),
+        executed: { verdict: 'deny', digest: ALLOW_DIGEST },
       }),
     ]);
     expect(result.closed).toBe(false);
@@ -165,8 +171,8 @@ describe('action-contract closure properties', () => {
       projections: [{ name: 'compiler', contract: closedContract({ replay: { kind: 'claim-required' } }) }],
     }),
     subject('exarchos_workflow.init', {
-      advertised: closedContract(),
-      executed: closedContract({ replay: { kind: 'reject-replay', because: 'once' } }),
+      advertised: allowDecision(),
+      executed: { verdict: 'deny', digest: ALLOW_DIGEST },
     }),
     subject('exarchos_view.status'),
   ];

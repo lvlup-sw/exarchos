@@ -213,7 +213,7 @@ export const AuthorizationSnapshotV1Schema = z
   .object({
     authorizationId: AuthorizationIdSchema,
     posture: z.enum(['read-only', 'task-isolated', 'shared-mutating']),
-    capabilityIds: z.array(CapabilityIdSchema).min(1).readonly(),
+    capabilityIds: z.array(CapabilityIdSchema).readonly(),
     resolverVersion: VersionTextSchema,
     resolvedAt: TimestampSchema,
   })

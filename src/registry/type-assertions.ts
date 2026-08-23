@@ -112,11 +112,11 @@ export type _ActionContractOmittedFromToolActionFailsCompile = ExpectTrue<
 >;
 /** @proof */
 export type _ActionContractOmittedFromBuiltinActionFailsCompile = ExpectTrue<
-  NotAssignableTo<BuiltinToolAction, ContractedToolAction>
+  NotAssignableTo<Omit<BuiltinToolAction, 'actionContract'>, BuiltinToolAction>
 >;
 /** @proof */
 export type _ActionContractOmittedFromExtensionActionFailsCompile = ExpectTrue<
-  NotAssignableTo<ExtensionToolAction, ContractedToolAction>
+  NotAssignableTo<Omit<ExtensionToolAction, 'actionContract'>, ExtensionToolAction>
 >;
 /** @proof */
 export type _ActionContractSatisfiesContractedToolAction = ExpectTrue<

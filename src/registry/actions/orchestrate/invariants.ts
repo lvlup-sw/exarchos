@@ -4,10 +4,10 @@ import { z } from 'zod';
 import { declared, none, withActionContract, type ActionContract } from '../../action-contract.js';
 import { LOCAL_MUTATION } from '../../annotations.js';
 import { ALL_PHASES, ROLE_ANY } from '../../phases.js';
-import type { BuiltinToolAction } from '../../types.js';
+import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
 
 function withContract(
-  action: BuiltinToolAction,
+  action: BuiltinActionDraft,
   partial: {
     readonly requires?: ActionContract['requires'];
     readonly ensures: ActionContract['ensures'];
@@ -95,10 +95,6 @@ export const invariantActions: readonly BuiltinToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    autoEmits: [
-      { event: 'invariant.authored', condition: 'conditional', description: 'On commit (dryRun:false)', role: 'primary', owner: 'orchestrate' },
-      { event: 'catalog.registered', condition: 'conditional', description: 'On first registration of the target catalog', role: 'primary', owner: 'orchestrate' },
-    ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.invariants_add'),
     annotations: LOCAL_MUTATION,
   }, {
@@ -148,9 +144,6 @@ export const invariantActions: readonly BuiltinToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    autoEmits: [
-      { event: 'invariant.amended', condition: 'conditional', description: 'On commit (dryRun:false)', role: 'primary', owner: 'orchestrate' },
-    ],
     // DR-4: declared SUBSTANTIVELY via the sole substantive constructor. A new
     // action has no seeded `vacuityWaiver` entry, and the waiver allowlist is
     // shrink-only — acquiring one would be a ratchet violation, so the shape is

@@ -43,7 +43,7 @@ export function makeDescribeAction(waiverId: VacuityWaiverId): BuiltinToolAction
     },
     DESCRIBE_CONTRACT,
     { annotations: READ_ONLY_LOCAL },
-  );
+  ) as BuiltinToolAction;
 }
 
 /** Workflow-specific describe schema: supports actions, topology, playbooks, and config. */
@@ -78,7 +78,7 @@ export function makeWorkflowDescribeAction(waiverId: VacuityWaiverId): BuiltinTo
     },
     DESCRIBE_CONTRACT,
     { annotations: READ_ONLY_LOCAL },
-  );
+  ) as BuiltinToolAction;
 }
 
 const eventDescribeSchema = z.object({
@@ -110,5 +110,5 @@ export function makeEventDescribeAction(waiverId: VacuityWaiverId): BuiltinToolA
     },
     DESCRIBE_CONTRACT,
     { annotations: READ_ONLY_LOCAL },
-  );
+  ) as BuiltinToolAction;
 }

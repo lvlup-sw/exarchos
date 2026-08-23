@@ -252,7 +252,7 @@ describe('action-contract advertise / execute / ensure / HSM closure', () => {
     const result = await handleInit(
       { featureId, workflowType: 'feature' },
       tmpDir,
-      null,
+      eventStore,
     );
     expect(result.success, result.error?.message).toBe(true);
     const state = await readState(featureId);

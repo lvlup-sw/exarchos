@@ -3,9 +3,9 @@ import { z } from 'zod';
 import { declared, none, withActionContract } from '../../action-contract.js';
 import { LOCAL_MUTATION } from '../../annotations.js';
 import { ALL_PHASES, ROLE_ANY } from '../../phases.js';
-import type { BuiltinToolAction } from '../../types.js';
+import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
 
-function contracted(action: BuiltinToolAction, contract: unknown): BuiltinToolAction {
+function contracted(action: BuiltinActionDraft, contract: unknown): BuiltinToolAction {
   return withActionContract(action, contract, { annotations: action.annotations });
 }
 
@@ -51,10 +51,6 @@ export const onboardingActions: readonly BuiltinToolAction[] = [
       }),
       phases: ALL_PHASES,
       roles: ROLE_ANY,
-      autoEmits: [
-        { event: 'onboard.requested', condition: 'always', role: 'primary', owner: 'orchestrate' },
-        { event: 'onboard.executed', condition: 'conditional', description: 'On a non-dry-run that applies the plan', role: 'primary', owner: 'orchestrate' },
-      ],
       outputSchema: vacuityWaiver('exarchos_orchestrate.onboard'),
       annotations: LOCAL_MUTATION,
     },

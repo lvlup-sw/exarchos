@@ -3,13 +3,13 @@ import { z } from 'zod';
 import { declared, none, withActionContract } from '../../action-contract.js';
 import { LOCAL_MUTATION, READ_ONLY_LOCAL } from '../../annotations.js';
 import { ALL_PHASES, ROLE_LEAD } from '../../phases.js';
-import type { BuiltinToolAction } from '../../types.js';
+import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
 import {
   CutoverDecideOutputSchema,
   CutoverReadinessOutputSchema,
 } from '../../../verbs/gates/cutover-readiness-schema.js';
 
-function contracted(action: BuiltinToolAction, contract: unknown): BuiltinToolAction {
+function contracted(action: BuiltinActionDraft, contract: unknown): BuiltinToolAction {
   return withActionContract(action, contract, { annotations: action.annotations });
 }
 
@@ -55,10 +55,6 @@ export const cutoverActions: readonly BuiltinToolAction[] = [
       // the strictest mutating trust tier, so the resolver gate rejects
       // read-only / task-isolated callers BEFORE the handler's operator check.
       posture: 'shared-mutating',
-      autoEmits: [
-        { event: 'admission.rollout-decision', condition: 'always', role: 'primary', owner: 'orchestrate' },
-        { event: 'admission.enforcement-enabled', condition: 'conditional', description: 'Only when every cutover-gate condition is satisfied', role: 'primary', owner: 'orchestrate' },
-      ],
       outputSchema: withCappedShape(CutoverDecideOutputSchema),
       annotations: LOCAL_MUTATION,
     },

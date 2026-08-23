@@ -11,7 +11,7 @@ import type { BuiltinToolAction } from '../types.js';
 
 // ─── Composite Tool: exarchos_workflow ───────────────────────────────────────
 //
-// EMISSION OWNERSHIP. Every `autoEmits` edge below names `owner: 'workflow'`.
+// EMISSION OWNERSHIP. Every contract emission below names `owner: 'workflow'`.
 // An edge's owner is the action-declaration AREA it is declared in — the module
 // group under `src/registry/actions/` that exports the declaring action list —
 // and this file is the whole of the `workflow` area. Everything under
@@ -100,7 +100,6 @@ export const workflowActions: readonly BuiltinToolAction[] = [
           'exarchos wf init -f my-oneshot -t oneshot --synthesisPolicy always',
         ],
       },
-      autoEmits: INIT_EMISSIONS,
       outputSchema: vacuityWaiver('exarchos_workflow.init'),
       annotations: LOCAL_MUTATION,
     },
@@ -173,7 +172,6 @@ export const workflowActions: readonly BuiltinToolAction[] = [
         flags: { featureId: { alias: 'f' }, target: { alias: 't' } },
         examples: ['exarchos wf transition -f my-feature -t plan'],
       },
-      autoEmits: TRANSITION_EMISSIONS,
       outputSchema: vacuityWaiver('exarchos_workflow.transition', WorkflowTransitionOutputSchema),
       annotations: LOCAL_MUTATION,
     },
@@ -231,7 +229,6 @@ export const workflowActions: readonly BuiltinToolAction[] = [
         flags: { featureId: { alias: 'f' } },
         examples: ['exarchos wf update -f my-feature --updates \'{"artifacts":{"spec":"docs/specs/foo.md"}}\''],
       },
-      autoEmits: UPDATE_EMISSIONS,
       // Wave 0 (#1340) — register WorkflowUpdateOutputSchema for envelope-
       // version discipline (#1266 prep). The schema mirrors the transition
       // surface's contract minus the `_meta.deprecation` slot (`update` is
@@ -268,7 +265,6 @@ export const workflowActions: readonly BuiltinToolAction[] = [
       }),
       phases: ALL_PHASES,
       roles: ROLE_LEAD,
-      autoEmits: CANCEL_EMISSIONS,
       outputSchema: vacuityWaiver('exarchos_workflow.cancel'),
       annotations: COMPENSABLE_LOCAL,
     },
@@ -299,7 +295,6 @@ export const workflowActions: readonly BuiltinToolAction[] = [
       }),
       phases: ALL_PHASES,
       roles: ROLE_LEAD,
-      autoEmits: CLEANUP_EMISSIONS,
       // T9 (#1440 Op 2, preview-4 design §4.3): post-merge cleanup is a
       // long-running multi-step verb (merge verification, synthesis
       // metadata backfill, review force-resolve, transition) that benefits
@@ -366,7 +361,6 @@ export const workflowActions: readonly BuiltinToolAction[] = [
       }),
       phases: ALL_PHASES,
       roles: ROLE_ANY,
-      autoEmits: REHYDRATE_EMISSIONS,
       // T9 (#1440 Op 2, preview-4 design §4.3): full state rebuild is a
       // long-running projection fold (latest snapshot + every event since)
       // that benefits from Tasks-augmented dispatch. Advisory — the
@@ -416,7 +410,6 @@ export const workflowActions: readonly BuiltinToolAction[] = [
       }),
       phases: ALL_PHASES,
       roles: ROLE_LEAD,
-      autoEmits: CHECKPOINT_EMISSIONS,
       outputSchema: vacuityWaiver('exarchos_workflow.checkpoint'),
       annotations: LOCAL_MUTATION_IDEMPOTENT,
     },
@@ -471,7 +464,6 @@ export const workflowActions: readonly BuiltinToolAction[] = [
           'exarchos wf feedback -m "check_static_analysis ran in the wrong worktree" --sessionContext \'{"action":"check_static_analysis","errorCode":"GATE_FAILED"}\'',
         ],
       },
-      autoEmits: FEEDBACK_EMISSIONS,
       outputSchema: vacuityWaiver('exarchos_workflow.feedback'),
       annotations: LOCAL_MUTATION,
     },

@@ -7,7 +7,7 @@ import { none, withActionContract } from '../../action-contract.js';
 import { CORRELATION_TUPLE_FILTER_SHAPE, LOCAL_MUTATION, READ_ONLY_LOCAL } from '../../annotations.js';
 import { TelemetryViewOutputSchema } from '../../output-schemas.js';
 import { ALL_PHASES, ROLE_ANY, STACK_PHASES } from '../../phases.js';
-import type { BuiltinToolAction } from '../../types.js';
+import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
 
 const READ_ONLY_VIEW_CONTRACT = {
   requires: none('read-only view has no admission obligations'),
@@ -22,7 +22,7 @@ const READ_ONLY_VIEW_CONTRACT = {
   emissions: none('read-only view emits no catalog events'),
 };
 
-const CORE_VIEW_DECLARATIONS: readonly BuiltinToolAction[] = [
+const CORE_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
   {
     name: 'pipeline',
     description: "Aggregated view of active workflows with stack positions, repo-scoped by default to the caller's repo (excludes completed/cancelled unless includeCompleted=true). Returns ≤ 10 compact entries; data.page carries {total, offset, limit, hasMore} and data.scope/data.unscopedTotal report the effective scope and the pre-scope count so hidden rows are perceivable. Pass scope='all' to span every repo, an explicit repoRoot to scope to another repo, or detail=true for the full per-task map.",

@@ -118,9 +118,6 @@ export type NextAction = z.infer<typeof NextAction>;
 export const CONTROL_OWNED_VERBS = [
   'retry_with_task',
   'divergent_loop',
-  'discover_bridge',
-  'prune_worktrees',
-  'merge_orchestrate',
 ] as const;
 
 export type ControlOwnedVerb = (typeof CONTROL_OWNED_VERBS)[number];

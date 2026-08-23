@@ -57,8 +57,11 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { z } from 'zod';
 import {
   TOOL_REGISTRY,
+  none,
   validateAction,
+  withActionContract,
   type CompositeTool,
+  type ExtensionActionDraft,
   type ExtensionToolAction,
   type ToolAction,
 } from '../../registry.js';
@@ -745,7 +748,7 @@ interface RealProbeSpec {
  * that the others go through.
  */
 function buildRealProbeAction(spec: RealProbeSpec): ExtensionToolAction {
-  const action: ExtensionToolAction = {
+  const draft: ExtensionActionDraft = {
     name: spec.actionName,
     description: spec.description,
     schema: z.object({}).strict(),
@@ -770,6 +773,18 @@ function buildRealProbeAction(spec: RealProbeSpec): ExtensionToolAction {
       openWorld: false,
     },
   };
+  const action = withActionContract(draft, {
+    requires: none('oracle probe has no admission obligations'),
+    ensures: none('oracle probe returns an ephemeral fixture result'),
+    needs: none('oracle probe declares no capabilities'),
+    touches: {
+      frame: 'single-machine',
+      resources: none('oracle probe does not address a stream, path, worktree, or git-ref'),
+    },
+    executionAuthority: { kind: 'local' },
+    replay: { kind: 'safe-repeat' },
+    emissions: none('oracle probe emits no catalog events'),
+  }, { annotations: draft.annotations }) as ExtensionToolAction;
   // The REAL registration-time invariant loop — the same call `registry.ts`
   // makes over every built-in action at module load. A declaration that could
   // not be registered for real is not a real registration.

@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { declared, none, withActionContract } from '../../action-contract.js';
 import { LOCAL_MUTATION_IDEMPOTENT, LOCAL_MUTATION_OPEN_WORLD, READ_ONLY_LOCAL } from '../../annotations.js';
 import { ALL_PHASES, ROLE_ANY, featureIdSchema } from '../../phases.js';
-import type { BuiltinToolAction } from '../../types.js';
+import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
 
 const READ_ONLY_VIEW_CONTRACT = {
   requires: none('read-only view has no admission obligations'),
@@ -55,7 +55,7 @@ const EXPORT_VIEW_CONTRACT = {
   ),
 };
 
-const LIFECYCLE_VIEW_DECLARATIONS: readonly BuiltinToolAction[] = [
+const LIFECYCLE_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
   // ─── Worktree-lifecycle view (WLM foundation, task 008) ───────────────────
   // The read leg of the worktree actions: folds the `worktrees` stream through
   // the `worktrees@v1` projection. Pure read — no adopt, no git probe, no

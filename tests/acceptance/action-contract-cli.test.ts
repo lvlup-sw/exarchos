@@ -100,14 +100,6 @@ describe('CLI action-contract projection', () => {
       expect(command!.actionContract).toEqual(descriptorContract(descriptor));
     }
 
-    const autoEmits = [
-      {
-        event: 'workflow.started' as const,
-        condition: 'always' as const,
-        owner: 'annotated',
-        role: 'primary' as const,
-      },
-    ];
     const declaredBlock = validContract({
       needs: declared('fs:read'),
       emissions: declared({
@@ -118,8 +110,8 @@ describe('CLI action-contract projection', () => {
       }),
     });
     const synthetic = compileSynthetic([
-      makeAction({ name: 'annotated', autoEmits }),
-      withDeclaredContract(makeAction({ name: 'contracted', autoEmits }), declaredBlock),
+      makeAction({ name: 'annotated' }),
+      withDeclaredContract(makeAction({ name: 'contracted' }), declaredBlock),
     ]);
     const projected = deriveCliSurface(synthetic);
     const annotated = projected.commands.find((entry) => entry.action === 'annotated');

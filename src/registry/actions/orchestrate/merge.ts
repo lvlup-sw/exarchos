@@ -3,11 +3,15 @@ import { z } from 'zod';
 import { declared, none, withActionContract } from '../../action-contract.js';
 import { COMPENSABLE_REMOTE } from '../../annotations.js';
 import { ALL_PHASES, ROLE_LEAD } from '../../phases.js';
-import type { BuiltinToolAction } from '../../types.js';
+import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
+
+function contracted(action: BuiltinActionDraft, contract: unknown): BuiltinToolAction {
+  return withActionContract(action, contract, { annotations: action.annotations }) as BuiltinToolAction;
+}
 
 export const mergeActions: readonly BuiltinToolAction[] = [
   // ─── Merge Orchestrator (DR-MO-1) ─────────────────────────────────────────
-  withActionContract(
+  contracted(
     {
       name: 'merge_orchestrate',
       description: 'Top-level merge orchestrator (DR-MO-1): runs preflight, emits merge.preflight, then delegates to the executor on pass; handles abort/dryRun/resume. Use for: merging a task/feature source branch into the integration target with full preflight + compensating recovery from the main worktree. Do NOT use for: a raw provider PR/MR merge (use merge_pr); verifying a directory is a git worktree (use verify_worktree); or requesting synthesis/PR creation on a oneshot workflow (use request_synthesize).',
@@ -37,21 +41,6 @@ export const mergeActions: readonly BuiltinToolAction[] = [
       }),
       phases: ALL_PHASES,
       roles: ROLE_LEAD,
-      autoEmits: [
-        { event: 'merge.preflight', condition: 'always', role: 'primary', owner: 'orchestrate' },
-        { event: 'merge.executed', condition: 'conditional', description: 'When preflight passes and execute succeeds', role: 'primary', owner: 'orchestrate' },
-        // DR-2 (task 006): recovery emits ONLY the canonical `merge.recovered`.
-        // The legacy `merge.rollback` write path is retired (read-tolerant, not
-        // emittable) so it is NO LONGER declared here — a `retired` event must not
-        // appear in any `autoEmits` (RegistryDrift enforces `autoEmits ⊆ auto`).
-        // Compensation terminal for the merge saga — the only emitter of this
-        // event, not a backstop for another primary edge.
-        { event: 'merge.recovered', condition: 'conditional', description: 'When execute fails and the INV-14 recovery ladder runs', role: 'primary', owner: 'orchestrate' },
-        // The terminal marker, appended by `execute-merge.ts` in the same dispatch that already
-        // declares `merge.executed`. A losing concurrent invocation returns STATE_CONFLICT and
-        // defers completion to the winner, so this is conditional rather than always.
-        { event: 'merge.completed', condition: 'conditional', description: 'After the merge lands and the terminal marker is written', role: 'primary', owner: 'orchestrate' },
-      ],
       // T9 (#1440 Op 2, preview-4 design §4.3): multi-step git merge
       // orchestration (preflight → execute → optional rollback) is the
       // canonical long-running verb and benefits from Tasks-augmented
@@ -125,6 +114,5 @@ export const mergeActions: readonly BuiltinToolAction[] = [
         },
       ),
     },
-    { annotations: COMPENSABLE_REMOTE },
   ),
 ];

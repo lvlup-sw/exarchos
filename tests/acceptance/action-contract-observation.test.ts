@@ -13,7 +13,6 @@ import {
   clearCustomTools,
   registerCustomTool,
   setCustomToolActionHandler,
-  type CompositeTool,
 } from '../../src/registry.js';
 import { unregisteredActionOutputSchema } from '../../src/output-schema-declaration.js';
 import {
@@ -47,7 +46,6 @@ function probeContract(overrides: Partial<ActionContract> = {}): ActionContract 
 function registerProbe(input: {
   readonly action: string;
   readonly contract: ActionContract;
-  readonly autoEmits?: CompositeTool['actions'][number]['autoEmits'];
   readonly handler: (args: Record<string, unknown>) => Promise<unknown>;
 }): void {
   registerCustomTool({
@@ -63,7 +61,6 @@ function registerProbe(input: {
           roles: new Set<string>(['any']),
           annotations: LOCAL_MUTATION,
           outputSchema: unregisteredActionOutputSchema(),
-          ...(input.autoEmits === undefined ? {} : { autoEmits: input.autoEmits }),
         },
         input.contract,
       ),
@@ -147,7 +144,6 @@ describe('action-contract emission observation', () => {
     const featureId = 'feat-nested-emissions';
     registerProbe({
       action: 'write',
-      autoEmits: [{ event: SIBLING_EVENT, condition: 'always' }],
       contract: probeContract({
         emissions: declared({
           event: NESTED_EVENT,

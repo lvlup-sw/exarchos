@@ -1,6 +1,7 @@
 import { zodToJsonSchema } from '../utils/json-schema.js';
 import {
   actionContractCanonicalBytes,
+  contractEmissionsOf,
   normalizeActionContract,
   resolveEconomyBudget,
   type ActionContract,
@@ -217,13 +218,14 @@ export async function handleDescribe(
         };
       }
 
+      const emissions = contractEmissionsOf(action);
       const actionResult: Record<string, unknown> = {
         description: action.description,
         schema: zodToJsonSchema(action.schema),
         gate: (action as ToolAction & { gate?: unknown }).gate ?? null,
         phases: [...action.phases],
         roles: [...action.roles],
-        ...(action.autoEmits ? { autoEmits: [...action.autoEmits] } : {}),
+        ...(emissions.length > 0 ? { autoEmits: [...emissions] } : {}),
         // T41 / DR-4 / DR-11: surface the `deprecated` flag so model-facing
         // agents can pivot to the canonical action without parsing the
         // description string. Surfaced unconditionally (not just when true)

@@ -287,4 +287,13 @@ describe('contract emission authority', () => {
   it('does not treat a missing contract as the sibling list', () => {
     expect(contractEmissionsOf({ autoEmits: sibling })).toEqual([]);
   });
+
+  it('rejects a sibling emission list that disagrees with the nested contract', () => {
+    expect(() =>
+      withActionContract(
+        { name: 'probe', autoEmits: sibling },
+        validContract({ emissions: declared(nested) }),
+      ),
+    ).toThrow(/sibling autoEmits disagrees/);
+  });
 });

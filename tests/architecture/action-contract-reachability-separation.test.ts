@@ -52,6 +52,12 @@ function wiringClosed(actionId = 'tool.act'): ReachabilityInputs {
   };
 }
 
+const ALLOW_DIGEST = { algorithm: 'sha256' as const, value: 'a'.repeat(64) };
+
+function allowDecision() {
+  return { verdict: 'allow' as const, digest: ALLOW_DIGEST };
+}
+
 function semanticSubject(
   actionId: string,
   overrides: Partial<ActionContractClosureSubject> = {},
@@ -59,8 +65,8 @@ function semanticSubject(
   return {
     actionId,
     contract: closedContract(),
-    advertised: closedContract(),
-    executed: closedContract(),
+    advertised: allowDecision(),
+    executed: allowDecision(),
     ...overrides,
   };
 }

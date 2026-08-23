@@ -3,10 +3,10 @@ import { z } from 'zod';
 import { declared, none, withActionContract, type ActionContract } from '../../action-contract.js';
 import { COMPENSABLE_LOCAL, LOCAL_MUTATION, READ_ONLY_LOCAL, READ_ONLY_REMOTE } from '../../annotations.js';
 import { ALL_PHASES, DELEGATE_PHASES, PLAN_PHASES, REVIEW_PHASES, ROLE_ANY, ROLE_LEAD, SYNTHESIS_REVIEW_PHASES, featureIdSchema } from '../../phases.js';
-import type { BuiltinToolAction } from '../../types.js';
+import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
 
 function withContract(
-  action: BuiltinToolAction,
+  action: BuiltinActionDraft,
   partial: {
     readonly requires?: ActionContract['requires'];
     readonly ensures: ActionContract['ensures'];
@@ -45,9 +45,6 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D5' },
-    autoEmits: [
-      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
-    ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_task_decomposition'),
     annotations: LOCAL_MUTATION,
   }, {
@@ -72,9 +69,6 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    autoEmits: [
-      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
-    ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_event_emissions'),
     annotations: LOCAL_MUTATION,
   }, {
@@ -480,9 +474,6 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     // DR-5: chains `npm run test:run` across every task worktree with a
     // 120s per-worktree timeout; scales with the number of tasks.
     longRunning: true,
-    autoEmits: [
-      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
-    ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.post_delegation_check'),
     annotations: COMPENSABLE_LOCAL,
   }, {

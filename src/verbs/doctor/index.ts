@@ -328,17 +328,13 @@ export async function handleDoctorWithChecks(
   // throw loud so the defect is caught in CI, not silently forwarded.
   const output = DoctorOutputSchema.parse({ checks: results, summary });
 
-  // Emit diagnostic.executed after the successful run — but ONLY on the
-  // read-only path. Under `--fix` the audit trail is the shared
-  // `onboard.requested`/`onboard.executed` split (already emitted by the
-  // reconciler with `trigger:'doctor-fix'`); a `diagnostic.executed` here would
-  // double-count the run and blur the read-only-vs-mutating boundary (DR-4). If
-  // the caller aborted above, control never reaches here — the abort path
-  // rejects before any partial event is written (DIM-7).
+  // The contract ensures `diagnostic.executed` on success. Await the
+  // append so dispatch can observe the fact on this operation; a
+  // fire-and-forget write would return success with an empty stream.
+  // Under `--fix` the audit trail is the shared onboard split, not
+  // this diagnostic event.
   if (!args.fix) {
-    void emitDiagnosticEvent(ctx, output.checks, summary, durationMs).catch(() => {
-      // best-effort telemetry; do not fail doctor output
-    });
+    await emitDiagnosticEvent(ctx, output.checks, summary, durationMs);
   }
 
   return {

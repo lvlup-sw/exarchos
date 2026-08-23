@@ -105,7 +105,8 @@ export type ActionContractErrorCode =
   | 'INVALID_TOUCHES'
   | 'INVALID_FRAME'
   | 'REPLAY_ANNOTATION_DISAGREEMENT'
-  | 'MISSING_DIMENSION';
+  | 'MISSING_DIMENSION'
+  | 'INCOHERENT_SIBLING';
 
 export class ActionContractError extends Error {
   readonly code: ActionContractErrorCode;
@@ -574,24 +575,52 @@ export function normalizeActionContract(
   };
 }
 
+function siblingEmissionKeys(sibling: unknown): readonly string[] | undefined {
+  if (sibling === undefined) return undefined;
+  if (!Array.isArray(sibling)) return [];
+  return sibling
+    .filter((item): item is Record<string, unknown> => isRecord(item))
+    .map((item) => `${String(item.event ?? '')}\0${String(item.condition ?? '')}`)
+    .sort();
+}
+
+function contractEmissionKeys(emissions: ActionContract['emissions']): readonly string[] {
+  if (emissions.kind === 'none') return [];
+  return emissions.values
+    .map((item) => `${item.event}\0${item.condition}`)
+    .sort();
+}
+
+function keysEqual(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((key, index) => key === right[index]);
+}
+
 export function withActionContract<T extends object>(
   action: T,
   contract: unknown,
   options: NormalizeActionContractOptions = {},
-): T & { readonly actionContract: ActionContract } {
+): Omit<T, 'autoEmits'> & { readonly actionContract: ActionContract } {
+  const normalized = normalizeActionContract(contract, options);
+  const siblingKeys = siblingEmissionKeys(Reflect.get(action, 'autoEmits'));
+  if (siblingKeys !== undefined && !keysEqual(siblingKeys, contractEmissionKeys(normalized.emissions))) {
+    throw new ActionContractError(
+      'INCOHERENT_SIBLING',
+      'sibling autoEmits disagrees with actionContract.emissions and is not independently writable',
+    );
+  }
+  const { autoEmits: _stripped, ...rest } = action as T & { autoEmits?: unknown };
   return {
-    ...action,
-    actionContract: normalizeActionContract(contract, options),
-  };
+    ...rest,
+    actionContract: normalized,
+  } as Omit<T, 'autoEmits'> & { readonly actionContract: ActionContract };
 }
 
 /**
  * The emission list nested on an action, or empty when the block is absent,
  * unreadable, or reasons that it emits nothing.
  *
- * Sibling `autoEmits` is never consulted. Live registry actions do not
- * require the block; the field is read reflectively and normalized so a
- * raw declaration cannot be treated as already-valid.
+ * Sibling `autoEmits` is never consulted. A missing or unreadable block
+ * yields no emissions — it does not invent a list from a leftover sibling.
  */
 export function contractEmissionsOf(action: object): readonly ActionEmission[] {
   const raw = Reflect.get(action, 'actionContract');

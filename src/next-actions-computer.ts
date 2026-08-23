@@ -125,9 +125,9 @@ export interface AdmissionFacts {
  * Feature/stream subject, persisted evidence, authorization, and HSM facts
  * only. Wall-clock and request payload are not members. When this carrier
  * is absent the computer publishes no registry ActionIds — topology alone
- * is not an advertisement authority. The named exception is the control
- * verb `merge_orchestrate`, which may still surface from recorded
- * merge-pending topology on the HSM envelope.
+ * is not an advertisement authority. The named exception is
+ * `merge_orchestrate` on the control envelope, which may still surface
+ * from recorded merge-pending topology when this carrier is absent.
  */
 export interface ActionAdmissionFacts {
   readonly subject: { readonly featureId: string; readonly stream: string };
@@ -259,11 +259,11 @@ export function computeNextActions(
     actions.push(parsed.data);
   }
 
-  // T18 (DR-MO-1): surface `merge_orchestrate` when parked in `merge-pending`
-  // and the merge orchestrator has not already terminated. Missing
-  // `mergeOrchestrator.phase` is treated as "not yet terminated" — the
-  // merge has been requested but no sub-phase has been recorded yet.
-  if (phase === 'merge-pending') {
+  // Named rehydrate exception: publish `merge_orchestrate` from recorded
+  // merge-pending topology only when ActionId admission facts are absent.
+  // When facts are present the ActionId is advertised only on allow, via
+  // the registry envelope — it is not a control-owned verb.
+  if (phase === 'merge-pending' && state.actionAdmission === undefined) {
     const moPhase = state.mergeOrchestrator?.phase;
     const terminated = moPhase !== undefined && EXCLUDED_MERGE_PHASES.has(moPhase);
     if (!terminated) {
@@ -305,11 +305,6 @@ export function computeNextActions(
         verb: 'divergent_loop',
         reason: 'Deep rung: explore 2-3 distinct approaches with trade-offs before converging',
       },
-      {
-        verb: 'discover_bridge',
-        reason:
-          'Opt-in: escalate to a /exarchos:discover research pre-pass, stitched to the spec by correlationId (author-confirmed, never auto-run)',
-      },
     ];
     for (const a of deepAffordances) {
       const candidate: NextAction = { verb: a.verb, reason: a.reason, validTargets: [a.verb] };
@@ -321,36 +316,6 @@ export function computeNextActions(
       }
       actions.push(parsed.data);
     }
-  }
-
-  // DR-2 (WLM slice 3, task 008): once a workflow reaches the SYNTHESIZE phase
-  // its governed worktrees have served their purpose and begin to accumulate —
-  // there is otherwise no GC cadence surfaced anywhere. Publish an INV-12
-  // prune-cadence affordance suggesting a `prune_worktrees` dry-run so the
-  // reclamation hint appears exactly when the workflow is finalizing, never
-  // earlier. Gated on the phase's KIND (SYNTHESIZE), not its name (INV-6), so
-  // it fires for every workflow type whose synthesis leg reuses that kind
-  // (feature / debug / oneshot / refactor). `merge-pending` is kind MERGE (not
-  // SYNTHESIZE), so the mid-implementation merge substate never triggers it.
-  // Like the deep-rung affordances above this is an opt-in the caller MAY
-  // invoke — dry-run first (the safe default), then re-invoke with dryRun:false
-  // to apply; it never auto-runs, and prune_worktrees itself defaults to
-  // dry-run (INV-5c).
-  if (currentKind === 'SYNTHESIZE') {
-    const candidate: NextAction = {
-      verb: 'prune_worktrees',
-      reason:
-        'INV-12 GC cadence: the workflow has reached synthesis, so governed worktrees can be reclaimed. Run prune_worktrees as a dry-run first (the default — reports candidates + reclaimable bytes, deletes nothing), then re-invoke with dryRun:false to apply.',
-      validTargets: ['prune_worktrees'],
-      hint: 'dry-run first',
-    };
-    const parsed = NextAction.safeParse(candidate);
-    if (!parsed.success) {
-      throw new Error(
-        `computeNextActions produced invalid prune_worktrees NextAction: ${parsed.error.message}`,
-      );
-    }
-    actions.push(parsed.data);
   }
 
   return actions;

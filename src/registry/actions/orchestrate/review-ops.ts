@@ -5,9 +5,9 @@ import { z } from 'zod';
 import { declared, none, withActionContract } from '../../action-contract.js';
 import { LOCAL_MUTATION, READ_ONLY_LOCAL, READ_ONLY_REMOTE } from '../../annotations.js';
 import { ALL_PHASES, PREPARE_REVIEW_PHASES, REVIEW_PHASES, ROLE_ANY, ROLE_LEAD, featureIdSchema } from '../../phases.js';
-import type { BuiltinToolAction } from '../../types.js';
+import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
 
-function contracted(action: BuiltinToolAction, contract: unknown): BuiltinToolAction {
+function contracted(action: BuiltinActionDraft, contract: unknown): BuiltinToolAction {
   return withActionContract(action, contract, { annotations: action.annotations });
 }
 
@@ -64,9 +64,6 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
       // DR-5: runs the full project test suite + typecheck + build + stack
       // assessment; routinely seconds-to-minutes on real repos.
       longRunning: true,
-      autoEmits: [
-        { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
-      ],
       outputSchema: vacuityWaiver('exarchos_orchestrate.pre_synthesis_check'),
       annotations: LOCAL_MUTATION,
     },
@@ -270,9 +267,6 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
       // gating — so declaring `blocking:true` cannot red CI on the unproven
       // audit-mode rules.
       gate: { blocking: true },
-      autoEmits: [
-        { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
-      ],
       // DR-4 / task 069: PAID DOWN. This gate governs conformance to the catalog
       // that contains the anti-vacuity invariant, and it used to advertise
       // `EnvelopeSchema(z.unknown())` — total over every payload shape, including
@@ -378,16 +372,6 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
       // NON-primary arm with an expiry so the shortcut has to be re-argued (or
       // folded onto the canonical surface) rather than quietly becoming a second
       // permanent writer of the same fact.
-      autoEmits: [
-        {
-          event: 'state.patched',
-          condition: 'conditional',
-          description: 'On confirm:true — records the discover-bridge link, stitched by correlationId',
-          role: 'recovery',
-          owner: 'orchestrate',
-          recoveryExpiresAt: '2027-12-31T00:00:00.000Z',
-        },
-      ],
       outputSchema: vacuityWaiver('exarchos_orchestrate.discover_bridge'),
       annotations: LOCAL_MUTATION,
     },

@@ -159,7 +159,7 @@ describe('action admission dispatch parity', () => {
     const result = await handleInit(
       { featureId, workflowType: 'feature' },
       tmpDir,
-      null,
+      eventStore,
     );
     expect(result.success, result.error?.message).toBe(true);
     const state = await readState(featureId);

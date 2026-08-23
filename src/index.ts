@@ -10,10 +10,7 @@ import { logger } from './logger.js';
 import { resolveStateDir as resolveStateDirFromPaths, STORE_DB_FILENAME } from './utils/paths.js';
 import { EventStore } from './events/store.js';
 import { SnapshotStore } from './projections/views/snapshot-store.js';
-import {
-  ANTHROPIC_NATIVE_CACHING,
-  createInMemoryResolver,
-} from './workflow/capabilities/resolver.js';
+import { buildDefaultProcessResolver } from './workflow/capabilities/resolver.js';
 
 // Storage backend
 import type { StorageBackend } from './storage/backend.js';
@@ -236,10 +233,7 @@ export async function createServer(
   // Mirror of `dispatch/core/context.ts:buildDefaultCapabilityResolver` — kept inline
   // because this entrypoint runs before the module-graph cost we shed in
   // `initializeContext` is acceptable.
-  const capabilityResolver =
-    process.env.EXARCHOS_DISABLE_CACHE_HINTS === '1'
-      ? createInMemoryResolver([])
-      : createInMemoryResolver([ANTHROPIC_NATIVE_CACHING]);
+  const capabilityResolver = buildDefaultProcessResolver();
 
   // DR-2 (T16): thread the storage handle (when present) onto the context
   // so consumers do not need to import `bun:sqlite` directly. The same

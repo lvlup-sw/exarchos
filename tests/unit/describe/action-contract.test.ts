@@ -108,16 +108,12 @@ describe('describe action-contract projection', () => {
   });
 
   it('does not reconstruct a contract from annotations or autoEmits', async () => {
-    const action = makeAction('annotated_only', {
-      autoEmits: [{ event: 'workflow.started', condition: 'always', owner: 'probe', role: 'primary' }],
-    });
+    const action = makeAction('annotated_only');
     const described = await describeContract(action);
     expect(described.actionContract).toBeUndefined();
     expect(described.actionContractDigest).toBeUndefined();
     expect(described.actionContractCompact).toBeUndefined();
-    expect(described.autoEmits).toEqual([
-      { event: 'workflow.started', condition: 'always', owner: 'probe', role: 'primary' },
-    ]);
+    expect(described.autoEmits).toBeUndefined();
   });
 
   it('compact views omit prose but keep every dimension and digest', () => {

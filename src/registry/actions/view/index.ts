@@ -19,8 +19,5 @@ export const viewActions: readonly BuiltinToolAction[] = [
 ];
 
 for (const action of viewActions) {
-  if (!('actionContract' in action)) {
-    throw new Error(`exarchos_view.${action.name} is missing required actionContract`);
-  }
-  normalizeActionContract(Reflect.get(action, 'actionContract'), { annotations: action.annotations });
+  normalizeActionContract(action.actionContract, { annotations: action.annotations });
 }

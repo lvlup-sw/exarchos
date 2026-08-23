@@ -260,6 +260,24 @@ export function createInMemoryResolver(
 
 export const ANTHROPIC_NATIVE_CACHING = 'anthropic_native_caching' as const;
 
+/**
+ * Capabilities the local process actually holds. CLI and the MCP server
+ * both run on the machine they govern; handshake hints are not the
+ * ActionId need set. Cache-hint tokens stay in the list so envelope
+ * consumers can still see `anthropic_native_caching`.
+ */
+export function defaultProcessCapabilityIds(): readonly string[] {
+  const capabilities: string[] = [...capabilitiesForPosture(LOCAL_OPERATOR_POSTURE)];
+  if (process.env.EXARCHOS_DISABLE_CACHE_HINTS !== '1') {
+    capabilities.push(ANTHROPIC_NATIVE_CACHING);
+  }
+  return Object.freeze(capabilities);
+}
+
+export function buildDefaultProcessResolver(): CapabilityResolver {
+  return createInMemoryResolver(defaultProcessCapabilityIds());
+}
+
 // ─── #1262 Quality-hint threshold resolver ──────────────────────────────────
 
 /**

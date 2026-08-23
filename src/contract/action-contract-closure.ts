@@ -24,6 +24,9 @@ import {
   projectCompactActionContract,
   projectDescribedActionContract,
 } from '../describe/handler.js';
+import { evaluateActionAdmission } from '../workflow/admission/action-admission.js';
+import { computeRegistryAdvertisements } from '../next-actions-computer.js';
+import { isControlOwnedVerb } from '../next-action.js';
 import { projectActionContract } from './compiler/meta-model.js';
 import { measureLiveRegisteredActions } from './registered-actions-denominator.js';
 import { canonicalJson } from './request-context.js';
@@ -66,12 +69,19 @@ export interface ActionContractProjectionInput {
   readonly contract?: unknown;
 }
 
+export type ActionContractSurfaceVerdict = 'allow' | 'deny' | 'indeterminate' | 'withheld';
+
+export interface ActionContractSurfaceDecision {
+  readonly verdict: ActionContractSurfaceVerdict;
+  readonly digest?: { readonly algorithm: 'sha256'; readonly value: string };
+}
+
 export interface ActionContractClosureSubject {
   readonly actionId: string;
   readonly contract?: unknown;
   readonly projections?: readonly ActionContractProjectionInput[];
-  readonly advertised?: unknown;
-  readonly executed?: unknown;
+  readonly advertised?: ActionContractSurfaceDecision;
+  readonly executed?: ActionContractSurfaceDecision;
 }
 
 export interface ActionContractClosureInput {
@@ -615,17 +625,35 @@ function inspectParity(subject: ActionContractClosureSubject, findings: ActionCo
       finding(
         'PARITY_DISAGREEMENT',
         subject.actionId,
-        `action '${subject.actionId}' ${present} a contract the other surface did not`,
+        `action '${subject.actionId}' ${present} a decision the other surface did not`,
       ),
     );
     return;
   }
-  if (canonicalJson(subject.advertised) !== canonicalJson(subject.executed)) {
+  const advertisedAllow = subject.advertised.verdict === 'allow';
+  const executedAllow = subject.executed.verdict === 'allow';
+  if (advertisedAllow && !executedAllow) {
     findings.push(
       finding(
         'PARITY_DISAGREEMENT',
         subject.actionId,
-        `action '${subject.actionId}' advertised contract disagrees with the executed contract`,
+        `action '${subject.actionId}' is advertised allow while execute verdict is '${subject.executed.verdict}'`,
+      ),
+    );
+    return;
+  }
+  if (
+    advertisedAllow &&
+    executedAllow &&
+    subject.advertised.digest !== undefined &&
+    subject.executed.digest !== undefined &&
+    canonicalJson(subject.advertised.digest) !== canonicalJson(subject.executed.digest)
+  ) {
+    findings.push(
+      finding(
+        'PARITY_DISAGREEMENT',
+        subject.actionId,
+        `action '${subject.actionId}' advertise digest disagrees with the execute digest`,
       ),
     );
   }
@@ -691,14 +719,6 @@ function tryNormalizeDeclared(
   }
 }
 
-function tryDescribedContract(action: ToolAction): unknown | undefined {
-  try {
-    return projectDescribedActionContract(action);
-  } catch {
-    return tryNormalizeDeclared(readDeclaredActionContract(action), action.annotations);
-  }
-}
-
 function tryDescribeCompact(action: ToolAction): unknown | undefined {
   try {
     const described = projectDescribedActionContract(action);
@@ -753,11 +773,63 @@ export function collectedSubjectsCoverLiveDenominator(
   return expected.every((actionId) => actual.has(actionId));
 }
 
+const CLOSURE_FIXTURE_AUTHORIZATION = {
+  authorizationId: 'closure-fixture',
+  posture: 'shared-mutating' as const,
+  capabilityIds: [...CAPABILITY_KEYS],
+  resolverVersion: '1.0.0',
+  resolvedAt: '2026-01-01T00:00:00.000Z',
+};
+
+function firstDeclaredPhase(action: ToolAction): string {
+  return action.phases.size === 0 ? 'plan' : [...action.phases][0] ?? 'plan';
+}
+
+function liveSurfaceDecisions(
+  actionId: string,
+  action: ToolAction,
+  contract: unknown,
+): {
+  readonly advertised?: ActionContractSurfaceDecision;
+  readonly executed?: ActionContractSurfaceDecision;
+} {
+  if (contract === undefined || isControlOwnedVerb(action.name) || isControlOwnedVerb(actionId)) {
+    return {};
+  }
+  const phase = firstDeclaredPhase(action);
+  const snapshot = {
+    actionId,
+    subject: { featureId: 'closure-fixture', stream: 'closure-fixture' },
+    evidence: [] as const,
+    authorization: CLOSURE_FIXTURE_AUTHORIZATION,
+    hsmFacts: { phase },
+  };
+  const executed = evaluateActionAdmission(actionId, snapshot, contract);
+  const advertised = computeRegistryAdvertisements({
+    phase,
+    workflowType: 'feature',
+    actionAdmission: {
+      subject: snapshot.subject,
+      evidence: snapshot.evidence,
+      authorization: snapshot.authorization,
+      hsmFacts: snapshot.hsmFacts,
+      actionIds: [actionId],
+    },
+  }).find((item) => item.actionId === actionId);
+  return {
+    advertised:
+      advertised === undefined
+        ? { verdict: 'withheld' }
+        : { verdict: 'allow', digest: advertised.digest },
+    executed: { verdict: executed.verdict, digest: executed.digest },
+  };
+}
+
 /**
  * One closure subject per live registry ActionId. Attaches the normalized
  * contract when the block is present, the describe-compact and compiler
- * projections of that block, and the describe/admission view versus the
- * contract dispatch would read. Missing live blocks stay missing.
+ * projections of that block, and the advertise versus execute admission
+ * decisions for the same fixture snapshot. Missing live blocks stay missing.
  */
 export function collectLiveActionContractSubjects(): readonly ActionContractClosureSubject[] {
   const subjects: ActionContractClosureSubject[] = [];
@@ -766,15 +838,14 @@ export function collectLiveActionContractSubjects(): readonly ActionContractClos
       const actionId = `${tool.name}.${action.name}`;
       const raw = readDeclaredActionContract(action);
       const contract = tryNormalizeDeclared(raw, action.annotations);
-      const advertised = tryDescribedContract(action);
-      const executed = tryNormalizeDeclared(raw);
       const projections = raw === undefined ? [] : liveProjections(action);
+      const decisions = liveSurfaceDecisions(actionId, action, contract);
       subjects.push({
         actionId,
         ...(contract === undefined ? {} : { contract }),
         ...(projections.length === 0 ? {} : { projections }),
-        ...(advertised === undefined ? {} : { advertised }),
-        ...(executed === undefined ? {} : { executed }),
+        ...(decisions.advertised === undefined ? {} : { advertised: decisions.advertised }),
+        ...(decisions.executed === undefined ? {} : { executed: decisions.executed }),
       });
     }
   }

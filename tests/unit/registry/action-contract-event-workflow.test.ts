@@ -46,20 +46,6 @@ describe('event, workflow, and sync action contracts', () => {
           expect(emission.owner.trim().length, `${id} emission ${emission.event} owner`).toBeGreaterThan(0);
         }
       }
-      if (action.autoEmits !== undefined) {
-        expect(contract.emissions.kind, `${id} must declare emissions that match autoEmits`).toBe('declared');
-        if (contract.emissions.kind !== 'declared') {
-          continue;
-        }
-        const declaredEvents = new Set(contract.emissions.values.map((emission) => emission.event));
-        for (const edge of action.autoEmits) {
-          expect(
-            edge.role === 'primary' || edge.role === 'recovery',
-            `${id} autoEmits ${edge.event} is missing a role`,
-          ).toBe(true);
-          expect(declaredEvents.has(edge.event), `${id} contract omitted autoEmits ${edge.event}`).toBe(true);
-        }
-      }
     }
   });
 });

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { none, withActionContract } from '../../action-contract.js';
 import { CORRELATION_TUPLE_FILTER_SHAPE, READ_ONLY_LOCAL } from '../../annotations.js';
 import { ALL_PHASES, ROLE_ANY } from '../../phases.js';
-import type { BuiltinToolAction } from '../../types.js';
+import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
 
 const READ_ONLY_VIEW_CONTRACT = {
   requires: none('read-only view has no admission obligations'),
@@ -19,7 +19,7 @@ const READ_ONLY_VIEW_CONTRACT = {
   emissions: none('read-only view emits no catalog events'),
 };
 
-const QUALITY_VIEW_DECLARATIONS: readonly BuiltinToolAction[] = [
+const QUALITY_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
   // Wave 5 (#1437) — Group B telemetry view actions. These actions were
   // previously dispatched via `exarchos_view` through composite.ts but had
   // no entry in TOOL_REGISTRY's `viewActions`, so per-action schema

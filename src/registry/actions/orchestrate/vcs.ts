@@ -31,9 +31,6 @@ export const vcsActions: readonly BuiltinToolAction[] = [
       }),
       phases: ALL_PHASES,
       roles: ROLE_ANY,
-      autoEmits: [
-        { event: 'pr.created', condition: 'always', role: 'primary', owner: 'orchestrate' },
-      ],
       outputSchema: vacuityWaiver('exarchos_orchestrate.create_pr'),
       annotations: COMPENSABLE_REMOTE,
     },
@@ -64,9 +61,6 @@ export const vcsActions: readonly BuiltinToolAction[] = [
       }),
       phases: ALL_PHASES,
       roles: ROLE_ANY,
-      autoEmits: [
-        { event: 'pr.merged', condition: 'conditional', description: 'When merge succeeds', role: 'primary', owner: 'orchestrate' },
-      ],
       outputSchema: vacuityWaiver('exarchos_orchestrate.merge_pr'),
       annotations: COMPENSABLE_REMOTE,
     },
@@ -188,9 +182,6 @@ export const vcsActions: readonly BuiltinToolAction[] = [
       }),
       phases: ALL_PHASES,
       roles: ROLE_ANY,
-      autoEmits: [
-        { event: 'pr.commented', condition: 'always', role: 'primary', owner: 'orchestrate' },
-      ],
       outputSchema: vacuityWaiver('exarchos_orchestrate.add_pr_comment'),
       annotations: COMPENSABLE_REMOTE,
     },
@@ -219,9 +210,6 @@ export const vcsActions: readonly BuiltinToolAction[] = [
       }),
       phases: ALL_PHASES,
       roles: ROLE_ANY,
-      autoEmits: [
-        { event: 'issue.created', condition: 'always', role: 'primary', owner: 'orchestrate' },
-      ],
       outputSchema: vacuityWaiver('exarchos_orchestrate.create_issue'),
       annotations: COMPENSABLE_REMOTE,
     },

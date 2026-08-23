@@ -3,7 +3,7 @@ import type { AgentPosture } from '../runtime/agents/spec.js';
 import { z } from 'zod';
 import type { ActionContract } from './action-contract.js';
 import type { ActionAnnotations } from './annotations.js';
-import type { AutoEmission, GateMetadata } from './gate-metadata.js';
+import type { GateMetadata } from './gate-metadata.js';
 import type { CliActionHints, CliToolHints, DispatchHints, EconomyHints } from './hints.js';
 
 export interface ToolAction {
@@ -15,12 +15,12 @@ export interface ToolAction {
   readonly cli?: CliActionHints;
   readonly gate?: GateMetadata;
   /**
-   * Leftover sibling emission list. Not authoritative: every consumer reads
-   * nested `actionContract.emissions` via `Reflect.get` and
-   * `normalizeActionContract`. A populated list here does not win when the
-   * nested block disagrees, including a reasoned `none`.
+   * Canonical contract. Built-in and extension declaration types require
+   * the field; this consumer type keeps it optional so a mixed read of
+   * unmigrated fixtures still typechecks. A missing block is never
+   * admitted at load or registration.
    */
-  readonly autoEmits?: readonly AutoEmission[];
+  readonly actionContract?: ActionContract;
   /**
    * Dispatch-layer metadata (#1440 Op 2, preview-4 T2, design §4.3).
    * Sibling-level (not under `cli`) because the Tasks dispatch-core is
@@ -186,7 +186,11 @@ export interface CompositeTool {
  */
 export interface BuiltinToolAction extends ToolAction {
   readonly outputSchema: DeclaredOutputSchema;
+  readonly actionContract: ActionContract;
 }
+
+/** Declaration shape before {@link withActionContract} attaches the block. */
+export type BuiltinActionDraft = Omit<BuiltinToolAction, 'actionContract'>;
 
 /** A composite tool whose actions are all built-in declarations. */
 export interface BuiltinCompositeTool extends CompositeTool {
@@ -207,7 +211,11 @@ export interface BuiltinCompositeTool extends CompositeTool {
  */
 export interface ExtensionToolAction extends ToolAction {
   readonly outputSchema: ExtensionOutputSchema;
+  readonly actionContract: ActionContract;
 }
+
+/** Extension declaration shape before the contract block is attached. */
+export type ExtensionActionDraft = Omit<ExtensionToolAction, 'actionContract'>;
 
 /** A composite tool assembled from extension-declared actions. */
 export interface ExtensionCompositeTool extends CompositeTool {
