@@ -249,7 +249,7 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared(
-      { source: 'durable-evidence', when: 'always', evidenceType: 'prepare-synthesis' },
+      { source: 'durable-evidence', when: 'always', evidenceType: 'gate' },
       { source: 'event-append', when: 'always', event: 'gate.executed' },
     ),
     needs: declared('fs:read', 'mcp:exarchos', 'shell:exec'),

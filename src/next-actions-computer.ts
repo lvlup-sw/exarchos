@@ -259,11 +259,12 @@ export function computeNextActions(
     actions.push(parsed.data);
   }
 
-  // Named rehydrate exception: publish `merge_orchestrate` from recorded
-  // merge-pending topology only when ActionId admission facts are absent.
-  // When facts are present the ActionId is advertised only on allow, via
-  // the registry envelope — it is not a control-owned verb.
-  if (phase === 'merge-pending' && state.actionAdmission === undefined) {
+  // Merge-pending still publishes `merge_orchestrate` from recorded
+  // topology. The ActionId is also a registry action, but it is
+  // capability-gated; a rehydrate snapshot often has facts and no
+  // authorization, which omits it from the registry envelope. Topology
+  // keeps the operator affordance visible in that case.
+  if (phase === 'merge-pending') {
     const moPhase = state.mergeOrchestrator?.phase;
     const terminated = moPhase !== undefined && EXCLUDED_MERGE_PHASES.has(moPhase);
     if (!terminated) {
@@ -399,7 +400,6 @@ export function computeRegistryAdvertisements(
       if (facts.authorization === undefined && isCapabilityGated(contract)) {
         continue;
       }
-      if (facts.authorization === undefined) continue;
 
       try {
         const decision = evaluateActionAdmission(

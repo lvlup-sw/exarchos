@@ -402,17 +402,21 @@ async function readTrustedHsmFacts(
 async function readTrustedAdmissionEvidence(
   eventStore: EventStore,
   streamId: string,
-): Promise<readonly unknown[]> {
-  const rows = await eventStore.query(streamId, {
-    type: ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED,
-  });
-  const evidence: unknown[] = [];
-  for (const row of rows) {
-    const parsed = AdmissionEvidenceRecordedData.safeParse(row.data);
-    if (!parsed.success) continue;
-    evidence.push(parsed.data.evidence);
+): Promise<readonly unknown[] | undefined> {
+  try {
+    const rows = await eventStore.query(streamId, {
+      type: ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED,
+    });
+    const evidence: unknown[] = [];
+    for (const row of rows) {
+      const parsed = AdmissionEvidenceRecordedData.safeParse(row.data);
+      if (!parsed.success) continue;
+      evidence.push(parsed.data.evidence);
+    }
+    return evidence;
+  } catch {
+    return undefined;
   }
-  return evidence;
 }
 
 function readActionContract(action: object): ActionContract | undefined {
@@ -443,6 +447,18 @@ function admissionDeniedResult(
       tool,
       action: actionName,
       expectedShape: { digest: { algorithm: 'sha256', value: digestValue } },
+    },
+  };
+}
+
+function trustedCallerRequiredResult(tool: string, actionName: string): ToolResult {
+  return {
+    success: false,
+    error: {
+      code: 'TRUSTED_CALLER_REQUIRED',
+      message: `Action "${actionName}" requires trusted dispatch caller identity.`,
+      tool,
+      action: actionName,
     },
   };
 }
@@ -528,6 +544,9 @@ async function evaluateDispatchAdmission(input: {
     input.ctx.capabilityResolver,
   );
   if (!contractNeedsSatisfied(contract, authorization.capabilityIds)) {
+    if (input.authorization === undefined) {
+      return trustedCallerRequiredResult(input.tool, input.actionName);
+    }
     return admissionDeniedResult(input.tool, input.actionName, 'missing-capabilities');
   }
 
@@ -554,6 +573,9 @@ async function evaluateDispatchAdmission(input: {
   }
 
   const evidence = await readTrustedAdmissionEvidence(input.ctx.eventStore, subject.stream);
+  if (evidence === undefined) {
+    return admissionDeniedResult(input.tool, input.actionName, 'missing-trusted-inputs');
+  }
   const decision = evaluateActionAdmission(
     actionId,
     {
@@ -1597,6 +1619,14 @@ export async function dispatch(
           '`events.emission-enforcement: advisory` in `.exarchos.yml`.',
       },
     });
+  }
+
+  // Advisory (or any non-blocking) miss: the store does not hold the
+  // declared events. Ensure observation would fail for the same missing
+  // facts. The mode already chose not to fail the dispatch; do not
+  // re-fail it under a different code.
+  if (emissionVerdict.status === 'violated') {
+    return attachMeta(result);
   }
 
   // Host-owned actions never reach here: they returned the obligation before

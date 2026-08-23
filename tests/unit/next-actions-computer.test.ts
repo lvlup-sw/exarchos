@@ -993,7 +993,9 @@ describe('computeRegistryAdvertisements — allow-only ActionIds', () => {
       },
       hsm,
     );
-    expect(denied.control.map((a) => a.verb)).not.toContain('merge_orchestrate');
+    // Topology still names the operator affordance. Registry withholds the
+    // ActionId because the snapshot's authorization is not a trusted grant.
+    expect(denied.control.map((a) => a.verb)).toContain('merge_orchestrate');
     expect(denied.registry.map((a) => a.actionId)).not.toContain(
       'exarchos_orchestrate.merge_orchestrate',
     );

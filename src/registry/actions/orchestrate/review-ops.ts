@@ -77,7 +77,7 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
       ),
       ensures: declared(
         { source: 'event-append', when: 'always', event: 'gate.executed' },
-        { source: 'durable-evidence', when: 'success', evidenceType: 'synthesis-readiness' },
+        { source: 'durable-evidence', when: 'success', evidenceType: 'gate' },
       ),
       needs: declared('fs:read', 'shell:exec'),
       touches: {
@@ -290,7 +290,7 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
       requires: declared({ family: 'review', gate: 'review' }),
       ensures: declared(
         { source: 'event-append', when: 'always', event: 'gate.executed' },
-        { source: 'durable-evidence', when: 'success', evidenceType: 'invariant-conformance' },
+        { source: 'durable-evidence', when: 'success', evidenceType: 'gate' },
       ),
       needs: declared('fs:read'),
       touches: {

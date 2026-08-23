@@ -49,7 +49,7 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared(
-      { source: 'durable-evidence', when: 'always', evidenceType: 'task-decomposition' },
+      { source: 'durable-evidence', when: 'always', evidenceType: 'gate' },
       { source: 'event-append', when: 'always', event: 'gate.executed' },
     ),
     needs: declared('fs:read', 'mcp:exarchos'),
@@ -189,7 +189,7 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_coverage_thresholds'),
     annotations: READ_ONLY_LOCAL,
   }, {
-    ensures: declared({ source: 'durable-evidence', when: 'always', evidenceType: 'coverage-thresholds' }),
+    ensures: declared({ source: 'durable-evidence', when: 'always', evidenceType: 'gate' }),
     needs: declared('fs:read'),
     resources: declared({ kind: 'path', selector: 'coverageFile' }),
     replay: { kind: 'safe-repeat' },
@@ -265,7 +265,7 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     outputSchema: vacuityWaiver('exarchos_orchestrate.validate_pr_stack'),
     annotations: READ_ONLY_LOCAL,
   }, {
-    ensures: declared({ source: 'durable-evidence', when: 'always', evidenceType: 'pr-stack' }),
+    ensures: declared({ source: 'durable-evidence', when: 'always', evidenceType: 'gate' }),
     needs: declared('fs:read'),
     resources: declared({ kind: 'git-ref', selector: 'baseBranch' }),
     replay: { kind: 'safe-repeat' },
@@ -284,7 +284,7 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     outputSchema: vacuityWaiver('exarchos_orchestrate.debug_review_gate'),
     annotations: LOCAL_MUTATION,
   }, {
-    ensures: declared({ source: 'durable-evidence', when: 'always', evidenceType: 'debug-review' }),
+    ensures: declared({ source: 'durable-evidence', when: 'always', evidenceType: 'gate' }),
     needs: declared('fs:read', 'shell:exec'),
     resources: declared(
       { kind: 'path', selector: 'repoRoot' },
@@ -388,7 +388,7 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     outputSchema: vacuityWaiver('exarchos_orchestrate.spec_coverage_check'),
     annotations: LOCAL_MUTATION,
   }, {
-    ensures: declared({ source: 'durable-evidence', when: 'always', evidenceType: 'spec-coverage' }),
+    ensures: declared({ source: 'durable-evidence', when: 'always', evidenceType: 'gate' }),
     needs: declared('fs:read'),
     resources: declared(
       { kind: 'path', selector: 'planFile' },
@@ -478,7 +478,7 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     annotations: COMPENSABLE_LOCAL,
   }, {
     ensures: declared(
-      { source: 'durable-evidence', when: 'always', evidenceType: 'post-delegation' },
+      { source: 'durable-evidence', when: 'always', evidenceType: 'gate' },
       { source: 'event-append', when: 'always', event: 'gate.executed' },
     ),
     needs: declared('fs:read', 'mcp:exarchos', 'shell:exec'),

@@ -629,7 +629,7 @@ describe('dispatch', () => {
       expect(tallyTotal).toBe(data.checks.length);
     });
 
-    it('Dispatch_Doctor_AnonymousCaller_IsAdmissionDenied', async () => {
+    it('Dispatch_Doctor_AnonymousCaller_RequiresTrustedCaller', async () => {
       const { dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
       const result = await dispatch(
         'exarchos_orchestrate',
@@ -641,7 +641,7 @@ describe('dispatch', () => {
         },
       );
       expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('ADMISSION_DENIED');
+      expect(result.error?.code).toBe('TRUSTED_CALLER_REQUIRED');
     });
 
     it('Dispatch_DeclaredRequires_MissingStoreFacts_IsAdmissionDenied', async () => {

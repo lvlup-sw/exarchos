@@ -59,7 +59,7 @@ export const cutoverActions: readonly BuiltinToolAction[] = [
       annotations: LOCAL_MUTATION,
     },
     {
-      requires: declared({ kind: 'approvals', minimum: 1 }),
+      requires: none('cutover_decide is store-scoped; the handler gates on operator posture'),
       ensures: declared(
         { source: 'event-append', when: 'always', event: 'admission.rollout-decision' },
         { source: 'event-append', when: 'success', event: 'admission.enforcement-enabled' },
@@ -69,7 +69,7 @@ export const cutoverActions: readonly BuiltinToolAction[] = [
         frame: 'single-machine',
         resources: declared({ kind: 'stream', selector: 'exarchos-admission' }),
       },
-      executionAuthority: { kind: 'host', obligation: 'human-approval' },
+      executionAuthority: { kind: 'local' },
       replay: { kind: 'claim-required', scope: 'stream-subject-request' },
       emissions: declared(
         {

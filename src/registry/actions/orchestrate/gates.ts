@@ -68,7 +68,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared(
-      { source: 'durable-evidence', when: 'always', evidenceType: 'static-analysis' },
+      { source: 'durable-evidence', when: 'always', evidenceType: 'gate' },
       { source: 'event-append', when: 'always', event: 'admission.evidence-recorded' },
       { source: 'event-append', when: 'always', event: 'gate.executed' },
     ),
@@ -118,7 +118,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared(
-      { source: 'durable-evidence', when: 'always', evidenceType: 'integration-suite' },
+      { source: 'durable-evidence', when: 'always', evidenceType: 'gate' },
       { source: 'event-append', when: 'always', event: 'admission.evidence-recorded' },
       { source: 'event-append', when: 'always', event: 'gate.executed' },
     ),
@@ -148,7 +148,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared(
-      { source: 'durable-evidence', when: 'always', evidenceType: 'security-scan' },
+      { source: 'durable-evidence', when: 'always', evidenceType: 'gate' },
       { source: 'event-append', when: 'always', event: 'gate.executed' },
     ),
     needs: declared('mcp:exarchos'),
@@ -171,7 +171,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared(
-      { source: 'durable-evidence', when: 'always', evidenceType: 'context-economy' },
+      { source: 'durable-evidence', when: 'always', evidenceType: 'gate' },
       { source: 'event-append', when: 'always', event: 'gate.executed' },
     ),
     needs: declared('fs:read', 'mcp:exarchos'),
@@ -198,7 +198,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared(
-      { source: 'durable-evidence', when: 'always', evidenceType: 'operational-resilience' },
+      { source: 'durable-evidence', when: 'always', evidenceType: 'gate' },
       { source: 'event-append', when: 'always', event: 'gate.executed' },
     ),
     needs: declared('fs:read', 'mcp:exarchos'),
@@ -225,7 +225,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared(
-      { source: 'durable-evidence', when: 'always', evidenceType: 'workflow-determinism' },
+      { source: 'durable-evidence', when: 'always', evidenceType: 'gate' },
       { source: 'event-append', when: 'always', event: 'gate.executed' },
     ),
     needs: declared('fs:read', 'mcp:exarchos'),
@@ -273,7 +273,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared(
-      { source: 'durable-evidence', when: 'always', evidenceType: 'review-verdict' },
+      { source: 'durable-evidence', when: 'always', evidenceType: 'gate' },
       { source: 'event-append', when: 'always', event: 'gate.executed' },
     ),
     needs: declared('mcp:exarchos'),
@@ -301,7 +301,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared(
-      { source: 'durable-evidence', when: 'always', evidenceType: 'convergence' },
+      { source: 'durable-evidence', when: 'always', evidenceType: 'gate' },
       { source: 'event-append', when: 'always', event: 'gate.executed' },
     ),
     needs: declared('mcp:exarchos'),
@@ -324,7 +324,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared(
-      { source: 'durable-evidence', when: 'always', evidenceType: 'provenance-chain' },
+      { source: 'durable-evidence', when: 'always', evidenceType: 'gate' },
       { source: 'event-append', when: 'always', event: 'gate.executed' },
     ),
     needs: declared('fs:read', 'mcp:exarchos'),
@@ -361,7 +361,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared(
-      { source: 'durable-evidence', when: 'always', evidenceType: 'design-completeness' },
+      { source: 'durable-evidence', when: 'always', evidenceType: 'gate' },
       { source: 'event-append', when: 'always', event: 'gate.executed' },
     ),
     needs: declared('fs:read', 'mcp:exarchos'),
@@ -387,7 +387,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared(
-      { source: 'durable-evidence', when: 'always', evidenceType: 'plan-coverage' },
+      { source: 'durable-evidence', when: 'always', evidenceType: 'gate' },
       { source: 'event-append', when: 'always', event: 'gate.executed' },
     ),
     needs: declared('fs:read', 'mcp:exarchos'),
@@ -433,7 +433,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared(
-      { source: 'durable-evidence', when: 'always', evidenceType: 'exploration-depth' },
+      { source: 'durable-evidence', when: 'always', evidenceType: 'gate' },
       { source: 'event-append', when: 'always', event: 'gate.executed' },
     ),
     needs: declared('fs:read', 'mcp:exarchos'),
@@ -490,7 +490,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared(
-      { source: 'durable-evidence', when: 'always', evidenceType: 'test-adequacy' },
+      { source: 'durable-evidence', when: 'always', evidenceType: 'gate' },
       { source: 'event-append', when: 'always', event: 'admission.evidence-recorded' },
       { source: 'event-append', when: 'always', event: 'gate.executed' },
     ),
@@ -546,7 +546,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared(
-      { source: 'durable-evidence', when: 'always', evidenceType: 'contract-drift' },
+      { source: 'durable-evidence', when: 'always', evidenceType: 'gate' },
       { source: 'event-append', when: 'always', event: 'admission.evidence-recorded' },
       { source: 'event-append', when: 'always', event: 'gate.executed' },
     ),
@@ -609,7 +609,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared(
-      { source: 'durable-evidence', when: 'always', evidenceType: 'mock-boundary' },
+      { source: 'durable-evidence', when: 'always', evidenceType: 'gate' },
       { source: 'event-append', when: 'always', event: 'admission.evidence-recorded' },
       { source: 'event-append', when: 'always', event: 'gate.executed' },
     ),
@@ -680,7 +680,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared(
-      { source: 'durable-evidence', when: 'always', evidenceType: 'mutation-adequacy' },
+      { source: 'durable-evidence', when: 'always', evidenceType: 'gate' },
       { source: 'event-append', when: 'always', event: 'gate.executed' },
       { source: 'event-append', when: 'always', event: 'mutation.executed' },
     ),
@@ -712,7 +712,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared(
-      { source: 'durable-evidence', when: 'always', evidenceType: 'post-merge' },
+      { source: 'durable-evidence', when: 'always', evidenceType: 'gate' },
       { source: 'event-append', when: 'always', event: 'gate.executed' },
     ),
     needs: declared('mcp:exarchos'),

@@ -8,7 +8,7 @@ import { buildCheckpointMeta, type CheckpointEnforcementConfig, incrementOperati
 import { hsmTransitionGuard } from '../hsm-transition-guard.js';
 import { allocatePhaseAttemptId, readPhaseAttemptId } from '../phase-attempt-id.js';
 import { resolveGateSet } from '../phase-kind.js';
-import { ErrorCode } from '../schemas.js';
+import { ErrorCode, WorkflowStateSchema } from '../schemas.js';
 import { applyDotPath, hydrateEventsFromStore, readStateFile, StateStoreError, VersionConflictError, writeStateFile } from '../state-store.js';
 import type { SetInput, WorkflowState } from '../types.js';
 import { resolveBoundaryTouching, resolveRiskTier } from '../verification-policy-resolver.js';
@@ -592,6 +592,26 @@ export async function handleSet(
 
     // ─── Event-first: append state.patched event for v2 field updates ──
     const updateKeys = input.updates ? Object.keys(input.updates) : [];
+    // Reject a state the file write would refuse BEFORE appending
+    // `state.patched`. Event-first plus a name-only idempotency key
+    // otherwise leaves a ghost row that shadows the next distinct
+    // patch at the same version, so post-dispatch observation cannot
+    // see the write that actually landed.
+    if (updateKeys.length > 0) {
+      const currentVersion =
+        typeof mutableState._version === 'number' ? mutableState._version : 1;
+      const candidate = { ...mutableState, _version: currentVersion + 1 };
+      const validation = WorkflowStateSchema.safeParse(candidate);
+      if (!validation.success) {
+        return {
+          success: false,
+          error: {
+            code: ErrorCode.INVALID_INPUT,
+            message: `Write-time validation failed: ${validation.error.message}`,
+          },
+        };
+      }
+    }
     if (
       isEventSourced(state)
       && eventStore

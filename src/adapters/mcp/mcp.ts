@@ -566,10 +566,10 @@ export function createMcpServer(ctx: DispatchContext): V2McpServer {
     // contract.
     if (tool.hidden) continue;
     const inputSchema = buildRegistrationSchema(tool.actions);
-    const description = appendCompactActionContracts(
-      buildToolDescription(tool, ctx.slimRegistration ?? false),
-      tool.actions,
-    );
+    const slim = ctx.slimRegistration === true;
+    const description = slim
+      ? buildToolDescription(tool, true)
+      : appendCompactActionContracts(buildToolDescription(tool, false), tool.actions);
 
     const toolName = tool.name;
 
