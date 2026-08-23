@@ -57,7 +57,19 @@ describe('resolveTestReportFormat (per-runner result carrier)', () => {
     // the rest — is what lets a wrong flag reappear on `go` or `dotnet` without
     // anything going red.
     const vitestIds = ids.filter((id) => resolveTestReportFormat(id).kind === 'vitest-json');
-    expect([...vitestIds].sort()).toEqual(['node']);
+    // Both directions, so neither a new id silently acquiring the flag nor
+    // `node` silently losing it can pass — the set claim, unweakened. Written
+    // as two checks rather than one sorted comparison because the sorted form
+    // reads as a parity between two derived populations, and the right-hand
+    // side here is a literal: `BUILTIN_TOOLCHAINS` and `resolveTestReportFormat`
+    // are the same authority, so there is no second one to take a parity
+    // against. This form also NAMES the offending id instead of printing two
+    // lists that differ.
+    expect(
+      vitestIds.filter((id) => id !== 'node'),
+      'an id acquired the vitest-json report format',
+    ).toEqual([]);
+    expect(vitestIds, 'node lost the vitest-json report format').toContain('node');
 
     for (const id of vitestIds) {
       const arm = resolveTestReportFormat(id);

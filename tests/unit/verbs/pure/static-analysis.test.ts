@@ -761,7 +761,13 @@ describe('runStaticAnalysis', () => {
       });
 
       const calls = spawns(runner);
-      expect(calls.every((c) => c.cmd === 'npm')).toBe(true);
+      // Named rather than quantified: a failing `every` reports only `false`,
+      // and which command escaped the package manager is the whole finding.
+      expect(
+        calls.filter((c) => c.cmd !== 'npm').map((c) => c.cmd),
+        'a script was spawned outside the package manager',
+      ).toEqual([]);
+      expect(calls.length, 'nothing was spawned, so the check above is vacuous').toBeGreaterThan(0);
       expect(calls).toContainEqual({ cmd: 'npm', args: ['run', 'typecheck'] });
       expect(calls.some((c) => c.cmd === 'tsc')).toBe(false);
     });
