@@ -245,11 +245,11 @@ export function contentDigestOf(value: string): ContentDigestV1 {
 export interface PersistedEvidenceSource {
   query(
     streamId: string,
-    filters?: { type?: string; operationId?: string },
+    filters?: { type?: string | undefined; operationId?: string | undefined },
   ): Promise<
     readonly {
       readonly type: string;
-      readonly operationId?: string;
+      readonly operationId?: string | undefined;
       readonly data?: unknown;
     }[]
   >;

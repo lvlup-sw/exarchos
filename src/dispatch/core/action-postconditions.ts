@@ -38,8 +38,8 @@ export type PostconditionOutcome = 'success' | 'failure';
 export interface PostconditionStore {
   query(
     streamId: string,
-    filters?: { type?: string; operationId?: string },
-  ): Promise<readonly { readonly type: string; readonly operationId?: string }[]>;
+    filters?: { type?: string | undefined; operationId?: string | undefined },
+  ): Promise<readonly { readonly type: string; readonly operationId?: string | undefined }[]>;
 }
 
 export interface ObserveActionPostconditionsInput {
