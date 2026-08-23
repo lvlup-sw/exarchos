@@ -830,13 +830,55 @@ export const GateExecutedDetailsSchema = z.object({
   promptVersion: z.string().optional(),
 }).passthrough();
 
-export const GateExecutedData = z.object({
-  gateName: z.string(),
-  layer: z.string(),
-  passed: z.boolean(),
-  duration: z.number().optional(),
-  details: z.record(z.string(), z.unknown()).optional(),
-});
+/**
+ * What a gate concluded.
+ *
+ * A boolean cannot express the two outcomes that are not a decision. A probe
+ * that could not RUN and an obligation that was WITHDRAWN both had to be
+ * written down as `passed: true` or `passed: false`, and a reader gating on
+ * the boolean could not tell either of them from a gate that actually ran and
+ * reached that answer. `indeterminate` is "no claim was decided";
+ * `not-applicable` is "the obligation was withdrawn, so there was nothing to
+ * decide". Neither is a pass, and neither is a failure.
+ */
+export const GateVerdictSchema = z.enum(['pass', 'fail', 'indeterminate', 'not-applicable']);
+export type GateVerdict = z.infer<typeof GateVerdictSchema>;
+
+export const GateExecutedData = z
+  .object({
+    gateName: z.string(),
+    layer: z.string(),
+    /**
+     * RETAINED and DERIVED — `passed === (verdict === 'pass')`. Every reader
+     * written against the boolean keeps working, and every row already on a
+     * stream stays valid: this widening is additive, not a migration.
+     */
+    passed: z.boolean(),
+    /**
+     * Optional ONLY because historical rows predate the field. A row that
+     * CARRIES it may not disagree with `passed` — see the refinement below.
+     */
+    verdict: GateVerdictSchema.optional(),
+    duration: z.number().optional(),
+    details: z.record(z.string(), z.unknown()).optional(),
+  })
+  .superRefine((row, ctx) => {
+    // Absent on a historical row, and absence is not disagreement.
+    if (row.verdict === undefined) return;
+    if (row.passed === (row.verdict === 'pass')) return;
+    // Enforced at the SCHEMA rather than left to each writer: `passed` is the
+    // derived field, so a row where the two disagree has no defensible
+    // reading — one of them is wrong and nothing downstream can tell which.
+    // Refusing it here is what makes the derivation a property of the record
+    // instead of a convention every emitter is trusted to have followed.
+    ctx.addIssue({
+      code: 'custom',
+      path: ['passed'],
+      message:
+        `passed=${String(row.passed)} contradicts verdict='${row.verdict}'; ` +
+        "`passed` is derived as `verdict === 'pass'`",
+    });
+  });
 
 // ─── Stack Event Data ───────────────────────────────────────────────────────
 
