@@ -60,17 +60,6 @@ export type ActionContractClosureCode =
   | 'EMPTY_DENOMINATOR'
   | 'PARITY_DISAGREEMENT';
 
-export const ACTION_CONTRACT_CLOSURE_CODES: readonly ActionContractClosureCode[] = [
-  'OMITTED_DIMENSION',
-  'BLANK_ABSTENTION',
-  'STALE_REFERENCE',
-  'ROLE_EXPIRY_CONFLICT',
-  'ORPHAN_PROJECTION',
-  'PROJECTION_DRIFT',
-  'EMPTY_DENOMINATOR',
-  'PARITY_DISAGREEMENT',
-];
-
 export interface ActionContractClosureFinding {
   readonly code: ActionContractClosureCode;
   readonly actionId: string;
