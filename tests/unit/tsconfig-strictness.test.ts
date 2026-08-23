@@ -144,7 +144,29 @@ describe('DR-14: escape-hatch census', () => {
   // and the snapshot path is gone, taking both assertions and three `as` casts
   // (the snapshot's shape juggling) with them. No debt was moved; five sites
   // stopped needing an escape hatch.
-  const BASELINE: CastCounts = { nonNull: 70, asCast: 1695, asAny: 0 };
+  // RETIREMENT + PAYDOWN (the gate-population triage) — asCast 1695 -> 1670.
+  // `nonNull` and `asAny` do not move. Measured on the MERGED tree that ships,
+  // not on the tip the work started from — the 066 entry above records what
+  // that mistake costs.
+  //
+  // The waves added 9 assertions and removed 34. TWENTY-SIX of the 34 left with
+  // their files: the retirement deleted `check_coverage_thresholds` (4),
+  // `design_completeness` (2), `pre_synthesis_check` (12) and the convergence
+  // view and its projection handler (8). Those are a scope reduction, not a
+  // paydown — the assertions did not get safer, their subjects stopped
+  // existing.
+  //
+  // EIGHT were genuinely paid down, and each is one escape hatch replaced by a
+  // construct the compiler checks rather than trusts:
+  //   -3  three readers in `gate-utils` each hand-rolled the same narrowing of
+  //       a carrier's `data` and then asserted the result; one `isGateRecord`
+  //       PREDICATE now carries it for all three.
+  //   -4  `adaptArgsWithConfig` was a near-copy of `adaptArgsWithEventStore`,
+  //       carrying its own erasure to `T` plus two assertions of `args` into a
+  //       shape `ActionHandler` already declares. It composes onto `adaptArgs`,
+  //       which performs that erasure exactly once.
+  //   -1  the projections composite lost one with the convergence branch.
+  const BASELINE: CastCounts = { nonNull: 70, asCast: 1670, asAny: 0 };
 
   // Declared budget = MAX escape-hatch sites maintenance work may introduce
   // before the NEXT documented re-baseline. `as any` may never grow.
