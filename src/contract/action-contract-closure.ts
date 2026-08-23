@@ -64,6 +64,13 @@ export interface ActionContractClosureFinding {
 export interface ActionContractProjectionInput {
   readonly name: string;
   readonly contract?: unknown;
+  /**
+   * Which reference this projection is comparable to. A shipped surface may
+   * carry the whole contract or a deliberately lossy view of it; comparing the
+   * lossy one against the declaration reports drift on every action forever,
+   * which is indistinguishable from an instrument that works. Default `full`.
+   */
+  readonly form?: 'full' | 'compact';
 }
 
 export type ActionContractSurfaceVerdict = 'allow' | 'deny' | 'indeterminate' | 'withheld';
@@ -601,7 +608,23 @@ function inspectProjections(
       );
       continue;
     }
-    if (canonicalJson(projection.contract) !== canonicalJson(subject.contract)) {
+    const reference =
+      projection.form === 'compact'
+        ? compactReference(subject.contract)
+        : subject.contract;
+    if (reference === undefined) {
+      findings.push(
+        finding(
+          'PROJECTION_DRIFT',
+          subject.actionId,
+          `action '${subject.actionId}' projection '${projection.name}' has no comparable ` +
+            'declared form, so its agreement cannot be decided',
+          projection.name,
+        ),
+      );
+      continue;
+    }
+    if (canonicalJson(projection.contract) !== canonicalJson(reference)) {
       findings.push(
         finding(
           'PROJECTION_DRIFT',
@@ -716,6 +739,28 @@ function tryNormalizeDeclared(
   }
 }
 
+/**
+ * The compact form of a declared contract, or `undefined` when the declaration
+ * is not a contract the compactor can read. Never throws: an unreadable
+ * declaration is reported as an undecidable comparison, not as agreement.
+ */
+function compactReference(contract: unknown): unknown | undefined {
+  if (contract === undefined || contract === null) return undefined;
+  try {
+    return projectCompactActionContract(normalizeActionContract(contract));
+  } catch {
+    return undefined;
+  }
+}
+
+function tryDescribeContract(action: ToolAction): unknown | undefined {
+  try {
+    return projectDescribedActionContract(action);
+  } catch {
+    return undefined;
+  }
+}
+
 function tryDescribeCompact(action: ToolAction): unknown | undefined {
   try {
     const described = projectDescribedActionContract(action);
@@ -736,13 +781,24 @@ function tryCompilerContract(action: ToolAction): unknown | undefined {
 
 function liveProjections(action: ToolAction): readonly ActionContractProjectionInput[] {
   const projections: ActionContractProjectionInput[] = [];
-  const describe = tryDescribeCompact(action);
+  // Describe ships both forms, so both are read. The compact one is judged
+  // against the compact declaration — it is a lossy view by design, and
+  // holding it to the full contract made every action drift.
+  const describe = tryDescribeContract(action);
   if (describe !== undefined) {
-    projections.push({ name: 'describe', contract: describe });
+    projections.push({ name: 'describe', contract: describe, form: 'full' });
+  }
+  const describeCompact = tryDescribeCompact(action);
+  if (describeCompact !== undefined) {
+    projections.push({
+      name: 'describe-compact',
+      contract: describeCompact,
+      form: 'compact',
+    });
   }
   const compiler = tryCompilerContract(action);
   if (compiler !== undefined) {
-    projections.push({ name: 'compiler', contract: compiler });
+    projections.push({ name: 'compiler', contract: compiler, form: 'full' });
   }
   return projections;
 }
