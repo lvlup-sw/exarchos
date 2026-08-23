@@ -42,7 +42,13 @@ import {
 } from '../../../src/projections/freshness.js';
 import { handleView } from '../../../src/projections/views/composite.js';
 import { getOrCreateMaterializer, resetMaterializerCache } from '../../../src/projections/views/tools.js';
-import { WORKFLOW_STATE_VIEW, type WorkflowStateView } from '../../../src/projections/views/workflow-state-projection.js';
+import {
+  WORKFLOW_STATE_VIEW,
+  workflowStateProjection,
+  type WorkflowStateView,
+} from '../../../src/projections/views/workflow-state-projection.js';
+import { ViewMaterializer } from '../../../src/projections/views/materializer.js';
+import { configureWorkflowMaterializer } from '../../../src/workflow/tools.js';
 import { handleWorkflow } from '../../../src/workflow/composite.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
@@ -79,6 +85,18 @@ class RacingEventStore extends EventStore {
       await super.append(this.raceStream, { type: 'task.progressed', data: { raced: true } });
     }
     return super.query(streamId, filters);
+  }
+}
+
+
+/**
+ * A store whose tail outruns what it can produce — the one condition
+ * `foldToTail` refuses to answer through. `tailSequence` claims events the log
+ * cannot return, so no fold can be shown to cover it.
+ */
+class UnprovableTailEventStore extends EventStore {
+  override async tailSequence(streamId: string): Promise<number> {
+    return (await super.tailSequence(streamId)) + 10;
   }
 }
 
@@ -334,5 +352,70 @@ describe('#1855 — a read never answers from a fold behind the tail', () => {
     );
 
     expect(folded.sequence).toBe(0);
+  });
+});
+
+describe('#1855 — a committed mutation is never reported as a failure', () => {
+  it('WorkflowUpdate_CoverageUnprovable_StillReportsTheCommittedWrite', async () => {
+    // `handleSet` refreshes `<featureId>.state.json` AFTER its events are
+    // durable. A coverage failure in that refresh used to reject the whole
+    // call, so a caller saw `INTERNAL_ERROR` for a write that had landed — and
+    // would reasonably retry it.
+    //
+    // The snapshot path is gated on a CONFIGURED workflow materializer, and
+    // nothing in `src/` calls `configureWorkflowMaterializer`, so the path is
+    // dark in the shipped composition today. Without this wiring the test
+    // passes whether or not the fix is present — it never reaches the fold.
+    // Configuring it here is what makes the assertion mean something, and the
+    // reachability gap itself is a separate finding.
+    const materializer = new ViewMaterializer();
+    materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
+    configureWorkflowMaterializer(materializer);
+
+    await seedWorkflow();
+
+    const lying = new UnprovableTailEventStore(stateDir);
+    await lying.initialize();
+    try {
+      const update = await handleWorkflow(
+        { action: 'update', featureId: STREAM, updates: { riskTier: 'low' } },
+        { stateDir, eventStore: lying, enableTelemetry: false },
+      );
+
+      expect(update.success, JSON.stringify(update.error)).toBe(true);
+      expect(update.error?.code).not.toBe('INTERNAL_ERROR');
+    } finally {
+      lying.close();
+      configureWorkflowMaterializer(null);
+    }
+
+    // …and the write really did land: a healthy read sees it.
+    const get = await handleWorkflow({ action: 'get', featureId: STREAM }, ctx);
+    expect(get.success, JSON.stringify(get.error)).toBe(true);
+    const data = get.data as { riskTier?: string; data?: { riskTier?: string } } | undefined;
+    expect(data?.riskTier ?? data?.data?.riskTier).toBe('low');
+  });
+
+  it('FoldAtTail_UnprovableCoverage_ThrowsRatherThanAnswering', async () => {
+    // The negative twin. A READ in the same condition must not answer at all —
+    // that is the one meaning `PROJECTION_DEGRADED` still carries, and it is
+    // what makes the tolerance above a deliberate write-side rule rather than a
+    // blanket swallow.
+    await seedWorkflow();
+
+    const lying = new UnprovableTailEventStore(stateDir);
+    await lying.initialize();
+    try {
+      await expect(
+        foldToTail<WorkflowStateView>(
+          lying,
+          getOrCreateMaterializer(stateDir),
+          STREAM,
+          WORKFLOW_STATE_VIEW,
+        ),
+      ).rejects.toThrow(/short of the durable tail/);
+    } finally {
+      lying.close();
+    }
   });
 });

@@ -2,7 +2,7 @@ import { buildValidatedEvent } from '../../events/event-factory.js';
 import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
 import { workflowLogger } from '../../logger.js';
-import { foldToTail } from '../../projections/fold-at-tail.js';
+import { foldToTail, ProjectionCoverageError, type FoldAtTail } from '../../projections/fold-at-tail.js';
 import { WORKFLOW_STATE_VIEW, type WorkflowStateView } from '../../projections/views/workflow-state-projection.js';
 import { recordLiveTransition } from '../admission/live-shadow-observer.js';
 import { buildCheckpointMeta, type CheckpointEnforcementConfig, incrementOperations, resetCounter, shouldEnforceCheckpoint } from '../checkpoint.js';
@@ -19,6 +19,43 @@ import { CURRENT_ES_VERSION, isEventSourced, moduleViewMaterializer } from './sh
 // ─── handleSet ──────────────────────────────────────────────────────────────
 
 const MAX_CAS_RETRIES = 3;
+
+/**
+ * The fold a post-write state snapshot is stamped from, or `undefined` when no
+ * fold can be shown to cover the tail.
+ *
+ * A coverage failure is the one throw `foldToTail` makes by design, and here it
+ * must not propagate: `handleSet` reaches this point only AFTER its events are
+ * durable, so a failure would report a committed mutation as an error. Skipping
+ * the refresh leaves the planner's stamp stale, which is exactly what the
+ * caller's own `VersionConflictError` arm already tolerates — and the canonical
+ * read path folds from the event log rather than that stamp.
+ *
+ * Every other fault still propagates. An unreadable event store is a genuine
+ * failure, not a stale-projection condition, and this block's contract has
+ * always been to surface it.
+ */
+async function foldSnapshotSource(
+  eventStore: EventStore,
+  featureId: string,
+): Promise<FoldAtTail<WorkflowStateView> | undefined> {
+  try {
+    return await foldToTail<WorkflowStateView>(
+      eventStore,
+      moduleViewMaterializer!,
+      featureId,
+      WORKFLOW_STATE_VIEW,
+    );
+  } catch (err) {
+    if (!(err instanceof ProjectionCoverageError)) throw err;
+    workflowLogger.warn(
+      { featureId, err },
+      'state snapshot skipped: no fold could be shown to cover the durable tail. ' +
+        'The mutation is already committed; the planner stamp stays at its previous revision.',
+    );
+    return undefined;
+  }
+}
 
 /**
  * Update fields and/or transition phase on a workflow state file.
@@ -705,22 +742,22 @@ export async function handleSet(
     // After the CAS write succeeds, overwrite the state file with a
     // snapshot derived from the full event stream. This ensures the
     // state file is always a derived artifact of the event log.
-    if (
-      isEventSourced(state)
-      && eventStore
-      && moduleViewMaterializer
-    ) {
+    // The events are ALREADY DURABLE by this point, so nothing below may fail
+    // the mutation. `<featureId>.state.json` is the planner's secondary stamp;
+    // refreshing it is a follow-up, and reporting a landed write as an error
+    // would invite the caller to retry a write that already committed. The
+    // `VersionConflictError` arm below has always applied that rule to the
+    // write half of this step; `foldSnapshotSource` applies it to the read half.
+    const folded = isEventSourced(state) && eventStore && moduleViewMaterializer
+      ? await foldSnapshotSource(eventStore, input.featureId)
+      : undefined;
+
+    if (folded !== undefined) {
       // #1855 — the snapshot is stamped from a fold proven to cover the tail,
-      // and the sequence stamped alongside it is that same fold's cursor. The
+      // and the sequence stamped alongside it is that same fold's cursor.
       // Computing them separately — a fold here, a re-read of the event list
       // there — is how a stamp comes to name a sequence its own payload has not
       // seen.
-      const folded = await foldToTail<WorkflowStateView>(
-        eventStore,
-        moduleViewMaterializer,
-        input.featureId,
-        WORKFLOW_STATE_VIEW,
-      );
       const materialized = folded.view;
 
       // Merge materialized state with checkpoint/version metadata from the
