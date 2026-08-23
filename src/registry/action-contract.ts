@@ -23,11 +23,9 @@ export const SYNTHESIS_LEGS = [
   'document',
   'stack',
 ] as const;
-export type SynthesisLegName = (typeof SYNTHESIS_LEGS)[number];
 
 export const POSTCONDITION_SOURCES = ['durable-evidence', 'event-append'] as const;
 export const POSTCONDITION_WHEN = ['success', 'failure', 'always'] as const;
-export const EXECUTION_FRAMES = ['single-machine'] as const;
 export const AGENT_SPAWN_CAPABILITY = 'subagent:spawn' as const;
 
 export type DeclaredSet<T> =

@@ -7,7 +7,10 @@ import type { VcsProvider } from '../../vcs/provider.js';
 import type { ConfigHookRunner } from '../../hooks/config-hooks.js';
 import type { Outbox } from '../../sync/outbox.js';
 import type { ChannelEmitter } from '../../adapters/channel/emitter.js';
-import type { CapabilityResolver } from '../../workflow/capabilities/resolver.js';
+import {
+  capabilityNeedSatisfied,
+  type CapabilityResolver,
+} from '../../workflow/capabilities/resolver.js';
 import type { StorageBackend } from '../../storage/backend.js';
 import type { RootsClient } from '../../runtime/workspace/discovery.js';
 import type { ElicitationClient } from '../elicitation-dispatch.js';
@@ -332,7 +335,9 @@ function contractNeedsSatisfied(
 ): boolean {
   if (contract.needs.kind === 'none') return true;
   const held = new Set(capabilityIds);
-  return contract.needs.values.every((capability) => held.has(capability));
+  return contract.needs.values.every((capability) =>
+    capabilityNeedSatisfied(held, capability),
+  );
 }
 
 function requiresOnlyApprovals(requires: ActionContract['requires']): boolean {

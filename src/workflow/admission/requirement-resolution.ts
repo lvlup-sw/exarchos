@@ -209,20 +209,6 @@ export function resolveRequirements(
 }
 
 /**
- * The authored matching key for one ActionId-wide require. This is the
- * discriminant the evaluator compares to snapshot evidence — it is not a
- * freeze-time requirement id.
- */
-export function actionRequirementDiscriminant(
-  requirement: ActionIdRequirement,
-): string {
-  if ('family' in requirement) {
-    return `gate:${requirement.family}:${requirement.gate}`;
-  }
-  return `${requirement.kind}:${requirement.minimum}`;
-}
-
-/**
  * Project ActionId-wide `requires` into the obligation lattice without
  * inventing freeze-time requirement ids and without folding shared IR,
  * phase-kind, or HSM-edge obligations into the set.

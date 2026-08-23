@@ -261,6 +261,23 @@ export function createInMemoryResolver(
 export const ANTHROPIC_NATIVE_CACHING = 'anthropic_native_caching' as const;
 
 /**
+ * Capabilities the local process actually holds beyond its posture tier.
+ *
+ * The posture table maps an AGENT's trust tier, and `shared-mutating` is
+ * deliberately the strictest of the three — it must not be widened for the
+ * agents that run under it. The local process is a different subject: it IS
+ * the Exarchos tool surface (the CLI and the MCP server are the same binary
+ * governing the machine they run on), and it is the host that spawns
+ * subagents when an action returns the `agent-spawn` obligation. Those two
+ * facts are grants of the identity layer, not caller self-assertions, so
+ * they are named here rather than folded into the posture map.
+ *
+ * Omitting them denied every gate check, the whole task lifecycle, and
+ * delegation itself, because those contracts declare exactly these needs.
+ */
+const PROCESS_HELD_CAPABILITIES: readonly Capability[] = ['mcp:exarchos', 'subagent:spawn'];
+
+/**
  * Capabilities the local process actually holds. CLI and the MCP server
  * both run on the machine they govern; handshake hints are not the
  * ActionId need set. Cache-hint tokens stay in the list so envelope
@@ -268,10 +285,30 @@ export const ANTHROPIC_NATIVE_CACHING = 'anthropic_native_caching' as const;
  */
 export function defaultProcessCapabilityIds(): readonly string[] {
   const capabilities: string[] = [...capabilitiesForPosture(LOCAL_OPERATOR_POSTURE)];
+  for (const capability of PROCESS_HELD_CAPABILITIES) {
+    if (!capabilities.includes(capability)) capabilities.push(capability);
+  }
   if (process.env.EXARCHOS_DISABLE_CACHE_HINTS !== '1') {
     capabilities.push(ANTHROPIC_NATIVE_CACHING);
   }
   return Object.freeze(capabilities);
+}
+
+/**
+ * Whether a held capability set satisfies one declared need.
+ *
+ * Membership, except for the tiered `mcp:exarchos` family: the full tier
+ * subsumes the readonly one, so an action that needs only read access is
+ * satisfied by a caller holding full access. Without the subsumption a
+ * contract author has to guess which literal the grant spells, and the
+ * three readonly-needing actions deny against a strictly larger grant.
+ */
+export function capabilityNeedSatisfied(
+  held: ReadonlySet<string>,
+  needed: string,
+): boolean {
+  if (held.has(needed)) return true;
+  return needed === 'mcp:exarchos:readonly' && held.has('mcp:exarchos');
 }
 
 export function buildDefaultProcessResolver(): CapabilityResolver {

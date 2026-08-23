@@ -291,8 +291,6 @@ export const ACTION_CONTRACT_DIMENSIONS = [
   'emissions',
 ] as const;
 
-export type ActionContractDimension = (typeof ACTION_CONTRACT_DIMENSIONS)[number];
-
 export interface CompactDeclaredPresence {
   readonly kind: 'declared' | 'none';
 }

@@ -511,9 +511,8 @@ function auditActionContract(
 
   if (modelled === undefined || described === null) return findings;
 
-  const modelledRecord = modelled as unknown as Readonly<Record<string, unknown>>;
   for (const dimension of OBSERVED_CONTRACT_DIMENSIONS) {
-    const modelledHas = dimension in modelledRecord;
+    const modelledHas = dimension in modelled;
     const describedHas = dimension in described;
     if (!modelledHas || !describedHas) {
       const missingFrom = !modelledHas && !describedHas
@@ -533,7 +532,7 @@ function auditActionContract(
       continue;
     }
     const expected = canonicalJson(described[dimension]);
-    const actual = canonicalJson(modelledRecord[dimension]);
+    const actual = canonicalJson(modelled[dimension]);
     if (expected === actual) continue;
     findings.push(
       finding(

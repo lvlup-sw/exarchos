@@ -41,9 +41,6 @@ export const ACTION_CONTRACT_CLOSURE_DIMENSIONS = [
   'emissions',
 ] as const;
 
-export type ActionContractClosureDimension =
-  (typeof ACTION_CONTRACT_CLOSURE_DIMENSIONS)[number];
-
 export const ACTION_CONTRACT_CLOSURE_CODES = [
   'OMITTED_DIMENSION',
   'BLANK_ABSTENTION',

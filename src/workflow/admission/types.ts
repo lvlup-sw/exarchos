@@ -737,9 +737,6 @@ export const ADMISSION_EVENT_TYPE_VALUES: readonly AdmissionEventType[] =
  */
 export const ActionAdmissionActionIdSchema =
   StableIdValueSchema.brand<'AdmissionActionId'>();
-export type ActionAdmissionActionId = z.infer<
-  typeof ActionAdmissionActionIdSchema
->;
 
 /**
  * Workflow-scoped subject shared by advertise and dispatch. Feature stream
@@ -791,13 +788,6 @@ export const ActionAdmissionSnapshotV1Schema = z
 export type ActionAdmissionSnapshotV1 = z.infer<
   typeof ActionAdmissionSnapshotV1Schema
 >;
-
-/** Boundary constructor for a frozen action-admission snapshot record. */
-export function parseActionAdmissionSnapshotV1(
-  input: unknown,
-): ActionAdmissionSnapshotV1 {
-  return ActionAdmissionSnapshotV1Schema.parse(input);
-}
 
 /** Non-throwing guard for folds that read a persisted snapshot record. */
 export function isActionAdmissionSnapshotV1(

@@ -33,7 +33,6 @@ export const ACTION_CONTRACT_DIMENSIONS = [
   'replay',
   'emissions',
 ] as const;
-export type ActionContractDimension = (typeof ACTION_CONTRACT_DIMENSIONS)[number];
 
 export type CompactDeclaredSet<T> =
   | { readonly kind: 'none' }
@@ -68,14 +67,23 @@ export function projectDescribedActionContract(action: ToolAction): ActionContra
   return normalizeActionContract(declared, { annotations: action.annotations });
 }
 
-function compactDeclaredSet<T, U = T>(
+// Overloaded rather than defaulted: with `U = T` the compiler cannot see that
+// the untransformed branch already yields `readonly U[]`, and the only way to
+// keep one signature was to assert it. The two call shapes are genuinely
+// different return types, so declaring them is both honest and cast-free.
+function compactDeclaredSet<T>(set: DeclaredSet<T>): CompactDeclaredSet<T>;
+function compactDeclaredSet<T, U>(
+  set: DeclaredSet<T>,
+  compactItem: (item: T) => U,
+): CompactDeclaredSet<U>;
+function compactDeclaredSet<T, U>(
   set: DeclaredSet<T>,
   compactItem?: (item: T) => U,
-): CompactDeclaredSet<U> {
+): CompactDeclaredSet<T | U> {
   if (set.kind === 'none') return { kind: 'none' };
   return {
     kind: 'declared',
-    values: compactItem === undefined ? (set.values as unknown as readonly U[]) : set.values.map(compactItem),
+    values: compactItem === undefined ? set.values : set.values.map(compactItem),
   };
 }
 

@@ -63,7 +63,14 @@ export const onboardingActions: readonly BuiltinToolAction[] = [
       needs: declared('fs:read', 'fs:write'),
       touches: {
         frame: 'single-machine',
-        resources: declared({ kind: 'path', selector: '.exarchos' }),
+        // The reconciler's two-event split lands on the reserved onboard
+        // infrastructure stream, and onboard carries no featureId. Naming the
+        // stream here is what lets post-dispatch observation find the appends
+        // it ensures; without it the ensures resolve against no stream at all.
+        resources: declared(
+          { kind: 'stream', selector: 'exarchos-onboard' },
+          { kind: 'path', selector: '.exarchos' },
+        ),
       },
       executionAuthority: { kind: 'local' },
       replay: { kind: 'claim-required', scope: 'stream-subject-request' },

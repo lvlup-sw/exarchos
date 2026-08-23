@@ -70,8 +70,11 @@ const EXEMPTIONS: Record<string, Exemption> = {
     reason:
       'Admission-control policy modules, largely declarative and independently testable. Owed the ' +
       'same grouping pass as its parent, and unchanged by the composite-surface split for the ' +
-      'same reason: nothing moved out of this level.',
-    grantedAt: 30,
+      'same reason: nothing moved out of this level. Re-argued once for ActionId admission, which ' +
+      'evaluates a registry ActionId against the same snapshot the phase-edge evaluator already ' +
+      'reads here — housing it beside its evidence and requirement modules is what keeps the two ' +
+      'admission paths comparable; a sibling directory would have split one subject in half.',
+    grantedAt: 31,
   },
   'tools/audit': {
     reason:
