@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1224,
-    "parsedFiles": 1179,
+    "testFiles": 1225,
+    "parsedFiles": 1180,
     "shellFiles": 45,
-    "cases": 13491,
+    "cases": 13498,
     "dynamicTitles": 144,
     "unparseableFiles": 0
   },
@@ -5065,6 +5065,16 @@
         {
           "suite": "action-contract closure live tree",
           "name": "Closure_LiveTree_MatchesRegisteredSnapshot",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure live tree",
+          "name": "Closure_LiveTree_Closes",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure live tree",
+          "name": "Closure_LiveTree_SeededProjectionDrift_IsReported",
           "dynamic": false
         },
         {
@@ -49452,6 +49462,37 @@
         }
       ]
     },
+    "tests/unit/verbs/doctor/action-contract-closure.check.test.ts": {
+      "file": "tests/unit/verbs/doctor/action-contract-closure.check.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "doctor check — action-contract closure",
+          "name": "ClosureCheck_ClosedTree_PassesAndNamesTheDenominator",
+          "dynamic": false
+        },
+        {
+          "suite": "doctor check — action-contract closure",
+          "name": "ClosureCheck_OpenTree_WarnsAndNamesTheOffendingActions",
+          "dynamic": false
+        },
+        {
+          "suite": "doctor check — action-contract closure",
+          "name": "ClosureCheck_ManyFindings_NamesSomeAndCountsTheRest",
+          "dynamic": false
+        },
+        {
+          "suite": "doctor check — action-contract closure",
+          "name": "ClosureCheck_EmptyDenominator_WarnsRatherThanPassing",
+          "dynamic": false
+        },
+        {
+          "suite": "doctor check — action-contract closure",
+          "name": "ClosureCheck_EvaluatorThrows_WarnsInsteadOfFailingDoctor",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/doctor/checks/__shared__/make-stub-probes.test.ts": {
       "file": "tests/unit/verbs/doctor/checks/__shared__/make-stub-probes.test.ts",
       "runner": "vitest:root",
@@ -49866,7 +49907,7 @@
       "cases": [
         {
           "suite": "doctor roster characterization (T0 baseline)",
-          "name": "DoctorRoster_CurrentBuild_ExactlyEighteenChecksWithStableNames",
+          "name": "DoctorRoster_CurrentBuild_ExactlyNineteenChecksWithStableNames",
           "dynamic": false
         },
         {
