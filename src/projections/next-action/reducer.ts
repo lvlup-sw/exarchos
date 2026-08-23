@@ -38,8 +38,12 @@
 import type { ProjectionReducer } from '../types.js';
 import type { WorkflowEvent } from '../../events/schemas.js';
 import type { HSMDefinition } from '../../workflow/state-machine.js';
-import type { NextAction } from '../../next-action.js';
-import { computeNextActions } from '../../next-actions-computer.js';
+import type { NextAction, RegistryAdvertisement } from '../../next-action.js';
+import {
+  computeNextActions,
+  computeRegistryAdvertisements,
+  type ActionAdmissionFacts,
+} from '../../next-actions-computer.js';
 
 /**
  * The projected value for `next-action@v1` is a list of suggested next
@@ -59,6 +63,8 @@ export type NextActionState = NextAction[];
 export interface NextActionDerivationState {
   readonly phase?: string;
   readonly workflowType?: string;
+  readonly featureId?: string;
+  readonly actionAdmission?: ActionAdmissionFacts;
 }
 
 /**
@@ -78,6 +84,12 @@ export interface NextActionReducer
    * next-action semantics are made in exactly one place.
    */
   derive(state: NextActionDerivationState, hsm: HSMDefinition): NextActionState;
+  /**
+   * Allow-only registry ActionIds for the same workflow-scoped inputs.
+   * Distinct from {@link derive}: phase and control verbs stay on the
+   * HSM envelope and are never ActionIds.
+   */
+  deriveAdvertised(state: NextActionDerivationState): readonly RegistryAdvertisement[];
 }
 
 /**
@@ -98,5 +110,8 @@ export const nextActionReducer: NextActionReducer = {
   },
   derive(state: NextActionDerivationState, hsm: HSMDefinition): NextActionState {
     return computeNextActions(state, hsm);
+  },
+  deriveAdvertised(state: NextActionDerivationState): readonly RegistryAdvertisement[] {
+    return computeRegistryAdvertisements(state);
   },
 };

@@ -21,7 +21,10 @@ import {
   type Envelope,
   type ToolResult,
 } from './format.js';
-import { nextActionsFromResult } from './next-actions-from-result.js';
+import {
+  nextActionsFromResult,
+  registryAdvertisementsFromResult,
+} from './next-actions-from-result.js';
 import type { CapabilityResolver } from './workflow/capabilities/resolver.js';
 
 /**
@@ -70,6 +73,7 @@ export function envelopeWrap(
   const meta = (result._meta ?? {}) as Record<string, unknown>;
   const perf = result._perf ?? { ms: Date.now() - startedAt };
   const hsmActions = nextActionsFromResult(result);
+  const advertised = registryAdvertisementsFromResult(result);
   const nextActions = opts?.mergeHandlerActions
     ? [...(result.next_actions ?? []), ...hsmActions]
     : hsmActions;
@@ -77,5 +81,11 @@ export function envelopeWrap(
   if (opts?.cacheHintsResolver !== undefined) {
     envelope = applyCacheHints(envelope, opts.cacheHintsResolver);
   }
-  return wrapWithPassthrough(result, envelope);
+  if (advertised.length === 0) {
+    return wrapWithPassthrough(result, envelope);
+  }
+  return wrapWithPassthrough(result, {
+    ...envelope,
+    advertised_actions: advertised,
+  } as Envelope<unknown>);
 }
