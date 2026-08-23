@@ -29,8 +29,8 @@
 //  3. THE RATCHET IS TWO-SOURCED. The DENOMINATOR is
 //     `derivePackagedDenominators().actions` — the *same* derivation the
 //     compiled-binary sweep in `test/process/packaged-proof.test.ts` measures
-//     itself against (DR-27: "the same 120-action denominator the packaged
-//     sweep uses"). The NUMERATOR is `harness.reachedActionIds()`, a ledger
+//     itself against (DR-27: the same action denominator the packaged sweep
+//     uses — 116 since the gate-population triage). The NUMERATOR is `harness.reachedActionIds()`, a ledger
 //     appended at RUNTIME inside the harness's `dispatch()` wrapper. Deleting
 //     an action from this file's execution loop therefore drops the numerator
 //     while the denominator is unchanged, and the ratchet goes red. If both
@@ -68,7 +68,13 @@ import { TOOL_REGISTRY, type CompositeTool, type ToolAction } from '../../../../
 // registered action reached), AND the covered count must not fall below this
 // floor — so "delete actions until the sweep passes" is not a way out. Raise
 // it deliberately when the surface grows; lowering it is a reviewed decision.
-const ACTION_COVERAGE_FLOOR = 120;
+//
+// LOWERED, reviewed, by the gate-population triage: nine actions were retired
+// and one added, so the denominator itself moved 124 -> 116. The floor tracks
+// the denominator rather than sitting under it — a floor left four below the
+// live count would sit out the next four silent removals, which is the "delete
+// actions until the sweep passes" route it exists to close.
+const ACTION_COVERAGE_FLOOR = 116;
 
 /**
  * Measured floor for actions whose outcome could only have come from the
