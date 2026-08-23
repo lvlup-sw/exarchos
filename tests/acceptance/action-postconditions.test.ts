@@ -21,7 +21,14 @@ import {
   setCustomToolActionHandler,
   type CompositeTool,
 } from '../../src/registry.js';
-import { declared, none, type ActionContract } from '../../src/registry/action-contract.js';
+import { unregisteredActionOutputSchema } from '../../src/output-schema-declaration.js';
+import {
+  declared,
+  none,
+  withActionContract,
+  type ActionContract,
+  type ActionPostcondition,
+} from '../../src/registry/action-contract.js';
 import { LOCAL_MUTATION, READ_ONLY_LOCAL } from '../../src/registry/annotations.js';
 import { ADMISSION_EVENT_TYPES } from '../../src/workflow/admission/types.js';
 
@@ -178,7 +185,7 @@ describe('durable action postcondition observation', () => {
   });
 
   it('Postconditions_FailureOutcome_ChecksFailureAndAlways', async () => {
-    const ensures = declared(
+    const ensures = declared<ActionPostcondition>(
       { source: 'event-append', when: 'success', event: 'workflow.started' },
       { source: 'event-append', when: 'failure', event: 'task.failed' },
       { source: 'event-append', when: 'always', event: 'gate.executed' },
@@ -238,16 +245,19 @@ function registerProbe(input: {
     name: PROBE_TOOL,
     description: 'Postcondition dispatch probe',
     actions: [
-      {
-        name: input.action,
-        description: 'Postcondition dispatch probe action',
-        schema: z.object({ featureId: z.string().min(1) }).passthrough(),
-        phases: new Set<string>(),
-        roles: new Set<string>(['any']),
-        annotations: input.annotations ?? LOCAL_MUTATION,
-        actionContract: input.contract,
-        ...(input.autoEmits === undefined ? {} : { autoEmits: input.autoEmits }),
-      },
+      withActionContract(
+        {
+          name: input.action,
+          description: 'Postcondition dispatch probe action',
+          schema: z.object({ featureId: z.string().min(1) }).passthrough(),
+          phases: new Set<string>(),
+          roles: new Set<string>(['any']),
+          annotations: input.annotations ?? LOCAL_MUTATION,
+          outputSchema: unregisteredActionOutputSchema(),
+          ...(input.autoEmits === undefined ? {} : { autoEmits: input.autoEmits }),
+        },
+        input.contract,
+      ),
     ],
   });
   setCustomToolActionHandler(PROBE_TOOL, input.action, input.handler);
