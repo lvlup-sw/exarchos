@@ -16,6 +16,13 @@
 // These tests drive the REAL composite router and the REAL admission reader, so
 // they fail if the adapter is unwired again, if the key spaces drift apart, or
 // if a withdrawn gate goes back to leaving no durable trace.
+//
+// @oracle-sources: ../../src/verbs/gates/gate-utils.ts, the src/ tree walked at test time for callers
+//
+// The caller census compares the module that DECLARES `withConfigSeverity`
+// against the live source tree walked for uses of it. Neither side is written
+// down here: a hand-listed caller set would still name a caller after it was
+// deleted, which is the unwiring this case exists to catch.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
