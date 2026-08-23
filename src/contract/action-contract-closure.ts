@@ -12,8 +12,20 @@
  */
 
 import { isBuiltInEventType } from '../events/schemas.js';
-import { ACTION_RESOURCE_KINDS, HOST_OBLIGATIONS } from '../registry.js';
+import {
+  ACTION_RESOURCE_KINDS,
+  HOST_OBLIGATIONS,
+  TOOL_REGISTRY,
+  normalizeActionContract,
+  type ToolAction,
+} from '../registry.js';
 import { CAPABILITY_KEYS } from '../runtime/agents/capabilities.js';
+import {
+  projectCompactActionContract,
+  projectDescribedActionContract,
+} from '../describe/handler.js';
+import { projectActionContract } from './compiler/meta-model.js';
+import { measureLiveRegisteredActions } from './registered-actions-denominator.js';
 import { canonicalJson } from './request-context.js';
 
 export const ACTION_CONTRACT_CLOSURE_DIMENSIONS = [
@@ -658,4 +670,126 @@ export function evaluateActionContractClosure(
     subjectCount: subjects.length,
     findings: sorted,
   };
+}
+
+function readDeclaredActionContract(action: ToolAction): unknown {
+  if (!('actionContract' in action)) return undefined;
+  return Reflect.get(action, 'actionContract');
+}
+
+function tryNormalizeDeclared(
+  raw: unknown,
+  annotations?: { readonly idempotent: boolean },
+): unknown | undefined {
+  if (raw === undefined) return undefined;
+  try {
+    return annotations === undefined
+      ? normalizeActionContract(raw)
+      : normalizeActionContract(raw, { annotations });
+  } catch {
+    return raw;
+  }
+}
+
+function tryDescribedContract(action: ToolAction): unknown | undefined {
+  try {
+    return projectDescribedActionContract(action);
+  } catch {
+    return tryNormalizeDeclared(readDeclaredActionContract(action), action.annotations);
+  }
+}
+
+function tryDescribeCompact(action: ToolAction): unknown | undefined {
+  try {
+    const described = projectDescribedActionContract(action);
+    if (described === undefined) return undefined;
+    return projectCompactActionContract(described);
+  } catch {
+    return undefined;
+  }
+}
+
+function tryCompilerContract(action: ToolAction): unknown | undefined {
+  try {
+    return projectActionContract(action);
+  } catch {
+    return undefined;
+  }
+}
+
+function liveProjections(action: ToolAction): readonly ActionContractProjectionInput[] {
+  const projections: ActionContractProjectionInput[] = [];
+  const describe = tryDescribeCompact(action);
+  if (describe !== undefined) {
+    projections.push({ name: 'describe', contract: describe });
+  }
+  const compiler = tryCompilerContract(action);
+  if (compiler !== undefined) {
+    projections.push({ name: 'compiler', contract: compiler });
+  }
+  return projections;
+}
+
+/**
+ * ActionIds named by the live registered-actions denominator. Same cardinality
+ * as `measureLiveRegisteredActions().counts.actions` — not a second count.
+ */
+export function liveRegisteredActionIds(
+  live: ReturnType<typeof measureLiveRegisteredActions> = measureLiveRegisteredActions(),
+): readonly string[] {
+  return live.tools.flatMap((tool) => tool.actions.map((action) => `${tool.name}.${action}`));
+}
+
+/**
+ * Whether a collected subject set covers every live registered ActionId.
+ * A narrowed or empty set cannot stand in for the live denominator.
+ */
+export function collectedSubjectsCoverLiveDenominator(
+  subjects: readonly ActionContractClosureSubject[],
+): boolean {
+  const expected = liveRegisteredActionIds();
+  if (subjects.length === 0 || subjects.length !== expected.length) return false;
+  const actual = new Set(subjects.map((subject) => subject.actionId));
+  return expected.every((actionId) => actual.has(actionId));
+}
+
+/**
+ * One closure subject per live registry ActionId. Attaches the normalized
+ * contract when the block is present, the describe-compact and compiler
+ * projections of that block, and the describe/admission view versus the
+ * contract dispatch would read. Missing live blocks stay missing.
+ */
+export function collectLiveActionContractSubjects(): readonly ActionContractClosureSubject[] {
+  const subjects: ActionContractClosureSubject[] = [];
+  for (const tool of TOOL_REGISTRY) {
+    for (const action of tool.actions) {
+      const actionId = `${tool.name}.${action.name}`;
+      const raw = readDeclaredActionContract(action);
+      const contract = tryNormalizeDeclared(raw, action.annotations);
+      const advertised = tryDescribedContract(action);
+      const executed = tryNormalizeDeclared(raw);
+      const projections = raw === undefined ? [] : liveProjections(action);
+      subjects.push({
+        actionId,
+        ...(contract === undefined ? {} : { contract }),
+        ...(projections.length === 0 ? {} : { projections }),
+        ...(advertised === undefined ? {} : { advertised }),
+        ...(executed === undefined ? {} : { executed }),
+      });
+    }
+  }
+  return subjects.sort((left, right) => left.actionId.localeCompare(right.actionId));
+}
+
+/**
+ * Evaluate collected subjects only when they cover the live ActionId
+ * denominator. A narrowed or empty set is an empty denominator and cannot close.
+ */
+export function evaluateCollectedActionContractClosure(
+  subjects: readonly ActionContractClosureSubject[],
+): ActionContractClosureResult {
+  if (!collectedSubjectsCoverLiveDenominator(subjects)) {
+    return evaluateActionContractClosure({ subjects: [] });
+  }
+  return evaluateActionContractClosure({ subjects });
 }
