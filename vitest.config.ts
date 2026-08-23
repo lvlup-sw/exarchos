@@ -299,6 +299,13 @@ export default defineConfig({
         },
       },
       {
+        resolve: {
+          alias: {
+            'bun:sqlite': fileURLToPath(
+              new URL('./src/storage/__shims__/bun-sqlite-node.ts', import.meta.url),
+            ),
+          },
+        },
         test: {
           // End-to-end install acceptance. Separate from every tier above
           // because it materializes HEAD into a scratch dir and runs the real
