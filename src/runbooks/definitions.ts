@@ -23,7 +23,7 @@ export const TASK_COMPLETION: RunbookDefinition = {
     // thread the matching templateVars below — the orchestrator fills them from
     // the classification prepare_delegation returned, never re-deriving them.
     { tool: 'exarchos_orchestrate', action: 'check_test_adequacy', onFail: 'stop',
-      params: { repoRoot: 'auto', worktreePath: '<worktreePath>',
+      params: { taskId: '<taskId>', repoRoot: 'auto', worktreePath: '<worktreePath>',
         riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>' },
       note: 'kill probe: reverts source, re-runs new tests, asserts red — the load-bearing per-task gate' },
     // Verification-ladder slice 1 Bundle B3: the contract-drift gate regenerates
@@ -34,7 +34,7 @@ export const TASK_COMPLETION: RunbookDefinition = {
     // breaking drift — a repo with no schema boundary is never blocked.
     // DR-3: policy-routed by the frozen stamp (see the kill-probe step above).
     { tool: 'exarchos_orchestrate', action: 'check_contract_drift', onFail: 'stop',
-      params: { repoRoot: 'auto', worktreePath: '<worktreePath>',
+      params: { taskId: '<taskId>', repoRoot: 'auto', worktreePath: '<worktreePath>',
         riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>' },
       note: 'contract gate: codegen → typecheck → breaking-diff vs merge-base; advisory-skips when no contract tool resolves' },
     // Verification-ladder slice 1 SIV-4 (#1530): the mock-boundary gate scans the
@@ -47,7 +47,7 @@ export const TASK_COMPLETION: RunbookDefinition = {
     // mock-boundary is in the resolved sequence only for a boundary-touching
     // medium/high task, so the stamp is what keeps it off a low-blast edit.
     { tool: 'exarchos_orchestrate', action: 'check_mock_boundary', onFail: 'continue',
-      params: { repoRoot: 'auto', worktreePath: '<worktreePath>',
+      params: { taskId: '<taskId>', repoRoot: 'auto', worktreePath: '<worktreePath>',
         riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>' },
       note: 'ADVISORY (SIV-4 #1530): flags unowned mocks in new test hunks; steers toward hermetic fixtures' },
     // #1330 / T-05: the static-analysis gate must run against the agent's
@@ -56,7 +56,7 @@ export const TASK_COMPLETION: RunbookDefinition = {
     // `<worktreePath>` placeholder threads the `worktreePath` template var so
     // the agent supplies its own worktree path at fill-in time.
     { tool: 'exarchos_orchestrate', action: 'check_static_analysis', onFail: 'stop',
-      params: { repoRoot: 'auto', worktreePath: '<worktreePath>' },
+      params: { taskId: '<taskId>', repoRoot: 'auto', worktreePath: '<worktreePath>' },
       note: '#1330: run against the agent worktree via repoRoot:auto + worktreePath template var' },
     // WFQ-004: `task_complete` is the TERMINAL step. Every blocking per-task
     // gate above must have passed before the task is recorded complete —
@@ -252,10 +252,15 @@ export const TASK_FIX: RunbookDefinition = {
     // reached `interpretProbeVerdict` with an undefined tier and a high-tier
     // fix that added no probe-able tests was laundered into an advisory pass.
     { tool: 'exarchos_orchestrate', action: 'check_test_adequacy', onFail: 'stop',
-      params: { repoRoot: 'auto', worktreePath: '<worktreePath>',
+      params: { taskId: '<taskId>', repoRoot: 'auto', worktreePath: '<worktreePath>',
         riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>' },
       note: 'kill probe: reverts source, re-runs new tests, asserts red — the load-bearing per-task gate' },
-    { tool: 'exarchos_orchestrate', action: 'check_static_analysis', onFail: 'stop' },
+    // NOTE: unlike TASK_COMPLETION's step, this one threads no `repoRoot:'auto'`
+    // / `worktreePath`, so the gate runs against the orchestrator's cwd rather
+    // than the agent worktree. Pre-existing and orthogonal to the taskId thread
+    // below; left as-is rather than widened here.
+    { tool: 'exarchos_orchestrate', action: 'check_static_analysis', onFail: 'stop',
+      params: { taskId: '<taskId>' } },
     { tool: 'exarchos_orchestrate', action: 'task_complete', onFail: 'stop' },
   ],
   templateVars: ['taskId', 'featureId', 'streamId', 'branch', 'agentId', 'failureContext', 'worktreePath',

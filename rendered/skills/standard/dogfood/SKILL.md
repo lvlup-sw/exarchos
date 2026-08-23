@@ -84,7 +84,7 @@ Use `exarchos_event query(stream)` on the workflow's event stream. Look for:
 
 #### 1f. Runbook Conformance Check
 
-Use `exarchos_orchestrate runbook(phase)` to retrieve relevant runbooks. Check: step ordering, decision branch correctness (steps with `decide` fields), `onFail` directive adherence (`stop`/`continue`/`retry`), and `templateVars` completeness.
+Use `exarchos_orchestrate runbook(phase)` to retrieve relevant runbooks. Check: step ordering, decision branch correctness (steps with `decide` fields), whether the agent honored each step's `onFail` policy (`stop` or `continue` — advice carried in a projected plan, addressed to whoever runs the chain; the runbook surface dispatches nothing and enforces nothing), and `templateVars` completeness.
 
 #### 1g. Telemetry Review
 

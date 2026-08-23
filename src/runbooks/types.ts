@@ -28,6 +28,18 @@ export interface DecisionField {
 }
 
 /**
+ * Failure policy for a runbook step — ADVISORY, addressed to whoever runs the
+ * chain. The runbook surface projects a plan and never dispatches a step, so
+ * nothing on this side halts anything: 'stop' instructs the caller to skip the
+ * remaining steps if this one fails, 'continue' to carry on regardless.
+ *
+ * There is deliberately no 'retry' arm. It was declared by no step and no
+ * reader could have honored it, so it is rejected rather than accepted into a
+ * projection that would imply a retry someone performs.
+ */
+export type StepFailurePolicy = 'stop' | 'continue';
+
+/**
  * A single step in a runbook sequence.
  * Tools prefixed with 'native:' (e.g., 'native:Task') represent Claude Code
  * native tools — their schemas are not resolved from the MCP registry.
@@ -37,8 +49,8 @@ export interface RunbookStep {
   readonly tool: string;
   /** Action name within the tool */
   readonly action: string;
-  /** Behavior on failure: 'stop' halts the sequence, 'continue' proceeds, 'retry' retries once */
-  readonly onFail: 'stop' | 'continue' | 'retry';
+  /** Advisory failure policy — see {@link StepFailurePolicy}; nothing here enforces it */
+  readonly onFail: StepFailurePolicy;
   /** Static params to pre-fill (agent fills the rest from templateVars) */
   readonly params?: Readonly<Record<string, unknown>>;
   /** Human-readable note for this step */
@@ -76,7 +88,8 @@ export interface ResolvedRunbookStep {
   readonly seq: number;
   readonly tool: string;
   readonly action: string;
-  readonly onFail: 'stop' | 'continue' | 'retry';
+  /** Advisory failure policy — see {@link StepFailurePolicy}; the agent applies it, not Exarchos */
+  readonly onFail: StepFailurePolicy;
   readonly params?: Readonly<Record<string, unknown>>;
   readonly note?: string;
   /** JSON Schema resolved from registry (null for native: tools) */

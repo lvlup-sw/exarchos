@@ -9,6 +9,7 @@ import { resetMaterializerCache } from '../../../src/projections/views/tools.js'
 import { initStateFile, readStateFile } from '../../../src/workflow/state-store.js';
 import { guards } from '../../../src/workflow/guards.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
+import { runAsTrustedCaller } from '../../../tools/test-helpers/trusted-context.js';
 
 let tempDir: string;
 
@@ -339,10 +340,12 @@ describe('Task event idempotency keys', () => {
     });
 
     // Act
-    const result = await handleTaskComplete(
-      { taskId: 't-idem-1', streamId: 'wf-idem-comp' },
-      tempDir,
-      store,
+    const result = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete(
+        { taskId: 't-idem-1', streamId: 'wf-idem-comp' },
+        tempDir,
+        store,
+      ),
     );
 
     // Assert: task.completed event should have an idempotency key
@@ -414,10 +417,12 @@ describe('task_complete evidence field', () => {
     };
 
     // Act
-    const result = await handleTaskComplete(
-      { taskId: 't-ev-1', streamId: 'wf-ev-1', evidence },
-      tempDir,
-      store,
+    const result = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete(
+        { taskId: 't-ev-1', streamId: 'wf-ev-1', evidence },
+        tempDir,
+        store,
+      ),
     );
 
     // Assert
@@ -447,10 +452,12 @@ describe('task_complete evidence field', () => {
     });
 
     // Act
-    const result = await handleTaskComplete(
-      { taskId: 't-ev-2', streamId: 'wf-ev-2' },
-      tempDir,
-      store,
+    const result = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete(
+        { taskId: 't-ev-2', streamId: 'wf-ev-2' },
+        tempDir,
+        store,
+      ),
     );
 
     // Assert
@@ -486,10 +493,12 @@ describe('task_complete evidence field', () => {
     };
 
     // Act
-    const result = await handleTaskComplete(
-      { taskId: 't-ev-3', streamId: 'wf-ev-3', evidence },
-      tempDir,
-      store,
+    const result = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete(
+        { taskId: 't-ev-3', streamId: 'wf-ev-3', evidence },
+        tempDir,
+        store,
+      ),
     );
 
     // Assert
@@ -525,10 +534,12 @@ describe('task_complete evidence field', () => {
     };
 
     // Act
-    const result = await handleTaskComplete(
-      { taskId: 't-ev-4', streamId: 'wf-ev-4', evidence },
-      tempDir,
-      store,
+    const result = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete(
+        { taskId: 't-ev-4', streamId: 'wf-ev-4', evidence },
+        tempDir,
+        store,
+      ),
     );
 
     // Assert
@@ -564,10 +575,12 @@ describe('task_complete evidence field', () => {
     };
 
     // Act
-    const result = await handleTaskComplete(
-      { taskId: 't-prov-1', streamId: 'wf-prov-1', result: provenanceResult },
-      tempDir,
-      store,
+    const result = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete(
+        { taskId: 't-prov-1', streamId: 'wf-prov-1', result: provenanceResult },
+        tempDir,
+        store,
+      ),
     );
 
     // Assert
@@ -602,17 +615,19 @@ describe('task_complete evidence field', () => {
       data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId: 't-wt-1' } },
     });
 
-    const result = await handleTaskComplete(
-      {
-        taskId: 't-wt-1',
-        streamId: 'wf-wt-1',
-        result: {
-          worktree: '.worktrees/t-wt-1',
-          worktreePath: '/tmp/wt/t-wt-1',
+    const result = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete(
+        {
+          taskId: 't-wt-1',
+          streamId: 'wf-wt-1',
+          result: {
+            worktree: '.worktrees/t-wt-1',
+            worktreePath: '/tmp/wt/t-wt-1',
+          },
         },
-      },
-      tempDir,
-      store,
+        tempDir,
+        store,
+      ),
     );
 
     expect(result.success).toBe(true);
@@ -642,14 +657,16 @@ describe('task_complete evidence field', () => {
       data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId: 't-wt-2' } },
     });
 
-    const result = await handleTaskComplete(
-      {
-        taskId: 't-wt-2',
-        streamId: 'wf-wt-2',
-        result: { worktree: '', worktreePath: '' },
-      },
-      tempDir,
-      store,
+    const result = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete(
+        {
+          taskId: 't-wt-2',
+          streamId: 'wf-wt-2',
+          result: { worktree: '', worktreePath: '' },
+        },
+        tempDir,
+        store,
+      ),
     );
 
     expect(result.success).toBe(true);
@@ -677,10 +694,12 @@ describe('task_complete evidence field', () => {
     });
 
     // Act
-    const result = await handleTaskComplete(
-      { taskId: 't-prov-2', streamId: 'wf-prov-2', result: { artifacts: ['artifact1'] } },
-      tempDir,
-      store,
+    const result = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete(
+        { taskId: 't-prov-2', streamId: 'wf-prov-2', result: { artifacts: ['artifact1'] } },
+        tempDir,
+        store,
+      ),
     );
 
     // Assert
@@ -784,10 +803,12 @@ describe('handleTaskComplete gate enforcement', () => {
     });
 
     // Act
-    const result = await handleTaskComplete(
-      { taskId: 'T-01', streamId: 'wf-gate-2' },
-      tempDir,
-      store,
+    const result = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete(
+        { taskId: 'T-01', streamId: 'wf-gate-2' },
+        tempDir,
+        store,
+      ),
     );
 
     // Assert
@@ -838,10 +859,12 @@ describe('handleTaskComplete gate enforcement', () => {
     });
 
     // Act
-    const result = await handleTaskComplete(
-      { taskId: 'T-01', streamId: 'wf-gate-d2-2' },
-      tempDir,
-      store,
+    const result = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete(
+        { taskId: 'T-01', streamId: 'wf-gate-d2-2' },
+        tempDir,
+        store,
+      ),
     );
 
     // Assert
@@ -876,8 +899,13 @@ describe('handleTaskComplete gate enforcement', () => {
     expect(result.error?.code).toBe('GATE_NOT_PASSED');
   });
 
-  it('HandleTaskComplete_ProjectWideStaticAnalysis_AcceptsNoTaskId', async () => {
-    // Arrange: TDD gate has taskId, static-analysis gate is project-wide (no taskId)
+  it('HandleTaskComplete_ProjectWideStaticAnalysis_NoLongerDischargesATask', async () => {
+    // THE CONTRACT CHANGE, stated as an inversion of what this case used to
+    // assert. A `gate.executed` row naming no task once satisfied EVERY task on
+    // the stream: one project-wide run, and an arbitrary number of per-task
+    // obligations went quiet. A row discharges at most the task it NAMES, and
+    // this one names nobody — so it discharges nobody, and it stays refused for
+    // the local operator, who is the strongest caller there is.
     const store = new EventStore(tempDir);
     await store.append('wf-gate-pw-1', {
       type: 'task.assigned',
@@ -892,15 +920,31 @@ describe('handleTaskComplete gate enforcement', () => {
       data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: {} },
     });
 
-    // Act
-    const result = await handleTaskComplete(
-      { taskId: 'T-01', streamId: 'wf-gate-pw-1' },
-      tempDir,
-      store,
+    const result = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete({ taskId: 'T-01', streamId: 'wf-gate-pw-1' }, tempDir, store),
     );
 
-    // Assert: should accept project-wide static-analysis gate
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
+    expect(result.error?.unmetGates).toContain('static-analysis');
+    expect(await store.query('wf-gate-pw-1', { type: 'task.completed' })).toHaveLength(0);
+
+    // Anti-vacuity: the refusal is about the row naming no task, not about the
+    // stream, the task, or the caller. The same row naming THIS task is
+    // accepted from this same operator.
+    await store.append('wf-gate-pw-1', {
+      type: 'gate.executed',
+      data: {
+        gateName: 'static-analysis',
+        layer: 'quality',
+        passed: true,
+        details: { taskId: 'T-01' },
+      },
+    });
+    const named = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete({ taskId: 'T-01', streamId: 'wf-gate-pw-1' }, tempDir, store),
+    );
+    expect(named.success).toBe(true);
   });
 
   it('HandleTaskComplete_GateEventWithUndefinedData_DoesNotCrash', async () => {
@@ -974,10 +1018,12 @@ describe('handleTaskComplete gate enforcement', () => {
         data: { gateName: 'static-analysis', layer: 'quality', passed: true, taskId: 'T-01' },
       });
 
-      const result = await handleTaskComplete(
-        { taskId: 'T-01', streamId: 'wf-gate-tlid' },
-        tempDir,
-        store,
+      const result = await runAsTrustedCaller(tempDir, () =>
+        handleTaskComplete(
+          { taskId: 'T-01', streamId: 'wf-gate-tlid' },
+          tempDir,
+          store,
+        ),
       );
 
       expect(result.success).toBe(true);
@@ -1188,10 +1234,12 @@ describe('handleTaskComplete workflow state sync', () => {
     });
 
     // Act
-    const result = await handleTaskComplete(
-      { taskId: 'task-1', streamId: featureId },
-      tempDir,
-      store,
+    const result = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete(
+        { taskId: 'task-1', streamId: featureId },
+        tempDir,
+        store,
+      ),
     );
 
     // Assert: completion succeeded
@@ -1229,15 +1277,19 @@ describe('handleTaskComplete workflow state sync', () => {
     }
 
     // Act: complete both tasks
-    const result1 = await handleTaskComplete(
-      { taskId: 'task-1', streamId: featureId },
-      tempDir,
-      store,
+    const result1 = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete(
+        { taskId: 'task-1', streamId: featureId },
+        tempDir,
+        store,
+      ),
     );
-    const result2 = await handleTaskComplete(
-      { taskId: 'task-2', streamId: featureId },
-      tempDir,
-      store,
+    const result2 = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete(
+        { taskId: 'task-2', streamId: featureId },
+        tempDir,
+        store,
+      ),
     );
 
     // Assert: both completions succeeded
@@ -1289,10 +1341,12 @@ describe('streamId ⇄ featureId alias on the task verbs', () => {
       },
     });
 
-    const completed = await handleTaskComplete(
-      { taskId: 't-alias', featureId: 'alias-feature' },
-      tempDir,
-      store,
+    const completed = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete(
+        { taskId: 't-alias', featureId: 'alias-feature' },
+        tempDir,
+        store,
+      ),
     );
     expect(completed.success, JSON.stringify(completed.error)).toBe(true);
 

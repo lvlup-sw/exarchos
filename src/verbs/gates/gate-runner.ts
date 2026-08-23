@@ -5,6 +5,7 @@ import {
   ContentAddressedStore,
 } from '../../storage/artifacts/content-addressed-store.js';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
+import { orchestrateLogger } from '../../logger.js';
 import type { EventStore } from '../../events/store.js';
 import {
   AdmissionEvidenceRecordedData,
@@ -17,6 +18,7 @@ import {
 } from '../../workflow/admission/evidence-artifact.js';
 import {
   computeEvidenceSubjectDigest,
+  createEvidenceSubject,
   normalizeEvidenceSubjectContent,
 } from '../../workflow/admission/evidence-subject.js';
 import {
@@ -42,9 +44,9 @@ import { resolveWorkflowState } from '../resolve-state.js';
 import {
   attachGateEvidence,
   normalizeGateVerdict,
+  readGateNotApplicableDescriptor,
   readGateSkipDescriptor,
   type GateEvidenceReference,
-  type GateSkipDescriptor,
 } from './gate-utils.js';
 
 const GATE_RUNNER_VERSION = '2.12.0';
@@ -138,9 +140,11 @@ export const GATE_RUNNER_GATE_LAYER = 'verification-ladder';
  * stamped `skipped` + `discriminant` on the rows it minted; the runner that
  * replaced it carried neither, so "the policy routed this gate out of the
  * sequence" and "the gate ran" were indistinguishable to every reader of the
- * durable log. `skip` is read from the SAME carrier the verdict is derived from
- * ({@link readGateSkipDescriptor}), so the row's `passed:false` and its
- * `details.skipped:true` cannot tell different stories.
+ * durable log. The markers are read from the SAME carrier the verdict is derived
+ * from, so the row's `passed` flag and its `details` cannot tell different
+ * stories — including the not-applicable marker, which is the one case where a
+ * gate that did not run is nonetheless a `pass` and would otherwise read as an
+ * ordinary green.
  */
 async function appendGateExecutedSignal(
   eventStore: Pick<EventStore, 'append' | 'query'>,
@@ -148,11 +152,13 @@ async function appendGateExecutedSignal(
   operationId: string,
   provider: GateProvider,
   record: AdmissionEvidenceRecorded,
-  skip: GateSkipDescriptor | undefined,
+  carrier: ToolResult,
 ): Promise<void> {
   const { evidence } = record;
   const subject = evidence.subject;
   const taskId = subject.kind === 'task' ? subject.taskId : undefined;
+  const skip = readGateSkipDescriptor(carrier);
+  const notApplicable = readGateNotApplicableDescriptor(carrier);
   await eventStore.append(
     streamId,
     {
@@ -173,6 +179,7 @@ async function appendGateExecutedSignal(
           phaseAttemptId: evidence.phaseAttemptId,
           requirementId: evidence.requirementId,
           ...(skip === undefined ? {} : skip),
+          ...(notApplicable === undefined ? {} : notApplicable),
         },
       },
     },
@@ -180,6 +187,62 @@ async function appendGateExecutedSignal(
     // one row the first attempt wrote, exactly as the evidence append does.
     { idempotencyKey: `gate.executed:${evidence.evidenceId}` },
   );
+}
+
+/**
+ * Record that a gate was reached and could not be scoped.
+ *
+ * Every precondition check in this module returns its error envelope before the
+ * runner reaches its first append, so "could not be scoped" used to leave no
+ * durable trace at all — indistinguishable, to every reader of the log, from
+ * "this gate was never invoked". The row closes that gap in the vocabulary that
+ * already exists: `passed:false` with an `indeterminate` verdict, meaning the
+ * gate produced neither proof nor a finding.
+ *
+ * Best-effort on purpose. The caller is already returning a failure to ITS
+ * caller, so a store that cannot take the trace must not also swallow the
+ * diagnosis that something went wrong.
+ */
+async function recordGateScopeFailure(args: {
+  readonly eventStore: Pick<EventStore, 'append'>;
+  readonly streamId: string;
+  readonly gateClass: string;
+  readonly code: string;
+  readonly message: string;
+}): Promise<void> {
+  const { eventStore, streamId, gateClass, code, message } = args;
+  // The operation is read raw rather than parsed: an unparseable operation id is
+  // itself one of the scope failures being recorded, and the key only has to
+  // collapse a retry of the same failing call.
+  const operationId = getDispatchContext()?.operationId;
+  try {
+    await eventStore.append(
+      streamId,
+      {
+        type: 'gate.executed',
+        source: gateRunnerObservationSource(gateClass),
+        data: {
+          gateName: gateClass,
+          layer: GATE_RUNNER_GATE_LAYER,
+          passed: false,
+          details: {
+            gateClass,
+            verdict: 'indeterminate',
+            scopeFailure: code,
+            reason: message,
+          },
+        },
+      },
+      typeof operationId === 'string' && operationId.length > 0
+        ? { idempotencyKey: `gate.executed:scope-failure:${operationId}:${gateClass}` }
+        : undefined,
+    );
+  } catch (error) {
+    orchestrateLogger.warn(
+      { streamId, gateClass, code, err: error instanceof Error ? error.message : String(error) },
+      'gate scope failure could not be recorded',
+    );
+  }
 }
 
 export interface PhaseGateProducerRequest {
@@ -193,6 +256,13 @@ export interface PhaseGateProducerRequest {
   ) => EvidenceSubjectV1;
   readonly providerInput: unknown;
   readonly executeProvider: GateProviderExecutor;
+  /**
+   * Defaults to `false` for the migrated phase gates, whose providers still emit
+   * their own `gate.executed` row. A caller with no provider body of its own —
+   * {@link recordGateNotApplicable} — asks the runner to mint the signal so the
+   * outcome is not evidence-only.
+   */
+  readonly emitGateExecuted?: boolean;
 }
 
 function digestKey(digest: ContentDigestV1): string {
@@ -333,19 +403,35 @@ export async function runGate(
   const emitGateExecuted = dependencies.emitGateExecuted ?? true;
   const resolution = registry.resolve(request.gateClass);
   if (!resolution.success) {
+    await recordGateScopeFailure({
+      eventStore: dependencies.eventStore,
+      streamId: request.streamId,
+      gateClass: request.gateClass,
+      code: resolution.error.code,
+      message: resolution.error.message,
+    });
     return { success: false, error: resolution.error };
   }
 
   const context = getDispatchContext();
   const authorization = context?.authorization;
   if (context === undefined || authorization === undefined) {
+    const message = 'runGate requires trusted dispatch caller identity.';
+    // Recorded like the other scope failures even though there is no caller
+    // identity to attribute it to: an untrusted invocation reaching the runner
+    // is a wiring defect, and the row is the only thing that distinguishes it
+    // from a gate nobody ever called. The append carries no caller claim — only
+    // the runner's own observation source.
+    await recordGateScopeFailure({
+      eventStore: dependencies.eventStore,
+      streamId: request.streamId,
+      gateClass: request.gateClass,
+      code: 'TRUSTED_CALLER_REQUIRED',
+      message,
+    });
     return {
       success: false,
-      error: {
-        code: 'TRUSTED_CALLER_REQUIRED',
-        message: 'runGate requires trusted dispatch caller identity.',
-        action: 'runGate',
-      },
+      error: { code: 'TRUSTED_CALLER_REQUIRED', message, action: 'runGate' },
     };
   }
 
@@ -359,13 +445,17 @@ export async function runGate(
     requirementId = RequirementIdSchema.parse(request.requirementId);
     policyId = PolicyIdSchema.parse(request.policy?.policyId ?? FALLBACK_POLICY_ID);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await recordGateScopeFailure({
+      eventStore: dependencies.eventStore,
+      streamId: request.streamId,
+      gateClass: request.gateClass,
+      code: 'INVALID_GATE_SCOPE',
+      message,
+    });
     return {
       success: false,
-      error: {
-        code: 'INVALID_GATE_SCOPE',
-        message: error instanceof Error ? error.message : String(error),
-        action: 'runGate',
-      },
+      error: { code: 'INVALID_GATE_SCOPE', message, action: 'runGate' },
     };
   }
 
@@ -417,7 +507,7 @@ export async function runGate(
           operationId,
           provider,
           sameOperation.record,
-          readGateSkipDescriptor(providerResult),
+          providerResult,
         );
       }
       return attachGateEvidence(providerResult, [
@@ -514,7 +604,7 @@ export async function runGate(
         operationId,
         provider,
         persistedRecord,
-        readGateSkipDescriptor(providerResult),
+        providerResult,
       );
     }
     return attachGateEvidence(providerResult, [
@@ -543,6 +633,9 @@ export async function runPhaseGateWithEvidence(
     featureId: request.streamId,
     eventStore: request.eventStore,
   });
+  // Deliberately unrecorded, unlike the scope failures below: there is no
+  // workflow here to record against, and a probe of an unknown feature id has
+  // to stay free of side effects.
   if ('error' in resolved) return resolved.error;
 
   // Backfills the pre-v2.12 attempt rather than hard-failing. A bare
@@ -555,13 +648,17 @@ export async function runPhaseGateWithEvidence(
     resolveActivePhaseAttemptId(request.streamId, resolved.state),
   );
   if (!parsedAttempt.success) {
+    const message = 'Active workflow phase-attempt identity is unavailable.';
+    await recordGateScopeFailure({
+      eventStore: request.eventStore,
+      streamId: request.streamId,
+      gateClass: request.gateClass,
+      code: 'EVIDENCE_SCOPE_UNAVAILABLE',
+      message,
+    });
     return {
       success: false,
-      error: {
-        code: 'EVIDENCE_SCOPE_UNAVAILABLE',
-        message: 'Active workflow phase-attempt identity is unavailable.',
-        action: 'runGate',
-      },
+      error: { code: 'EVIDENCE_SCOPE_UNAVAILABLE', message, action: 'runGate' },
     };
   }
 
@@ -569,13 +666,17 @@ export async function runPhaseGateWithEvidence(
   try {
     subject = request.subject(parsedAttempt.data);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await recordGateScopeFailure({
+      eventStore: request.eventStore,
+      streamId: request.streamId,
+      gateClass: request.gateClass,
+      code: 'INVALID_GATE_SCOPE',
+      message,
+    });
     return {
       success: false,
-      error: {
-        code: 'INVALID_GATE_SCOPE',
-        message: error instanceof Error ? error.message : String(error),
-        action: 'runGate',
-      },
+      error: { code: 'INVALID_GATE_SCOPE', message, action: 'runGate' },
     };
   }
 
@@ -597,8 +698,97 @@ export async function runPhaseGateWithEvidence(
       // DR-1: these phase-gate providers still emit their OWN `gate.executed`
       // row (`emitGateEvent`, from inside the provider body), so the runner must
       // not emit a second one — exactly one producer per gate class. Delete the
-      // provider-side emission and this line together when they migrate.
-      emitGateExecuted: false,
+      // provider-side emission and this default together when they migrate.
+      emitGateExecuted: request.emitGateExecuted ?? false,
     },
+  );
+}
+
+/**
+ * Record that a gate is NOT OWED, because the project withdrew it in
+ * `.exarchos.yml`.
+ *
+ * Wiring the disable decision at the dispatch boundary — return a skip carrier,
+ * never reach a producer — looked equivalent and was not: `check_static_analysis`
+ * is the only provable discharge of `task_complete`'s one blocking obligation,
+ * so a project that turned it off could never complete a task again, and the
+ * durable log held nothing that explained why. The decision is still made in one
+ * place — the config-severity wrapper in `gate-utils` — and what changes here is
+ * that acting on it goes through the same producer a real run does, so the
+ * outcome is a durable, subject-bound record instead of a silence.
+ *
+ * The carrier is `passed: true` + `notApplicable: true`, and the distinction
+ * from a SKIP is load-bearing. A skip leaves the obligation standing and
+ * unmeasured, which is why the verdict normalizer refuses to let one mint proof.
+ * A withdrawal removes the obligation, so there is nothing left to measure and
+ * `pass` is the honest verdict — with the reason travelling on the evidence
+ * record, on its content digest, and on the `gate.executed` row, so no reader
+ * mistakes it for a gate that ran.
+ *
+ * Degrades to the bare carrier when the outcome cannot be recorded (an
+ * unregistered class, an unknown workflow, no phase attempt to bind to). The
+ * disabled gate must never be MORE disruptive than the enabled one it replaced;
+ * the scope-failure rows above already say what went wrong.
+ */
+export interface GateNotApplicableRequest {
+  readonly streamId: string;
+  readonly gateClass: string;
+  readonly stateDir: string;
+  readonly eventStore: EventStore;
+  readonly taskId?: string;
+  readonly reason: string;
+}
+
+export async function recordGateNotApplicable(
+  request: GateNotApplicableRequest,
+): Promise<ToolResult> {
+  const carrier: ToolResult = {
+    success: true,
+    data: { passed: true, notApplicable: true, reason: request.reason },
+  };
+  if (!BUILTIN_GATE_PROVIDER_REGISTRY.resolve(request.gateClass).success) return carrier;
+
+  const recorded = await runPhaseGateWithEvidence({
+    streamId: request.streamId,
+    gateClass: request.gateClass,
+    // The SAME requirement a real run of this gate discharges — a different one
+    // would record proof against an obligation nothing reads.
+    requirementId: `verification-ladder:${request.gateClass}`,
+    stateDir: request.stateDir,
+    eventStore: request.eventStore,
+    subject: (phaseAttemptId) => notApplicableSubject(request, phaseAttemptId),
+    providerInput: {
+      featureId: request.streamId,
+      ...(request.taskId === undefined ? {} : { taskId: request.taskId }),
+    },
+    executeProvider: async () => carrier,
+    emitGateExecuted: true,
+  });
+  return recorded.success ? recorded : carrier;
+}
+
+/**
+ * The proof target for a withdrawn obligation.
+ *
+ * A task subject when there is a task, because the per-task admission reader
+ * matches on exactly that; otherwise an artifact target derived from the scope,
+ * for the same reason the sibling producer refuses to pretend mutable workflow
+ * state is a commit. `notApplicable` rides in the target content, so this subject
+ * can never collide with the one a real run of the gate binds to.
+ */
+function notApplicableSubject(
+  request: GateNotApplicableRequest,
+  phaseAttemptId: PhaseAttemptId,
+): EvidenceSubjectV1 {
+  const target = { gateClass: request.gateClass, notApplicable: true };
+  if (request.taskId !== undefined && request.taskId.length > 0) {
+    return createEvidenceSubject({ kind: 'task', taskId: request.taskId }, target);
+  }
+  const digest = createHash('sha256')
+    .update([request.streamId, request.gateClass, phaseAttemptId].join('\0'), 'utf8')
+    .digest('hex');
+  return createEvidenceSubject(
+    { kind: 'artifact', artifactId: `gate-not-applicable:${digest}` },
+    target,
   );
 }

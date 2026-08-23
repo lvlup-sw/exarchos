@@ -113,7 +113,13 @@ import { handleAmend } from './invariants/amend.js';
 import type { HandleAmendArgs } from './invariants/amend.js';
 import type { HandleAddArgs } from './invariants/add.js';
 import { realScaffoldDeps } from './invariants/fs-deps.js';
-import { applyLadderGateSeverity, resolvePhaseMode } from './gates/gate-utils.js';
+import {
+  applyLadderGateSeverity,
+  resolveConfigGateKey,
+  resolvePhaseMode,
+  withConfigSeverity,
+} from './gates/gate-utils.js';
+import { recordGateNotApplicable } from './gates/gate-runner.js';
 import { resolveWorkflowState } from './resolve-state.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
@@ -234,8 +240,10 @@ async function resolveWorkflowTypeForGate(
 }
 
 /**
- * Adapter for a verification-ladder gate handler. Runs the underlying advisory
- * handler, then resolves the workflow type and applies per-workflow severity
+ * Adapter for a verification-ladder gate handler. Resolves the workflow type,
+ * declines to run the gate at all when the project config disabled it
+ * ({@link withConfigSeverity}) — recording that withdrawal durably rather than
+ * leaving a silence — then applies per-workflow severity
  * AND the IMPLEMENT-phase graduation mode (DR-6) to a failing advisory verdict
  * via {@link applyLadderGateSeverity}. The mode (`audit` | `enforce`) is
  * resolved from the SAME workflow type the severity uses
@@ -278,9 +286,44 @@ function adaptLadderGate<T>(
     const effectiveProjectConfig = (enrichedArgs as {
       projectConfig?: DispatchContext['projectConfig'];
     }).projectConfig;
-    const result = await handler(enrichedArgs as unknown as T, stateDir, ctx.eventStore);
     const featureId = (args as { featureId?: string }).featureId;
+    // Resolved BEFORE the handler runs: one resolution feeds both the disable
+    // decision below and the post-processing, which is what keeps the two from
+    // answering differently within a single dispatch.
     const workflowType = await resolveWorkflowTypeForGate(featureId, ctx.eventStore);
+    // `.exarchos.yml` addresses gates by CLASS (`mock-boundary`), the dispatch
+    // table by ACTION (`check_mock_boundary`). Asking the severity resolver with
+    // the dispatch key reads a table the config never writes to, so a project's
+    // `enabled: false` would resolve against nothing at all.
+    const configGateKey = resolveConfigGateKey(gateName);
+    const taskId = (args as { taskId?: string }).taskId;
+    // A gate a project disabled in `.exarchos.yml` must not run and must not
+    // block. This is the production seam for that decision — nothing else reads
+    // the `disabled` severity, so without this call `enabled: false` and a
+    // disabled dimension are settings the runtime never consults.
+    const result = await withConfigSeverity(
+      configGateKey,
+      dimension,
+      effectiveProjectConfig,
+      () => handler(enrichedArgs as unknown as T, stateDir, ctx.eventStore),
+      workflowType,
+      // Acting on the decision is the producer's job, not the boundary's: a
+      // withdrawn gate still owes the log a record saying so, and downstream
+      // admission reads that record rather than inferring anything from the
+      // gate's absence. Without a stream to record against there is nothing to
+      // write, so the wrapper's bare carrier stands.
+      featureId === undefined
+        ? undefined
+        : (reason) =>
+            recordGateNotApplicable({
+              streamId: featureId,
+              gateClass: configGateKey,
+              stateDir,
+              eventStore: ctx.eventStore,
+              ...(taskId === undefined ? {} : { taskId }),
+              reason,
+            }),
+    );
     // DR-6: the IMPLEMENT-phase graduation mode is resolved from the SAME
     // workflow type the severity uses, so mode and severity can never resolve
     // against divergent workflow types in one dispatch (INV-2). Only `oneshot`

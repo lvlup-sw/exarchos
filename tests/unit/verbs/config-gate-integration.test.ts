@@ -23,7 +23,12 @@ describe('withConfigSeverity', () => {
     expect(mockGateHandler).not.toHaveBeenCalled();
   });
 
-  it('GateHandler_WarningGate_ExecutesButDoesNotBlock', async () => {
+  it('GateHandler_WarningGate_RunsAndKeepsItsErrorEnvelope', async () => {
+    // A warning-severity gate still RUNS — only `disabled` is decided before the
+    // handler. And `success:false` from a gate means it could not be wired or
+    // scoped, never that its verdict was negative, so softening it here would
+    // turn a miswiring into a pass. The advisory downgrade that actually
+    // unblocks a failing verdict is `applyLadderGateSeverity`, below.
     const config: ResolvedProjectConfig = {
       ...DEFAULTS,
       review: {
@@ -34,12 +39,11 @@ describe('withConfigSeverity', () => {
 
     mockGateHandler.mockResolvedValue({
       success: false,
-      error: { code: 'GATE_FAILED', message: 'Gate failed' },
+      error: { code: 'MISWIRED_CONTEXT', message: 'eventStore is required' },
     });
 
     const result = await withConfigSeverity('test-gate', 'D1', config, mockGateHandler);
-    expect(result.success).toBe(true); // warning gates don't block
-    expect(result.warnings).toEqual(expect.arrayContaining([expect.stringContaining('warning-only')]));
+    expect(result.success).toBe(false);
     expect(mockGateHandler).toHaveBeenCalled();
   });
 
@@ -74,33 +78,59 @@ describe('withConfigSeverity', () => {
     expect(result.success).toBe(true);
   });
 
-  it('GateHandler_OneshotLadderGate_FailureBecomesWarning', async () => {
-    // Task 005: a ladder-gate failure under an oneshot workflow is threaded as
-    // warning severity via the new trailing workflowType param — the failure is
-    // converted to success-with-warning rather than blocking.
+  it('GateHandler_OneshotLadderGate_DisabledStillWinsOverTheWorkflowDefault', async () => {
+    // The per-workflow default for a ladder gate under oneshot is `warning`, and
+    // warning does not stop the gate running. An explicit project disable does,
+    // and it is threaded through the same `workflowType` argument.
     const ladderGate = VERIFICATION_GATE_NAMES[0]; // 'check_static_analysis'
-    mockGateHandler.mockResolvedValue({
-      success: false,
-      error: { code: 'GATE_FAILED', message: 'Gate failed' },
-    });
+    mockGateHandler.mockClear();
+    mockGateHandler.mockResolvedValue({ success: true, data: { passed: true } });
 
-    const result = await withConfigSeverity(ladderGate, 'D2', DEFAULTS, mockGateHandler, 'oneshot');
-    expect(result.success).toBe(true);
-    expect(result.warnings).toEqual(
-      expect.arrayContaining([expect.stringContaining('warning-only')]),
+    const warned = await withConfigSeverity(
+      ladderGate,
+      'D2',
+      DEFAULTS,
+      mockGateHandler,
+      'oneshot',
     );
+    expect(warned.success).toBe(true);
+    expect(mockGateHandler).toHaveBeenCalled();
+
+    mockGateHandler.mockClear();
+    const off: ResolvedProjectConfig = {
+      ...DEFAULTS,
+      review: {
+        ...DEFAULTS.review,
+        gates: {
+          ...DEFAULTS.review.gates,
+          [ladderGate]: { enabled: false, blocking: true, params: {} },
+        },
+      },
+    };
+
+    const skipped = await withConfigSeverity(ladderGate, 'D2', off, mockGateHandler, 'oneshot');
+    expect((skipped.data as Record<string, unknown>).skipped).toBe(true);
+    expect(mockGateHandler).not.toHaveBeenCalled();
   });
 
-  it('GateHandler_FeatureLadderGate_FailureStillBlocks', async () => {
-    // A non-oneshot workflow keeps the ladder gate blocking (no table entry).
-    const ladderGate = VERIFICATION_GATE_NAMES[0];
-    mockGateHandler.mockResolvedValue({
-      success: false,
-      error: { code: 'GATE_FAILED', message: 'Gate failed' },
-    });
+  it('GateHandler_DisabledDimension_SkipsExecution', async () => {
+    // The second documented knob: the gate names no override of its own and the
+    // dimension it belongs to is switched off.
+    const config: ResolvedProjectConfig = {
+      ...DEFAULTS,
+      review: {
+        ...DEFAULTS.review,
+        dimensions: {
+          ...DEFAULTS.review.dimensions,
+          D3: { ...DEFAULTS.review.dimensions.D3, enabled: false },
+        },
+      },
+    };
 
-    const result = await withConfigSeverity(ladderGate, 'D2', DEFAULTS, mockGateHandler, 'feature');
-    expect(result.success).toBe(false);
+    mockGateHandler.mockClear();
+    const result = await withConfigSeverity('context-economy', 'D3', config, mockGateHandler);
+    expect((result.data as Record<string, unknown>).skipped).toBe(true);
+    expect(mockGateHandler).not.toHaveBeenCalled();
   });
 });
 

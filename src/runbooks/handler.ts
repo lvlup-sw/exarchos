@@ -1,5 +1,10 @@
 // ─── Runbook Handler ─────────────────────────────────────────────────────────
 //
+// This surface PROJECTS a plan; it never executes one. Registry entries carry
+// declarations only — a schema, a description, gate metadata — with no callable
+// attached, so there is nothing here to dispatch and no step outcome to react
+// to. Whoever reads the projection is the one who runs the steps.
+//
 // Two modes:
 // - List mode (no `id`): returns summary of all runbooks, optionally filtered by phase.
 // - Detail mode (`id` provided): returns the full resolved runbook with schemas
@@ -16,6 +21,14 @@ interface RunbookArgs {
   readonly phase?: string;
   readonly id?: string;
 }
+
+const FAILURE_POLICIES: ReadonlySet<string> = new Set(['stop', 'continue']);
+
+// Stated once per runbook rather than repeated on every step. Without it the
+// projected `onFail` values read as enforcement the projector does not perform,
+// which is how a chain ordering came to be described as a guarantee.
+const ON_FAIL_CONTRACT =
+  "Advisory. These steps are a plan for you to run — Exarchos projects them and never dispatches one, so no step is halted on your behalf. A step's onFail tells you what to do if that step fails: 'stop' means run none of the steps after it, 'continue' means carry on.";
 
 /**
  * Handles the `runbook` action on exarchos_orchestrate.
@@ -59,6 +72,20 @@ export async function handleRunbook(args: RunbookArgs): Promise<ToolResult> {
   for (let index = 0; index < runbook.steps.length; index++) {
     const step = runbook.steps[index];
     if (step === undefined) continue;
+
+    // The union already rejects an unknown policy in `definitions.ts`, which
+    // the compiler checks. This catches one that arrives past a cast, and is
+    // the only form of the rule a test can observe.
+    if (!FAILURE_POLICIES.has(step.onFail)) {
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_FAILURE_POLICY',
+          message: `Step ${index + 1} of runbook '${runbook.id}' declares onFail '${String(step.onFail)}'; only 'stop' and 'continue' exist`,
+        },
+      };
+    }
+
     const isNative = step.tool.startsWith('native:');
     const isDecision = step.tool === 'none';
 
@@ -119,6 +146,7 @@ export async function handleRunbook(args: RunbookArgs): Promise<ToolResult> {
       id: runbook.id,
       phase: runbook.phase,
       description: runbook.description,
+      onFailContract: ON_FAIL_CONTRACT,
       templateVars: runbook.templateVars,
       autoEmits: runbook.autoEmits,
       steps: resolvedSteps,

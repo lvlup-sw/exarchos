@@ -13,6 +13,7 @@ import {
   resetMaterializerCache,
 } from '../../../src/projections/views/tools.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
+import { runAsTrustedCaller } from '../../../tools/test-helpers/trusted-context.js';
 
 let tempDir: string;
 let store: EventStore;
@@ -164,6 +165,12 @@ describe('handleTaskClaim', () => {
   });
 });
 
+// A hand-seeded `gate.executed` row is an OPERATOR affordance: it cites no
+// runner-minted evidence, so admission holds it to the transport-derived
+// operator role rather than to the gate name written on it. These cases are
+// about what `task.completed` CARRIES, not about who may satisfy a gate, so
+// they run inside the operator scope a real CLI invocation opens — without it
+// they would exercise the fail-closed path instead of the shape under test.
 describe('handleTaskComplete', () => {
   it('with artifacts emits completed event', async () => {
     // Seed passing TDD compliance + static analysis gates for this task
@@ -176,14 +183,16 @@ describe('handleTaskComplete', () => {
       data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId: 't1' } },
     });
 
-    const result = await handleTaskComplete(
-      {
-        taskId: 't1',
-        result: { artifacts: ['login.ts', 'login.test.ts'], duration: 120 },
-        streamId: 'wf-001',
-      },
-      tempDir,
-      store,
+    const result = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete(
+        {
+          taskId: 't1',
+          result: { artifacts: ['login.ts', 'login.test.ts'], duration: 120 },
+          streamId: 'wf-001',
+        },
+        tempDir,
+        store,
+      ),
     );
 
     expect(result.success).toBe(true);
@@ -210,10 +219,8 @@ describe('handleTaskComplete', () => {
       data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId: 't1' } },
     });
 
-    const result = await handleTaskComplete(
-      { taskId: 't1', streamId: 'wf-001' },
-      tempDir,
-      store,
+    const result = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete({ taskId: 't1', streamId: 'wf-001' }, tempDir, store),
     );
 
     expect(result.success).toBe(true);
@@ -264,14 +271,16 @@ describe('handleTaskComplete', () => {
       data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId: 't1' } },
     });
 
-    const result = await handleTaskComplete(
-      {
-        taskId: 't1',
-        result: { artifacts: ['auth.ts', 'auth.test.ts'] },
-        streamId: 'wf-002',
-      },
-      tempDir,
-      store,
+    const result = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete(
+        {
+          taskId: 't1',
+          result: { artifacts: ['auth.ts', 'auth.test.ts'] },
+          streamId: 'wf-002',
+        },
+        tempDir,
+        store,
+      ),
     );
 
     expect(result.success).toBe(true);
@@ -298,10 +307,8 @@ describe('handleTaskComplete', () => {
       data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId: 't1' } },
     });
 
-    const result = await handleTaskComplete(
-      { taskId: 't1', streamId: 'wf-001' },
-      tempDir,
-      store,
+    const result = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete({ taskId: 't1', streamId: 'wf-001' }, tempDir, store),
     );
 
     expect(result.success).toBe(true);

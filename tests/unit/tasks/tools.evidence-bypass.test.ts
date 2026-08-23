@@ -187,6 +187,10 @@ describe('DR-2: caller-supplied evidence cannot satisfy a blocking gate', () => 
   });
 });
 
+// The two cases below are about what `task.completed` RECORDS, not about who
+// may satisfy a gate. Their hand-seeded signal row cites no runner-minted
+// evidence, so admission now holds it to the same operator bar the evidence
+// path enforces — hence the operator scope a real CLI invocation opens.
 describe('DR-2: evidence as PROVENANCE RECORD is preserved', () => {
   it('TaskComplete_EvidenceWithPassingGate_StillRecordedAsProvenance', async () => {
     // Evidence has two jobs; only "satisfy a gate" was removed. When a REAL
@@ -204,10 +208,12 @@ describe('DR-2: evidence as PROVENANCE RECORD is preserved', () => {
     });
 
     const evidence = { type: 'test' as const, output: '5727 tests passed', passed: true };
-    const result = await handleTaskComplete(
-      { taskId: 'T-01', streamId: 'dr2-record', evidence },
-      tempDir,
-      store,
+    const result = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete(
+        { taskId: 'T-01', streamId: 'dr2-record', evidence },
+        tempDir,
+        store,
+      ),
     );
 
     expect(result.success).toBe(true);
@@ -232,10 +238,8 @@ describe('DR-2: evidence as PROVENANCE RECORD is preserved', () => {
       },
     });
 
-    const result = await handleTaskComplete(
-      { taskId: 'T-01', streamId: 'dr2-unverified' },
-      tempDir,
-      store,
+    const result = await runAsTrustedCaller(tempDir, () =>
+      handleTaskComplete({ taskId: 'T-01', streamId: 'dr2-unverified' }, tempDir, store),
     );
 
     expect(result.success).toBe(true);

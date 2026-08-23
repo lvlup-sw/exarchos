@@ -2,7 +2,7 @@
 
 import * as path from 'node:path';
 import { EventStore, SequenceConflictError } from '../../events/store.js';
-import { validateAgentEvent } from '../../events/schemas.js';
+import { AdmissionEvidenceRecordedData, validateAgentEvent } from '../../events/schemas.js';
 import { toEventAck, type ToolResult } from '../../format.js';
 import { getOrCreateMaterializer, resetMaterializerCache } from '../../projections/views/tools.js';
 import { TASK_DETAIL_VIEW } from '../../projections/views/task-detail-view.js';
@@ -12,8 +12,30 @@ import type { WorkflowState } from '../../workflow/types.js';
 import { logger } from '../../logger.js';
 import { getFullRegistry } from '../../registry.js';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
+import {
+  BUILTIN_GATE_PROVIDER_REGISTRY,
+  type SupportedGateClass,
+} from '../gates/gate-provider-registry.js';
+import type { ProviderRef } from '../../workflow/admission/types.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+/**
+ * Which gate class does a persisted evidence record prove?
+ *
+ * The record names its producer, not its gate — but the runner resolved that
+ * producer FROM a gate class through this very registry, so inverting the
+ * registry recovers the binding rather than re-deriving it. A record whose
+ * producer is not a gate provider (the legacy-state translator mints such
+ * rows) resolves to nothing and proves nothing, which is the fail-closed
+ * answer.
+ */
+const GATE_CLASS_BY_PROVIDER_REF: ReadonlyMap<ProviderRef, SupportedGateClass> =
+  new Map(
+    BUILTIN_GATE_PROVIDER_REGISTRY.list().map(
+      (provider) => [provider.providerRef, provider.gateClass] as const,
+    ),
+  );
 
 const CLAIM_BASE_DELAY_MS = 50;
 
@@ -321,34 +343,77 @@ export async function handleTaskComplete(
     return hasOperatorCapability;
   };
 
-  // Gate enforcement (DR-1): `gate.executed` is THE gate-executed signal, and
-  // for every gate class the durable runner owns it has exactly ONE producer —
+  // Gate enforcement: `gate.executed` is THE gate-executed signal, and for
+  // every gate class the durable runner owns it has exactly ONE producer —
   // `verbs/gates/gate-runner.ts` (`appendGateExecutedSignal`), which mints the
   // row from the same persisted `admission.evidence-recorded` proof it just
-  // wrote. Before that unification the migrated producers appended ONLY the
-  // evidence record, so a legitimate `check_static_analysis` run could not be
-  // seen by the `task_complete` that followed it. Read one event type, one
-  // shape — do NOT teach this reader to also accept the proof record; the fix
-  // belongs at the producer.
+  // wrote. Read one event type, one shape — do NOT teach this reader to also
+  // accept the proof record as a substitute signal; that fix belongs at the
+  // producer.
   const gateEvents = await store.query(streamId, { type: 'gate.executed' });
+
+  // Provenance, not a name. `exarchos_event.append` is open to every role, so
+  // every field a `gate.executed` row asserts about itself — gate name, pass
+  // flag, task, even an evidence id — is only a claim by whoever wrote it. The
+  // one field that can be CHECKED is `details.evidenceId`: the runner stamps
+  // the id of the `admission.evidence-recorded` row it persisted alongside the
+  // signal, so resolving that id back to a passing record bound to THIS task
+  // is what distinguishes a gate that ran from a sentence about one.
+  //
+  // Resolution answers WHICH GATE, not merely "some gate". The signal's
+  // `gateName` is as agent-writable as the rest of the row, so a set of ids
+  // would let a genuine kill-probe receipt be cited under a `static-analysis`
+  // heading and discharge a gate that never ran. The proven gate class is
+  // therefore read off the evidence record and matched against the obligation
+  // being discharged.
+  const provenGateByEvidenceId = new Map<string, SupportedGateClass>();
+  const evidenceRows = await store.query(streamId, {
+    type: 'admission.evidence-recorded',
+  });
+  for (const row of evidenceRows) {
+    const parsed = AdmissionEvidenceRecordedData.safeParse(row.data);
+    if (!parsed.success) continue;
+    const { evidence } = parsed.data;
+    if (evidence.kind !== 'gate' || evidence.verdict !== 'pass') continue;
+    if (evidence.subject.kind !== 'task') continue;
+    if (evidence.subject.taskId !== args.taskId) continue;
+    const provenGate = GATE_CLASS_BY_PROVIDER_REF.get(evidence.producer.providerRef);
+    if (provenGate === undefined) continue;
+    provenGateByEvidenceId.set(evidence.evidenceId, provenGate);
+  }
 
   // Tolerant Reader (#1189): taskId may live at `data.details.taskId`
   // (canonical handler-emitted shape) or at `data.taskId` (operator-emitted
   // shape, e.g. when satisfying a gate manually via exarchos_event append).
   // Both shapes are valid per the GateExecutedData schema (which is not
-  // .strict()). If a top-level taskId is present, it is authoritative;
-  // otherwise fall back to the canonical details.taskId, with a missing
-  // taskId on the canonical path indicating a project-wide gate.
+  // .strict()). A row naming NO task satisfies no task: one row cannot stand
+  // in for every obligation on the stream, and a project-wide gate is not a
+  // per-task discharge.
+  const rowNamesThisTask = (d: Record<string, unknown>): boolean => {
+    if (typeof d.taskId === 'string') return d.taskId === args.taskId;
+    const details = d.details as Record<string, unknown> | undefined;
+    return typeof details?.taskId === 'string' && details.taskId === args.taskId;
+  };
+
+  // One capability bar across both paths to the same obligation. Caller
+  // evidence is refused above unless the transport-derived role is operator; a
+  // hand-written signal row is the same self-assertion in another envelope and
+  // is held to the same bar. A runner-minted row carries its own proof and
+  // needs no operator — that is the whole point of checking provenance.
   const hasPassingGate = (gateName: string): boolean =>
     gateEvents.some((e) => {
       const d = e.data as Record<string, unknown> | undefined;
       if (!d) return false;
       if (d.gateName !== gateName || d.passed !== true) return false;
-      if (typeof d.taskId === 'string') {
-        return d.taskId === args.taskId;
-      }
       const details = d.details as Record<string, unknown> | undefined;
-      return details != null && (!details.taskId || details.taskId === args.taskId);
+      const evidenceId = details?.evidenceId;
+      if (
+        typeof evidenceId === 'string' &&
+        provenGateByEvidenceId.get(evidenceId) === gateName
+      ) {
+        return true;
+      }
+      return hasOperatorCapability && rowNamesThisTask(d);
     });
 
   const unmetGates: string[] = [];

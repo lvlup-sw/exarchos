@@ -9,6 +9,7 @@ import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
 import { resolveGateSeverity } from './gate-severity.js';
+import { BUILTIN_GATE_PROVIDER_REGISTRY } from './gate-provider-registry.js';
 import {
   type GateName,
   type RiskTier,
@@ -160,6 +161,42 @@ export interface GateSkipDescriptor {
   readonly discriminant?: string;
   /** Human-readable cause, when the producer supplied one. */
   readonly reason?: string;
+}
+
+/**
+ * The withdrawal facts a gate carrier declares about itself.
+ *
+ * DISTINCT from {@link GateSkipDescriptor}, and the distinction is the whole
+ * reason for a second shape: a SKIP means the obligation still stands and went
+ * unmeasured, so it must not mint proof. NOT-APPLICABLE means the project
+ * WITHDREW the obligation in `.exarchos.yml`, which is a discharge — there is
+ * nothing left to measure. Only the second one may satisfy an admission, and
+ * only because the reason travels with it on both durable rows.
+ */
+export interface GateNotApplicableDescriptor {
+  readonly notApplicable: true;
+  /** Human-readable cause, when the producer supplied one. */
+  readonly reason?: string;
+}
+
+/**
+ * Read the not-applicable marker a carrier stamps on itself.
+ *
+ * Deliberately NOT folded into {@link readGateSkipDescriptor}: that predicate
+ * feeds {@link normalizeGateVerdict}, where any match forces `indeterminate`.
+ * A withdrawn obligation carries `passed: true` and normalizes to `pass`; this
+ * reader exists only so the durable `gate.executed` row still says WHY, instead
+ * of reading as a gate that ran and succeeded.
+ */
+export function readGateNotApplicableDescriptor(
+  result: ToolResult,
+): GateNotApplicableDescriptor | undefined {
+  const data = result.data;
+  if (data === null || typeof data !== 'object' || Array.isArray(data)) return undefined;
+  const record = data as Readonly<Record<string, unknown>>;
+  if (record.notApplicable !== true) return undefined;
+  const reason = record.reason;
+  return { notApplicable: true, ...(typeof reason === 'string' ? { reason } : {}) };
 }
 
 /**
@@ -425,17 +462,56 @@ export function resolvePhaseMode(kind: PhaseKind, workflowType: string): Impleme
 // ─── Config-Aware Gate Wrapper ──────────────────────────────────────────────
 
 /**
- * Wraps a gate handler with config-aware severity resolution.
+ * The key space `review.gates[…]` is addressed in.
  *
- * - **disabled**: Skips execution entirely, returns success with `skipped: true`
- * - **warning**: Executes handler; converts failures to success with a warning
- * - **blocking**: Executes handler; failures remain failures (default behaviour)
+ * The shipped defaults (`mock-boundary`, `tdd-compliance`, `mutation-adequacy`)
+ * and every documented override name a gate CLASS. The dispatch table names the
+ * ACTION that runs it (`check_mock_boundary`), so a wiring that hands its own
+ * dispatch key to {@link resolveGateSeverity} reads a table the config never
+ * writes to, and a project's `enabled: false` silently does nothing.
  *
- * When `config` is `undefined`, defaults to blocking (backwards compatible).
+ * The action↔class bijection is already declared, exhaustively and with a
+ * compile-time completeness check, by the gate-provider registry. Translating
+ * through it — rather than through a second list here — is what keeps the two
+ * key spaces from drifting apart again. An action with no registration (a gate
+ * whose action name IS its class, e.g. `mutation-adequacy`) passes through
+ * unchanged.
+ */
+export function resolveConfigGateKey(gateName: string): string {
+  for (const provider of BUILTIN_GATE_PROVIDER_REGISTRY.list()) {
+    if (provider.actionName === gateName) return provider.gateClass;
+  }
+  return gateName;
+}
+
+/**
+ * Gate a handler on the severity the project config resolves for it.
  *
- * `workflowType` (task 005) is threaded to {@link resolveGateSeverity} so a
- * verification-ladder gate can pick up its per-workflow default severity (e.g.
- * oneshot → warning). Omitting it preserves the pre-task-005 resolution.
+ * `disabled` is the only severity with a meaning BEFORE the handler runs, and
+ * it is the whole point of this wrapper: the handler is never invoked, so a gate
+ * a project turned off in `.exarchos.yml` does not run and cannot block.
+ *
+ * `gateName` must already be in the config key space — see
+ * {@link resolveConfigGateKey}.
+ *
+ * `whenDisabled` is how a caller keeps that decision from going unrecorded. The
+ * default carrier is a bare skip, which suits a gate nothing else reads; a
+ * caller whose gate discharges a downstream obligation supplies a producer that
+ * writes the durable outcome and returns its carrier. Either way the decision
+ * itself is made HERE and nowhere else, so no second component can reach a
+ * different answer about whether the gate was disabled.
+ *
+ * The `warning` axis is deliberately NOT applied here. Every gate carrier in
+ * the tree is advisory — a failing verdict is `{ success: true, data: { passed:
+ * false } }`, while `success: false` means the gate could not be wired or
+ * scoped at all. Softening THAT into a warning would turn a miswired context or
+ * a rejected input into a pass on every oneshot workflow, where ladder gates
+ * already default to warning severity. {@link applyLadderGateSeverity} owns the
+ * advisory downgrade, on the field that actually blocks.
+ *
+ * `workflowType` is threaded to {@link resolveGateSeverity} so a
+ * verification-ladder gate resolves its per-workflow default; omitting it
+ * reproduces the config-only resolution.
  */
 export async function withConfigSeverity(
   gateName: string,
@@ -443,49 +519,34 @@ export async function withConfigSeverity(
   config: ResolvedProjectConfig | undefined,
   handler: () => Promise<ToolResult>,
   workflowType?: string,
+  whenDisabled?: (reason: string) => Promise<ToolResult>,
 ): Promise<ToolResult> {
-  // When no config, default to blocking (backwards compat)
-  if (!config) {
+  // Absent a config there is no severity to resolve, so the gate runs.
+  if (!config) return handler();
+
+  if (resolveGateSeverity(gateName, dimension, config, workflowType) !== 'disabled') {
     return handler();
   }
 
-  const severity = resolveGateSeverity(gateName, dimension, config, workflowType);
+  const reason = `Gate '${gateName}' disabled by project config`;
+  if (whenDisabled) return whenDisabled(reason);
 
-  if (severity === 'disabled') {
-    return {
-      success: true,
-      data: { skipped: true, reason: `Gate '${gateName}' disabled by project config` },
-    };
-  }
-
-  const result = await handler();
-
-  // If gate passed, return as-is regardless of severity
-  if (result.success) return result;
-
-  // If severity is 'warning', convert failure to success with warning
-  if (severity === 'warning') {
-    return {
-      success: true,
-      data: result.data ?? result.error,
-      warnings: [`Gate '${gateName}' failed but is configured as warning-only`],
-    };
-  }
-
-  // Blocking: return failure as-is
-  return result;
+  // The skip carrier the durable readers already understand: `skipped` plus a
+  // reason, which is what makes a bare disable an indeterminate verdict rather
+  // than a manufactured pass.
+  return { success: true, data: { skipped: true, reason } };
 }
 
 /**
  * Apply per-workflow severity to a verification-LADDER gate's ADVISORY-carrier
  * result (task 005).
  *
- * Ladder gates (INV-5b) never return `success:false` for a gate-failure verdict
- * — a failing gate is `{ success: true, data: { passed: false } }`, where
- * `data.passed:false` is the blocking signal the orchestrator reads. So
- * {@link withConfigSeverity}'s `success:false`-only conversion does not apply;
- * the ladder analogue is to clear `data.passed` (false → true) the same way the
- * sibling clears `success`.
+ * Ladder gates never return `success:false` for a gate-failure verdict — a
+ * failing gate is `{ success: true, data: { passed: false } }`, where
+ * `data.passed:false` is the blocking signal the orchestrator reads. So the
+ * downgrade has to clear `data.passed` (false → true); softening `success`
+ * would reach only the envelopes that mean the gate could not run at all, which
+ * is why {@link withConfigSeverity} deliberately leaves this axis alone.
  *
  * This helper DOWNGRADES a failing advisory verdict (`data.passed === false`) to
  * non-blocking — clearing the blocking signal (`data.passed → true`) AND
