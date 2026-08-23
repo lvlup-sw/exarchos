@@ -1,9 +1,11 @@
 import { EventStore } from '../../../events/store.js';
+import { toViewFailure } from '../../degraded-result.js';
 import type { ToolResult } from '../../../format.js';
 import { correlateQualityAndEvals } from '../../quality/quality-correlation.js';
 import { CODE_QUALITY_VIEW, type CodeQualityViewState } from '../code-quality-view.js';
 import { EVAL_RESULTS_VIEW, type EvalResultsViewState } from '../eval-results-view.js';
 import { CompactSkillCorrelation, compactSkillCorrelation } from './analytic-contract.js';
+import { foldToTail } from '../../fold-at-tail.js';
 import { getOrCreateMaterializer } from './materializer.js';
 import { deriveCorrelationFilters, hasCorrelationFilters, materializeFiltered, queryDeltaEvents } from './query.js';
 
@@ -41,22 +43,11 @@ export async function handleViewQualityCorrelation(
     const cqEvents = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW, correlationFilters);
     const cqView = correlationFiltered
       ? materializeFiltered<CodeQualityViewState>(materializer, CODE_QUALITY_VIEW, cqEvents)
-      : materializer.materialize<CodeQualityViewState>(
-          streamId,
-          CODE_QUALITY_VIEW,
-          cqEvents,
-        );
+      : (await foldToTail<CodeQualityViewState>(store, materializer, streamId, CODE_QUALITY_VIEW)).view;
 
-    const erEvents = correlationFiltered
-      ? cqEvents
-      : await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW);
     const erView = correlationFiltered
-      ? materializeFiltered<EvalResultsViewState>(materializer, EVAL_RESULTS_VIEW, erEvents)
-      : materializer.materialize<EvalResultsViewState>(
-          streamId,
-          EVAL_RESULTS_VIEW,
-          erEvents,
-        );
+      ? materializeFiltered<EvalResultsViewState>(materializer, EVAL_RESULTS_VIEW, cqEvents)
+      : (await foldToTail<EvalResultsViewState>(store, materializer, streamId, EVAL_RESULTS_VIEW)).view;
 
     const correlation = correlateQualityAndEvals(cqView, erView);
     // DR-8 (Task 024) compact-by-default — keep each skill's headline (pass rate
@@ -70,12 +61,6 @@ export async function handleViewQualityCorrelation(
     }
     return { success: true, data: { skills } };
   } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'VIEW_ERROR',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
+    return toViewFailure(err, { tool: 'exarchos_view', action: 'quality_correlation' });
   }
 }

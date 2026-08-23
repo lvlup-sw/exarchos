@@ -1,4 +1,5 @@
 import { narrowAffordance } from '../../../dispatch/core/economy.js';
+import { toViewFailure } from '../../degraded-result.js';
 import { EventStore } from '../../../events/store.js';
 import type { ToolResult } from '../../../format.js';
 import type { NextAction } from '../../../next-action.js';
@@ -7,6 +8,7 @@ import { CODE_QUALITY_VIEW, type CodeQualityViewState } from '../code-quality-vi
 import { EVAL_RESULTS_VIEW, type EvalResultsViewState } from '../eval-results-view.js';
 import { compactAttributionEntry } from './analytic-contract.js';
 import { resolveInventoryWindow } from './inventory-contract.js';
+import { foldToTail } from '../../fold-at-tail.js';
 import { getOrCreateMaterializer } from './materializer.js';
 import { buildPage } from './pipeline.js';
 import { deriveCorrelationFilters, hasCorrelationFilters, materializeFiltered, queryDeltaEvents } from './query.js';
@@ -59,22 +61,11 @@ export async function handleViewQualityAttribution(
     const cqEvents = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW, correlationFilters);
     const cqView = correlationFiltered
       ? materializeFiltered<CodeQualityViewState>(materializer, CODE_QUALITY_VIEW, cqEvents)
-      : materializer.materialize<CodeQualityViewState>(
-          streamId,
-          CODE_QUALITY_VIEW,
-          cqEvents,
-        );
+      : (await foldToTail<CodeQualityViewState>(store, materializer, streamId, CODE_QUALITY_VIEW)).view;
 
-    const erEvents = correlationFiltered
-      ? cqEvents
-      : await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW);
     const erView = correlationFiltered
-      ? materializeFiltered<EvalResultsViewState>(materializer, EVAL_RESULTS_VIEW, erEvents)
-      : materializer.materialize<EvalResultsViewState>(
-          streamId,
-          EVAL_RESULTS_VIEW,
-          erEvents,
-        );
+      ? materializeFiltered<EvalResultsViewState>(materializer, EVAL_RESULTS_VIEW, cqEvents)
+      : (await foldToTail<EvalResultsViewState>(store, materializer, streamId, EVAL_RESULTS_VIEW)).view;
 
     // AttributionQuery.timeRange expects ISO 8601 duration string (e.g., 'P7D'),
     // but the MCP handler receives { start, end } — compute duration from the range
@@ -129,12 +120,6 @@ export async function handleViewQualityAttribution(
       ...nextActionsWrap,
     };
   } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'VIEW_ERROR',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
+    return toViewFailure(err, { tool: 'exarchos_view', action: 'quality_attribution' });
   }
 }

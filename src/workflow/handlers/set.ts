@@ -2,6 +2,7 @@ import { buildValidatedEvent } from '../../events/event-factory.js';
 import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
 import { workflowLogger } from '../../logger.js';
+import { foldToTail } from '../../projections/fold-at-tail.js';
 import { WORKFLOW_STATE_VIEW, type WorkflowStateView } from '../../projections/views/workflow-state-projection.js';
 import { recordLiveTransition } from '../admission/live-shadow-observer.js';
 import { buildCheckpointMeta, type CheckpointEnforcementConfig, incrementOperations, resetCounter, shouldEnforceCheckpoint } from '../checkpoint.js';
@@ -709,17 +710,23 @@ export async function handleSet(
       && eventStore
       && moduleViewMaterializer
     ) {
-      const allEvents = await eventStore.query(input.featureId);
-      const materialized = moduleViewMaterializer.materialize<WorkflowStateView>(
+      // #1855 — the snapshot is stamped from a fold proven to cover the tail,
+      // and the sequence stamped alongside it is that same fold's cursor. The
+      // Computing them separately — a fold here, a re-read of the event list
+      // there — is how a stamp comes to name a sequence its own payload has not
+      // seen.
+      const folded = await foldToTail<WorkflowStateView>(
+        eventStore,
+        moduleViewMaterializer,
         input.featureId,
         WORKFLOW_STATE_VIEW,
-        allEvents,
       );
+      const materialized = folded.view;
 
       // Merge materialized state with checkpoint/version metadata from the
       // mutable state (checkpoint tracking is not event-sourced)
-      const latestSequence = allEvents.length
-        ? allEvents[allEvents.length - 1]?.sequence
+      const latestSequence = folded.sequence > 0
+        ? folded.sequence
         : mutableState._eventSequence;
       const snapshot = {
         ...(materialized as unknown as Record<string, unknown>),

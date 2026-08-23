@@ -9,10 +9,8 @@ import type { EventType } from '../../events/schemas.js';
 import { EVENT_DATA_SCHEMAS, EVENT_EMISSION_REGISTRY } from '../../events/schemas.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
-import {
-  getOrCreateMaterializer,
-  queryDeltaEvents,
-} from '../../projections/views/tools.js';
+import { foldToTail } from '../../projections/fold-at-tail.js';
+import { getOrCreateMaterializer } from '../../projections/views/tools.js';
 import { WORKFLOW_STATE_VIEW } from '../../projections/views/workflow-state-projection.js';
 import type { WorkflowStateView } from '../../projections/views/workflow-state-projection.js';
 import { emitGateEvent } from './gate-utils.js';
@@ -164,12 +162,15 @@ export async function handleCheckEventEmissions(
   const materializer = getOrCreateMaterializer(stateDir);
   const streamId = args.workflowId ?? args.featureId;
 
-  // Materialize workflow state view to get the current phase
-  const stateEvents = await queryDeltaEvents(store, materializer, streamId, WORKFLOW_STATE_VIEW);
-  const view = materializer.materialize<WorkflowStateView>(
+  // Fold the workflow-state view to the durable tail to read the current
+  // phase. This is one of the folds #1855 was about: it lands in the shared
+  // view materializer and no `exarchos_view` action refreshes it, so before
+  // the seam it was the entry that went stale and stayed stale.
+  const { view } = await foldToTail<WorkflowStateView>(
+    store,
+    materializer,
     streamId,
     WORKFLOW_STATE_VIEW,
-    stateEvents,
   );
 
   const phase = view.phase;

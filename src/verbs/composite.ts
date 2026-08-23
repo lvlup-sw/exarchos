@@ -12,10 +12,6 @@ import { handleRunbook } from '../runbooks/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import { envelopeWrap } from '../envelope-wrap.js';
 import { orchestrateLogger } from '../logger.js';
-import {
-  guardProjectionDegraded,
-  resolveProjectionStreamId,
-} from '../projections/degraded-result.js';
 
 const orchestrateActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_orchestrate')!.actions;
 
@@ -363,19 +359,14 @@ function adaptSetupWorktree(): ActionHandler {
 
     if (featureId && ctx?.eventStore) {
       try {
-        const { getOrCreateMaterializer, queryDeltaEvents } = await import('../projections/views/tools.js');
+        const { getOrCreateMaterializer } = await import('../projections/views/tools.js');
+        const { foldToTail } = await import('../projections/fold-at-tail.js');
         const { WORKFLOW_STATE_VIEW } = await import('../projections/views/workflow-state-projection.js');
         const materializer = getOrCreateMaterializer(stateDir);
-        const events = await queryDeltaEvents(
-          ctx.eventStore,
-          materializer,
-          featureId,
-          WORKFLOW_STATE_VIEW,
-        );
-        const view = materializer.materialize<{
+        const { view } = await foldToTail<{
           tasks: Array<{ id: string; branch?: string }>;
           synthesis?: { integrationBranch?: string };
-        }>(featureId, WORKFLOW_STATE_VIEW, events);
+        }>(ctx.eventStore, materializer, featureId, WORKFLOW_STATE_VIEW);
         // #1509/#1501: project synthesis.integrationBranch so the handler can
         // base managed worktrees on the integration tip, not a stale `main`.
         workflowState = { tasks: view.tasks, synthesis: view.synthesis };
@@ -711,32 +702,21 @@ function validateInvariantsAmendArgs(
 // ─── Composite Handler ──────────────────────────────────────────────────────
 
 /**
- * DR-4 — orchestrate actions whose verdict is derived from a materialized fold.
+ * #1855 — the orchestrate degraded gate is gone, and its removal is the fix.
  *
- * Derived mechanically, not guessed: these are exactly the orchestrate handlers
- * that reach the materializer LRU (`git grep -l materializer -- src/orchestrate`
- * → check-convergence, check-event-emissions, prepare-delegation,
- * prepare-synthesis). Every OTHER orchestrate action either folds the event log
- * directly (authoritative by construction — a gate reading `eventStore.query`
- * cannot be stale) or touches no stream at all (worktree/git/scaffold/runbook
- * actions), so guarding them would refuse reads that are provably trustworthy.
+ * The four guarded actions — `prepare_delegation`, `prepare_synthesis`,
+ * `check_convergence`, `check_event_emissions` — were guarded because each
+ * decides whether to dispatch agents or whether a phase converged, and each
+ * read a materialized fold to do it. The reasoning was sound; the mechanism was
+ * not. The gate could only consult a durable verdict published by a different
+ * surface, so a stale marker refused a healthy stream and a fresh fold could
+ * not clear one.
  *
- * These four are precisely the readiness/reliability surfaces CB-8 burned:
- *
- * - `prepare_delegation` / `prepare_synthesis` decide whether to DISPATCH
- *   agents. Answering "ready" from a fold that has not seen the events that
- *   would say otherwise is how work gets dispatched against a cancelled
- *   workflow.
- * - `check_convergence` / `check_event_emissions` are reliability verdicts. A
- *   gate that passes because the fold has not caught up yet is worse than a
- *   gate that refuses to answer.
+ * Each of those handlers now folds to the stream's durable tail through
+ * `projections/fold-at-tail.ts` before it decides, which is what the gate was
+ * trying to approximate from outside. A readiness verdict derived from a fold
+ * that provably covers the tail needs no second opinion about the fold.
  */
-const PROJECTION_DERIVED_ORCHESTRATE_ACTIONS: ReadonlySet<string> = new Set([
-  'prepare_delegation',
-  'prepare_synthesis',
-  'check_convergence',
-  'check_event_emissions',
-]);
 
 /**
  * Routes the `action` field from args to the corresponding task handler.
@@ -760,24 +740,6 @@ export async function handleOrchestrate(
   const startedAt = Date.now();
   const { stateDir } = ctx;
   const { action, ...rest } = args;
-
-  // DR-4 consumer chokepoint — see PROJECTION_DERIVED_ORCHESTRATE_ACTIONS.
-  // Placed ahead of every dispatch branch below (including the `describe` /
-  // `doctor` / `onboard` special cases) so no arm can route around it; the set
-  // membership test, not the branch position, decides what is guarded.
-  if (typeof action === 'string' && PROJECTION_DERIVED_ORCHESTRATE_ACTIONS.has(action)) {
-    const refusal = await guardProjectionDegraded(
-      ctx.eventStore,
-      resolveProjectionStreamId(rest),
-      {
-        tool: 'exarchos_orchestrate',
-        action,
-        onError: (err) =>
-          orchestrateLogger.warn({ action, err }, 'durable projection-health read failed'),
-      },
-    );
-    if (refusal) return refusal;
-  }
 
   // Handle describe specially — it needs the action list, not stateDir
   if (action === 'describe') {

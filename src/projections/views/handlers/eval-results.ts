@@ -1,7 +1,9 @@
 import { EventStore } from '../../../events/store.js';
+import { toViewFailure } from '../../degraded-result.js';
 import type { ToolResult } from '../../../format.js';
 import { EVAL_RESULTS_VIEW, type EvalResultsViewState } from '../eval-results-view.js';
 import { analyticScope } from './analytic-contract.js';
+import { foldToTail } from '../../fold-at-tail.js';
 import { getOrCreateMaterializer } from './materializer.js';
 import { deriveCorrelationFilters, hasCorrelationFilters, materializeFiltered, queryDeltaEvents } from './query.js';
 
@@ -31,16 +33,15 @@ export async function handleViewEvalResults(
 
     const correlationFilters = deriveCorrelationFilters(args);
     const correlationFiltered = hasCorrelationFilters(correlationFilters);
-    const events = await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW, correlationFilters);
     // Wave 5 (#1437) — under a correlation filter, fold a fresh projection
     // off `init()` so the materializer cache stays the unfiltered truth.
     const view = correlationFiltered
-      ? materializeFiltered<EvalResultsViewState>(materializer, EVAL_RESULTS_VIEW, events)
-      : materializer.materialize<EvalResultsViewState>(
-          streamId,
+      ? materializeFiltered<EvalResultsViewState>(
+          materializer,
           EVAL_RESULTS_VIEW,
-          events,
-        );
+          await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW, correlationFilters),
+        )
+      : (await foldToTail<EvalResultsViewState>(store, materializer, streamId, EVAL_RESULTS_VIEW)).view;
 
     // Apply optional filters
     let filtered: EvalResultsViewState = { ...view };
@@ -86,12 +87,6 @@ export async function handleViewEvalResults(
       ...nextActions,
     };
   } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'VIEW_ERROR',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
+    return toViewFailure(err, { tool: 'exarchos_view', action: 'eval_results' });
   }
 }

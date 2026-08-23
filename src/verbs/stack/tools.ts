@@ -1,5 +1,6 @@
 // ─── Stack MCP Tool Handlers ────────────────────────────────────────────────
 
+import { foldToTail } from '../../projections/fold-at-tail.js';
 import type { EventStore } from '../../events/store.js';
 import { toEventAck, type ToolResult } from '../../format.js';
 import { getOrCreateMaterializer } from '../../projections/views/tools.js';
@@ -25,9 +26,7 @@ export async function handleStackStatus(
     const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
 
-    await materializer.loadFromSnapshot(args.streamId, STACK_VIEW);
-    const events = await store.query(args.streamId);
-    const view = materializer.materialize<StackViewState>(args.streamId, STACK_VIEW, events);
+    const { view } = await foldToTail<StackViewState>(store, materializer, args.streamId, STACK_VIEW);
 
     let positions = view.positions;
 

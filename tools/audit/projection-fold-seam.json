@@ -1,0 +1,68 @@
+{
+  "capturedAt": "2026-08-22",
+  "source": "src",
+  "authority": "The policy `tests/architecture/projection-fold-seam.test.ts` reads. Editing this file changes what the guard enforces; editing the test changes how it enforces it. Keep the two apart so an exemption is reviewable as data.",
+  "class": "a projection-derived answer escapes to a caller without evidence that its fold covers the durable event tail",
+  "history": {
+    "first": "CB-8 — docs/audits/2026-07-21-phase-gate-v212-dogfood.md: a cancelled workflow served at `plan-review` with 7 of 10 tasks visible and projection lag past 500s",
+    "second": "#1855 — the mechanism built to answer CB-8 inverted the class: the answer was withheld permanently rather than served stalely, on a lag of one event",
+    "others": [
+      "prepare_synthesis reported phantom blockers from a stale task projection",
+      "post_delegation_check read a stale projection"
+    ]
+  },
+  "seam": {
+    "module": "src/projections/fold-at-tail.ts",
+    "entryPoint": "foldToTail",
+    "why": "It pins the durable tail, routes the behind/ahead/fresh decision through `planRehydrationSource`, folds or replays until the cursor reaches that tail, and returns the view bound to the sequence it covers. A caller that goes around it obtains a fold with no coverage evidence, which is the defect class itself.",
+    "definitionModule": "src/projections/views/materializer.ts",
+    "definitionWhy": "The class that OWNS these members. `materialize` delegates to `materializeAt` inside it, so the definition module necessarily calls its own members; exempting it is structural, not a concession."
+  },
+  "forbiddenMembers": [
+    {
+      "member": "materialize",
+      "why": "Returns a bare view. The fold and the evidence of what it covers are separable, so an answer can be derived from one without the other."
+    },
+    {
+      "member": "materializeAt",
+      "why": "Returns the cursor honestly but performs no tail comparison, so a caller can still answer from a fold that stops short."
+    },
+    {
+      "member": "getStreamCursors",
+      "why": "Enumerates every cached fold of a stream. Reading it invites the all-folds quantifier that produced #1855: the staleness of a fold nobody is reading is not a fact about the answer being produced."
+    }
+  ],
+  "permittedMembers": [
+    {
+      "member": "materializeFresh",
+      "why": "The BOUNDED-read contract (`asOf`, correlation-filtered): a pure fold of `events[0..N]` that answers as of N by design. Its claim is honest and already proven, and forcing tail coverage on it would break the bounded-read contract itself. Permitted by name and by reason, so the exemption is a decision rather than an omission."
+    },
+    {
+      "member": "loadFromSnapshot",
+      "why": "Seeds a cold fold from a persisted snapshot. Establishes no coverage claim on its own; the seam calls it before pinning the tail."
+    },
+    {
+      "member": "loadState",
+      "why": "Test fault injection and snapshot restore. Writes a cursor rather than reading an answer from one."
+    },
+    {
+      "member": "discardFold",
+      "why": "The `projection-ahead` repair half. Removes a fold; serves no answer."
+    }
+  ],
+  "allowlist": [],
+  "allowlistSchema": {
+    "file": "repo-relative path permitted to call a forbidden member",
+    "members": "which forbidden members that file may call",
+    "why": "the reason the seam does not fit",
+    "owner": "who accepts the risk",
+    "expiry": "YYYY-MM-DD after which the guard fails on this entry"
+  },
+  "killFixture": {
+    "path": "tools/audit/__fixtures__/projection-fold-bypass.ts.txt",
+    "why": "The pre-fix bypass copied verbatim from src/workflow/handlers/get.ts@529348175. The guard must report it. A guard with no failing subject has no evidence that it works.",
+    "expectedMember": "materialize"
+  },
+  "minimumCallSites": 1,
+  "minimumScannedFiles": 200
+}

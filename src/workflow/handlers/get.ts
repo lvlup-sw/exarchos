@@ -1,6 +1,7 @@
 import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
 import { resolveAsOfEvents } from '../../projections/cursor.js';
+import { foldToTail } from '../../projections/fold-at-tail.js';
 import { WORKFLOW_STATE_VIEW, type WorkflowStateView } from '../../projections/views/workflow-state-projection.js';
 import { buildCheckpointMeta } from '../checkpoint.js';
 import { getPlaybook } from '../playbooks.js';
@@ -67,7 +68,6 @@ async function handleGetFromEvents(
   fileState: WorkflowState,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  const allEvents = await eventStore.query(input.featureId);
 
   // #1555 — an `asOf` (bounded-fold) read folds `events[0..N]` through the
   // cache-bypassing fresh fold. This is load-bearing: `materialize` is
@@ -81,17 +81,22 @@ async function handleGetFromEvents(
   // through (INV-2).
   let materialized: WorkflowStateView;
   if (input.asOf !== undefined) {
-    const bounded = resolveAsOfEvents(allEvents, input.asOf);
+    const bounded = resolveAsOfEvents(await eventStore.query(input.featureId), input.asOf);
     materialized = moduleViewMaterializer!.materializeFresh<WorkflowStateView>(
       WORKFLOW_STATE_VIEW,
       bounded,
     );
   } else {
-    materialized = moduleViewMaterializer!.materialize<WorkflowStateView>(
+    // #1855 — the live read folds to the stream's durable tail before it
+    // answers. This is the surface the wedge was observed on: `workflow get`
+    // held no cursor of its own, so it could only consult a durable verdict
+    // published elsewhere and refuse. It now establishes its own coverage.
+    materialized = (await foldToTail<WorkflowStateView>(
+      eventStore,
+      moduleViewMaterializer!,
       input.featureId,
       WORKFLOW_STATE_VIEW,
-      allEvents,
-    );
+    )).view;
   }
 
   const materializedRecord = materialized as unknown as Record<string, unknown>;

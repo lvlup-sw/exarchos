@@ -1,5 +1,6 @@
 // ─── Task MCP Tool Handlers ─────────────────────────────────────────────────
 
+import { foldToTail } from '../../projections/fold-at-tail.js';
 import * as path from 'node:path';
 import { EventStore, SequenceConflictError } from '../../events/store.js';
 import { validateAgentEvent } from '../../events/schemas.js';
@@ -191,16 +192,19 @@ async function attemptTaskClaim(
   const materializer = getOrCreateMaterializer(stateDir);
   const store = eventStore;
 
-  // Load snapshot (if any) and query all events for the stream
-  await materializer.loadFromSnapshot(streamId, TASK_DETAIL_VIEW);
-  const events = await store.query(streamId);
-  const currentSequence = events.length;
-
-  // Materialize the task-detail view to check claim status
-  const view = materializer.materialize<TaskDetailViewState>(
+  // Fold the task-detail view up to the stream's durable tail to check claim
+  // status. The CAS pin below MUST be the tail this decision was derived from,
+  // so it comes from the fold rather than being recomputed.
+  //
+  // A COUNT (`events.length`) is not a SEQUENCE. The two coincide only while
+  // the stream has no gaps, and the
+  // appender's OCC contract is stated in terms of the last event's sequence.
+  // A pruned or migrated stream would have silently pinned the wrong version.
+  const { view, sequence: currentSequence } = await foldToTail<TaskDetailViewState>(
+    store,
+    materializer,
     streamId,
     TASK_DETAIL_VIEW,
-    events,
   );
 
   // Check materialized view first (handles tasks with prior task.assigned event)
@@ -210,8 +214,11 @@ async function attemptTaskClaim(
   }
 
   // Fallback: check raw events for terminal task states without prior task.assigned
-  // (the view projection ignores claims for unassigned tasks)
+  // (the view projection ignores claims for unassigned tasks). Bounded by the
+  // same tail the fold covers, so the two checks cannot disagree about which
+  // events they have seen.
   if (!task) {
+    const events = await store.query(streamId);
     const isTerminal = events.some(
       (e) =>
         (e.type === 'task.claimed' || e.type === 'task.completed' || e.type === 'task.failed') &&

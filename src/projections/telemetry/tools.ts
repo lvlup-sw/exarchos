@@ -1,5 +1,6 @@
 // ─── Telemetry MCP Tool Handler ──────────────────────────────────────────────
 
+import { foldToTail } from '../fold-at-tail.js';
 import { z } from 'zod';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
@@ -122,13 +123,12 @@ export async function handleViewTelemetry(
       const events = await store.query(TELEMETRY_STREAM, correlationFilters);
       view = materializeFiltered<TelemetryViewState>(materializer, TELEMETRY_VIEW, events);
     } else {
-      await materializer.loadFromSnapshot(TELEMETRY_STREAM, TELEMETRY_VIEW);
-      const events = await store.query(TELEMETRY_STREAM);
-      view = materializer.materialize<TelemetryViewState>(
+      view = (await foldToTail<TelemetryViewState>(
+        store,
+        materializer,
         TELEMETRY_STREAM,
         TELEMETRY_VIEW,
-        events,
-      );
+      )).view;
     }
 
     // DR-8 / B-4 (Task 014) — compact-by-default; the full per-tool rolling

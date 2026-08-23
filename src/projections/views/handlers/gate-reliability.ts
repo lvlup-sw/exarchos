@@ -1,8 +1,9 @@
 import { EventStore } from '../../../events/store.js';
+import { toViewFailure } from '../../degraded-result.js';
 import type { ToolResult } from '../../../format.js';
 import { GATE_RELIABILITY_VIEW, type GateReliabilityViewState } from '../gate-reliability-view.js';
 import { getOrCreateMaterializer } from './materializer.js';
-import { queryDeltaEvents } from './query.js';
+import { foldToTail } from '../../fold-at-tail.js';
 
 // ─── View Gate Reliability Handler ─────────────────────────────────────────
 //
@@ -26,12 +27,7 @@ export async function handleViewGateReliability(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const events = await queryDeltaEvents(store, materializer, streamId, GATE_RELIABILITY_VIEW);
-    const view = materializer.materialize<GateReliabilityViewState>(
-      streamId,
-      GATE_RELIABILITY_VIEW,
-      events,
-    );
+    const { view } = await foldToTail<GateReliabilityViewState>(store, materializer, streamId, GATE_RELIABILITY_VIEW);
 
     if (args.detail) {
       return { success: true, data: view };
@@ -39,12 +35,6 @@ export async function handleViewGateReliability(
     const { _foldEvents: _ignoredFoldEvents, ...publicView } = view;
     return { success: true, data: publicView };
   } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'VIEW_ERROR',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
+    return toViewFailure(err, { tool: 'exarchos_view', action: 'gate_reliability' });
   }
 }
