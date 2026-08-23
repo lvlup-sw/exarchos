@@ -31,6 +31,7 @@ import {
   dispatchStreamId,
   emissionViolationBlocks,
   runEmissionVerifierInterceptor,
+  verifierDeclaredEmissions,
 } from './interceptors/emission-verifier.js';
 import { evaluateInstallFreshness } from '../../install/freshness-gate.js';
 import {
@@ -1443,7 +1444,11 @@ export async function dispatch(
     // from the check by the NAME of its parameter. The residue is declared, not
     // silent: an action carrying neither still resolves `no-stream`.
     streamId: observedStreamId,
-    declared: dispatchedAction?.autoEmits,
+    // Nested contract emissions win when they are declared. The sibling
+    // list stays as the fallback so an action with no contract, or one
+    // that reasons it emits nothing, does not silently drop existing
+    // unconditional coverage.
+    declared: verifierDeclaredEmissions(dispatchedContract, dispatchedAction?.autoEmits),
     handlerStubbed: STUBBED_COMPOSITES.has(tool),
     handlerSucceeded: result.success,
     readOnlyAbstention,

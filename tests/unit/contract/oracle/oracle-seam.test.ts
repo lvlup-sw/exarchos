@@ -289,7 +289,7 @@ describe('P03-09 oracle — emission axis observes the append, not the declarati
     expect(checkDeclaredEmission(subject.declaration, obs).status).toBe('pass');
   });
 
-  it('OracleEmission_DeclaredButNotPerformed_IsCaught', async () => {
+  it('Oracle_DeclaredButUnappended_FailsWhenGeneratedFilesAgree', async () => {
     const correctSubject = emissionProbeSubject(emittingHandler);
     const brokenSubject = emissionProbeSubject(silentHandler);
 
@@ -331,5 +331,43 @@ describe('P03-09 oracle — emission axis observes the append, not the declarati
     const suite = await runOracleSuite([brokenSubject]);
     expect(suite.ok).toBe(false);
     expect(suite.failures).toContainEqual(brokenReport.emissionVerdict);
+    expect(brokenReport.clean).toBe(false);
+    expect(suite.clean).toBe(false);
+  });
+
+  it('Oracle_Unobserved_IsNotPass', async () => {
+    const declaration: ContractDeclaration = {
+      actionId: 'oracle_probe.unobserved',
+      safety: 'read-only',
+      readOnly: true,
+      idempotent: false,
+      requiredRoles: [],
+      declaredEffects: [],
+      inputSchema: z.object({}),
+      outputSchema: z.object({ id: z.string() }),
+      surfaceVersion: '1.0.0',
+    };
+    const subject: OracleSubject = {
+      declaration,
+      handler: () => ({ id: 'req-1' }),
+      probeInput: {},
+    };
+
+    const emission = checkDeclaredEmission(declaration, await observeBehavior(subject));
+    expect(emission.status).toBe('not-observed');
+    expect(emission.status).not.toBe('pass');
+
+    const suite = await runOracleSuite([subject], {
+      axes: ['missing-authorization', 'undeclared-effect', 'compatibility-break', 'incorrect-handler'],
+    });
+    const report = suite.reports[0];
+    expect(report).toBeDefined();
+    if (report === undefined) return;
+
+    const considered = [...report.verdicts, report.emissionVerdict];
+    expect(considered.every((v) => v.status === 'not-observed')).toBe(true);
+    expect(considered.some((v) => v.status === 'pass')).toBe(false);
+    expect(report.clean).toBe(false);
+    expect(suite.clean).toBe(false);
   });
 });

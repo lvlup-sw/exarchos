@@ -98,7 +98,7 @@ import {
 // Via the published `registry.js` identity, not `registry/gate-metadata.js`:
 // the dispatch layer reaches the declarations through the barrel every other
 // consumer uses, and the layer-boundary audit holds it to that.
-import type { AutoEmission } from '../../../registry.js';
+import type { ActionContract, AutoEmission } from '../../../registry.js';
 import { logger } from '../../../logger.js';
 
 const verifierLogger = logger.child({ subsystem: 'emission-verifier' });
@@ -290,6 +290,25 @@ export function lifecycleViolations(
  * the subject set here and never re-enters it — it is neither required below nor
  * available to satisfy something that is.
  */
+/**
+ * The emission list the verifier assesses.
+ *
+ * When the nested action contract names emissions, those are the subject —
+ * the sibling `autoEmits` list is a fallback only when the contract is
+ * absent or reasons that it emits nothing. Reading the sibling first would
+ * let an empty or disagreeing `autoEmits` list hide a nested unconditional
+ * promise, which is the same vacuity as never checking.
+ */
+export function verifierDeclaredEmissions(
+  contract: Pick<ActionContract, 'emissions'> | undefined,
+  siblingAutoEmits: readonly AutoEmission[] | undefined,
+): readonly AutoEmission[] | undefined {
+  if (contract?.emissions.kind === 'declared') {
+    return contract.emissions.values;
+  }
+  return siblingAutoEmits;
+}
+
 export function unconditionalEmissions(
   declared: readonly AutoEmission[] | undefined,
 ): readonly string[] {
