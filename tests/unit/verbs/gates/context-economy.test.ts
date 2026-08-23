@@ -45,6 +45,15 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
   queryDeltaEvents: vi.fn().mockResolvedValue([]),
 }));
 
+// #1855 — the gate folds its view to the stream's durable tail through
+// `foldToTail` rather than pairing `queryDeltaEvents` with a bare
+// `materialize`. The fold is the seam a unit test of the VERDICT should stub:
+// what the fold itself guarantees is covered against a real store in
+// `tests/unit/projections/fold-at-tail.test.ts`.
+vi.mock('../../../../src/projections/fold-at-tail.js', () => ({
+  foldToTail: vi.fn(async () => ({ view: mockTelemetryState, sequence: 1 })),
+}));
+
 import { checkContextEconomy } from '../../../../src/verbs/pure/context-economy.js';
 import { handleContextEconomy } from '../../../../src/verbs/gates/context-economy.js';
 

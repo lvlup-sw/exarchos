@@ -24,6 +24,15 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
   queryDeltaEvents: vi.fn().mockResolvedValue([]),
 }));
 
+// #1855 — the gate folds its view to the stream's durable tail through
+// `foldToTail` rather than pairing `queryDeltaEvents` with a bare
+// `materialize`. The fold is the seam a unit test of the VERDICT should stub:
+// what the fold itself guarantees is covered against a real store in
+// `tests/unit/projections/fold-at-tail.test.ts`.
+vi.mock('../../../../src/projections/fold-at-tail.js', () => ({
+  foldToTail: vi.fn(async () => ({ view: mockViewState, sequence: 1 })),
+}));
+
 import { handleCheckConvergence } from '../../../../src/verbs/gates/check-convergence.js';
 
 const STATE_DIR = '/tmp/test-check-convergence';
@@ -198,7 +207,7 @@ describe('handleCheckConvergence', () => {
       dimensions: {},
     };
 
-    const { queryDeltaEvents } = await import('../../../../src/projections/views/tools.js');
+    const { foldToTail } = await import('../../../../src/projections/fold-at-tail.js');
 
     await handleCheckConvergence(
       { featureId: 'test-feature', workflowId: 'custom-stream' },
@@ -207,7 +216,7 @@ describe('handleCheckConvergence', () => {
     );
 
     // Should use workflowId as the stream ID
-    expect(queryDeltaEvents).toHaveBeenCalledWith(
+    expect(foldToTail).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       'custom-stream',
