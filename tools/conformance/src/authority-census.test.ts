@@ -851,7 +851,7 @@ describe('authority census — the live topology', () => {
       'effect-event | binding | missing | the promotion record sink (`install/atomic-promotion.ts`)',
       'event-catalog | binding | missing | PHASE_EXPECTED_EVENTS (`verbs/gates/check-event-emissions.ts`)',
       'event-catalog | binding | missing | skill prose naming events to emit',
-      'event-catalog | binding | missing | the registry `autoEmits` rows',
+      'event-catalog | binding | missing | the registry emission rows',
       'phase-sequencing | binding | missing | PHASE_EXPECTED_EVENTS (`verbs/gates/check-event-emissions.ts`)',
       'phase-sequencing | binding | missing | the phase playbooks',
       'response-shape | binding | missing | Envelope<T>',

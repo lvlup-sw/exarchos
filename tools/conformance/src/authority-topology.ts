@@ -525,9 +525,9 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
       representations: Object.freeze([
         authoritative('EVENT_EMISSION_REGISTRY (`events/schemas.ts`)'),
         unbound(
-          'the registry `autoEmits` rows',
+          'the registry emission rows',
           'declared alongside the emission registry rather than projected from it — an action whose ' +
-            '`autoEmits` drifts from what it actually emits is invisible to any shipped check',
+            'emission row drifts from what it actually emits is invisible to any shipped check',
         ),
         unbound(
           'PHASE_EXPECTED_EVENTS (`verbs/gates/check-event-emissions.ts`)',

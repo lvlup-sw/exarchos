@@ -57,6 +57,7 @@ import {
   EVENT_CATALOG_REPRESENTATION_IDS,
   EVENT_CATALOG_SOURCES,
   bindingFor,
+  measureActionEmissions,
   measureEffectEvent,
   measureEmissionSinks,
   readEffectEventSources,
@@ -326,12 +327,12 @@ describe('authority census — the event-catalog row, live', () => {
     // is measuring the constant the program actually uses.
     expect(phase.sites.map((s) => s.subject)).toEqual(Object.keys(PHASE_EXPECTED_EVENTS));
 
-    // ── 3. `autoEmits` — every site baked ────────────────────────────────────
-    const auto = representation(catalog, EVENT_CATALOG_REPRESENTATION_IDS.autoEmits);
-    expect(auto.sites.length).toBeGreaterThan(0);
-    expect(derivedSites(auto)).toHaveLength(0);
-    expect(literalSites(auto)).toHaveLength(auto.sites.length);
-    expect(auto.binding.kind).toBe('unbound');
+    // ── 3. Emission rows — every site baked ─────────────────────────────────
+    const emissionRows = representation(catalog, EVENT_CATALOG_REPRESENTATION_IDS.emissions);
+    expect(emissionRows.sites.length).toBeGreaterThan(0);
+    expect(derivedSites(emissionRows)).toHaveLength(0);
+    expect(literalSites(emissionRows)).toHaveLength(emissionRows.sites.length);
+    expect(emissionRows.binding.kind).toBe('unbound');
 
     // ── 4. Skill prose — unbound structurally, not by measurement outcome ────
     const prose = representation(catalog, EVENT_CATALOG_REPRESENTATION_IDS.prose);
@@ -354,7 +355,7 @@ describe('authority census — the event-catalog row, live', () => {
     expect(tuplesFor(live, 'event-catalog')).toEqual([
       `event-catalog | binding | missing | ${EVENT_CATALOG_REPRESENTATION_IDS.phaseExpectedEvents}`,
       `event-catalog | binding | missing | ${EVENT_CATALOG_REPRESENTATION_IDS.prose}`,
-      `event-catalog | binding | missing | ${EVENT_CATALOG_REPRESENTATION_IDS.autoEmits}`,
+      `event-catalog | binding | missing | ${EVENT_CATALOG_REPRESENTATION_IDS.emissions}`,
     ]);
     expect(live.ok).toBe(false);
 
@@ -396,7 +397,7 @@ describe('authority census — the event-catalog row, live', () => {
     );
 
     // ── 8. SENSITIVITY CONTROL B — the row closes when the tree changes ──────
-    // All six entries derived, every `autoEmits` list computed, and the prose
+    // All six entries derived, every emission row's event computed, and the prose
     // no longer naming any registered event. The measurement then reports a
     // closed boundary, which is what makes the red above a fact about the tree
     // rather than a hard-coded verdict.
@@ -405,10 +406,10 @@ describe('authority census — the event-catalog row, live', () => {
       literalSites(phase),
       (site) => `modelEmittedOnly(getRegisteredEventTypes('${site.subject}'))`,
     );
-    const autoDerived = spliceSites(
-      sources.autoEmits,
-      literalSites(auto),
-      () => 'autoEmissionsFor(name)',
+    const emissionsDerived = spliceSites(
+      sources.emissions,
+      literalSites(emissionRows),
+      () => 'eventFor(name)',
     );
     const proseRedacted: EventCatalogSources['docs'] = sources.docs.map((doc) => ({
       file: doc.file,
@@ -424,14 +425,14 @@ describe('authority census — the event-catalog row, live', () => {
       // unmodified here, because this counterfactual remediates the REPRESENTATIONS, not the
       // authority.
       annotations: sources.annotations,
-      autoEmits: autoDerived,
+      emissions: emissionsDerived,
       phaseExpectedEvents: allDerived,
       docs: proseRedacted,
     });
     expect(
       representation(remediated, EVENT_CATALOG_REPRESENTATION_IDS.phaseExpectedEvents).binding.kind,
     ).toBe('bound');
-    expect(representation(remediated, EVENT_CATALOG_REPRESENTATION_IDS.autoEmits).binding.kind).toBe(
+    expect(representation(remediated, EVENT_CATALOG_REPRESENTATION_IDS.emissions).binding.kind).toBe(
       'bound',
     );
     // The prose representation does not become "bound" — it ceases to exist.
@@ -523,10 +524,37 @@ describe('authority census — the live proof fails closed', () => {
       ),
     ).toThrow(/resolved ZERO sites/);
 
-    // ── The `autoEmits` population ───────────────────────────────────────────
+    // ── The emission-row population ──────────────────────────────────────────
+    // The generic helper, on a property name nothing declares.
     expect(() =>
-      measurePropertyAssignments(sources.autoEmits, EVENT_CATALOG_SOURCES.autoEmits, 'autoEmitz'),
+      measurePropertyAssignments(sources.emissions, EVENT_CATALOG_SOURCES.emissions, 'autoEmitz'),
     ).toThrow(/resolved ZERO sites/);
+
+    // The row scan itself. These rows have already moved once — they were a
+    // sibling `autoEmits:` array before the action contract absorbed them, and
+    // the scan that went looking for the old name resolved zero sites. It threw
+    // instead of reporting a catalog with nothing unbound in it, which is the
+    // only reason the move was visible at all. The tooth stays.
+    expect(() => measureActionEmissions('export const nothing = 1;\n', 'fixture.ts')).toThrow(
+      /resolved ZERO sites/,
+    );
+
+    // …and it must stay SPECIFIC to emission rows. `event:` on its own also
+    // appears on the postcondition rows and in the request schemas; counting
+    // those would inflate the denominator with sites that say nothing about
+    // this representation, and would keep the scan alive on a tree where every
+    // real emission row had been deleted.
+    expect(() =>
+      measureActionEmissions(
+        "const x = { source: 'event-append', when: 'success', event: 'export.executed' };\n",
+        'fixture.ts',
+      ),
+    ).toThrow(/resolved ZERO sites/);
+    const oneRow = measureActionEmissions(
+      "const x = { event: 'workflow.started', condition: 'always', owner: 'w', role: 'primary' };\n",
+      'fixture.ts',
+    );
+    expect(oneRow.map((s) => [s.subject, s.kind])).toEqual([['workflow.started', 'literal']]);
 
     // ── The prose corpus ─────────────────────────────────────────────────────
     // The tooth is on the CORPUS, not on the result: an empty corpus is a broken
