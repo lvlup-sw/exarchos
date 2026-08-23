@@ -59,7 +59,11 @@ function memoryEventStore(): EventStore {
       return append(streamId, event);
     },
     async appendValidated(streamId: string, event: WorkflowEvent) {
-      return append(streamId, event);
+      return append(streamId, {
+        type: event.type,
+        ...(event.data !== undefined ? { data: event.data } : {}),
+        ...(event.operationId !== undefined ? { operationId: event.operationId } : {}),
+      });
     },
     listStreams() {
       return [...rows.keys()];
