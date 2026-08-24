@@ -68,7 +68,6 @@ const ARGS: Readonly<Record<string, Record<string, unknown>>> = {
   agent_spec: { agent: 'implementer' },
   prepare_review: { featureId: 'feat-host-obligation' },
   check_coderabbit: { owner: 'acme', repo: 'widgets', prNumbers: [1] },
-  cutover_decide: {},
   discover_bridge: { featureId: 'feat-host-obligation', artifact: 'docs/specs/example.md' },
 };
 
@@ -97,7 +96,19 @@ describe('host-owned actions — execute vs return the obligation', () => {
     // stopped declaring host authority would make every case below vacuous.
     const rows = hostOwnedActions();
 
-    expect(rows.length).toBeGreaterThanOrEqual(5);
+    // PR #1867 reclassified `cutover_decide` from implicit host authority
+    // (the pre-PR default when no executionAuthority was declared) to
+    // explicit local authority: the cutover handler now discharges the
+    // decision in-process rather than returning a host obligation for an
+    // operator to fulfill. The host-owned population went from five to
+    // four, not because a row was deleted but because its executionAuthority
+    // became explicit local. The two blocking obligations (interactive-authentication
+    // on `check_coderabbit`, human-approval on `discover_bridge`) and the
+    // two non-blocking obligations (agent-spawn on `agent_spec` and
+    // `prepare_review`) are still covered — the assertion that fires next
+    // (rows.filter(...).length > 0) is what kept the test honest before
+    // and what keeps it honest now.
+    expect(rows.length).toBeGreaterThanOrEqual(4);
     expect(rows.filter((r) => r.blocking).length).toBeGreaterThan(0);
     expect(rows.filter((r) => !r.blocking).length).toBeGreaterThan(0);
     // Every one is exercised below; an unlisted action would silently skip.

@@ -12,6 +12,7 @@ import type { GetInput, WorkflowState } from '../types.js';
 import * as path from 'node:path';
 import { resolveDotPath } from './dot-path.js';
 import { isEventSourced, mergeFileOwnedFields, stripInternalFields } from './shared.js';
+import { guardProjectionDegraded } from '../../projections/degraded-result.js';
 
 // ─── handleGet ──────────────────────────────────────────────────────────────
 
@@ -46,6 +47,25 @@ export async function handleGet(
       };
     }
     throw err;
+  }
+
+  // DR-4 (T-06, #1855-aware) — refuse a stream recorded as projection-degraded
+  // BEFORE any materialization or state-file read. The guard is a no-op when
+  // the health stream itself cannot be read (eventStore === null) — the
+  // freshness probe must never be the reason a good read fails, so it passes
+  // through and lets the caller answer. Mirrors the established consumer
+  // pattern in `projections/views/composite.ts`.
+  if (eventStore != null) {
+    const refusal = await guardProjectionDegraded(eventStore, input.featureId, {
+      tool: 'exarchos_workflow',
+      action: 'get',
+      onError: (err) => {
+        // Unreadable health stream is not a refusal — log and proceed.
+        // eslint-disable-next-line no-console
+        console.warn('guardProjectionDegraded could not read health stream:', err);
+      },
+    });
+    if (refusal !== undefined) return refusal;
   }
 
   // Version discriminator: ES v2 workflows materialize from events

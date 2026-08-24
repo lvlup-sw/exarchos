@@ -149,7 +149,20 @@ describe('DR-14: escape-hatch census', () => {
   // subject as assertions that "silence the checker without proving
   // anything", which `as const` does not do. That mismatch is older than this
   // change and is left as a separate question.
-  const BASELINE: CastCounts = { nonNull: 73, asCast: 1722, asAny: 0 };
+  //
+  // PAYDOWN (#1867) — nonNull 73 -> 70, asCast 1722 -> 1719. The action-contract
+  // closure synthesis (§"Re-baselined for the action-contract surface" above)
+  // introduced six bridge assertions at the ES v2 fold sites in
+  // `src/workflow/handlers/get.ts` and `src/workflow/handlers/set.ts` —
+  // three `as WorkflowStateView`-style casts plus three `x!` non-null
+  // assertions — to span the materializer singleton that PR #1858 added.
+  // PR #1867 reverted the singleton (see `src/workflow/handlers/shared.ts`
+  // §"Module-Level ViewMaterializer (removed)") and folded the read path
+  // through `foldToTail<WorkflowStateView>`, which is generic and constrains
+  // the return type at the call site — every bridge assertion became dead
+  // and was removed in the same commit. Three casts and three non-nulls;
+  // no new debt introduced, no sym-floors widened.
+  const BASELINE: CastCounts = { nonNull: 70, asCast: 1719, asAny: 0 };
 
   // Declared budget = MAX escape-hatch sites maintenance work may introduce
   // before the NEXT documented re-baseline. `as any` may never grow.

@@ -11,6 +11,27 @@
 
 export { CURRENT_ES_VERSION, isEventSourced } from './handlers/shared.js';
 
+// ─── Legacy materializer setter — kept as a no-op for test compatibility ────
+//
+// `configureWorkflowMaterializer` was the install seam for a module-level
+// `ViewMaterializer` singleton that gated the ES v2 read and snapshot paths.
+// That singleton was retired (#1867 reverted the projection reverts that
+// depended on it; see `handlers/shared.ts` §"Module-Level ViewMaterializer
+// (removed)") because nothing in `src/` ever set it, so both ES v2 paths were
+// dark in the shipped composition. The handlers now resolve the materializer
+// per-stateDir via `getOrCreateMaterializer(stateDir)`.
+//
+// The import path stays so the seven test files that wired it for fixture
+// injection keep compiling. The setter is a no-op: the per-call materializer
+// the handlers actually use cannot be substituted by a test-injected one, and
+// a setter that "looks installed but isn't" is exactly the off-switch the
+// removal paragraph above named. Tests that need a custom materializer must
+// reach the fold seam directly; this symbol exists only to honor the
+// previously-published module path.
+export function configureWorkflowMaterializer(_materializer: unknown): void {
+  // Intentionally empty — see the block comment above.
+}
+
 // Two handlers already lived in their own modules and were re-exported from
 // here. They keep that arrangement — this file is the surface, wherever a
 // handler's body happens to sit.

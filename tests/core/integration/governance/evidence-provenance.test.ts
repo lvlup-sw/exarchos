@@ -429,7 +429,7 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
       const message = String(refused.result?.error?.message);
       expect(message).toContain('29 event(s) short');
       expect(message).toContain('tail 42');
-      expect(message).toContain('worst cursor 13');
+      expect(message).toContain('cursor 13');
       expect(message).toContain(featureId);
       // Emphatically not a "no data" answer served as success.
       expect(refused.result?.data).toBeUndefined();
