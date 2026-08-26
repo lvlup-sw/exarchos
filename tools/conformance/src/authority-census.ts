@@ -252,8 +252,8 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
       boundary: 'action-contract',
       hop: 'enforcement',
       evidence: 'registered-instrument',
-      instrument: 'p05-05-reachability-census',
-      why: 'the only row claiming `already-enforced`; its claim resolves against the shipped P05-05 census, whose DIRECTION this module checks.',
+      instrument: 'action-contract-closure',
+      why: 'the only row claiming `already-enforced`; its claim resolves against the ActionId-scoped closure instrument, whose DIRECTION this module checks.',
     }),
   }),
 
@@ -559,17 +559,20 @@ export interface EnforcementInstrument {
 /**
  * Every instrument a row may currently name.
  *
- * One entry. The P05-05 reachability census is the only shipped instrument any
- * row claims today, and its direction is `authority-to-representation` as a
- * matter of construction, not opinion: `evaluateClosure` iterates
- * `inputs.actions` — the contract compiler's action list, i.e. the AUTHORITY —
- * and `resolveHops` filters every representation list BY the action it is
- * resolving. A route, handler, artifact or fixture entry belonging to no action
- * in that denominator is never looked at, so it can never be reported.
+ * Two entries, and they are not interchangeable. The reachability census stays
+ * registered for the wiring walk: `evaluateClosure` iterates `inputs.actions`
+ * — the contract compiler's action list, i.e. the AUTHORITY — and `resolveHops`
+ * filters every representation list BY the action it is resolving. A route,
+ * handler, artifact or fixture entry belonging to no action in that denominator
+ * is never looked at, so it can never be reported. That direction is
+ * `authority-to-representation` as a matter of construction, not opinion, and
+ * the co-located test PROVES it by running the shipped `evaluateClosure` over
+ * inputs carrying an orphan representation and observing `ok === true`.
  *
- * That claim is not asserted here; the co-located test PROVES it by running the
- * shipped `evaluateClosure` over inputs carrying an orphan representation and
- * observing `ok === true`.
+ * The action-contract row does not name that walk. It names the ActionId-scoped
+ * closure instrument, which walks each subject's projections, advertised copy,
+ * and executed copy back to the declared contract. An omitted dimension or
+ * orphan projection is visible there; a wiring-closed path is not a substitute.
  */
 export const ENFORCEMENT_INSTRUMENTS: readonly EnforcementInstrument[] = Object.freeze([
   Object.freeze({
@@ -584,6 +587,18 @@ export const ENFORCEMENT_INSTRUMENTS: readonly EnforcementInstrument[] = Object.
       'denominator is never enumerated, so an orphan representation — the exact thing G5 asks ' +
       'about — is invisible to it. It proves that every authority entry resolves, which is a ' +
       'necessary condition for closure and not a sufficient one.',
+  }),
+  Object.freeze({
+    id: 'action-contract-closure',
+    module: 'src/contract/action-contract-closure.ts',
+    marker: 'action-contract-closure.ts',
+    direction: 'representation-to-authority',
+    why:
+      '`evaluateActionContractClosure` walks each ActionId subject\'s projections, advertised copy, ' +
+      'and executed copy back to the declared contract and reports omitted dimensions, orphan ' +
+      'projections, and advertise/execute disagreement. A representation with no declared contract ' +
+      'is visible, which is the population walk G5 requires. The wiring census stays a separate ' +
+      'instrument and does not close these gaps.',
   }),
 ]);
 

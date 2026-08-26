@@ -27,6 +27,18 @@ import {
   RUNBOOK_ECONOMY_BUDGET_TOKENS,
 } from '../../src/registry.js';
 import type { ToolAction, CompositeTool, ActionAnnotations } from '../../src/registry.js';
+import {
+  ActionContractError,
+  contractEmissionsOf,
+  none,
+  normalizeActionContract,
+  type ActionContract,
+} from '../../src/registry/action-contract.js';
+import {
+  makeDescribeAction,
+  makeEventDescribeAction,
+  makeWorkflowDescribeAction,
+} from '../../src/registry/describe-actions.js';
 import { envelopeDataSchemaIsTyped } from '../../src/verbs/worktree/schemas.js';
 import { handleDescribe } from '../../src/describe/handler.js';
 import { wrap, wrapError } from '../../src/format.js';
@@ -1000,7 +1012,7 @@ describe('TOOL_REGISTRY', () => {
     // Still a review-phase, lead-role gate that auto-emits gate.executed.
     expect(action!.phases.has('review')).toBe(true);
     expect(action!.roles.has('lead')).toBe(true);
-    expect(action!.autoEmits?.some((e) => e.event === 'gate.executed')).toBe(true);
+    expect(contractEmissionsOf(action!).some((e) => e.event === 'gate.executed')).toBe(true);
 
     // Visible (non-hidden) composite tools stay within the 15-tool budget.
     const visibleTools = TOOL_REGISTRY.filter((t) => !t.hidden);
@@ -1052,7 +1064,7 @@ describe('TOOL_REGISTRY', () => {
     expect(action!.description.toLowerCase()).toContain('do not use');
 
     // autoEmits declares both authoring events (INV-1).
-    const events = (action!.autoEmits ?? []).map((e) => e.event);
+    const events = contractEmissionsOf(action!).map((e) => e.event);
     expect(events).toContain('invariant.authored');
     expect(events).toContain('catalog.registered');
 
@@ -1615,6 +1627,19 @@ describe('CLI examples on common actions', () => {
 // ─── Dynamic Tool Registration Tests ─────────────────────────────────────────
 
 describe('Dynamic Tool Registration', () => {
+  const fixtureContract: ActionContract = {
+    requires: none('custom fixture has no additional obligations'),
+    ensures: none('custom fixture has no durable postcondition'),
+    needs: none('custom fixture declares no capabilities'),
+    touches: {
+      frame: 'single-machine',
+      resources: none('custom fixture touches no durable resources'),
+    },
+    executionAuthority: { kind: 'local' },
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: none('custom fixture emits no events'),
+  };
+
   const customTool: CompositeTool = {
     name: 'exarchos_deploy',
     description: 'Custom deployment tool',
@@ -1625,6 +1650,7 @@ describe('Dynamic Tool Registration', () => {
         schema: z.object({ target: z.string() }),
         phases: new Set(['deploy']),
         roles: new Set(['lead']),
+        actionContract: fixtureContract,
       },
       {
         name: 'status',
@@ -1632,6 +1658,7 @@ describe('Dynamic Tool Registration', () => {
         schema: z.object({ deployId: z.string().optional() }),
         phases: new Set(['deploy']),
         roles: new Set(['any']),
+        actionContract: fixtureContract,
       },
     ],
   };
@@ -1918,10 +1945,11 @@ describe('AutoEmits Drift Tests', () => {
 
     for (const tool of TOOL_REGISTRY) {
       for (const action of tool.actions) {
-        if (!action.autoEmits || action.autoEmits.length === 0) continue;
+        const emissions = contractEmissionsOf(action);
+        if (emissions.length === 0) continue;
         anyPopulated = true;
 
-        for (const emission of action.autoEmits) {
+        for (const emission of emissions) {
           const source = (EVENT_EMISSION_REGISTRY as Record<string, string>)[emission.event];
           if (!source) {
             violations.push(
@@ -1948,7 +1976,7 @@ describe('AutoEmits Drift Tests', () => {
       for (const action of tool.actions) {
         const matchesPattern = emitsPatterns.some((p) => p.test(action.description));
         if (matchesPattern) {
-          if (!action.autoEmits || action.autoEmits.length === 0) {
+          if (contractEmissionsOf(action).length === 0) {
             violations.push(
               `${tool.name}.${action.name}: description mentions emissions but autoEmits is empty/undefined. Description: "${action.description}"`,
             );
@@ -1970,9 +1998,10 @@ describe('AutoEmits Drift Tests', () => {
     const violations: string[] = [];
     for (const tool of TOOL_REGISTRY) {
       for (const action of tool.actions) {
-        if (!action.autoEmits || action.autoEmits.length === 0) continue;
+        const emissions = contractEmissionsOf(action);
+        if (emissions.length === 0) continue;
         if (action.annotations?.readOnly === true) {
-          const events = action.autoEmits.map((e) => e.event).join(', ');
+          const events = emissions.map((e) => e.event).join(', ');
           violations.push(
             `${tool.name}.${action.name}: declares autoEmits [${events}] but annotations.readOnly === true`,
           );
@@ -2559,16 +2588,145 @@ describe('validateAction', () => {
 
   it('ValidateAction_ValidAction_DoesNotThrow', async () => {
     const validateAction = await importValidateAction();
+    const reasonedNone = none('registration fixture has no additional obligations');
     expect(() =>
       validateAction(
         {
           name: 'ok',
           outputSchema: z.object({ success: z.boolean() }),
           annotations: validAnnotations,
+          actionContract: {
+            requires: reasonedNone,
+            ensures: reasonedNone,
+            needs: reasonedNone,
+            touches: { frame: 'single-machine', resources: reasonedNone },
+            executionAuthority: { kind: 'local' },
+            replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+            emissions: reasonedNone,
+          },
         },
         'exarchos_event',
       ),
     ).not.toThrow();
+  });
+
+  const reasonedNone = none('registration fixture has no additional obligations');
+  const completeContract = (overrides: Partial<ActionContract> = {}): ActionContract => ({
+    requires: reasonedNone,
+    ensures: reasonedNone,
+    needs: reasonedNone,
+    touches: { frame: 'single-machine', resources: reasonedNone },
+    executionAuthority: { kind: 'local' },
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: reasonedNone,
+    ...overrides,
+  });
+
+  it('ValidateAction_MissingContract_FailsAtLoad', () => {
+    expect(() =>
+      validateAction(
+        {
+          name: 'probe',
+          outputSchema: z.object({ success: z.boolean() }),
+          annotations: validAnnotations,
+        },
+        'exarchos_workflow',
+        'load',
+      ),
+    ).toThrow(ActionContractError);
+  });
+
+  it('ValidateAction_MissingContract_FailsAtRegistration', () => {
+    expect(() =>
+      validateAction(
+        {
+          name: 'probe',
+          outputSchema: z.object({ success: z.boolean() }),
+          annotations: validAnnotations,
+        },
+        'exarchos_custom',
+        'registration',
+      ),
+    ).toThrow(ActionContractError);
+    try {
+      validateAction(
+        {
+          name: 'probe',
+          outputSchema: z.object({ success: z.boolean() }),
+          annotations: validAnnotations,
+        },
+        'exarchos_custom',
+        'registration',
+      );
+      expect.fail('expected missing actionContract to fail registration');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ActionContractError);
+      expect((error as ActionContractError).code).toBe('MISSING_DIMENSION');
+      expect((error as Error).message).toMatch(/exarchos_custom\.probe/);
+      expect((error as Error).message).toMatch(/actionContract/);
+    }
+  });
+
+  it('ReplayPolicy_AnnotationDisagreement_IsRejected', () => {
+    const readOnlyIdempotent: ActionAnnotations = {
+      safety: 'read-only',
+      readOnly: true,
+      destructive: false,
+      idempotent: true,
+      openWorld: false,
+    };
+    expect(() =>
+      validateAction(
+        {
+          name: 'probe',
+          outputSchema: z.object({ success: z.boolean() }),
+          annotations: readOnlyIdempotent,
+          actionContract: completeContract({
+            replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+          }),
+        },
+        'exarchos_custom',
+        'registration',
+      ),
+    ).toThrow(ActionContractError);
+    try {
+      validateAction(
+        {
+          name: 'probe',
+          outputSchema: z.object({ success: z.boolean() }),
+          annotations: validAnnotations,
+          actionContract: completeContract({ replay: { kind: 'safe-repeat' } }),
+        },
+        'exarchos_custom',
+        'registration',
+      );
+      expect.fail('expected safe-repeat without idempotent to fail');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ActionContractError);
+      expect((error as ActionContractError).code).toBe('REPLAY_ANNOTATION_DISAGREEMENT');
+    }
+  });
+
+  it('DescribeFactory_EmitsCompleteContract', () => {
+    const factories = [
+      makeDescribeAction('exarchos_view.describe'),
+      makeDescribeAction('exarchos_orchestrate.describe'),
+      makeWorkflowDescribeAction('exarchos_workflow.describe'),
+      makeEventDescribeAction('exarchos_event.describe'),
+    ];
+    for (const action of factories) {
+      expect('actionContract' in action).toBe(true);
+      const contract = (action as typeof action & { actionContract: ActionContract }).actionContract;
+      expect(normalizeActionContract(contract, { annotations: action.annotations })).toEqual(contract);
+      expect(contract.requires.kind).toBe('none');
+      expect(contract.ensures.kind).toBe('none');
+      expect(contract.needs.kind).toBe('none');
+      expect(contract.touches.frame).toBe('single-machine');
+      expect(contract.touches.resources.kind).toBe('none');
+      expect(contract.executionAuthority).toEqual({ kind: 'local' });
+      expect(contract.replay).toEqual({ kind: 'safe-repeat' });
+      expect(contract.emissions.kind).toBe('none');
+    }
   });
 });
 
@@ -3640,7 +3798,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       const edges: { tool: string; action: string; emission: AutoEmission }[] = [];
       for (const tool of TOOL_REGISTRY) {
         for (const action of tool.actions) {
-          for (const emission of action.autoEmits ?? []) {
+          for (const emission of contractEmissionsOf(action)) {
             edges.push({ tool: tool.name, action: action.name, emission });
           }
         }
@@ -3688,6 +3846,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       // here alongside the declarations that introduce it.
       expect([...new Set(edges.map((e) => e.emission.owner))].sort()).toEqual([
         'orchestrate',
+        'view',
         'workflow',
       ]);
 

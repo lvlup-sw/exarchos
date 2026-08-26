@@ -22,8 +22,8 @@
  *
  * ## Why copying the carrier is tractable
  *
- * `effect-carrier.ts` has exactly ONE import — `import type { EventType }` —
- * so a copy with that specifier rewritten to a local stub compiles standalone.
+ * `effect-carrier.ts` imports are rewritten onto local stubs so a copy
+ * compiles standalone.
  * The stub widens `EventType` to `string`, which is sound for this fixture: the
  * subject is whether a plan may omit its emission declaration, not whether an
  * event name is registered. A copy is also what lets the kill probe relax the
@@ -52,6 +52,15 @@ const RELAX_REQUIRED_EMITS: readonly Relaxation[] = [
     find: "return plan.emits.kind === 'records' ? plan.emits.emissions : [];",
     replace:
       "return plan.emits !== undefined && plan.emits.kind === 'records' ? plan.emits.emissions : [];",
+  },
+  {
+    find: 'planEmissionsFromContract(fields.emits, contract.emissions)',
+    replace:
+      'planEmissionsFromContract(fields.emits ?? recordsNothing("relaxed"), contract.emissions)',
+  },
+  {
+    find: '? fields.emits',
+    replace: '? fields.emits ?? recordsNothing("relaxed")',
   },
 ];
 

@@ -29,6 +29,11 @@ export interface ActionFixture {
   readonly inputSchemaDigest: string;
   readonly outputSchemaDigest: string;
   readonly policyDigest: string;
+  /**
+   * `sha256:` over the action's canonical action contract. Omitted when the
+   * action has no declared contract — never invented from annotations.
+   */
+  readonly actionContractDigest?: string;
   readonly errorCodes: readonly string[];
   readonly outputKinds: readonly string[];
 }
@@ -63,12 +68,17 @@ export function buildProofFixtures(
       const outputSchemaDigest = schemaPair
         ? digestText(canonicalJson(schemaPair.output))
         : 'sha256:absent';
+      const actionContractDigest =
+        d.actionContract === undefined
+          ? undefined
+          : digestText(canonicalJson(d.actionContract));
       return {
         actionId: d.actionId,
         descriptorDigest: d.digest,
         inputSchemaDigest,
         outputSchemaDigest,
         policyDigest: digestText(canonicalJson(d.policy)),
+        ...(actionContractDigest === undefined ? {} : { actionContractDigest }),
         errorCodes: d.errorCodes,
         outputKinds: d.outputKinds,
       };

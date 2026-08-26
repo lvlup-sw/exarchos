@@ -7,11 +7,14 @@ import type { VcsProvider } from '../../vcs/provider.js';
 import type { ConfigHookRunner } from '../../hooks/config-hooks.js';
 import type { Outbox } from '../../sync/outbox.js';
 import type { ChannelEmitter } from '../../adapters/channel/emitter.js';
-import type { CapabilityResolver } from '../../workflow/capabilities/resolver.js';
+import {
+  capabilityNeedSatisfied,
+  type CapabilityResolver,
+} from '../../workflow/capabilities/resolver.js';
 import type { StorageBackend } from '../../storage/backend.js';
 import type { RootsClient } from '../../runtime/workspace/discovery.js';
 import type { ElicitationClient } from '../elicitation-dispatch.js';
-import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry, findActionInRegistry } from '../../registry.js';
+import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry, findActionInRegistry, normalizeActionContract, type ToolAction } from '../../registry.js';
 // The response-economy seam lives in its own leaf (`./response-economy.js`) so
 // the telemetry middleware can import `enforceResponseEconomy` without the
 // dispatch ↔ middleware runtime import cycle (DR-4, task 009). Re-exported below
@@ -31,6 +34,7 @@ import {
   dispatchStreamId,
   emissionViolationBlocks,
   runEmissionVerifierInterceptor,
+  verifierDeclaredEmissions,
 } from './interceptors/emission-verifier.js';
 import { evaluateInstallFreshness } from '../../install/freshness-gate.js';
 import {
@@ -60,7 +64,21 @@ import {
   toPosix,
   ALLOW_STORE_DIVERGENCE_ENV,
 } from '../../utils/paths.js';
+import { workflowStateProjection } from '../../projections/views/workflow-state-projection.js';
 import type { EventSourcedTaskStore } from '../../projections/task-store/event-sourced-task-store.js';
+import { evaluateActionAdmission } from '../../workflow/admission/action-admission.js';
+import { POLICY_CAPABILITY } from '../../workflow/admission/policy-authority.js';
+import { ADMISSION_EVENT_TYPES } from '../../workflow/admission/types.js';
+import { AdmissionEvidenceRecordedData } from '../../events/schemas.js';
+import type { CallerAuthorizationSnapshot } from '../caller-identity.js';
+import { isBlockingHostObligation } from '../../registry/action-contract.js';
+import type { ActionContract, ActionRequirement } from '../../registry/action-contract.js';
+import {
+  applicableEnsures,
+  observeActionPostconditions,
+  type ActionPostconditionObservation,
+} from './action-postconditions.js';
+import { INFRA_STREAM_IDS } from './infra-streams.js';
 
 // NOTE: `../telemetry/middleware.js` is intentionally NOT imported at module
 // top-level. The middleware instantiates a singleton TraceWriter at import,
@@ -234,6 +252,345 @@ export function extractSingleMissingRequiredField(
   const received = (only as { received?: unknown }).received;
   if (received !== 'undefined' && received !== undefined) return undefined;
   return key;
+}
+
+function registryActionId(tool: string, actionName: string): string {
+  return `${tool}.${actionName}`;
+}
+
+function workflowSubjectFromArgs(
+  args: Record<string, unknown>,
+): { readonly featureId: string; readonly stream: string } | undefined {
+  const featureId =
+    typeof args.featureId === 'string' && args.featureId.length > 0
+      ? args.featureId
+      : undefined;
+  const namedStream =
+    typeof args.stream === 'string' && args.stream.length > 0
+      ? args.stream
+      : typeof args.streamId === 'string' && args.streamId.length > 0
+        ? args.streamId
+        : undefined;
+  const stream = namedStream ?? featureId;
+  if (featureId === undefined || stream === undefined) return undefined;
+  return { featureId, stream };
+}
+
+const POLICY_CAPABILITY_IDS = new Set<string>(Object.values(POLICY_CAPABILITY));
+
+/**
+ * Admission capabilities come from the trusted caller snapshot — the same
+ * grant `snapshotCallerAuthorization` already computed, including the
+ * local-operator baseline. Resolver `list()` is handshake / cache-hint
+ * surface, not the ActionId need set; mixing the two denied every CLI
+ * doctor/merge call whose resolver only advertised `anthropic_native_caching`.
+ * Policy issuer tokens are not Capability-enum members, so a local operator
+ * receives them here, and an MCP resolver may add them explicitly.
+ */
+function admissionCapabilityIds(
+  snapshot: CallerAuthorizationSnapshot | undefined,
+  resolver: DispatchContext['capabilityResolver'],
+): readonly string[] {
+  const held = new Set<string>();
+  if (snapshot !== undefined) {
+    for (const capability of snapshot.capabilities) held.add(capability);
+    if (
+      snapshot.identity.kind === 'local-operator' ||
+      snapshot.posture === 'shared-mutating'
+    ) {
+      held.add(POLICY_CAPABILITY.ISSUE_GATE_EVIDENCE);
+      held.add(POLICY_CAPABILITY.ISSUE_APPROVAL);
+      held.add(POLICY_CAPABILITY.GRANT_WAIVER);
+    }
+  }
+  if (resolver !== undefined) {
+    for (const capability of resolver.list()) {
+      if (POLICY_CAPABILITY_IDS.has(capability)) held.add(capability);
+    }
+  }
+  return [...held];
+}
+
+function admissionAuthorizationFromCaller(
+  snapshot: CallerAuthorizationSnapshot | undefined,
+  resolver: DispatchContext['capabilityResolver'],
+): {
+  readonly authorizationId: string;
+  readonly posture: 'read-only' | 'task-isolated' | 'shared-mutating';
+  readonly capabilityIds: readonly string[];
+  readonly resolverVersion: string;
+  readonly resolvedAt: string;
+} {
+  return {
+    authorizationId: snapshot?.identity.subjectId ?? 'anonymous',
+    posture: snapshot?.posture ?? 'read-only',
+    capabilityIds: admissionCapabilityIds(snapshot, resolver),
+    resolverVersion: snapshot?.resolver.version ?? 'none',
+    resolvedAt: snapshot?.resolvedAt ?? '1970-01-01T00:00:00.000Z',
+  };
+}
+
+function contractNeedsSatisfied(
+  contract: ActionContract,
+  capabilityIds: readonly string[],
+): boolean {
+  if (contract.needs.kind === 'none') return true;
+  const held = new Set(capabilityIds);
+  return contract.needs.values.every((capability) =>
+    capabilityNeedSatisfied(held, capability),
+  );
+}
+
+/**
+ * Every declared requirement is an approval.
+ *
+ * A reasoned `none` is NOT "only approvals" — it is no requirement at all, and
+ * answering true for it made an empty set satisfy a predicate about the set's
+ * members. That vacuity is what routed `agent_spec` and `prepare_review` into
+ * the obligation short-circuit and stopped their handlers from ever running.
+ */
+function requiresOnlyApprovals(requires: ActionContract['requires']): boolean {
+  if (requires.kind === 'none') return false;
+  return requires.values.every(
+    (requirement: ActionRequirement) =>
+      'kind' in requirement && requirement.kind === 'approvals',
+  );
+}
+
+function observationStreamId(
+  args: Record<string, unknown>,
+  contract: ActionContract | undefined,
+): string | undefined {
+  const fromArgs = dispatchStreamId(args);
+  if (fromArgs !== undefined) return fromArgs;
+  const resources = contract?.touches.resources;
+  if (resources === undefined || resources.kind !== 'declared') return undefined;
+  for (const resource of resources.values) {
+    if (resource.kind === 'stream' && INFRA_STREAM_IDS.has(resource.selector)) {
+      return resource.selector;
+    }
+  }
+  return undefined;
+}
+
+async function readTrustedHsmFacts(
+  eventStore: EventStore,
+  featureId: string,
+): Promise<{ readonly phase: string; readonly phaseAttemptId?: string } | undefined> {
+  try {
+    const events = await eventStore.query(featureId);
+    let view = workflowStateProjection.init();
+    for (const event of events) {
+      view = workflowStateProjection.apply(view, event);
+    }
+    if (typeof view.featureId !== 'string' || view.featureId.length === 0) {
+      return undefined;
+    }
+    if (typeof view.phase !== 'string' || view.phase.length === 0) return undefined;
+    const phaseAttemptId =
+      typeof view.phaseAttemptId === 'string' && view.phaseAttemptId.length > 0
+        ? view.phaseAttemptId
+        : undefined;
+    return phaseAttemptId === undefined
+      ? { phase: view.phase }
+      : { phase: view.phase, phaseAttemptId };
+  } catch {
+    return undefined;
+  }
+}
+
+async function readTrustedAdmissionEvidence(
+  eventStore: EventStore,
+  streamId: string,
+): Promise<readonly unknown[] | undefined> {
+  try {
+    const rows = await eventStore.query(streamId, {
+      type: ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED,
+    });
+    const evidence: unknown[] = [];
+    for (const row of rows) {
+      const parsed = AdmissionEvidenceRecordedData.safeParse(row.data);
+      if (!parsed.success) continue;
+      evidence.push(parsed.data.evidence);
+    }
+    return evidence;
+  } catch {
+    return undefined;
+  }
+}
+
+function readActionContract(action: object): ActionContract | undefined {
+  if (!('actionContract' in action)) return undefined;
+  try {
+    return normalizeActionContract(Reflect.get(action, 'actionContract'));
+  } catch {
+    return undefined;
+  }
+}
+
+function hostObligationOf(contract: ActionContract | undefined): string | undefined {
+  const authority = contract?.executionAuthority;
+  if (authority === undefined || authority.kind !== 'host') return undefined;
+  return authority.obligation;
+}
+
+function admissionDeniedResult(
+  tool: string,
+  actionName: string,
+  digestValue: string,
+): ToolResult {
+  return {
+    success: false,
+    error: {
+      code: 'ADMISSION_DENIED',
+      message: `Action "${actionName}" on tool "${tool}" is not admitted against the current trusted workflow subject.`,
+      tool,
+      action: actionName,
+      expectedShape: { digest: { algorithm: 'sha256', value: digestValue } },
+    },
+  };
+}
+
+function trustedCallerRequiredResult(tool: string, actionName: string): ToolResult {
+  return {
+    success: false,
+    error: {
+      code: 'TRUSTED_CALLER_REQUIRED',
+      message: `Action "${actionName}" requires trusted dispatch caller identity.`,
+      tool,
+      action: actionName,
+    },
+  };
+}
+
+function hostOwnedObligationResult(obligation: string): ToolResult {
+  return {
+    success: true,
+    data: { obligation },
+  };
+}
+
+function actionIsReadOnly(tool: string, actionName: string, action: ToolAction | undefined): boolean {
+  return action?.annotations?.readOnly === true || isReadOnlyAction(tool, actionName);
+}
+
+function isReadOnlyReasonedAbstention(
+  tool: string,
+  actionName: string,
+  action: ToolAction | undefined,
+): boolean {
+  if (action === undefined) return false;
+  if (!actionIsReadOnly(tool, actionName, action)) return false;
+  const contract = readActionContract(action);
+  if (contract === undefined) return false;
+  return contract.ensures.kind === 'none';
+}
+
+function formatMissingEnsures(missing: readonly { readonly source: string }[]): string {
+  return missing.map((item) => item.source).join(', ');
+}
+
+function ensureContractViolatedResult(
+  tool: string,
+  actionName: string,
+  result: ToolResult,
+  missing: readonly { readonly source: string }[],
+): ToolResult {
+  return {
+    success: false,
+    data: result.data,
+    error: {
+      code: 'ENSURE_CONTRACT_VIOLATED',
+      message:
+        `${tool}.${actionName} declared an ensure that was not observed after dispatch ` +
+        `(${formatMissingEnsures(missing)}). A branded witness or a declaration is not ` +
+        'observation — the store or the persisted-evidence reader must show the fact.',
+    },
+  };
+}
+
+/**
+ * Re-evaluate registry ActionId admission against store-trusted state before
+ * the handler or any dispatch effect runs. The snapshot is the same
+ * workflow-scoped subject used to advertise: ActionId, feature/stream,
+ * persisted evidence, authorization, and HSM facts. Request payload (including
+ * a transition target) and a fresh wall-clock are not snapshot members.
+ *
+ * Missing or invalid contracts deny. Capability failure denies. Declared
+ * requires without a store-backed subject or HSM fold deny — they never
+ * skip and they never invent a fake unscoped snapshot. Actions that
+ * abstain from requires are admitted from needs alone. Host-owned
+ * actions whose only requires are approvals return the obligation after
+ * needs pass: the approval is the host's job, not a prior local fact.
+ * Transition remains one ActionId; its request target is still decided
+ * by the HSM transition guard after this gate.
+ */
+async function evaluateDispatchAdmission(input: {
+  readonly tool: string;
+  readonly actionName: string;
+  readonly action: object;
+  readonly args: Record<string, unknown>;
+  readonly ctx: DispatchContext;
+  readonly authorization: CallerAuthorizationSnapshot | undefined;
+}): Promise<ToolResult | null> {
+  const contract = readActionContract(input.action);
+  const actionId = registryActionId(input.tool, input.actionName);
+  if (contract === undefined) {
+    return admissionDeniedResult(input.tool, input.actionName, 'missing-or-invalid-contract');
+  }
+
+  const authorization = admissionAuthorizationFromCaller(
+    input.authorization,
+    input.ctx.capabilityResolver,
+  );
+  if (!contractNeedsSatisfied(contract, authorization.capabilityIds)) {
+    if (input.authorization === undefined) {
+      return trustedCallerRequiredResult(input.tool, input.actionName);
+    }
+    return admissionDeniedResult(input.tool, input.actionName, 'missing-capabilities');
+  }
+
+  // A host obligation short-circuits only when the host must discharge it
+  // BEFORE the handler could do anything — an approval, an interactive login,
+  // a host-UI prompt. `agent-spawn` is discharged USING the handler's output,
+  // so those actions run and return it.
+  const obligation = hostObligationOf(contract);
+  if (
+    obligation !== undefined &&
+    (isBlockingHostObligation(obligation) || requiresOnlyApprovals(contract.requires))
+  ) {
+    return hostOwnedObligationResult(obligation);
+  }
+  if (contract.requires.kind === 'none') return null;
+
+  const subject = workflowSubjectFromArgs(input.args);
+  const hsmFacts =
+    subject === undefined
+      ? undefined
+      : await readTrustedHsmFacts(input.ctx.eventStore, subject.featureId);
+  if (subject === undefined || hsmFacts === undefined) {
+    return admissionDeniedResult(input.tool, input.actionName, 'missing-trusted-inputs');
+  }
+
+  const evidence = await readTrustedAdmissionEvidence(input.ctx.eventStore, subject.stream);
+  if (evidence === undefined) {
+    return admissionDeniedResult(input.tool, input.actionName, 'missing-trusted-inputs');
+  }
+  const decision = evaluateActionAdmission(
+    actionId,
+    {
+      actionId,
+      subject,
+      evidence,
+      authorization,
+      hsmFacts,
+    },
+    contract,
+  );
+  if (decision.verdict !== 'allow') {
+    return admissionDeniedResult(input.tool, input.actionName, decision.digest.value);
+  }
+  return obligation === undefined ? null : hostOwnedObligationResult(obligation);
 }
 
 // ─── T04: Server-side Read-only Action Allowlist (Issue #1192) ─────────────
@@ -1003,6 +1360,16 @@ export async function dispatch(
       }
     }
 
+    const admission = await evaluateDispatchAdmission({
+      tool,
+      actionName,
+      action: matchingAction,
+      args,
+      ctx,
+      authorization,
+    });
+    if (admission !== null) return attachMeta(admission);
+
     // T-12 (P4 of rehydration-machinery-refactor): emit
     // `session.machinery_consumed` on the first non-rehydrate L5 handler
     // invocation that follows a `workflow.rehydrated` event landing on the
@@ -1190,9 +1557,16 @@ export async function dispatch(
   // The fault is still ours rather than the caller's, which is what the mode is
   // for: an operator who wants the old behavior sets `advisory` and gets the
   // finding without the failure.
+  const dispatchedActionName = typeof args.action === 'string' ? args.action : '';
+  const dispatchedAction =
+    dispatchedActionName === '' ? undefined : findActionInRegistry(tool, dispatchedActionName);
+  const dispatchedContract = dispatchedAction === undefined ? undefined : readActionContract(dispatchedAction);
+  const observedStreamId = observationStreamId(args, dispatchedContract);
+  const readOnlyAbstention = isReadOnlyReasonedAbstention(tool, dispatchedActionName, dispatchedAction);
+
   const emissionVerdict = await runEmissionVerifierInterceptor(ctx.eventStore, {
     tool,
-    action: typeof args.action === 'string' ? args.action : '',
+    action: dispatchedActionName,
     operationId: dispatchCtx.operationId,
     // Both spellings of the same thing. A stream is named `featureId` on most
     // actions and `streamId` on those re-parented onto a stream they did not
@@ -1201,13 +1575,12 @@ export async function dispatch(
     // `not-applicable`, so an action with an unconditional contract was exempt
     // from the check by the NAME of its parameter. The residue is declared, not
     // silent: an action carrying neither still resolves `no-stream`.
-    streamId: dispatchStreamId(args),
-    declared:
-      typeof args.action === 'string'
-        ? findActionInRegistry(tool, args.action)?.autoEmits
-        : undefined,
+    streamId: observedStreamId,
+    // Nested contract emissions are the only subject. Sibling autoEmits is leftover.
+    declared: verifierDeclaredEmissions(dispatchedContract),
     handlerStubbed: STUBBED_COMPOSITES.has(tool),
     handlerSucceeded: result.success,
+    readOnlyAbstention,
     // The interceptor resolves the mode again for its own log level. Without
     // this the record read `enforcement: block` on a run that was configured
     // advisory and did not fail — the log and the outcome disagreeing about
@@ -1235,7 +1608,7 @@ export async function dispatch(
       error: {
         code: 'EMISSION_CONTRACT_VIOLATED',
         message:
-          `${tool}.${typeof args.action === 'string' ? args.action : ''} declares an ` +
+          `${tool}.${dispatchedActionName} declares an ` +
           `unconditional emission that did not land: ${undelivered.join(', ')}. ` +
           'THE OPERATION COMPLETED AND ITS EFFECTS ARE PERFORMED — do NOT retry this ' +
           'call; retrying repeats a mutation that already succeeded. Its result is ' +
@@ -1246,6 +1619,66 @@ export async function dispatch(
           '`events.emission-enforcement: advisory` in `.exarchos.yml`.',
       },
     });
+  }
+
+  // Advisory (or any non-blocking) miss: the store does not hold the
+  // declared events. Ensure observation would fail for the same missing
+  // facts. The mode already chose not to fail the dispatch; do not
+  // re-fail it under a different code.
+  if (emissionVerdict.status === 'violated') {
+    return attachMeta(result);
+  }
+
+  // Host-owned actions never reach here: they returned the obligation before
+  // the handler ran, and they do not owe execute-path ensures. Stubbed
+  // composites are the same kind of non-execution as the emission verifier
+  // already exempts. Read-only reasoned abstention has no append to observe.
+  // A successful return after this point implies every applicable ensure was
+  // observed from the store or the persisted-evidence reader.
+  if (
+    dispatchedContract !== undefined &&
+    dispatchedContract.ensures.kind === 'declared' &&
+    !STUBBED_COMPOSITES.has(tool) &&
+    !readOnlyAbstention
+  ) {
+    const applicable = applicableEnsures(
+      dispatchedContract.ensures,
+      result.success ? 'success' : 'failure',
+    );
+    if (applicable.length === 0) {
+      return attachMeta(result);
+    }
+    if (observedStreamId === undefined || observedStreamId.length === 0) {
+      return attachMeta(
+        ensureContractViolatedResult(
+          tool,
+          dispatchedActionName,
+          result,
+          applicable,
+        ),
+      );
+    }
+    let observation: ActionPostconditionObservation;
+    try {
+      observation = await observeActionPostconditions({
+        ensures: dispatchedContract.ensures,
+        store: ctx.eventStore,
+        evidence: ctx.eventStore,
+        streamId: observedStreamId,
+        operationId: dispatchCtx.operationId,
+        outcome: result.success ? 'success' : 'failure',
+      });
+    } catch {
+      // Report the ensures that APPLY to this outcome, not every declared one:
+      // the failure path's message otherwise names postconditions the run was
+      // never going to observe.
+      observation = { status: 'violated' as const, missing: applicable };
+    }
+    if (observation.status === 'violated') {
+      return attachMeta(
+        ensureContractViolatedResult(tool, dispatchedActionName, result, observation.missing),
+      );
+    }
   }
 
   return attachMeta(result);

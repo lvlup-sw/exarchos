@@ -167,7 +167,7 @@ import {
   type EffectProvider,
 } from '../contract/reachability/providers.js';
 import { EFFECT_OWNERSHIP, type EffectOwnershipRule } from '../architecture/effect-ledger.js';
-import { TOOL_REGISTRY, type CompositeTool } from '../registry.js';
+import { TOOL_REGISTRY, contractEmissionsOf, type CompositeTool } from '../registry.js';
 
 /** Same union as `registry/gate-metadata.ts` — local to avoid a forbidden events→registry import. */
 type AutoEmissionRole = 'primary' | 'recovery';
@@ -751,6 +751,8 @@ export interface EmissionEdge {
  * Flatten the tool registry into `(event, action, declaringTool)` triples — the EMISSION population
  * the provider comparison reads.
  *
+ * Nested `actionContract.emissions` is the only declared side. Sibling
+ * `autoEmits` is leftover and is not consulted, even when it disagrees.
  * The registry is read as a VALUE, exactly as {@link resolvableProviderIds} reads the provider map:
  * transcribing which tool owns which action into this module would install the second authority the
  * comparison exists to detect, and the comparison would then agree with itself. Sorted so a report
@@ -762,13 +764,13 @@ export function declaredEmissionEdges(
   const edges: EmissionEdge[] = [];
   for (const tool of registry) {
     for (const action of tool.actions) {
-      for (const emission of action.autoEmits ?? []) {
+      for (const emission of contractEmissionsOf(action)) {
         edges.push({
           event: emission.event,
           action: action.name,
           declaringTool: tool.name,
-          ...(emission.role !== undefined ? { role: emission.role } : {}),
-          ...(emission.owner !== undefined ? { owner: emission.owner } : {}),
+          role: emission.role,
+          owner: emission.owner,
         });
       }
     }

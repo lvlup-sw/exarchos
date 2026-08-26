@@ -27,6 +27,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
+import ts from 'typescript';
 import { fromSubjectSrc } from './subject-root.js';
 import {
   classifyOutputSchema,
@@ -44,11 +45,19 @@ import { EnvelopeSchema } from '../../../src/contract/schemas/envelope.js';
 
 // ─── Authority A — the declaration form, read from registry source text ──────
 //
-// A declaration site is an `outputSchema:` property at object-literal depth
-// (four-space indent). That deliberately excludes the `outputSchema`
-// occurrences in `registry.ts` that are NOT declarations (the `ToolAction`
-// interface field, at two-space indent). Each site is paired with the nearest
-// preceding action `name:` at the same depth.
+// A declaration site is an `outputSchema:` property assignment inside an object
+// literal, paired with the `name:` of the same literal. Both halves are read
+// from the syntax tree rather than from line shape.
+//
+// The scan used to key off a four-space indent and the nearest preceding
+// `name:` line. Both are properties of how the declarations happen to be
+// FORMATTED, and neither survived the action descriptors gaining a wrapper: 46
+// of 120 sites moved to a six-space indent and became invisible, taking the
+// waiver count from 107 to 66 with nothing red — the count simply reported the
+// part of the tree the regex could still see. Reading the tree costs a parse
+// and removes the whole class. The exclusion the indent was buying comes for
+// free and for the right reason: the `ToolAction.outputSchema` interface field
+// is a property SIGNATURE, not an assignment in an object literal.
 //
 // DR-4 task 055 changed the SPELLING this authority reads, not what it means.
 // Vacuity is now unconstructible: `ToolAction.outputSchema` takes a branded
@@ -88,40 +97,76 @@ function readRegistryActionSources(dir = REGISTRY_DIR): string {
 interface DeclarationSite {
   /** Action name this `outputSchema:` belongs to. */
   readonly action: string;
-  /** Verbatim right-hand side, e.g. `EnvelopeSchema(z.unknown())`. */
+  /** Right-hand side, whitespace-collapsed, e.g. `EnvelopeSchema(z.unknown())`. */
   readonly rhs: string;
+  /** Callee when the RHS is a direct call, e.g. `vacuityWaiver`. */
+  readonly callee: string | undefined;
+  /** Argument count of that call. Distinguishes a waiver carrying a named binding. */
+  readonly argCount: number;
+}
+
+/** The property name of an object-literal member, quoted or not. */
+function memberName(name: ts.PropertyName): string | undefined {
+  if (ts.isIdentifier(name)) return name.text;
+  if (ts.isStringLiteralLike(name)) return name.text;
+  return undefined;
 }
 
 function readDeclarationSites(): readonly DeclarationSite[] {
+  const source = readRegistryActionSources();
+  const sourceFile = ts.createSourceFile(
+    'registry-tree.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ true,
+  );
   const sites: DeclarationSite[] = [];
-  let currentName = '<unknown>';
-  for (const line of readRegistryActionSources().split('\n')) {
-    const named = /^ {4}name: '([^']+)'/.exec(line);
-    if (named?.[1] !== undefined) {
-      currentName = named[1];
-      continue;
+  const visit = (node: ts.Node): void => {
+    if (ts.isObjectLiteralExpression(node)) {
+      let action: string | undefined;
+      let declared: ts.Expression | undefined;
+      for (const member of node.properties) {
+        if (!ts.isPropertyAssignment(member)) continue;
+        const key = memberName(member.name);
+        if (key === 'name' && ts.isStringLiteralLike(member.initializer)) {
+          action = member.initializer.text;
+        } else if (key === 'outputSchema') {
+          declared = member.initializer;
+        }
+      }
+      if (declared !== undefined) {
+        const call = ts.isCallExpression(declared) ? declared : undefined;
+        sites.push({
+          action: action ?? '<unknown>',
+          rhs: declared.getText(sourceFile).replace(/\s+/g, ' ').trim(),
+          callee:
+            call !== undefined && ts.isIdentifier(call.expression)
+              ? call.expression.text
+              : undefined,
+          argCount: call?.arguments.length ?? 0,
+        });
+      }
     }
-    const declared = /^ {4}outputSchema: (.+?),?\s*$/.exec(line);
-    if (declared?.[1] !== undefined) {
-      sites.push({ action: currentName, rhs: declared[1].replace(/,$/, '') });
-    }
-  }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
   return sites;
 }
 
 /** The pre-DR-4 spelling of vacuity. No declaration site may use it any more. */
 const LITERAL_VACUOUS_RHS = 'EnvelopeSchema(z.unknown())';
 /** The sole substantive constructor. */
-const isCappedShapeRhs = (rhs: string): boolean => rhs.startsWith('withCappedShape(');
+const isCappedShapeRhs = (site: DeclarationSite): boolean => site.callee === 'withCappedShape';
 /** The allowlist escape — vacuity, declared against an owned, expiring entry. */
-const isWaiverRhs = (rhs: string): boolean => rhs.startsWith('vacuityWaiver(');
+const isWaiverRhs = (site: DeclarationSite): boolean => site.callee === 'vacuityWaiver';
 /**
  * A waiver carrying an explicit schema argument: vacuity reached through a
  * NAMED BINDING rather than the default envelope. These are the declarations a
  * source-text detector would score as typed if it only looked for the literal
  * vacuous expression.
  */
-const isNamedBindingRhs = (rhs: string): boolean => isWaiverRhs(rhs) && rhs.includes(', ');
+const isNamedBindingRhs = (site: DeclarationSite): boolean =>
+  isWaiverRhs(site) && site.argCount >= 2;
 
 // ─── Synthetic registry fixtures ─────────────────────────────────────────────
 //
@@ -279,7 +324,7 @@ describe('DR-4: outputSchema vacuity census', () => {
     // tree that supplies a real `data` shape. Authority B: the census's verdict,
     // computed from the Zod objects. Neither side is read from the other.
     const cappedFromSource = readDeclarationSites()
-      .filter((s) => isCappedShapeRhs(s.rhs))
+      .filter((s) => isCappedShapeRhs(s))
       .map((s) => s.action);
     const substantiveFromCensus = censusLiveOutputSchemas()
       .records.filter((r) => r.classification === 'substantive')
@@ -333,7 +378,7 @@ describe('DR-4: outputSchema vacuity census', () => {
     // counted vacuous; if a future change makes one genuinely typed, this
     // assertion fails and the reconciled arithmetic below has to be re-derived
     // rather than quietly drifting.
-    const namedBindings = readDeclarationSites().filter((s) => isNamedBindingRhs(s.rhs));
+    const namedBindings = readDeclarationSites().filter((s) => isNamedBindingRhs(s));
     expect(namedBindings.length).toBeGreaterThan(0);
 
     const byAction = new Map(censusLiveOutputSchemas().records.map((r) => [r.action, r]));
@@ -372,9 +417,9 @@ describe('DR-4: outputSchema vacuity census', () => {
     const report = censusLiveOutputSchemas();
     const sites = readDeclarationSites();
     const literalVacuousSites = sites.filter((s) => s.rhs === LITERAL_VACUOUS_RHS).length;
-    const cappedSites = sites.filter((s) => isCappedShapeRhs(s.rhs)).length;
-    const waiverSites = sites.filter((s) => isWaiverRhs(s.rhs)).length;
-    const namedBindingSites = sites.filter((s) => isNamedBindingRhs(s.rhs)).length;
+    const cappedSites = sites.filter((s) => isCappedShapeRhs(s)).length;
+    const waiverSites = sites.filter((s) => isWaiverRhs(s)).length;
+    const namedBindingSites = sites.filter((s) => isNamedBindingRhs(s)).length;
 
     // Authority A: what the source spells. 108 allowlist waivers + 14
     // withCappedShape = 122 declaration sites, and the two forms are

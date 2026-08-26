@@ -253,3 +253,44 @@ export class ReplayLedger<R> {
     return this.store.has(idempotencyKey);
   }
 }
+
+/**
+ * Replay decision bound to the existing {@link ReplayIdentity} keys.
+ *
+ * Structurally the action-contract replay policy. Kept as a local shape so this
+ * module does not grow a registry import — the identity keys stay the ones
+ * already claimed here (idempotency key, subject, request digest).
+ */
+export type BoundReplayPolicy =
+  | { readonly kind: 'safe-repeat' }
+  | { readonly kind: 'claim-required'; readonly scope: 'stream-subject-request' }
+  | { readonly kind: 'reject-replay'; readonly because: string };
+
+/**
+ * Apply a replay policy against the existing claim ledger.
+ *
+ * Absent policy (live actions may lack a contract) and `safe-repeat` execute
+ * without claiming. `claim-required` is {@link ReplayLedger.claim} on the
+ * existing identity. `reject-replay` executes the first claim and refuses a
+ * second without running the executor.
+ */
+export function applyReplayPolicy<R>(
+  replay: BoundReplayPolicy | undefined,
+  identity: ReplayIdentity,
+  ledger: ReplayLedger<R>,
+  execute: () => R,
+): ReplayOutcome<R> {
+  if (replay === undefined || replay.kind === 'safe-repeat') {
+    return { status: 'executed', result: execute() };
+  }
+  if (replay.kind === 'reject-replay') {
+    if (ledger.has(identity.idempotencyKey)) {
+      return {
+        status: 'conflict',
+        error: contractError('task', replay.because),
+      };
+    }
+    return ledger.claim(identity, execute);
+  }
+  return ledger.claim(identity, execute);
+}

@@ -98,7 +98,7 @@ import {
 // Via the published `registry.js` identity, not `registry/gate-metadata.js`:
 // the dispatch layer reaches the declarations through the barrel every other
 // consumer uses, and the layer-boundary audit holds it to that.
-import type { AutoEmission } from '../../../registry.js';
+import type { ActionContract, AutoEmission } from '../../../registry.js';
 import { logger } from '../../../logger.js';
 
 const verifierLogger = logger.child({ subsystem: 'emission-verifier' });
@@ -183,6 +183,11 @@ export const EMISSION_INAPPLICABILITY_REASONS = [
    * stub to it would report drift that exists only in the fixture.
    */
   'handler-stubbed',
+  /**
+   * A read-only action reasoned that it appends nothing. The append check
+   * would ask the store for events that the action promised not to write.
+   */
+  'read-only-abstention',
 ] as const;
 
 export type EmissionInapplicabilityReason =
@@ -285,6 +290,22 @@ export function lifecycleViolations(
  * the subject set here and never re-enters it — it is neither required below nor
  * available to satisfy something that is.
  */
+/**
+ * The emission list the verifier assesses.
+ *
+ * Nested `actionContract.emissions` is the only subject. Sibling `autoEmits`
+ * is never consulted — a populated leftover list must not revive a reasoned
+ * `none`, and an absent contract is not filled in from the sibling.
+ */
+export function verifierDeclaredEmissions(
+  contract: Pick<ActionContract, 'emissions'> | undefined,
+): readonly AutoEmission[] | undefined {
+  if (contract?.emissions.kind === 'declared') {
+    return contract.emissions.values;
+  }
+  return undefined;
+}
+
 export function unconditionalEmissions(
   declared: readonly AutoEmission[] | undefined,
 ): readonly string[] {
@@ -438,6 +459,12 @@ export interface EmissionVerifierCall {
    * the work owes no record of having done it.
    */
   readonly handlerSucceeded?: boolean;
+  /**
+   * A read-only action whose contract reasons that it appends nothing.
+   * The append check is skipped: there is no event-append obligation to
+   * observe, and querying for one would treat reasoned silence as drift.
+   */
+  readonly readOnlyAbstention?: boolean;
   /** Registration table for the lifecycle axis. Injectable for tests. */
   readonly annotations?: Readonly<Record<string, EventRegistration>>;
   /**
@@ -484,6 +511,15 @@ export async function runEmissionVerifierInterceptor(
     return {
       status: 'not-applicable',
       reason: 'handler-stubbed',
+      missingEvents: [],
+      lifecycleViolations: [],
+      required,
+    };
+  }
+  if (call.readOnlyAbstention === true) {
+    return {
+      status: 'not-applicable',
+      reason: 'read-only-abstention',
       missingEvents: [],
       lifecycleViolations: [],
       required,

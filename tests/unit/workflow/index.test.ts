@@ -93,7 +93,17 @@ vi.mock('../../../src/workflow/cleanup.js', () => ({
 }));
 
 vi.mock('../../../src/events/store.js', () => ({
-  EventStore: vi.fn(),
+  EventStore: vi.fn().mockImplementation(() => ({
+    initialize: vi.fn().mockResolvedValue(undefined),
+    query: vi.fn().mockImplementation(
+      (_streamId: string, filters?: { type?: string; operationId?: string }) =>
+        Promise.resolve(
+          filters?.type === undefined
+            ? []
+            : [{ type: filters.type, operationId: filters.operationId, data: {} }],
+        ),
+    ),
+  })),
 }));
 
 vi.mock('../../../src/projections/views/snapshot-store.js', () => ({

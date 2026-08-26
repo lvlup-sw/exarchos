@@ -46,7 +46,7 @@ import {
 import { buildCli } from '../../../../src/adapters/cli/cli.js';
 
 import { handleMergeOrchestrate } from '../../../../src/verbs/merge/merge-orchestrate.js';
-import type { MergePreflightResult } from '../../../../src/verbs/pure/merge-preflight.js';
+import type { GitExec, MergePreflightResult } from '../../../../src/verbs/pure/merge-preflight.js';
 import type { HandleExecuteMergeInput } from '../../../../src/verbs/merge/execute-merge.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
@@ -75,6 +75,27 @@ const PARITY_ARGS = {
   taskId: 'T22',
   strategy: 'squash' as const,
 };
+
+/**
+ * Topology probe that never sees the developer's sibling worktrees.
+ * `handleMergeOrchestrate` runs `git worktree list` before the injectable
+ * preflight; without this, a local checkout of `main` in another worktree
+ * aborts the stubbed success path.
+ */
+function makeGitExec(): GitExec {
+  return vi.fn().mockImplementation((_repo: string, args: readonly string[]) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') {
+      return { stdout: '/repo\n', exitCode: 0 };
+    }
+    if (args[0] === 'worktree' && args[1] === 'list') {
+      return {
+        stdout: 'worktree /repo\nHEAD aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nbranch refs/heads/feat/x\n\n',
+        exitCode: 0,
+      };
+    }
+    return { stdout: '', exitCode: 0 };
+  });
+}
 
 // ─── Arm helpers ───────────────────────────────────────────────────────────
 
@@ -161,6 +182,7 @@ function buildMergeOrchestrateCompositeStub(
         preflight,
         executeMerge,
         persistState,
+        gitExec: makeGitExec(),
       } as Parameters<typeof handleMergeOrchestrate>[0],
       ctx,
     );

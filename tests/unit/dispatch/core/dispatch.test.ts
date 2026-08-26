@@ -25,8 +25,27 @@ import {
   setCustomToolActionHandler,
 } from '../../../../src/registry.js';
 import type { CompositeTool } from '../../../../src/registry.js';
+import { none, type ActionContract } from '../../../../src/registry/action-contract.js';
+
+const FIXTURE_CONTRACT: ActionContract = {
+  requires: none('dispatch fixture has no additional obligations'),
+  ensures: none('dispatch fixture has no durable postcondition'),
+  needs: none('dispatch fixture declares no capabilities'),
+  touches: {
+    frame: 'single-machine',
+    resources: none('dispatch fixture touches no durable resources'),
+  },
+  executionAuthority: { kind: 'local' },
+  replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+  emissions: none('dispatch fixture emits no events'),
+};
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { extractSingleMissingRequiredField } from '../../../../src/dispatch/core/dispatch.js';
+import { deriveLocalOperatorIdentity } from '../../../../src/dispatch/caller-identity.js';
+import {
+  ANTHROPIC_NATIVE_CACHING,
+  createInMemoryResolver,
+} from '../../../../src/workflow/capabilities/resolver.js';
 import { InMemoryBackend } from '../../../../src/storage/memory-backend.js';
 import type { StorageBackend } from '../../../../src/storage/backend.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
@@ -44,6 +63,16 @@ describe('dispatch', () => {
   afterEach(async () => {
     await rmrfAsync(tmpDir);
   });
+
+  function ctx(extra: Partial<DispatchContext> = {}): DispatchContext {
+    return {
+      stateDir: tmpDir,
+      eventStore,
+      enableTelemetry: false,
+      callerIdentity: deriveLocalOperatorIdentity(tmpDir),
+      ...extra,
+    };
+  }
 
   // ─── T15 (DR-2) — DispatchContext.storage field ─────────────────────────
   //
@@ -93,7 +122,7 @@ describe('dispatch', () => {
     const result = await dispatch(
       'exarchos_workflow',
       { action: 'get', featureId: 'test-feature' },
-      { stateDir: tmpDir, eventStore, enableTelemetry: false },
+      ctx(),
     );
 
     // Assert — should return a ToolResult (may fail due to missing state, but should route)
@@ -109,7 +138,7 @@ describe('dispatch', () => {
     const result = await dispatch(
       'nonexistent_tool',
       {},
-      { stateDir: tmpDir, eventStore, enableTelemetry: false },
+      ctx(),
     );
 
     // Assert
@@ -137,7 +166,7 @@ describe('dispatch', () => {
       const result = await dispatch(
         toolName,
         { action: 'get', featureId: 'test' },
-        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        ctx(),
       );
 
       // Assert — dispatch wraps the load failure in a structured ToolResult
@@ -190,6 +219,7 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            actionContract: FIXTURE_CONTRACT,
           },
           {
             name: 'status',
@@ -197,6 +227,7 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            actionContract: FIXTURE_CONTRACT,
           },
         ],
       };
@@ -214,7 +245,7 @@ describe('dispatch', () => {
       const result = await dispatch(
         'exarchos_deploy',
         { action: 'trigger', target: 'production' },
-        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        ctx(),
       );
 
       // Assert — should NOT be UNKNOWN_TOOL
@@ -234,6 +265,7 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            actionContract: FIXTURE_CONTRACT,
           },
           {
             name: 'cancel',
@@ -241,6 +273,7 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            actionContract: FIXTURE_CONTRACT,
           },
         ],
       };
@@ -254,7 +287,7 @@ describe('dispatch', () => {
       const result = await dispatch(
         'exarchos_ci',
         {},
-        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        ctx(),
       );
 
       // Assert
@@ -274,6 +307,7 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            actionContract: FIXTURE_CONTRACT,
           },
           {
             name: 'list',
@@ -281,6 +315,7 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            actionContract: FIXTURE_CONTRACT,
           },
         ],
       };
@@ -294,7 +329,7 @@ describe('dispatch', () => {
       const result = await dispatch(
         'exarchos_notify',
         { action: 'delete' },
-        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        ctx(),
       );
 
       // Assert
@@ -314,12 +349,12 @@ describe('dispatch', () => {
       const restore = stubCompositeHandler('exarchos_workflow', spy);
 
       try {
-        const ctx: DispatchContext = { stateDir: tmpDir, eventStore, enableTelemetry: false };
+        const dispatchCtx = ctx();
 
         // Act — DR-5: dispatch now validates action names and per-action
         // schemas before routing, so this smoke test uses the `describe`
         // action whose schema accepts empty args.
-        await dispatch('exarchos_workflow', { action: 'describe' }, ctx);
+        await dispatch('exarchos_workflow', { action: 'describe' }, dispatchCtx);
 
         // Assert — handler should receive the full DispatchContext, not just stateDir string
         expect(receivedCtx).toBeDefined();
@@ -342,7 +377,7 @@ describe('dispatch', () => {
       const result = await dispatch(
         'exarchos_leaked',
         { action: 'run' },
-        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        ctx(),
       );
 
       // Assert — leaked handlers must not be executable without registration
@@ -362,6 +397,7 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            actionContract: FIXTURE_CONTRACT,
           },
           {
             name: 'warnings',
@@ -369,6 +405,7 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            actionContract: FIXTURE_CONTRACT,
           },
           {
             name: 'noop',
@@ -376,6 +413,7 @@ describe('dispatch', () => {
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
+            actionContract: FIXTURE_CONTRACT,
           },
         ],
       };
@@ -394,7 +432,7 @@ describe('dispatch', () => {
       const result = await dispatch(
         'exarchos_passthrough',
         { action: 'check' },
-        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        ctx(),
       );
 
       // Assert — the ToolResult from the handler passes through
@@ -405,7 +443,7 @@ describe('dispatch', () => {
       const warningsResult = await dispatch(
         'exarchos_passthrough',
         { action: 'warnings' },
-        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        ctx(),
       );
 
       // Assert — warnings field recognized as ToolResult, not wrapped
@@ -442,7 +480,7 @@ describe('dispatch', () => {
           nativeIsolation: false, // from prepare_delegation
           outputFormat: 'full', // from agent_spec
         },
-        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        ctx(),
       );
 
       // The handler may still fail (no real git/test fixtures), but it
@@ -471,7 +509,7 @@ describe('dispatch', () => {
           // Caller-supplied typo — not declared on any orchestrate action.
           totallyMadeUpKey: 'this is a typo',
         },
-        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        ctx(),
       );
 
       expect(result.success).toBe(false);
@@ -502,7 +540,7 @@ describe('dispatch', () => {
           // `dispatch()`; the parse must fail BEFORE the handler runs.
           thresholdMinutes: 60,
         },
-        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        ctx(),
       );
 
       expect(result.success).toBe(false);
@@ -527,7 +565,7 @@ describe('dispatch', () => {
       const result = await dispatch(
         'exarchos_orchestrate',
         { action: 'prune_stale_workflows', dryRun: true, includeOneShot: false },
-        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        ctx(),
       );
 
       if (!result.success) {
@@ -546,7 +584,7 @@ describe('dispatch', () => {
       const result = await dispatch(
         'exarchos_orchestrate',
         { action: 'prune_stale_workflows', dryRun: true, now: 'not-a-date' },
-        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        ctx(),
       );
 
       expect(result.success).toBe(false);
@@ -568,7 +606,12 @@ describe('dispatch', () => {
       const result = await dispatch(
         'exarchos_orchestrate',
         { action: 'doctor' },
-        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        ctx({
+          // Production CLI wires a cache-hint resolver that is not the
+          // ActionId need set. Admission must use the local-operator
+          // snapshot grant, not resolver.list().
+          capabilityResolver: createInMemoryResolver([ANTHROPIC_NATIVE_CACHING]),
+        }),
       );
 
       // Assert — structural: composite handler reached, output has
@@ -584,6 +627,32 @@ describe('dispatch', () => {
       const tallyTotal =
         data.summary.passed + data.summary.warnings + data.summary.failed + data.summary.skipped;
       expect(tallyTotal).toBe(data.checks.length);
+    });
+
+    it('Dispatch_Doctor_AnonymousCaller_RequiresTrustedCaller', async () => {
+      const { dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
+      const result = await dispatch(
+        'exarchos_orchestrate',
+        { action: 'doctor' },
+        {
+          stateDir: tmpDir,
+          eventStore,
+          enableTelemetry: false,
+        },
+      );
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('TRUSTED_CALLER_REQUIRED');
+    });
+
+    it('Dispatch_DeclaredRequires_MissingStoreFacts_IsAdmissionDenied', async () => {
+      const { dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
+      const result = await dispatch(
+        'exarchos_orchestrate',
+        { action: 'check_invariant_conformance', featureId: 'feat-no-events' },
+        ctx(),
+      );
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('ADMISSION_DENIED');
     });
   });
 
@@ -659,7 +728,7 @@ describe('dispatch', () => {
         const result = await dispatch(
           'exarchos_workflow',
           { action: 'get', featureId },
-          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+          ctx(),
         );
         expect(result.success).toBe(true);
       } finally {
@@ -700,17 +769,17 @@ describe('dispatch', () => {
         await dispatch(
           'exarchos_workflow',
           { action: 'get', featureId },
-          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+          ctx(),
         );
         await dispatch(
           'exarchos_workflow',
           { action: 'get', featureId },
-          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+          ctx(),
         );
         await dispatch(
           'exarchos_workflow',
           { action: 'describe' },
-          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+          ctx(),
         );
       } finally {
         restore();
@@ -741,12 +810,12 @@ describe('dispatch', () => {
         await dispatch(
           'exarchos_workflow',
           { action: 'get', featureId: streamA },
-          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+          ctx(),
         );
         await dispatch(
           'exarchos_workflow',
           { action: 'get', featureId: streamB },
-          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+          ctx(),
         );
       } finally {
         restore();
@@ -786,7 +855,7 @@ describe('dispatch', () => {
         await dispatch(
           'exarchos_workflow',
           { action: 'rehydrate', featureId },
-          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+          ctx(),
         );
       } finally {
         restore();
@@ -816,7 +885,7 @@ describe('dispatch', () => {
         await dispatch(
           'exarchos_workflow',
           { action: 'get', featureId },
-          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+          ctx(),
         );
       } finally {
         restore();
@@ -845,7 +914,7 @@ describe('dispatch', () => {
         await dispatch(
           'exarchos_workflow',
           { action: 'get', featureId },
-          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+          ctx(),
         );
       } finally {
         restore();
@@ -929,7 +998,7 @@ describe('dispatch', () => {
         await dispatch(
           'exarchos_workflow',
           { action: 'get', featureId },
-          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+          ctx(),
         );
       } finally {
         restore();
@@ -955,7 +1024,7 @@ describe('dispatch', () => {
         await dispatch(
           'exarchos_workflow',
           { action: 'get', featureId },
-          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+          ctx(),
         );
       } finally {
         restore2();
@@ -989,7 +1058,7 @@ describe('dispatch', () => {
           await dispatch(
             'exarchos_workflow',
             { action: 'get', featureId },
-            { stateDir: tmpDir, eventStore, enableTelemetry: false },
+            ctx(),
           );
         }
       } finally {
@@ -1089,7 +1158,7 @@ describe('dispatch', () => {
                   await dispatch(
                     'exarchos_workflow',
                     { action: 'get', featureId },
-                    { stateDir: tmpDir, eventStore, enableTelemetry: false },
+                    ctx(),
                   );
                 }
               }
@@ -1124,7 +1193,7 @@ describe('dispatch', () => {
         await dispatch(
           'exarchos_workflow',
           { action: 'get', featureId },
-          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+          ctx(),
         );
       } finally {
         restore();
@@ -1156,7 +1225,7 @@ describe('dispatch', () => {
         await dispatch(
           'exarchos_workflow',
           { action: 'get', featureId },
-          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+          ctx(),
         );
       } finally {
         restore2();
@@ -1195,7 +1264,7 @@ describe('dispatch', () => {
         await dispatch(
           'exarchos_workflow',
           { action: 'get', featureId },
-          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+          ctx(),
         );
       } finally {
         restore();
@@ -1237,18 +1306,13 @@ describe('dispatch', () => {
           '../../../../src/projections/task-store/event-sourced-task-store.js'
         );
         const taskStore = new EventSourcedTaskStore(eventStore);
-        const ctx: DispatchContext = {
-          stateDir: tmpDir,
-          eventStore,
-          enableTelemetry: false,
-          taskStore,
-        };
+        const dispatchCtx = ctx({ taskStore });
 
         // Act — describe action, no `task` key in args.
         const result = await dispatch(
           'exarchos_workflow',
           { action: 'describe' },
-          ctx,
+          dispatchCtx,
         );
 
         // Assert — legacy one-shot envelope shape preserved.
@@ -1280,18 +1344,13 @@ describe('dispatch', () => {
           '../../../../src/projections/task-store/event-sourced-task-store.js'
         );
         const taskStore = new EventSourcedTaskStore(eventStore);
-        const ctx: DispatchContext = {
-          stateDir: tmpDir,
-          eventStore,
-          enableTelemetry: false,
-          taskStore,
-        };
+        const dispatchCtx = ctx({ taskStore });
 
         // Act — describe action with `task: { ttl }` augmentation.
         const result = await dispatch(
           'exarchos_workflow',
           { action: 'describe', task: { ttl: 30_000 } },
-          ctx,
+          dispatchCtx,
         );
 
         // Assert — SDK CreateTaskResult-shaped data.
@@ -1329,16 +1388,11 @@ describe('dispatch', () => {
       });
       const restore = stubCompositeHandler('exarchos_workflow', oneShot);
       try {
-        const ctx: DispatchContext = {
-          stateDir: tmpDir,
-          eventStore,
-          enableTelemetry: false,
-          // intentionally no taskStore
-        };
+        const dispatchCtx = ctx();
         const result = await dispatch(
           'exarchos_workflow',
           { action: 'describe', task: { ttl: 30_000 } },
-          ctx,
+          dispatchCtx,
         );
         expect(result.success).toBe(true);
         expect((result.data as { kind?: string }).kind).toBe('one-shot-no-store');
@@ -1388,7 +1442,7 @@ describe('dispatch', () => {
           causationId: inboundCausationId,
         },
       },
-      { stateDir: tmpDir, eventStore, enableTelemetry: false },
+      ctx(),
     );
 
     // Assert — _meta block present regardless of success/error branch.
@@ -1429,7 +1483,7 @@ describe('dispatch', () => {
         const result = await dispatch(
           'exarchos_view',
           { action, workflowId: 123 },
-          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+          ctx(),
         );
 
         expect(result.success).toBe(false);
@@ -1575,7 +1629,7 @@ describe('dispatch', () => {
             featureId: 'hint-test',
             mergeVerified: true,
           },
-          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+          ctx(),
         );
 
         // Assert — the hint is the FIRST entry in next_actions.
@@ -1621,7 +1675,7 @@ describe('dispatch', () => {
             featureId: 'hint-below-threshold',
             mergeVerified: true,
           },
-          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+          ctx(),
         );
 
         // Assert — no retry_with_task entry in next_actions (it may be
@@ -1656,7 +1710,7 @@ describe('dispatch', () => {
         const result = await dispatch(
           'exarchos_view',
           { action: 'describe', actions: ['cleanup'] },
-          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+          ctx(),
         );
 
         expect(result.success).toBe(true);
@@ -1698,7 +1752,7 @@ describe('dispatch', () => {
             mergeVerified: true,
             task: { ttl: 60_000 },
           },
-          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+          ctx(),
         );
 
         expect(result.success).toBe(true);
@@ -1747,7 +1801,7 @@ describe('dispatch', () => {
             targetBranch: 'main',
             strategy: 'squash',
           },
-          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+          ctx(),
         );
 
         // Assert — envelope is successful, hint is FIRST in next_actions,

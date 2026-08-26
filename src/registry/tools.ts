@@ -63,7 +63,7 @@ export const TOOL_REGISTRY: readonly BuiltinCompositeTool[] = [
 // validates per-action at call time through `validateAction`.
 for (const tool of TOOL_REGISTRY) {
   for (const action of tool.actions) {
-    validateAction(action, tool.name);
+    validateAction(action, tool.name, 'load');
   }
 }
 

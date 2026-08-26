@@ -34,6 +34,9 @@ export const INFRA_STREAM_IDS: ReadonlySet<string> = new Set([
   TELEMETRY_STREAM,
   ONBOARD_STREAM_ID,
   ADMISSION_STREAM_ID,
+  // workflow/feedback.ts owns this selector; listed so observation can
+  // resolve the unscoped stream the feedback contract names.
+  'meta/feedback',
 ]);
 
 export function isFeatureStream(streamId: string): boolean {

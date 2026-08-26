@@ -1036,7 +1036,18 @@ export function checkDeclaredEmission(
 
 export interface OracleReport {
   readonly actionId: string;
+  /**
+   * True when no axis returned `fail`. A report that never looked is still
+   * `ok` — that is "no break was found", not "we inspected the subject".
+   * {@link clean} is the determinate-count half.
+   */
   readonly ok: boolean;
+  /**
+   * True only when some axis reached a verdict AND none failed. A report
+   * of only `not-observed` is never clean: absence of observation is not
+   * assurance.
+   */
+  readonly clean: boolean;
   readonly verdicts: readonly AxisVerdict[];
   /** The emission axis's verdict, reported separately — see {@link EmissionAxisVerdict}. */
   readonly emissionVerdict: EmissionAxisVerdict;
@@ -1069,12 +1080,30 @@ export async function runOracle(
   const wanted = opts.axes ? new Set<OracleAxis>(opts.axes) : undefined;
   const verdicts = wanted ? all.filter((v) => wanted.has(v.axis)) : all;
   const emissionVerdict = checkDeclaredEmission(decl, obs);
-  const ok = verdicts.every((v) => v.status !== 'fail') && emissionVerdict.status !== 'fail';
-  return { actionId: decl.actionId, ok, verdicts, emissionVerdict };
+  const considered = [...verdicts, emissionVerdict];
+  const ok = considered.every((v) => v.status !== 'fail');
+  return {
+    actionId: decl.actionId,
+    ok,
+    clean: observationIsClean(considered),
+    verdicts,
+    emissionVerdict,
+  };
 }
 
 export interface OracleSuiteReport {
+  /**
+   * True when no subject returned `fail`. A suite that never looked is still
+   * `ok` so a vacuous live run can be told from a broken one. {@link clean}
+   * is the determinate-count half.
+   */
   readonly ok: boolean;
+  /**
+   * True only when some axis reached a verdict AND none failed. A suite of
+   * only `not-observed` verdicts is never clean: a determinate count of
+   * zero is not assurance.
+   */
+  readonly clean: boolean;
   readonly reports: readonly OracleReport[];
   /**
    * Every failing verdict across the suite, for a single-glance diagnostic.
@@ -1082,7 +1111,7 @@ export interface OracleSuiteReport {
    */
   readonly failures: readonly (AxisVerdict | EmissionAxisVerdict)[];
   /**
-   * Per-axis observation census (DR-24). Makes VACUITY visible: an axis whose
+   * Per-axis observation census. Makes VACUITY visible: an axis whose
    * `observed` count is 0 across the whole suite reported nothing at all, which
    * `ok: true` alone would happily conceal.
    */
@@ -1121,7 +1150,19 @@ export function axisCoverage(reports: readonly OracleReport[]): readonly AxisCov
   });
 }
 
-/** Run the oracle over many subjects. `ok` iff every subject is `ok`. */
+/** A determinate count of zero is never a clean bill — only a reached verdict can be. */
+function observationIsClean(verdicts: readonly { readonly status: AxisStatus }[]): boolean {
+  let determinate = 0;
+  let failed = 0;
+  for (const verdict of verdicts) {
+    if (verdict.status === 'not-observed') continue;
+    determinate += 1;
+    if (verdict.status === 'fail') failed += 1;
+  }
+  return determinate > 0 && failed === 0;
+}
+
+/** Run the oracle over many subjects. `ok` iff no subject failed; `clean` iff something was observed and nothing failed. */
 export async function runOracleSuite(
   subjects: readonly OracleSubject[],
   opts: RunOracleOptions = {},
@@ -1131,8 +1172,10 @@ export async function runOracleSuite(
     ...r.verdicts.filter((v) => v.status === 'fail'),
     ...(r.emissionVerdict.status === 'fail' ? [r.emissionVerdict] : []),
   ]);
+  const considered = reports.flatMap((r) => [...r.verdicts, r.emissionVerdict]);
   return {
     ok: failures.length === 0,
+    clean: observationIsClean(considered),
     reports,
     failures,
     coverage: axisCoverage(reports),

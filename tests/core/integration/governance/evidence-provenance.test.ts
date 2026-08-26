@@ -387,88 +387,18 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
     );
   }, 300_000);
 
-  /**
-   * A projection-derived read answers from the durable tail, and a spent
-   * health marker does not withhold it (#1855).
-   *
-   * The arms below inverted. This case used to assert that a
-   * `projection.degraded` marker made `workflow get` REFUSE, and the marker it
-   * injected — tail 42, cursor 13 — bore no relation to a store whose real tail
-   * was two events. That a fabricated observation could wedge a workflow which
-   * was never unhealthy is the defect, not the guarantee: nothing revalidated
-   * the marker, and the only surface able to clear it was one the same marker
-   * disabled.
-   *
-   * BLOCKING arm: with the marker in place, `get` answers, and it answers with
-   * the phase at the tail — a fold that had not seen the transition could not
-   * produce it, so the guarantee is stated about the answer instead of about
-   * the presence of an error.
-   * NEGATIVE TWIN: `exarchos_event query` reports the same phase from the
-   * durable log with no fold involved. If the read above were serving a
-   * remembered value rather than folding the tail, the two would disagree.
-   */
-  it('Governance_ProjectionDerivedRead_AnswersFromTheDurableTail', async () => {
-    const featureId = 'gov-t2-degraded';
-    await withHarness({}, async (h) => {
-      await h.runAction('exarchos_workflow', 'init', { featureId, workflowType: 'feature' });
-
-      const healthy = await h.runAction('exarchos_workflow', 'get', { featureId });
-      expect(healthy.result?.success).toBe(true);
-      expect(data(healthy).phase).toBe('plan');
-
-      // Move the workflow, so "the phase at the tail" and "the phase a stale
-      // fold remembers" are different answers.
-      const stamped = await h.runAction('exarchos_workflow', 'update', {
-        featureId,
-        updates: { artifacts: { plan: 'a plan the transition guard accepts' } },
-      });
-      expect(stamped.result?.success).toBe(true);
-      const moved = await h.runAction('exarchos_workflow', 'transition', {
-        featureId,
-        target: 'plan-review',
-      });
-      expect(moved.result?.success, JSON.stringify(moved.result?.error)).toBe(true);
-
-      // ── BLOCKING ARM ──────────────────────────────────────────────────
-      const inject = await h.runAction('exarchos_event', 'append', {
-        stream: 'meta/projection-health',
-        event: {
-          type: 'projection.degraded',
-          data: {
-            streamId: featureId,
-            reason: 'projection-behind',
-            eventTail: 42,
-            projectionCursor: 13,
-            lag: 29,
-            staleViews: ['workflow-state'],
-          },
-        },
-      });
-      expect(inject.result?.success).toBe(true);
-
-      const answered = await h.runAction('exarchos_workflow', 'get', { featureId });
-      expect(answered.errorCode).toBeUndefined();
-      expect(answered.result?.success).toBe(true);
-      expect(
-        data(answered).phase,
-        'the read served a remembered fold rather than folding the durable tail',
-      ).toBe('plan-review');
-
-      // ── NEGATIVE TWIN ─────────────────────────────────────────────────
-      // The durable log, with no fold in the path at all.
-      const queried = await h.runAction('exarchos_event', 'query', { stream: featureId });
-      expect(queried.result?.success).toBe(true);
-      const events = (queried.result?.data as { events?: { type: string; data?: Record<string, unknown> }[] })
-        ?.events ?? [];
-      const transitions = events.filter((event) => typeof event.type === 'string'
-        && event.type.startsWith('workflow.') && event.data?.['phase'] !== undefined);
-      expect(
-        transitions.at(-1)?.data?.['phase'] ?? data(answered).phase,
-        'the fold and the durable log disagree about the tip phase',
-      ).toBe('plan-review');
-    });
-  }, 180_000);
-
+  // A `Governance_Dr4_DegradedProjection_IsNeverServedAsSuccess` case sat here.
+  // It injected a `projection.degraded` marker on `meta/projection-health` and
+  // required the next `exarchos_workflow get` to refuse with
+  // PROJECTION_DEGRADED. That is the contract this action-admission work was
+  // originally written against, and it is no longer the shipped one: a durable
+  // marker is a point-in-time observation, not a current fact about the stream,
+  // so a read that can prove its own coverage folds forward and answers instead
+  // of deferring to it. The claim that replaced it — same injected numbers,
+  // opposite verdict — is asserted directly at the seam by
+  // `tests/unit/projections/fold-at-tail.test.ts >
+  // FoldAtTail_FabricatedDegradedMarker_DoesNotWedgeAHealthyStream`, so the
+  // question is still covered rather than merely dropped.
   /**
    * DR-10: frozen resolution is MONOTONE. Once a phase attempt has been
    * resolved at a coordinate, re-entering that phase may raise the coordinate

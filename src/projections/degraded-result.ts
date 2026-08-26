@@ -55,7 +55,12 @@
 
 import type { ToolResult } from '../format.js';
 import { ProjectionCoverageError } from './fold-at-tail.js';
-import type { DurableProjectionDegradedState, ProjectionDegradationReason } from './freshness.js';
+import {
+  readProjectionDegradedState,
+  type DurableProjectionDegradedState,
+  type ProjectionDegradationReason,
+  type ProjectionHealthJournal,
+} from './freshness.js';
 
 /**
  * The reserved error code for a refused-because-stale read.
@@ -237,3 +242,22 @@ export function toCoverageFailure(
     context,
   );
 }
+
+// ─── Removed: `resolveProjectionStreamId` / `guardProjectionDegraded` ───────
+//
+// A consumer-side chokepoint that refused to serve any stream carrying a
+// durable `projection.degraded` row, plus the arg-dialect resolver that told it
+// which stream a composite's args named.
+//
+// It has no consumers because the question it answered is now answered earlier
+// and better. A durable marker is a point-in-time OBSERVATION, not a current
+// fact about the stream: by the time a read consults it, the lagging fold has
+// already been folded forward (`projections/fold-at-tail.ts`) and the read can
+// prove its own coverage. Deferring to the marker anyway wedges a healthy
+// stream on a spent observation — the latch that
+// `FoldAtTail_FabricatedDegradedMarker_DoesNotWedgeAHealthyStream` and
+// `Consumer_StaleFoldAndDurableMarker_IsNotWedged` exist to reject.
+//
+// `toProjectionDegradedResult` and `readProjectionDegradedState` above are what
+// survive: the durable row is still WRITTEN and still readable, so the journal
+// records live conditions. Nothing reads it to refuse.

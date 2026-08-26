@@ -711,22 +711,21 @@ function validateInvariantsAmendArgs(
 
 // ─── Composite Handler ──────────────────────────────────────────────────────
 
-/**
- * #1855 — the orchestrate degraded gate is gone, and its removal is the fix.
- *
- * The four guarded actions — `prepare_delegation`, `prepare_synthesis`,
- * `check_convergence`, `check_event_emissions` — were guarded because each
- * decides whether to dispatch agents or whether a phase converged, and each
- * read a materialized fold to do it. The reasoning was sound; the mechanism was
- * not. The gate could only consult a durable verdict published by a different
- * surface, so a stale marker refused a healthy stream and a fresh fold could
- * not clear one.
- *
- * Each of those handlers now folds to the stream's durable tail through
- * `projections/fold-at-tail.ts` before it decides, which is what the gate was
- * trying to approximate from outside. A readiness verdict derived from a fold
- * that provably covers the tail needs no second opinion about the fold.
- */
+// A `PROJECTION_DERIVED_ORCHESTRATE_ACTIONS` set sat here, naming the four
+// readiness/reliability verbs (prepare_delegation, prepare_synthesis,
+// check_convergence, check_event_emissions) whose verdicts derive from a
+// materialized fold, so that `handleOrchestrate` could refuse them outright
+// whenever a durable `projection.degraded` row existed for the stream.
+//
+// The question it answered is real, and the answer moved rather than went away:
+// a lagging fold is folded forward before any read answers it
+// (`projections/fold-at-tail.ts`), so these four verbs derive their verdicts
+// from the tail and there is nothing left for a pre-dispatch refusal to
+// protect. Keeping the refusal on top of that would wedge them on a marker that
+// is a spent point-in-time observation rather than a current fact about the
+// stream — which is the failure the fold seam exists to remove, and what
+// `tests/unit/projections/degraded-consumers.test.ts >
+// Consumer_StaleFoldAndDurableMarker_IsNotWedged` pins for exactly these four.
 
 /**
  * Routes the `action` field from args to the corresponding task handler.

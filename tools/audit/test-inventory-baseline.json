@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1199,
-    "parsedFiles": 1154,
+    "testFiles": 1230,
+    "parsedFiles": 1185,
     "shellFiles": 45,
-    "cases": 13337,
+    "cases": 13527,
     "dynamicTitles": 144,
     "unparseableFiles": 0
   },
@@ -4551,6 +4551,409 @@
     }
   ],
   "files": {
+    "tests/acceptance/action-admission-parity.test.ts": {
+      "file": "tests/acceptance/action-admission-parity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action admission dispatch parity",
+          "name": "Dispatch_UnchangedWorkflowSubject_IsNotAdmissionDenied",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission dispatch parity",
+          "name": "Dispatch_ChangedEvidence_FailsBeforeHandler",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission dispatch parity",
+          "name": "Dispatch_Denied_FailsBeforeEffects",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission dispatch parity",
+          "name": "Dispatch_Transition_StillUsesHsmGuard",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission dispatch parity",
+          "name": "Dispatch_PhaseVerbThenTransition_IsNotAdmissionDenied",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission dispatch parity",
+          "name": "Dispatch_HostOwned_ReturnsObligationWithoutExecuting",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-admission.test.ts": {
+      "file": "tests/acceptance/action-admission.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_Satisfied_Allows",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_MissingInput_IsIndeterminate",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_MissingCapability_Denies",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_TransitionRequires_IsNone",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_SharedIrAlone_DoesNotBypassRequires",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_DoesNotSelectTransitionTarget",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_Contradiction_DoesNotAllow",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_SnapshotStaleEvidence_DoesNotAllow",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_UnauthorizedEvidence_DoesNotAllow",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_WaiverMissingPhaseAttempt_IsIndeterminate",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-contract-cli.test.ts": {
+      "file": "tests/acceptance/action-contract-cli.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "CLI action-contract projection",
+          "name": "CliSurface_ContractProjection_EqualsDescriptor",
+          "dynamic": false
+        },
+        {
+          "suite": "CLI action-contract projection",
+          "name": "CliSurface_AllActionIds_HaveContracts",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-contract-closure.test.ts": {
+      "file": "tests/acceptance/action-contract-closure.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract advertise / execute / ensure / HSM closure",
+          "name": "ActionContract_Advertised_DispatchesOnUnchangedTrustedState",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract advertise / execute / ensure / HSM closure",
+          "name": "ActionContract_ChangedEvidence_FailsBeforeHandler",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract advertise / execute / ensure / HSM closure",
+          "name": "ActionContract_MissingEnsure_BlocksSuccess",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract advertise / execute / ensure / HSM closure",
+          "name": "ActionContract_Hsm_RemainsAuthoritative",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-contract-compiler.test.ts": {
+      "file": "tests/acceptance/action-contract-compiler.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract compiler admission",
+          "name": "Compiler_UnknownEmissionEvent_FailsCompilation",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract compiler admission",
+          "name": "Compiler_RecoveryExpiry_InvalidFails",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract compiler admission",
+          "name": "Compiler_PrimaryExpiry_PresentFails",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract compiler admission",
+          "name": "valid catalog-accepted contracts compile and round-trip",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-contract-describe.test.ts": {
+      "file": "tests/acceptance/action-contract-describe.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract describe projection",
+          "name": "RuntimeAuthority_DroppedDimension_IsDetected",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract describe projection",
+          "name": "describe and registry normalize identically on a live contracted action",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract describe projection",
+          "name": "four visible tools remain four",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-contract-descriptor.test.ts": {
+      "file": "tests/acceptance/action-contract-descriptor.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract descriptor binding",
+          "name": "Descriptor_ContractChange_ChangesDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract descriptor binding",
+          "name": "ProofFixture_ContainsContractDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract descriptor binding",
+          "name": "ProofFixture_RepeatedBuild_IsByteStable",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract descriptor binding",
+          "name": "does not invent a contract for live actions that omit one",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract descriptor binding",
+          "name": "dispatch does not read compiled descriptors as runtime authority",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-contract-mcp.test.ts": {
+      "file": "tests/acceptance/action-contract-mcp.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "MCP compact action-contract registration",
+          "name": "McpRegistration_ContractSummary_IsRegistryDerived",
+          "dynamic": false
+        },
+        {
+          "suite": "MCP compact action-contract registration",
+          "name": "McpRegistration_VisibleToolCount_RemainsFour",
+          "dynamic": false
+        },
+        {
+          "suite": "MCP compact action-contract registration",
+          "name": "McpRegistration_Compact_RetainsDimensionPresence",
+          "dynamic": false
+        },
+        {
+          "suite": "MCP compact action-contract registration",
+          "name": "every advertised action has one deterministic projection",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-contract-next-actions.test.ts": {
+      "file": "tests/acceptance/action-contract-next-actions.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_Denied_IsNotAdvertised",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_Indeterminate_IsNotAdvertised",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_AdjudicationFault_IsNotAdvertised",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_TopologyFallback_IsNotAdvertised",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_PhaseVerb_IsNotAnActionId",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_RetryWithTask_IsNotAnActionId",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_DivergentLoop_IsNotAnActionId",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_MissingAuth_OmitsCapabilityGatedActionIds",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_HostOwned_AdvertisedWhenLocalChecksPass",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_MergeOrchestrate_RehydrateTopology_StillPublishes",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_Advertised_UsesWorkflowScopedSubject",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-contract-observation.test.ts": {
+      "file": "tests/acceptance/action-contract-observation.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract emission observation",
+          "name": "EmissionVerifier_UsesNestedEmissions",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-contract-projections.test.ts": {
+      "file": "tests/acceptance/action-contract-projections.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "generated contract projection rebuild",
+          "name": "GeneratedContract_Rebuild_IsIdempotent",
+          "dynamic": false
+        },
+        {
+          "suite": "registered-actions snapshot denominator",
+          "name": "RegisteredActionsSnapshot_EqualsLiveRegistry",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-contract-vcs-replay.test.ts": {
+      "file": "tests/acceptance/action-contract-vcs-replay.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "merge VCS worktree action contracts",
+          "name": "Registry_MergeVcsWorktreeActions_HaveCompleteContracts",
+          "dynamic": false
+        },
+        {
+          "suite": "merge VCS worktree action contracts",
+          "name": "Registry_NonIdempotentMutations_RequireClaimsOrRejectReplay",
+          "dynamic": false
+        },
+        {
+          "suite": "merge VCS worktree action contracts",
+          "name": "non-idempotent mutations declare claim-required or reject-replay",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-postconditions.test.ts": {
+      "file": "tests/acceptance/action-postconditions.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "durable action postcondition observation",
+          "name": "Postconditions_CommittedEvent_IsSatisfied",
+          "dynamic": false
+        },
+        {
+          "suite": "durable action postcondition observation",
+          "name": "Postconditions_MissingEvent_IsViolation",
+          "dynamic": false
+        },
+        {
+          "suite": "durable action postcondition observation",
+          "name": "Postconditions_PersistedEvidence_IsSatisfied",
+          "dynamic": false
+        },
+        {
+          "suite": "durable action postcondition observation",
+          "name": "Postconditions_ReplayedEvidenceWitness_DoesNotPass",
+          "dynamic": false
+        },
+        {
+          "suite": "durable action postcondition observation",
+          "name": "Postconditions_DeclarationWithoutObservation_DoesNotPass",
+          "dynamic": false
+        },
+        {
+          "suite": "durable action postcondition observation",
+          "name": "Postconditions_FailureOutcome_ChecksFailureAndAlways",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch gates success on applicable ensures",
+          "name": "Dispatch_MissingEnsure_BlocksSuccess",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch gates success on applicable ensures",
+          "name": "Dispatch_Failure_ChecksFailureAndAlways",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch gates success on applicable ensures",
+          "name": "Dispatch_HostOwned_DoesNotExecuteObligation",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch gates success on applicable ensures",
+          "name": "Dispatch_ReadOnlyAbstention_SkipsAppendCheck",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/acceptance/effect-carrier-compile-gate.test.ts": {
       "file": "tests/acceptance/effect-carrier-compile-gate.test.ts",
       "runner": "vitest:root",
@@ -4625,6 +5028,132 @@
         {
           "suite": "FreshInstall",
           "name": "PluginHooks_LoadExactlyOnce",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/host-obligation-execution.test.ts": {
+      "file": "tests/acceptance/host-obligation-execution.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "host-owned actions — execute vs return the obligation",
+          "name": "HostObligations_Population_IsNonEmptyAndCarriesBothKinds",
+          "dynamic": false
+        },
+        {
+          "suite": "host-owned actions — execute vs return the obligation",
+          "name": "HostObligations_AgentSpawn_RunsTheHandler",
+          "dynamic": false
+        },
+        {
+          "suite": "host-owned actions — execute vs return the obligation",
+          "name": "HostObligations_Blocking_ReturnTheObligationWithoutExecuting",
+          "dynamic": false
+        },
+        {
+          "suite": "host-owned actions — execute vs return the obligation",
+          "name": "HostObligations_AgentSpec_ReturnsTheSpecNotTheObligation",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/action-contract-closure-kill-fixtures.test.ts": {
+      "file": "tests/architecture/action-contract-closure-kill-fixtures.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract closure kill fixtures",
+          "name": "Closure_KillDescribe_DropsClosure",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure kill fixtures",
+          "name": "Closure_KillStaleReference_DropsClosure",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure kill fixtures",
+          "name": "Closure_KillAdmissionParity_DropsClosure",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure kill fixtures",
+          "name": "Closure_NarrowedDenominator_Fails",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/action-contract-closure.test.ts": {
+      "file": "tests/architecture/action-contract-closure.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract closure live tree",
+          "name": "Closure_LiveTree_MatchesRegisteredSnapshot",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure live tree",
+          "name": "Closure_LiveTree_Closes",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure live tree",
+          "name": "Closure_LiveTree_SeededProjectionDrift_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure live tree",
+          "name": "Closure_ExecuteClassifier_SeparatesHsmFromAdmission",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/action-contract-process-grant.test.ts": {
+      "file": "tests/architecture/action-contract-process-grant.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action contract process grant",
+          "name": "ProcessGrant_EveryDeclaredNeed_IsHeldByTheLocalProcess",
+          "dynamic": false
+        },
+        {
+          "suite": "action contract process grant",
+          "name": "ProcessGrant_FullMcpTier_SubsumesTheReadonlyNeed",
+          "dynamic": false
+        },
+        {
+          "suite": "action contract process grant",
+          "name": "ProcessGrant_UngrantedCapability_StillDenies",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/action-contract-reachability-separation.test.ts": {
+      "file": "tests/architecture/action-contract-reachability-separation.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract reachability separation",
+          "name": "Reachability_MissingSemanticDimension_DoesNotClaimDetection",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/action-contract-runtime-authority.test.ts": {
+      "file": "tests/architecture/action-contract-runtime-authority.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "dispatch compiled-descriptor authority",
+          "name": "Dispatch_CompiledDescriptors_AreNotRuntimeAuthority",
+          "dynamic": false
+        },
+        {
+          "suite": "nested emission authority",
+          "name": "sibling autoEmits is not the declared-emission authority",
           "dynamic": false
         }
       ]
@@ -6551,7 +7080,7 @@
         },
         {
           "suite": "T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)",
-          "name": "Governance_ProjectionDerivedRead_AnswersFromTheDurableTail",
+          "name": "Governance_Dr4_DegradedProjection_IsNeverServedAsSuccess",
           "dynamic": false
         },
         {
@@ -8076,6 +8605,89 @@
         {
           "suite": "driveSaga",
           "name": "driveSaga_callThrows_haltsAndIncludesErrorInTranscript",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/action-contract-emissions.test.ts": {
+      "file": "tests/integration/action-contract-emissions.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract emission authority",
+          "name": "Registry_TopLevelAutoEmits_IsNotAuthoritative",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract emission authority",
+          "name": "EffectPlanEmits_DerivesFromActionContract",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract emission authority",
+          "name": "EffectPlanWhen_StaysPerEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract emission authority",
+          "name": "EmissionOwners_DeriveFromActionContract",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract emission authority",
+          "name": "Reachability_EventHop_UsesNestedEmissions",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract emission authority",
+          "name": "reasoned none is not filled from sibling records on the plan",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/action-contract-registration.test.ts": {
+      "file": "tests/integration/action-contract-registration.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract registration boundary",
+          "name": "RegisterCustomTool_InvalidContract_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract registration boundary",
+          "name": "RegisterExtensionTool_MissingContract_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract registration boundary",
+          "name": "built-in and extension admission accept the same contract language",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/action-replay.test.ts": {
+      "file": "tests/integration/action-replay.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action replay binding",
+          "name": "Replay_ClaimRequired_UsesExistingIdentity",
+          "dynamic": false
+        },
+        {
+          "suite": "action replay binding",
+          "name": "Replay_EffectPlanIdempotent_DerivesFromContract",
+          "dynamic": false
+        },
+        {
+          "suite": "action replay binding",
+          "name": "Replay_RejectPolicy_NeverExecutesTwice",
+          "dynamic": false
+        },
+        {
+          "suite": "action replay binding",
+          "name": "Replay_ExistingInv8Tests_RemainGreen",
           "dynamic": false
         }
       ]
@@ -17706,6 +18318,67 @@
         }
       ]
     },
+    "tests/unit/contract/action-contract-closure.test.ts": {
+      "file": "tests/unit/contract/action-contract-closure.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract closure",
+          "name": "Closure_OmittedDimension_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure",
+          "name": "Closure_BlankAbstention_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure",
+          "name": "Closure_StaleReference_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure",
+          "name": "Closure_RoleExpiryConflict_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure",
+          "name": "Closure_OrphanProjection_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure",
+          "name": "Closure_ProjectionDrift_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure",
+          "name": "Closure_EmptyDenominator_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure",
+          "name": "Closure_ParityDisagreement_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure",
+          "name": "a well-formed subject closes",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure properties",
+          "name": "input ordering does not change findings",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure properties",
+          "name": "zero subjects never close",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/contract/authority-collector.test.ts": {
       "file": "tests/unit/contract/authority-collector.test.ts",
       "runner": "vitest:root",
@@ -18443,6 +19116,21 @@
           "dynamic": false
         },
         {
+          "suite": "compileDescriptor",
+          "name": "Descriptor_ContractChange_ChangesDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "compileDescriptor",
+          "name": "canonical serialization is deterministic across key insertion order",
+          "dynamic": false
+        },
+        {
+          "suite": "compileDescriptor",
+          "name": "does not invent an action contract from annotations or autoEmits",
+          "dynamic": false
+        },
+        {
           "suite": "buildSchemaBundle / buildTypeManifest",
           "name": "HoistsTheSharedCarrierSchemasAndKeysActionsByActionId",
           "dynamic": false
@@ -18553,6 +19241,16 @@
         {
           "suite": "DR-11 — the meta-model is audited against the shipped runtime surface",
           "name": "ContractCompiler_StaleBaselineOnly_RemainsDistinguishable",
+          "dynamic": false
+        },
+        {
+          "suite": "deriveMetaModel — action-contract projection",
+          "name": "DeriveMetaModel_DoesNotReconstructFromAnnotations",
+          "dynamic": false
+        },
+        {
+          "suite": "deriveMetaModel — action-contract projection",
+          "name": "DeriveMetaModel_ReorderedSets_IsByteStable",
           "dynamic": false
         }
       ]
@@ -19345,7 +20043,12 @@
         },
         {
           "suite": "P03-09 oracle — emission axis observes the append, not the declaration",
-          "name": "OracleEmission_DeclaredButNotPerformed_IsCaught",
+          "name": "Oracle_DeclaredButUnappended_FailsWhenGeneratedFilesAgree",
+          "dynamic": false
+        },
+        {
+          "suite": "P03-09 oracle — emission axis observes the append, not the declaration",
+          "name": "Oracle_Unobserved_IsNotPass",
           "dynamic": false
         }
       ]
@@ -19407,6 +20110,11 @@
         {
           "suite": "ambiguity in the materialized inputs is a closure failure",
           "name": "a pure action is unaffected by an owner ambiguity on its tool",
+          "dynamic": false
+        },
+        {
+          "suite": "event hop declared-side authority",
+          "name": "collects nested contract emissions and ignores sibling autoEmits",
           "dynamic": false
         }
       ]
@@ -20182,6 +20890,32 @@
         }
       ]
     },
+    "tests/unit/describe/action-contract.test.ts": {
+      "file": "tests/unit/describe/action-contract.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "describe action-contract projection",
+          "name": "HandleDescribe_ProjectsNormalizedActionContract",
+          "dynamic": false
+        },
+        {
+          "suite": "describe action-contract projection",
+          "name": "does not reconstruct a contract from annotations or autoEmits",
+          "dynamic": false
+        },
+        {
+          "suite": "describe action-contract projection",
+          "name": "compact views omit prose but keep every dimension and digest",
+          "dynamic": false
+        },
+        {
+          "suite": "describe and registry normalize identically",
+          "name": "describe projection matches registry normalization",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/describe/handler-config.test.ts": {
       "file": "tests/unit/describe/handler-config.test.ts",
       "runner": "vitest:root",
@@ -20491,7 +21225,7 @@
         },
         {
           "suite": "initializeContext",
-          "name": "InitializeContext_DisableCacheHintsEnv_ResolverReportsNothing",
+          "name": "InitializeContext_DisableCacheHintsEnv_DropsCacheHintKeepsProcessGrant",
           "dynamic": false
         },
         {
@@ -20756,6 +21490,16 @@
         {
           "suite": "dispatch > doctor action wiring",
           "name": "Dispatch_ExarchosOrchestrateDoctor_RoutesToOrchestrateCompositeAndReturnsValidDoctorOutput",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > doctor action wiring",
+          "name": "Dispatch_Doctor_AnonymousCaller_RequiresTrustedCaller",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > doctor action wiring",
+          "name": "Dispatch_DeclaredRequires_MissingStoreFacts_IsAdmissionDenied",
           "dynamic": false
         },
         {
@@ -21150,6 +21894,26 @@
           "suite": "the edges that universal declaration puts pressure on",
           "name": "SuccessArm_RecordsNothingPlan_CarriesEmptyRecordedEvidence",
           "dynamic": false
+        },
+        {
+          "suite": "effect plan replay binding",
+          "name": "Replay_EffectPlanIdempotent_DerivesFromContract",
+          "dynamic": false
+        },
+        {
+          "suite": "effect plan emission binding",
+          "name": "derives emit identity and owner/role from the nested contract",
+          "dynamic": false
+        },
+        {
+          "suite": "effect plan emission binding",
+          "name": "keeps per-effect when independent of the contract condition",
+          "dynamic": false
+        },
+        {
+          "suite": "effect plan emission binding",
+          "name": "a reasoned none wins over sibling records",
+          "dynamic": false
         }
       ]
     },
@@ -21180,6 +21944,11 @@
         {
           "suite": "EmissionVerifier lifecycle axis",
           "name": "reports a missing emission and a lifecycle violation together",
+          "dynamic": false
+        },
+        {
+          "suite": "EmissionVerifier declared-subject authority",
+          "name": "reads nested emissions and ignores a sibling fallback argument",
           "dynamic": false
         }
       ]
@@ -32687,6 +33456,66 @@
           "suite": "computeNextActions — admission-derived affordances (DR-9, T-13)",
           "name": "NextActions_UnknownWorkflowType_NoAdmissionOpinion_PublishesTopology",
           "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_Denied_IsNotAdvertised",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_Indeterminate_IsNotAdvertised",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_AdjudicationFault_IsNotAdvertised",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_TopologyFallback_IsNotAdvertised",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_PhaseVerb_IsNotAnActionId",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_RetryWithTask_IsNotAnActionId",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_DivergentLoop_IsNotAnActionId",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_MissingAuth_OmitsCapabilityGatedActionIds",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_HostOwned_AdvertisedWhenLocalChecksPass",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_MergeOrchestrate_RehydrateTopology_StillPublishes",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_Advertised_UsesWorkflowScopedSubject",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_PublishedField_WithholdsRegistryActionIdsOnControlEnvelope",
+          "dynamic": false
         }
       ]
     },
@@ -33078,37 +33907,47 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "#1855 — every readiness/workflow/reliability consumer answers",
+          "suite": "CHARACTERIZATION (superseded) — consumers served stale folds as success:true",
+          "name": "ViewComposite_DegradedProjection_ReturnsTypedDegradedResult",
+          "dynamic": false
+        },
+        {
+          "suite": "CHARACTERIZATION (superseded) — consumers served stale folds as success:true",
+          "name": "WorkflowComposite_DegradedProjection_DoesNotReturnStalePayload",
+          "dynamic": false
+        },
+        {
+          "suite": "CHARACTERIZATION (superseded) — consumers served stale folds as success:true",
+          "name": "OrchestrateComposite_DegradedProjection_ReturnsTypedDegradedResult",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-4 — every readiness/workflow/reliability consumer refuses",
           "name": "<dynamic-case-1>",
           "dynamic": true
         },
         {
-          "suite": "#1855 — every readiness/workflow/reliability consumer answers",
-          "name": "Consumer_RewoundFold_AnswersFromTheTail",
-          "dynamic": false
-        },
-        {
-          "suite": "#1855 — the reserved code still separates its neighbours",
+          "suite": "DR-4 — a degraded result is distinguishable from its neighbours",
           "name": "DegradedResult_IsNotConfusableWithNoData",
           "dynamic": false
         },
         {
-          "suite": "#1855 — the reserved code still separates its neighbours",
+          "suite": "DR-4 — a degraded result is distinguishable from its neighbours",
           "name": "DegradedResult_IsNotConfusableWithGenuineFailure",
           "dynamic": false
         },
         {
-          "suite": "#1855 — the reserved code still separates its neighbours",
-          "name": "SuggestedFix_NeverNamesTheCallThatFailed",
+          "suite": "DR-4 — a degraded result is distinguishable from its neighbours",
+          "name": "HealthyStream_NoDurableRow_ConsumersAnswerNormally",
           "dynamic": false
         },
         {
-          "suite": "#1855 — a spent observation clears",
-          "name": "DegradedRow_SurvivingRead_IsClearedByTheViewChokepoint",
+          "suite": "DR-4 — recovery clears the refusal",
+          "name": "DegradedStream_RefoldViaViewChokepoint_PublishesRecoveryAndUnblocksConsumers",
           "dynamic": false
         },
         {
-          "suite": "#1855 — a spent observation clears",
+          "suite": "DR-4 — recovery clears the refusal",
           "name": "WorkflowMutationsAndRecoveryActions_StayUnguarded",
           "dynamic": false
         }
@@ -33297,7 +34136,17 @@
         },
         {
           "suite": "projection freshness comparison (EFF-002)",
-          "name": "Freshness_IsPerFold_NotPerStream",
+          "name": "Freshness_MultipleCursors_ReportsWorstOffenderFirst",
+          "dynamic": false
+        },
+        {
+          "suite": "projection freshness comparison (EFF-002)",
+          "name": "Freshness_AllCursorsAtTail_NotDegraded",
+          "dynamic": false
+        },
+        {
+          "suite": "projection freshness comparison (EFF-002)",
+          "name": "Freshness_NoMaterializedFolds_NotDegraded",
           "dynamic": false
         },
         {
@@ -33307,12 +34156,12 @@
         },
         {
           "suite": "view chokepoint marks degraded reads (EFF-002)",
-          "name": "HandleView_ProjectionAheadOfPrunedLog_IsRepairedAndAnswered",
+          "name": "HandleView_ProjectionAheadOfPrunedLog_ReturnsTypedDegradedMarker",
           "dynamic": false
         },
         {
           "suite": "view chokepoint marks degraded reads (EFF-002)",
-          "name": "HandleView_StaleSiblingFold_DoesNotDegradeAnUnrelatedAnswer",
+          "name": "HandleView_StaleSiblingFold_DegradesTheWholeStreamAnswer",
           "dynamic": false
         },
         {
@@ -40698,6 +41547,26 @@
           "dynamic": false
         },
         {
+          "suite": "validateAction",
+          "name": "ValidateAction_MissingContract_FailsAtLoad",
+          "dynamic": false
+        },
+        {
+          "suite": "validateAction",
+          "name": "ValidateAction_MissingContract_FailsAtRegistration",
+          "dynamic": false
+        },
+        {
+          "suite": "validateAction",
+          "name": "ReplayPolicy_AnnotationDisagreement_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "validateAction",
+          "name": "DescribeFactory_EmitsCompleteContract",
+          "dynamic": false
+        },
+        {
           "suite": "ToolAction.dispatch - DispatchHints shape",
           "name": "ToolAction_DispatchHintsShape_OptionalTaskSuitableField",
           "dynamic": false
@@ -40825,6 +41694,166 @@
         {
           "suite": "Task 022 — registry schema batch (DR-1/DR-3/DR-8) > AutoEmission role, owner, and recovery expiry",
           "name": "EmissionRoles_MultiDeclarerEvent_IsConforming",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/registry/action-contract-coordination.test.ts": {
+      "file": "tests/unit/registry/action-contract-coordination.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "coordination, gate, and verification action contracts",
+          "name": "Registry_CoordinationGateActions_HaveCompleteContracts",
+          "dynamic": false
+        },
+        {
+          "suite": "coordination, gate, and verification action contracts",
+          "name": "Registry_GateEnsures_NameDurableEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "coordination and gate contract properties",
+          "name": "gate ensures resolve to durable evidence",
+          "dynamic": false
+        },
+        {
+          "suite": "coordination and gate contract properties",
+          "name": "capabilities are canonical",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/registry/action-contract-event-workflow.test.ts": {
+      "file": "tests/unit/registry/action-contract-event-workflow.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "event, workflow, and sync action contracts",
+          "name": "Registry_EventWorkflowSyncActions_HaveCompleteContracts",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/registry/action-contract-lifecycle.test.ts": {
+      "file": "tests/unit/registry/action-contract-lifecycle.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "lifecycle and review action contracts",
+          "name": "Registry_LifecycleReviewActions_HaveCompleteContracts",
+          "dynamic": false
+        },
+        {
+          "suite": "lifecycle and review action contracts",
+          "name": "Registry_HostObligations_AreExplicit",
+          "dynamic": false
+        },
+        {
+          "suite": "lifecycle and review action contracts",
+          "name": "host obligations and local authority are mutually exclusive",
+          "dynamic": false
+        },
+        {
+          "suite": "lifecycle and review action contracts",
+          "name": "normalized host-local mix is rejected",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/registry/action-contract-view.test.ts": {
+      "file": "tests/unit/registry/action-contract-view.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "view action contracts",
+          "name": "Registry_ViewActions_HaveCompleteContracts",
+          "dynamic": false
+        },
+        {
+          "suite": "view action contracts",
+          "name": "Registry_ReadOnlyViews_DeclareReasonedNoEmissions",
+          "dynamic": false
+        },
+        {
+          "suite": "view action contract properties",
+          "name": "read-only abstentions are explicit and non-blank",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/registry/action-contract.test.ts": {
+      "file": "tests/unit/registry/action-contract.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract algebra",
+          "name": "DeclaredSet_EmptyValues_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract algebra",
+          "name": "ActionContract_BlankAbstention_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract algebra",
+          "name": "ActionContract_Normalization_IsByteStable",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract algebra",
+          "name": "ActionRequirement_FreezeTimeId_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract algebra",
+          "name": "ActionResource_UnknownKind_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract algebra",
+          "name": "Needs_UnknownCapability_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract algebra",
+          "name": "AgentSpawn_RequiresSubagentSpawn",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract algebra",
+          "name": "LocalAndHost_AreMutuallyExclusive",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract algebra",
+          "name": "withActionContract demands a complete normalized block",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract properties",
+          "name": "normalization is idempotent",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract properties",
+          "name": "ordering does not change canonical output",
+          "dynamic": false
+        },
+        {
+          "suite": "contract emission authority",
+          "name": "reads nested emissions and ignores a populated sibling list",
+          "dynamic": false
+        },
+        {
+          "suite": "contract emission authority",
+          "name": "does not treat a missing contract as the sibling list",
+          "dynamic": false
+        },
+        {
+          "suite": "contract emission authority",
+          "name": "rejects a sibling emission list that disagrees with the nested contract",
           "dynamic": false
         }
       ]
@@ -48577,6 +49606,37 @@
         }
       ]
     },
+    "tests/unit/verbs/doctor/action-contract-closure.check.test.ts": {
+      "file": "tests/unit/verbs/doctor/action-contract-closure.check.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "doctor check — action-contract closure",
+          "name": "ClosureCheck_ClosedTree_PassesAndNamesTheDenominator",
+          "dynamic": false
+        },
+        {
+          "suite": "doctor check — action-contract closure",
+          "name": "ClosureCheck_OpenTree_WarnsAndNamesTheOffendingActions",
+          "dynamic": false
+        },
+        {
+          "suite": "doctor check — action-contract closure",
+          "name": "ClosureCheck_ManyFindings_NamesSomeAndCountsTheRest",
+          "dynamic": false
+        },
+        {
+          "suite": "doctor check — action-contract closure",
+          "name": "ClosureCheck_EmptyDenominator_WarnsRatherThanPassing",
+          "dynamic": false
+        },
+        {
+          "suite": "doctor check — action-contract closure",
+          "name": "ClosureCheck_EvaluatorThrows_WarnsInsteadOfFailingDoctor",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/doctor/checks/__shared__/make-stub-probes.test.ts": {
       "file": "tests/unit/verbs/doctor/checks/__shared__/make-stub-probes.test.ts",
       "runner": "vitest:root",
@@ -48991,7 +50051,7 @@
       "cases": [
         {
           "suite": "doctor roster characterization (T0 baseline)",
-          "name": "DoctorRoster_CurrentBuild_ExactlyEighteenChecksWithStableNames",
+          "name": "DoctorRoster_CurrentBuild_ExactlyNineteenChecksWithStableNames",
           "dynamic": false
         },
         {
@@ -62282,6 +63342,77 @@
         }
       ]
     },
+    "tests/unit/workflow/admission/action-admission.test.ts": {
+      "file": "tests/unit/workflow/admission/action-admission.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action admission snapshots",
+          "name": "AdmissionSnapshot_CallerMeta_CannotOverrideAuthority",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission snapshots",
+          "name": "AdmissionSnapshot_EquivalentTrustedInputs_HaveSameDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission snapshots",
+          "name": "AdmissionSnapshot_EvidenceChange_ChangesDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_Satisfied_Allows",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_MissingInput_IsIndeterminate",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_MissingCapability_Denies",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_TransitionRequires_IsNone",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_SharedIrAlone_DoesNotBypassRequires",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_DoesNotSelectTransitionTarget",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_Contradiction_DoesNotAllow",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_SnapshotStaleEvidence_DoesNotAllow",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_UnauthorizedEvidence_DoesNotAllow",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_WaiverMissingPhaseAttempt_IsIndeterminate",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/workflow/admission/admission-algebra.test.ts": {
       "file": "tests/unit/workflow/admission/admission-algebra.test.ts",
       "runner": "vitest:root",
@@ -74211,7 +75342,7 @@
         },
         {
           "suite": "authority census — the live topology",
-          "name": "AuthorityCensus_ActionContractRow_ClaimsAnInstrumentThatDoesNotDischargeG5",
+          "name": "AuthorityCensus_ActionContract_UsesClosureInstrument",
           "dynamic": false
         },
         {
@@ -75768,6 +76899,11 @@
         {
           "suite": "Wave 1 exit — the five guards (task 027, DR-6 / DR-24)",
           "name": "Wave1Exit_AllFiveGuards_BlockOnSeededViolation",
+          "dynamic": false
+        },
+        {
+          "suite": "Wave 1 exit — the five guards (task 027, DR-6 / DR-24)",
+          "name": "Wave1Exit_NoActionContractStaleException",
           "dynamic": false
         },
         {
