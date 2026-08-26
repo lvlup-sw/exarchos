@@ -162,7 +162,15 @@ describe('DR-14: escape-hatch census', () => {
   // the return type at the call site — every bridge assertion became dead
   // and was removed in the same commit. Three casts and three non-nulls;
   // no new debt introduced, no sym-floors widened.
-  const BASELINE: CastCounts = { nonNull: 70, asCast: 1719, asAny: 0 };
+  //
+  // 1719 -> 1718: one `as const`, on the key tuple inside
+  // `resolveProjectionStreamId`. That function and its sibling
+  // `guardProjectionDegraded` were deleted from
+  // `src/projections/degraded-result.ts` once the fold seam left them without
+  // a consumer (see the removal note there). A paydown, not a paydown target —
+  // the site went away with the code that held it, so the floor SLIDES down by
+  // one and the window keeps its width.
+  const BASELINE: CastCounts = { nonNull: 70, asCast: 1718, asAny: 0 };
 
   // Declared budget = MAX escape-hatch sites maintenance work may introduce
   // before the NEXT documented re-baseline. `as any` may never grow.

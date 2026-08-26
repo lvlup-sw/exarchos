@@ -417,6 +417,15 @@ describe('dispatch gates success on applicable ensures', () => {
   });
 
   it('Dispatch_HostOwned_DoesNotExecuteObligation', async () => {
+    // `discover_bridge`, not `cutover_decide`. The claim under test is that a
+    // BLOCKING host obligation short-circuits before the handler runs, so the
+    // subject has to be an action that actually declares one:
+    // `discover_bridge` is `executionAuthority: { kind: 'host', obligation:
+    // 'human-approval' }`. `cutover_decide` is `kind: 'local'` — it gates on
+    // operator posture INSIDE its handler and must keep running, because its
+    // own `ensures` obliges it to append the rollout-decision fact. Short-
+    // circuiting it would hand the caller an obligation where the recorded
+    // decision belongs.
     let handlerCalls = 0;
     const restore = stubCompositeHandler('exarchos_orchestrate', async () => {
       handlerCalls += 1;
@@ -425,7 +434,10 @@ describe('dispatch gates success on applicable ensures', () => {
     try {
       const result = await dispatch(
         'exarchos_orchestrate',
-        { action: 'cutover_decide' },
+        // `artifact` is required by the action's own schema, which is
+        // validated BEFORE admission runs — without it the dispatch fails on
+        // INVALID_INPUT and never reaches the obligation check this asserts.
+        { action: 'discover_bridge', featureId: 'feat-host-owned', artifact: 'spec.md' },
         ctx(),
       );
       expect(result.success, result.error?.message).toBe(true);

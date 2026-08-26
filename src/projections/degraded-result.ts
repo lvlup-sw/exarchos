@@ -243,61 +243,21 @@ export function toCoverageFailure(
   );
 }
 
-/**
- * The stream id a composite's args identify, if any.
- *
- * The three composites spell the same concept differently — `exarchos_view`
- * takes `workflowId`, `exarchos_workflow` and `exarchos_orchestrate` take
- * `featureId` — and both names denote the SAME event stream. Resolving that in
- * one place keeps the guard's coverage from depending on which dialect a given
- * action happens to speak.
- *
- * Returns `undefined` for a stream-less action (`describe`, `runbook`, …),
- * which the guard treats as "nothing to assess" rather than "assume healthy".
- */
-export function resolveProjectionStreamId(
-  args: Record<string, unknown>,
-): string | undefined {
-  for (const key of ['workflowId', 'featureId', 'streamId', 'stream'] as const) {
-    const value = args[key];
-    if (typeof value === 'string' && value.length > 0) return value;
-  }
-  return undefined;
-}
-
-/**
- * The consumer-side chokepoint: refuse to serve a stream recorded as degraded.
- *
- * Returns the typed degraded result when the durable state says this stream's
- * projections disagree with its tail, and `undefined` when there is nothing to
- * report — so a caller reads as `const refusal = await guard(...); if (refusal)
- * return refusal;` before it does any projection-derived work.
- *
- * ## Why a read fault passes through
- *
- * If the health stream itself cannot be read we do not know whether the stream
- * is degraded. Failing every read on that basis would make an unreadable meta
- * stream a total outage of surfaces that may be perfectly healthy — the
- * freshness probe must never be the reason a good read fails (the same rule the
- * EFF-002 view stamp adopted). We pass through and let the caller answer; the
- * fault is logged by the caller's own `onError` hook so it is not silent.
- */
-export async function guardProjectionDegraded(
-  journal: ProjectionHealthJournal,
-  streamId: string | undefined,
-  context?: {
-    readonly tool?: string | undefined;
-    readonly action?: string | undefined;
-    readonly onError?: (err: unknown) => void;
-  },
-): Promise<ToolResult | undefined> {
-  if (streamId === undefined || streamId.length === 0) return undefined;
-  try {
-    const state = await readProjectionDegradedState(journal, streamId);
-    if (state === undefined) return undefined;
-    return toProjectionDegradedResult(state, context);
-  } catch (err) {
-    context?.onError?.(err);
-    return undefined;
-  }
-}
+// ─── Removed: `resolveProjectionStreamId` / `guardProjectionDegraded` ───────
+//
+// A consumer-side chokepoint that refused to serve any stream carrying a
+// durable `projection.degraded` row, plus the arg-dialect resolver that told it
+// which stream a composite's args named.
+//
+// It has no consumers because the question it answered is now answered earlier
+// and better. A durable marker is a point-in-time OBSERVATION, not a current
+// fact about the stream: by the time a read consults it, the lagging fold has
+// already been folded forward (`projections/fold-at-tail.ts`) and the read can
+// prove its own coverage. Deferring to the marker anyway wedges a healthy
+// stream on a spent observation — the latch that
+// `FoldAtTail_FabricatedDegradedMarker_DoesNotWedgeAHealthyStream` and
+// `Consumer_StaleFoldAndDurableMarker_IsNotWedged` exist to reject.
+//
+// `toProjectionDegradedResult` and `readProjectionDegradedState` above are what
+// survive: the durable row is still WRITTEN and still readable, so the journal
+// records live conditions. Nothing reads it to refuse.
