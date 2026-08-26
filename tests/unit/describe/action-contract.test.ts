@@ -1,3 +1,11 @@
+// @oracle-sources: ../../../src/describe/handler.ts, the registry's own contract normalization reached through the shipped `src/registry.ts` surface rather than through the describe projection
+//
+// `describe` is a PROJECTION of the declarations, so the question is whether
+// the projection preserves them. The two authorities are the projection and the
+// normalizer it is supposed to agree with; both are read through their own
+// published entry points so neither answer is produced by the other's code
+// path.
+
 import { fc } from '@fast-check/vitest';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';

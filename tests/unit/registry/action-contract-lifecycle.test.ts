@@ -1,3 +1,10 @@
+// @oracle-sources: ../../../src/registry/action-contract.ts, the contracts the lifecycle and review actions carry in the shipped registry — authored per action by hand and not produced by the normalizer
+//
+// The claim is that the shipped contracts are ALREADY normal: normalizing one
+// must be a no-op. One authority is the normalizer; the other is the committed
+// declaration it is judged against. A test that normalized twice and compared
+// the results would hold for any normalizer at all.
+
 import { fc } from '@fast-check/vitest';
 import { describe, expect, it } from 'vitest';
 import {

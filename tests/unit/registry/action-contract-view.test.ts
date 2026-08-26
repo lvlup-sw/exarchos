@@ -1,3 +1,10 @@
+// @oracle-sources: ../../../src/registry/action-contract.ts, the contracts the view actions carry in the shipped registry — authored per action by hand and not produced by the normalizer
+//
+// Same shape as the lifecycle sibling: normalizing an already-normal committed
+// contract must change nothing, and the committed declaration is the authority
+// that makes that a claim about the registry rather than about the normalizer's
+// own fixed point.
+
 import { fc } from '@fast-check/vitest';
 import { describe, expect, it } from 'vitest';
 import {

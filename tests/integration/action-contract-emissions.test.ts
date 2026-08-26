@@ -1,3 +1,11 @@
+// @oracle-sources: ../../src/events/registration-validate.ts, the per-action `emissions` clause each shipped contract carries — authored beside its action and never derived from the event catalog
+//
+// The two sides are independently authored on purpose. The event catalog says
+// which `(action, event)` edges the registration validator can prove; the
+// contracts say which ones their actions promise. Comparing a contract against
+// a restatement of itself would agree by construction, so the catalog is what
+// gives the comparison teeth.
+
 import { describe, expect, it } from 'vitest';
 import { collectReachabilityInputs } from '../../src/contract/reachability/collect.js';
 import {

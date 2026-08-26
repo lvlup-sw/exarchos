@@ -1,3 +1,10 @@
+// @oracle-sources: ../../../../src/dispatch/core/effect-carrier.ts, the effect plans this file spells out as literals — written from the DECLARED obligation of each action rather than from a recorded run
+//
+// An effect plan is the carrier's reading of a contract. The second authority
+// is the plan the test author derived independently from what the action
+// promises; if it were captured from the carrier instead, a carrier that
+// misread every contract identically would still pass.
+
 import { describe, it, expect, vi } from 'vitest';
 import {
   runEffect,

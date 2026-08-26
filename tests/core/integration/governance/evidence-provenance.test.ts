@@ -387,70 +387,18 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
     );
   }, 300_000);
 
-  /**
-   * DR-4: a degraded projection is never served as success.
-   *
-   * BLOCKING arm: with a durable `projection.degraded` marker, a projection-
-   * derived read REFUSES with `PROJECTION_DEGRADED` and a message that carries
-   * the INJECTED lag numbers — an answer synthesised from a stale fold, or a
-   * generic well-formed envelope, could not contain them.
-   * NEGATIVE TWIN: append `projection.recovered` and the identical read
-   * succeeds and returns the real state.
-   */
-  it('Governance_Dr4_DegradedProjection_IsNeverServedAsSuccess', async () => {
-    const featureId = 'gov-t2-degraded';
-    await withHarness({}, async (h) => {
-      await h.runAction('exarchos_workflow', 'init', { featureId, workflowType: 'feature' });
-
-      const healthy = await h.runAction('exarchos_workflow', 'get', { featureId });
-      expect(healthy.result?.success).toBe(true);
-      expect(data(healthy).phase).toBe('plan');
-
-      // ── BLOCKING ARM ──────────────────────────────────────────────────
-      const inject = await h.runAction('exarchos_event', 'append', {
-        stream: 'meta/projection-health',
-        event: {
-          type: 'projection.degraded',
-          data: {
-            streamId: featureId,
-            reason: 'projection-behind',
-            eventTail: 42,
-            projectionCursor: 13,
-            lag: 29,
-            staleViews: ['workflow-state'],
-          },
-        },
-      });
-      expect(inject.result?.success).toBe(true);
-
-      const refused = await h.runAction('exarchos_workflow', 'get', { featureId });
-      expect(refused.result?.success).toBe(false);
-      expect(refused.errorCode).toBe('PROJECTION_DEGRADED');
-      const message = String(refused.result?.error?.message);
-      expect(message).toContain('29 event(s) short');
-      expect(message).toContain('tail 42');
-      expect(message).toContain('cursor 13');
-      expect(message).toContain(featureId);
-      // Emphatically not a "no data" answer served as success.
-      expect(refused.result?.data).toBeUndefined();
-
-      // ── NEGATIVE TWIN ─────────────────────────────────────────────────
-      const recover = await h.runAction('exarchos_event', 'append', {
-        stream: 'meta/projection-health',
-        event: {
-          type: 'projection.recovered',
-          data: { streamId: featureId, eventTail: 42, projectionCursor: 42 },
-        },
-      });
-      expect(recover.result?.success).toBe(true);
-
-      const restored = await h.runAction('exarchos_workflow', 'get', { featureId });
-      expect(restored.errorCode).toBeUndefined();
-      expect(restored.result?.success).toBe(true);
-      expect(data(restored).phase).toBe('plan');
-    });
-  }, 180_000);
-
+  // A `Governance_Dr4_DegradedProjection_IsNeverServedAsSuccess` case sat here.
+  // It injected a `projection.degraded` marker on `meta/projection-health` and
+  // required the next `exarchos_workflow get` to refuse with
+  // PROJECTION_DEGRADED. That is the contract this action-admission work was
+  // originally written against, and it is no longer the shipped one: a durable
+  // marker is a point-in-time observation, not a current fact about the stream,
+  // so a read that can prove its own coverage folds forward and answers instead
+  // of deferring to it. The claim that replaced it — same injected numbers,
+  // opposite verdict — is asserted directly at the seam by
+  // `tests/unit/projections/fold-at-tail.test.ts >
+  // FoldAtTail_FabricatedDegradedMarker_DoesNotWedgeAHealthyStream`, so the
+  // question is still covered rather than merely dropped.
   /**
    * DR-10: frozen resolution is MONOTONE. Once a phase attempt has been
    * resolved at a coordinate, re-entering that phase may raise the coordinate

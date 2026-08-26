@@ -1,3 +1,10 @@
+// @oracle-sources: ../../../../src/contract/compiler/descriptors.ts, the contract literals this file authors by hand and hands to the compiler as input
+//
+// The claim is that compilation carries an action contract through UNCHANGED.
+// One authority is the compiler; the other is the input the test author wrote,
+// which the compiler never sees the provenance of. Reading the expectation back
+// out of the compiler would make the assertion vacuous.
+
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { EnvelopeSchema } from '../../../../src/contract/schemas/envelope.js';

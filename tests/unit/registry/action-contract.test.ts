@@ -1,3 +1,9 @@
+// @oracle-sources: ../../../src/registry/action-contract.ts, the contract shapes this file constructs by hand — including the deliberately ill-formed ones the normalizer is required to reject rather than silently repair
+//
+// The normalizer is judged against inputs the test author chose, not against a
+// second pass of itself. The rejection cases are the half that matters: an
+// idempotence property alone is satisfied by a normalizer that does nothing.
+
 import { fc } from '@fast-check/vitest';
 import { describe, expect, it } from 'vitest';
 import {

@@ -1,3 +1,11 @@
+// @oracle-sources: ../../src/dispatch/caller-identity.js, the request payloads and clock readings this file fixes by hand — chosen to differ in exactly the fields a replay identity must ignore
+//
+// A replay identity is stable iff two DIFFERENT requests that mean the same
+// thing digest the same. One side is the identity the dispatch layer snapshots
+// off a live authenticated caller; the other is the varied input the test
+// author fixes. Deriving both from `request-context` would compare the digest
+// function against itself.
+
 import { describe, expect, it, vi } from 'vitest';
 import {
   applyReplayPolicy,

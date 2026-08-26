@@ -14,7 +14,7 @@ import { handleEvent } from '../../src/events/composite.js';
 import { handleView } from '../../src/projections/views/composite.js';
 import { handleOrchestrate } from '../../src/verbs/composite.js';
 import { handleSync } from '../../src/sync/composite.js';
-import { configureWorkflowMaterializer, handleSet } from '../../src/workflow/tools.js';
+import { handleSet } from '../../src/workflow/tools.js';
 import { EventStore } from '../../src/events/store.js';
 import { resetMaterializerCache } from '../../src/projections/views/tools.js';
 import type { DispatchContext } from '../../src/dispatch/core/dispatch.js';
@@ -36,12 +36,10 @@ function ctx(): DispatchContext {
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-integration-'));
   // Reset all module-level caches to prevent cross-test contamination
-  configureWorkflowMaterializer(null);
   resetMaterializerCache();
 });
 
 afterEach(async () => {
-  configureWorkflowMaterializer(null);
   resetMaterializerCache();
   await rmrfAsync(tmpDir);
 });
