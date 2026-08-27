@@ -473,6 +473,13 @@ export const EventTypes = [
   // deterministic plumbing: the WorktreeManager owns both appends around the pass.
   'prune.executing_started',
   'prune.executed',
+  // The prune evaluation's own audit record — how many handleList entries were
+  // rejected as malformed and how many survived as candidates. Appended on every
+  // non-suppressed evaluation, including the clean one, so "a prune ran and found
+  // nothing" is distinguishable from "no prune ran". The append site pre-dates the
+  // catalog and reached the store through a widening assertion; registering the
+  // type is what lets the emission ledger see it at all.
+  'prune.diagnostics',
   // DR-4 (wiring-closure T-06) — durable projection-health state.
   //
   // `_meta.projectionDegraded` was an EPHEMERAL per-response annotation:
@@ -2930,9 +2937,9 @@ export const DispatchPreflightData = z.object({
     protectedBranch: z.object({ passed: z.boolean() }),
     mainWorktree: z.object({ passed: z.boolean() }),
     // #1509/#1501 — native-isolation worktree base-pin guard. Optional so
-    // the non-native dispatch path and `runPreflightGuards` (which never
-    // run it) remain schema-valid; populated only on the `nativeIsolation`
-    // path where Claude Code selects the worktree base.
+    // the non-native dispatch path (which never runs it) remains
+    // schema-valid; populated only on the `nativeIsolation` path where
+    // Claude Code selects the worktree base.
     baseRef: z.object({ passed: z.boolean() }).optional(),
   }),
   passed: z.boolean(),
@@ -3050,6 +3057,26 @@ export const PruneExecutingStartedData = z.object({
   holderStartedAt: z.string().min(1).nullable(),
   // DR-2 — canonical liveness instance key (prune: the existing operationId).
   ...livenessInstanceFields,
+});
+
+/**
+ * The prune evaluation's audit record.
+ *
+ * `malformedEntries` mirrors the diagnostic entries the handler returns to its
+ * caller: a rejected entry may have no readable `featureId` — that is precisely
+ * why it was rejected — so the field is optional and the reasons carry the
+ * detail.
+ */
+export const PruneDiagnosticsData = z.object({
+  malformedCount: z.number().int().nonnegative(),
+  candidateCount: z.number().int().nonnegative(),
+  malformedEntries: z.array(
+    z.object({
+      featureId: z.string().optional(),
+      reasons: z.array(z.string()),
+    }),
+  ),
+  advisory: z.string().optional(),
 });
 
 /** Paired TERMINAL: the `prune_worktrees` GC pass completed (DR-3). */
@@ -3274,35 +3301,73 @@ export const PromotionExecutedData = z.object({
 // after the fact.
 
 /**
- * `emission.violated` — an operation finished with declared emissions unlanded.
- *
- * The payload has to answer all three of WHICH operation, WHAT it was supposed
- * to emit, and WHICH RUN it happened on, because a report naming only the
- * action is unactionable: the same action can declare several emissions, and
- * "this action missed something" does not say which contract broke or let a
- * reader join the finding back to the surrounding events of that dispatch.
- *
- * `missingEvents` is the FULL set rather than the first miss. Reporting one
- * name per violation would turn a handler that dropped three emissions into a
- * finding that reads as though it dropped one, and each repair would reveal the
- * next — the shape that makes a fault look smaller every time it is examined.
+ * Registration state of an event that landed although nothing should emit it.
+ * Mirrors `NonEmittingLifecycle` in `emission-verifier.ts` exactly — the full
+ * lifecycle axis minus `active`, which is the state a runtime emission agrees
+ * with and so can never be the state named here. New members MUST be added in
+ * both places.
  */
-export const EmissionViolatedData = z.object({
-  action: z
-    .string()
-    .min(1)
-    .describe('The dispatched action whose handler completed without its declared emissions'),
-  missingEvents: z
-    .array(z.string().min(1))
-    .min(1)
-    .describe(
-      'Every unconditionally declared event name that did not land — the full set, not the first miss',
-    ),
-  operationId: z
-    .string()
-    .min(1)
-    .describe('Identifier of the dispatch operation the verifier assessed, joining this finding to that run'),
+export const NonEmittingLifecycle = z.enum(['planned', 'retired']);
+export type NonEmittingLifecycle = z.infer<typeof NonEmittingLifecycle>;
+
+/** One event that landed while its own registration says nothing emits it. */
+export const LifecycleViolationEntry = z.object({
+  event: z.string().min(1).describe('The event name that landed'),
+  lifecycle: NonEmittingLifecycle.describe('The registration state that says nothing emits it'),
 });
+export type LifecycleViolationEntry = z.infer<typeof LifecycleViolationEntry>;
+
+/**
+ * `emission.violated` — an operation finished with its emission contract
+ * broken, on either of two independent axes: an unconditionally declared event
+ * that never landed, or an event that landed although its own registration
+ * says nothing emits it.
+ *
+ * The payload has to answer all three of WHICH operation, WHAT went wrong, and
+ * WHICH RUN it happened on, because a report naming only the action is
+ * unactionable: the same action can declare several emissions, and "this
+ * action missed something" does not say which contract broke or let a reader
+ * join the finding back to the surrounding events of that dispatch.
+ *
+ * Both axis fields carry the FULL set rather than the first miss. Reporting
+ * one name per violation would turn a handler that dropped three emissions
+ * into a finding that reads as though it dropped one, and each repair would
+ * reveal the next — the shape that makes a fault look smaller every time it is
+ * examined.
+ *
+ * The two axes are independently optional-empty — a violation can be
+ * lifecycle-only, missing-only, or both — but a report naming NEITHER is not a
+ * violation at all, so the refinement below rejects that shape rather than
+ * accepting a report with nothing to show for it.
+ */
+export const EmissionViolatedData = z
+  .object({
+    action: z
+      .string()
+      .min(1)
+      .describe('The dispatched action whose handler completed without its declared emissions'),
+    missingEvents: z
+      .array(z.string().min(1))
+      .describe(
+        'Every unconditionally declared event name that did not land — the full set, not the first miss',
+      ),
+    lifecycleViolations: z
+      .array(LifecycleViolationEntry)
+      .optional()
+      .describe(
+        'Every landed event whose own registration says nothing emits it — the full set, not the first',
+      ),
+    operationId: z
+      .string()
+      .min(1)
+      .describe('Identifier of the dispatch operation the verifier assessed, joining this finding to that run'),
+  })
+  .refine(
+    (data) => data.missingEvents.length > 0 || (data.lifecycleViolations?.length ?? 0) > 0,
+    {
+      message: 'emission.violated requires evidence on at least one axis: missingEvents or lifecycleViolations',
+    },
+  );
 
 // ─── Durable projection-health state (DR-4, wiring-closure T-06) ────────────
 //
@@ -3890,6 +3955,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   // WLM slice 3 (DR-3 / INV-10) — prune-run liveness pair.
   'prune.executing_started': PruneExecutingStartedData,
   'prune.executed': PruneExecutedData,
+  'prune.diagnostics': PruneDiagnosticsData,
 
   // DR-6 (lifecycle-verbs task 012) — export two-event contract (INV-13 / INV-8).
   'export.requested': ExportRequestedData,
@@ -4078,6 +4144,7 @@ export type FeedbackRecorded = z.infer<typeof FeedbackRecordedData>;
 // WLM slice 3 (DR-3 / INV-10) — prune-run liveness pair.
 export type PruneExecutingStarted = z.infer<typeof PruneExecutingStartedData>;
 export type PruneExecuted = z.infer<typeof PruneExecutedData>;
+export type PruneDiagnostics = z.infer<typeof PruneDiagnosticsData>;
 
 // DR-6 (lifecycle-verbs task 012) — export two-event contract (INV-13 / INV-8).
 export type ExportRequested = z.infer<typeof ExportRequestedData>;
@@ -4242,6 +4309,7 @@ export type EventDataMap = {
   // WLM slice 3 (DR-3 / INV-10) — prune-run liveness pair.
   'prune.executing_started': PruneExecutingStarted;
   'prune.executed': PruneExecuted;
+  'prune.diagnostics': PruneDiagnostics;
   // DR-6 (lifecycle-verbs task 012) — export two-event contract (INV-13 / INV-8).
   'export.requested': ExportRequested;
   'export.executed': ExportExecuted;

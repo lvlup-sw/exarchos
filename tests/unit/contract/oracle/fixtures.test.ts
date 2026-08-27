@@ -59,9 +59,12 @@
 //
 // The emission axis is reported on `OracleReport.emissionVerdict` rather than
 // as a sixth member of the closed `ORACLE_AXES` union, so `axisCoverage()` —
-// which ranges over that union — does not produce a row for it. That is the
-// exact shape of an axis going quietly uncovered, so it is answered here rather
-// than left implicit.
+// which ranges over that union — does not produce a row for it. It IS
+// selectable, through the broader `ALL_AXES` tuple that `RunOracleOptions.axes`
+// draws from — `ORACLE_AXES` stays five-membered because `seededBreak` and the
+// per-axis `it.each` tests below are keyed on exactly those five. That is still
+// the exact shape of an axis going quietly uncovered by the closed union's own
+// census, so it is answered here rather than left implicit.
 //
 // Two things cover it, and both are stronger than a census row would be:
 //
@@ -71,18 +74,30 @@
 //      `ORACLE_AXES` has that: three of the five sit at `observed: 0` across
 //      the whole live surface and the suite still reports `ok`.
 //
-// Folding the axis into the union would also have made it filterable by
-// `RunOracleOptions.axes` (it always runs today) and would have required
-// removing `OracleReport.emissionVerdict`, since a verdict present in both
-// `verdicts` and that field double-counts in `failures` and `summarizeReport`.
+// `OracleReport.emissionVerdict` is `undefined` on a report where the axis was
+// not selected — never a synthesized or stale verdict — and
+// `emissionAxisCoverage()`/`checkEmissionAxisObserved()` narrow to only the
+// reports where it ran via the `emissionWasSelected` type guard, so a
+// standard-only run cannot enter the emission census by accident.
 //
-// @oracle-sources: ../../../../src/registry.ts, the values the shipped handlers actually return when invoked through the real implementation-binding table, the appends those handlers actually record through the recorder the adapter carries into the invocation
+// @oracle-sources: ../../../../src/registry.ts, the values the shipped handlers actually return when invoked through the real implementation-binding table, the durable appends the event store confirms through its own async-scoped observation seam
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { makeTempDir, rmrf } from '../../../../tools/test-helpers/temp-dir.js';
-import { TOOL_REGISTRY } from '../../../../src/registry.js';
+import { TOOL_REGISTRY, contractEmissionsOf, type ToolAction } from '../../../../src/registry.js';
 import { BINDING_TABLE } from '../../../../src/contract/bindings/binding-table.js';
+import {
+  derivePolicy,
+  projectActionContract,
+} from '../../../../src/contract/compiler/meta-model.js';
+import {
+  unconditionalEmissions,
+  verifierDeclaredEmissions,
+} from '../../../../src/dispatch/core/interceptors/emission-verifier.js';
 import {
   EMISSION_AXIS,
   ORACLE_AXES,
@@ -99,24 +114,30 @@ import {
   type OracleSubject,
 } from '../../../../src/contract/oracle/oracle-seam.js';
 import {
-  REAL_REGISTRY_EMISSION_ACTION,
-  REAL_REGISTRY_EMISSION_EVENT,
-  REAL_REGISTRY_EMISSION_TOOL,
+  EMISSION_PROBE_DETERMINATE_FLOOR,
+  OPEN_WORLD_EXCLUSION,
   REAL_REGISTRY_PROBE_ACTION,
   REAL_REGISTRY_PROBE_ROLE,
   REAL_REGISTRY_PROBE_TOOL,
   TRUSTED_CALLER_REQUIRED,
+  checkEmissionAxisObserved,
+  checkEmissionProbeFloor,
   correctBaselineSubject,
+  declaredEmittingActions,
+  emissionProbeCorpus,
+  runEmissionProbe,
+  shippedEmitterCase,
   liveOutputSubjects,
   realActionDeclaration,
   realHandlerSubjects,
   realRegistryActions,
   realRegistryAuthorizationCase,
-  realRegistryEmissionCase,
   registryDeclaredEffects,
+  registryDeclaredEmissions,
   registryRequiredRoles,
   runEmissionOracleSuite,
   type DispatchContextFactory,
+  type EmissionProbe,
   type RealHandlerObservationSet,
 } from '../../../../src/contract/oracle/fixtures.js';
 import { EventStore } from '../../../../src/events/store.js';
@@ -292,6 +313,110 @@ describe('DR-24 — live declarations are registry-derived, not fixture literals
       // No annotation claims a subprocess, so `process` is never declared —
       // a handler observed spawning one is an undeclared effect.
       expect(effects).not.toContain('process');
+    }
+  });
+});
+
+// ─── One emission vocabulary across four surfaces ────────────────────────────
+//
+// The registry's per-action `actionContract.emissions` is the authority. The
+// compiler's `EvidencePolicy.autoEmits`, the dispatch verifier's required set
+// and the oracle's `declaredEmissions` are three projections of it, each
+// reached by its own code path. The claim is that every projection is faithful
+// to the authority IN ITS OWN ROLE — the compiler and the oracle carry both
+// halves of `{event, condition}`, the verifier keeps only the `always` half —
+// so a projection that drops `condition`, or that promotes a conditional edge
+// into a required one, shows up here rather than downstream as a handler
+// failing for taking a branch its contract permits.
+
+describe('the emission vocabulary is shared by the registry, compiler, verifier and oracle', () => {
+  const pair = (e: { readonly event: string; readonly condition: string }): string =>
+    `${e.event}/${e.condition}`;
+
+  it('EmissionProjection_RegistryCompilerVerifierOracle_Agree', () => {
+    let declaring = 0;
+    let withAlways = 0;
+    let withConditional = 0;
+
+    for (const { action, actionId } of realRegistryActions()) {
+      const authority = contractEmissionsOf(action);
+      const authorityPairs = new Set(authority.map(pair));
+      const alwaysEvents = [
+        ...new Set(authority.filter((e) => e.condition === 'always').map((e) => e.event)),
+      ].sort();
+      if (authority.length > 0) declaring += 1;
+      if (alwaysEvents.length > 0) withAlways += 1;
+      if (authority.some((e) => e.condition === 'conditional')) withConditional += 1;
+
+      // The COMPILER carries both halves, for every declared edge.
+      expect(new Set(derivePolicy(action).evidence.autoEmits.map(pair)), actionId).toEqual(
+        authorityPairs,
+      );
+
+      // The VERIFIER keeps exactly the `always` half — that set, and nothing
+      // wider, is what a missing append is judged against at dispatch.
+      expect(
+        [
+          ...unconditionalEmissions(verifierDeclaredEmissions(projectActionContract(action))),
+        ].sort(),
+        actionId,
+      ).toEqual(alwaysEvents);
+
+      // The ORACLE carries both halves too, so its axis can apply the same rule.
+      expect(
+        new Set(
+          (realActionDeclaration(actionId, action).declaredEmissions ?? []).map(pair),
+        ),
+        actionId,
+      ).toEqual(authorityPairs);
+    }
+
+    // The denominator, asserted rather than assumed. Agreement over an empty
+    // corpus, or over one where every edge carries the same condition, would
+    // hold for reasons that have nothing to do with the projections.
+    expect(declaring).toBeGreaterThanOrEqual(50);
+    expect(withAlways).toBeGreaterThan(0);
+    expect(withConditional).toBeGreaterThan(0);
+  });
+
+  it('EnvelopeObservationSubjects_WithholdTheEmissionSet', () => {
+    const actions = realRegistryActions();
+    const subjects = liveOutputSubjects();
+    expect(subjects.length).toBe(actions.length);
+
+    let declaredByTheRegistry = 0;
+    for (const [index, subject] of subjects.entries()) {
+      const entry = actions[index];
+      expect(entry).toBeDefined();
+      if (entry === undefined) continue;
+      // What is observed here is `() => envelope`, never the handler, so there
+      // is no append to attribute to this subject. The set is withheld and the
+      // axis reports `not-observed` — which is not a pass.
+      expect(subject.declaration.declaredEmissions, entry.actionId).toBeUndefined();
+      if (registryDeclaredEmissions(entry.action).length > 0) declaredByTheRegistry += 1;
+    }
+
+    // The withholding is doing real work rather than describing an empty set:
+    // most of this corpus declares emissions on its contract.
+    expect(declaredByTheRegistry).toBeGreaterThanOrEqual(50);
+  });
+
+  it('EmissionAxis_RealHandlerProbes_HaveNoUnconditionalEdgeToObserve', () => {
+    // The oracle's recorder stands in for `eventStore.append`, and no shipped
+    // handler calls it, so a real subject's appends are invisible to the axis.
+    // Admission to `realHandlerSubjects` is read-only + local, and nothing in
+    // that set declares an unconditional edge — which is why the axis reports
+    // `not-observed` there instead of failing handlers it cannot watch. Pinned
+    // so a future action landing in that set names this constraint rather than
+    // reddening the real-handler suite for an unexplained reason.
+    const probed = new Set(realHandlers.subjects.map((s) => s.declaration.actionId));
+    expect(probed.size).toBeGreaterThan(0);
+    for (const { action, actionId } of realRegistryActions()) {
+      if (!probed.has(actionId)) continue;
+      expect(
+        registryDeclaredEmissions(action).filter((e) => e.condition === 'always'),
+        actionId,
+      ).toEqual([]);
     }
   });
 });
@@ -528,76 +653,140 @@ describe('DR-24 — the volatility mask is auditable, not a hole', () => {
 
 // ─── The emission axis on the LIVE path ──────────────────────────────────────
 //
-// The oracle mints an emission recorder per invocation and injects it on the
-// observation context, but `compositeHandlerAdapter` is the boundary every real
-// subject is reached through. Until the adapter carried the recorder across
-// that boundary, it was injected and then dropped, and every real subject's
-// emission axis reported `not-observed` for a reason that was an artifact of
-// the harness rather than a fact about the handler.
+// The evidence behind an emission verdict used to be a stand-in: the oracle put
+// a recorder in scope and a fixture handler called it where a real one would
+// call `eventStore.append`. Nothing shipped ever calls that recorder, so the one
+// subject the axis could reach a verdict on was a fixture, and the verdict rested
+// on a fixture's promise rather than on an append.
 //
-// The pair below is the same construction the authorization case uses: a real
-// action registered through the registry's own validator, bound by the real
-// binding-table constructor, invoked through the adapter and the real dispatch
-// scope. Only the handler body differs — one records its append where it
-// commits, the other declares the append and never makes it — so the verdict
-// is the HANDLER's and the two are indistinguishable to anything reading the
-// declaration.
+// It now comes from the EVENT STORE. `compositeHandlerAdapter` installs the
+// events layer's async-scoped append observer around the invocation, so the axis
+// reads what the store confirmed durable — past every rejection branch and past
+// the idempotency cache-hit return.
+//
+// The positive claim below is therefore a SHIPPED emitter out of the probe
+// corpus, dispatched through its real binding into an isolated store. The
+// negative control is a fixture handler carrying that same shipped action's
+// declaration and appending nothing — a fixture is legitimate on that side,
+// because it is what proves the `pass` discriminates rather than defaults.
+
+/** The corpus member the emission claims are made against. */
+const SHIPPED_APPENDER = 'exarchos_workflow.feedback';
+
+function corpusProbe(actionId: string): EmissionProbe {
+  const probe = emissionProbeCorpus().probes.find((entry) => entry.actionId === actionId);
+  if (probe === undefined) {
+    throw new Error(`'${actionId}' left the probe corpus — the emission claims lost their subject`);
+  }
+  return probe;
+}
+
+/** The event types the action's own contract says it appends on every branch. */
+function unconditionalEvents(action: ToolAction): readonly string[] {
+  return contractEmissionsOf(action)
+    .filter((emission) => emission.condition === 'always')
+    .map((emission) => emission.event);
+}
 
 describe('the emission axis reaches a verdict on a live subject', () => {
-  it('OracleEmission_LiveSubject_ProducesADeterminateVerdict', async () => {
-    const appending = realRegistryEmissionCase('appending', stateDir, makeRealContext);
-    const silent = realRegistryEmissionCase('silent', stateDir, makeRealContext);
+  it('OracleEmission_ShippedAppender_ProducesPassFromObservedStoreAppend', async () => {
+    // Two directories, because the store is idempotent: a second observation of
+    // the same input against the same store collapses onto the first write, and
+    // a collapse is deliberately NOT reported as an append. Each observation
+    // therefore gets a store that has never seen this probe.
+    const evidenceDir = makeTempDir('oracle-shipped-appender-evidence-');
+    const verdictDir = makeTempDir('oracle-shipped-appender-verdict-');
+    try {
+      const probe = corpusProbe(SHIPPED_APPENDER);
+      const shipped = await shippedEmitterCase(probe, 'appending', evidenceDir, makeRealContext);
 
-    // The subject under observation is reached through a REAL, non-serializable
-    // implementation binding — not a hand-built observation object.
-    expect(appending.binding.tool).toBe(REAL_REGISTRY_EMISSION_TOOL);
-    expect(typeof appending.binding.load).toBe('function');
-    expect(appending.subject.declaration.actionId).toBe(
-      `${REAL_REGISTRY_EMISSION_TOOL}.${REAL_REGISTRY_EMISSION_ACTION}`,
-    );
-    expect(appending.subject.declaration.declaredEmissions).toEqual([
-      REAL_REGISTRY_EMISSION_EVENT,
-    ]);
+      // The subject is a REGISTERED action reached through the shipped binding
+      // table — not a fixture registration standing in for one.
+      expect(shipped.actionId).toBe(SHIPPED_APPENDER);
+      expect(realRegistryActions().map((e) => e.actionId)).toContain(shipped.actionId);
+      expect(BINDING_TABLE.map((b) => b.tool)).toContain(shipped.binding.tool);
 
-    // The recorder the seam minted really crossed the adapter: the observation
-    // carries the append the handler itself recorded, evidence and all. Read
-    // off `performedEmissions`, which is populated from the recorder — not from
-    // the declaration, which would make the whole axis tautological.
-    const obs = await observeBehavior(appending.subject);
-    expect(obs.performedEmissions.map((e) => e.eventType)).toEqual([
-      REAL_REGISTRY_EMISSION_EVENT,
-    ]);
-    expect(obs.performedEmissions[0]?.evidence).toContain(REAL_REGISTRY_EMISSION_ACTION);
+      // The declaration is the action's contract, read through the same
+      // projection the registry itself exposes — no hand-copied edge list.
+      expect(shipped.subject.declaration.declaredEmissions).toEqual(
+        registryDeclaredEmissions(shipped.action),
+      );
+      const required = unconditionalEvents(shipped.action);
+      expect(required.length, `${SHIPPED_APPENDER} declares no unconditional edge`).toBeGreaterThan(
+        0,
+      );
 
-    // DETERMINATE: `pass`, not the `not-observed` a live subject reports when
-    // the axis is structurally unable to look.
-    const appendingReport = await runOracle(appending.subject);
-    expect(appendingReport.emissionVerdict.status, summarizeReport(appendingReport)).toBe('pass');
-    expect(appendingReport.emissionVerdict.status).not.toBe('not-observed');
-    expect(appendingReport.ok, summarizeReport(appendingReport)).toBe(true);
+      // The evidence is the STORE's: every observed emission carries the stream
+      // and sequence the store assigned when it confirmed the write durable.
+      const obs = await observeBehavior(shipped.subject);
+      expect(obs.performedEmissions.map((e) => e.eventType)).toEqual(
+        expect.arrayContaining([...required]),
+      );
+      for (const emission of obs.performedEmissions) {
+        expect(emission.evidence).toMatch(/^store append: .+#\d+$/);
+      }
+      // …and it landed in the isolated directory, so the append that produced
+      // the verdict and the file it persisted to are the same isolation.
+      expect(
+        fs.readdirSync(evidenceDir).some((entry) => /\.db(-wal|-shm)?$/.test(entry)),
+        `${SHIPPED_APPENDER} appended without materialising a store in ${evidenceDir}`,
+      ).toBe(true);
 
-    // Determinate in the other direction too, which is what makes the `pass`
-    // above discriminating rather than a default: the twin that declares the
-    // same emission and never records it is caught.
-    const silentReport = await runOracle(silent.subject);
-    expect(silentReport.emissionVerdict.status, summarizeReport(silentReport)).toBe('fail');
-    expect(silentReport.emissionVerdict.diagnostic).toContain(REAL_REGISTRY_EMISSION_EVENT);
-    expect(silentReport.ok, summarizeReport(silentReport)).toBe(false);
+      // DETERMINATE: `pass`, not the `not-observed` every subject reported while
+      // the axis had no channel onto a shipped handler's appends.
+      const fresh = await shippedEmitterCase(probe, 'appending', verdictDir, makeRealContext);
+      const report = await runOracle(fresh.subject);
+      expect(report.emissionVerdict.status, summarizeReport(report)).toBe('pass');
+    } finally {
+      rmrf(evidenceDir);
+      rmrf(verdictDir);
+    }
+  }, 120_000);
 
-    // Per-axis isolation: the emission axis is the only thing that moved, so
-    // the probe is not reddening a neighbouring axis for a fixture-only reason.
-    expect(silentReport.verdicts.filter((v) => v.status === 'fail')).toEqual([]);
+  it('OracleEmission_SilentTwinWithSameDeclaration_ProducesFail', async () => {
+    const probe = corpusProbe(SHIPPED_APPENDER);
+    const appendingDir = makeTempDir('oracle-silent-twin-appending-');
+    const evidenceDir = makeTempDir('oracle-silent-twin-evidence-');
+    const verdictDir = makeTempDir('oracle-silent-twin-verdict-');
+    try {
+      const appending = await shippedEmitterCase(probe, 'appending', appendingDir, makeRealContext);
+      const silent = await shippedEmitterCase(probe, 'silent', evidenceDir, makeRealContext);
 
-    // Independence, on a REAL registration: the two declarations are
-    // byte-identical, so no generated artifact — and no
-    // declaration-to-declaration drift guard — can tell the appending handler
-    // from the silent one. Only the behavioral observation can.
-    expect(
-      serializeGeneratedDescriptor(deriveGeneratedDescriptor(silent.subject.declaration)),
-    ).toBe(
-      serializeGeneratedDescriptor(deriveGeneratedDescriptor(appending.subject.declaration)),
-    );
-  }, 60_000);
+      // Same declaration, both sides, and it is the SHIPPED action's: the twin
+      // cannot drift onto an easier contract, because neither side authors one.
+      expect(silent.action).toBe(appending.action);
+      expect(silent.subject.declaration.declaredEmissions).toEqual(
+        registryDeclaredEmissions(appending.action),
+      );
+      expect(
+        serializeGeneratedDescriptor(deriveGeneratedDescriptor(silent.subject.declaration)),
+      ).toBe(
+        serializeGeneratedDescriptor(deriveGeneratedDescriptor(appending.subject.declaration)),
+      );
+
+      // The twin is the one thing that differs: a different bound handler.
+      expect(silent.binding.load).not.toBe(appending.binding.load);
+
+      // It appended nothing — the store confirmed no write during its probe.
+      const obs = await observeBehavior(silent.subject);
+      expect(obs.performedEmissions).toEqual([]);
+
+      // The verdict is taken against a store this probe has never touched, so
+      // the silence is the handler's and not an idempotency collapse onto an
+      // earlier observation's write.
+      const fresh = await shippedEmitterCase(probe, 'silent', verdictDir, makeRealContext);
+      const report = await runOracle(fresh.subject);
+      expect(report.emissionVerdict.status, summarizeReport(report)).toBe('fail');
+      for (const event of unconditionalEvents(appending.action)) {
+        expect(report.emissionVerdict.diagnostic).toContain(event);
+      }
+      expect(report.ok, summarizeReport(report)).toBe(false);
+    } finally {
+      rmrf(appendingDir);
+      rmrf(evidenceDir);
+      rmrf(verdictDir);
+    }
+  }, 120_000);
 
   it('OracleEmission_ZeroObservedSubjects_FailsForThisAxisOnly', async () => {
     // Nothing in the registry can declare an emission yet, so the whole live
@@ -641,19 +830,259 @@ describe('the emission axis reaches a verdict on a live subject', () => {
 
     // ── And it is satisfiable, not a standing red: ONE live subject whose
     //    emission axis is determinate keeps the run non-vacuous while every
-    //    other subject still reports `not-observed`.
-    const determinate = realRegistryEmissionCase('appending', stateDir, makeRealContext);
-    const withLiveSubject = await runEmissionOracleSuite([
-      ...realHandlers.subjects,
-      determinate.subject,
-    ]);
-    expect(withLiveSubject.coverage.observed).toBe(1);
-    expect(withLiveSubject.coverage.pass).toBe(1);
-    expect(withLiveSubject.coverage.notObserved).toBe(realHandlers.subjects.length);
-    expect(withLiveSubject.vacuity.status).toBe('pass');
+    //    other subject still reports `not-observed`. That subject is a SHIPPED
+    //    emitter, so what lifts the vacuity is a real durable append.
+    const determinateDir = makeTempDir('oracle-emission-determinate-');
+    try {
+      const determinate = await shippedEmitterCase(
+        corpusProbe(SHIPPED_APPENDER),
+        'appending',
+        determinateDir,
+        makeRealContext,
+      );
+      const withLiveSubject = await runEmissionOracleSuite([
+        ...realHandlers.subjects,
+        determinate.subject,
+      ]);
+      expect(withLiveSubject.coverage.observed).toBe(1);
+      expect(withLiveSubject.coverage.pass).toBe(1);
+      expect(withLiveSubject.coverage.notObserved).toBe(realHandlers.subjects.length);
+      expect(withLiveSubject.vacuity.status).toBe('pass');
+      expect(
+        withLiveSubject.ok,
+        withLiveSubject.suite.failures.map((f) => `${f.actionId}/${f.axis}`).join(', '),
+      ).toBe(true);
+    } finally {
+      rmrf(determinateDir);
+    }
+  }, 180_000);
+
+  it('RunEmissionOracleSuite_ZeroObserved_FailsDistinctly', async () => {
+    // Every subject HAD the emission axis selected (the default `runOracleSuite`
+    // call `runEmissionOracleSuite` makes selects `ALL_AXES`), yet none of them
+    // reaches a determinate verdict — the "selected but silent" shape.
+    const subjects = liveOutputSubjects();
+    const vacuous = await runEmissionOracleSuite(subjects);
+    expect(vacuous.vacuity.status).toBe('fail');
+    expect(vacuous.vacuity.diagnostic).toContain('observed NOTHING');
+    expect(vacuous.vacuity.diagnostic).not.toContain('never asked to look');
+  });
+
+  it('CheckEmissionAxisObserved_ZeroSelectedSubjects_FailsDistinctly', async () => {
+    // A run that selects only the standard axes never asks the emission axis
+    // to look at all — every report's `emissionVerdict` is `undefined`. This is
+    // a DIFFERENT defect from "selected but observed nothing", and must carry a
+    // distinct diagnostic so a caller can tell which repair is needed.
+    const subjects = [correctBaselineSubject()];
+    const standardOnly = await runOracleSuite(subjects, { axes: ORACLE_AXES });
+    expect(standardOnly.reports.every((r) => r.emissionVerdict === undefined)).toBe(true);
+
+    const zeroSelected = checkEmissionAxisObserved(standardOnly.reports);
+    expect(zeroSelected.status).toBe('fail');
+    expect(zeroSelected.diagnostic).toContain('never asked to look');
+    expect(zeroSelected.diagnostic).not.toContain('observed NOTHING');
+
+    // The degenerate case (no reports at all) fails with the same message —
+    // "zero of zero" is still zero subjects that had the axis selected.
+    const noReports = checkEmissionAxisObserved([]);
+    expect(noReports.status).toBe('fail');
+    expect(noReports.diagnostic).toContain('never asked to look');
+
+    // And it is a genuinely distinct kill from the all-not-observed branch:
+    // an emission-selected run that reaches no verdict fails with the OTHER
+    // message.
+    const emissionSelected = await runOracleSuite(subjects, { axes: [EMISSION_AXIS] });
+    const allNotObserved = checkEmissionAxisObserved(emissionSelected.reports);
+    expect(allNotObserved.status).toBe('fail');
+    expect(allNotObserved.diagnostic).toContain('observed NOTHING');
+    expect(allNotObserved.diagnostic).not.toBe(zeroSelected.diagnostic);
+  });
+});
+
+// ─── The shipped-emitter probe corpus ────────────────────────────────────────
+//
+// The emission axis had exactly one subject it could reach a verdict on, and
+// that subject was a FIXTURE action. Every shipped emitter was outside the
+// probed population by construction: `realHandlerSubjects` admits only
+// `readOnly` actions, and appending an event is a mutation.
+//
+// The corpus is the emitting population's own admission rule — a mutating
+// action is admitted when its mutation is confined to a caller-owned temporary
+// state directory. These three tests hold it to that:
+//
+//   1. every member is schema-valid, runs to completion offline, and writes
+//      inside its own temp dir and nowhere else;
+//   2. the determinate-capable count is pinned to a floor that a shrinking
+//      corpus trips; and
+//   3. the probed and excluded sets PARTITION the declared-emission
+//      population, so a newly-declared emission cannot join it unclassified.
+
+describe('the shipped-emitter probe corpus', () => {
+  /** `success` off an envelope, without asserting the envelope's whole shape. */
+  function envelopeSuccess(value: unknown): unknown {
+    if (typeof value !== 'object' || value === null || !('success' in value)) return undefined;
+    const { success } = value;
+    return success;
+  }
+
+  it('EmissionProbeCorpus_EveryEntryIsSchemaValidLocalAndIsolated', async () => {
+    const corpus = emissionProbeCorpus();
+    expect(corpus.probes.length).toBeGreaterThan(0);
+
+    const byId = new Map(declaredEmittingActions().map((e) => [e.actionId, e.action]));
+    const repoRoot = process.cwd();
+    const repoStateDir = path.join(repoRoot, '.exarchos');
+    const dbLike = (entry: string): boolean => /\.db(-wal|-shm)?$/.test(entry);
+    const usedDirs = new Set<string>();
+    let observedAppends = 0;
+
+    for (const probe of corpus.probes) {
+      const action = byId.get(probe.actionId);
+      expect(action, probe.actionId).toBeDefined();
+      if (action === undefined) continue;
+
+      // Local and offline are the REGISTRY's own words, so a member that starts
+      // reaching outside the machine trips this rather than the containment
+      // check downstream.
+      expect(action.annotations.openWorld, probe.actionId).toBe(false);
+
+      // Schema-valid: the probe input and every prerequisite are validated
+      // against the declared schema they will actually be dispatched through.
+      expect(action.schema.safeParse(probe.input).success, probe.actionId).toBe(true);
+      for (const step of probe.setup) {
+        const stepAction = byId.get(step.actionId) ?? null;
+        const stepSchema =
+          stepAction ?? realRegistryActions().find((e) => e.actionId === step.actionId)?.action;
+        expect(stepSchema, `${probe.actionId} setup ${step.actionId}`).toBeDefined();
+        if (stepSchema === undefined || stepSchema === null) continue;
+        expect(
+          stepSchema.schema.safeParse(step.input).success,
+          `${probe.actionId} setup ${step.actionId}`,
+        ).toBe(true);
+      }
+
+      // Isolated: a fresh temp dir per probe, never a fixed path — two runs on
+      // the same machine must not be able to meet in one directory.
+      const probeDir = makeTempDir('oracle-emission-probe-');
+      expect(probeDir.startsWith(os.tmpdir()), probeDir).toBe(true);
+
+      expect(usedDirs.has(probeDir)).toBe(false);
+      usedDirs.add(probeDir);
+      try {
+        const run = await runEmissionProbe(probe, probeDir, makeRealContext);
+        // It ran to completion and returned a runtime envelope — a member that
+        // throws is not a probe, it is an unhandled path.
+        expect(typeof envelopeSuccess(run.result), `${probe.actionId}: ${String(run.result)}`).toBe(
+          'boolean',
+        );
+        // A probe that appended durably must have a store in its OWN directory:
+        // the append and the file it landed in have to be the same isolation.
+        // Probes that append nothing legitimately leave no store behind.
+        if (run.appended.length > 0) {
+          observedAppends += 1;
+          expect(fs.readdirSync(probeDir).some(dbLike), probe.actionId).toBe(true);
+        }
+      } finally {
+        rmrf(probeDir);
+      }
+      expect(fs.existsSync(probeDir), `${probe.actionId} left its temp dir behind`).toBe(false);
+    }
+
+    // The containment claim needs a denominator: a corpus in which nothing ever
+    // appended would satisfy every check below by never writing at all.
+    expect(observedAppends).toBeGreaterThan(0);
+
+    // Containment: a probe that ran against the ambient state dir instead of
+    // its own would materialise an event store in the repository. Checked after
+    // the whole corpus, so ANY member escaping is caught.
     expect(
-      withLiveSubject.ok,
-      withLiveSubject.suite.failures.map((f) => `${f.actionId}/${f.axis}`).join(', '),
-    ).toBe(true);
-  }, 120_000);
+      fs.readdirSync(repoStateDir).filter(dbLike),
+      'a probe wrote an event store into the repository state dir',
+    ).toEqual([]);
+    expect(
+      fs.readdirSync(repoRoot).filter(dbLike),
+      'a probe wrote an event store into the repository root',
+    ).toEqual([]);
+  }, 300_000);
+
+  it('EmissionProbeCorpus_ZeroEntries_FailsTheFloor', () => {
+    const corpus = emissionProbeCorpus();
+    const verdict = checkEmissionProbeFloor(corpus);
+
+    // The measured floor, and the members it counts are read from the REGISTRY
+    // declaration rather than from the corpus literal.
+    expect(verdict.ok, verdict.diagnostic).toBe(true);
+    expect(verdict.determinate.length).toBeGreaterThanOrEqual(EMISSION_PROBE_DETERMINATE_FLOOR);
+    expect(EMISSION_PROBE_DETERMINATE_FLOOR).toBeGreaterThan(0);
+    for (const actionId of verdict.determinate) {
+      const action = declaredEmittingActions().find((e) => e.actionId === actionId)?.action;
+      expect(action, actionId).toBeDefined();
+      if (action === undefined) continue;
+      expect(
+        contractEmissionsOf(action).some((e) => e.condition === 'always'),
+        actionId,
+      ).toBe(true);
+    }
+
+    // The kill: an emptied corpus fails the same check, and says why. Without
+    // this the floor would be an assertion no state of the world falsifies.
+    const emptied = checkEmissionProbeFloor({ ...corpus, probes: [] });
+    expect(emptied.ok).toBe(false);
+    expect(emptied.determinate).toEqual([]);
+    expect(emptied.diagnostic).toContain('below the floor');
+
+    // And it is not a blanket refusal: a corpus holding only conditional-edge
+    // members is equally short, which is what makes the count mean something.
+    const conditionalOnly = corpus.probes.filter(
+      (probe) => !verdict.determinate.includes(probe.actionId),
+    );
+    expect(conditionalOnly.length).toBeGreaterThan(0);
+    expect(checkEmissionProbeFloor({ ...corpus, probes: conditionalOnly }).ok).toBe(false);
+  });
+
+  it('EmissionProbeCorpus_ExcludedActions_ReportReasons', () => {
+    const corpus = emissionProbeCorpus();
+
+    // The denominator, measured rather than assumed.
+    expect(corpus.declaredEmitters.length).toBeGreaterThanOrEqual(50);
+    expect(new Set(corpus.declaredEmitters).size).toBe(corpus.declaredEmitters.length);
+
+    // The two sets PARTITION the population: every declared emitter is probed
+    // or excluded, nothing is both, and no exclusion names an action that has
+    // stopped declaring an emission.
+    const probed = corpus.probes.map((probe) => probe.actionId);
+    const excluded = corpus.excluded.map((entry) => entry.actionId);
+    expect(corpus.unclassified, 'a declared emitter is neither probed nor excluded').toEqual([]);
+    expect(corpus.stale, 'an exclusion names an action that declares no emission').toEqual([]);
+    expect(
+      corpus.doublyClassified,
+      'a hand-authored exclusion names an action the corpus also probes',
+    ).toEqual([]);
+    expect(new Set(excluded).size).toBe(excluded.length);
+    expect(probed.filter((id) => excluded.includes(id))).toEqual([]);
+    expect([...probed, ...excluded].sort()).toEqual([...corpus.declaredEmitters].sort());
+
+    // Every exclusion carries a REASON — the point of reporting them at all.
+    for (const entry of corpus.excluded) {
+      expect(entry.reason.trim().length, entry.actionId).toBeGreaterThan(0);
+    }
+
+    // The `openWorld` exclusions are derived from the annotation, so they name
+    // exactly the emitters the registry itself says leave the local system.
+    const openWorldEmitters = declaredEmittingActions()
+      .filter((e) => e.action.annotations.openWorld)
+      .map((e) => e.actionId)
+      .sort();
+    expect(openWorldEmitters.length).toBeGreaterThan(0);
+    expect(
+      corpus.excluded
+        .filter((entry) => entry.reason === OPEN_WORLD_EXCLUSION)
+        .map((entry) => entry.actionId)
+        .sort(),
+    ).toEqual(openWorldEmitters);
+
+    // The corpus is a MODEST subset, and says so rather than implying it covers
+    // the population: most declared emitters are excluded, with a reason each.
+    expect(corpus.excluded.length).toBeGreaterThan(corpus.probes.length);
+  });
 });

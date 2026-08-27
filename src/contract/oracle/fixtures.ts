@@ -48,15 +48,21 @@
 //   • effects — `not-observed` for real handlers: the composite handlers do not
 //     emit through the oracle's effect recorder, so there is no evidence, and
 //     an empty recorder must not read as a clean bill.
+//   • emissions — the declaration carries the registry's own `{event,
+//     condition}` set, and only an `always` edge can produce a verdict. The
+//     evidence is the EVENT STORE's own confirmation that an event became
+//     durable, carried out of the store by its async-scoped append seam. The
+//     canned-envelope subjects withhold the declaration entirely: their observed
+//     function is not the handler, so there is no append to attribute to them.
 //
 // This is a test-fixtures module (auto-classified by the `fixtures.ts` name); it
 // is imported only by the oracle's co-located tests.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { z } from 'zod';
 import {
   TOOL_REGISTRY,
+  contractEmissionsOf,
   none,
   validateAction,
   withActionContract,
@@ -76,6 +82,10 @@ import {
 } from '../bindings/binding-table.js';
 import type { CompositeHandler, DispatchContext } from '../../dispatch/core/dispatch.js';
 import {
+  runWithAppendObserver,
+  type AppendObservation,
+} from '../../events/observation/append-observation.js';
+import {
   deriveLocalOperatorIdentity,
   snapshotCallerAuthorization,
 } from '../../dispatch/caller-identity.js';
@@ -93,11 +103,13 @@ import {
   AUTHORIZATION_CODES,
   EMISSION_AXIS,
   OPEN_ROLE_MARKER,
+  emissionWasSelected,
   type ActionSafety,
   type ContractDeclaration,
+  type DeclaredEmission,
   type EmissionAxis,
   type EmissionAxisVerdict,
-  type EmissionRecorder,
+  type EmissionSelectedReport,
   type ObservableHandler,
   type ObservationContext,
   type OracleAxis,
@@ -322,6 +334,37 @@ export function registryDeclaredEffects(action: ToolAction): readonly EffectClas
   return effects;
 }
 
+const compareText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * The `{event, condition}` set the REAL registry declares for this action,
+ * read off the nested action contract through `contractEmissionsOf` — the same
+ * registry-level projection the event-registration validator and the reachability
+ * collector consult.
+ *
+ * The condition rides along deliberately. The compiler compiles it, the dispatch
+ * verifier requires only the `always` half of it, and the oracle now judges by
+ * the same rule; dropping it here would make the oracle demand an append on
+ * every branch and fail handlers for taking one they were entitled to take.
+ *
+ * Reading the registry rather than the compiled `EvidencePolicy` also keeps the
+ * oracle off the generation pipeline it exists to be independent of — and keeps
+ * "the four surfaces agree" a claim that can actually fail, instead of a
+ * comparison of one projection with itself.
+ */
+export function registryDeclaredEmissions(action: ToolAction): readonly DeclaredEmission[] {
+  const unique = new Map<string, DeclaredEmission>();
+  for (const emission of contractEmissionsOf(action)) {
+    unique.set(`${emission.event} ${emission.condition}`, {
+      event: emission.event,
+      condition: emission.condition,
+    });
+  }
+  return [...unique.values()].sort(
+    (a, b) => compareText(a.event, b.event) || compareText(a.condition, b.condition),
+  );
+}
+
 /** The oracle declaration for a REAL registry action — every field registry-derived. */
 export function realActionDeclaration(actionId: string, action: ToolAction): ContractDeclaration {
   return {
@@ -331,10 +374,33 @@ export function realActionDeclaration(actionId: string, action: ToolAction): Con
     idempotent: action.annotations.idempotent,
     requiredRoles: registryRequiredRoles(action),
     declaredEffects: registryDeclaredEffects(action),
+    declaredEmissions: registryDeclaredEmissions(action),
     inputSchema: action.schema,
     outputSchema: action.outputSchema,
     surfaceVersion: CONTRACT_SURFACE_VERSION,
   };
+}
+
+/**
+ * The declaration for a subject whose observed value is a canned runtime
+ * ENVELOPE rather than the action's handler.
+ *
+ * Everything else is the registry-derived declaration; the emission set is
+ * withheld, and the omission is the honest reading. The observed function here
+ * is `() => envelope` — it was never the thing that appends — so scoring a
+ * declared edge against it would report a fault the oracle did not observe.
+ * Absent, the emission axis reports `not-observed`, which is not a pass.
+ */
+function envelopeObservationDeclaration(
+  actionId: string,
+  action: ToolAction,
+): ContractDeclaration {
+  const { declaredEmissions: _handlerOnly, ...envelopeObservable } = realActionDeclaration(
+    actionId,
+    action,
+  );
+  void _handlerOnly;
+  return envelopeObservable;
 }
 
 /** Every `(tool, action)` pair in the REAL registry, flattened with its ActionId. */
@@ -374,7 +440,7 @@ export function liveOutputSubjects(): OracleSubject[] {
   return realRegistryActions().map(({ action, actionId }) => {
     const envelope = sampleErrorEnvelope();
     return {
-      declaration: realActionDeclaration(actionId, action),
+      declaration: envelopeObservationDeclaration(actionId, action),
       handler: () => envelope,
       probeInput: {},
     };
@@ -397,7 +463,7 @@ export function liveSuccessOutputSubjects(): { subjects: OracleSubject[]; skippe
       continue;
     }
     subjects.push({
-      declaration: realActionDeclaration(actionId, action),
+      declaration: envelopeObservationDeclaration(actionId, action),
       handler: () => envelope,
       probeInput: {},
     });
@@ -456,33 +522,28 @@ export interface RealHandlerObservationSet {
  */
 export type DispatchContextFactory = (stateDir: string) => DispatchContext;
 
-// ─── Reaching the oracle's emission recorder from inside a real handler ──────
+// ─── Where the oracle's emission evidence comes from ─────────────────────────
 //
-// The oracle mints a fresh emission recorder per invocation and injects it on
-// the {@link ObservationContext}. A real {@link CompositeHandler}, however,
-// takes exactly two arguments and its second is `DispatchContext` — a shipped,
-// closed interface. Neither can carry the recorder without changing a
-// production type for a test-only observation, and stuffing it into `args`
-// would put an unknown key in front of every shipped handler's argument parse.
+// A shipped handler appends through the event store. It has no idea an oracle
+// is watching, and there is no argument through which to tell it: a real
+// {@link CompositeHandler} takes exactly two, and the second is the shipped,
+// closed `DispatchContext`.
 //
-// So it rides an AsyncLocalStorage scope the adapter opens around the
-// invocation — the same primitive `dispatch-context.ts` uses to reach append
-// sites without an argument refactor, so it survives the
-// `runWithDispatchContext` hop and every async continuation beneath it.
+// So the evidence is taken from the STORE instead, through the events layer's
+// async-scoped append seam. The adapter opens that scope around the invocation
+// and forwards every DURABLY-PERSISTED append into the recorder the oracle
+// injected. What the emission axis then reads is the store's own confirmation
+// that an event landed — not a handler's claim that it would append, and not a
+// re-read of the declaration.
+//
+// The seam notifies past every rejection branch and past the idempotency
+// cache-hit return, so a validation failure or a collapsed re-append produces
+// no observation, and it is scoped per async context, so two subjects observed
+// concurrently cannot see each other's appends.
 
-const emissionScope = new AsyncLocalStorage<EmissionRecorder>();
-
-/**
- * The emission recorder the oracle injected for the invocation in flight, or
- * `undefined` outside an observed dispatch.
- *
- * A handler that appends events calls this at the point it commits, exactly
- * where it would call `eventStore.append`. One that never calls it is observed
- * appending nothing — which is the whole signal, so the absence is deliberately
- * silent rather than an error.
- */
-export function observedEmissionRecorder(): EmissionRecorder | undefined {
-  return emissionScope.getStore();
+/** One durable append, as the emission recorder records it. */
+function appendEvidence(observation: AppendObservation): string {
+  return `store append: ${observation.streamId}#${observation.sequence}`;
 }
 
 /**
@@ -501,10 +562,10 @@ export function observedEmissionRecorder(): EmissionRecorder | undefined {
  * consults the trusted-caller boundary refuses the intruder, and one that skips
  * authorization serves it and is caught.
  *
- * It also carries the observation context's emission recorder into the
- * invocation (see {@link observedEmissionRecorder}). Without that hop the
- * recorder is injected and then dropped at this boundary, and EVERY real
- * subject's emission axis reports `not-observed` for a reason that is an
+ * It also installs the event store's append observer for the duration of the
+ * invocation, feeding the observation context's emission recorder. Without that
+ * hop the recorder is injected and then dropped at this boundary, and EVERY
+ * real subject's emission axis reports `not-observed` for a reason that is an
  * artifact of the adapter rather than a fact about the handler — the axis
  * would look inspected while being structurally incapable of a verdict.
  */
@@ -543,10 +604,16 @@ export function compositeHandlerAdapter(
     };
 
     // No recorder on the context means the caller is not observing emissions
-    // here (the admission probe below, for one). Opening a scope over a
-    // throwaway recorder would tell the handler it is being watched when
-    // nothing will read what it records, so the scope simply stays closed.
-    return ctx.emissions === undefined ? invoke() : emissionScope.run(ctx.emissions, invoke);
+    // here (the admission probe below, for one). An observer scope opened over
+    // a throwaway recorder would still SHADOW an enclosing one, so a caller
+    // observing appends from further out would stop seeing them; the scope
+    // simply stays closed instead.
+    const emissions = ctx.emissions;
+    if (emissions === undefined) return invoke();
+    return runWithAppendObserver(
+      (observation) => emissions.record(observation.type, appendEvidence(observation)),
+      invoke,
+    );
   };
 }
 
@@ -859,131 +926,15 @@ export function realRegistryAuthorizationCase(
   };
 }
 
-// ─── The controlled real-registry emission case ──────────────────────────────
-//
-// `ToolAction` carries no per-action emission declaration — coupling an action
-// to the events it appends is precisely the gap this axis exists to expose — so
-// no shipped action can give the emission axis a determinate verdict today, and
-// the axis would read `not-observed` right across the live surface.
-//
-// Rather than hand-build an observation, this registers a real action the way
-// the authorization case does: through the registry's own validator, bound by
-// the real binding-table constructor, reached through `compositeHandlerAdapter`
-// and the real dispatch scope. Only the handler body varies — one records its
-// append where it commits, the other declares the append and never makes it.
-
-/** The real tool name the emission case registers under. */
-export const REAL_REGISTRY_EMISSION_TOOL = 'exarchos_oracle_emission_probe';
-/** The real action name the emission case registers. */
-export const REAL_REGISTRY_EMISSION_ACTION = 'audited_read';
-/** The event type the emission case's action declares it appends. */
-export const REAL_REGISTRY_EMISSION_EVENT = 'oracle_probe.audit_appended';
-
-/**
- * `appending` records its append through the recorder the adapter put in scope;
- * `silent` declares the same emission and never appends. Both are real handlers
- * bound the real way — the difference is exactly the defect the emission axis
- * has to catch.
- */
-export type EmissionVariant = 'appending' | 'silent';
-
-/**
- * The real handler that APPENDS. It reaches the oracle's recorder
- * ({@link observedEmissionRecorder}) at the point a shipped handler would call
- * `eventStore.append`: the recorder stands in for the store so the probe stays
- * offline and writes to no real stream, but the CALL SITE is the handler's own
- * commit point, and that is what the axis observes.
- *
- * The optional call is deliberate. Outside an observed dispatch there is
- * nothing to record into, and if the adapter ever stops carrying the recorder
- * this handler silently becomes indistinguishable from its silent twin — which
- * is the failure the emission axis then reports, rather than a thrown error
- * from the harness.
- */
-const appendingRealHandler: CompositeHandler = async (): Promise<ToolResult> => {
-  observedEmissionRecorder()?.record(
-    REAL_REGISTRY_EMISSION_EVENT,
-    `append:${REAL_REGISTRY_EMISSION_TOOL}.${REAL_REGISTRY_EMISSION_ACTION}`,
-  );
-  return probeEnvelope({ success: true, data: { audited: true } });
-};
-
-/** The real handler that declares the emission and never performs it. */
-const silentRealHandler: CompositeHandler = async (): Promise<ToolResult> =>
-  probeEnvelope({ success: true, data: { audited: true } });
-
-/**
- * A real action in a real registry instance, bound to a real handler, observed
- * through the real dispatch surface. The `silent` variant is the acceptance
- * case: a REAL handler that declares an emission it never performs must be
- * caught on the emission axis, and the `appending` variant shows the rule is
- * discriminating rather than blanket.
- */
-export function realRegistryEmissionCase(
-  variant: EmissionVariant,
-  stateDir: string,
-  makeContext: DispatchContextFactory,
-): RealRegistryCase {
-  const action = buildRealProbeAction({
-    toolName: REAL_REGISTRY_EMISSION_TOOL,
-    actionName: REAL_REGISTRY_EMISSION_ACTION,
-    // The open-role marker, as the built-ins overwhelmingly declare. This probe
-    // is about emissions; declaring a restrictive role its handler ignores would
-    // seed an authorization defect that has nothing to do with the axis under
-    // observation and would redden a second axis for a fixture-only reason.
-    roles: [OPEN_ROLE_MARKER],
-    description:
-      'Oracle emission probe — a real read that records an audit append where it commits.',
-  });
-  const tool: CompositeTool = {
-    name: REAL_REGISTRY_EMISSION_TOOL,
-    description: 'Oracle emission probe tool.',
-    actions: [action],
-    hidden: true,
-  };
-
-  const handler = variant === 'appending' ? appendingRealHandler : silentRealHandler;
-  const binding = realProbeBinding(tool.name, handler);
-
-  const actionId = `${tool.name}.${action.name}`;
-  const declaration: ContractDeclaration = {
-    ...realActionDeclaration(actionId, action),
-    // Every other field is registry-derived. This one cannot be, because the
-    // registry has nowhere to declare it yet; it is stated on the declaration
-    // BOTH variants share, so the two remain byte-identical under
-    // `deriveGeneratedDescriptor` — no generated artifact can tell the
-    // appending handler from the silent one, and only the observation can.
-    declaredEmissions: [REAL_REGISTRY_EMISSION_EVENT],
-  };
-  return {
-    tool,
-    action,
-    binding,
-    subject: {
-      declaration,
-      handler: compositeHandlerAdapter(
-        binding.load,
-        action.name,
-        declaration.requiredRoles,
-        stateDir,
-        makeContext,
-      ),
-      probeInput: {},
-      // No `authorizationSurface`: this subject probes emissions, and claiming
-      // a surface would point the authorization axis at a handler never built
-      // to enforce anything.
-    },
-  };
-}
-
 // ─── The emission axis's census, and its zero-observation tooth ──────────────
 //
 // `axisCoverage` ranges over the closed `ORACLE_AXES` union, of which the
-// emission axis is deliberately not a member: the seam reports it on its own
-// `OracleReport.emissionVerdict`, which folds into `ok`, into the suite's
-// `failures` and into `summarizeReport`. The census below is therefore the
-// emission axis's own coverage row — without it, it would be the one axis with
-// no vacuity reading at all.
+// emission axis is not a member — it is selected through the broader
+// `ALL_AXES`/`RunOracleOptions.axes` surface instead, and reported on its own
+// `OracleReport.emissionVerdict` (`undefined` when not selected), which folds
+// into `ok`, into the suite's `failures` and into `summarizeReport`. The
+// census below is therefore the emission axis's own coverage row — without
+// it, it would be the one axis with no vacuity reading at all.
 //
 // It is more than the missing row, though. A row in `axisCoverage` fails
 // nothing: three of the five union axes sit at `observed: 0` across the whole
@@ -1009,12 +960,17 @@ export interface EmissionAxisCoverage {
  * Census the emission axis across `reports`. `not-observed` is counted apart
  * from `pass` for the same reason `axisCoverage` does it: "we did not look"
  * must never be readable as "we looked and it was fine".
+ *
+ * Reports on which `declared-emission` was not selected carry no verdict to
+ * census at all — {@link emissionWasSelected} excludes them so the loop body
+ * reads `report.emissionVerdict` as always-defined, by the type checker,
+ * rather than by a convention this function alone would have to honor.
  */
 export function emissionAxisCoverage(reports: readonly OracleReport[]): EmissionAxisCoverage {
   let pass = 0;
   let fail = 0;
   let notObserved = 0;
-  for (const report of reports) {
+  for (const report of reports.filter(emissionWasSelected)) {
     if (report.emissionVerdict.status === 'pass') pass += 1;
     else if (report.emissionVerdict.status === 'fail') fail += 1;
     else notObserved += 1;
@@ -1030,38 +986,50 @@ export function emissionAxisCoverage(reports: readonly OracleReport[]): Emission
 export const EMISSION_CENSUS_SUBJECT = '<oracle-suite>';
 
 /**
- * The zero-observation tooth: `fail` when the emission axis reached a verdict
- * on NO subject across `reports`.
+ * The zero-observation tooth, in two distinct failure shapes:
  *
- * A suite in that state ran the axis, got nothing back, and reported `ok` — the
- * shape a guard takes when it has stopped being able to fail. Either no subject
- * declares an emission, or the recorder no longer reaches the handler through
- * {@link compositeHandlerAdapter}; both leave the axis looking inspected while
- * being structurally incapable of a verdict.
+ *   1. ZERO SELECTED SUBJECTS — `declared-emission` was never selected to run
+ *      on any report (including the degenerate case of zero reports at all).
+ *      The axis was never even asked to look, which a suite reporting `ok`
+ *      would otherwise conceal entirely.
+ *   2. ZERO OBSERVED — the axis WAS selected on every report but reached a
+ *      verdict on none of them: either no subject declares an emission, or
+ *      the recorder no longer reaches the handler through
+ *      {@link compositeHandlerAdapter}. A suite in that state ran the axis,
+ *      got nothing back, and reported `ok` — the shape a guard takes when it
+ *      has stopped being able to fail.
  *
- * A `fail` counts as OBSERVED. Breaking the recorder's path turns a determinate
- * `pass` into a determinate `fail`, which the suite already catches; this tooth
- * is for the quieter case where the axis stops reaching any verdict at all.
+ * The two are reported with distinct diagnostics on purpose: a caller who
+ * forgot to select the axis at all is a different defect from one whose
+ * selection reached no evidence, and conflating them would hide which repair
+ * is needed. A `fail` from case 2 still counts as OBSERVED — breaking the
+ * recorder's path turns a determinate `pass` into a determinate `fail`, which
+ * the suite already catches; this tooth is for the quieter case where the
+ * axis stops reaching any verdict at all.
  */
 export function checkEmissionAxisObserved(
   reports: readonly OracleReport[],
 ): EmissionAxisVerdict {
-  const coverage = emissionAxisCoverage(reports);
-  if (reports.length === 0) {
+  const selected: readonly EmissionSelectedReport[] = reports.filter(emissionWasSelected);
+  if (selected.length === 0) {
     return {
       axis: EMISSION_AXIS,
       actionId: EMISSION_CENSUS_SUBJECT,
-      status: 'not-observed',
-      diagnostic: 'no reports to census — the emission axis was never run',
+      status: 'fail',
+      diagnostic:
+        `zero of ${reports.length} report(s) had the emission axis selected — the axis was ` +
+        `never asked to look at all, which is not the same defect as it looking and finding ` +
+        `nothing`,
     };
   }
+  const coverage = emissionAxisCoverage(selected);
   if (coverage.observed === 0) {
     return {
       axis: EMISSION_AXIS,
       actionId: EMISSION_CENSUS_SUBJECT,
       status: 'fail',
       diagnostic:
-        `the emission axis observed NOTHING across ${reports.length} subject(s) — all ` +
+        `the emission axis observed NOTHING across ${selected.length} subject(s) — all ` +
         `${coverage.notObserved} reported 'not-observed' and none reached a verdict. Either no ` +
         `subject declares an emission or the recorder no longer reaches the handler, and a green ` +
         `run would be reporting on an axis that never looked`,
@@ -1072,7 +1040,7 @@ export function checkEmissionAxisObserved(
     actionId: EMISSION_CENSUS_SUBJECT,
     status: 'pass',
     diagnostic:
-      `the emission axis reached a verdict on ${coverage.observed} of ${reports.length} ` +
+      `the emission axis reached a verdict on ${coverage.observed} of ${selected.length} ` +
       `subject(s) (pass ${coverage.pass}, fail ${coverage.fail})`,
   };
 }
@@ -1102,5 +1070,490 @@ export async function runEmissionOracleSuite(
     suite,
     coverage: emissionAxisCoverage(suite.reports),
     vacuity,
+  };
+}
+
+// ─── The shipped-emitter probe corpus ────────────────────────────────────────
+//
+// `realHandlerSubjects` admits an action only if it declares `readOnly`, which
+// excludes EVERY action that declares an emission: appending an event is a
+// mutation, so the emitting population and the probed population were disjoint,
+// and the only subject that ever reached the emission axis was a fixture action.
+//
+// The corpus below is the emitting population's own admission rule. It admits a
+// MUTATING action, because the mutation is confined to a caller-owned temporary
+// state directory — a private event store and nothing else. What it will not
+// admit is a handler that leaves that directory: one that reaches the network,
+// shells out to git, inspects or writes the host repository, or runs the
+// project toolchain in a subprocess.
+//
+// Membership is by SAFETY, not by outcome. A member that declines the probe, or
+// that declares an unconditional emission and is then observed appending
+// nothing, stays a member — dropping it would tune the corpus to the answer it
+// is supposed to be able to give.
+//
+// The corpus is deliberately a modest subset (workflow lifecycle, task
+// bookkeeping, a handful of local orchestration verbs). The rest is EXCLUDED
+// WITH A REASON rather than omitted, and {@link emissionProbeCorpus} reports
+// any declared emitter that is in neither list — so a newly-declared emission
+// cannot join the population without being classified.
+
+/** An action dispatched into the isolated state dir before the probe itself. */
+export interface EmissionProbeStep {
+  readonly actionId: string;
+  readonly input: Readonly<Record<string, unknown>>;
+}
+
+/** One shipped emitter the oracle can invoke inside an isolated state dir. */
+export interface EmissionProbe {
+  readonly actionId: string;
+  /** Prerequisite dispatches, in order. Empty when the action needs no prior state. */
+  readonly setup: readonly EmissionProbeStep[];
+  /** The probe input, valid against the action's own declared schema. */
+  readonly input: Readonly<Record<string, unknown>>;
+}
+
+/** A declared emitter the corpus does not probe, and why. */
+export interface ExcludedEmitter {
+  readonly actionId: string;
+  readonly reason: string;
+}
+
+export interface EmissionProbeCorpus {
+  readonly probes: readonly EmissionProbe[];
+  readonly excluded: readonly ExcludedEmitter[];
+  /** Every action whose contract declares an emission — the population partitioned. */
+  readonly declaredEmitters: readonly string[];
+  /** Declared emitters that are neither probed nor excluded. */
+  readonly unclassified: readonly string[];
+  /** Exclusions naming an action that no longer declares an emission. */
+  readonly stale: readonly string[];
+  /** Hand-authored exclusions naming an action the corpus also probes. */
+  readonly doublyClassified: readonly string[];
+}
+
+/** The feature the workflow-lifecycle probes create inside their own state dir. */
+export const EMISSION_PROBE_FEATURE_ID = 'oracle-emission-probe';
+
+/** Every registered action whose contract declares at least one emission. */
+export function declaredEmittingActions(): readonly {
+  readonly action: ToolAction;
+  readonly actionId: string;
+}[] {
+  return realRegistryActions()
+    .filter(({ action }) => contractEmissionsOf(action).length > 0)
+    .map(({ action, actionId }) => ({ action, actionId }));
+}
+
+function initWorkflow(workflowType: string): EmissionProbeStep {
+  return {
+    actionId: 'exarchos_workflow.init',
+    input: { featureId: EMISSION_PROBE_FEATURE_ID, workflowType },
+  };
+}
+
+const FEATURE_INPUT = { featureId: EMISSION_PROBE_FEATURE_ID };
+
+/**
+ * The probed members. Each input was constructed against the action's declared
+ * schema and each one was executed against a private state directory before
+ * being written down here — the set is measured, not proposed.
+ */
+const EMISSION_PROBES: readonly EmissionProbe[] = [
+  { actionId: 'exarchos_workflow.init', setup: [], input: initWorkflow('feature').input },
+  {
+    actionId: 'exarchos_workflow.update',
+    setup: [initWorkflow('feature')],
+    input: { ...FEATURE_INPUT, updates: { notes: 'emission probe' } },
+  },
+  {
+    actionId: 'exarchos_workflow.cancel',
+    setup: [initWorkflow('feature')],
+    input: { ...FEATURE_INPUT, reason: 'emission probe' },
+  },
+  {
+    actionId: 'exarchos_workflow.feedback',
+    setup: [],
+    input: { ...FEATURE_INPUT, message: 'emission probe feedback' },
+  },
+  {
+    actionId: 'exarchos_workflow.rehydrate',
+    setup: [initWorkflow('feature')],
+    input: FEATURE_INPUT,
+  },
+  {
+    actionId: 'exarchos_workflow.checkpoint',
+    setup: [initWorkflow('feature')],
+    input: FEATURE_INPUT,
+  },
+  {
+    actionId: 'exarchos_orchestrate.task_claim',
+    setup: [],
+    input: { ...FEATURE_INPUT, taskId: 'emission-probe-task', agentId: 'emission-probe-agent' },
+  },
+  {
+    actionId: 'exarchos_orchestrate.task_fail',
+    setup: [],
+    input: { ...FEATURE_INPUT, taskId: 'emission-probe-task', error: 'emission probe failure' },
+  },
+  {
+    actionId: 'exarchos_orchestrate.stack_place',
+    setup: [],
+    input: { streamId: 'emission-probe-stream', position: 1, taskId: 'emission-probe-task' },
+  },
+  {
+    actionId: 'exarchos_orchestrate.request_synthesize',
+    // Only a oneshot workflow admits this verb, so the prerequisite carries the
+    // type rather than the probe reporting a refusal it could have avoided.
+    setup: [initWorkflow('oneshot')],
+    input: FEATURE_INPUT,
+  },
+  { actionId: 'exarchos_orchestrate.prune_stale_workflows', setup: [], input: {} },
+  { actionId: 'exarchos_orchestrate.cutover_decide', setup: [], input: {} },
+  {
+    actionId: 'exarchos_orchestrate.classify_review_items',
+    setup: [],
+    input: {
+      ...FEATURE_INPUT,
+      actionItems: [{ file: 'src/probe.ts', severity: 'low', description: 'emission probe item' }],
+    },
+  },
+];
+
+const GATE_EXCLUSION =
+  'gate action — resolves the host repository and runs the project toolchain in a subprocess, ' +
+  'so the probe is neither offline nor confined to an isolated state dir';
+
+const WORKTREE_EXCLUSION = 'creates or removes git worktrees in the host checkout';
+
+const GATE_ACTIONS: readonly string[] = [
+  'check_static_analysis',
+  'check_integration_suite',
+  'check_security_scan',
+  'check_context_economy',
+  'check_operational_resilience',
+  'check_workflow_determinism',
+  'check_review_verdict',
+  'check_convergence',
+  'check_provenance_chain',
+  'check_design_completeness',
+  'check_plan_coverage',
+  'check_exploration_depth',
+  'check_test_adequacy',
+  'check_contract_drift',
+  'check_mock_boundary',
+  'check_post_merge',
+  'check_task_decomposition',
+  'check_event_emissions',
+  'check_invariant_conformance',
+  'mutation-adequacy',
+  'post_delegation_check',
+  'pre_synthesis_check',
+];
+
+/**
+ * Why each remaining declared emitter is not probed. Hand-authored on purpose:
+ * a family predicate would silently absorb a new emitter that happens to match
+ * it, and the whole point of the census is that a new one has to be looked at.
+ */
+const HAND_AUTHORED_EXCLUSIONS: readonly ExcludedEmitter[] = [
+  ...GATE_ACTIONS.map((name) => ({
+    actionId: `exarchos_orchestrate.${name}`,
+    reason: GATE_EXCLUSION,
+  })),
+  {
+    actionId: 'exarchos_workflow.transition',
+    reason:
+      'a phase transition is admitted only against an on-disk plan artifact, which the probe ' +
+      'would have to author in the host repository',
+  },
+  {
+    actionId: 'exarchos_workflow.cleanup',
+    reason: 'removes worktrees and branches through git — the probe would mutate the host checkout',
+  },
+  {
+    actionId: 'exarchos_orchestrate.task_complete',
+    reason: 'admission requires prior gate evidence the probe would have to manufacture',
+  },
+  {
+    actionId: 'exarchos_orchestrate.review_triage',
+    reason: 'requires pull-request identifiers only a live remote can supply',
+  },
+  {
+    actionId: 'exarchos_orchestrate.prepare_delegation',
+    reason: 'requires an on-disk plan and a task roster the probe does not author',
+  },
+  {
+    actionId: 'exarchos_orchestrate.prepare_synthesis',
+    reason: 'resolves and inspects the host repository through its declared repo root',
+  },
+  {
+    actionId: 'exarchos_orchestrate.discover_bridge',
+    reason: 'requires an on-disk discovery artifact',
+  },
+  {
+    actionId: 'exarchos_orchestrate.prepare_review',
+    reason: 'reads the spec artifact under review out of the host repository',
+  },
+  {
+    actionId: 'exarchos_orchestrate.doctor',
+    reason: 'probes the host toolchain through subprocesses',
+  },
+  {
+    actionId: 'exarchos_orchestrate.onboard',
+    reason: 'installs harness content into the host and shells out to do it',
+  },
+  {
+    actionId: 'exarchos_orchestrate.invariants_add',
+    reason: "writes the repository's invariant catalog outside the isolated state dir",
+  },
+  {
+    actionId: 'exarchos_orchestrate.invariants_amend',
+    reason: "writes the repository's invariant catalog outside the isolated state dir",
+  },
+  { actionId: 'exarchos_orchestrate.acquire_worktree', reason: WORKTREE_EXCLUSION },
+  { actionId: 'exarchos_orchestrate.release_worktree', reason: WORKTREE_EXCLUSION },
+  { actionId: 'exarchos_orchestrate.prune_worktrees', reason: WORKTREE_EXCLUSION },
+  { actionId: 'exarchos_orchestrate.reconcile_worktrees', reason: WORKTREE_EXCLUSION },
+];
+
+/** The reason an `openWorld` emitter is excluded — the registry's own annotation. */
+export const OPEN_WORLD_EXCLUSION =
+  'declares openWorld — the probe would leave the local system';
+
+/**
+ * The corpus, partitioned against the live declared-emission population.
+ *
+ * The `openWorld` exclusions are DERIVED from the registry annotation rather
+ * than listed, so they cannot drift from what the action declares. Everything
+ * else is named by hand, and anything named by neither is reported in
+ * `unclassified` instead of quietly falling out of the population.
+ */
+export function emissionProbeCorpus(): EmissionProbeCorpus {
+  const population = declaredEmittingActions();
+  const declaredEmitters = population.map(({ actionId }) => actionId);
+  const probed = new Set(EMISSION_PROBES.map((probe) => probe.actionId));
+
+  const excluded: ExcludedEmitter[] = [];
+  const named = new Set<string>();
+  for (const { action, actionId } of population) {
+    if (probed.has(actionId) || !action.annotations.openWorld) continue;
+    excluded.push({ actionId, reason: OPEN_WORLD_EXCLUSION });
+    named.add(actionId);
+  }
+  const doublyClassified: string[] = [];
+  for (const entry of HAND_AUTHORED_EXCLUSIONS) {
+    if (probed.has(entry.actionId)) {
+      doublyClassified.push(entry.actionId);
+      continue;
+    }
+    if (named.has(entry.actionId)) continue;
+    excluded.push(entry);
+    named.add(entry.actionId);
+  }
+
+  const known = new Set(declaredEmitters);
+  return {
+    probes: EMISSION_PROBES,
+    excluded,
+    declaredEmitters,
+    unclassified: declaredEmitters.filter((id) => !probed.has(id) && !named.has(id)),
+    stale: [...named].filter((id) => !known.has(id)).sort(compareText),
+    doublyClassified: doublyClassified.sort(compareText),
+  };
+}
+
+/**
+ * The floor on probes able to reach a DETERMINATE emission verdict — one that
+ * declares an unconditional edge, which `checkDeclaredEmission` resolves to
+ * `pass` or `fail` rather than to `not-observed`. Measured from the corpus, and
+ * pinned to a floor: the set may grow, never quietly shrink.
+ */
+export const EMISSION_PROBE_DETERMINATE_FLOOR = 9;
+
+export interface EmissionProbeFloorVerdict {
+  readonly ok: boolean;
+  /** The probed actions declaring at least one unconditional emission. */
+  readonly determinate: readonly string[];
+  readonly diagnostic: string;
+}
+
+/**
+ * Whether the corpus still carries enough determinate-capable emitters.
+ *
+ * Membership is read from each action's REGISTRY declaration, never from the
+ * probe entry — a corpus that could satisfy its own floor by claiming to be
+ * determinate would be measuring its literals.
+ */
+export function checkEmissionProbeFloor(corpus: EmissionProbeCorpus): EmissionProbeFloorVerdict {
+  const byId = new Map(declaredEmittingActions().map((entry) => [entry.actionId, entry.action]));
+  const determinate = corpus.probes
+    .filter((probe) => {
+      const action = byId.get(probe.actionId);
+      return (
+        action !== undefined &&
+        contractEmissionsOf(action).some((emission) => emission.condition === 'always')
+      );
+    })
+    .map((probe) => probe.actionId)
+    .sort(compareText);
+  const ok = determinate.length >= EMISSION_PROBE_DETERMINATE_FLOOR;
+  return {
+    ok,
+    determinate,
+    diagnostic: ok
+      ? `${determinate.length} probed emitter(s) declare an unconditional edge ` +
+        `(floor ${EMISSION_PROBE_DETERMINATE_FLOOR})`
+      : `only ${determinate.length} probed emitter(s) declare an unconditional edge, below the ` +
+        `floor of ${EMISSION_PROBE_DETERMINATE_FLOOR} — the corpus can no longer put the emission ` +
+        `axis in front of a shipped handler that must append`,
+  };
+}
+
+/** What one probe run observed. */
+export interface EmissionProbeRun {
+  readonly actionId: string;
+  /** Whatever the shipped handler returned. */
+  readonly result: unknown;
+  /** Event types the store confirmed durable during the probe — not its setup. */
+  readonly appended: readonly string[];
+}
+
+async function invokeShippedAction(
+  actionId: string,
+  input: Readonly<Record<string, unknown>>,
+  stateDir: string,
+  makeContext: DispatchContextFactory,
+): Promise<unknown> {
+  const entry = realRegistryActions().find((candidate) => candidate.actionId === actionId);
+  if (entry === undefined) {
+    throw new Error(`oracle fixtures: '${actionId}' is not a registered action`);
+  }
+  const binding = bindingFor(buildBindingTable(), entry.tool.name);
+  if (binding === undefined || !isImplementationBinding(binding)) {
+    throw new Error(`oracle fixtures: no implementation binding for tool '${entry.tool.name}'`);
+  }
+  const roles = registryRequiredRoles(entry.action);
+  const handler = compositeHandlerAdapter(
+    binding.load,
+    entry.action.name,
+    roles,
+    stateDir,
+    makeContext,
+  );
+  return handler(
+    { ...input },
+    { caller: { subjectId: 'emission-probe', roles: [...roles] }, effects: createEffectRecorder() },
+  );
+}
+
+/**
+ * Run one probe against `stateDir`, which the CALLER owns and removes — the
+ * corpus never names a path, so two probes running side by side cannot collide
+ * on a shared one.
+ *
+ * Appends are read off the event store's own durable-observation seam, so what
+ * is reported is what the store confirmed persisted, not what the handler said
+ * it would do. The setup dispatches run OUTSIDE that scope: their appends are
+ * the prerequisite state, not the probe's behavior.
+ */
+export async function runEmissionProbe(
+  probe: EmissionProbe,
+  stateDir: string,
+  makeContext: DispatchContextFactory,
+): Promise<EmissionProbeRun> {
+  for (const step of probe.setup) {
+    await invokeShippedAction(step.actionId, step.input, stateDir, makeContext);
+  }
+  const appended: string[] = [];
+  const result = await runWithAppendObserver(
+    (observation) => {
+      appended.push(observation.type);
+    },
+    () => invokeShippedAction(probe.actionId, probe.input, stateDir, makeContext),
+  );
+  return { actionId: probe.actionId, result, appended };
+}
+
+// ─── A corpus member as an oracle subject, and its silent control ────────────
+//
+// The emission axis's positive claim is a SHIPPED action: a corpus member
+// dispatched through its real implementation binding into an isolated event
+// store, with the verdict resting on what that store confirmed durable.
+//
+// The negative control is the same action's declaration bound to a handler that
+// returns a well-formed envelope and appends nothing. The twin is a fixture, but
+// its DECLARATION is not: both variants read the shipped action's contract
+// through {@link realActionDeclaration}, so the emission edges are the shipped
+// ones rather than a copy, and no artifact derived from the declaration can tell
+// the two apart. Only the observation can.
+
+/** Which side of the control pair a {@link shippedEmitterCase} builds. */
+export type EmissionVariant = 'appending' | 'silent';
+
+/** A shipped emitter (or its silent twin) prepared for observation. */
+export interface ShippedEmitterCase {
+  readonly actionId: string;
+  /** The REGISTERED action — the declaration's sole source. */
+  readonly action: ToolAction;
+  /** The binding actually invoked: the shipped one, or the twin's. */
+  readonly binding: ImplementationBinding;
+  readonly subject: OracleSubject;
+}
+
+/** The twin: a real binding to a handler that commits nothing. */
+const silentTwinHandler: CompositeHandler = async (): Promise<ToolResult> =>
+  probeEnvelope({ success: true, data: {} });
+
+/**
+ * Prepare `probe` as an {@link OracleSubject} against a state directory the
+ * CALLER owns and removes.
+ *
+ * The probe's prerequisite dispatches run first, for BOTH variants: the twin has
+ * to face the same world the shipped handler faces, or its silence would be
+ * explained by a missing precondition rather than by the missing append.
+ */
+export async function shippedEmitterCase(
+  probe: EmissionProbe,
+  variant: EmissionVariant,
+  stateDir: string,
+  makeContext: DispatchContextFactory,
+): Promise<ShippedEmitterCase> {
+  const entry = realRegistryActions().find((candidate) => candidate.actionId === probe.actionId);
+  if (entry === undefined) {
+    throw new Error(`oracle fixtures: '${probe.actionId}' is not a registered action`);
+  }
+  for (const step of probe.setup) {
+    await invokeShippedAction(step.actionId, step.input, stateDir, makeContext);
+  }
+
+  const binding =
+    variant === 'appending'
+      ? bindingFor(buildBindingTable(), entry.tool.name)
+      : realProbeBinding(entry.tool.name, silentTwinHandler);
+  if (binding === undefined || !isImplementationBinding(binding)) {
+    throw new Error(`oracle fixtures: no implementation binding for tool '${entry.tool.name}'`);
+  }
+
+  const declaration = realActionDeclaration(probe.actionId, entry.action);
+  return {
+    actionId: probe.actionId,
+    action: entry.action,
+    binding,
+    subject: {
+      declaration,
+      handler: compositeHandlerAdapter(
+        binding.load,
+        entry.action.name,
+        declaration.requiredRoles,
+        stateDir,
+        makeContext,
+      ),
+      probeInput: { ...probe.input },
+      volatileCarriers: RUNTIME_CARRIERS,
+      // No `authorizationSurface`: this subject probes emissions, and claiming
+      // one would point the authorization axis at a pair built to differ on
+      // exactly one thing that is not authorization.
+    },
   };
 }

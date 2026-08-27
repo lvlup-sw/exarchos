@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ORACLE_AXES,
   EMISSION_AXIS,
+  EmptyAxisSelectionError,
   checkDeclaredEmission,
   checkGenerationConsistency,
   checkIncorrectHandler,
@@ -10,6 +11,7 @@ import {
   checkMissingAuthorization,
   checkUndeclaredEffect,
   deriveGeneratedDescriptor,
+  emissionWasSelected,
   failureFor,
   observeBehavior,
   runOracle,
@@ -17,6 +19,7 @@ import {
   serializeGeneratedDescriptor,
   summarizeReport,
   type ContractDeclaration,
+  type DeclaredEmission,
   type EmissionRecorder,
   type ObservableHandler,
   type OracleAxis,
@@ -223,14 +226,19 @@ describe('P03-09 oracle — per-axis check discrimination', () => {
 // This axis's evidence must be an OBSERVED append (the emission recorder
 // `observeBehavior` mints and injects), never a re-read of
 // `ContractDeclaration.declaredEmissions` — that would be tautological. These
-// subjects are built locally rather than via `fixtures.ts`, because
-// `ContractDeclaration.declaredEmissions` and `ObservationContext.emissions`
-// are new fields no existing fixture declaration sets.
+// subjects are built locally rather than via `fixtures.ts` so the declared
+// `{event, condition}` set can be varied per case; the live registry-derived
+// declarations are exercised over in `fixtures.test.ts`.
 
 const EMISSION_EVENT_TYPE = 'oracle_probe.appended';
 const EMISSION_EVIDENCE = 'store.append:oracle-probe-stream';
+const BRANCH_EVENT_TYPE = 'oracle_probe.branch_appended';
 
-function emissionProbeDeclaration(): ContractDeclaration {
+const ALWAYS_EDGE: DeclaredEmission = { event: EMISSION_EVENT_TYPE, condition: 'always' };
+
+function emissionProbeDeclaration(
+  declaredEmissions: readonly DeclaredEmission[] = [ALWAYS_EDGE],
+): ContractDeclaration {
   return {
     actionId: 'oracle_probe.declared_emission',
     safety: 'local-mutation',
@@ -238,7 +246,7 @@ function emissionProbeDeclaration(): ContractDeclaration {
     idempotent: true,
     requiredRoles: [],
     declaredEffects: [],
-    declaredEmissions: [EMISSION_EVENT_TYPE],
+    declaredEmissions,
     inputSchema: z.object({}),
     outputSchema: z.object({ id: z.string() }),
     surfaceVersion: '1.0.0',
@@ -257,6 +265,14 @@ const emittingHandler: ObservableHandler = (_input, ctx) => {
 
 /** Declares the emission (via the shared declaration) but never appends. */
 const silentHandler: ObservableHandler = () => ({ id: 'req-1' });
+
+/** Records exactly the appends named, wherever the branch it stands for lands. */
+function appendingHandler(...events: readonly string[]): ObservableHandler {
+  return (_input, ctx) => {
+    for (const event of events) ctx.emissions?.record(event, `${EMISSION_EVIDENCE}:${event}`);
+    return { id: 'req-1' };
+  };
+}
 
 describe('P03-09 oracle — emission axis observes the append, not the declaration', () => {
   it('OracleEmission_Recorder_IsMintedAndInjectedLikeTheEffectRecorder', async () => {
@@ -358,16 +374,143 @@ describe('P03-09 oracle — emission axis observes the append, not the declarati
     expect(emission.status).not.toBe('pass');
 
     const suite = await runOracleSuite([subject], {
-      axes: ['missing-authorization', 'undeclared-effect', 'compatibility-break', 'incorrect-handler'],
+      axes: [
+        'missing-authorization',
+        'undeclared-effect',
+        'compatibility-break',
+        'incorrect-handler',
+        EMISSION_AXIS,
+      ],
     });
     const report = suite.reports[0];
     expect(report).toBeDefined();
     if (report === undefined) return;
+    expect(report.emissionVerdict).toBeDefined();
 
-    const considered = [...report.verdicts, report.emissionVerdict];
+    const considered = report.emissionVerdict
+      ? [...report.verdicts, report.emissionVerdict]
+      : report.verdicts;
     expect(considered.every((v) => v.status === 'not-observed')).toBe(true);
     expect(considered.some((v) => v.status === 'pass')).toBe(false);
     expect(report.clean).toBe(false);
     expect(suite.clean).toBe(false);
+  });
+
+  // ── The condition half of the shared emission vocabulary ────────────────
+  //
+  // The registry declares `{event, condition}`, the compiler compiles both
+  // halves and the dispatch verifier requires only the `always` half. These
+  // two cases pin the oracle to the same rule from either side: a conditional
+  // edge can never produce a fault, and an unconditional one always can.
+
+  it('DeclaredEmission_MissingConditionalEdge_DoesNotFail', async () => {
+    const declaration = emissionProbeDeclaration([
+      { event: BRANCH_EVENT_TYPE, condition: 'conditional' },
+    ]);
+
+    // The branch was not taken, so nothing landed. That is not a fault — and
+    // not a pass either, since no evidence was collected in either direction.
+    const unfired = checkDeclaredEmission(
+      declaration,
+      await observeBehavior({ declaration, handler: silentHandler, probeInput: {} }),
+    );
+    expect(unfired.status, unfired.diagnostic).toBe('not-observed');
+    expect(unfired.status).not.toBe('fail');
+    expect(unfired.diagnostic).toContain(BRANCH_EVENT_TYPE);
+
+    // The edge is not inert, though: once the branch IS taken, the observed
+    // append is positive evidence and carries the axis to `pass` on its own.
+    const fired = checkDeclaredEmission(
+      declaration,
+      await observeBehavior({
+        declaration,
+        handler: appendingHandler(BRANCH_EVENT_TYPE),
+        probeInput: {},
+      }),
+    );
+    expect(fired.status, fired.diagnostic).toBe('pass');
+    expect(fired.diagnostic).toContain(BRANCH_EVENT_TYPE);
+  });
+
+  it('DeclaredEmission_MissingAlwaysEdge_Fails', async () => {
+    const declaration = emissionProbeDeclaration([ALWAYS_EDGE]);
+    const verdict = checkDeclaredEmission(
+      declaration,
+      await observeBehavior({ declaration, handler: silentHandler, probeInput: {} }),
+    );
+    expect(verdict.status, verdict.diagnostic).toBe('fail');
+    expect(verdict.diagnostic).toContain(EMISSION_EVENT_TYPE);
+
+    // A conditional edge that DID fire cannot stand in for a missing
+    // unconditional one, or a handler could buy a pass with the cheap half of
+    // its contract.
+    const mixed = emissionProbeDeclaration([
+      ALWAYS_EDGE,
+      { event: BRANCH_EVENT_TYPE, condition: 'conditional' },
+    ]);
+    const masked = checkDeclaredEmission(
+      mixed,
+      await observeBehavior({
+        declaration: mixed,
+        handler: appendingHandler(BRANCH_EVENT_TYPE),
+        probeInput: {},
+      }),
+    );
+    expect(masked.status, masked.diagnostic).toBe('fail');
+    expect(masked.diagnostic).toContain(EMISSION_EVENT_TYPE);
+
+    // Discriminating rather than blanket: the same declaration passes once the
+    // unconditional edge is honored.
+    const honored = checkDeclaredEmission(
+      mixed,
+      await observeBehavior({
+        declaration: mixed,
+        handler: appendingHandler(EMISSION_EVENT_TYPE, BRANCH_EVENT_TYPE),
+        probeInput: {},
+      }),
+    );
+    expect(honored.status, honored.diagnostic).toBe('pass');
+    expect(honored.diagnostic).toContain(BRANCH_EVENT_TYPE);
+  });
+});
+
+// ─── Axis selection: a real six-axis choice, not a silent no-op ─────────────
+//
+// `RunOracleOptions.axes` now draws from `ALL_AXES` (the five `ORACLE_AXES`
+// plus `declared-emission`), and an empty array is a caller error rather than
+// a run that quietly produces zero verdicts.
+
+describe('P03-09 oracle — axis selection', () => {
+  it('RunOracle_EmptyAxisSelection_RejectsCall', async () => {
+    const subject = correctBaselineSubject();
+    await expect(runOracle(subject, { axes: [] })).rejects.toThrow(EmptyAxisSelectionError);
+    // runOracleSuite rejects too, and before observing any subject — a broken
+    // handler in `subjects` must not be able to mask the rejection.
+    await expect(runOracleSuite([subject], { axes: [] })).rejects.toThrow(EmptyAxisSelectionError);
+  });
+
+  it('RunOracle_StandardOnly_DoesNotEnterEmissionCensus', async () => {
+    const subjects = [correctBaselineSubject(), correctBaselineSubject(), correctBaselineSubject()];
+
+    // Standard-only: the emission axis is neither executed nor selected — no
+    // report carries a verdict for it, so it cannot enter an emission census.
+    const standardOnly = await runOracleSuite(subjects, { axes: ORACLE_AXES });
+    expect(standardOnly.reports.filter(emissionWasSelected).length).toBe(0);
+    expect(standardOnly.reports.every((r) => r.emissionVerdict === undefined)).toBe(true);
+    expect(standardOnly.selectedAxes).not.toContain(EMISSION_AXIS);
+
+    // Emission-only: executed exactly once per subject (not zero, not
+    // duplicated into `verdicts`) — no standard axis ran at all.
+    const emissionOnly = await runOracleSuite(subjects, { axes: [EMISSION_AXIS] });
+    expect(emissionOnly.reports.filter(emissionWasSelected).length).toBe(subjects.length);
+    expect(emissionOnly.reports.every((r) => r.verdicts.length === 0)).toBe(true);
+    expect(emissionOnly.selectedAxes).toEqual([EMISSION_AXIS]);
+
+    // Default-all: also executed exactly once per subject, alongside every
+    // standard axis.
+    const defaultAll = await runOracleSuite(subjects);
+    expect(defaultAll.reports.filter(emissionWasSelected).length).toBe(subjects.length);
+    expect(defaultAll.reports.every((r) => r.verdicts.length === ORACLE_AXES.length)).toBe(true);
+    expect(defaultAll.selectedAxes).toContain(EMISSION_AXIS);
   });
 });

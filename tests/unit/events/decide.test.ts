@@ -16,7 +16,7 @@ import {
   makeFixtureReducer,
   seedStream,
   type FixtureState,
-} from '../../../src/events/decide-fixtures.js';
+} from '../../helpers/decide-fixtures.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 /**

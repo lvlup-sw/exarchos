@@ -6,7 +6,10 @@ import {
   EMISSION_ENFORCEMENT_FALLBACK,
   resolveEmissionEnforcement,
 } from '../../../src/config/resolve.js';
-import { emissionViolationBlocks } from '../../../src/dispatch/core/interceptors/emission-verifier.js';
+import {
+  emissionIndeterminacyBlocks,
+  emissionViolationBlocks,
+} from '../../../src/dispatch/core/interceptors/emission-verifier.js';
 
 describe('resolveConfig', () => {
   it('resolveConfig_NoStorageBlock_DefaultsSynchronousNormal', () => {
@@ -540,6 +543,77 @@ describe('resolveConfig', () => {
           undefined,
         ),
       ).toBe(false);
+    });
+
+    it('EmissionEnforcement_IndeterminateVerdict_BlocksOnConfigAloneNotEnvironment', () => {
+      const unassessed = {
+        status: 'indeterminate',
+        cause: 'store-unavailable',
+        missingEvents: [],
+        lifecycleViolations: [],
+        required: ['workflow.started'],
+      } as const;
+
+      // The same two answers the violation axis has, from the same one input.
+      expect(emissionIndeterminacyBlocks(unassessed, undefined)).toBe(true);
+      expect(
+        emissionIndeterminacyBlocks(
+          unassessed,
+          resolveConfig({ events: { 'emission-enforcement': 'advisory' } }),
+        ),
+      ).toBe(false);
+
+      // And a benign exemption stays benign on this axis too — the two
+      // predicates partition the verdicts rather than overlapping on one.
+      const benign = {
+        status: 'not-applicable',
+        reason: 'handler-refused',
+        missingEvents: [],
+        lifecycleViolations: [],
+        required: ['workflow.started'],
+      } as const;
+      expect(emissionIndeterminacyBlocks(benign, undefined)).toBe(false);
+      expect(emissionViolationBlocks(unassessed, undefined)).toBe(false);
+
+      // No environment flag reaches this decision: the mode is resolved from
+      // the config object and nothing else. A stray variable named for the key
+      // changes neither answer.
+      const previous = process.env.EXARCHOS_EMISSION_ENFORCEMENT;
+      process.env.EXARCHOS_EMISSION_ENFORCEMENT = 'advisory';
+      try {
+        expect(emissionIndeterminacyBlocks(unassessed, undefined)).toBe(true);
+        expect(resolveEmissionEnforcement(undefined)).toBe('block');
+      } finally {
+        if (previous === undefined) delete process.env.EXARCHOS_EMISSION_ENFORCEMENT;
+        else process.env.EXARCHOS_EMISSION_ENFORCEMENT = previous;
+      }
+    });
+
+    it('EmissionVerifier_EnvironmentDoesNotOverrideExplicitPolicy', () => {
+      // A plausible env flag is set, naming the OPPOSITE of what the explicit
+      // config says, on both explicit values. If the environment reached this
+      // decision at all, one of the two would flip.
+      const previous = process.env.EXARCHOS_EMISSION_ENFORCEMENT;
+      process.env.EXARCHOS_EMISSION_ENFORCEMENT = 'advisory';
+      try {
+        expect(
+          resolveConfig({ events: { 'emission-enforcement': 'block' } }).events.emissionEnforcement,
+        ).toBe('block');
+      } finally {
+        if (previous === undefined) delete process.env.EXARCHOS_EMISSION_ENFORCEMENT;
+        else process.env.EXARCHOS_EMISSION_ENFORCEMENT = previous;
+      }
+
+      process.env.EXARCHOS_EMISSION_ENFORCEMENT = 'block';
+      try {
+        expect(
+          resolveConfig({ events: { 'emission-enforcement': 'advisory' } }).events
+            .emissionEnforcement,
+        ).toBe('advisory');
+      } finally {
+        if (previous === undefined) delete process.env.EXARCHOS_EMISSION_ENFORCEMENT;
+        else process.env.EXARCHOS_EMISSION_ENFORCEMENT = previous;
+      }
     });
   });
 });

@@ -1005,7 +1005,7 @@ export async function handlePruneStaleWorkflows(
   if (ctx?.eventStore && diagnostics) {
     ctx.eventStore
       .append('_prune', {
-        type: 'prune.diagnostics' as EventType,
+        type: 'prune.diagnostics',
         data: {
           malformedCount: diagnostics.malformedCount,
           candidateCount: diagnostics.candidateCount,

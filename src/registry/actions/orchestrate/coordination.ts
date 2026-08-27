@@ -221,13 +221,25 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
       { kind: 'path', selector: 'planPath' },
     ),
     replay: { kind: 'claim-required', scope: 'stream-subject-request' },
-    emissions: declared({
-      event: 'quality.hint.generated',
-      condition: 'conditional',
-      owner: 'orchestrate',
-      role: 'primary',
-      description: 'When hints exist',
-    }),
+    emissions: declared(
+      {
+        event: 'quality.hint.generated',
+        condition: 'conditional',
+        owner: 'orchestrate',
+        role: 'primary',
+        description: 'When hints exist',
+      },
+      {
+        // The dispatch guard's advisory probe, reached from this handler. It
+        // records a dirty stash the caller is about to dispatch over; a clean
+        // stash list, or a `git stash list` that fails, appends nothing.
+        event: 'stash.detected',
+        condition: 'conditional',
+        owner: 'orchestrate',
+        role: 'primary',
+        description: 'When the pre-dispatch probe finds a stash entry',
+      },
+    ),
   }),
   withContract({
     name: 'prepare_synthesis',
@@ -329,6 +341,11 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
       { event: 'shepherd.completed', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'When PR merged' },
       { event: 'shepherd.escalated', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'When the auto-fix bound is reached' },
       { event: 'shepherd.started', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'First invocation (idempotent)' },
+      // The two review-adapter faults. Both are per-comment and both are
+      // recorded rather than raised, so a stack whose comments all parse
+      // cleanly appends neither.
+      { event: 'provider.parse-error', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'When a review adapter throws while parsing a comment' },
+      { event: 'provider.unknown-tier', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'When a parsed action item carries a tier the adapter does not know' },
     ),
   }),
 ];

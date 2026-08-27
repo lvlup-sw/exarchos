@@ -98,6 +98,23 @@ export type OracleAxis = (typeof ORACLE_AXES)[number];
 /** The action safety class (mirrors the registry `ActionAnnotations.safety`). */
 export type ActionSafety = 'read-only' | 'local-mutation' | 'remote-mutation' | 'compensable';
 
+/**
+ * One event a contract declares a handler appends, in the SAME `{event,
+ * condition}` vocabulary the registry declares, the compiler compiles and the
+ * dispatch verifier enforces.
+ *
+ * `condition` is the whole reason this is a record rather than a bare event
+ * name. An `always` edge is PROMISED on every call, so its absence is a fault.
+ * A `conditional` edge fires only when the run takes the branch that produces
+ * it, so its absence proves nothing and can never be a fault — it can only
+ * corroborate, by landing. Flattening the two into one list is how an axis
+ * starts failing handlers for taking a branch they were entitled to take.
+ */
+export interface DeclaredEmission {
+  readonly event: string;
+  readonly condition: 'always' | 'conditional';
+}
+
 // ─── The declared contract (the oracle's expectation source) ─────────────────
 
 /**
@@ -119,12 +136,13 @@ export interface ContractDeclaration {
   /** The effect classes the contract declares this handler may perform. */
   readonly declaredEffects: readonly EffectClass[];
   /**
-   * The event types the contract declares this handler appends — the
-   * intent/result emission set. Optional: existing declarations predate
-   * this field and declare none, so the emission axis has nothing to verify
-   * for them and reports `not-observed` rather than a vacuous `pass`.
+   * The events the contract declares this handler appends, each with the
+   * condition under which it is promised. Optional: a subject whose observed
+   * function is not the action's handler has no append to attribute, so it
+   * declares none and the emission axis reports `not-observed` rather than a
+   * vacuous `pass`.
    */
-  readonly declaredEmissions?: readonly string[];
+  readonly declaredEmissions?: readonly DeclaredEmission[];
   /** The declared input schema. */
   readonly inputSchema: z.ZodType;
   /** The declared output schema (the value a handler returns must satisfy it). */
@@ -975,15 +993,63 @@ export function checkCompatibilityBreak(
 // {@link AxisStatus} vocabulary, and participates in `ok` and `failures`
 // exactly as the other five do.
 
-/** The emission axis identifier — deliberately not a member of {@link ORACLE_AXES}. */
+/** The emission axis identifier — a member of {@link ALL_AXES}, not of {@link ORACLE_AXES}. */
 export const EMISSION_AXIS = 'declared-emission';
 export type EmissionAxis = typeof EMISSION_AXIS;
+
+/**
+ * The full selectable surface: the five originally-seedable {@link ORACLE_AXES}
+ * plus the emission axis. `ORACLE_AXES` stays five-membered — `seededBreak`,
+ * `axisCoverage` and the per-axis `it.each` tests are keyed on exactly those
+ * five — but `RunOracleOptions.axes` selects from this six-member tuple, so the
+ * emission axis is a real, filterable choice rather than a check that always
+ * runs regardless of what a caller asked for.
+ */
+export const ALL_AXES = [...ORACLE_AXES, EMISSION_AXIS] as const;
+export type AnyAxis = (typeof ALL_AXES)[number];
+
+/**
+ * Thrown by `runOracle`/`runOracleSuite` when `axes` is given but empty. An
+ * empty array is a real selection of nothing, and silently producing zero
+ * verdicts for it would read as a clean, fully-considered run.
+ */
+export class EmptyAxisSelectionError extends Error {
+  constructor() {
+    super(
+      'runOracle/runOracleSuite: `axes` was given as an empty array — that selects ' +
+        'nothing to check. Pass at least one axis, or omit `axes` to run the default set.',
+    );
+    this.name = 'EmptyAxisSelectionError';
+  }
+}
+
+/** Resolves `opts.axes` into the axes to run, rejecting an explicit empty selection. */
+function resolveAxisSelection(opts: RunOracleOptions): {
+  readonly wanted: ReadonlySet<AnyAxis>;
+  readonly selectedAxes: readonly AnyAxis[];
+} {
+  if (opts.axes !== undefined && opts.axes.length === 0) {
+    throw new EmptyAxisSelectionError();
+  }
+  const wanted = new Set<AnyAxis>(opts.axes ?? ALL_AXES);
+  return { wanted, selectedAxes: ALL_AXES.filter((axis) => wanted.has(axis)) };
+}
 
 export interface EmissionAxisVerdict {
   readonly axis: EmissionAxis;
   readonly actionId: string;
   readonly status: AxisStatus;
   readonly diagnostic: string;
+}
+
+/** The distinct event names declared under one condition, sorted. */
+function emissionEvents(
+  declared: readonly DeclaredEmission[],
+  condition: DeclaredEmission['condition'],
+): readonly string[] {
+  return [
+    ...new Set(declared.filter((e) => e.condition === condition).map((e) => e.event)),
+  ].sort(byString);
 }
 
 /**
@@ -993,42 +1059,81 @@ export interface EmissionAxisVerdict {
  * a re-read of {@link ContractDeclaration.declaredEmissions}, which would be
  * tautological.
  *
- * `not-observed` when the contract declares no emission: there is nothing to
- * verify, and reporting `pass` would claim positive evidence this axis never
- * collected (see the module header's `not-observed` is NOT `pass`).
+ * The verdict follows the SAME `{event, condition}` semantics the dispatch
+ * emission verifier reaches over the same declarations: only `always` edges
+ * are required, so only an `always` edge can produce a `fail`. A `conditional`
+ * edge that did not fire is the branch not being taken, not a defect — but one
+ * that DID fire is positive observed evidence, and is enough to reach `pass`
+ * on its own.
+ *
+ * `not-observed` whenever nothing was required and nothing was seen: there is
+ * no evidence either way, and reporting `pass` would claim positive evidence
+ * this axis never collected (see the module header's `not-observed` is NOT
+ * `pass`).
  */
 export function checkDeclaredEmission(
   decl: ContractDeclaration,
   obs: Observation,
 ): EmissionAxisVerdict {
   const axis = EMISSION_AXIS;
-  const declared = [...new Set(decl.declaredEmissions ?? [])].sort(byString);
+  const actionId = decl.actionId;
+  const declared = decl.declaredEmissions ?? [];
+  const required = emissionEvents(declared, 'always');
+  const conditional = emissionEvents(declared, 'conditional');
+  const appended = new Set(obs.performedEmissions.map((e) => e.eventType));
+  const corroborated = conditional.filter((event) => appended.has(event));
+  const observedList = [...appended].sort(byString).join(', ') || 'none';
+
   if (declared.length === 0) {
     return {
       axis,
-      actionId: decl.actionId,
+      actionId,
       status: 'not-observed',
       diagnostic: 'contract declares no emission — nothing to observe as appended',
     };
   }
-  const appended = new Set(obs.performedEmissions.map((e) => e.eventType));
-  const missing = declared.filter((eventType) => !appended.has(eventType));
-  if (missing.length > 0) {
-    const observedList = [...appended].sort(byString).join(', ') || 'none';
+  if (required.length === 0 && corroborated.length === 0) {
     return {
       axis,
-      actionId: decl.actionId,
+      actionId,
+      status: 'not-observed',
+      diagnostic:
+        `contract declares only conditional emission(s) [${conditional.join(', ')}] and none was ` +
+        `observed appended — a conditional edge that did not fire is not a fault, and its ` +
+        `absence is not evidence either (observed appends {${observedList}})`,
+    };
+  }
+  const missing = required.filter((event) => !appended.has(event));
+  if (missing.length > 0) {
+    return {
+      axis,
+      actionId,
       status: 'fail',
       diagnostic:
-        `handler declares emission(s) [${missing.join(', ')}] but no append was observed at ` +
-        `runtime — declared {${declared.join(', ')}}; observed appends {${observedList}}`,
+        `handler declares unconditional emission(s) [${missing.join(', ')}] but no append was ` +
+        `observed at runtime — required {${required.join(', ') || 'none'}}; ` +
+        `observed appends {${observedList}}`,
+    };
+  }
+  const corroboration =
+    corroborated.length > 0 ? `; conditional edge(s) observed [${corroborated.join(', ')}]` : '';
+  if (required.length === 0) {
+    return {
+      axis,
+      actionId,
+      status: 'pass',
+      diagnostic:
+        `no unconditional emission is declared, and conditional emission(s) ` +
+        `[${corroborated.join(', ')}] were observed appended`,
     };
   }
   return {
     axis,
-    actionId: decl.actionId,
+    actionId,
     status: 'pass',
-    diagnostic: `every declared emission was observed appended (declared {${declared.join(', ')}})`,
+    diagnostic:
+      `every unconditional emission was observed appended ` +
+      `(required {${required.join(', ')}})${corroboration}`,
   };
 }
 
@@ -1049,25 +1154,50 @@ export interface OracleReport {
    */
   readonly clean: boolean;
   readonly verdicts: readonly AxisVerdict[];
-  /** The emission axis's verdict, reported separately — see {@link EmissionAxisVerdict}. */
-  readonly emissionVerdict: EmissionAxisVerdict;
-}
-
-export interface RunOracleOptions {
-  /** Restrict the run to a subset of axes (default: all five). */
-  readonly axes?: readonly OracleAxis[];
+  /**
+   * The emission axis's verdict, reported separately — see
+   * {@link EmissionAxisVerdict}. `undefined` when `declared-emission` was not
+   * among {@link selectedAxes}: an axis that did not run reports no verdict,
+   * rather than a stale or synthesized one.
+   */
+  readonly emissionVerdict: EmissionAxisVerdict | undefined;
+  /** The axes this report actually ran, in {@link ALL_AXES} order. */
+  readonly selectedAxes: readonly AnyAxis[];
 }
 
 /**
- * Run the oracle over one subject: observe its behavior, then compare each axis'
- * independently-derived expectation against the observation. `ok` is false iff
- * any axis returns `fail` — the five {@link ORACLE_AXES} verdicts plus the
- * emission verdict.
+ * A report on which the emission axis ran — narrows {@link OracleReport.emissionVerdict}
+ * to defined. Use this instead of an `!== undefined` check at each call site so the
+ * exclusion of a standard-only report from an emission census is enforced by the
+ * type checker, not by remembering to filter correctly by hand.
+ */
+export interface EmissionSelectedReport extends OracleReport {
+  readonly emissionVerdict: EmissionAxisVerdict;
+}
+
+/** True iff `declared-emission` was selected on this report's run. */
+export function emissionWasSelected(report: OracleReport): report is EmissionSelectedReport {
+  return report.emissionVerdict !== undefined;
+}
+
+export interface RunOracleOptions {
+  /**
+   * Restrict the run to a subset of the six {@link ALL_AXES} (default: all
+   * six). An explicit empty array is rejected — see {@link EmptyAxisSelectionError}.
+   */
+  readonly axes?: readonly AnyAxis[];
+}
+
+/**
+ * Run the oracle over one subject: observe its behavior, then compare each
+ * selected axis' independently-derived expectation against the observation.
+ * `ok` is false iff any SELECTED axis returns `fail`.
  */
 export async function runOracle(
   subject: OracleSubject,
   opts: RunOracleOptions = {},
 ): Promise<OracleReport> {
+  const { wanted, selectedAxes } = resolveAxisSelection(opts);
   const obs = await observeBehavior(subject);
   const decl = subject.declaration;
   const all: AxisVerdict[] = [
@@ -1077,10 +1207,9 @@ export async function runOracle(
     checkMalformedOutput(decl, obs),
     checkCompatibilityBreak(subject, obs),
   ];
-  const wanted = opts.axes ? new Set<OracleAxis>(opts.axes) : undefined;
-  const verdicts = wanted ? all.filter((v) => wanted.has(v.axis)) : all;
-  const emissionVerdict = checkDeclaredEmission(decl, obs);
-  const considered = [...verdicts, emissionVerdict];
+  const verdicts = all.filter((v) => wanted.has(v.axis));
+  const emissionVerdict = wanted.has(EMISSION_AXIS) ? checkDeclaredEmission(decl, obs) : undefined;
+  const considered = emissionVerdict ? [...verdicts, emissionVerdict] : verdicts;
   const ok = considered.every((v) => v.status !== 'fail');
   return {
     actionId: decl.actionId,
@@ -1088,6 +1217,7 @@ export async function runOracle(
     clean: observationIsClean(considered),
     verdicts,
     emissionVerdict,
+    selectedAxes,
   };
 }
 
@@ -1116,6 +1246,8 @@ export interface OracleSuiteReport {
    * `ok: true` alone would happily conceal.
    */
   readonly coverage: readonly AxisCoverage[];
+  /** The axes this suite actually ran, in {@link ALL_AXES} order — same value every report in `reports` carries. */
+  readonly selectedAxes: readonly AnyAxis[];
 }
 
 /** How often one axis actually reached a verdict across a set of reports. */
@@ -1167,18 +1299,24 @@ export async function runOracleSuite(
   subjects: readonly OracleSubject[],
   opts: RunOracleOptions = {},
 ): Promise<OracleSuiteReport> {
+  // Resolved (and any empty-selection error raised) before any subject is
+  // observed, so a rejected call never runs a single check.
+  const { selectedAxes } = resolveAxisSelection(opts);
   const reports = await Promise.all(subjects.map((s) => runOracle(s, opts)));
   const failures: (AxisVerdict | EmissionAxisVerdict)[] = reports.flatMap((r) => [
     ...r.verdicts.filter((v) => v.status === 'fail'),
-    ...(r.emissionVerdict.status === 'fail' ? [r.emissionVerdict] : []),
+    ...(r.emissionVerdict?.status === 'fail' ? [r.emissionVerdict] : []),
   ]);
-  const considered = reports.flatMap((r) => [...r.verdicts, r.emissionVerdict]);
+  const considered = reports.flatMap<AxisVerdict | EmissionAxisVerdict>((r) =>
+    r.emissionVerdict ? [...r.verdicts, r.emissionVerdict] : r.verdicts,
+  );
   return {
     ok: failures.length === 0,
     clean: observationIsClean(considered),
     reports,
     failures,
     coverage: axisCoverage(reports),
+    selectedAxes,
   };
 }
 
@@ -1195,9 +1333,8 @@ export function verdictFor(report: OracleReport, axis: OracleAxis): AxisVerdict 
 /** A deterministic one-line-per-axis summary of a report, emission axis included. */
 export function summarizeReport(report: OracleReport): string {
   const head = `${report.actionId} — ${report.ok ? 'PASS' : 'FAIL'}`;
-  const lines = [...report.verdicts, report.emissionVerdict].map(
-    (v) => `  [${v.status}] ${v.axis}: ${v.diagnostic}`,
-  );
+  const all = report.emissionVerdict ? [...report.verdicts, report.emissionVerdict] : report.verdicts;
+  const lines = all.map((v) => `  [${v.status}] ${v.axis}: ${v.diagnostic}`);
   return [head, ...lines].join('\n');
 }
 

@@ -13,7 +13,7 @@ import {
   createRegistry,
   type ProjectionRegistry,
 } from '../../../src/projections/registry.js';
-import { makeFixtureReducer, seedStream, type FixtureState } from '../../../src/events/decide-fixtures.js';
+import { makeFixtureReducer, seedStream, type FixtureState } from '../../helpers/decide-fixtures.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 /**

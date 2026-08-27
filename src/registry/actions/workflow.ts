@@ -57,6 +57,24 @@ const CANCEL_EMISSIONS: readonly [ActionEmission, ...ActionEmission[]] = [
     role: 'primary',
     owner: 'workflow',
   },
+  // The destructive branch-deletion compensator journals intent then result.
+  // Both are conditional on the saga reaching that action with an event store
+  // wired: a dry run, an earlier failure, or a phase whose ladder never orders
+  // the deletion leaves the pair absent.
+  {
+    event: 'branch.delete.requested',
+    condition: 'conditional',
+    description: 'Before the compensator deletes a feature branch',
+    role: 'primary',
+    owner: 'workflow',
+  },
+  {
+    event: 'branch.delete.executed',
+    condition: 'conditional',
+    description: 'After the compensator deletes a feature branch',
+    role: 'primary',
+    owner: 'workflow',
+  },
 ];
 
 const CLEANUP_EMISSIONS: readonly [ActionEmission, ...ActionEmission[]] = [

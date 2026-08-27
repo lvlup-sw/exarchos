@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { scanLayerEdges } from '../../src/architecture/layer-boundaries-seam.js';
+import { lexModule } from '../../tools/test-helpers/module-lexer.js';
 
 // ─── The authoritative layer mapping (DR-2, task 010) ────────────────────────
 //
@@ -187,5 +189,38 @@ describe('the 11 targets → 9 published layers relation (what task 044 asserts)
         entry.target,
       );
     }
+  });
+});
+
+// ─── The event store must not import the oracle ─────────────────────────────
+//
+// `events` is declared on `LAYER_ALLOWED_IMPORTS` with a broad `contract`
+// allowance — store.ts already exercises it for `contract/shared/validation`
+// — so the general layering census cannot express "the event store never
+// reaches the oracle" without narrowing that whole row, which would also
+// break the edges the store genuinely needs. This is the narrower rule the
+// general census cannot state: no module under `events/` may resolve an
+// import into `contract/oracle/`. It reuses the same lexer-backed edge scan
+// the general census runs on, so a specifier hidden in a comment or a
+// template cannot manufacture or hide an edge here either.
+describe('EventsLayer_NeverImportsOracle', () => {
+  it('no module under events/ resolves an import into contract/oracle/', async () => {
+    const edges = await scanLayerEdges(SRC, lexModule);
+    const violations = edges.filter(
+      (e) => e.module.startsWith('events/') && e.targetModule.startsWith('contract/oracle/'),
+    );
+    expect(
+      violations.map((v) => `${v.module} -> ${v.targetModule}`),
+      'The oracle judges what the event store produces; an import running the ' +
+        'other way would let the store depend on its own judge.',
+    ).toEqual([]);
+  });
+
+  it('the scan is not vacuous: events/ actually has resolvable edges to inspect', async () => {
+    // A scan root that resolved to nothing, or a lexer that never returned an
+    // import, would make the assertion above pass by having no denominator.
+    const edges = await scanLayerEdges(SRC, lexModule);
+    const eventsEdges = edges.filter((e) => e.module.startsWith('events/'));
+    expect(eventsEdges.length).toBeGreaterThan(0);
   });
 });
