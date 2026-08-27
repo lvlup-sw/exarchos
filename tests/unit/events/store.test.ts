@@ -1211,6 +1211,83 @@ describe('EventStore append observation', () => {
     store.close();
   });
 
+  it('EventStore_AtomicTrailAppend_NotifiesOncePerLandedEvent', async () => {
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    const seen: Array<{
+      type: string;
+      streamId: string;
+      sequence: number;
+      durableAtNotify: boolean;
+    }> = [];
+
+    await runWithAppendObserver(
+      (observation) => {
+        const durableAtNotify = store
+          .getReadBackend()
+          .queryEvents(observation.streamId)
+          .some((event) => event.sequence === observation.sequence);
+        seen.push({ ...observation, durableAtNotify });
+      },
+      async () => {
+        // One ordinary append first, so the trail does not start at sequence
+        // 1: a seam that reported positions within the trail instead of the
+        // sequences the store assigned would otherwise pass.
+        await store.append('trail-stream', { type: 'workflow.started' });
+        await store.appendTrailAtomically(
+          'trail-stream',
+          [
+            { type: 'task.assigned' },
+            { type: 'task.claimed' },
+            { type: 'task.progressed' },
+          ],
+          'trail-op-1',
+        );
+      },
+    );
+
+    // The atomic trail path reports like every other durable path: once per
+    // landed event, in trail order, with the assigned sequence.
+    expect(seen.map((s) => s.type)).toEqual([
+      'workflow.started',
+      'task.assigned',
+      'task.claimed',
+      'task.progressed',
+    ]);
+    expect(seen.map((s) => s.sequence)).toEqual([1, 2, 3, 4]);
+    expect(seen.every((s) => s.streamId === 'trail-stream')).toBe(true);
+    expect(seen.every((s) => s.durableAtNotify)).toBe(true);
+
+    store.close();
+  });
+
+  it('EventStore_AtomicTrailRetriedOnSameOperationId_NotifiesNothing', async () => {
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    const seen: string[] = [];
+    const trail = [{ type: 'task.assigned' }, { type: 'task.claimed' }];
+
+    await runWithAppendObserver(
+      (observation) => {
+        seen.push(`${observation.type}#${observation.sequence}`);
+      },
+      async () => {
+        await store.appendTrailAtomically('retry-stream', trail, 'trail-op-2');
+        // Same operationId and same request digest: the recorded claim
+        // short-circuits, nothing new is persisted, and a seam that notified
+        // here would report an emission the retry never made.
+        await store.appendTrailAtomically('retry-stream', trail, 'trail-op-2');
+      },
+    );
+
+    expect(seen).toEqual(['task.assigned#1', 'task.claimed#2']);
+    expect(await store.query('retry-stream')).toHaveLength(2);
+
+    store.close();
+  });
+
   it('EventStore_ConcurrentScopes_DoNotCrossTalk', async () => {
     const store = new EventStore(tempDir);
     await store.initialize();

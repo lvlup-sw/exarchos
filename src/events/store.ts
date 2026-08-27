@@ -666,11 +666,39 @@ export class EventStore {
       return input;
     });
 
+    // `decideOnce` evaluates the decision ONLY when it is about to commit: a
+    // retry on the same operationId returns the recorded claim without ever
+    // reaching the closure, on the pre-transaction fast path and inside the
+    // transaction alike. So the flag separates a trail that genuinely landed
+    // from one an operationId retry collapsed onto a prior write, which is
+    // exactly the distinction the observer seam requires.
+    let landed = false;
     await this.getAppender().decideOnce<number>(
       operationId,
       requestDigest,
-      () => ({ streamId, events: inputs, result: inputs.length }),
+      () => {
+        landed = true;
+        return { streamId, events: inputs, result: inputs.length };
+      },
     );
+    if (!landed) return;
+
+    // Sequences come from the committed claim — written in the SAME
+    // transaction as the events — rather than from a re-read of the stream
+    // tail, so the observer is told the numbers this trail actually got even
+    // if a sibling writer has since advanced the stream.
+    const claim = this.getAppender()
+      .ensureSqliteBackendSync()
+      .lookupOperationClaim(operationId);
+    prepared.forEach((event, index) => {
+      const sequence = claim?.sequences[index];
+      if (sequence === undefined) {
+        throw new Error(
+          `Trail append claim missing sequence for event ${index} of operation ${operationId}`,
+        );
+      }
+      notifyAppendObserved({ type: event.type, streamId, sequence });
+    });
   }
 
   async query(streamId: string, filters?: QueryFilters): Promise<WorkflowEvent[]> {
