@@ -476,13 +476,29 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
       );
     }
 
-    // The store told us what landed while this leaf ran. Cross-checking the
-    // capture against the leaf's own declaration answers the question the
-    // interceptor's query cannot when the query itself is what went wrong.
+    // What the leaf owes, against what the leaf's own operation identity can
+    // be shown to hold. Two sources, unioned:
+    //
+    //   the observer capture — what landed while this leaf ran, including
+    //   events the handler stamped onto some other operation;
+    //
+    //   the store, queried by this leaf's derived id — what the leaf's
+    //   identity already holds. This arm is what makes a retry after a crash
+    //   survivable: an idempotent leaf re-run under the SAME derived id
+    //   collapses onto its first write, and a collapsed write is deliberately
+    //   not observed. Without the store arm the retry would fail the leaf for
+    //   an event that is durably present precisely because the id was stable.
+    //
+    // Scoping is preserved either way: the query is by the leaf's own derived
+    // id, so a predecessor's events still cannot answer for this leaf.
     const owed = obligedEvents(leaf, true);
     const landed = new Set(
       captures.filter((capture) => capture.streamId === segment.streamId).map((capture) => capture.type),
     );
+    if (owed.size > 0) {
+      const held = await ctx.eventStore.query(segment.streamId, { operationId: derived });
+      for (const event of held) landed.add(event.type);
+    }
     const missing = [...owed].filter((type) => !landed.has(type));
     if (missing.length > 0 || verdict.status === 'violated') {
       const undelivered = missing.length > 0 ? missing : verdict.missingEvents;

@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1232,
-    "parsedFiles": 1187,
+    "testFiles": 1235,
+    "parsedFiles": 1190,
     "shellFiles": 45,
-    "cases": 13611,
+    "cases": 13628,
     "dynamicTitles": 144,
     "unparseableFiles": 0
   },
@@ -21638,6 +21638,11 @@
           "dynamic": false
         },
         {
+          "suite": "dispatch > execute_intent action wiring",
+          "name": "Dispatch_ExecuteIntent_ColdDispatch_ClearsAdmissionAndReachesTheHandler",
+          "dynamic": false
+        },
+        {
           "suite": "dispatch > T-12 session.machinery_consumed interceptor",
           "name": "T12_FirstNonRehydrateInvocationAfterRehydrated_EmitsSessionMachineryConsumed",
           "dynamic": false
@@ -41863,6 +41868,11 @@
         },
         {
           "suite": "registry economy budgets (DR-1)",
+          "name": "registryEconomy_ExecuteIntent_DeclaresAMeasuredBudgetAndARealSummarizer",
+          "dynamic": false
+        },
+        {
+          "suite": "registry economy budgets (DR-1)",
           "name": "describeAction_WithBudget_SurfacesBudgetTokens",
           "dynamic": false
         },
@@ -50687,6 +50697,99 @@
         }
       ]
     },
+    "tests/unit/verbs/execute/fixture-intent.test.ts": {
+      "file": "tests/unit/verbs/execute/fixture-intent.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "a three-leaf fixture chain",
+          "name": "RunsInRunbookOrder_StampsEachLeafWithItsOwnDerivedIdentity",
+          "dynamic": false
+        },
+        {
+          "suite": "a three-leaf fixture chain",
+          "name": "ReceiptDescribesEveryLeafAndTheTailItReached",
+          "dynamic": false
+        },
+        {
+          "suite": "a terminal leaf whose requirement an earlier leaf satisfies",
+          "name": "InOrder_TheSegmentCommits",
+          "dynamic": false
+        },
+        {
+          "suite": "a terminal leaf whose requirement an earlier leaf satisfies",
+          "name": "SameLeafAdmittedBeforeItsPredecessorRan_IsDenied",
+          "dynamic": false
+        },
+        {
+          "suite": "a terminal leaf whose requirement an earlier leaf satisfies",
+          "name": "DeniedLeaf_HaltsTheSegmentAndCommitsFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "retry after a crash mid-segment",
+          "name": "SameOperationId_AppendsNoDuplicateRowsForTheLeavesThatAlreadyRan",
+          "dynamic": false
+        },
+        {
+          "suite": "retry after a crash mid-segment",
+          "name": "AnUnkeyedLeafDuplicatesInstead_TheKeyIsWhatDedupes",
+          "dynamic": false
+        },
+        {
+          "suite": "an oversized receipt through the registered economy path",
+          "name": "CommittedAndOverBudget_KeepsOperationIdOutcomeAndTailSequence",
+          "dynamic": false
+        },
+        {
+          "suite": "an oversized receipt through the registered economy path",
+          "name": "FailedAndOverBudget_IsReturnedVerbatimAndTheReducerStillPinsFailedLeaf",
+          "dynamic": false
+        },
+        {
+          "suite": "retrieving the trace a receipt describes",
+          "name": "LeafEventsByDerivedId_OperationRecordByTheOuterDispatchId",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/registration.test.ts": {
+      "file": "tests/unit/verbs/execute/registration.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "exarchos_orchestrate routes execute_intent (registration boundary)",
+          "name": "ExecuteIntent_RoutedToHandler_AndEnvelopeWrapped",
+          "dynamic": false
+        },
+        {
+          "suite": "execute_intent registered economy declaration",
+          "name": "the action is registered with a declared budget",
+          "dynamic": false
+        },
+        {
+          "suite": "execute_intent registered economy declaration",
+          "name": "ExecuteIntentEconomy_OverBudgetPlusOne_SummarizesAndKeepsPinnedFields",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/task-completion-parity.test.ts": {
+      "file": "tests/unit/verbs/execute/task-completion-parity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "task-completion over the no-shell leaf subset",
+          "name": "ExecutorAndPrimitiveBaseline_ProduceTheSameFacts",
+          "dynamic": false
+        },
+        {
+          "suite": "task-completion over the no-shell leaf subset",
+          "name": "BothPathsLeaveTheSameWorkflowProjection",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/gates/assess-refactor-scope.test.ts": {
       "file": "tests/unit/verbs/gates/assess-refactor-scope.test.ts",
       "runner": "vitest:root",
@@ -52216,7 +52319,7 @@
         },
         {
           "suite": "mutation-adequacy roster characterization (PIN) > OrchestrateActionRoster_CurrentBuild_PinnedActionSet",
-          "name": "exposes exactly 82 actions (WLM operational-core #1578 added serialize_merge; DR-4 (#1630) added check_exploration_depth; WLM foundation task 008 added acquire_worktree, release_worktree, prune_worktrees; #1587 retired check_tdd_compliance; #1581 task 018 added discover_bridge; #1739 added cutover_readiness + cutover_decide; task 068 added invariants_amend; the effect-ledger remedy added reconcile_worktrees and moved stack_place here from exarchos_view)",
+          "name": "exposes exactly 83 actions (WLM operational-core #1578 added serialize_merge; DR-4 (#1630) added check_exploration_depth; WLM foundation task 008 added acquire_worktree, release_worktree, prune_worktrees; #1587 retired check_tdd_compliance; #1581 task 018 added discover_bridge; #1739 added cutover_readiness + cutover_decide; task 068 added invariants_amend; the effect-ledger remedy added reconcile_worktrees and moved stack_place here from exarchos_view; the bounded action executor added execute_intent)",
           "dynamic": false
         },
         {
