@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ORACLE_AXES,
   EMISSION_AXIS,
+  EmptyAxisSelectionError,
   checkDeclaredEmission,
   checkGenerationConsistency,
   checkIncorrectHandler,
@@ -10,6 +11,7 @@ import {
   checkMissingAuthorization,
   checkUndeclaredEffect,
   deriveGeneratedDescriptor,
+  emissionWasSelected,
   failureFor,
   observeBehavior,
   runOracle,
@@ -372,13 +374,22 @@ describe('P03-09 oracle — emission axis observes the append, not the declarati
     expect(emission.status).not.toBe('pass');
 
     const suite = await runOracleSuite([subject], {
-      axes: ['missing-authorization', 'undeclared-effect', 'compatibility-break', 'incorrect-handler'],
+      axes: [
+        'missing-authorization',
+        'undeclared-effect',
+        'compatibility-break',
+        'incorrect-handler',
+        EMISSION_AXIS,
+      ],
     });
     const report = suite.reports[0];
     expect(report).toBeDefined();
     if (report === undefined) return;
+    expect(report.emissionVerdict).toBeDefined();
 
-    const considered = [...report.verdicts, report.emissionVerdict];
+    const considered = report.emissionVerdict
+      ? [...report.verdicts, report.emissionVerdict]
+      : report.verdicts;
     expect(considered.every((v) => v.status === 'not-observed')).toBe(true);
     expect(considered.some((v) => v.status === 'pass')).toBe(false);
     expect(report.clean).toBe(false);
@@ -460,5 +471,46 @@ describe('P03-09 oracle — emission axis observes the append, not the declarati
     );
     expect(honored.status, honored.diagnostic).toBe('pass');
     expect(honored.diagnostic).toContain(BRANCH_EVENT_TYPE);
+  });
+});
+
+// ─── Axis selection: a real six-axis choice, not a silent no-op ─────────────
+//
+// `RunOracleOptions.axes` now draws from `ALL_AXES` (the five `ORACLE_AXES`
+// plus `declared-emission`), and an empty array is a caller error rather than
+// a run that quietly produces zero verdicts.
+
+describe('P03-09 oracle — axis selection', () => {
+  it('RunOracle_EmptyAxisSelection_RejectsCall', async () => {
+    const subject = correctBaselineSubject();
+    await expect(runOracle(subject, { axes: [] })).rejects.toThrow(EmptyAxisSelectionError);
+    // runOracleSuite rejects too, and before observing any subject — a broken
+    // handler in `subjects` must not be able to mask the rejection.
+    await expect(runOracleSuite([subject], { axes: [] })).rejects.toThrow(EmptyAxisSelectionError);
+  });
+
+  it('RunOracle_StandardOnly_DoesNotEnterEmissionCensus', async () => {
+    const subjects = [correctBaselineSubject(), correctBaselineSubject(), correctBaselineSubject()];
+
+    // Standard-only: the emission axis is neither executed nor selected — no
+    // report carries a verdict for it, so it cannot enter an emission census.
+    const standardOnly = await runOracleSuite(subjects, { axes: ORACLE_AXES });
+    expect(standardOnly.reports.filter(emissionWasSelected).length).toBe(0);
+    expect(standardOnly.reports.every((r) => r.emissionVerdict === undefined)).toBe(true);
+    expect(standardOnly.selectedAxes).not.toContain(EMISSION_AXIS);
+
+    // Emission-only: executed exactly once per subject (not zero, not
+    // duplicated into `verdicts`) — no standard axis ran at all.
+    const emissionOnly = await runOracleSuite(subjects, { axes: [EMISSION_AXIS] });
+    expect(emissionOnly.reports.filter(emissionWasSelected).length).toBe(subjects.length);
+    expect(emissionOnly.reports.every((r) => r.verdicts.length === 0)).toBe(true);
+    expect(emissionOnly.selectedAxes).toEqual([EMISSION_AXIS]);
+
+    // Default-all: also executed exactly once per subject, alongside every
+    // standard axis.
+    const defaultAll = await runOracleSuite(subjects);
+    expect(defaultAll.reports.filter(emissionWasSelected).length).toBe(subjects.length);
+    expect(defaultAll.reports.every((r) => r.verdicts.length === ORACLE_AXES.length)).toBe(true);
+    expect(defaultAll.selectedAxes).toContain(EMISSION_AXIS);
   });
 });

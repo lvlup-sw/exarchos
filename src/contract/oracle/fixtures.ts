@@ -103,11 +103,13 @@ import {
   AUTHORIZATION_CODES,
   EMISSION_AXIS,
   OPEN_ROLE_MARKER,
+  emissionWasSelected,
   type ActionSafety,
   type ContractDeclaration,
   type DeclaredEmission,
   type EmissionAxis,
   type EmissionAxisVerdict,
+  type EmissionSelectedReport,
   type ObservableHandler,
   type ObservationContext,
   type OracleAxis,
@@ -927,11 +929,12 @@ export function realRegistryAuthorizationCase(
 // ─── The emission axis's census, and its zero-observation tooth ──────────────
 //
 // `axisCoverage` ranges over the closed `ORACLE_AXES` union, of which the
-// emission axis is deliberately not a member: the seam reports it on its own
-// `OracleReport.emissionVerdict`, which folds into `ok`, into the suite's
-// `failures` and into `summarizeReport`. The census below is therefore the
-// emission axis's own coverage row — without it, it would be the one axis with
-// no vacuity reading at all.
+// emission axis is not a member — it is selected through the broader
+// `ALL_AXES`/`RunOracleOptions.axes` surface instead, and reported on its own
+// `OracleReport.emissionVerdict` (`undefined` when not selected), which folds
+// into `ok`, into the suite's `failures` and into `summarizeReport`. The
+// census below is therefore the emission axis's own coverage row — without
+// it, it would be the one axis with no vacuity reading at all.
 //
 // It is more than the missing row, though. A row in `axisCoverage` fails
 // nothing: three of the five union axes sit at `observed: 0` across the whole
@@ -957,12 +960,17 @@ export interface EmissionAxisCoverage {
  * Census the emission axis across `reports`. `not-observed` is counted apart
  * from `pass` for the same reason `axisCoverage` does it: "we did not look"
  * must never be readable as "we looked and it was fine".
+ *
+ * Reports on which `declared-emission` was not selected carry no verdict to
+ * census at all — {@link emissionWasSelected} excludes them so the loop body
+ * reads `report.emissionVerdict` as always-defined, by the type checker,
+ * rather than by a convention this function alone would have to honor.
  */
 export function emissionAxisCoverage(reports: readonly OracleReport[]): EmissionAxisCoverage {
   let pass = 0;
   let fail = 0;
   let notObserved = 0;
-  for (const report of reports) {
+  for (const report of reports.filter(emissionWasSelected)) {
     if (report.emissionVerdict.status === 'pass') pass += 1;
     else if (report.emissionVerdict.status === 'fail') fail += 1;
     else notObserved += 1;
@@ -978,38 +986,50 @@ export function emissionAxisCoverage(reports: readonly OracleReport[]): Emission
 export const EMISSION_CENSUS_SUBJECT = '<oracle-suite>';
 
 /**
- * The zero-observation tooth: `fail` when the emission axis reached a verdict
- * on NO subject across `reports`.
+ * The zero-observation tooth, in two distinct failure shapes:
  *
- * A suite in that state ran the axis, got nothing back, and reported `ok` — the
- * shape a guard takes when it has stopped being able to fail. Either no subject
- * declares an emission, or the recorder no longer reaches the handler through
- * {@link compositeHandlerAdapter}; both leave the axis looking inspected while
- * being structurally incapable of a verdict.
+ *   1. ZERO SELECTED SUBJECTS — `declared-emission` was never selected to run
+ *      on any report (including the degenerate case of zero reports at all).
+ *      The axis was never even asked to look, which a suite reporting `ok`
+ *      would otherwise conceal entirely.
+ *   2. ZERO OBSERVED — the axis WAS selected on every report but reached a
+ *      verdict on none of them: either no subject declares an emission, or
+ *      the recorder no longer reaches the handler through
+ *      {@link compositeHandlerAdapter}. A suite in that state ran the axis,
+ *      got nothing back, and reported `ok` — the shape a guard takes when it
+ *      has stopped being able to fail.
  *
- * A `fail` counts as OBSERVED. Breaking the recorder's path turns a determinate
- * `pass` into a determinate `fail`, which the suite already catches; this tooth
- * is for the quieter case where the axis stops reaching any verdict at all.
+ * The two are reported with distinct diagnostics on purpose: a caller who
+ * forgot to select the axis at all is a different defect from one whose
+ * selection reached no evidence, and conflating them would hide which repair
+ * is needed. A `fail` from case 2 still counts as OBSERVED — breaking the
+ * recorder's path turns a determinate `pass` into a determinate `fail`, which
+ * the suite already catches; this tooth is for the quieter case where the
+ * axis stops reaching any verdict at all.
  */
 export function checkEmissionAxisObserved(
   reports: readonly OracleReport[],
 ): EmissionAxisVerdict {
-  const coverage = emissionAxisCoverage(reports);
-  if (reports.length === 0) {
+  const selected: readonly EmissionSelectedReport[] = reports.filter(emissionWasSelected);
+  if (selected.length === 0) {
     return {
       axis: EMISSION_AXIS,
       actionId: EMISSION_CENSUS_SUBJECT,
-      status: 'not-observed',
-      diagnostic: 'no reports to census — the emission axis was never run',
+      status: 'fail',
+      diagnostic:
+        `zero of ${reports.length} report(s) had the emission axis selected — the axis was ` +
+        `never asked to look at all, which is not the same defect as it looking and finding ` +
+        `nothing`,
     };
   }
+  const coverage = emissionAxisCoverage(selected);
   if (coverage.observed === 0) {
     return {
       axis: EMISSION_AXIS,
       actionId: EMISSION_CENSUS_SUBJECT,
       status: 'fail',
       diagnostic:
-        `the emission axis observed NOTHING across ${reports.length} subject(s) — all ` +
+        `the emission axis observed NOTHING across ${selected.length} subject(s) — all ` +
         `${coverage.notObserved} reported 'not-observed' and none reached a verdict. Either no ` +
         `subject declares an emission or the recorder no longer reaches the handler, and a green ` +
         `run would be reporting on an axis that never looked`,
@@ -1020,7 +1040,7 @@ export function checkEmissionAxisObserved(
     actionId: EMISSION_CENSUS_SUBJECT,
     status: 'pass',
     diagnostic:
-      `the emission axis reached a verdict on ${coverage.observed} of ${reports.length} ` +
+      `the emission axis reached a verdict on ${coverage.observed} of ${selected.length} ` +
       `subject(s) (pass ${coverage.pass}, fail ${coverage.fail})`,
   };
 }

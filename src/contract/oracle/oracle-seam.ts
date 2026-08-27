@@ -993,9 +993,47 @@ export function checkCompatibilityBreak(
 // {@link AxisStatus} vocabulary, and participates in `ok` and `failures`
 // exactly as the other five do.
 
-/** The emission axis identifier — deliberately not a member of {@link ORACLE_AXES}. */
+/** The emission axis identifier — a member of {@link ALL_AXES}, not of {@link ORACLE_AXES}. */
 export const EMISSION_AXIS = 'declared-emission';
 export type EmissionAxis = typeof EMISSION_AXIS;
+
+/**
+ * The full selectable surface: the five originally-seedable {@link ORACLE_AXES}
+ * plus the emission axis. `ORACLE_AXES` stays five-membered — `seededBreak`,
+ * `axisCoverage` and the per-axis `it.each` tests are keyed on exactly those
+ * five — but `RunOracleOptions.axes` selects from this six-member tuple, so the
+ * emission axis is a real, filterable choice rather than a check that always
+ * runs regardless of what a caller asked for.
+ */
+export const ALL_AXES = [...ORACLE_AXES, EMISSION_AXIS] as const;
+export type AnyAxis = (typeof ALL_AXES)[number];
+
+/**
+ * Thrown by `runOracle`/`runOracleSuite` when `axes` is given but empty. An
+ * empty array is a real selection of nothing, and silently producing zero
+ * verdicts for it would read as a clean, fully-considered run.
+ */
+export class EmptyAxisSelectionError extends Error {
+  constructor() {
+    super(
+      'runOracle/runOracleSuite: `axes` was given as an empty array — that selects ' +
+        'nothing to check. Pass at least one axis, or omit `axes` to run the default set.',
+    );
+    this.name = 'EmptyAxisSelectionError';
+  }
+}
+
+/** Resolves `opts.axes` into the axes to run, rejecting an explicit empty selection. */
+function resolveAxisSelection(opts: RunOracleOptions): {
+  readonly wanted: ReadonlySet<AnyAxis>;
+  readonly selectedAxes: readonly AnyAxis[];
+} {
+  if (opts.axes !== undefined && opts.axes.length === 0) {
+    throw new EmptyAxisSelectionError();
+  }
+  const wanted = new Set<AnyAxis>(opts.axes ?? ALL_AXES);
+  return { wanted, selectedAxes: ALL_AXES.filter((axis) => wanted.has(axis)) };
+}
 
 export interface EmissionAxisVerdict {
   readonly axis: EmissionAxis;
@@ -1116,25 +1154,50 @@ export interface OracleReport {
    */
   readonly clean: boolean;
   readonly verdicts: readonly AxisVerdict[];
-  /** The emission axis's verdict, reported separately — see {@link EmissionAxisVerdict}. */
-  readonly emissionVerdict: EmissionAxisVerdict;
-}
-
-export interface RunOracleOptions {
-  /** Restrict the run to a subset of axes (default: all five). */
-  readonly axes?: readonly OracleAxis[];
+  /**
+   * The emission axis's verdict, reported separately — see
+   * {@link EmissionAxisVerdict}. `undefined` when `declared-emission` was not
+   * among {@link selectedAxes}: an axis that did not run reports no verdict,
+   * rather than a stale or synthesized one.
+   */
+  readonly emissionVerdict: EmissionAxisVerdict | undefined;
+  /** The axes this report actually ran, in {@link ALL_AXES} order. */
+  readonly selectedAxes: readonly AnyAxis[];
 }
 
 /**
- * Run the oracle over one subject: observe its behavior, then compare each axis'
- * independently-derived expectation against the observation. `ok` is false iff
- * any axis returns `fail` — the five {@link ORACLE_AXES} verdicts plus the
- * emission verdict.
+ * A report on which the emission axis ran — narrows {@link OracleReport.emissionVerdict}
+ * to defined. Use this instead of an `!== undefined` check at each call site so the
+ * exclusion of a standard-only report from an emission census is enforced by the
+ * type checker, not by remembering to filter correctly by hand.
+ */
+export interface EmissionSelectedReport extends OracleReport {
+  readonly emissionVerdict: EmissionAxisVerdict;
+}
+
+/** True iff `declared-emission` was selected on this report's run. */
+export function emissionWasSelected(report: OracleReport): report is EmissionSelectedReport {
+  return report.emissionVerdict !== undefined;
+}
+
+export interface RunOracleOptions {
+  /**
+   * Restrict the run to a subset of the six {@link ALL_AXES} (default: all
+   * six). An explicit empty array is rejected — see {@link EmptyAxisSelectionError}.
+   */
+  readonly axes?: readonly AnyAxis[];
+}
+
+/**
+ * Run the oracle over one subject: observe its behavior, then compare each
+ * selected axis' independently-derived expectation against the observation.
+ * `ok` is false iff any SELECTED axis returns `fail`.
  */
 export async function runOracle(
   subject: OracleSubject,
   opts: RunOracleOptions = {},
 ): Promise<OracleReport> {
+  const { wanted, selectedAxes } = resolveAxisSelection(opts);
   const obs = await observeBehavior(subject);
   const decl = subject.declaration;
   const all: AxisVerdict[] = [
@@ -1144,10 +1207,9 @@ export async function runOracle(
     checkMalformedOutput(decl, obs),
     checkCompatibilityBreak(subject, obs),
   ];
-  const wanted = opts.axes ? new Set<OracleAxis>(opts.axes) : undefined;
-  const verdicts = wanted ? all.filter((v) => wanted.has(v.axis)) : all;
-  const emissionVerdict = checkDeclaredEmission(decl, obs);
-  const considered = [...verdicts, emissionVerdict];
+  const verdicts = all.filter((v) => wanted.has(v.axis));
+  const emissionVerdict = wanted.has(EMISSION_AXIS) ? checkDeclaredEmission(decl, obs) : undefined;
+  const considered = emissionVerdict ? [...verdicts, emissionVerdict] : verdicts;
   const ok = considered.every((v) => v.status !== 'fail');
   return {
     actionId: decl.actionId,
@@ -1155,6 +1217,7 @@ export async function runOracle(
     clean: observationIsClean(considered),
     verdicts,
     emissionVerdict,
+    selectedAxes,
   };
 }
 
@@ -1183,6 +1246,8 @@ export interface OracleSuiteReport {
    * `ok: true` alone would happily conceal.
    */
   readonly coverage: readonly AxisCoverage[];
+  /** The axes this suite actually ran, in {@link ALL_AXES} order — same value every report in `reports` carries. */
+  readonly selectedAxes: readonly AnyAxis[];
 }
 
 /** How often one axis actually reached a verdict across a set of reports. */
@@ -1234,18 +1299,24 @@ export async function runOracleSuite(
   subjects: readonly OracleSubject[],
   opts: RunOracleOptions = {},
 ): Promise<OracleSuiteReport> {
+  // Resolved (and any empty-selection error raised) before any subject is
+  // observed, so a rejected call never runs a single check.
+  const { selectedAxes } = resolveAxisSelection(opts);
   const reports = await Promise.all(subjects.map((s) => runOracle(s, opts)));
   const failures: (AxisVerdict | EmissionAxisVerdict)[] = reports.flatMap((r) => [
     ...r.verdicts.filter((v) => v.status === 'fail'),
-    ...(r.emissionVerdict.status === 'fail' ? [r.emissionVerdict] : []),
+    ...(r.emissionVerdict?.status === 'fail' ? [r.emissionVerdict] : []),
   ]);
-  const considered = reports.flatMap((r) => [...r.verdicts, r.emissionVerdict]);
+  const considered = reports.flatMap<AxisVerdict | EmissionAxisVerdict>((r) =>
+    r.emissionVerdict ? [...r.verdicts, r.emissionVerdict] : r.verdicts,
+  );
   return {
     ok: failures.length === 0,
     clean: observationIsClean(considered),
     reports,
     failures,
     coverage: axisCoverage(reports),
+    selectedAxes,
   };
 }
 
@@ -1262,9 +1333,8 @@ export function verdictFor(report: OracleReport, axis: OracleAxis): AxisVerdict 
 /** A deterministic one-line-per-axis summary of a report, emission axis included. */
 export function summarizeReport(report: OracleReport): string {
   const head = `${report.actionId} — ${report.ok ? 'PASS' : 'FAIL'}`;
-  const lines = [...report.verdicts, report.emissionVerdict].map(
-    (v) => `  [${v.status}] ${v.axis}: ${v.diagnostic}`,
-  );
+  const all = report.emissionVerdict ? [...report.verdicts, report.emissionVerdict] : report.verdicts;
+  const lines = all.map((v) => `  [${v.status}] ${v.axis}: ${v.diagnostic}`);
   return [head, ...lines].join('\n');
 }
 

@@ -59,9 +59,12 @@
 //
 // The emission axis is reported on `OracleReport.emissionVerdict` rather than
 // as a sixth member of the closed `ORACLE_AXES` union, so `axisCoverage()` —
-// which ranges over that union — does not produce a row for it. That is the
-// exact shape of an axis going quietly uncovered, so it is answered here rather
-// than left implicit.
+// which ranges over that union — does not produce a row for it. It IS
+// selectable, through the broader `ALL_AXES` tuple that `RunOracleOptions.axes`
+// draws from — `ORACLE_AXES` stays five-membered because `seededBreak` and the
+// per-axis `it.each` tests below are keyed on exactly those five. That is still
+// the exact shape of an axis going quietly uncovered by the closed union's own
+// census, so it is answered here rather than left implicit.
 //
 // Two things cover it, and both are stronger than a census row would be:
 //
@@ -71,10 +74,11 @@
 //      `ORACLE_AXES` has that: three of the five sit at `observed: 0` across
 //      the whole live surface and the suite still reports `ok`.
 //
-// Folding the axis into the union would also have made it filterable by
-// `RunOracleOptions.axes` (it always runs today) and would have required
-// removing `OracleReport.emissionVerdict`, since a verdict present in both
-// `verdicts` and that field double-counts in `failures` and `summarizeReport`.
+// `OracleReport.emissionVerdict` is `undefined` on a report where the axis was
+// not selected — never a synthesized or stale verdict — and
+// `emissionAxisCoverage()`/`checkEmissionAxisObserved()` narrow to only the
+// reports where it ran via the `emissionWasSelected` type guard, so a
+// standard-only run cannot enter the emission census by accident.
 //
 // @oracle-sources: ../../../../src/registry.ts, the values the shipped handlers actually return when invoked through the real implementation-binding table, the durable appends the event store confirms through its own async-scoped observation seam
 // ────────────────────────────────────────────────────────────────────────────
@@ -116,6 +120,7 @@ import {
   REAL_REGISTRY_PROBE_ROLE,
   REAL_REGISTRY_PROBE_TOOL,
   TRUSTED_CALLER_REQUIRED,
+  checkEmissionAxisObserved,
   checkEmissionProbeFloor,
   correctBaselineSubject,
   declaredEmittingActions,
@@ -851,6 +856,47 @@ describe('the emission axis reaches a verdict on a live subject', () => {
       rmrf(determinateDir);
     }
   }, 180_000);
+
+  it('RunEmissionOracleSuite_ZeroObserved_FailsDistinctly', async () => {
+    // Every subject HAD the emission axis selected (the default `runOracleSuite`
+    // call `runEmissionOracleSuite` makes selects `ALL_AXES`), yet none of them
+    // reaches a determinate verdict — the "selected but silent" shape.
+    const subjects = liveOutputSubjects();
+    const vacuous = await runEmissionOracleSuite(subjects);
+    expect(vacuous.vacuity.status).toBe('fail');
+    expect(vacuous.vacuity.diagnostic).toContain('observed NOTHING');
+    expect(vacuous.vacuity.diagnostic).not.toContain('never asked to look');
+  });
+
+  it('CheckEmissionAxisObserved_ZeroSelectedSubjects_FailsDistinctly', async () => {
+    // A run that selects only the standard axes never asks the emission axis
+    // to look at all — every report's `emissionVerdict` is `undefined`. This is
+    // a DIFFERENT defect from "selected but observed nothing", and must carry a
+    // distinct diagnostic so a caller can tell which repair is needed.
+    const subjects = [correctBaselineSubject()];
+    const standardOnly = await runOracleSuite(subjects, { axes: ORACLE_AXES });
+    expect(standardOnly.reports.every((r) => r.emissionVerdict === undefined)).toBe(true);
+
+    const zeroSelected = checkEmissionAxisObserved(standardOnly.reports);
+    expect(zeroSelected.status).toBe('fail');
+    expect(zeroSelected.diagnostic).toContain('never asked to look');
+    expect(zeroSelected.diagnostic).not.toContain('observed NOTHING');
+
+    // The degenerate case (no reports at all) fails with the same message —
+    // "zero of zero" is still zero subjects that had the axis selected.
+    const noReports = checkEmissionAxisObserved([]);
+    expect(noReports.status).toBe('fail');
+    expect(noReports.diagnostic).toContain('never asked to look');
+
+    // And it is a genuinely distinct kill from the all-not-observed branch:
+    // an emission-selected run that reaches no verdict fails with the OTHER
+    // message.
+    const emissionSelected = await runOracleSuite(subjects, { axes: [EMISSION_AXIS] });
+    const allNotObserved = checkEmissionAxisObserved(emissionSelected.reports);
+    expect(allNotObserved.status).toBe('fail');
+    expect(allNotObserved.diagnostic).toContain('observed NOTHING');
+    expect(allNotObserved.diagnostic).not.toBe(zeroSelected.diagnostic);
+  });
 });
 
 // ─── The shipped-emitter probe corpus ────────────────────────────────────────
