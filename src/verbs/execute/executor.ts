@@ -401,37 +401,78 @@ export async function handleExecuteIntent(
   const segment = compiled.segment;
   const requestDigest = requestDigestOf(intent, streamId, segment.args);
 
-  // Replay pre-flight, ahead of every effect.
-  const claim = ctx.eventStore
-    .getAppender()
-    .ensureSqliteBackendSync()
-    .lookupOperationClaim<IntentReceipt>(operationId);
-  if (claim !== undefined) {
-    if (claim.requestDigest !== requestDigest) {
-      return digestMismatchResult(operationId, 'Nothing was executed.');
+  // Serialized per operation id so a concurrent call with the same key waits
+  // and then finds the first call's claim in its own pre-flight, instead of
+  // both passing an empty lookup and both running the segment. This closes
+  // the window within one process; a second PROCESS racing the same key is
+  // still serialized only at the commit, where the loser is told its effects
+  // ran. A durable in-progress reservation is deliberately absent: a crashed
+  // reservation would be indistinguishable from a running one without expiry
+  // machinery, and "no claim, no operation event" is what makes a crash
+  // distinguishable from every other outcome.
+  return runExclusivePerOperation(operationId, async () => {
+    // Replay pre-flight, ahead of every effect.
+    const claim = ctx.eventStore
+      .getAppender()
+      .ensureSqliteBackendSync()
+      .lookupOperationClaim<IntentReceipt>(operationId);
+    if (claim !== undefined) {
+      if (claim.requestDigest !== requestDigest) {
+        return digestMismatchResult(operationId, 'Nothing was executed.');
+      }
+      return receiptResult(claim.result);
     }
-    return receiptResult(claim.result);
-  }
 
-  const handlers = deps.handlers;
-  const outer = outerCorrelation(ctx);
-  const committed = await runSegment({
-    segment,
-    operationId,
-    requestDigest,
-    stateDir,
-    ctx,
-    outer,
-    handlers,
-  });
-  if (committed.kind === 'digest-mismatch') {
-    return digestMismatchResult(
+    const handlers = deps.handlers;
+    const outer = outerCorrelation(ctx);
+    const committed = await runSegment({
+      segment,
       operationId,
-      'This call ran its segment and lost the claim to a concurrent call that got ' +
-        'there first, so its own receipt was NOT persisted and its effects are already performed.',
-    );
+      requestDigest,
+      stateDir,
+      ctx,
+      outer,
+      handlers,
+    });
+    if (committed.kind === 'digest-mismatch') {
+      return digestMismatchResult(
+        operationId,
+        'This call ran its segment and lost the claim to a concurrent call that got ' +
+          'there first, so its own receipt was NOT persisted and its effects are already performed.',
+      );
+    }
+    return receiptResult(committed.receipt);
+  });
+}
+
+// ─── Per-operation serialization ────────────────────────────────────────────────────────────────────
+
+const operationTails = new Map<string, Promise<unknown>>();
+
+/**
+ * One flight per operation id at a time, within this process. Mirrors the
+ * appender's per-stream promise-chain mutex; not re-entrant — the executor
+ * never re-enters itself for the same operation id.
+ */
+async function runExclusivePerOperation<T>(
+  operationId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const prior = operationTails.get(operationId) ?? Promise.resolve();
+  let release!: () => void;
+  const next = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  operationTails.set(operationId, next);
+  try {
+    await prior;
+    return await fn();
+  } finally {
+    release();
+    if (operationTails.get(operationId) === next) {
+      operationTails.delete(operationId);
+    }
   }
-  return receiptResult(committed.receipt);
 }
 
 // ─── The segment loop ───────────────────────────────────────────────────────

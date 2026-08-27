@@ -695,6 +695,52 @@ describe('handleExecuteIntent commit races', () => {
     // pre-flight's "nothing was executed".
     expect(result.error?.message).toContain('effects are already performed');
   });
+
+  it('ConcurrentSameRequest_RunsTheSegmentOnceAndBothCallersGetTheReceipt', async () => {
+    // In-process calls with the same operation id are serialized: the second
+    // waits, finds the first's claim in its own pre-flight, and replays it.
+    // Without that, both observe an empty pre-flight and both run the leaves.
+    const counted = countingHandler(silentHandler());
+    const deps = depsFor([fixtureStep('fixture_quiet', 'stop')], {
+      fixture_quiet: counted.handler,
+    });
+
+    const [first, second] = await Promise.all([
+      execute(request('op-concurrent-same'), deps),
+      execute(request('op-concurrent-same'), deps),
+    ]);
+
+    expect(counted.calls()).toBe(1);
+    expect(first.success).toBe(true);
+    expect(second.success).toBe(true);
+    expect(receiptOf(second)).toEqual(receiptOf(first));
+    expect(await operationEvents()).toHaveLength(1);
+  });
+
+  it('ConcurrentDifferentRequest_SecondIsRefusedWithoutRunningItsLeaves', async () => {
+    // Same key, different request: the waiter's pre-flight finds a claim whose
+    // digest disagrees and refuses BEFORE any of its leaves run — the
+    // "effects are already performed" wording is reserved for a racer in
+    // another process, which only the commit can catch.
+    const counted = countingHandler(silentHandler());
+    const deps = depsFor([fixtureStep('fixture_quiet', 'stop')], {
+      fixture_quiet: counted.handler,
+    });
+
+    const [first, second] = await Promise.all([
+      execute(request('op-concurrent-clash'), deps),
+      execute(
+        { intent: INTENT, streamId: STREAM, args: { taskId: 't2' }, operationId: 'op-concurrent-clash' },
+        deps,
+      ),
+    ]);
+
+    expect(counted.calls()).toBe(1);
+    expect(first.success).toBe(true);
+    expect(second.success).toBe(false);
+    expect(second.error?.code).toBe('INTENT_REPLAY_DIGEST_MISMATCH');
+    expect(second.error?.message).toContain('Nothing was executed');
+  });
 });
 
 // ─── Correlation off a real dispatch ────────────────────────────────────────
