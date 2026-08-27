@@ -598,28 +598,22 @@ export async function runEmissionVerifierInterceptor(
 
     // The finding has to outlive the run that noticed it, so it is written to
     // the log rather than only logged. One report per operation: the
-    // idempotency key collapses a racing duplicate into a no-op.
-    //
-    // Gated on a non-empty miss set because `EmissionViolatedData.missingEvents`
-    // is `.min(1)` — the report was shaped around absence before the lifecycle
-    // axis existed. A lifecycle-only violation therefore still FAILS the verdict
-    // its caller acts on, but is carried by the log line below rather than a
-    // durable record. Widening the payload is a schema change and belongs to
-    // whoever owns that file, not here.
-    if (verdict.missingEvents.length > 0) {
-      await eventStore.append(
-        streamId,
-        {
-          type: EMISSION_VIOLATION_EVENT,
-          data: {
-            action: `${call.tool}.${call.action}`,
-            missingEvents: verdict.missingEvents,
-            operationId: call.operationId,
-          },
+    // idempotency key collapses a racing duplicate into a no-op. Gated on the
+    // verdict alone — `violated` already means at least one axis is non-empty,
+    // whichever it is, and both ride along regardless of which one fired.
+    await eventStore.append(
+      streamId,
+      {
+        type: EMISSION_VIOLATION_EVENT,
+        data: {
+          action: `${call.tool}.${call.action}`,
+          missingEvents: verdict.missingEvents,
+          lifecycleViolations: verdict.lifecycleViolations,
+          operationId: call.operationId,
         },
-        { idempotencyKey: `${EMISSION_VIOLATION_EVENT}:${call.operationId}` },
-      );
-    }
+      },
+      { idempotencyKey: `${EMISSION_VIOLATION_EVENT}:${call.operationId}` },
+    );
     // The mode changes how loudly this reads, never whether it was recorded: a
     // finding suppressed to keep an advisory run quiet is a finding lost.
     const enforcement: EmissionEnforcementMode = resolveEmissionEnforcement(call.projectConfig);

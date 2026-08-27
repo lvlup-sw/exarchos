@@ -26,12 +26,18 @@ import { COMPOSITE_HANDLERS, dispatch } from '../../src/dispatch/core/dispatch.j
 import { resolveConfig } from '../../src/config/resolve.js';
 import type { DispatchContext } from '../../src/dispatch/core/types.js';
 import type { ToolResult } from '../../src/types.js';
+import { EmissionViolatedData } from '../../src/events/schemas.js';
 
 const ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Object.freeze({
   'workflow.started': {
     lifecycle: 'active',
     tier: 'substrate',
     rationale: 'transition-record',
+  },
+  'merge.rollback': {
+    lifecycle: 'retired',
+    tier: 'substrate',
+    rationale: 'compensation-record',
   },
 } as Readonly<Record<string, EventRegistration>>);
 
@@ -160,6 +166,114 @@ describe('emission verifier policy', () => {
     const keptSummary = summarizeEmissionRun([kept]);
     expect(keptSummary.determinate).toBe(1);
     expect(keptSummary.clean).toBe(true);
+  });
+
+  it('EmissionVerifier_LifecycleOnlyViolation_PersistsEvidence', async () => {
+    // The unconditional promise is kept, so the missing-events axis is empty.
+    // The same action also carries a conditional edge onto a RETIRED event, and
+    // that edge lands anyway — the lifecycle axis's own fault, independent of
+    // whether anything is missing.
+    await store.append('feature-lifecycle', {
+      type: 'workflow.started',
+      operationId: 'op-lifecycle',
+      data: { featureId: 'feature-lifecycle', workflowType: 'feature' },
+    });
+    await store.append('feature-lifecycle', {
+      type: 'merge.rollback',
+      operationId: 'op-lifecycle',
+      data: { reason: 'landed against a retired registration' },
+    });
+
+    const verdict = await runEmissionVerifierInterceptor(store, {
+      tool: 'exarchos_workflow',
+      action: 'init',
+      operationId: 'op-lifecycle',
+      streamId: 'feature-lifecycle',
+      declared: [
+        { event: 'workflow.started', condition: 'always' },
+        { event: 'merge.rollback', condition: 'conditional' },
+      ],
+      annotations: ANNOTATIONS,
+    });
+
+    expect(verdict.status).toBe('violated');
+    expect(verdict.missingEvents).toEqual([]);
+    expect(verdict.lifecycleViolations).toEqual([{ event: 'merge.rollback', lifecycle: 'retired' }]);
+
+    // The finding outlived the run on the LIFECYCLE axis alone — this is the
+    // subject of this test: before this change, a lifecycle-only violation
+    // still failed the verdict but was carried by a log line, not a record.
+    const recorded = await store.query('feature-lifecycle', {});
+    const violation = recorded.find((event) => event.type === 'emission.violated');
+    expect(violation).toBeDefined();
+    const parsed = EmissionViolatedData.parse(violation?.data);
+    expect(parsed.missingEvents).toEqual([]);
+    expect(parsed.lifecycleViolations).toEqual([{ event: 'merge.rollback', lifecycle: 'retired' }]);
+  });
+
+  it('EmissionVerifier_CombinedViolation_PersistsBothAxes', async () => {
+    // The unconditional promise is BROKEN this time (`workflow.started` never
+    // lands) and the retired edge lands anyway — both axes fire on the same
+    // operation, and both have to survive onto the one persisted record.
+    await store.append('feature-combined', {
+      type: 'merge.rollback',
+      operationId: 'op-combined',
+      data: { reason: 'landed against a retired registration' },
+    });
+
+    const verdict = await runEmissionVerifierInterceptor(store, {
+      tool: 'exarchos_workflow',
+      action: 'init',
+      operationId: 'op-combined',
+      streamId: 'feature-combined',
+      declared: [
+        { event: 'workflow.started', condition: 'always' },
+        { event: 'merge.rollback', condition: 'conditional' },
+      ],
+      annotations: ANNOTATIONS,
+    });
+
+    expect(verdict.status).toBe('violated');
+    expect(verdict.missingEvents).toEqual(['workflow.started']);
+    expect(verdict.lifecycleViolations).toEqual([{ event: 'merge.rollback', lifecycle: 'retired' }]);
+
+    const recorded = await store.query('feature-combined', {});
+    const violation = recorded.find((event) => event.type === 'emission.violated');
+    expect(violation).toBeDefined();
+    const parsed = EmissionViolatedData.parse(violation?.data);
+    expect(parsed.missingEvents).toEqual(['workflow.started']);
+    expect(parsed.lifecycleViolations).toEqual([{ event: 'merge.rollback', lifecycle: 'retired' }]);
+  });
+
+  it('EmissionViolatedData refuses a report with both axes empty', () => {
+    // The refinement's kill probe. A report naming neither a missing event nor
+    // a lifecycle violation is not evidence of anything — accepting `[]`/`[]`
+    // would let a clean run and a violation share one durable shape.
+    expect(() =>
+      EmissionViolatedData.parse({
+        action: 'exarchos_workflow.init',
+        missingEvents: [],
+        lifecycleViolations: [],
+        operationId: 'op-empty',
+      }),
+    ).toThrow(/at least one axis/);
+
+    // Either axis alone is sufficient — the refinement is an OR, not an AND.
+    expect(() =>
+      EmissionViolatedData.parse({
+        action: 'exarchos_workflow.init',
+        missingEvents: ['workflow.started'],
+        operationId: 'op-missing-only',
+      }),
+    ).not.toThrow();
+    expect(() =>
+      EmissionViolatedData.parse({
+        action: 'exarchos_workflow.init',
+        missingEvents: [],
+        lifecycleViolations: [{ event: 'merge.rollback', lifecycle: 'retired' }],
+        operationId: 'op-lifecycle-only',
+      }),
+    ).not.toThrow();
   });
 
   it('a mixed run reports the determinate count it actually earned', () => {

@@ -3301,35 +3301,73 @@ export const PromotionExecutedData = z.object({
 // after the fact.
 
 /**
- * `emission.violated` — an operation finished with declared emissions unlanded.
- *
- * The payload has to answer all three of WHICH operation, WHAT it was supposed
- * to emit, and WHICH RUN it happened on, because a report naming only the
- * action is unactionable: the same action can declare several emissions, and
- * "this action missed something" does not say which contract broke or let a
- * reader join the finding back to the surrounding events of that dispatch.
- *
- * `missingEvents` is the FULL set rather than the first miss. Reporting one
- * name per violation would turn a handler that dropped three emissions into a
- * finding that reads as though it dropped one, and each repair would reveal the
- * next — the shape that makes a fault look smaller every time it is examined.
+ * Registration state of an event that landed although nothing should emit it.
+ * Mirrors `NonEmittingLifecycle` in `emission-verifier.ts` exactly — the full
+ * lifecycle axis minus `active`, which is the state a runtime emission agrees
+ * with and so can never be the state named here. New members MUST be added in
+ * both places.
  */
-export const EmissionViolatedData = z.object({
-  action: z
-    .string()
-    .min(1)
-    .describe('The dispatched action whose handler completed without its declared emissions'),
-  missingEvents: z
-    .array(z.string().min(1))
-    .min(1)
-    .describe(
-      'Every unconditionally declared event name that did not land — the full set, not the first miss',
-    ),
-  operationId: z
-    .string()
-    .min(1)
-    .describe('Identifier of the dispatch operation the verifier assessed, joining this finding to that run'),
+export const NonEmittingLifecycle = z.enum(['planned', 'retired']);
+export type NonEmittingLifecycle = z.infer<typeof NonEmittingLifecycle>;
+
+/** One event that landed while its own registration says nothing emits it. */
+export const LifecycleViolationEntry = z.object({
+  event: z.string().min(1).describe('The event name that landed'),
+  lifecycle: NonEmittingLifecycle.describe('The registration state that says nothing emits it'),
 });
+export type LifecycleViolationEntry = z.infer<typeof LifecycleViolationEntry>;
+
+/**
+ * `emission.violated` — an operation finished with its emission contract
+ * broken, on either of two independent axes: an unconditionally declared event
+ * that never landed, or an event that landed although its own registration
+ * says nothing emits it.
+ *
+ * The payload has to answer all three of WHICH operation, WHAT went wrong, and
+ * WHICH RUN it happened on, because a report naming only the action is
+ * unactionable: the same action can declare several emissions, and "this
+ * action missed something" does not say which contract broke or let a reader
+ * join the finding back to the surrounding events of that dispatch.
+ *
+ * Both axis fields carry the FULL set rather than the first miss. Reporting
+ * one name per violation would turn a handler that dropped three emissions
+ * into a finding that reads as though it dropped one, and each repair would
+ * reveal the next — the shape that makes a fault look smaller every time it is
+ * examined.
+ *
+ * The two axes are independently optional-empty — a violation can be
+ * lifecycle-only, missing-only, or both — but a report naming NEITHER is not a
+ * violation at all, so the refinement below rejects that shape rather than
+ * accepting a report with nothing to show for it.
+ */
+export const EmissionViolatedData = z
+  .object({
+    action: z
+      .string()
+      .min(1)
+      .describe('The dispatched action whose handler completed without its declared emissions'),
+    missingEvents: z
+      .array(z.string().min(1))
+      .describe(
+        'Every unconditionally declared event name that did not land — the full set, not the first miss',
+      ),
+    lifecycleViolations: z
+      .array(LifecycleViolationEntry)
+      .optional()
+      .describe(
+        'Every landed event whose own registration says nothing emits it — the full set, not the first',
+      ),
+    operationId: z
+      .string()
+      .min(1)
+      .describe('Identifier of the dispatch operation the verifier assessed, joining this finding to that run'),
+  })
+  .refine(
+    (data) => data.missingEvents.length > 0 || (data.lifecycleViolations?.length ?? 0) > 0,
+    {
+      message: 'emission.violated requires evidence on at least one axis: missingEvents or lifecycleViolations',
+    },
+  );
 
 // ─── Durable projection-health state (DR-4, wiring-closure T-06) ────────────
 //
