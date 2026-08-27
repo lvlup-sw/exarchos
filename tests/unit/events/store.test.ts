@@ -1109,6 +1109,45 @@ describe('EventStore append observation', () => {
     store.close();
   });
 
+  it('EventStore_NoScopeInstalled_BurstOfAppendsNotifiesNothing', async () => {
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    // A burst across every write path, entirely outside any
+    // `runWithAppendObserver` scope. Absent-by-default means this must both
+    // (a) not fault the write path and (b) leave no observer state behind
+    // for a later scope to inherit.
+    await store.append('unscoped-stream', { type: 'workflow.started' });
+    await store.appendValidated('unscoped-stream', {
+      type: 'task.assigned' as const,
+      streamId: '',
+      sequence: 0,
+      timestamp: '',
+      schemaVersion: '1.0',
+    });
+    await store.batchAppend('unscoped-stream', [
+      { type: 'task.claimed' },
+      { type: 'task.progressed' },
+    ]);
+
+    expect(await store.query('unscoped-stream')).toHaveLength(4);
+
+    // A scope opened afterward sees only its own append, proving the
+    // unscoped burst queued nothing for a later observer to pick up.
+    const seen: string[] = [];
+    await runWithAppendObserver(
+      (observation) => {
+        seen.push(`${observation.streamId}#${observation.sequence}`);
+      },
+      async () => {
+        await store.append('unscoped-stream', { type: 'task.progressed' });
+      },
+    );
+    expect(seen).toEqual(['unscoped-stream#5']);
+
+    store.close();
+  });
+
   it('EventStore_FailedOrCollapsedAppend_DoesNotNotifyObserver', async () => {
     const store = new EventStore(tempDir);
     await store.initialize();
