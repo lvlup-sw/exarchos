@@ -6,7 +6,7 @@
 // is the durable row it wrote. A replay answered out of memory would compare a
 // value with itself and could never disagree.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -700,9 +700,9 @@ describe('handleExecuteIntent commit races', () => {
     // In-process calls with the same operation id are serialized: the second
     // waits, finds the first's claim in its own pre-flight, and replays it.
     // Without that, both observe an empty pre-flight and both run the leaves.
-    const counted = countingHandler(silentHandler());
+    const leaf = vi.fn(silentHandler());
     const deps = depsFor([fixtureStep('fixture_quiet', 'stop')], {
-      fixture_quiet: counted.handler,
+      fixture_quiet: leaf,
     });
 
     const [first, second] = await Promise.all([
@@ -710,7 +710,7 @@ describe('handleExecuteIntent commit races', () => {
       execute(request('op-concurrent-same'), deps),
     ]);
 
-    expect(counted.calls()).toBe(1);
+    expect(leaf).toHaveBeenCalledTimes(1);
     expect(first.success).toBe(true);
     expect(second.success).toBe(true);
     expect(receiptOf(second)).toEqual(receiptOf(first));
@@ -722,9 +722,9 @@ describe('handleExecuteIntent commit races', () => {
     // digest disagrees and refuses BEFORE any of its leaves run — the
     // "effects are already performed" wording is reserved for a racer in
     // another process, which only the commit can catch.
-    const counted = countingHandler(silentHandler());
+    const leaf = vi.fn(silentHandler());
     const deps = depsFor([fixtureStep('fixture_quiet', 'stop')], {
-      fixture_quiet: counted.handler,
+      fixture_quiet: leaf,
     });
 
     const [first, second] = await Promise.all([
@@ -735,7 +735,7 @@ describe('handleExecuteIntent commit races', () => {
       ),
     ]);
 
-    expect(counted.calls()).toBe(1);
+    expect(leaf).toHaveBeenCalledTimes(1);
     expect(first.success).toBe(true);
     expect(second.success).toBe(false);
     expect(second.error?.code).toBe('INTENT_REPLAY_DIGEST_MISMATCH');
