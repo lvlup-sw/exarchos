@@ -40,11 +40,16 @@ const ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Object.freeze({
 } as Readonly<Record<string, EventRegistration>>);
 
 describe('EmissionVerifier lifecycle axis', () => {
-  it('EmissionVerifier_PlannedOrRetiredEmittedAtRuntime_Fails', () => {
-    // The declared contract is kept in full — `workflow.started` landed. The
-    // only fault is the company it arrived in.
+  it('LifecycleVerifier_DeclaredRetiredEvent_FailsAction', () => {
+    // The missing-events half is kept in full — `workflow.started` landed. The
+    // fault is that the action ALSO declares two edges whose registrations say
+    // nothing emits them, and it emitted them anyway.
     const verdict = verifyDeclaredEmissions({
-      declared: [{ event: 'workflow.started', condition: 'always' }],
+      declared: [
+        { event: 'workflow.started', condition: 'always' },
+        { event: 'merge.rollback', condition: 'always' },
+        { event: 'stack.restacked', condition: 'conditional' },
+      ],
       streamId: 'feature-x',
       landed: ['workflow.started', 'stack.restacked', 'merge.rollback'],
       annotations: ANNOTATIONS,
@@ -52,10 +57,39 @@ describe('EmissionVerifier lifecycle axis', () => {
 
     expect(verdict.status).toBe('violated');
     expect(verdict.missingEvents).toEqual([]);
+    // A conditional edge is never REQUIRED, and it is still the action's own
+    // drift once it lands against a registration that emits nothing.
     expect(verdict.lifecycleViolations).toEqual([
       { event: 'merge.rollback', lifecycle: 'retired' },
       { event: 'stack.restacked', lifecycle: 'planned' },
     ]);
+  });
+
+  it('LifecycleVerifier_UnrelatedOperationEvent_DoesNotFailAction', () => {
+    // An operation id is a shared join key. These two landings are drifted
+    // registrations belonging to whoever declared them — this action declares
+    // neither, so neither may move its verdict.
+    const verdict = verifyDeclaredEmissions({
+      declared: [{ event: 'workflow.started', condition: 'always' }],
+      streamId: 'feature-x',
+      landed: ['workflow.started', 'stack.restacked', 'merge.rollback'],
+      annotations: ANNOTATIONS,
+    });
+
+    expect(verdict.status).toBe('ok');
+    expect(verdict.lifecycleViolations).toEqual([]);
+
+    // And the scoping subtracts only: the same undeclared landings alongside a
+    // missing declared emission still leave the miss reported.
+    const stillMissing = verifyDeclaredEmissions({
+      declared: [{ event: 'promotion.executed', condition: 'always' }],
+      streamId: 'feature-x',
+      landed: ['stack.restacked', 'merge.rollback'],
+      annotations: ANNOTATIONS,
+    });
+    expect(stillMissing.status).toBe('violated');
+    expect(stillMissing.missingEvents).toEqual(['promotion.executed']);
+    expect(stillMissing.lifecycleViolations).toEqual([]);
   });
 
   it('EmissionVerifier_ConditionalEdge_IsNotCountedSatisfied', () => {
@@ -114,9 +148,13 @@ describe('EmissionVerifier lifecycle axis', () => {
 
   it('reports a missing emission and a lifecycle violation together', () => {
     // Neither fault masks the other: short-circuiting on the first would make
-    // the second invisible until the first was repaired.
+    // the second invisible until the first was repaired. Both edges are this
+    // action's, so both faults are its own.
     const verdict = verifyDeclaredEmissions({
-      declared: [{ event: 'promotion.executed', condition: 'always' }],
+      declared: [
+        { event: 'promotion.executed', condition: 'always' },
+        { event: 'stack.restacked', condition: 'always' },
+      ],
       streamId: 'feature-x',
       landed: ['stack.restacked'],
       annotations: ANNOTATIONS,

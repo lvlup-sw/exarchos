@@ -59,12 +59,24 @@
  * implementation have drifted — and it is invisible to a missing-events check,
  * which only ever looks for absence. Presence is the other half.
  *
- * Scope is declared, not discovered: the lifecycle check reads the events
- * already fetched for the missing-events comparison. It adds no query, and it
- * therefore inherits that comparison's subject — an action with no unconditional
- * contract is never fetched for and so is never lifecycle-checked here. That is
- * a stated boundary rather than a silent one; the boot-time diagnostics in
- * `events/registration-validate.ts` own the whole-tree sweep.
+ * Scope is declared, not discovered, and what declares it is the DISPATCHED
+ * ACTION. The lifecycle check reads the events already fetched for the
+ * missing-events comparison — it adds no query — then keeps only those the
+ * action declares an edge for. An operation id is a shared join key: a hook, a
+ * projection repair or a second interceptor may append under it, and a check
+ * that judged everything landed there would fail this action for a write it
+ * neither made nor promised, which makes one action's verdict depend on who
+ * else happened to write.
+ *
+ * A conditional edge stays in scope here although it is never required. The two
+ * axes ask different questions: absence of a conditional edge proves nothing,
+ * but its PRESENCE while the registration says nothing emits it is this
+ * action's own drift, whatever condition guards the edge.
+ *
+ * An action with no unconditional contract is never fetched for and so is never
+ * lifecycle-checked here. That is a stated boundary rather than a silent one;
+ * the boot-time diagnostics in `events/registration-validate.ts` own the
+ * whole-tree sweep.
  *
  * An event absent from the annotation table is NOT a lifecycle violation. An
  * unknown registration is an unanswered question, and it already has its own
@@ -265,6 +277,9 @@ export interface EmissionVerdict {
  *
  * Total and pure. An unregistered event yields nothing — see the header: absence
  * from the table is a different question with a different owner.
+ *
+ * Judges exactly the landings it is handed. Which landings belong to a given
+ * action is the caller's decision, and {@link verifyDeclaredEmissions} makes it.
  */
 export function lifecycleViolations(
   landed: readonly string[],
@@ -306,6 +321,22 @@ export function verifierDeclaredEmissions(
   return undefined;
 }
 
+/**
+ * Every event this action declares an edge for, at any condition.
+ *
+ * This is the lifecycle axis's subject set — see the header. Deliberately wider
+ * than {@link unconditionalEmissions}: a conditional edge is not required, but
+ * an action that emitted one while its registration says nothing emits it has
+ * still drifted from its own declaration.
+ */
+export function declaredEventNames(
+  declared: readonly AutoEmission[] | undefined,
+): ReadonlySet<string> {
+  const events = new Set<string>();
+  for (const emission of declared ?? []) events.add(emission.event);
+  return events;
+}
+
 export function unconditionalEmissions(
   declared: readonly AutoEmission[] | undefined,
 ): readonly string[] {
@@ -322,7 +353,10 @@ export function unconditionalEmissions(
  * Pure and total: every input produces a verdict, nothing throws. `landed` is
  * the set of event types observed on this operation; anything in `required` and
  * not in `landed` is a miss, and ALL of the misses are reported rather than the
- * first, so a handler that dropped three emissions reads as three.
+ * first, so a handler that dropped three emissions reads three.
+ *
+ * The lifecycle axis is scoped to `declared` first: a landing this action never
+ * declared cannot move this action's verdict in either direction.
  */
 export function verifyDeclaredEmissions(input: {
   readonly declared: readonly AutoEmission[] | undefined;
@@ -354,7 +388,14 @@ export function verifyDeclaredEmissions(input: {
 
   const landed = new Set(input.landed);
   const missingEvents = required.filter((event) => !landed.has(event));
-  const lifecycle = lifecycleViolations(input.landed, input.annotations);
+  // Narrowed to this action's own edges before the lifecycle question is asked.
+  // The operation-wide list is what the store returns; it is not what this
+  // action answers for.
+  const declaredEvents = declaredEventNames(input.declared);
+  const lifecycle = lifecycleViolations(
+    input.landed.filter((event) => declaredEvents.has(event)),
+    input.annotations,
+  );
 
   // Two independent faults, either sufficient. Reported together rather than
   // short-circuited, so one run names everything that is wrong with the call.
