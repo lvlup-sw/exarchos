@@ -17,11 +17,13 @@
 // resolved `featureId` into the payload of any action not on a three-name
 // latency list. An action whose own schema omits the field then refused the
 // call — naming a parameter the caller never sent and the server itself added.
-// It hit 60 of 125 actions, including `doctor`, and only where resolution
+// It hit 59 of 125 actions, including `doctor`, and only where resolution
 // SUCCEEDS, so a suite that never resolves a workspace stayed green throughout.
-// (The bounded action executor's `execute_intent` moved both figures by one:
-// it declares an optional `featureId` alongside `streamId`, the same subject-
-// identity spelling `task_claim`/`task_complete`/`task_fail` already carry.)
+// (The bounded action executor's `execute_intent` moved the DENOMINATOR by one
+// and left the numerator alone: it declares an optional `featureId` alongside
+// `streamId` — the same subject-identity spelling `task_claim`/`task_complete`/
+// `task_fail` already carry — so it joins the 60 actions that declare the field
+// rather than the 65 that omit it.)
 //
 // The repair was to consult the receiving action's schema first. This module is
 // what stops that repair from being a fact about `featureId`: every inferrable

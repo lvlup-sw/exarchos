@@ -91,19 +91,22 @@ export const executeActions: readonly BuiltinToolAction[] = [
       'leaf admission is evaluated per leaf in execution order; the shipped leaves ' +
         'declare no gate requirements — their evidence dependencies live in handler reads',
     ),
-    // `when: 'success'`, not 'always': a compile-time refusal (unknown intent,
-    // not-closed, unregistered leaf, …) or a replay digest mismatch returns
-    // `success: false` BEFORE any segment ever ran, so no operation event was
-    // ever going to land — declaring 'always' would make the dispatch-level
-    // ensures check fail every one of those refusals. Every SUCCESS path does
-    // commit the event (both a fully-passed segment and a mid-segment blocking
-    // failure resolve to a receipt that gets committed before the executor
-    // returns, but `receiptResult` maps a `failed` receipt to `success: false`
-    // too — so only the success branch is a claim this binary when-vocabulary
-    // can make honestly). Mirrors `task_claim`/`task_complete`/`task_fail`,
-    // which use the same `when: 'success'` + `emissions.condition: 'always'`
-    // pairing for the same reason.
-    ensures: declared({ source: 'event-append', when: 'success', event: 'orchestrate.intent_executed' }),
+    // No declared postcondition, and the reason is the replay contract rather
+    // than an absence of durable effect. The dispatch-level ensures observation
+    // asks the store for a `orchestrate.intent_executed` row carrying the
+    // CURRENT dispatch's operation id. A replay — the same caller key with the
+    // same request — is answered from the persisted claim before any effect,
+    // appends nothing, and returns `success: true`. An event-append ensure
+    // would therefore refuse every replay for the absence of a row the replay
+    // is defined not to write. The first-commit append is not unchecked: the
+    // executor's own suite asserts the operation event exists after a commit
+    // and is absent after a crash, which is the property this declaration
+    // could not state without also condemning replays.
+    ensures: none(
+      'the operation record is appended once, on the call that commits; a replay ' +
+        'returns the persisted receipt without appending, so a per-dispatch ' +
+        'append observation would refuse the replay path by construction',
+    ),
     needs: declared('fs:read', 'mcp:exarchos', 'shell:exec'),
     resources: declared(
       { kind: 'stream', selector: 'featureId' },
@@ -115,11 +118,21 @@ export const executeActions: readonly BuiltinToolAction[] = [
       { kind: 'git-ref', selector: 'args.branch' },
     ),
     replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    // `conditional`, not `always`. The post-dispatch emission verifier queries
+    // by the operation id of the dispatch that is returning, and a replay
+    // returns the persisted receipt without appending anything under that id.
+    // Declared unconditionally, every replay would be reported as drift
+    // between the declaration and the handler — and recorded as an
+    // `emission.violated` row — for doing exactly what the replay contract
+    // says it does. The condition is named here rather than left implicit.
     emissions: declared({
       event: 'orchestrate.intent_executed',
-      condition: 'always',
+      condition: 'conditional',
       owner: 'orchestrate',
       role: 'primary',
+      description:
+        'appended when an operation commits for the first time; a replay of an ' +
+        'already-claimed operation id returns the persisted receipt and appends nothing',
     }),
   }),
 ];

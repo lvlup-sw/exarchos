@@ -59,6 +59,14 @@ export interface FixtureActionInput {
   readonly ensures?: ActionContract['ensures'];
   readonly executionAuthority?: ActionContract['executionAuthority'];
   readonly requires?: ActionContract['requires'];
+  /**
+   * Overridable because the registry's own admission rules read it: a
+   * `safe-repeat` declaration is only accepted from an action annotated
+   * idempotent, so a fixture registered through `registerCustomTool` rather
+   * than constructed in place has to declare the replay policy its mutating
+   * annotation supports.
+   */
+  readonly replay?: ActionContract['replay'];
 }
 
 /**
@@ -92,7 +100,7 @@ export function fixtureAction(input: FixtureActionInput): ToolAction {
         resources: declared({ kind: 'stream', selector: 'featureId' }),
       },
       executionAuthority: input.executionAuthority ?? { kind: 'local' },
-      replay: { kind: 'safe-repeat' },
+      replay: input.replay ?? { kind: 'safe-repeat' },
       emissions: input.emissions ?? none('fixture leaf appends no catalog events'),
     },
   );

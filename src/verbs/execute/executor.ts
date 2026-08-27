@@ -25,7 +25,9 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 
+import { resolveEmissionEnforcement } from '../../config/resolve.js';
 import { snapshotCallerAuthorization } from '../../dispatch/caller-identity.js';
+import { observeActionPostconditions } from '../../dispatch/core/action-postconditions.js';
 import { evaluateDispatchAdmission, type DispatchContext } from '../../dispatch/core/dispatch.js';
 import {
   runEmissionVerifierInterceptor,
@@ -38,10 +40,10 @@ import {
   runWithDispatchContext,
   type DispatchContext as CorrelationContext,
 } from '../../dispatch/dispatch-context.js';
-import type { EventInput } from '../../events/atomic-appender.js';
+import { OperationDigestMismatchError, type EventInput } from '../../events/atomic-appender.js';
 import { runWithAppendObserver } from '../../events/observation/append-observation.js';
 import { OrchestrateIntentExecutedData } from '../../events/schemas.js';
-import type { ToolResult } from '../../format.js';
+import type { IntentFailureDetail, ToolResult } from '../../format.js';
 import { OperationIdSchema } from '../../workflow/admission/types.js';
 import { compileIntent, PRODUCTION_COMPILE_DEPS, type CompileDeps } from './compile.js';
 import type {
@@ -150,6 +152,23 @@ export function derivedLeafOperationId(
   return `${operationId}:leaf-${index}:${action}`;
 }
 
+/**
+ * The longest caller-supplied operation id this action accepts.
+ *
+ * The admission grammar's own ceiling is higher, and it is the wrong ceiling
+ * here: what has to fit the event row's operation-id column is not the
+ * caller's key but the DERIVED per-leaf id built from it — the key plus
+ * `:leaf-<index>:<action>`. An id accepted at the grammar's ceiling therefore
+ * produces leaf ids the store would reject, mid-segment, after effects.
+ *
+ * Bounded conservatively rather than exactly: the exact bound depends on the
+ * compiled segment's longest action name and its leaf count, and the refusal
+ * belongs BEFORE compilation, alongside the other request-shape refusals. The
+ * gap this constant leaves under the row limit is wider than any suffix the
+ * registry's longest action name and a three-digit leaf index can produce.
+ */
+export const MAX_CALLER_OPERATION_ID_LENGTH = 128;
+
 function leafCorrelation(outer: CorrelationContext, operationId: string): CorrelationContext {
   return {
     operationId,
@@ -168,22 +187,17 @@ interface Capture {
 }
 
 /**
- * Every event this leaf owes on the path it just took: the unconditional
- * emissions it declares, plus the event-append postconditions whose `when`
- * the outcome satisfied. Read off the leaf's own registration, so a leaf that
- * declares nothing owes nothing.
+ * The events this leaf's own registration promises unconditionally. Read off
+ * the leaf's declaration, so a leaf that declares nothing owes nothing.
+ *
+ * The `ensures` axis is deliberately NOT folded in here. A postcondition is
+ * observed the way the dispatch path observes one — see the ensures
+ * observation in the leaf runner — because one of its two sources is durable
+ * evidence rather than an event append, and a union that could only see the
+ * append source exempted the other by skipping it.
  */
-function obligedEvents(leaf: CompiledLeaf, succeeded: boolean): ReadonlySet<string> {
-  const owed = new Set<string>(unconditionalEmissions(verifierDeclaredEmissions(leaf.contract)));
-  if (leaf.contract.ensures.kind === 'declared') {
-    for (const postcondition of leaf.contract.ensures.values) {
-      if (postcondition.source !== 'event-append') continue;
-      if (postcondition.when === 'always' || (postcondition.when === 'success' && succeeded)) {
-        owed.add(postcondition.event);
-      }
-    }
-  }
-  return owed;
+function obligedEmissions(leaf: CompiledLeaf): ReadonlySet<string> {
+  return new Set<string>(unconditionalEmissions(verifierDeclaredEmissions(leaf.contract)));
 }
 
 // ─── Commit ─────────────────────────────────────────────────────────────────
@@ -222,6 +236,30 @@ function buildSteering(args: Record<string, unknown>): ReceiptSteering | undefin
   };
 }
 
+/**
+ * The receipt facts a refusal has to carry INSIDE its error.
+ *
+ * A failed segment still ran: leaves executed, events landed, the operation
+ * record committed. The envelope boundary keeps `data` only on the success
+ * path, so a receipt left there is a receipt the caller never sees — and the
+ * caller needs `operationId` to replay, `tailSequence` to keep reading the
+ * log, and the per-leaf verdicts to know how far the segment got. Compact
+ * rather than whole: the leaf list carries its event COUNT, not every event.
+ */
+function failureDetail(receipt: IntentReceipt): IntentFailureDetail {
+  return {
+    operationId: receipt.operationId,
+    outcome: receipt.outcome,
+    ...(receipt.failedLeaf !== undefined ? { failedLeaf: receipt.failedLeaf } : {}),
+    tailSequence: receipt.tailSequence,
+    leaves: receipt.leaves.map((leaf) => ({
+      action: leaf.action,
+      status: leaf.status,
+      events: leaf.events.length,
+    })),
+  };
+}
+
 function receiptResult(receipt: IntentReceipt): ToolResult {
   if (receipt.outcome === 'committed') return { success: true, data: receipt };
   return {
@@ -232,6 +270,24 @@ function receiptResult(receipt: IntentReceipt): ToolResult {
       message:
         receipt.failure?.message ??
         `intent '${receipt.intent}' halted on leaf '${receipt.failedLeaf ?? '<unknown>'}'`,
+      intentReceipt: failureDetail(receipt),
+    },
+  };
+}
+
+/**
+ * The digest-mismatch refusal, raised from two places that reach the same
+ * conclusion: the pre-flight claim read, and the commit losing a race to a
+ * concurrent call that claimed the same id for a different request.
+ */
+function digestMismatchResult(operationId: string, disposition: string): ToolResult {
+  return {
+    success: false,
+    error: {
+      code: 'INTENT_REPLAY_DIGEST_MISMATCH',
+      message:
+        `operationId '${operationId}' was already committed for a different request. ` +
+        `${disposition} Use a fresh operationId, or resubmit the identical request.`,
     },
   };
 }
@@ -249,7 +305,22 @@ export async function handleExecuteIntent(
     return invalid('intent is required and must name a runbook');
   }
 
-  const streamId = readString(raw, 'streamId') ?? readString(raw, 'featureId');
+  // Subject identity, resolved `featureId` FIRST — the same precedence the
+  // dispatch-layer stream resolver uses. Resolving the other way round let a
+  // request carrying both spellings commit its leaves to one stream while the
+  // dispatch emission check read the other, which turns a committed segment
+  // into a blocking violation after its effects have landed. Two spellings of
+  // one thing that disagree are not a precedence question at all, so a
+  // disagreement is refused rather than silently resolved.
+  const featureId = readString(raw, 'featureId');
+  const streamAlias = readString(raw, 'streamId');
+  if (featureId !== undefined && streamAlias !== undefined && featureId !== streamAlias) {
+    return invalid(
+      `featureId '${featureId}' and streamId '${streamAlias}' name different streams. ` +
+        'They are two spellings of one subject — pass one, or pass the same value for both.',
+    );
+  }
+  const streamId = featureId ?? streamAlias;
   if (streamId === undefined) {
     return invalid(
       'streamId is required (featureId is accepted as an alias — the workflow stream id is the bare featureId)',
@@ -271,7 +342,16 @@ export async function handleExecuteIntent(
     if (!validated.success) {
       return invalid(
         'operationId must be an opaque id of letters, digits, dot, underscore, colon or hyphen, ' +
-          'starting with a letter or digit, at most 256 characters',
+          `starting with a letter or digit, at most ${MAX_CALLER_OPERATION_ID_LENGTH} characters`,
+      );
+    }
+    if (validated.data.length > MAX_CALLER_OPERATION_ID_LENGTH) {
+      return invalid(
+        `operationId is ${validated.data.length} characters; this action accepts at most ` +
+          `${MAX_CALLER_OPERATION_ID_LENGTH}. Every leaf runs under an id DERIVED from this one ` +
+          'by appending its position and action name, and the derived id has to fit the event ' +
+          "row's own operation-id limit — so the caller's key is bounded below that limit by " +
+          'the longest suffix a segment can add.',
       );
     }
     operationId = validated.data;
@@ -303,22 +383,14 @@ export async function handleExecuteIntent(
     .lookupOperationClaim<IntentReceipt>(operationId);
   if (claim !== undefined) {
     if (claim.requestDigest !== requestDigest) {
-      return {
-        success: false,
-        error: {
-          code: 'INTENT_REPLAY_DIGEST_MISMATCH',
-          message:
-            `operationId '${operationId}' was already committed for a different request. ` +
-            'Nothing was executed. Use a fresh operationId, or resubmit the identical request.',
-        },
-      };
+      return digestMismatchResult(operationId, 'Nothing was executed.');
     }
     return receiptResult(claim.result);
   }
 
   const handlers = deps.handlers ?? (await import('../composite.js')).ACTION_HANDLERS;
   const outer = outerCorrelation(ctx);
-  const receipt = await runSegment({
+  const committed = await runSegment({
     segment,
     operationId,
     requestDigest,
@@ -327,7 +399,14 @@ export async function handleExecuteIntent(
     outer,
     handlers,
   });
-  return receiptResult(receipt);
+  if (committed.kind === 'digest-mismatch') {
+    return digestMismatchResult(
+      operationId,
+      'This call ran its segment and lost the claim to a concurrent call that got ' +
+        'there first, so its own receipt was NOT persisted and its effects are already performed.',
+    );
+  }
+  return receiptResult(committed.receipt);
 }
 
 // ─── The segment loop ───────────────────────────────────────────────────────
@@ -346,10 +425,12 @@ interface LeafOutcome {
   readonly status: LeafStatus;
   readonly events: readonly ReceiptEvent[];
   readonly captures: readonly Capture[];
+  /** Set when the leaf's declared emissions did not land and the mode did not halt for it. */
+  readonly emissionViolation?: 'INTENT_EMISSION_CONTRACT_VIOLATED';
   readonly failure?: { readonly code: 'INTENT_SEGMENT_FAILED' | 'INTENT_EMISSION_CONTRACT_VIOLATED'; readonly message: string };
 }
 
-async function runSegment(input: RunSegmentInput): Promise<IntentReceipt> {
+async function runSegment(input: RunSegmentInput): Promise<CommitOutcome> {
   const { segment, operationId, stateDir, ctx, outer, handlers } = input;
   const leaves: ReceiptLeaf[] = [];
   let tailSequence = 0;
@@ -359,7 +440,14 @@ async function runSegment(input: RunSegmentInput): Promise<IntentReceipt> {
 
   for (const leaf of segment.leaves) {
     const outcome = await runLeaf({ leaf, operationId, stateDir, ctx, outer, handlers, segment });
-    leaves.push({ action: leaf.action, status: outcome.status, events: outcome.events });
+    leaves.push({
+      action: leaf.action,
+      status: outcome.status,
+      events: outcome.events,
+      ...(outcome.emissionViolation !== undefined
+        ? { emissionViolation: outcome.emissionViolation }
+        : {}),
+    });
     eventsAppended += outcome.captures.length;
     for (const capture of outcome.captures) {
       if (capture.streamId === segment.streamId && capture.sequence > tailSequence) {
@@ -392,12 +480,41 @@ async function runSegment(input: RunSegmentInput): Promise<IntentReceipt> {
     },
   };
 
-  await commitReceipt(input, receipt);
-  return receipt;
+  return commitReceipt(input, receipt);
 }
 
 interface RunLeafInput extends Omit<RunSegmentInput, 'requestDigest'> {
   readonly leaf: CompiledLeaf;
+}
+
+/**
+ * Fold the rows the leaf's own operation identity durably holds into the
+ * observer capture, without double-counting.
+ *
+ * The two sources answer different questions. The observer sees what landed
+ * WHILE the leaf ran, including a write the handler stamped onto some other
+ * operation. The store, queried by the leaf's derived id, sees what the
+ * identity HOLDS — which after a crash-retry includes the rows the first
+ * attempt wrote, because an idempotent re-run under the same derived id
+ * collapses onto its first write and a collapsed write is deliberately not
+ * observed. Reading only the observer made a retried receipt report zero
+ * events and a zero tail for rows that are plainly in the log.
+ *
+ * De-duplicated on the store's own identity for a row — its stream and its
+ * sequence — so a row both sources saw is counted once.
+ */
+function foldHeldRows(
+  captures: Capture[],
+  streamId: string,
+  held: readonly { readonly type: string; readonly sequence: number }[],
+): void {
+  const seen = new Set(captures.map((capture) => `${capture.streamId} ${capture.sequence}`));
+  for (const row of held) {
+    const key = `${streamId} ${row.sequence}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    captures.push({ type: row.type, streamId, sequence: row.sequence });
+  }
 }
 
 async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
@@ -405,12 +522,20 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
   const derived = derivedLeafOperationId(operationId, leaf.index, leaf.action);
   const captures: Capture[] = [];
 
+  const receiptEvents = (): ReceiptEvent[] =>
+    captures.map((capture) => ({ type: capture.type, sequence: capture.sequence }));
+
   const failFor = (
     code: 'INTENT_SEGMENT_FAILED' | 'INTENT_EMISSION_CONTRACT_VIOLATED',
     message: string,
+    // A gate's advisory policy is about the gate's VERDICT. A leaf that broke
+    // its own emission or postcondition contract broke the log's integrity,
+    // and `onFail: 'continue'` never licensed that — so a halting integrity
+    // failure halts whatever the step's failure policy says.
+    policy: 'runbook' | 'halt-regardless' = 'runbook',
   ): LeafOutcome => ({
-    status: leaf.onFail === 'continue' ? 'advisory-failed' : 'failed',
-    events: captures.map((capture) => ({ type: capture.type, sequence: capture.sequence })),
+    status: policy === 'runbook' && leaf.onFail === 'continue' ? 'advisory-failed' : 'failed',
+    events: receiptEvents(),
     captures,
     failure: { code, message },
   });
@@ -454,6 +579,17 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
       () => handler(leaf.args, stateDir, ctx),
     );
 
+    // Read what this leaf's identity holds BEFORE the verifier runs. The
+    // verifier appends its finding under the same ambient identity, so a read
+    // taken after it would count the verifier's own row as something the leaf
+    // emitted. Unconditional: the receipt's event list, its tail and its
+    // append count are owed on every path, not only where a contract is.
+    foldHeldRows(
+      captures,
+      segment.streamId,
+      await ctx.eventStore.query(segment.streamId, { operationId: derived }),
+    );
+
     // The interceptor records its own finding against the derived id. Run
     // outside the observer scope so the violation row it may append is not
     // counted as something the leaf emitted.
@@ -467,8 +603,6 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
       ...(ctx.projectConfig !== undefined ? { projectConfig: ctx.projectConfig } : {}),
     });
 
-    const events = captures.map((capture) => ({ type: capture.type, sequence: capture.sequence }));
-
     if (!result.success) {
       return failFor(
         'INTENT_SEGMENT_FAILED',
@@ -476,44 +610,85 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
       );
     }
 
-    // What the leaf owes, against what the leaf's own operation identity can
-    // be shown to hold. Two sources, unioned:
-    //
-    //   the observer capture — what landed while this leaf ran, including
-    //   events the handler stamped onto some other operation;
-    //
-    //   the store, queried by this leaf's derived id — what the leaf's
-    //   identity already holds. This arm is what makes a retry after a crash
-    //   survivable: an idempotent leaf re-run under the SAME derived id
-    //   collapses onto its first write, and a collapsed write is deliberately
-    //   not observed. Without the store arm the retry would fail the leaf for
-    //   an event that is durably present precisely because the id was stable.
-    //
-    // Scoping is preserved either way: the query is by the leaf's own derived
-    // id, so a predecessor's events still cannot answer for this leaf.
-    const owed = obligedEvents(leaf, true);
+    // The postconditions this leaf declared, observed the way the dispatch
+    // path observes them: the store for an event append, the persisted-evidence
+    // reader for durable evidence. Reusing that observation rather than
+    // re-deriving one is what keeps the durable-evidence source checked —
+    // every shipped gate leaf declares one, and a hand-rolled event-append
+    // comparison skipped all of them silently.
+    if (leaf.contract.ensures.kind === 'declared') {
+      const observation = await observeActionPostconditions({
+        ensures: leaf.contract.ensures,
+        store: ctx.eventStore,
+        evidence: ctx.eventStore,
+        streamId: segment.streamId,
+        operationId: derived,
+        outcome: 'success',
+      });
+      if (observation.status === 'violated') {
+        const unobserved = observation.missing.map((postcondition) =>
+          postcondition.source === 'event-append'
+            ? `event ${postcondition.event}`
+            : `evidence ${postcondition.evidenceType}`,
+        );
+        return failFor(
+          'INTENT_EMISSION_CONTRACT_VIOLATED',
+          `leaf '${leaf.action}' returned success without the postconditions it declares: ` +
+            `${unobserved.join(', ')}`,
+          'halt-regardless',
+        );
+      }
+    }
+
+    // What the leaf's registration promises unconditionally, against what its
+    // own operation identity can be shown to hold. Both sources of `captures`
+    // count — the observer's view catches an event the handler stamped onto
+    // another operation, and the store's catches one a crash-retry collapsed
+    // onto its first write. Scoping survives either way: the store arm is
+    // queried by this leaf's derived id, so a predecessor's events still
+    // cannot answer for this leaf.
+    const owed = obligedEmissions(leaf);
     const landed = new Set(
       captures.filter((capture) => capture.streamId === segment.streamId).map((capture) => capture.type),
     );
-    if (owed.size > 0) {
-      const held = await ctx.eventStore.query(segment.streamId, { operationId: derived });
-      for (const event of held) landed.add(event.type);
-    }
     const missing = [...owed].filter((type) => !landed.has(type));
     if (missing.length > 0 || verdict.status === 'violated') {
       const undelivered = missing.length > 0 ? missing : verdict.missingEvents;
-      return failFor(
-        'INTENT_EMISSION_CONTRACT_VIOLATED',
+      const message =
         `leaf '${leaf.action}' completed without the events it declares unconditionally: ` +
-          `${undelivered.join(', ') || 'declared events did not land'}`,
-      );
+        `${undelivered.join(', ') || 'declared events did not land'}`;
+      // Whether this halts the segment is the project's emission-enforcement
+      // mode — the same resolver the dispatch path consults through
+      // `emissionViolationBlocks`, read directly here because the executor's
+      // subject is the union of the verifier's verdict and its own two-source
+      // comparison, not the verdict alone. Under `advisory` the finding is
+      // carried on the receipt leaf rather than dropped: a mode that chose not
+      // to fail is not a mode that chose not to report.
+      if (resolveEmissionEnforcement(ctx.projectConfig) === 'block') {
+        return failFor('INTENT_EMISSION_CONTRACT_VIOLATED', message, 'halt-regardless');
+      }
+      return {
+        status: 'passed',
+        events: receiptEvents(),
+        captures,
+        emissionViolation: 'INTENT_EMISSION_CONTRACT_VIOLATED',
+      };
     }
 
-    return { status: 'passed', events, captures };
+    return { status: 'passed', events: receiptEvents(), captures };
   });
 }
 
 // ─── The one operation record ───────────────────────────────────────────────
+
+/**
+ * What the commit resolved to. A lost race is a distinct outcome rather than
+ * a thrown error: the segment ran, and the caller is owed a typed refusal that
+ * says so, not the substrate's mismatch exception surfacing as an internal one.
+ */
+type CommitOutcome =
+  | { readonly kind: 'persisted'; readonly receipt: IntentReceipt }
+  | { readonly kind: 'digest-mismatch' };
 
 /**
  * Append the operation event under the CALLER's operation id as the claim key,
@@ -521,7 +696,10 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
  * same id reads the receipt straight back; one with the same id and a different
  * request is rejected by the digest recorded alongside it.
  */
-async function commitReceipt(input: RunSegmentInput, receipt: IntentReceipt): Promise<void> {
+async function commitReceipt(
+  input: RunSegmentInput,
+  receipt: IntentReceipt,
+): Promise<CommitOutcome> {
   const data = OrchestrateIntentExecutedData.parse({
     operationId: receipt.operationId,
     intent: receipt.intent,
@@ -536,18 +714,39 @@ async function commitReceipt(input: RunSegmentInput, receipt: IntentReceipt): Pr
     ...(receipt.steering !== undefined ? { steering: receipt.steering } : {}),
   });
 
-  const event = stampFromAmbient({
-    type: INTENT_EXECUTED_EVENT,
-    data: data as unknown as Record<string, unknown>,
-    timestamp: new Date().toISOString(),
-    schemaVersion: '1.0',
-  });
+  // Stamped and committed under the OUTER correlation packet. Off a real
+  // dispatch there is no ambient context to read, and the leaves already run
+  // under one derived from this packet — committing outside it left the
+  // operation record with no correlation id while every leaf event carried
+  // one, so the record and the work it describes could not be joined.
+  return runWithDispatchContext(input.outer, async (): Promise<CommitOutcome> => {
+    const event = stampFromAmbient({
+      type: INTENT_EXECUTED_EVENT,
+      data: data as unknown as Record<string, unknown>,
+      timestamp: new Date().toISOString(),
+      schemaVersion: '1.0',
+    });
 
-  await input.ctx.eventStore
-    .getAppender()
-    .decideOnce<IntentReceipt>(input.operationId, input.requestDigest, () => ({
-      streamId: input.segment.streamId,
-      events: [event],
-      result: receipt,
-    }));
+    try {
+      // `decideOnce` RETURNS the claim's canonical result, which on a race is
+      // the winner's receipt rather than the one built here. Handing the caller
+      // the locally-built one would have them holding a receipt no claim
+      // records and no replay can reproduce.
+      const persisted = await input.ctx.eventStore
+        .getAppender()
+        .decideOnce<IntentReceipt>(input.operationId, input.requestDigest, () => ({
+          streamId: input.segment.streamId,
+          events: [event],
+          result: receipt,
+        }));
+      return { kind: 'persisted', receipt: persisted };
+    } catch (error) {
+      // A concurrent call claimed this id for a DIFFERENT request while this
+      // one was running. That is the same fault the pre-flight names, reached
+      // through a race rather than a retry, and it is the caller's answer —
+      // not an internal error.
+      if (error instanceof OperationDigestMismatchError) return { kind: 'digest-mismatch' };
+      throw error;
+    }
+  });
 }

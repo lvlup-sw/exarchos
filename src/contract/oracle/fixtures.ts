@@ -1311,6 +1311,13 @@ const HAND_AUTHORED_EXCLUSIONS: readonly ExcludedEmitter[] = [
     actionId: 'exarchos_orchestrate.invariants_amend',
     reason: "writes the repository's invariant catalog outside the isolated state dir",
   },
+  {
+    actionId: 'exarchos_orchestrate.execute_intent',
+    reason:
+      'runs a compiled segment of OTHER registered actions, and the one shipped intent is the ' +
+      'per-task gate chain excluded just above — probing it would run the project toolchain in ' +
+      'a subprocess against the host repository, transitively and for every leaf',
+  },
   { actionId: 'exarchos_orchestrate.acquire_worktree', reason: WORKTREE_EXCLUSION },
   { actionId: 'exarchos_orchestrate.release_worktree', reason: WORKTREE_EXCLUSION },
   { actionId: 'exarchos_orchestrate.prune_worktrees', reason: WORKTREE_EXCLUSION },

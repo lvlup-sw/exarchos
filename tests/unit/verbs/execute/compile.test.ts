@@ -184,10 +184,22 @@ describe('compileIntent argument construction', () => {
     });
   });
 
-  it('UnboundPlaceholder_DropsOutRatherThanArrivingLiterally', () => {
+  it('UnboundPlaceholder_RefusesRatherThanDroppingOut', () => {
+    // The placeholder used to drop out silently and the leaf ran without the
+    // value. The step naming the variable is what makes it required.
     const deps = depsFor([fixtureStep('fixture_pass', 'stop', { riskTier: '<riskTier>' })]);
-    const leaves = segmentOf(compileIntent('fixture-intent', SUBJECT, ARGS, deps));
-    expect(leaves[0]?.args).not.toHaveProperty('riskTier');
+    const refusal = refusalOf(compileIntent('fixture-intent', SUBJECT, ARGS, deps));
+    expect(refusal.code).toBe('INTENT_TEMPLATE_VAR_UNBOUND');
+    expect(refusal.step).toBe('0:fixture_pass');
+    expect(refusal.message).toContain('riskTier');
+  });
+
+  it('BoundPlaceholder_IsTheControl_SameStepCompilesWithTheBinding', () => {
+    const deps = depsFor([fixtureStep('fixture_pass', 'stop', { riskTier: '<riskTier>' })]);
+    const leaves = segmentOf(
+      compileIntent('fixture-intent', SUBJECT, { ...ARGS, riskTier: 'low' }, deps),
+    );
+    expect(leaves[0]?.args).toMatchObject({ riskTier: 'low' });
   });
 });
 
@@ -233,6 +245,34 @@ describe('compileIntent over the live registry', () => {
       PRODUCTION_COMPILE_DEPS,
     );
     expect(refusalOf(outcome).code).toBe('INTENT_ARGS_INVALID');
+  });
+
+  it('TaskCompletion_WithoutRiskTier_RefusesBeforeAnyEffect', () => {
+    // The intent's own schema takes `riskTier` as optional, but every gate step
+    // in the runbook passes `<riskTier>` — and the kill-probe gate routes on it,
+    // degrading an unproven probe to an advisory skip when it arrives tierless.
+    // A segment that would run the load-bearing per-task gate with no tier is
+    // refused at compile time rather than reported as a pass afterwards.
+    const outcome = compileIntent(
+      'task-completion',
+      { streamId: 'wf-live' },
+      { taskId: 'task-9', worktreePath: '/tmp/agent-wt', boundaryTouching: true },
+      PRODUCTION_COMPILE_DEPS,
+    );
+    const refusal = refusalOf(outcome);
+    expect(refusal.code).toBe('INTENT_TEMPLATE_VAR_UNBOUND');
+    expect(refusal.step).toBe('0:check_test_adequacy');
+    expect(refusal.message).toContain('riskTier');
+  });
+
+  it('TaskCompletion_WithoutBoundaryTouching_RefusesToo', () => {
+    const outcome = compileIntent(
+      'task-completion',
+      { streamId: 'wf-live' },
+      { taskId: 'task-9', worktreePath: '/tmp/agent-wt', riskTier: 'high' },
+      PRODUCTION_COMPILE_DEPS,
+    );
+    expect(refusalOf(outcome).code).toBe('INTENT_TEMPLATE_VAR_UNBOUND');
   });
 
   it('EveryOtherRunbook_IsNotCompilable_OneIntentShips', () => {

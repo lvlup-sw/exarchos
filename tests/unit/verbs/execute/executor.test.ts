@@ -3,18 +3,23 @@ import * as path from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
+import { resolveConfig } from '../../../../src/config/resolve.js';
+import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { runWithDispatchContext } from '../../../../src/dispatch/dispatch-context.js';
 import { EventStore } from '../../../../src/events/store.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
 import { declared } from '../../../../src/registry.js';
-import type { ToolResult } from '../../../../src/format.js';
+import { toEnvelope, type ToolResult } from '../../../../src/format.js';
 import {
   derivedLeafOperationId,
   handleExecuteIntent,
   INTENT_EXECUTED_EVENT,
+  MAX_CALLER_OPERATION_ID_LENGTH,
   type ExecuteIntentDeps,
+  type LeafHandler,
   type LeafHandlerTable,
 } from '../../../../src/verbs/execute/executor.js';
+import { IntentExecutedOutputSchema } from '../../../../src/verbs/execute/schemas.js';
 import type { IntentReceipt } from '../../../../src/verbs/execute/types.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import {
@@ -81,10 +86,19 @@ function depsFor(
 async function execute(
   raw: Record<string, unknown>,
   deps: ExecuteIntentDeps,
+  ctx?: DispatchContext,
 ): Promise<ToolResult> {
   return runWithDispatchContext(fixtureCorrelation(), () =>
-    handleExecuteIntent(raw, stateDir, fixtureWiring(stateDir, store), deps),
+    handleExecuteIntent(raw, stateDir, ctx ?? fixtureWiring(stateDir, store), deps),
   );
+}
+
+/** The wiring, with the project's emission enforcement resolved to `advisory`. */
+function advisoryWiring(): DispatchContext {
+  return {
+    ...fixtureWiring(stateDir, store),
+    projectConfig: resolveConfig({ events: { 'emission-enforcement': 'advisory' } }),
+  };
 }
 
 async function operationEvents(): Promise<WorkflowEvent[]> {
@@ -484,5 +498,408 @@ describe('handleExecuteIntent crash distinguishability', () => {
       operationId: derivedLeafOperationId('op-retry', 0, 'fixture_quiet'),
     });
     expect(durable).toHaveLength(2);
+  });
+});
+
+// ─── The caller's operation key, and what it has to leave room for ──────────
+
+describe('handleExecuteIntent operationId bound', () => {
+  const deps = () => depsFor([fixtureStep('fixture_quiet', 'stop')], { fixture_quiet: silentHandler() });
+
+  it('OperationIdAtTheBound_IsAccepted', async () => {
+    const key = 'a'.repeat(MAX_CALLER_OPERATION_ID_LENGTH);
+    const result = await execute(
+      { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: key },
+      deps(),
+    );
+    expect(result.success).toBe(true);
+    expect(receiptOf(result).operationId).toBe(key);
+  });
+
+  it('OperationIdOneOverTheBound_IsRefusedBeforeAnyEffect', async () => {
+    // The derived per-leaf id is the caller's key plus a suffix, and it is the
+    // DERIVED id the event row has to hold. A key accepted at the admission
+    // grammar's own ceiling produces leaf ids the store rejects mid-segment.
+    const result = await execute(
+      {
+        intent: INTENT,
+        streamId: STREAM,
+        args: { taskId: 't1' },
+        operationId: 'a'.repeat(MAX_CALLER_OPERATION_ID_LENGTH + 1),
+      },
+      deps(),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(await operationEvents()).toHaveLength(0);
+  });
+});
+
+// ─── Subject identity: two spellings of one stream ──────────────────────────
+
+describe('handleExecuteIntent subject resolution', () => {
+  const deps = () => depsFor([fixtureStep('fixture_quiet', 'stop')], { fixture_quiet: silentHandler() });
+
+  it('BothSpellingsPresentAndAgreeing_ResolvesToThatStream', async () => {
+    const result = await execute(
+      { intent: INTENT, streamId: STREAM, featureId: STREAM, args: { taskId: 't1' }, operationId: 'op-agree' },
+      deps(),
+    );
+    expect(result.success).toBe(true);
+    expect(await operationEvents()).toHaveLength(1);
+  });
+
+  it('BothSpellingsPresentAndDisagreeing_IsRefused', async () => {
+    // Resolving one of them silently commits the segment to one stream and has
+    // the dispatch-layer emission check read the other.
+    const result = await execute(
+      {
+        intent: INTENT,
+        featureId: STREAM,
+        streamId: 'wf-somewhere-else',
+        args: { taskId: 't1' },
+        operationId: 'op-disagree',
+      },
+      deps(),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('different streams');
+    expect(await operationEvents()).toHaveLength(0);
+    expect(await store.query('wf-somewhere-else')).toHaveLength(0);
+  });
+
+  it('FeatureIdWins_MatchingTheDispatchLayerStreamResolver', async () => {
+    // Not a preference: the dispatch-layer resolver reads `featureId` first,
+    // and the two have to agree on which stream this call is about.
+    const result = await execute(
+      { intent: INTENT, featureId: STREAM, args: { taskId: 't1' }, operationId: 'op-feature-first' },
+      deps(),
+    );
+    expect(result.success).toBe(true);
+    expect(await store.query(STREAM, { type: INTENT_EXECUTED_EVENT })).toHaveLength(1);
+  });
+});
+
+// ─── Losing the claim to a concurrent call ──────────────────────────────────
+
+describe('handleExecuteIntent commit races', () => {
+  const request = (operationId: string) => ({
+    intent: INTENT,
+    streamId: STREAM,
+    args: { taskId: 't1' },
+    operationId,
+  });
+
+  /**
+   * Claim `operationId` from INSIDE a leaf handler — after the executor's
+   * replay pre-flight has already missed, and before its commit runs. That is
+   * the window a concurrent caller occupies, reproduced deterministically.
+   */
+  function claimingHandler(operationId: string, digest: () => string, result: IntentReceipt): LeafHandler {
+    return async () => {
+      await store.getAppender().decideOnce<IntentReceipt>(operationId, digest(), () => ({
+        streamId: STREAM,
+        // A claim carries at least one event, the same as any other commit.
+        events: [{ type: 'task.progressed', data: { taskId: 'racing-writer' } }],
+        result,
+      }));
+      return { success: true, data: { appended: null } };
+    };
+  }
+
+  it('SameDigest_TheCallerGetsThePersistedReceiptNotTheLocalOne', async () => {
+    // The digest is over the REQUEST, not the key, so an identical request
+    // under a different key produces the digest the racing writer must use.
+    const probe = receiptOf(
+      await execute(
+        request('op-race-probe'),
+        depsFor([fixtureStep('fixture_quiet', 'stop')], { fixture_quiet: silentHandler() }),
+      ),
+    );
+    const winner: IntentReceipt = { ...probe, operationId: 'op-race', tailSequence: 4242 };
+
+    const result = await execute(
+      request('op-race'),
+      depsFor([fixtureStep('fixture_quiet', 'stop')], {
+        fixture_quiet: claimingHandler('op-race', () => probe.requestDigest, winner),
+      }),
+    );
+
+    // The loser's locally-built receipt says tailSequence 0 and is recorded
+    // nowhere. Handing it back would leave the caller holding a receipt no
+    // claim stores and no replay reproduces.
+    expect(result.success).toBe(true);
+    expect(receiptOf(result)).toEqual(winner);
+    expect(claimFor('op-race')?.result).toEqual(winner);
+  });
+
+  it('DifferentDigest_IsTheTypedReplayRefusalNotAnInternalError', async () => {
+    const foreign: IntentReceipt = {
+      operationId: 'op-race-clash',
+      intent: INTENT,
+      outcome: 'committed',
+      leaves: [],
+      tailSequence: 0,
+      requestDigest: 'sha256:someone-elses-request',
+      interaction: { leavesExecuted: 0, eventsAppended: 0, requests: 1, deferred: [] },
+    };
+    const result = await execute(
+      request('op-race-clash'),
+      depsFor([fixtureStep('fixture_quiet', 'stop')], {
+        fixture_quiet: claimingHandler('op-race-clash', () => foreign.requestDigest, foreign),
+      }),
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INTENT_REPLAY_DIGEST_MISMATCH');
+    // The segment DID run, and the refusal says so rather than implying the
+    // pre-flight's "nothing was executed".
+    expect(result.error?.message).toContain('effects are already performed');
+  });
+});
+
+// ─── Correlation off a real dispatch ────────────────────────────────────────
+
+describe('handleExecuteIntent without an ambient dispatch context', () => {
+  it('OperationRecordAndLeafEvents_ShareTheMintedOuterCorrelationId', async () => {
+    const deps = depsFor([fixtureStep('fixture_promises', 'stop')], {
+      fixture_promises: appendingHandler('task.completed'),
+    });
+    // No `runWithDispatchContext` wrapper: a direct in-process call, where the
+    // outer packet is minted rather than inherited. The commit used to stamp
+    // from an ambient context that was still undefined, leaving the operation
+    // record uncorrelated with the leaves it describes.
+    const result = await handleExecuteIntent(
+      { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-no-ambient' },
+      stateDir,
+      fixtureWiring(stateDir, store),
+      deps,
+    );
+    expect(result.success).toBe(true);
+
+    const record = (await operationEvents())[0];
+    const leafEvent = (await store.query(STREAM, { type: 'task.completed' }))[0];
+    expect(record?.correlationId).toBeTypeOf('string');
+    expect(record?.correlationId).toBe(leafEvent?.correlationId);
+    expect(record?.operationId).not.toContain(':leaf-');
+  });
+});
+
+// ─── Declared postconditions, observed the way dispatch observes them ───────
+
+describe('handleExecuteIntent per-leaf ensures', () => {
+  /** Declares an event-append postcondition it does NOT declare as an emission. */
+  const ensuring = fixtureAction({
+    name: 'fixture_ensures',
+    ensures: declared({ source: 'event-append', when: 'success', event: 'gate.executed' }),
+  });
+
+  it('SilentLeafWithAnEnsuresEventOutsideItsEmissions_FailsItsContract', async () => {
+    // The emissions axis cannot see this leaf at all — it declares none — so
+    // the only thing that can catch it is the ensures observation.
+    const deps = depsFor([fixtureStep('fixture_ensures', 'stop')], { fixture_ensures: silentHandler() }, [
+      ensuring,
+    ]);
+    const result = await execute(
+      { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-ensures' },
+      deps,
+    );
+    expect(result.error?.code).toBe('INTENT_EMISSION_CONTRACT_VIOLATED');
+    expect(result.error?.message).toContain('gate.executed');
+    expect(receiptOf(result).failedLeaf).toBe('fixture_ensures');
+  });
+
+  it('SameLeafAppendingTheEnsuredEvent_Passes', async () => {
+    const deps = depsFor(
+      [fixtureStep('fixture_ensures', 'stop')],
+      { fixture_ensures: appendingHandler('gate.executed') },
+      [ensuring],
+    );
+    const result = await execute(
+      { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-ensures-kept' },
+      deps,
+    );
+    expect(result.success).toBe(true);
+    expect(receiptOf(result).leaves[0]?.status).toBe('passed');
+  });
+});
+
+// ─── Enforcement mode, and what an advisory leaf may not wave through ───────
+
+describe('handleExecuteIntent emission enforcement on a continue leaf', () => {
+  /** Promises an event unconditionally; declares no postcondition. */
+  const announcing = fixtureAction({
+    name: 'fixture_announces',
+    emissions: declared({
+      event: 'task.completed',
+      condition: 'always',
+      owner: 'orchestrate',
+      role: 'primary',
+    }),
+  });
+
+  function continueDeps(later: LeafHandlerTable[string]): ExecuteIntentDeps {
+    return depsFor(
+      [fixtureStep('fixture_announces', 'continue'), fixtureStep('fixture_quiet', 'stop')],
+      { fixture_announces: silentHandler(), fixture_quiet: later },
+      [announcing, quiet],
+    );
+  }
+
+  it('BlockMode_HaltsTheSegmentEvenThoughTheLeafIsAdvisory', async () => {
+    // `onFail: 'continue'` is a policy about the leaf's own VERDICT. A leaf
+    // that broke its declared emission contract broke the log's integrity, and
+    // the runbook's advisory policy never licensed that.
+    const later = countingHandler(silentHandler());
+    const result = await execute(
+      { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-continue-block' },
+      continueDeps(later.handler),
+    );
+    const receipt = receiptOf(result);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INTENT_EMISSION_CONTRACT_VIOLATED');
+    expect(receipt.outcome).toBe('failed');
+    expect(receipt.leaves.map((leaf) => leaf.status)).toEqual(['failed']);
+    expect(later.calls()).toBe(0);
+  });
+
+  it('AdvisoryMode_CommitsAndRecordsTheViolationOnTheLeaf', async () => {
+    // The operator asked for the finding without the failure. A finding
+    // suppressed to keep an advisory run quiet is a finding lost, so it rides
+    // on the receipt leaf that produced it.
+    const later = countingHandler(silentHandler());
+    const result = await execute(
+      { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-continue-advisory' },
+      continueDeps(later.handler),
+      advisoryWiring(),
+    );
+    const receipt = receiptOf(result);
+
+    expect(result.success).toBe(true);
+    expect(receipt.outcome).toBe('committed');
+    expect(receipt.leaves.map((leaf) => leaf.status)).toEqual(['passed', 'passed']);
+    expect(receipt.leaves[0]?.emissionViolation).toBe('INTENT_EMISSION_CONTRACT_VIOLATED');
+    expect(receipt.leaves[1]?.emissionViolation).toBeUndefined();
+    expect(later.calls()).toBe(1);
+  });
+});
+
+// ─── A failed segment's receipt has to survive the envelope boundary ────────
+
+describe('handleExecuteIntent failure envelope', () => {
+  it('SegmentFailure_CarriesTheCompactReceiptInsideTheError', async () => {
+    const deps = depsFor(
+      [fixtureStep('fixture_promises', 'stop'), fixtureStep('fixture_quiet', 'stop')],
+      { fixture_promises: appendingHandler('task.completed'), fixture_quiet: failingHandler('refused') },
+    );
+    const result = await execute(
+      { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-envelope' },
+      deps,
+    );
+    const receipt = receiptOf(result);
+
+    // Asserted over the ENVELOPE, not the raw ToolResult: the boundary keeps
+    // `data` only on the success path, so a receipt left there is a receipt the
+    // caller never receives.
+    const envelope = toEnvelope(result);
+    expect(envelope.success).toBe(false);
+    if (envelope.success) return;
+    expect(Object.hasOwn(envelope, 'data')).toBe(false);
+    expect(envelope.error.intentReceipt).toEqual({
+      operationId: 'op-envelope',
+      outcome: 'failed',
+      failedLeaf: 'fixture_quiet',
+      tailSequence: receipt.tailSequence,
+      leaves: [
+        { action: 'fixture_promises', status: 'passed', events: 1 },
+        { action: 'fixture_quiet', status: 'failed', events: 0 },
+      ],
+    });
+    expect(receipt.tailSequence).toBeGreaterThan(0);
+  });
+
+  it('ReplayOfAFailedOperation_CarriesItTheSecondTimeToo', async () => {
+    const deps = depsFor([fixtureStep('fixture_quiet', 'stop')], {
+      fixture_quiet: failingHandler('refused'),
+    });
+    const request = {
+      intent: INTENT,
+      streamId: STREAM,
+      args: { taskId: 't1' },
+      operationId: 'op-envelope-replay',
+    };
+    const first = toEnvelope(await execute(request, deps));
+    const second = toEnvelope(await execute(request, deps));
+    expect(first.success).toBe(false);
+    expect(second.success).toBe(false);
+    if (first.success || second.success) return;
+    expect(second.error.intentReceipt).toEqual(first.error.intentReceipt);
+    expect(second.error.intentReceipt).toBeDefined();
+  });
+});
+
+// ─── The registered output schema, over receipts the executor actually made ─
+
+describe('the registered output schema accepts a real receipt', () => {
+  function envelopeOf(receipt: IntentReceipt): Record<string, unknown> {
+    return {
+      success: true,
+      data: receipt,
+      next_actions: [],
+      _meta: {},
+      _perf: { ms: 0, bytes: 0, tokens: 0 },
+    };
+  }
+
+  it('CommittedAndFailedReceipts_BothParse', async () => {
+    const committed = receiptOf(
+      await execute(
+        { intent: INTENT, streamId: STREAM, args: { taskId: 't1', riskTier: 'high' }, operationId: 'op-schema-ok' },
+        depsFor([fixtureStep('fixture_promises', 'stop')], {
+          fixture_promises: appendingHandler('task.completed'),
+        }),
+      ),
+    );
+    const failed = receiptOf(
+      await execute(
+        { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-schema-fail' },
+        depsFor([fixtureStep('fixture_quiet', 'stop')], { fixture_quiet: failingHandler('refused') }),
+      ),
+    );
+
+    expect(committed.outcome).toBe('committed');
+    expect(failed.outcome).toBe('failed');
+    for (const receipt of [committed, failed]) {
+      const parsed = IntentExecutedOutputSchema.safeParse(envelopeOf(receipt));
+      expect(
+        parsed.success,
+        parsed.success ? '' : JSON.stringify(parsed.error.issues),
+      ).toBe(true);
+    }
+  });
+
+  it('AnAdvisoryEmissionViolationOnALeaf_ParsesToo', async () => {
+    const announcing = fixtureAction({
+      name: 'fixture_announces',
+      emissions: declared({
+        event: 'task.completed',
+        condition: 'always',
+        owner: 'orchestrate',
+        role: 'primary',
+      }),
+    });
+    const receipt = receiptOf(
+      await execute(
+        { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-schema-advisory' },
+        depsFor([fixtureStep('fixture_announces', 'stop')], { fixture_announces: silentHandler() }, [
+          announcing,
+        ]),
+        advisoryWiring(),
+      ),
+    );
+    expect(receipt.leaves[0]?.emissionViolation).toBe('INTENT_EMISSION_CONTRACT_VIOLATED');
+    expect(IntentExecutedOutputSchema.safeParse(envelopeOf(receipt)).success).toBe(true);
   });
 });

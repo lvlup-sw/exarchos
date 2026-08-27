@@ -10,6 +10,9 @@
 // without tripping the cap on ordinary use, while still bounding a genuinely
 // oversized response instead of inheriting the registry-wide default
 // unmeasured.
+
+import { SUMMARY_FIRST_PAGE_ITEMS } from '../../dispatch/core/economy.js';
+
 export const EXECUTE_INTENT_ECONOMY_BUDGET_TOKENS = 1000;
 
 /**
@@ -22,6 +25,16 @@ export const EXECUTE_INTENT_ECONOMY_BUDGET_TOKENS = 1000;
  * several structural fields — so the generic fallback would fail open rather
  * than cap it (`response-economy.ts`'s list-dominance guard).
  */
+/**
+ * A reducer that mapped EVERY leaf into `firstPage` was not a reducer: a
+ * segment with a hundred-odd leaves summarized to well over the budget above,
+ * so the cap declared a ceiling its own reducer could not hold to. A page is a
+ * page — `counts` says how much was not shown, and the leaves themselves stay
+ * retrievable from the log by the derived per-leaf operation id.
+ *
+ * The page size is the registry-wide one rather than a local number, so this
+ * reducer pages the way every generic capped response does.
+ */
 export function summarizeIntentReceipt(data: unknown): unknown {
   const receipt = data as {
     readonly operationId?: unknown;
@@ -32,7 +45,7 @@ export function summarizeIntentReceipt(data: unknown): unknown {
     readonly leaves?: ReadonlyArray<{ readonly action?: unknown; readonly status?: unknown; readonly events?: ReadonlyArray<unknown> }>;
   };
   const leaves = Array.isArray(receipt.leaves) ? receipt.leaves : [];
-  const firstPage = leaves.map((leaf) => ({
+  const firstPage = leaves.slice(0, SUMMARY_FIRST_PAGE_ITEMS).map((leaf) => ({
     action: leaf.action,
     status: leaf.status,
     eventCount: Array.isArray(leaf.events) ? leaf.events.length : 0,
@@ -41,8 +54,9 @@ export function summarizeIntentReceipt(data: unknown): unknown {
     summary:
       `intent '${String(receipt.intent)}' ${String(receipt.outcome)}` +
       (receipt.failedLeaf !== undefined ? ` at leaf '${String(receipt.failedLeaf)}'` : '') +
-      ` across ${leaves.length} leaf(ves)`,
-    counts: { leaves: leaves.length },
+      ` across ${leaves.length} leaf(ves)` +
+      (leaves.length > firstPage.length ? `; ${firstPage.length} shown` : ''),
+    counts: { leaves: leaves.length, shown: firstPage.length, total: leaves.length },
     firstPage,
     // Pinned outside the capped shape's `summary`/`counts`/`firstPage` fields —
     // `CappedDataSchema` is `.passthrough()`, so these ride alongside them

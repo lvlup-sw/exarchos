@@ -45,33 +45,51 @@ function refuse(refusal: CompileRefusal): CompileOutcome {
   return { ok: false, refusal };
 }
 
+interface UnboundVar {
+  /** The runbook parameter whose value was the placeholder. */
+  readonly param: string;
+  /** The template variable name inside the placeholder. */
+  readonly variable: string;
+}
+
+type ResolvedParams =
+  | { readonly ok: true; readonly params: Record<string, unknown> }
+  | { readonly ok: false; readonly unbound: UnboundVar };
+
 /**
  * Resolve a step's static params against the validated intent arguments.
  *
  * A `<var>` placeholder becomes the TYPED value the intent schema produced, so
  * a boolean stays a boolean rather than arriving at the leaf as the string it
- * was spelled with in the runbook. A placeholder with nothing to bind to drops
- * out entirely: leaving it in would hand the leaf's schema a literal `<var>`
- * where it expects a value. Every other literal — `'auto'` above all — passes
- * through untouched, because the runbook meant it.
+ * was spelled with in the runbook. Every other literal — `'auto'` above all —
+ * passes through untouched, because the runbook meant it.
+ *
+ * A placeholder with nothing to bind to is REFUSED rather than dropped.
+ * Dropping it silently made the runbook's own reference to a variable
+ * unenforceable: the gate whose routing depends on the risk tier was
+ * dispatched with no tier at all, ran tierless, and reported an advisory skip
+ * as if adequacy had been assessed. A runbook that names a variable in a step
+ * is a runbook that requires it, and the refusal happens before any effect.
  */
 function resolveParams(
   params: Readonly<Record<string, unknown>> | undefined,
   args: Record<string, unknown>,
-): Record<string, unknown> {
+): ResolvedParams {
   const resolved: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(params ?? {})) {
     if (typeof value === 'string') {
       const match = PLACEHOLDER.exec(value);
       if (match !== null) {
-        const bound = args[match[1] as string];
-        if (bound !== undefined) resolved[key] = bound;
+        const variable = match[1] as string;
+        const bound = args[variable];
+        if (bound === undefined) return { ok: false, unbound: { param: key, variable } };
+        resolved[key] = bound;
         continue;
       }
     }
     resolved[key] = value;
   }
-  return resolved;
+  return { ok: true, params: resolved };
 }
 
 /**
@@ -88,7 +106,10 @@ function buildLeafArgs(
   declaration: ToolAction,
   subject: IntentSubject,
   args: Record<string, unknown>,
-): { readonly ok: true; readonly args: Record<string, unknown> } | { readonly ok: false; readonly detail: string } {
+):
+  | { readonly ok: true; readonly args: Record<string, unknown> }
+  | { readonly ok: false; readonly detail: string }
+  | { readonly ok: false; readonly unbound: UnboundVar } {
   const shape: z.ZodRawShape = declaration.schema.shape;
   const declaredKeys = new Set(Object.keys(shape));
   const candidate: Record<string, unknown> = {};
@@ -98,7 +119,9 @@ function buildLeafArgs(
   }
   if (declaredKeys.has('featureId')) candidate.featureId = subject.streamId;
   if (declaredKeys.has('streamId')) candidate.streamId = subject.streamId;
-  Object.assign(candidate, resolveParams(step.params, args));
+  const resolved = resolveParams(step.params, args);
+  if (!resolved.ok) return { ok: false, unbound: resolved.unbound };
+  Object.assign(candidate, resolved.params);
 
   const parsed = declaration.schema.safeParse(candidate);
   if (!parsed.success) {
@@ -208,6 +231,18 @@ export function compileIntent(
     }
 
     const built = buildLeafArgs(step, declaration, subject, args);
+    if (!built.ok && 'unbound' in built) {
+      return refuse({
+        code: 'INTENT_TEMPLATE_VAR_UNBOUND',
+        step: where,
+        message:
+          `step ${where} of '${intent}' passes '<${built.unbound.variable}>' as ` +
+          `'${built.unbound.param}', and the validated args carry no ` +
+          `'${built.unbound.variable}'. A runbook that names a variable in a step ` +
+          'requires it: supply it, or the leaf would run without the value the ' +
+          'step exists to hand it.',
+      });
+    }
     if (!built.ok) {
       return refuse({
         code: 'INTENT_LEAF_ARGS_INVALID',

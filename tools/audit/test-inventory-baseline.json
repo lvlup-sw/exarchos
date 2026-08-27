@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1235,
-    "parsedFiles": 1190,
+    "testFiles": 1236,
+    "parsedFiles": 1191,
     "shellFiles": 45,
-    "cases": 13628,
+    "cases": 13650,
     "dynamicTitles": 144,
     "unparseableFiles": 0
   },
@@ -50556,7 +50556,12 @@
         },
         {
           "suite": "compileIntent argument construction",
-          "name": "UnboundPlaceholder_DropsOutRatherThanArrivingLiterally",
+          "name": "UnboundPlaceholder_RefusesRatherThanDroppingOut",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent argument construction",
+          "name": "BoundPlaceholder_IsTheControl_SameStepCompilesWithTheBinding",
           "dynamic": false
         },
         {
@@ -50567,6 +50572,16 @@
         {
           "suite": "compileIntent over the live registry",
           "name": "TaskCompletion_MissingWorktreePath_RefusesBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent over the live registry",
+          "name": "TaskCompletion_WithoutRiskTier_RefusesBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent over the live registry",
+          "name": "TaskCompletion_WithoutBoundaryTouching_RefusesToo",
           "dynamic": false
         },
         {
@@ -50582,6 +50597,27 @@
         {
           "suite": "fixture leaf declarations are the real thing",
           "name": "FixtureTool_IsTheOnlyToolTheFixtureLookupAnswersFor",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/dispatch-replay.test.ts": {
+      "file": "tests/unit/verbs/execute/dispatch-replay.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "execute_intent replayed through dispatch()",
+          "name": "SecondDispatchOfTheSameOperationId_ReturnsTheReceiptWithNoViolation",
+          "dynamic": false
+        },
+        {
+          "suite": "execute_intent replayed through dispatch()",
+          "name": "ThirdAndFourthReplays_StayClean",
+          "dynamic": false
+        },
+        {
+          "suite": "execute_intent replayed through dispatch()",
+          "name": "SameOperationIdDifferentRequest_IsTheTypedRefusalThroughDispatchToo",
           "dynamic": false
         }
       ]
@@ -50693,6 +50729,86 @@
         {
           "suite": "handleExecuteIntent crash distinguishability",
           "name": "RetryAfterCrash_RunsFromTheTopAndReusesTheDerivedLeafIds",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent operationId bound",
+          "name": "OperationIdAtTheBound_IsAccepted",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent operationId bound",
+          "name": "OperationIdOneOverTheBound_IsRefusedBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent subject resolution",
+          "name": "BothSpellingsPresentAndAgreeing_ResolvesToThatStream",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent subject resolution",
+          "name": "BothSpellingsPresentAndDisagreeing_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent subject resolution",
+          "name": "FeatureIdWins_MatchingTheDispatchLayerStreamResolver",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent commit races",
+          "name": "SameDigest_TheCallerGetsThePersistedReceiptNotTheLocalOne",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent commit races",
+          "name": "DifferentDigest_IsTheTypedReplayRefusalNotAnInternalError",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent without an ambient dispatch context",
+          "name": "OperationRecordAndLeafEvents_ShareTheMintedOuterCorrelationId",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent per-leaf ensures",
+          "name": "SilentLeafWithAnEnsuresEventOutsideItsEmissions_FailsItsContract",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent per-leaf ensures",
+          "name": "SameLeafAppendingTheEnsuredEvent_Passes",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent emission enforcement on a continue leaf",
+          "name": "BlockMode_HaltsTheSegmentEvenThoughTheLeafIsAdvisory",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent emission enforcement on a continue leaf",
+          "name": "AdvisoryMode_CommitsAndRecordsTheViolationOnTheLeaf",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent failure envelope",
+          "name": "SegmentFailure_CarriesTheCompactReceiptInsideTheError",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent failure envelope",
+          "name": "ReplayOfAFailedOperation_CarriesItTheSecondTimeToo",
+          "dynamic": false
+        },
+        {
+          "suite": "the registered output schema accepts a real receipt",
+          "name": "CommittedAndFailedReceipts_BothParse",
+          "dynamic": false
+        },
+        {
+          "suite": "the registered output schema accepts a real receipt",
+          "name": "AnAdvisoryEmissionViolationOnALeaf_ParsesToo",
           "dynamic": false
         }
       ]

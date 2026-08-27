@@ -27,6 +27,7 @@ const ReceiptLeafSchema = z
     action: z.string().min(1),
     status: z.enum(['passed', 'failed', 'advisory-failed']),
     events: z.array(ReceiptEventSchema),
+    emissionViolation: z.literal('INTENT_EMISSION_CONTRACT_VIOLATED').optional(),
   })
   .passthrough();
 

@@ -34,6 +34,7 @@ import {
   enforceResponseEconomy,
   evaluateDispatchAdmission,
 } from '../../../../src/dispatch/core/dispatch.js';
+import { estimateOutputTokens } from '../../../../src/dispatch/core/economy.js';
 import {
   runWithDispatchContext,
   type DispatchContext as CorrelationContext,
@@ -375,6 +376,20 @@ describe('retry after a crash mid-segment', () => {
     const result = await execute(request, deps);
     expect(result.success).toBe(true);
 
+    // The retried receipt reports the rows the FIRST run wrote. A deduped
+    // append notifies no observer — that is what dedupe means — so a receipt
+    // built from the observer alone read zero events and a zero tail for rows
+    // plainly in the log. The leaf's own derived id is what retrieves them.
+    const retried = receiptOf(result);
+    expect(retried.leaves.map((leaf) => leaf.events)).toEqual([
+      [{ type: 'task.claimed', sequence: afterCrash[0]?.sequence }],
+      [{ type: 'gate.executed', sequence: afterCrash[1]?.sequence }],
+      [],
+      [],
+    ]);
+    expect(retried.tailSequence).toBe(afterCrash[1]?.sequence);
+    expect(retried.interaction.eventsAppended).toBe(2);
+
     // The two completed leaves genuinely RE-RAN — nothing skipped them. What
     // did not happen is a second row: the derived leaf id is the same on both
     // attempts, so the key each leaf appends under is the same, and the second
@@ -483,7 +498,16 @@ describe('an oversized receipt through the registered economy path', () => {
     expect(data.tailSequence).toBeGreaterThan(0);
     // The per-leaf detail is what the cap gave up.
     expect(data.leaves).toBeUndefined();
-    expect(data.counts).toMatchObject({ leaves: LEAF_COUNT + 1 });
+    expect(data.counts).toMatchObject({ leaves: LEAF_COUNT + 1, total: LEAF_COUNT + 1 });
+
+    // And the capped payload is actually under the declared budget — over a
+    // receipt the executor really produced, not a hand-built one.
+    const budget = findActionInRegistry('exarchos_orchestrate', 'execute_intent')?.economy
+      ?.budgetTokens;
+    expect(budget).toBeGreaterThan(0);
+    expect(estimateOutputTokens(data)).toBeLessThanOrEqual(budget ?? 0);
+    expect((data.firstPage as unknown[]).length).toBeLessThan(LEAF_COUNT + 1);
+    expect(data.counts).toMatchObject({ shown: (data.firstPage as unknown[]).length });
   });
 
   it('FailedAndOverBudget_IsReturnedVerbatimAndTheReducerStillPinsFailedLeaf', async () => {

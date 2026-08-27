@@ -78,7 +78,14 @@ export type CompileRefusalCode =
   /** A step's action is not locally executable — a host-owned or contract-less action. */
   | 'INTENT_ACTION_NOT_LOCAL'
   /** The arguments built for a leaf were rejected by that leaf's registered schema. */
-  | 'INTENT_LEAF_ARGS_INVALID';
+  | 'INTENT_LEAF_ARGS_INVALID'
+  /**
+   * A step passes a `<var>` placeholder the validated args have no binding for.
+   * The runbook's reference is what makes the variable required; dropping the
+   * placeholder instead would run the leaf without the value the step exists to
+   * hand it, and a gate routed by that value would then assess nothing.
+   */
+  | 'INTENT_TEMPLATE_VAR_UNBOUND';
 
 /** A compile refusal, naming the step it is about wherever a step is at fault. */
 export interface CompileRefusal {
@@ -105,6 +112,14 @@ export interface ReceiptLeaf {
   readonly action: string;
   readonly status: LeafStatus;
   readonly events: readonly ReceiptEvent[];
+  /**
+   * Present when this leaf returned success without the events its own
+   * registration promises unconditionally, AND the resolved emission
+   * enforcement mode chose not to halt the segment for it. Carried here so an
+   * advisory mode still reports the finding — suppressing it to keep an
+   * advisory run quiet would lose it entirely, since the segment commits.
+   */
+  readonly emissionViolation?: 'INTENT_EMISSION_CONTRACT_VIOLATED';
 }
 
 /**
@@ -135,6 +150,19 @@ export interface ReceiptInteraction {
  * What the caller gets back, and what a later replay of the same operation id
  * returns verbatim. Stored as the operation claim's canonical result, so the
  * committing call and every retry after it hand back the same object.
+ *
+ * A committed receipt advertises NO follow-up verbs, and that is a stated
+ * limitation rather than an oversight. The envelope's next-action derivation
+ * recognizes exactly two payload shapes, and both are full workflow-STATE
+ * reads: the transitions it computes are only as sound as the facts it was
+ * handed, and a payload that carries a phase and a workflow type without the
+ * artifacts, tasks, reviews and evidence beside them yields topology with no
+ * admission behind it — legal-looking moves the log would refuse. Adding those
+ * two fields alone would put a receipt into the state-read lane on the strength
+ * of two keys; carrying the whole snapshot would make the receipt a state read,
+ * which is a different object with a different owner. So a caller reads the
+ * receipt for what this operation did and asks the workflow surface what to do
+ * next.
  */
 export interface IntentReceipt {
   readonly operationId: string;

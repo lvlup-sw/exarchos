@@ -16,6 +16,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { enforceResponseEconomy } from '../../../../src/dispatch/core/dispatch.js';
+import { estimateOutputTokens } from '../../../../src/dispatch/core/economy.js';
 import { EventStore } from '../../../../src/events/store.js';
 import { findActionInRegistry } from '../../../../src/registry.js';
 
@@ -122,5 +123,16 @@ describe('execute_intent registered economy declaration', () => {
     expect(typeof data.summary).toBe('string');
     expect(data.counts).toBeDefined();
     expect(Array.isArray(data.firstPage)).toBe(true);
+
+    // The cap is a CEILING, not a label. A reducer that mapped every leaf into
+    // `firstPage` produced a "capped" payload well over the declared budget,
+    // which is the same thing as no cap while reading as one.
+    expect(estimateOutputTokens(data)).toBeLessThanOrEqual(budget);
+    expect((data.firstPage as unknown[]).length).toBeLessThan(leafCount);
+    expect(data.counts).toMatchObject({
+      leaves: leafCount,
+      shown: (data.firstPage as unknown[]).length,
+      total: leafCount,
+    });
   });
 });
