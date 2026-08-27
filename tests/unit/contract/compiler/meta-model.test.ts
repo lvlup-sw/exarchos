@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import { z } from 'zod';
 import { EnvelopeSchema } from '../../../../src/contract/schemas/envelope.js';
 import {
+  ActionContractError,
+  declared,
   none,
   normalizeActionContract,
   type ActionContract,
@@ -467,5 +469,53 @@ describe('deriveMetaModel — action-contract projection', () => {
     expect(left.actions[0]!.actionContract).toEqual(normalizeActionContract(forward));
     expect(canonicalJson(left)).toBe(canonicalJson(right));
     expect(canonicalJson(left.actions[0]!.actionContract)).toBe(canonicalJson(normalizeActionContract(reversed)));
+  });
+});
+
+describe('deriveMetaModel — emission source binding', () => {
+  it('CompileContract_NonAutoEmissionSource_RejectsActionAndEvent', () => {
+    // 'task.assigned' is a real catalog event whose EVENT_EMISSION_REGISTRY
+    // source is 'model', not 'auto' — the compiler derivation must reject an
+    // action that declares it as an emission, the same as admission does.
+    const badContract = validContract({
+      emissions: declared({
+        event: 'task.assigned',
+        condition: 'always',
+        owner: 'planner',
+        role: 'primary',
+      }),
+    });
+    const action = withDeclaredContract(makeAction({ name: 'assign' }), badContract);
+    const tool = makeTool('exarchos_probe', [action]);
+
+    try {
+      deriveActionMetaModel(tool, action);
+      expect.fail('expected a non-auto emission source to be rejected at derivation');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ActionContractError);
+      if (error instanceof ActionContractError) {
+        expect(error.message).toContain('exarchos_probe.assign');
+        expect(error.message).toContain('task.assigned');
+      }
+    }
+    expect(() => deriveMetaModel([tool])).toThrow(/task\.assigned/);
+  });
+
+  it('CompileContract_AutoEmissionSource_RemainsByteStable', () => {
+    // All live-registry emissions are auto-sourced today, so binding
+    // normalizeEmission to EVENT_EMISSION_REGISTRY must not perturb
+    // derivation's byte-stability guarantee for the happy path.
+    const first = deriveMetaModel();
+    const second = deriveMetaModel();
+    expect(canonicalJson(first)).toBe(canonicalJson(second));
+
+    const r1 = compile(first);
+    const r2 = compile(second);
+    expect(r1.ok).toBe(true);
+    expect(r2.ok).toBe(true);
+    if (r1.ok && r2.ok) {
+      expect(r1.output.serialized).toBe(r2.output.serialized);
+      expect(r1.output.digest).toBe(r2.output.digest);
+    }
   });
 });

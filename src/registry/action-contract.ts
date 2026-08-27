@@ -1,4 +1,4 @@
-import { isBuiltInEventType } from '../events/schemas.js';
+import { EVENT_EMISSION_REGISTRY, isBuiltInEventType, type EventType } from '../events/schemas.js';
 import { CAPABILITY_KEYS, type Capability } from '../runtime/agents/capabilities.js';
 import { PLAN_DEPTH_GATE_NAMES } from '../workflow/plan-depth-policy.js';
 import type { ResolvedGate } from '../workflow/phase-kind.js';
@@ -145,6 +145,7 @@ export type ActionContractErrorCode =
   | 'LOCAL_AND_HOST_MUTUALLY_EXCLUSIVE'
   | 'UNKNOWN_HOST_OBLIGATION'
   | 'UNKNOWN_EVENT'
+  | 'NON_AUTO_EMISSION_SOURCE'
   | 'INVALID_EMISSION'
   | 'INVALID_REQUIREMENT'
   | 'INVALID_POSTCONDITION'
@@ -412,6 +413,15 @@ function compareEmissions(left: ActionEmission, right: ActionEmission): number {
   return emissionKey(left).localeCompare(emissionKey(right));
 }
 
+/**
+ * `EVENT_EMISSION_REGISTRY`'s key domain is exactly `EventTypes`, so membership
+ * doubles as the narrowing that lets the auto-source lookup below index the
+ * registry without widening the checked string back out.
+ */
+function isCatalogEventType(event: string): event is EventType {
+  return Object.prototype.hasOwnProperty.call(EVENT_EMISSION_REGISTRY, event);
+}
+
 function normalizeEmission(value: unknown, now: Date): ActionEmission {
   if (!isRecord(value)) {
     throw new ActionContractError('INVALID_EMISSION', 'emission must be an object');
@@ -420,8 +430,15 @@ function normalizeEmission(value: unknown, now: Date): ActionEmission {
     throw new ActionContractError('INVALID_EMISSION', 'emission event must be a non-empty catalog name');
   }
   const event = value.event.trim();
-  if (!isBuiltInEventType(event)) {
+  if (!isBuiltInEventType(event) || !isCatalogEventType(event)) {
     throw new ActionContractError('UNKNOWN_EVENT', `emission event '${event}' is not in the emission catalog`);
+  }
+  const source = EVENT_EMISSION_REGISTRY[event];
+  if (source !== 'auto') {
+    throw new ActionContractError(
+      'NON_AUTO_EMISSION_SOURCE',
+      `emission event '${event}' is sourced '${source}', not the 'auto' source an action's own emissions declaration requires`,
+    );
   }
   if (value.condition !== 'always' && value.condition !== 'conditional') {
     throw new ActionContractError('INVALID_EMISSION', 'emission condition must be always or conditional');

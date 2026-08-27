@@ -424,11 +424,31 @@ export function derivePolicy(action: ToolAction): ActionPolicy {
   };
 }
 
+/**
+ * `derivePolicy` has no ActionId to name — it only sees the bare `ToolAction`.
+ * A declared contract that fails to normalize (a non-auto emission source
+ * among them) surfaces from `projectActionContract` with an event name but no
+ * action identity; this re-throws the same typed error carrying both, the
+ * same wrapping `admitActionContract` (registry/annotations.ts) applies at
+ * registration time.
+ */
+function derivePolicyNamingAction(actionId: string, action: ToolAction): ActionPolicy {
+  try {
+    return derivePolicy(action);
+  } catch (error) {
+    if (error instanceof ActionContractError) {
+      throw new ActionContractError(error.code, `Action '${actionId}' has invalid actionContract: ${error.message}`);
+    }
+    throw error;
+  }
+}
+
 /** Derive one action's meta-model entry from its registry descriptor. */
 export function deriveActionMetaModel(tool: CompositeTool, action: ToolAction): ActionMetaModel {
-  const policy = derivePolicy(action);
+  const actionId = `${tool.name}.${action.name}`;
+  const policy = derivePolicyNamingAction(actionId, action);
   return {
-    actionId: `${tool.name}.${action.name}`,
+    actionId,
     tool: tool.name,
     action: action.name,
     // Line-ending-normalized so a CRLF working tree and an LF CI checkout

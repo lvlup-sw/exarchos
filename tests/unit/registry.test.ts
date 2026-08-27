@@ -1936,6 +1936,9 @@ describe('quality_hints view action', () => {
 // ─── AutoEmits Drift Tests ──────────────────────────────────────────────────
 
 describe('AutoEmits Drift Tests', () => {
+  // The same non-auto-source check now runs at admission (normalizeEmission,
+  // src/registry/action-contract.ts) — this census is defense-in-depth,
+  // catching a drift that reaches TOOL_REGISTRY by any path that bypasses it.
   it('RegistryDrift_AutoEmitsMatchEventEmissionRegistry', async () => {
     const { EVENT_EMISSION_REGISTRY } = await import('../../src/events/schemas.js');
 
