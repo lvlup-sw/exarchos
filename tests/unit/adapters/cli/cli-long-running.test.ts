@@ -105,6 +105,10 @@ const EXPECTED_LONG_RUNNING_ACTIONS: ReadonlySet<string> = new Set([
   // out to a real mutation runner (Stryker / cargo-mutants / mutmut), diff-
   // scoped; far exceeds the 2s heartbeat on a real repo.
   'mutation-adequacy',
+  // The bounded action executor: runs a compiled segment's leaves in-process,
+  // including gates that themselves shell out (check_static_analysis,
+  // check_test_adequacy, check_contract_drift) — far exceeds the 2s heartbeat.
+  'execute_intent',
 ]);
 
 describe('orchestrate action registry — longRunning metadata (DR-5)', () => {

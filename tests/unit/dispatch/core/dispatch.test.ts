@@ -656,6 +656,27 @@ describe('dispatch', () => {
     });
   });
 
+  describe('execute_intent action wiring', () => {
+    // execute_intent declares `requires: none(...)` — a cold dispatch through
+    // the real admission path, with a trusted local-operator caller, must clear
+    // the outer action-level admission cleanly and reach the handler's own
+    // compiler refusal rather than being wrongly gated at the dispatch layer.
+    // An unregistered intent name is the cheapest way to reach a handler
+    // refusal without compiling and running the real task-completion segment.
+    it('Dispatch_ExecuteIntent_ColdDispatch_ClearsAdmissionAndReachesTheHandler', async () => {
+      const { dispatch } = await import('../../../../src/dispatch/core/dispatch.js');
+      const result = await dispatch(
+        'exarchos_orchestrate',
+        { action: 'execute_intent', intent: 'not-a-real-runbook', featureId: 'feat-execute-sanity' },
+        ctx(),
+      );
+      expect(result.success).toBe(false);
+      expect(result.error?.code).not.toBe('ADMISSION_DENIED');
+      expect(result.error?.code).not.toBe('TRUSTED_CALLER_REQUIRED');
+      expect(result.error?.code).toBe('INTENT_UNKNOWN');
+    });
+  });
+
   // ─── T-12: session.machinery_consumed dispatch interceptor ─────────────────
   //
   // Plan: docs/plans/archive/2026-05-08-rehydration-machinery-plan.md (T-12)

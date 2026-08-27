@@ -111,6 +111,7 @@ import type { HandleAddArgs } from './invariants/add.js';
 import { realScaffoldDeps } from './invariants/fs-deps.js';
 import { applyLadderGateSeverity, resolvePhaseMode } from './gates/gate-utils.js';
 import { resolveWorkflowState } from './resolve-state.js';
+import { handleExecuteIntent } from './execute/executor.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -552,6 +553,14 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   // the 4th (deps) parameter is a test-only seam left at its default here.
   cutover_readiness: adaptWithEventStore(handleCutoverReadiness),
   cutover_decide: adaptWithEventStore(handleCutoverDecide),
+  // The bounded action executor (first slice). `handleExecuteIntent` requires
+  // a DispatchContext (it re-enters admission and the store per leaf), unlike
+  // the other `adaptWithCtx` entries above whose handlers treat ctx as
+  // optional — so this is a direct ActionHandler rather than that adapter.
+  execute_intent: async (args, stateDir, ctx) => {
+    if (!ctx) throw new Error('DispatchContext required for execute_intent');
+    return handleExecuteIntent(args, stateDir, ctx);
+  },
 };
 
 /** Exported for sync test — ensures registry.ts stays in sync with handler keys. */

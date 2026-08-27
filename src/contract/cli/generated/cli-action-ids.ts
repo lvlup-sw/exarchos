@@ -47,6 +47,7 @@ export const CLI_ACTION_IDS: readonly string[] = [
   'exarchos_orchestrate.describe',
   'exarchos_orchestrate.discover_bridge',
   'exarchos_orchestrate.doctor',
+  'exarchos_orchestrate.execute_intent',
   'exarchos_orchestrate.extract_fix_tasks',
   'exarchos_orchestrate.extract_task',
   'exarchos_orchestrate.finalize_oneshot',

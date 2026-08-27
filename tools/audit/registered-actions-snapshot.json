@@ -1,10 +1,10 @@
 {
   "note": "Live TOOL_REGISTRY and event-annotation denominator. Regenerated from the live registry whenever a registration is deliberately added or removed; the counts are a measurement, not a target.",
-  "capturedAt": "2026-08-22",
+  "capturedAt": "2026-08-27",
   "counts": {
     "tools": 5,
     "visibleTools": 4,
-    "actions": 124,
+    "actions": 125,
     "eventTypes": 178
   },
   "tools": [
@@ -60,6 +60,7 @@
         "describe",
         "discover_bridge",
         "doctor",
+        "execute_intent",
         "extract_fix_tasks",
         "extract_task",
         "finalize_oneshot",
