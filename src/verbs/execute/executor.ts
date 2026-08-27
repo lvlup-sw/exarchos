@@ -30,6 +30,7 @@ import { snapshotCallerAuthorization } from '../../dispatch/caller-identity.js';
 import { observeActionPostconditions } from '../../dispatch/core/action-postconditions.js';
 import { evaluateDispatchAdmission, type DispatchContext } from '../../dispatch/core/dispatch.js';
 import {
+  EMISSION_VIOLATION_EVENT,
   runEmissionVerifierInterceptor,
   unconditionalEmissions,
   verifierDeclaredEmissions,
@@ -256,6 +257,9 @@ function failureDetail(receipt: IntentReceipt): IntentFailureDetail {
       action: leaf.action,
       status: leaf.status,
       events: leaf.events.length,
+      ...(leaf.emissionViolation !== undefined
+        ? { emissionViolation: leaf.emissionViolation }
+        : {}),
     })),
   };
 }
@@ -342,7 +346,7 @@ export async function handleExecuteIntent(
     if (!validated.success) {
       return invalid(
         'operationId must be an opaque id of letters, digits, dot, underscore, colon or hyphen, ' +
-          `starting with a letter or digit, at most ${MAX_CALLER_OPERATION_ID_LENGTH} characters`,
+          'starting with a letter or digit',
       );
     }
     if (validated.data.length > MAX_CALLER_OPERATION_ID_LENGTH) {
@@ -508,9 +512,13 @@ function foldHeldRows(
   streamId: string,
   held: readonly { readonly type: string; readonly sequence: number }[],
 ): void {
-  const seen = new Set(captures.map((capture) => `${capture.streamId} ${capture.sequence}`));
+  const seen = new Set(captures.map((capture) => `${capture.streamId}\u0000${capture.sequence}`));
   for (const row of held) {
-    const key = `${streamId} ${row.sequence}`;
+    // The verifier records `emission.violated` under the SAME derived identity
+    // it verifies, so a previous attempt's finding sits in the leaf's held
+    // rows — a bookkeeping row about the leaf, not something the leaf emitted.
+    if (row.type === EMISSION_VIOLATION_EVENT) continue;
+    const key = `${streamId}\u0000${row.sequence}`;
     if (seen.has(key)) continue;
     seen.add(key);
     captures.push({ type: row.type, streamId, sequence: row.sequence });

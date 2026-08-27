@@ -855,6 +855,75 @@ describe('handleExecuteIntent emission enforcement on a continue leaf', () => {
     expect(receipt.leaves[1]?.emissionViolation).toBeUndefined();
     expect(later.calls()).toBe(1);
   });
+
+  it('APriorAttemptsViolationRow_IsNotFoldedIntoTheRetriedReceipt', async () => {
+    // The verifier records its advisory finding under the violating leaf's own
+    // derived id. After a crash, that row is among the rows the retried leaf's
+    // identity durably holds — bookkeeping ABOUT the leaf, not a leaf emission —
+    // so a receipt that folded it in would report the finding as an event the
+    // leaf appended and count it toward the tail.
+    let crash = true;
+    const deps = depsFor(
+      [fixtureStep('fixture_announces', 'continue'), fixtureStep('fixture_quiet', 'stop')],
+      {
+        fixture_announces: silentHandler(),
+        fixture_quiet: async (args, dir, ctx) =>
+          crash
+            ? throwingHandler('fixture crash before commit')(args, dir, ctx)
+            : silentHandler()(args, dir, ctx),
+      },
+      [announcing, quiet],
+    );
+    const request = {
+      intent: INTENT,
+      streamId: STREAM,
+      args: { taskId: 't1' },
+      operationId: 'op-prior-violation',
+    };
+
+    await expect(execute(request, deps, advisoryWiring())).rejects.toThrow(
+      'fixture crash before commit',
+    );
+    const derived = derivedLeafOperationId('op-prior-violation', 0, 'fixture_announces');
+    expect(
+      await store.query(STREAM, { type: 'emission.violated', operationId: derived }),
+    ).toHaveLength(1);
+
+    crash = false;
+    const result = await execute(request, deps, advisoryWiring());
+    const receipt = receiptOf(result);
+
+    expect(result.success).toBe(true);
+    expect(receipt.leaves[0]?.emissionViolation).toBe('INTENT_EMISSION_CONTRACT_VIOLATED');
+    expect(
+      receipt.leaves.flatMap((leaf) => leaf.events.map((event) => event.type)),
+    ).not.toContain('emission.violated');
+    expect(receipt.interaction.eventsAppended).toBe(0);
+  });
+
+  it('AnAdvisoryFindingOnAFailedSegment_SurvivesIntoTheErrorEnvelope', async () => {
+    // A failed segment's receipt travels inside the error. The advisory
+    // finding is part of that receipt: dropping it at the envelope boundary
+    // would make the one caller who most needs the finding — the one whose
+    // segment then halted — the one caller who cannot see it.
+    const result = await execute(
+      {
+        intent: INTENT,
+        streamId: STREAM,
+        args: { taskId: 't1' },
+        operationId: 'op-advisory-then-halt',
+      },
+      continueDeps(failingHandler('halted after the finding')),
+      advisoryWiring(),
+    );
+
+    const envelope = toEnvelope(result);
+    expect(envelope.success).toBe(false);
+    if (envelope.success) return;
+    expect(envelope.error.intentReceipt?.leaves[0]?.emissionViolation).toBe(
+      'INTENT_EMISSION_CONTRACT_VIOLATED',
+    );
+  });
 });
 
 // ─── A failed segment's receipt has to survive the envelope boundary ────────

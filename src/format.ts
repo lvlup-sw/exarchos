@@ -81,6 +81,8 @@ export interface IntentFailureDetail {
     readonly action: string;
     readonly status: string;
     readonly events: number;
+    /** An advisory-mode emission finding survives the refusal, not just the receipt. */
+    readonly emissionViolation?: string;
   }[];
 }
 
