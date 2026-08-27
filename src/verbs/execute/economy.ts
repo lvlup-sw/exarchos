@@ -1,15 +1,15 @@
 // ─── Response-economy declaration for `execute_intent` ──────────────────────
 //
-// A measured budget, not the registry-wide default: the receipt for the one
-// shipped intent (`task-completion`, five leaves — four gates plus the
-// terminal `task_complete`) with two events per gate leaf and one on the
-// terminal leaf serializes to ~1,200 bytes / ~300 estimated tokens
-// (`estimateOutputTokens`, byte length over 4). `EXECUTE_INTENT_ECONOMY_BUDGET_TOKENS`
-// sits at roughly three times that measured shape — enough headroom for a
-// failure receipt's longer refusal message or a runbook with a few more leaves
-// without tripping the cap on ordinary use, while still bounding a genuinely
-// oversized response instead of inheriting the registry-wide default
-// unmeasured.
+// A measured budget, not the registry-wide default. Three intents ship —
+// `task-completion` (five leaves), `quality-evaluation` (five) and
+// `plan-closeout` (three) — and the budget is measured against the largest of
+// them: a five-leaf receipt carrying two events per gate leaf serializes to
+// ~1,200 bytes / ~300 estimated tokens (`estimateOutputTokens`, byte length
+// over 4). `EXECUTE_INTENT_ECONOMY_BUDGET_TOKENS` sits at roughly three times
+// that measured shape — enough headroom for a failure receipt's longer refusal
+// message or a runbook with a few more leaves without tripping the cap on
+// ordinary use, while still bounding a genuinely oversized response instead of
+// inheriting the registry-wide default unmeasured.
 
 import { SUMMARY_FIRST_PAGE_ITEMS } from '../../dispatch/core/economy.js';
 
