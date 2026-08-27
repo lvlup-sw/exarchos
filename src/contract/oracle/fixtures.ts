@@ -48,6 +48,10 @@
 //   • effects — `not-observed` for real handlers: the composite handlers do not
 //     emit through the oracle's effect recorder, so there is no evidence, and
 //     an empty recorder must not read as a clean bill.
+//   • emissions — the declaration carries the registry's own `{event,
+//     condition}` set, and only an `always` edge can produce a verdict. The
+//     canned-envelope subjects withhold it entirely: their observed function is
+//     not the handler, so there is no append to attribute to them.
 //
 // This is a test-fixtures module (auto-classified by the `fixtures.ts` name); it
 // is imported only by the oracle's co-located tests.
@@ -57,6 +61,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { z } from 'zod';
 import {
   TOOL_REGISTRY,
+  contractEmissionsOf,
   none,
   validateAction,
   withActionContract,
@@ -95,6 +100,7 @@ import {
   OPEN_ROLE_MARKER,
   type ActionSafety,
   type ContractDeclaration,
+  type DeclaredEmission,
   type EmissionAxis,
   type EmissionAxisVerdict,
   type EmissionRecorder,
@@ -322,6 +328,37 @@ export function registryDeclaredEffects(action: ToolAction): readonly EffectClas
   return effects;
 }
 
+const compareText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * The `{event, condition}` set the REAL registry declares for this action,
+ * read off the nested action contract through `contractEmissionsOf` — the same
+ * registry-level projection the event-registration validator and the reachability
+ * collector consult.
+ *
+ * The condition rides along deliberately. The compiler compiles it, the dispatch
+ * verifier requires only the `always` half of it, and the oracle now judges by
+ * the same rule; dropping it here would make the oracle demand an append on
+ * every branch and fail handlers for taking one they were entitled to take.
+ *
+ * Reading the registry rather than the compiled `EvidencePolicy` also keeps the
+ * oracle off the generation pipeline it exists to be independent of — and keeps
+ * "the four surfaces agree" a claim that can actually fail, instead of a
+ * comparison of one projection with itself.
+ */
+export function registryDeclaredEmissions(action: ToolAction): readonly DeclaredEmission[] {
+  const unique = new Map<string, DeclaredEmission>();
+  for (const emission of contractEmissionsOf(action)) {
+    unique.set(`${emission.event} ${emission.condition}`, {
+      event: emission.event,
+      condition: emission.condition,
+    });
+  }
+  return [...unique.values()].sort(
+    (a, b) => compareText(a.event, b.event) || compareText(a.condition, b.condition),
+  );
+}
+
 /** The oracle declaration for a REAL registry action — every field registry-derived. */
 export function realActionDeclaration(actionId: string, action: ToolAction): ContractDeclaration {
   return {
@@ -331,10 +368,33 @@ export function realActionDeclaration(actionId: string, action: ToolAction): Con
     idempotent: action.annotations.idempotent,
     requiredRoles: registryRequiredRoles(action),
     declaredEffects: registryDeclaredEffects(action),
+    declaredEmissions: registryDeclaredEmissions(action),
     inputSchema: action.schema,
     outputSchema: action.outputSchema,
     surfaceVersion: CONTRACT_SURFACE_VERSION,
   };
+}
+
+/**
+ * The declaration for a subject whose observed value is a canned runtime
+ * ENVELOPE rather than the action's handler.
+ *
+ * Everything else is the registry-derived declaration; the emission set is
+ * withheld, and the omission is the honest reading. The observed function here
+ * is `() => envelope` — it was never the thing that appends — so scoring a
+ * declared edge against it would report a fault the oracle did not observe.
+ * Absent, the emission axis reports `not-observed`, which is not a pass.
+ */
+function envelopeObservationDeclaration(
+  actionId: string,
+  action: ToolAction,
+): ContractDeclaration {
+  const { declaredEmissions: _handlerOnly, ...envelopeObservable } = realActionDeclaration(
+    actionId,
+    action,
+  );
+  void _handlerOnly;
+  return envelopeObservable;
 }
 
 /** Every `(tool, action)` pair in the REAL registry, flattened with its ActionId. */
@@ -374,7 +434,7 @@ export function liveOutputSubjects(): OracleSubject[] {
   return realRegistryActions().map(({ action, actionId }) => {
     const envelope = sampleErrorEnvelope();
     return {
-      declaration: realActionDeclaration(actionId, action),
+      declaration: envelopeObservationDeclaration(actionId, action),
       handler: () => envelope,
       probeInput: {},
     };
@@ -397,7 +457,7 @@ export function liveSuccessOutputSubjects(): { subjects: OracleSubject[]; skippe
       continue;
     }
     subjects.push({
-      declaration: realActionDeclaration(actionId, action),
+      declaration: envelopeObservationDeclaration(actionId, action),
       handler: () => envelope,
       probeInput: {},
     });
@@ -861,10 +921,11 @@ export function realRegistryAuthorizationCase(
 
 // ─── The controlled real-registry emission case ──────────────────────────────
 //
-// `ToolAction` carries no per-action emission declaration — coupling an action
-// to the events it appends is precisely the gap this axis exists to expose — so
-// no shipped action can give the emission axis a determinate verdict today, and
-// the axis would read `not-observed` right across the live surface.
+// A shipped action DOES declare the events it appends (its contract's
+// `emissions`), but it appends them through the event store, not through the
+// recorder the oracle injects — so no shipped action can give this axis a
+// determinate verdict, and it reads `not-observed` right across the live
+// surface.
 //
 // Rather than hand-build an observation, this registers a real action the way
 // the authorization case does: through the registry's own validator, bound by
@@ -948,12 +1009,14 @@ export function realRegistryEmissionCase(
   const actionId = `${tool.name}.${action.name}`;
   const declaration: ContractDeclaration = {
     ...realActionDeclaration(actionId, action),
-    // Every other field is registry-derived. This one cannot be, because the
-    // registry has nowhere to declare it yet; it is stated on the declaration
-    // BOTH variants share, so the two remain byte-identical under
+    // Every other field is registry-derived, and this one would be too if the
+    // probe's event were a catalog event — the contract normalizer admits only
+    // catalog names, and this one is deliberately outside the catalog so the
+    // probe writes to no shipped stream. It is stated on the declaration BOTH
+    // variants share, so the two remain byte-identical under
     // `deriveGeneratedDescriptor` — no generated artifact can tell the
     // appending handler from the silent one, and only the observation can.
-    declaredEmissions: [REAL_REGISTRY_EMISSION_EVENT],
+    declaredEmissions: [{ event: REAL_REGISTRY_EMISSION_EVENT, condition: 'always' }],
   };
   return {
     tool,

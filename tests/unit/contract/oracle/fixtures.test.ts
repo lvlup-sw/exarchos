@@ -81,8 +81,16 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { makeTempDir, rmrf } from '../../../../tools/test-helpers/temp-dir.js';
-import { TOOL_REGISTRY } from '../../../../src/registry.js';
+import { TOOL_REGISTRY, contractEmissionsOf } from '../../../../src/registry.js';
 import { BINDING_TABLE } from '../../../../src/contract/bindings/binding-table.js';
+import {
+  derivePolicy,
+  projectActionContract,
+} from '../../../../src/contract/compiler/meta-model.js';
+import {
+  unconditionalEmissions,
+  verifierDeclaredEmissions,
+} from '../../../../src/dispatch/core/interceptors/emission-verifier.js';
 import {
   EMISSION_AXIS,
   ORACLE_AXES,
@@ -114,6 +122,7 @@ import {
   realRegistryAuthorizationCase,
   realRegistryEmissionCase,
   registryDeclaredEffects,
+  registryDeclaredEmissions,
   registryRequiredRoles,
   runEmissionOracleSuite,
   type DispatchContextFactory,
@@ -292,6 +301,110 @@ describe('DR-24 — live declarations are registry-derived, not fixture literals
       // No annotation claims a subprocess, so `process` is never declared —
       // a handler observed spawning one is an undeclared effect.
       expect(effects).not.toContain('process');
+    }
+  });
+});
+
+// ─── One emission vocabulary across four surfaces ────────────────────────────
+//
+// The registry's per-action `actionContract.emissions` is the authority. The
+// compiler's `EvidencePolicy.autoEmits`, the dispatch verifier's required set
+// and the oracle's `declaredEmissions` are three projections of it, each
+// reached by its own code path. The claim is that every projection is faithful
+// to the authority IN ITS OWN ROLE — the compiler and the oracle carry both
+// halves of `{event, condition}`, the verifier keeps only the `always` half —
+// so a projection that drops `condition`, or that promotes a conditional edge
+// into a required one, shows up here rather than downstream as a handler
+// failing for taking a branch its contract permits.
+
+describe('the emission vocabulary is shared by the registry, compiler, verifier and oracle', () => {
+  const pair = (e: { readonly event: string; readonly condition: string }): string =>
+    `${e.event}/${e.condition}`;
+
+  it('EmissionProjection_RegistryCompilerVerifierOracle_Agree', () => {
+    let declaring = 0;
+    let withAlways = 0;
+    let withConditional = 0;
+
+    for (const { action, actionId } of realRegistryActions()) {
+      const authority = contractEmissionsOf(action);
+      const authorityPairs = new Set(authority.map(pair));
+      const alwaysEvents = [
+        ...new Set(authority.filter((e) => e.condition === 'always').map((e) => e.event)),
+      ].sort();
+      if (authority.length > 0) declaring += 1;
+      if (alwaysEvents.length > 0) withAlways += 1;
+      if (authority.some((e) => e.condition === 'conditional')) withConditional += 1;
+
+      // The COMPILER carries both halves, for every declared edge.
+      expect(new Set(derivePolicy(action).evidence.autoEmits.map(pair)), actionId).toEqual(
+        authorityPairs,
+      );
+
+      // The VERIFIER keeps exactly the `always` half — that set, and nothing
+      // wider, is what a missing append is judged against at dispatch.
+      expect(
+        [
+          ...unconditionalEmissions(verifierDeclaredEmissions(projectActionContract(action))),
+        ].sort(),
+        actionId,
+      ).toEqual(alwaysEvents);
+
+      // The ORACLE carries both halves too, so its axis can apply the same rule.
+      expect(
+        new Set(
+          (realActionDeclaration(actionId, action).declaredEmissions ?? []).map(pair),
+        ),
+        actionId,
+      ).toEqual(authorityPairs);
+    }
+
+    // The denominator, asserted rather than assumed. Agreement over an empty
+    // corpus, or over one where every edge carries the same condition, would
+    // hold for reasons that have nothing to do with the projections.
+    expect(declaring).toBeGreaterThanOrEqual(50);
+    expect(withAlways).toBeGreaterThan(0);
+    expect(withConditional).toBeGreaterThan(0);
+  });
+
+  it('EnvelopeObservationSubjects_WithholdTheEmissionSet', () => {
+    const actions = realRegistryActions();
+    const subjects = liveOutputSubjects();
+    expect(subjects.length).toBe(actions.length);
+
+    let declaredByTheRegistry = 0;
+    for (const [index, subject] of subjects.entries()) {
+      const entry = actions[index];
+      expect(entry).toBeDefined();
+      if (entry === undefined) continue;
+      // What is observed here is `() => envelope`, never the handler, so there
+      // is no append to attribute to this subject. The set is withheld and the
+      // axis reports `not-observed` — which is not a pass.
+      expect(subject.declaration.declaredEmissions, entry.actionId).toBeUndefined();
+      if (registryDeclaredEmissions(entry.action).length > 0) declaredByTheRegistry += 1;
+    }
+
+    // The withholding is doing real work rather than describing an empty set:
+    // most of this corpus declares emissions on its contract.
+    expect(declaredByTheRegistry).toBeGreaterThanOrEqual(50);
+  });
+
+  it('EmissionAxis_RealHandlerProbes_HaveNoUnconditionalEdgeToObserve', () => {
+    // The oracle's recorder stands in for `eventStore.append`, and no shipped
+    // handler calls it, so a real subject's appends are invisible to the axis.
+    // Admission to `realHandlerSubjects` is read-only + local, and nothing in
+    // that set declares an unconditional edge — which is why the axis reports
+    // `not-observed` there instead of failing handlers it cannot watch. Pinned
+    // so a future action landing in that set names this constraint rather than
+    // reddening the real-handler suite for an unexplained reason.
+    const probed = new Set(realHandlers.subjects.map((s) => s.declaration.actionId));
+    expect(probed.size).toBeGreaterThan(0);
+    for (const { action, actionId } of realRegistryActions()) {
+      if (!probed.has(actionId)) continue;
+      expect(
+        registryDeclaredEmissions(action).filter((e) => e.condition === 'always'),
+        actionId,
+      ).toEqual([]);
     }
   });
 });
@@ -556,7 +669,7 @@ describe('the emission axis reaches a verdict on a live subject', () => {
       `${REAL_REGISTRY_EMISSION_TOOL}.${REAL_REGISTRY_EMISSION_ACTION}`,
     );
     expect(appending.subject.declaration.declaredEmissions).toEqual([
-      REAL_REGISTRY_EMISSION_EVENT,
+      { event: REAL_REGISTRY_EMISSION_EVENT, condition: 'always' },
     ]);
 
     // The recorder the seam minted really crossed the adapter: the observation

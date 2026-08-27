@@ -98,6 +98,23 @@ export type OracleAxis = (typeof ORACLE_AXES)[number];
 /** The action safety class (mirrors the registry `ActionAnnotations.safety`). */
 export type ActionSafety = 'read-only' | 'local-mutation' | 'remote-mutation' | 'compensable';
 
+/**
+ * One event a contract declares a handler appends, in the SAME `{event,
+ * condition}` vocabulary the registry declares, the compiler compiles and the
+ * dispatch verifier enforces.
+ *
+ * `condition` is the whole reason this is a record rather than a bare event
+ * name. An `always` edge is PROMISED on every call, so its absence is a fault.
+ * A `conditional` edge fires only when the run takes the branch that produces
+ * it, so its absence proves nothing and can never be a fault — it can only
+ * corroborate, by landing. Flattening the two into one list is how an axis
+ * starts failing handlers for taking a branch they were entitled to take.
+ */
+export interface DeclaredEmission {
+  readonly event: string;
+  readonly condition: 'always' | 'conditional';
+}
+
 // ─── The declared contract (the oracle's expectation source) ─────────────────
 
 /**
@@ -119,12 +136,13 @@ export interface ContractDeclaration {
   /** The effect classes the contract declares this handler may perform. */
   readonly declaredEffects: readonly EffectClass[];
   /**
-   * The event types the contract declares this handler appends — the
-   * intent/result emission set. Optional: existing declarations predate
-   * this field and declare none, so the emission axis has nothing to verify
-   * for them and reports `not-observed` rather than a vacuous `pass`.
+   * The events the contract declares this handler appends, each with the
+   * condition under which it is promised. Optional: a subject whose observed
+   * function is not the action's handler has no append to attribute, so it
+   * declares none and the emission axis reports `not-observed` rather than a
+   * vacuous `pass`.
    */
-  readonly declaredEmissions?: readonly string[];
+  readonly declaredEmissions?: readonly DeclaredEmission[];
   /** The declared input schema. */
   readonly inputSchema: z.ZodType;
   /** The declared output schema (the value a handler returns must satisfy it). */
@@ -986,6 +1004,16 @@ export interface EmissionAxisVerdict {
   readonly diagnostic: string;
 }
 
+/** The distinct event names declared under one condition, sorted. */
+function emissionEvents(
+  declared: readonly DeclaredEmission[],
+  condition: DeclaredEmission['condition'],
+): readonly string[] {
+  return [
+    ...new Set(declared.filter((e) => e.condition === condition).map((e) => e.event)),
+  ].sort(byString);
+}
+
 /**
  * DECLARED EMISSION. A handler declaring an emission it does not perform.
  * Evidence is an OBSERVED append — the emission recorder minted and injected
@@ -993,42 +1021,81 @@ export interface EmissionAxisVerdict {
  * a re-read of {@link ContractDeclaration.declaredEmissions}, which would be
  * tautological.
  *
- * `not-observed` when the contract declares no emission: there is nothing to
- * verify, and reporting `pass` would claim positive evidence this axis never
- * collected (see the module header's `not-observed` is NOT `pass`).
+ * The verdict follows the SAME `{event, condition}` semantics the dispatch
+ * emission verifier reaches over the same declarations: only `always` edges
+ * are required, so only an `always` edge can produce a `fail`. A `conditional`
+ * edge that did not fire is the branch not being taken, not a defect — but one
+ * that DID fire is positive observed evidence, and is enough to reach `pass`
+ * on its own.
+ *
+ * `not-observed` whenever nothing was required and nothing was seen: there is
+ * no evidence either way, and reporting `pass` would claim positive evidence
+ * this axis never collected (see the module header's `not-observed` is NOT
+ * `pass`).
  */
 export function checkDeclaredEmission(
   decl: ContractDeclaration,
   obs: Observation,
 ): EmissionAxisVerdict {
   const axis = EMISSION_AXIS;
-  const declared = [...new Set(decl.declaredEmissions ?? [])].sort(byString);
+  const actionId = decl.actionId;
+  const declared = decl.declaredEmissions ?? [];
+  const required = emissionEvents(declared, 'always');
+  const conditional = emissionEvents(declared, 'conditional');
+  const appended = new Set(obs.performedEmissions.map((e) => e.eventType));
+  const corroborated = conditional.filter((event) => appended.has(event));
+  const observedList = [...appended].sort(byString).join(', ') || 'none';
+
   if (declared.length === 0) {
     return {
       axis,
-      actionId: decl.actionId,
+      actionId,
       status: 'not-observed',
       diagnostic: 'contract declares no emission — nothing to observe as appended',
     };
   }
-  const appended = new Set(obs.performedEmissions.map((e) => e.eventType));
-  const missing = declared.filter((eventType) => !appended.has(eventType));
-  if (missing.length > 0) {
-    const observedList = [...appended].sort(byString).join(', ') || 'none';
+  if (required.length === 0 && corroborated.length === 0) {
     return {
       axis,
-      actionId: decl.actionId,
+      actionId,
+      status: 'not-observed',
+      diagnostic:
+        `contract declares only conditional emission(s) [${conditional.join(', ')}] and none was ` +
+        `observed appended — a conditional edge that did not fire is not a fault, and its ` +
+        `absence is not evidence either (observed appends {${observedList}})`,
+    };
+  }
+  const missing = required.filter((event) => !appended.has(event));
+  if (missing.length > 0) {
+    return {
+      axis,
+      actionId,
       status: 'fail',
       diagnostic:
-        `handler declares emission(s) [${missing.join(', ')}] but no append was observed at ` +
-        `runtime — declared {${declared.join(', ')}}; observed appends {${observedList}}`,
+        `handler declares unconditional emission(s) [${missing.join(', ')}] but no append was ` +
+        `observed at runtime — required {${required.join(', ') || 'none'}}; ` +
+        `observed appends {${observedList}}`,
+    };
+  }
+  const corroboration =
+    corroborated.length > 0 ? `; conditional edge(s) observed [${corroborated.join(', ')}]` : '';
+  if (required.length === 0) {
+    return {
+      axis,
+      actionId,
+      status: 'pass',
+      diagnostic:
+        `no unconditional emission is declared, and conditional emission(s) ` +
+        `[${corroborated.join(', ')}] were observed appended`,
     };
   }
   return {
     axis,
-    actionId: decl.actionId,
+    actionId,
     status: 'pass',
-    diagnostic: `every declared emission was observed appended (declared {${declared.join(', ')}})`,
+    diagnostic:
+      `every unconditional emission was observed appended ` +
+      `(required {${required.join(', ')}})${corroboration}`,
   };
 }
 
