@@ -576,7 +576,11 @@ describe('EventTypes', () => {
     // line. The append pre-dates the catalog and reached the store through a
     // widening assertion at the call site, so no static reader of the catalog
     // could see it and no action could be held to it.
-    expect(EventTypes).toHaveLength(177);
+    //
+    // Bumped 177 → 178 for `orchestrate.intent_executed`, the bounded action
+    // executor's own operation record — appended by the handler under the
+    // caller's operationId on both the committed and the failed path.
+    expect(EventTypes).toHaveLength(178);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');

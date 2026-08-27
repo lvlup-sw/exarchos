@@ -581,6 +581,10 @@ export const EventTypes = [
   // v2.12 does not expose admission actions, authorize generic appends, or
   // consume `admission.enforcement-enabled` to alter transition behavior.
   ...INTERNAL_ADMISSION_EVENT_TYPES,
+  // The bounded action executor's operation record (first slice) — appended
+  // under the caller's operationId on both the committed and the failed path,
+  // so a fully-failed segment leaves a queryable fact instead of zero events.
+  'orchestrate.intent_executed',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -3717,6 +3721,76 @@ export type AdmissionEnforcementEnabled = z.infer<
 // `AdmissionCutoverReadyData.parse` directly, so an exported alias would be
 // dead code (knip fails closed on unconsumed exports).
 
+// ─── Intent execution record (execute_intent, first slice) ─────────────────
+//
+// `orchestrate.intent_executed` is the operation event a bounded intent
+// segment commits under the caller's operationId, on both the committed and
+// the failed path — the fact an execute_intent call ran, closing the old
+// zero-event refusal a fully-failed segment used to leave behind.
+
+/** One compiled leaf's outcome within an executed intent segment. */
+export const IntentExecutedLeafEntry = z
+  .object({
+    action: z.string().min(1).describe('Registered action name the compiled leaf invoked'),
+    status: z
+      .enum(['passed', 'failed', 'advisory-failed'])
+      .describe('Per-leaf outcome after the runbook onFail policy was applied'),
+    sequences: z
+      .array(z.number().int().positive())
+      .describe('Event-store sequence numbers appended while executing this leaf'),
+  })
+  .strict();
+
+/**
+ * Caller-supplied steering, recorded for audit. No durable per-task riskTier/
+ * boundaryTouching stamp exists yet — `source: 'caller-args'` names honestly
+ * where these values came from rather than implying a resolved, stamped fact.
+ */
+export const IntentExecutedSteering = z
+  .object({
+    riskTier: z
+      .enum(['low', 'medium', 'high'])
+      .optional()
+      .describe('Caller-supplied risk tier passed through to the intent args'),
+    boundaryTouching: z
+      .boolean()
+      .optional()
+      .describe('Caller-supplied boundary-touching flag passed through to the intent args'),
+    source: z
+      .literal('caller-args')
+      .describe('Provenance of the two fields above — always caller-supplied this slice'),
+  })
+  .strict();
+
+export const OrchestrateIntentExecutedData = z
+  .object({
+    operationId: z
+      .string()
+      .min(1)
+      .describe('Caller-supplied (or core-minted) idempotency key for this execute_intent call'),
+    intent: z.string().min(1).describe('Named intent id that was compiled and executed'),
+    outcome: z
+      .enum(['committed', 'failed'])
+      .describe('Whether every leaf ran to completion or the segment halted on a blocking failure'),
+    failedLeaf: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('Action name of the leaf that halted the segment, present only when outcome is failed'),
+    leaves: z
+      .array(IntentExecutedLeafEntry)
+      .describe('Compact per-leaf summary in execution order'),
+    requestDigest: z
+      .string()
+      .min(1)
+      .describe('Digest of {intent, streamId, validated args} — the replay fast-path comparison key'),
+    steering: IntentExecutedSteering.optional().describe(
+      'Caller-supplied riskTier/boundaryTouching, when either was passed to execute_intent',
+    ),
+  })
+  .strict();
+export type OrchestrateIntentExecuted = z.infer<typeof OrchestrateIntentExecutedData>;
+
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
@@ -3989,6 +4063,9 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'admission.rollout-decision': AdmissionRolloutDecisionData,
   'admission.enforcement-enabled': AdmissionEnforcementEnabledData,
   'admission.cutover-ready': AdmissionCutoverReadyData,
+
+  // The bounded action executor's operation record (first slice).
+  'orchestrate.intent_executed': OrchestrateIntentExecutedData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -4325,6 +4402,8 @@ export type EventDataMap = {
   // DR-4 (wiring-closure T-06) — durable projection-health state.
   'projection.degraded': ProjectionDegraded;
   'projection.recovered': ProjectionRecovered;
+  // The bounded action executor's operation record (first slice).
+  'orchestrate.intent_executed': OrchestrateIntentExecuted;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────

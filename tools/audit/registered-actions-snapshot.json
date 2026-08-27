@@ -5,7 +5,7 @@
     "tools": 5,
     "visibleTools": 4,
     "actions": 124,
-    "eventTypes": 177
+    "eventTypes": 178
   },
   "tools": [
     {
@@ -552,6 +552,12 @@
     },
     {
       "type": "onboard.requested",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "orchestrate.intent_executed",
       "lifecycle": "active",
       "tier": "substrate",
       "rationale": "operation-record"
