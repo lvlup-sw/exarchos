@@ -47,32 +47,52 @@ import {
 import { declaredEmissionEdges } from '../../../src/events/registration-validate.js';
 import { EVIDENCE_DISCRIMINANT_CONSTANTS } from '../../../src/verbs/gates/gate-ownership-census.js';
 import { scanEvidenceEmission } from '../../../tools/test-helpers/evidence-emission-scanner.js';
+import { EnvelopeSchema } from '../../../src/contract/schemas/envelope.js';
+import { none, type ActionContract } from '../../../src/registry/action-contract.js';
+import type { ActionAnnotations, CompositeTool } from '../../../src/registry.js';
+import { z } from 'zod';
 
 const SOURCE_ROOT = join(process.cwd(), 'src');
 
 /**
- * Append sites whose discriminant does not reduce to a string, `module:line`.
+ * Append sites whose discriminant does not reduce to a string, keyed by
+ * MODULE with a COUNT of unresolved sites in it — not `module:line`. A line
+ * number is an accident of everything ABOVE the append in the same file;
+ * an edit to unrelated code earlier in a module used to redden this baseline
+ * with nothing to do about the append itself. The count is what the arm
+ * actually needs: how many sites in this module the parser cannot reduce.
  *
- * SHRINK-ONLY. An entry leaves when its site is rewritten so the parser can
- * read the discriminant as a string literal or a known constant. Adding one
- * is a deliberate act that fails here first.
+ * SHRINK-ONLY. A module's count falls only when a site in it is rewritten so
+ * the parser can read the discriminant as a string literal or a known
+ * constant — falling requires editing the baseline down, which stays
+ * visible. A new unresolved site fails immediately, either as a bumped count
+ * on an existing module or a new module key.
  */
-const UNRESOLVED_BASELINE: readonly string[] = Object.freeze([
-  'dispatch/core/onboarding/event-ctx.ts:49',
-  'events/store.ts:406',
-  'events/store.ts:530',
-  'events/tools.ts:493',
-  'projections/task-store/event-sourced-task-store.ts:817',
-  'storage/sidecar-merger.ts:126',
-  'storage/sidecar-scheduler.ts:203',
-  'vcs/mutation-owner.ts:457',
-  'vcs/mutation-owner.ts:589',
-  'verbs/gates/mutation-adequacy.ts:1447',
-  'verbs/team/prepare-delegation.ts:883',
-  'verbs/worktree/manager.ts:1385',
-  'verbs/worktree/merge-serializer.ts:204',
-  'workflow/cancel.ts:300',
-]);
+const UNRESOLVED_BASELINE: Readonly<Record<string, number>> = Object.freeze({
+  'dispatch/core/onboarding/event-ctx.ts': 1,
+  'events/store.ts': 2,
+  'events/tools.ts': 1,
+  'projections/task-store/event-sourced-task-store.ts': 1,
+  'storage/sidecar-merger.ts': 1,
+  'storage/sidecar-scheduler.ts': 1,
+  'vcs/mutation-owner.ts': 2,
+  'verbs/gates/mutation-adequacy.ts': 1,
+  'verbs/team/prepare-delegation.ts': 1,
+  'verbs/worktree/manager.ts': 1,
+  'verbs/worktree/merge-serializer.ts': 1,
+  'workflow/cancel.ts': 1,
+});
+
+/** `module -> count of unresolved append sites in it`, from the live census. */
+function unresolvedCountsByModule(
+  unresolved: readonly { readonly module: string; readonly line: number }[],
+): Readonly<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  for (const site of unresolved) {
+    counts[site.module] = (counts[site.module] ?? 0) + 1;
+  }
+  return Object.freeze(counts);
+}
 
 function censusOf(
   modulesByEvent: Record<string, readonly string[]>,
@@ -83,6 +103,47 @@ function censusOf(
     unresolved: [],
     scannedModules,
     scannedModuleCount: scannedModules.length,
+  };
+}
+
+/**
+ * A one-action composite tool whose action reasons a `none` abstention with
+ * `because`. Used to prove `reasonedAbstentions` and `auditActionOwnedAppends`
+ * key on the qualified `tool.action`, not the bare action name — a custom
+ * registry is not required to keep action names unique across tools.
+ */
+function abstainingTool(toolName: string, actionName: string, because: string): CompositeTool {
+  const contract: ActionContract = {
+    requires: none('fixture declares no precondition'),
+    ensures: none('fixture declares no postcondition'),
+    needs: none('fixture declares no capabilities'),
+    touches: { frame: 'single-machine', resources: none('fixture touches no durable resources') },
+    executionAuthority: { kind: 'local' },
+    replay: { kind: 'safe-repeat' },
+    emissions: none(because),
+  };
+  const annotations: ActionAnnotations = {
+    safety: 'read-only',
+    readOnly: true,
+    destructive: false,
+    idempotent: true,
+    openWorld: false,
+  };
+  return {
+    name: toolName,
+    description: `fixture tool ${toolName}`,
+    actions: [
+      {
+        name: actionName,
+        description: `fixture action ${actionName}`,
+        schema: z.object({}),
+        phases: new Set<string>(),
+        roles: new Set<string>(['any']),
+        outputSchema: EnvelopeSchema(z.unknown()),
+        annotations,
+        actionContract: contract,
+      },
+    ],
   };
 }
 
@@ -112,9 +173,9 @@ describe('emitter closure', () => {
     // The unresolved arm: its own denominator first, then the pinned set.
     expect(census.scannedModuleCount, 'no module was scanned').toBeGreaterThan(600);
     expect(
-      census.unresolved.map((u) => `${u.module}:${u.line}`).sort(),
-      'the unresolved append census drifted from its pinned, shrink-only baseline',
-    ).toEqual([...UNRESOLVED_BASELINE].sort());
+      unresolvedCountsByModule(census.unresolved),
+      'the unresolved append census drifted from its pinned, shrink-only per-module baseline',
+    ).toEqual(UNRESOLVED_BASELINE);
   }, 120_000);
 
   it('EmitterClosure_EveryModuleEmission_IsLiveInTheTree', async () => {
@@ -186,7 +247,13 @@ describe('emitter closure', () => {
     const audit = auditActionOwnedAppends(
       census,
       [],
-      [{ action: 'classify_review_items', because: 'groups ActionItems in memory' }],
+      [
+        {
+          action: 'classify_review_items',
+          declaringTool: 'exarchos_orchestrate',
+          because: 'groups ActionItems in memory',
+        },
+      ],
       ownership,
     );
 
@@ -217,7 +284,13 @@ describe('emitter closure', () => {
           declaringTool: 'exarchos_orchestrate',
         },
       ],
-      [{ action: 'classify_review_items', because: 'groups ActionItems in memory' }],
+      [
+        {
+          action: 'classify_review_items',
+          declaringTool: 'exarchos_orchestrate',
+          because: 'groups ActionItems in memory',
+        },
+      ],
       ownership,
     );
     expect(repaired.ok).toBe(true);
@@ -234,6 +307,7 @@ describe('emitter closure', () => {
       [
         {
           action: 'classify_review_items',
+          declaringTool: 'exarchos_orchestrate',
           module: 'verbs/review/classify-review-items.ts',
           event: 'dispatch.classified',
           wiring: 'seeded',
@@ -254,6 +328,58 @@ describe('emitter closure', () => {
     const abstentions = reasonedAbstentions();
     expect(abstentions.length).toBeGreaterThan(50);
     expect(abstentions.filter((row) => row.because.trim().length === 0)).toEqual([]);
+  });
+
+  it('EmitterClosure_SameNamedActionsOnDifferentTools_StayDistinct', () => {
+    // The registry does not enforce cross-tool action-name uniqueness, so a
+    // bare-name key can silently overwrite one tool's abstention reason with
+    // another's, or attribute a false abstention to the wrong tool. Two tools
+    // register an action of the SAME name here, each with its own reason;
+    // both must survive, correctly paired with their own tool and reason.
+    const registry: readonly CompositeTool[] = [
+      abstainingTool('tool_a', 'shared_name', 'tool_a reasons no emission'),
+      abstainingTool('tool_b', 'shared_name', 'tool_b reasons no emission'),
+    ];
+    const abstentions = reasonedAbstentions(registry);
+
+    expect(abstentions).toHaveLength(2);
+    const reasonByTool = new Map(abstentions.map((row) => [row.declaringTool, row.because]));
+    expect(reasonByTool.get('tool_a')).toBe('tool_a reasons no emission');
+    expect(reasonByTool.get('tool_b')).toBe('tool_b reasons no emission');
+
+    // Each tool's action reaches a DIFFERENT module and event. A bare-name
+    // join would let the two ownership rows collide on `shared_name` and
+    // either drop one finding or misattribute its reason to the other tool.
+    const ownership = [
+      {
+        action: 'shared_name',
+        declaringTool: 'tool_a',
+        module: 'fixtures/tool-a.ts',
+        event: 'tool.a.appended',
+        wiring: 'seeded',
+      },
+      {
+        action: 'shared_name',
+        declaringTool: 'tool_b',
+        module: 'fixtures/tool-b.ts',
+        event: 'tool.b.appended',
+        wiring: 'seeded',
+      },
+    ];
+    const census = censusOf(
+      { 'tool.a.appended': ['fixtures/tool-a.ts'], 'tool.b.appended': ['fixtures/tool-b.ts'] },
+      ['fixtures/tool-a.ts', 'fixtures/tool-b.ts'],
+    );
+
+    const audit = auditActionOwnedAppends(census, [], abstentions, ownership);
+
+    expect(audit.confirmedOwnedAppends).toBe(2);
+    expect(audit.falseAbstentions).toHaveLength(2);
+    const findingByTool = new Map(audit.falseAbstentions.map((f) => [f.declaringTool, f]));
+    expect(findingByTool.get('tool_a')?.because).toBe('tool_a reasons no emission');
+    expect(findingByTool.get('tool_a')?.event).toBe('tool.a.appended');
+    expect(findingByTool.get('tool_b')?.because).toBe('tool_b reasons no emission');
+    expect(findingByTool.get('tool_b')?.event).toBe('tool.b.appended');
   });
 
   it('EmitterClosure_UnclaimedAppend_IsReported', () => {

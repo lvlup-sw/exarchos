@@ -214,6 +214,8 @@ export function auditEmitterClosure(
 export interface ActionAppendOwnership {
   /** The registered action accountable for the append. */
   readonly action: string;
+  /** The composite tool the accountable action is registered under. */
+  readonly declaringTool: string;
   /** The module performing it, relative to the scan root, forward-slashed. */
   readonly module: string;
   /** The event type appended there. */
@@ -225,6 +227,8 @@ export interface ActionAppendOwnership {
 /** An action that declared a reasoned `none` on its emission axis. */
 export interface ActionAbstention {
   readonly action: string;
+  /** The composite tool the abstaining action is registered under. */
+  readonly declaringTool: string;
   readonly because: string;
 }
 
@@ -232,6 +236,7 @@ export interface ActionAbstention {
 export interface UnbackedOwnedAppend {
   readonly code: 'UNDECLARED_ACTION_OWNED_APPEND';
   readonly action: string;
+  readonly declaringTool: string;
   readonly event: string;
   readonly module: string;
   readonly message: string;
@@ -241,6 +246,7 @@ export interface UnbackedOwnedAppend {
 export interface FalseReasonedAbstention {
   readonly code: 'FALSE_REASONED_ABSTENTION';
   readonly action: string;
+  readonly declaringTool: string;
   readonly event: string;
   readonly module: string;
   /** The reason the action gave for emitting nothing. */
@@ -252,6 +258,7 @@ export interface FalseReasonedAbstention {
 export interface StaleAppendOwnership {
   readonly code: 'STALE_APPEND_OWNERSHIP';
   readonly action: string;
+  readonly declaringTool: string;
   readonly event: string;
   readonly module: string;
   readonly reason: 'module-not-scanned' | 'append-not-in-module';
@@ -288,14 +295,23 @@ export function reasonedAbstentions(
       try {
         const contract = normalizeActionContract(raw);
         if (contract.emissions.kind === 'none') {
-          abstentions.push({ action: action.name, because: contract.emissions.because });
+          abstentions.push({
+            action: action.name,
+            declaringTool: tool.name,
+            because: contract.emissions.because,
+          });
         }
       } catch {
         continue;
       }
     }
   }
-  return Object.freeze(abstentions.sort((a, b) => a.action.localeCompare(b.action)));
+  return Object.freeze(
+    abstentions.sort(
+      (a, b) =>
+        a.declaringTool.localeCompare(b.declaringTool) || a.action.localeCompare(b.action),
+    ),
+  );
 }
 
 /**
@@ -308,90 +324,105 @@ export function reasonedAbstentions(
 export const ACTION_APPEND_OWNERSHIP: readonly ActionAppendOwnership[] = Object.freeze([
   {
     action: 'create_pr',
+    declaringTool: 'exarchos_orchestrate',
     module: 'verbs/vcs/create-pr.ts',
     event: 'pr.create.requested',
     wiring: 'the create-PR handler journals intent before the provider call',
   },
   {
     action: 'create_pr',
+    declaringTool: 'exarchos_orchestrate',
     module: 'verbs/vcs/create-pr.ts',
     event: 'pr.create.executed',
     wiring: 'the create-PR handler journals the result after the provider call',
   },
   {
     action: 'create_issue',
+    declaringTool: 'exarchos_orchestrate',
     module: 'verbs/vcs/create-issue.ts',
     event: 'issue.create.requested',
     wiring: 'the create-issue handler journals intent before the provider call',
   },
   {
     action: 'create_issue',
+    declaringTool: 'exarchos_orchestrate',
     module: 'verbs/vcs/create-issue.ts',
     event: 'issue.create.executed',
     wiring: 'the create-issue handler journals the result after the provider call',
   },
   {
     action: 'add_pr_comment',
+    declaringTool: 'exarchos_orchestrate',
     module: 'verbs/vcs/add-pr-comment.ts',
     event: 'pr.comment.executed',
     wiring: 'the comment handler journals the result on each of its three terminal paths',
   },
   {
     action: 'merge_orchestrate',
+    declaringTool: 'exarchos_orchestrate',
     module: 'verbs/merge/execute-merge.ts',
     event: 'merge.executing_started',
     wiring: 'the orchestrator delegates to the executor, which marks the executing phase',
   },
   {
     action: 'merge_orchestrate',
+    declaringTool: 'exarchos_orchestrate',
     module: 'verbs/merge/execute-merge.ts',
     event: 'merge.retry_attempt',
     wiring: 'the executor retry hook records each timeout retry',
   },
   {
     action: 'assess_stack',
+    declaringTool: 'exarchos_orchestrate',
     module: 'verbs/vcs/assess-stack.ts',
     event: 'provider.parse-error',
     wiring: 'the stack assessor records a review adapter that threw while parsing',
   },
   {
     action: 'assess_stack',
+    declaringTool: 'exarchos_orchestrate',
     module: 'verbs/vcs/assess-stack.ts',
     event: 'provider.unknown-tier',
     wiring: 'the stack assessor records a parsed item whose tier the adapter does not know',
   },
   {
     action: 'prune_stale_workflows',
+    declaringTool: 'exarchos_orchestrate',
     module: 'verbs/team/prune-stale-workflows.ts',
     event: 'prune.diagnostics',
     wiring: 'the prune evaluation writes its own audit line, fire-and-forget',
   },
   {
     action: 'cancel',
+    declaringTool: 'exarchos_workflow',
     module: 'workflow/compensation.ts',
     event: 'branch.delete.requested',
     wiring: 'cancel is the sole caller of the compensation saga, whose branch compensator journals intent',
   },
   {
     action: 'cancel',
+    declaringTool: 'exarchos_workflow',
     module: 'workflow/compensation.ts',
     event: 'branch.delete.executed',
     wiring: 'cancel is the sole caller of the compensation saga, whose branch compensator journals the result',
   },
   {
     action: 'prepare_review',
+    declaringTool: 'exarchos_orchestrate',
     module: 'verbs/team/prepare-review.ts',
     event: 'workflow.plan-review-dispatched',
     wiring: 'the plan scope counts each dispatch at the provisioning seam',
   },
   {
     action: 'classify_review_items',
+    declaringTool: 'exarchos_orchestrate',
     module: 'verbs/review/classify-review-items.ts',
     event: 'dispatch.classified',
     wiring: 'the classifier records the grouping, best-effort',
   },
   {
     action: 'prepare_delegation',
+    declaringTool: 'exarchos_orchestrate',
     module: 'verbs/team/dispatch-guard.ts',
     event: 'stash.detected',
     wiring: 'the delegation handler calls the stash probe',
@@ -413,8 +444,19 @@ export function auditActionOwnedAppends(
   abstentions: readonly ActionAbstention[] = reasonedAbstentions(),
   ownership: readonly ActionAppendOwnership[] = ACTION_APPEND_OWNERSHIP,
 ): ActionOwnedAppendAudit {
-  const declaredByAction = new Set(actionEdges.map((edge) => `${edge.action} ${edge.event}`));
-  const abstentionBy = new Map(abstentions.map((row) => [row.action, row.because]));
+  // Qualified `declaringTool.action` — not the bare action name. Two tools
+  // (built-in registry action names are unique today, but a custom registry
+  // is not required to keep it that way) can register an action of the same
+  // name; keying on the name alone would let one overwrite the other's
+  // abstention reason and would join an ownership row against whichever tool
+  // happened to win the collision.
+  const qualify = (declaringTool: string, action: string): string => `${declaringTool}.${action}`;
+  const declaredByAction = new Set(
+    actionEdges.map((edge) => `${qualify(edge.declaringTool, edge.action)} ${edge.event}`),
+  );
+  const abstentionBy = new Map(
+    abstentions.map((row) => [qualify(row.declaringTool, row.action), row.because]),
+  );
 
   const unbacked: UnbackedOwnedAppend[] = [];
   const falseAbstentions: FalseReasonedAbstention[] = [];
@@ -424,15 +466,17 @@ export function auditActionOwnedAppends(
   for (const row of ownership) {
     // A module the census never read can neither confirm nor refute the row —
     // the same distinction the module arm draws, for the same reason.
+    const qualified = qualify(row.declaringTool, row.action);
     if (!census.scannedModules.includes(row.module)) {
       stale.push({
         code: 'STALE_APPEND_OWNERSHIP',
         action: row.action,
+        declaringTool: row.declaringTool,
         event: row.event,
         module: row.module,
         reason: 'module-not-scanned',
         message:
-          `'${row.action}' is declared to answer for '${row.event}' in '${row.module}', and the ` +
+          `'${qualified}' is declared to answer for '${row.event}' in '${row.module}', and the ` +
           'census never read that module. The path is wrong, or the module left the scanned tree; ' +
           'either way the claim rests on a file nothing measured.',
       });
@@ -442,11 +486,12 @@ export function auditActionOwnedAppends(
       stale.push({
         code: 'STALE_APPEND_OWNERSHIP',
         action: row.action,
+        declaringTool: row.declaringTool,
         event: row.event,
         module: row.module,
         reason: 'append-not-in-module',
         message:
-          `'${row.action}' is declared to answer for '${row.event}' in '${row.module}', and the ` +
+          `'${qualified}' is declared to answer for '${row.event}' in '${row.module}', and the ` +
           'census finds no such append there. Follow the append or delete the row: an ownership ' +
           'claim over an append that is gone attributes nothing while looking like attribution.',
       });
@@ -454,18 +499,19 @@ export function auditActionOwnedAppends(
     }
 
     confirmed += 1;
-    if (declaredByAction.has(`${row.action} ${row.event}`)) continue;
+    if (declaredByAction.has(`${qualified} ${row.event}`)) continue;
 
-    const because = abstentionBy.get(row.action);
+    const because = abstentionBy.get(qualified);
     if (because !== undefined) {
       falseAbstentions.push({
         code: 'FALSE_REASONED_ABSTENTION',
         action: row.action,
+        declaringTool: row.declaringTool,
         event: row.event,
         module: row.module,
         because,
         message:
-          `'${row.action}' declares that it emits nothing — "${because}" — while '${row.module}', ` +
+          `'${qualified}' declares that it emits nothing — "${because}" — while '${row.module}', ` +
           `which it reaches, appends '${row.event}'. A reasoned abstention is a statement about ` +
           'the tree, and this one is false. It is worse than a missing edge: an omission reads as ' +
           'unfinished, a wrong reason reads as settled.',
@@ -475,19 +521,23 @@ export function auditActionOwnedAppends(
     unbacked.push({
       code: 'UNDECLARED_ACTION_OWNED_APPEND',
       action: row.action,
+      declaringTool: row.declaringTool,
       event: row.event,
       module: row.module,
       message:
-        `'${row.action}' answers for the append of '${row.event}' in '${row.module}' and declares ` +
+        `'${qualified}' answers for the append of '${row.event}' in '${row.module}' and declares ` +
         'no edge for it. The event is this action\'s effect, so the action is where it belongs — ' +
         'an append attributed to nobody is one no downstream check can hold anyone to.',
     });
   }
 
   const byRow = (
-    a: { action: string; event: string },
-    b: { action: string; event: string },
-  ): number => a.action.localeCompare(b.action) || a.event.localeCompare(b.event);
+    a: { action: string; declaringTool: string; event: string },
+    b: { action: string; declaringTool: string; event: string },
+  ): number =>
+    a.declaringTool.localeCompare(b.declaringTool) ||
+    a.action.localeCompare(b.action) ||
+    a.event.localeCompare(b.event);
 
   return Object.freeze({
     ok: unbacked.length === 0 && falseAbstentions.length === 0 && stale.length === 0,
