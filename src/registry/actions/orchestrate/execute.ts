@@ -56,10 +56,12 @@ export const executeActions: readonly BuiltinToolAction[] = [
       'accepted — the caller can never submit an action array). The one shipped intent ' +
       "is 'task-completion' (the delegate-phase runbook: check_test_adequacy, " +
       'check_contract_drift, check_mock_boundary, check_static_analysis, then the ' +
-      "terminal task_complete), whose args are { taskId, worktreePath, branch?, " +
-      "riskTier?, boundaryTouching? }. riskTier/boundaryTouching are recorded on the " +
-      "receipt with steering.source:'caller-args' — no durable per-task stamp exists " +
-      'yet to read them from instead. A caller-supplied `operationId` replays: the same ' +
+      "terminal task_complete), whose args are { taskId, worktreePath, riskTier, " +
+      "boundaryTouching, branch? }. riskTier and boundaryTouching are REQUIRED: every " +
+      'gate step in that runbook passes them and a step whose variable cannot be bound ' +
+      "is refused before any effect. Both are recorded on the receipt with " +
+      "steering.source:'caller-args' — no durable per-task stamp exists yet to read " +
+      'them from instead. A caller-supplied `operationId` replays: the same ' +
       'id with the same request returns the persisted receipt and executes nothing; the ' +
       'same id with a different request is rejected.',
     schema: z

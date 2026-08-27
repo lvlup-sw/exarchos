@@ -1,3 +1,11 @@
+// @oracle-sources: ../../../../src/verbs/execute/executor.ts, the persisted operation claim the SQLite appender hands back on a replay — read out of the store rather than rebuilt in process, so a receipt the first call invented and never durably recorded cannot satisfy the comparison
+//
+// The two receipt-equality assertions here compare a receipt the executor BUILT
+// while running a segment against the one a later call with the same operation
+// id READS from the claim row. One authority is the code under test; the other
+// is the durable row it wrote. A replay answered out of memory would compare a
+// value with itself and could never disagree.
+
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp } from 'node:fs/promises';

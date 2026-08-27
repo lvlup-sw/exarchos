@@ -581,7 +581,7 @@ export const EventTypes = [
   // v2.12 does not expose admission actions, authorize generic appends, or
   // consume `admission.enforcement-enabled` to alter transition behavior.
   ...INTERNAL_ADMISSION_EVENT_TYPES,
-  // The bounded action executor's operation record (first slice) — appended
+  // The bounded action executor's operation record — appended
   // under the caller's operationId on both the committed and the failed path,
   // so a fully-failed segment leaves a queryable fact instead of zero events.
   'orchestrate.intent_executed',
@@ -3721,7 +3721,7 @@ export type AdmissionEnforcementEnabled = z.infer<
 // `AdmissionCutoverReadyData.parse` directly, so an exported alias would be
 // dead code (knip fails closed on unconsumed exports).
 
-// ─── Intent execution record (execute_intent, first slice) ─────────────────
+// ─── Intent execution record (execute_intent) ──────────────────────────────
 //
 // `orchestrate.intent_executed` is the operation event a bounded intent
 // segment commits under the caller's operationId, on both the committed and
@@ -3758,7 +3758,7 @@ export const IntentExecutedSteering = z
       .describe('Caller-supplied boundary-touching flag passed through to the intent args'),
     source: z
       .literal('caller-args')
-      .describe('Provenance of the two fields above — always caller-supplied this slice'),
+      .describe('Provenance of the two fields above — caller-supplied, never a resolved durable stamp'),
   })
   .strict();
 
@@ -4064,7 +4064,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'admission.enforcement-enabled': AdmissionEnforcementEnabledData,
   'admission.cutover-ready': AdmissionCutoverReadyData,
 
-  // The bounded action executor's operation record (first slice).
+  // The bounded action executor's operation record.
   'orchestrate.intent_executed': OrchestrateIntentExecutedData,
 };
 
@@ -4402,7 +4402,7 @@ export type EventDataMap = {
   // DR-4 (wiring-closure T-06) — durable projection-health state.
   'projection.degraded': ProjectionDegraded;
   'projection.recovered': ProjectionRecovered;
-  // The bounded action executor's operation record (first slice).
+  // The bounded action executor's operation record.
   'orchestrate.intent_executed': OrchestrateIntentExecuted;
 };
 

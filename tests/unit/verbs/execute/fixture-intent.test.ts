@@ -1,3 +1,5 @@
+// @oracle-sources: ../../../../src/verbs/execute/executor.ts, the three-leaf CHAIN table this file writes by hand — the population every per-leaf predicate quantifies over is pinned against that list on the line above each quantifier so an empty receipt cannot satisfy one vacuously
+//
 // ─── Fixture intents: what the executor's semantics look like end to end ────
 //
 // The suite in `executor.test.ts` pins one property per test. This one runs
@@ -30,10 +32,8 @@ import * as path from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
-import {
-  enforceResponseEconomy,
-  evaluateDispatchAdmission,
-} from '../../../../src/dispatch/core/dispatch.js';
+import { enforceResponseEconomy } from '../../../../src/dispatch/core/dispatch.js';
+import { evaluateDispatchAdmission } from '../../../../src/dispatch/core/dispatch-admission.js';
 import { estimateOutputTokens } from '../../../../src/dispatch/core/economy.js';
 import {
   runWithDispatchContext,

@@ -111,7 +111,7 @@ import type { HandleAddArgs } from './invariants/add.js';
 import { realScaffoldDeps } from './invariants/fs-deps.js';
 import { applyLadderGateSeverity, resolvePhaseMode } from './gates/gate-utils.js';
 import { resolveWorkflowState } from './resolve-state.js';
-import { handleExecuteIntent } from './execute/executor.js';
+import { handleExecuteIntent, productionExecuteDeps } from './execute/executor.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -399,11 +399,11 @@ function adaptSetupWorktree(): ActionHandler {
 }
 
 /**
- * The routing table. Exported because the bounded action executor invokes a
- * compiled leaf through the SAME entry this composite would route to — a
- * second copy of the mapping is a second thing that can drift from the
- * registry. Consumers inside this package read it lazily, inside a call, so a
- * module that this one also imports never has to be evaluated first.
+ * The routing table. The bounded action executor invokes a compiled leaf
+ * through the SAME entry this composite would route to — a second copy of the
+ * mapping is a second thing that can drift from the registry — but it receives
+ * the table as an argument from the `execute_intent` entry below rather than
+ * importing it, which is what keeps the two modules off a runtime ring.
  */
 export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   task_claim: adaptWithEventStore(handleTaskClaim),
@@ -553,13 +553,19 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   // the 4th (deps) parameter is a test-only seam left at its default here.
   cutover_readiness: adaptWithEventStore(handleCutoverReadiness),
   cutover_decide: adaptWithEventStore(handleCutoverDecide),
-  // The bounded action executor (first slice). `handleExecuteIntent` requires
-  // a DispatchContext (it re-enters admission and the store per leaf), unlike
+  // The bounded action executor. `handleExecuteIntent` requires a
+  // DispatchContext (it re-enters admission and the store per leaf), unlike
   // the other `adaptWithCtx` entries above whose handlers treat ctx as
   // optional — so this is a direct ActionHandler rather than that adapter.
+  //
+  // The table below is handed IN rather than read back by the executor: this
+  // module owns it, and the executor importing it would close a runtime ring
+  // through the dispatch core. Reading `ACTION_HANDLERS` from inside a closure
+  // that only ever runs after this literal is bound is what makes the
+  // self-reference safe.
   execute_intent: async (args, stateDir, ctx) => {
     if (!ctx) throw new Error('DispatchContext required for execute_intent');
-    return handleExecuteIntent(args, stateDir, ctx);
+    return handleExecuteIntent(args, stateDir, ctx, productionExecuteDeps(ACTION_HANDLERS));
   },
 };
 

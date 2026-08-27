@@ -19,19 +19,20 @@ import { z } from 'zod';
  * the gate registrations declare, so a value that passes here is a value the
  * gate schemas will also accept.
  *
- * Optional HERE, and required in practice for this runbook: every gate step in
- * `task-completion` passes them as `<var>` placeholders, and the compiler
- * refuses a placeholder it cannot bind. The requirement therefore lives where
- * the reference does — a runbook whose steps do not name them compiles without
- * them, and this schema does not have to be re-cut per runbook to say so.
+ * Both are REQUIRED, because every gate step in `task-completion` passes them
+ * as `<var>` placeholders and the compiler refuses a placeholder it cannot
+ * bind. Leaving them optional here said "omit these" to a caller reading the
+ * schema and then refused the call anyway — the schema and the runbook
+ * disagreed about the same fact. A runbook whose steps do not name them gets
+ * its own schema; this one states what this runbook needs.
  */
 export const TaskCompletionArgs = z
   .object({
     taskId: z.string().min(1),
     worktreePath: z.string().min(1),
     branch: z.string().min(1).optional(),
-    riskTier: z.enum(['low', 'medium', 'high']).optional(),
-    boundaryTouching: z.boolean().optional(),
+    riskTier: z.enum(['low', 'medium', 'high']),
+    boundaryTouching: z.boolean(),
   })
   .strict();
 

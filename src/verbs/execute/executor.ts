@@ -19,16 +19,20 @@
 //   appends its operation event, so the log distinguishes "ran and failed"
 //   from "crashed mid-segment" — the latter leaves no claim and no event.
 //
-// The registry is reached through the published root module; the handler table
-// is read lazily inside the call so this module and the composite that will
-// route to it do not have to be loaded in a particular order.
+// The registry is reached through the published root module. The handler table
+// is INJECTED by whoever owns it rather than read back from the composite that
+// routes here: reading it back was a runtime import edge closing a ring
+// between this module, that composite, and the dispatch core.
 
 import { createHash, randomUUID } from 'node:crypto';
 
 import { resolveEmissionEnforcement } from '../../config/resolve.js';
 import { snapshotCallerAuthorization } from '../../dispatch/caller-identity.js';
 import { observeActionPostconditions } from '../../dispatch/core/action-postconditions.js';
-import { evaluateDispatchAdmission, type DispatchContext } from '../../dispatch/core/dispatch.js';
+import { evaluateDispatchAdmission } from '../../dispatch/core/dispatch-admission.js';
+// Type-only, and deliberately so: the dispatch module routes to the composite
+// that routes here, so a value import of it would close a runtime ring.
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import {
   EMISSION_VIOLATION_EVENT,
   runEmissionVerifierInterceptor,
@@ -81,11 +85,24 @@ export type LeafHandler = (
 export type LeafHandlerTable = Readonly<Record<string, LeafHandler>>;
 
 export interface ExecuteIntentDeps extends CompileDeps {
-  /** Handler table override. Absent means the live orchestrate table, read lazily. */
-  readonly handlers?: LeafHandlerTable;
+  /**
+   * The table a compiled leaf is invoked through. Injected rather than read
+   * back, and required for that reason: the orchestrate composite owns the
+   * live table and routes to this module, so reaching back for it would close
+   * a runtime import ring between the two. Tests supply their own fixture
+   * table through the same parameter.
+   */
+  readonly handlers: LeafHandlerTable;
 }
 
-export const PRODUCTION_EXECUTE_DEPS: ExecuteIntentDeps = { ...PRODUCTION_COMPILE_DEPS };
+/**
+ * The production collaborator set, closed over the caller's handler table. The
+ * registry-backed compile deps belong to this module; the handler table does
+ * not, so its owner passes it in.
+ */
+export function productionExecuteDeps(handlers: LeafHandlerTable): ExecuteIntentDeps {
+  return { ...PRODUCTION_COMPILE_DEPS, handlers };
+}
 
 // ─── Request validation ─────────────────────────────────────────────────────
 
@@ -96,6 +113,11 @@ function invalid(message: string): ToolResult {
 function readString(raw: Record<string, unknown>, key: string): string | undefined {
   const value = raw[key];
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+/** A plain object of intent arguments — not an array, not null. */
+function isArgsObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 // ─── Digest ─────────────────────────────────────────────────────────────────
@@ -302,7 +324,7 @@ export async function handleExecuteIntent(
   raw: Record<string, unknown>,
   stateDir: string,
   ctx: DispatchContext,
-  deps: ExecuteIntentDeps = PRODUCTION_EXECUTE_DEPS,
+  deps: ExecuteIntentDeps,
 ): Promise<ToolResult> {
   const intent = readString(raw, 'intent');
   if (intent === undefined) {
@@ -331,9 +353,13 @@ export async function handleExecuteIntent(
     );
   }
 
+  let intentArgs: Record<string, unknown> = {};
   const rawArgs = raw.args;
-  if (rawArgs !== undefined && (typeof rawArgs !== 'object' || rawArgs === null || Array.isArray(rawArgs))) {
-    return invalid('args must be an object of typed intent arguments');
+  if (rawArgs !== undefined) {
+    if (!isArgsObject(rawArgs)) {
+      return invalid('args must be an object of typed intent arguments');
+    }
+    intentArgs = rawArgs;
   }
 
   // A caller-supplied key has to satisfy the same grammar the admission layer
@@ -361,12 +387,7 @@ export async function handleExecuteIntent(
     operationId = validated.data;
   }
 
-  const compiled = compileIntent(
-    intent,
-    { streamId },
-    (rawArgs as Record<string, unknown> | undefined) ?? {},
-    deps,
-  );
+  const compiled = compileIntent(intent, { streamId }, intentArgs, deps);
   if (!compiled.ok) {
     return {
       success: false,
@@ -392,7 +413,7 @@ export async function handleExecuteIntent(
     return receiptResult(claim.result);
   }
 
-  const handlers = deps.handlers ?? (await import('../composite.js')).ACTION_HANDLERS;
+  const handlers = deps.handlers;
   const outer = outerCorrelation(ctx);
   const committed = await runSegment({
     segment,
@@ -708,7 +729,10 @@ async function commitReceipt(
   input: RunSegmentInput,
   receipt: IntentReceipt,
 ): Promise<CommitOutcome> {
-  const data = OrchestrateIntentExecutedData.parse({
+  // The schema's own parse output is the event payload. Typing the binding as
+  // the record shape the event carries is what makes it one, so nothing has to
+  // be asserted across the seam.
+  const data: Record<string, unknown> = OrchestrateIntentExecutedData.parse({
     operationId: receipt.operationId,
     intent: receipt.intent,
     outcome: receipt.outcome,
@@ -730,7 +754,7 @@ async function commitReceipt(
   return runWithDispatchContext(input.outer, async (): Promise<CommitOutcome> => {
     const event = stampFromAmbient({
       type: INTENT_EXECUTED_EVENT,
-      data: data as unknown as Record<string, unknown>,
+      data,
       timestamp: new Date().toISOString(),
       schemaVersion: '1.0',
     });

@@ -1,3 +1,5 @@
+// @oracle-sources: ../../../../src/verbs/execute/executor.ts, the by-hand primitive baseline this file drives — the same compiled leaves invoked one at a time through the orchestrate handler table against a SECOND event store with the runbook's stop policy applied by the loop rather than by the executor
+//
 // ─── Composition parity: driving the leaves vs executing the intent ─────────
 //
 // The bounded executor's whole claim is that it changes WHO drives the
@@ -99,7 +101,9 @@ function deps(): ExecuteIntentDeps {
     runbookTable: [subsetRunbook()],
     findAction: findActionInRegistry,
     argSchemas: { [SUBSET_INTENT]: schema },
-    // No handler override: the live orchestrate table is the point.
+    // The LIVE orchestrate table, not a fixture one — the composite hands the
+    // executor this same object, so both paths reach the same handlers.
+    handlers: ACTION_HANDLERS,
   };
 }
 

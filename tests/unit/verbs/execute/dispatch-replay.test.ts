@@ -62,35 +62,16 @@ vi.mock('../../../../src/verbs/execute/arg-schemas.js', async (importOriginal) =
   };
 });
 
-vi.mock('../../../../src/verbs/composite.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../../src/verbs/composite.js')>();
-  const { appendingHandler } = await import('./fixtures.js');
-  const inner = appendingHandler('task.completed');
-  return {
-    ...actual,
-    ACTION_HANDLERS: {
-      ...actual.ACTION_HANDLERS,
-      [FIXTURE_LEAF]: async (
-        args: Record<string, unknown>,
-        stateDir: string,
-        ctx?: Parameters<typeof inner>[2],
-      ) => {
-        leaf.calls += 1;
-        return inner(args, stateDir, ctx);
-      },
-    },
-  };
-});
-
 import { deriveLocalOperatorIdentity } from '../../../../src/dispatch/caller-identity.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { dispatch } from '../../../../src/dispatch/core/dispatch.js';
 import { EMISSION_VIOLATION_EVENT } from '../../../../src/dispatch/core/interceptors/emission-verifier.js';
 import { EventStore } from '../../../../src/events/store.js';
 import { clearCustomTools, registerCustomTool } from '../../../../src/registry.js';
+import { ACTION_HANDLERS } from '../../../../src/verbs/composite.js';
 import { INTENT_EXECUTED_EVENT } from '../../../../src/verbs/execute/executor.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
-import { fixtureAction } from './fixtures.js';
+import { appendingHandler, fixtureAction } from './fixtures.js';
 
 let stateDir: string;
 let store: EventStore;
@@ -108,9 +89,26 @@ beforeAll(() => {
       }),
     ],
   });
+  // The leaf's handler goes into the orchestrate table ITSELF, which is the
+  // object the composite hands the executor. Replacing the module's export
+  // would not reach it: the composite reads its own table directly, so an
+  // override visible only to importers would leave the real path unchanged.
+  // Reverted below, so the table this file borrows is the table it returns.
+  const inner = appendingHandler('task.completed');
+  Object.assign(ACTION_HANDLERS, {
+    [FIXTURE_LEAF]: async (
+      args: Record<string, unknown>,
+      stateDir: string,
+      ctx?: Parameters<typeof inner>[2],
+    ) => {
+      leaf.calls += 1;
+      return inner(args, stateDir, ctx);
+    },
+  });
 });
 
 afterAll(() => {
+  Reflect.deleteProperty(ACTION_HANDLERS, FIXTURE_LEAF);
   clearCustomTools();
 });
 

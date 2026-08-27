@@ -187,6 +187,12 @@ describe('compileIntent argument construction', () => {
   it('UnboundPlaceholder_RefusesRatherThanDroppingOut', () => {
     // The placeholder used to drop out silently and the leaf ran without the
     // value. The step naming the variable is what makes it required.
+    //
+    // The fixture intent's schema deliberately leaves `riskTier` optional, so
+    // this is the case a shipped schema no longer reaches: an intent whose
+    // author forgot to require a variable their runbook references. That is
+    // the population the compiler-side check exists for, and pinning it here
+    // keeps the check from going vacuous as shipped schemas tighten.
     const deps = depsFor([fixtureStep('fixture_pass', 'stop', { riskTier: '<riskTier>' })]);
     const refusal = refusalOf(compileIntent('fixture-intent', SUBJECT, ARGS, deps));
     expect(refusal.code).toBe('INTENT_TEMPLATE_VAR_UNBOUND');
@@ -200,6 +206,38 @@ describe('compileIntent argument construction', () => {
       compileIntent('fixture-intent', SUBJECT, { ...ARGS, riskTier: 'low' }, deps),
     );
     expect(leaves[0]?.args).toMatchObject({ riskTier: 'low' });
+  });
+
+  it('StepParamNamedStreamId_CannotDisplaceTheSubject', () => {
+    // Subject identity is the executor's contract with the emission check: the
+    // leaf commits to the stream the check watches. A runbook param spelled
+    // like the subject used to win, because step params were merged AFTER it —
+    // so a leaf would run against one stream while verification read another.
+    const identityShaped = fixtureAction({
+      name: 'fixture_pass',
+      schema: z
+        .object({
+          featureId: z.string().min(1),
+          streamId: z.string().min(1),
+          taskId: z.string().min(1),
+        })
+        .strict(),
+    });
+    const deps = depsFor(
+      [
+        fixtureStep('fixture_pass', 'stop', {
+          streamId: 'other-stream',
+          featureId: 'other-feature',
+        }),
+      ],
+      { findAction: findFixtureAction([identityShaped]) },
+    );
+    const leaves = segmentOf(compileIntent('fixture-intent', SUBJECT, ARGS, deps));
+    expect(leaves[0]?.args).toEqual({
+      featureId: 'wf-compile',
+      streamId: 'wf-compile',
+      taskId: 'task-1',
+    });
   });
 });
 
@@ -248,11 +286,12 @@ describe('compileIntent over the live registry', () => {
   });
 
   it('TaskCompletion_WithoutRiskTier_RefusesBeforeAnyEffect', () => {
-    // The intent's own schema takes `riskTier` as optional, but every gate step
-    // in the runbook passes `<riskTier>` — and the kill-probe gate routes on it,
-    // degrading an unproven probe to an advisory skip when it arrives tierless.
-    // A segment that would run the load-bearing per-task gate with no tier is
-    // refused at compile time rather than reported as a pass afterwards.
+    // Every gate step in this runbook passes `<riskTier>`, and the kill-probe
+    // gate routes on it — arriving tierless degrades an unproven probe to an
+    // advisory skip. The intent's own schema now REQUIRES the tier, so the
+    // refusal lands on the schema rather than on the step that would have used
+    // it; either way nothing runs. The compiler's own refusal keeps its teeth
+    // over a fixture intent above, where the schema leaves the var optional.
     const outcome = compileIntent(
       'task-completion',
       { streamId: 'wf-live' },
@@ -260,8 +299,7 @@ describe('compileIntent over the live registry', () => {
       PRODUCTION_COMPILE_DEPS,
     );
     const refusal = refusalOf(outcome);
-    expect(refusal.code).toBe('INTENT_TEMPLATE_VAR_UNBOUND');
-    expect(refusal.step).toBe('0:check_test_adequacy');
+    expect(refusal.code).toBe('INTENT_ARGS_INVALID');
     expect(refusal.message).toContain('riskTier');
   });
 
@@ -272,7 +310,9 @@ describe('compileIntent over the live registry', () => {
       { taskId: 'task-9', worktreePath: '/tmp/agent-wt', riskTier: 'high' },
       PRODUCTION_COMPILE_DEPS,
     );
-    expect(refusalOf(outcome).code).toBe('INTENT_TEMPLATE_VAR_UNBOUND');
+    const refusal = refusalOf(outcome);
+    expect(refusal.code).toBe('INTENT_ARGS_INVALID');
+    expect(refusal.message).toContain('boundaryTouching');
   });
 
   it('EveryOtherRunbook_IsNotCompilable_OneIntentShips', () => {

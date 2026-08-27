@@ -80,7 +80,9 @@ function resolveParams(
     if (typeof value === 'string') {
       const match = PLACEHOLDER.exec(value);
       if (match !== null) {
-        const variable = match[1] as string;
+        // The pattern is anchored at both ends, so the whole param value IS the
+        // placeholder and the name is what sits inside the angle brackets.
+        const variable = value.slice(1, -1);
         const bound = args[variable];
         if (bound === undefined) return { ok: false, unbound: { param: key, variable } };
         resolved[key] = bound;
@@ -117,11 +119,17 @@ function buildLeafArgs(
   for (const [key, value] of Object.entries(args)) {
     if (value !== undefined && declaredKeys.has(key)) candidate[key] = value;
   }
-  if (declaredKeys.has('featureId')) candidate.featureId = subject.streamId;
-  if (declaredKeys.has('streamId')) candidate.streamId = subject.streamId;
   const resolved = resolveParams(step.params, args);
   if (!resolved.ok) return { ok: false, unbound: resolved.unbound };
   Object.assign(candidate, resolved.params);
+
+  // Subject identity is written LAST, so it is authoritative over anything a
+  // runbook step or an intent argument spells the same way. Written earlier, a
+  // step param named `streamId`/`featureId` would overwrite it and the leaf
+  // would commit to one stream while the emission check watched another — the
+  // exact misdirection the two-spellings refusal upstream exists to prevent.
+  if (declaredKeys.has('featureId')) candidate.featureId = subject.streamId;
+  if (declaredKeys.has('streamId')) candidate.streamId = subject.streamId;
 
   const parsed = declaration.schema.safeParse(candidate);
   if (!parsed.success) {

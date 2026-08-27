@@ -135,7 +135,7 @@ export interface ReceiptSteering {
 }
 
 /**
- * The interaction economy this slice can honestly measure. `deferred` names the
+ * The interaction economy this action can honestly measure. `deferred` names the
  * fields a fuller accounting owes and this one does not attempt, so a reader
  * cannot mistake an absent field for a measured zero.
  */

@@ -4,9 +4,9 @@
 // (the handler's own behavior is covered by `compile.test.ts` / `executor.test.ts`):
 //
 //   1. The composite router: `exarchos_orchestrate` dispatches action
-//      'execute_intent' to `handleExecuteIntent` and envelope-wraps whatever it
-//      returns — the mocked-composite pattern `tools.test.ts` (T038) already
-//      uses for every other routed action.
+//      'execute_intent' to `handleExecuteIntent`, hands it the live handler
+//      table, and envelope-wraps whatever it returns — the stubbed-handler
+//      pattern `tools.test.ts` already uses for every other routed action.
 //   2. The registered economy declaration: over the declared budget, the real
 //      registered action's `economy.summarize` (not the generic list fallback)
 //      caps the receipt while keeping the four fields a caller needs to keep
@@ -20,7 +20,11 @@ import { estimateOutputTokens } from '../../../../src/dispatch/core/economy.js';
 import { EventStore } from '../../../../src/events/store.js';
 import { findActionInRegistry } from '../../../../src/registry.js';
 
-vi.mock('../../../../src/verbs/execute/executor.js', () => ({
+// Partial mock: only the handler is stubbed. `productionExecuteDeps` stays
+// real, because the assertion below is that the composite hands the executor
+// the live handler table rather than the executor reaching back for it.
+vi.mock('../../../../src/verbs/execute/executor.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../src/verbs/execute/executor.js')>()),
   handleExecuteIntent: vi.fn().mockResolvedValue({
     success: true,
     data: {
@@ -62,6 +66,9 @@ describe('exarchos_orchestrate routes execute_intent (registration boundary)', (
     expect(call?.[0]).toEqual({ intent: 'task-completion', featureId: 'f1', args: { taskId: 't1', worktreePath: '/tmp/wt' } });
     expect(call?.[1]).toBe(stateDir);
     expect(call?.[2]).toBe(ctx);
+    // The table is handed IN. If the composite ever stopped passing it, the
+    // executor would have nothing to route a compiled leaf through.
+    expect(Object.keys(call?.[3]?.handlers ?? {})).toContain('task_complete');
 
     expect(result.success).toBe(true);
     expect(Object.hasOwn(result, 'data')).toBe(true);
