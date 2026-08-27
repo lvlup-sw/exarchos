@@ -473,6 +473,13 @@ export const EventTypes = [
   // deterministic plumbing: the WorktreeManager owns both appends around the pass.
   'prune.executing_started',
   'prune.executed',
+  // The prune evaluation's own audit record — how many handleList entries were
+  // rejected as malformed and how many survived as candidates. Appended on every
+  // non-suppressed evaluation, including the clean one, so "a prune ran and found
+  // nothing" is distinguishable from "no prune ran". The append site pre-dates the
+  // catalog and reached the store through a widening assertion; registering the
+  // type is what lets the emission ledger see it at all.
+  'prune.diagnostics',
   // DR-4 (wiring-closure T-06) — durable projection-health state.
   //
   // `_meta.projectionDegraded` was an EPHEMERAL per-response annotation:
@@ -3052,6 +3059,26 @@ export const PruneExecutingStartedData = z.object({
   ...livenessInstanceFields,
 });
 
+/**
+ * The prune evaluation's audit record.
+ *
+ * `malformedEntries` mirrors the diagnostic entries the handler returns to its
+ * caller: a rejected entry may have no readable `featureId` — that is precisely
+ * why it was rejected — so the field is optional and the reasons carry the
+ * detail.
+ */
+export const PruneDiagnosticsData = z.object({
+  malformedCount: z.number().int().nonnegative(),
+  candidateCount: z.number().int().nonnegative(),
+  malformedEntries: z.array(
+    z.object({
+      featureId: z.string().optional(),
+      reasons: z.array(z.string()),
+    }),
+  ),
+  advisory: z.string().optional(),
+});
+
 /** Paired TERMINAL: the `prune_worktrees` GC pass completed (DR-3). */
 export const PruneExecutedData = z.object({
   operationId: z.string().min(1),
@@ -3890,6 +3917,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   // WLM slice 3 (DR-3 / INV-10) — prune-run liveness pair.
   'prune.executing_started': PruneExecutingStartedData,
   'prune.executed': PruneExecutedData,
+  'prune.diagnostics': PruneDiagnosticsData,
 
   // DR-6 (lifecycle-verbs task 012) — export two-event contract (INV-13 / INV-8).
   'export.requested': ExportRequestedData,
@@ -4078,6 +4106,7 @@ export type FeedbackRecorded = z.infer<typeof FeedbackRecordedData>;
 // WLM slice 3 (DR-3 / INV-10) — prune-run liveness pair.
 export type PruneExecutingStarted = z.infer<typeof PruneExecutingStartedData>;
 export type PruneExecuted = z.infer<typeof PruneExecutedData>;
+export type PruneDiagnostics = z.infer<typeof PruneDiagnosticsData>;
 
 // DR-6 (lifecycle-verbs task 012) — export two-event contract (INV-13 / INV-8).
 export type ExportRequested = z.infer<typeof ExportRequestedData>;
@@ -4242,6 +4271,7 @@ export type EventDataMap = {
   // WLM slice 3 (DR-3 / INV-10) — prune-run liveness pair.
   'prune.executing_started': PruneExecutingStarted;
   'prune.executed': PruneExecuted;
+  'prune.diagnostics': PruneDiagnostics;
   // DR-6 (lifecycle-verbs task 012) — export two-event contract (INV-13 / INV-8).
   'export.requested': ExportRequested;
   'export.executed': ExportExecuted;

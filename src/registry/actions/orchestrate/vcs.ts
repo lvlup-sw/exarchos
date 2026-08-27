@@ -11,12 +11,25 @@ const VCS_READ_ENSURES = none('read-only VCS queries write no durable postcondit
 const VCS_PROVIDER_NEEDS = none('VCS provider calls are not in the closed capability vocabulary');
 const VCS_READ_EMISSIONS = none('read-only VCS queries emit no catalog events');
 
+/**
+ * The mutating VCS handlers journal intent before the remote call and the
+ * result after it, and BOTH records land on the shared `vcs` stream rather than
+ * on a feature stream. Dispatch resolves the stream it observes postconditions
+ * against from the call's own arguments (or an infrastructure selector), and
+ * `vcs` is neither, so an `ensures` here would name a fact the observer looks
+ * for in the wrong place and report every successful call as a violation. The
+ * appends are declared on the emission axis instead, which is stream-agnostic.
+ */
+const VCS_SPLIT_ENSURES = none(
+  'the intent/result records land on the shared vcs stream, which post-dispatch observation does not resolve from this action\'s arguments',
+);
+
 export const vcsActions: readonly BuiltinToolAction[] = [
   // ─── VCS Actions ──────────────────────────────────────────────────────────
   withActionContract(
     {
       name: 'create_pr',
-      description: 'Create a pull/merge request via the VCS provider abstraction. Auto-emits pr.created event.',
+      description: 'Create a pull/merge request via the VCS provider abstraction. Auto-emits pr.create.requested before the provider call and pr.create.executed after it.',
       schema: z.object({
         title: z.string().min(1),
         body: z.string().min(1),
@@ -36,7 +49,7 @@ export const vcsActions: readonly BuiltinToolAction[] = [
     },
     {
       requires: none('PR creation has no admission gate or approval discriminant'),
-      ensures: declared({ source: 'event-append', when: 'success', event: 'pr.created' }),
+      ensures: VCS_SPLIT_ENSURES,
       needs: VCS_PROVIDER_NEEDS,
       touches: {
         frame: 'single-machine',
@@ -47,7 +60,13 @@ export const vcsActions: readonly BuiltinToolAction[] = [
       },
       executionAuthority: { kind: 'local' },
       replay: { kind: 'reject-replay', because: 'creating a pull request is a remote side effect that would open a second request' },
-      emissions: declared({ event: 'pr.created', condition: 'always', owner: 'orchestrate', role: 'primary' }),
+      // `pr.created` used to stand here. Nothing in the shipped tree appends it —
+      // the handler has journalled the intent/result pair since the two-event
+      // split — so the declaration named an event that could never land.
+      emissions: declared(
+        { event: 'pr.create.requested', condition: 'always', owner: 'orchestrate', role: 'primary' },
+        { event: 'pr.create.executed', condition: 'always', owner: 'orchestrate', role: 'primary' },
+      ),
     },
     { annotations: COMPENSABLE_REMOTE },
   ),
@@ -174,7 +193,7 @@ export const vcsActions: readonly BuiltinToolAction[] = [
   withActionContract(
     {
       name: 'add_pr_comment',
-      description: 'Add a comment to a pull/merge request via the VCS provider abstraction. Pass threadId to reply into an existing review-comment thread (provider-agnostic addReply) instead of posting a PR-level comment. Auto-emits pr.commented event.',
+      description: 'Add a comment to a pull/merge request via the VCS provider abstraction. Pass threadId to reply into an existing review-comment thread (provider-agnostic addReply) instead of posting a PR-level comment. Auto-emits pr.comment.requested before the provider call and pr.comment.executed after it.',
       schema: z.object({
         prId: z.string().min(1),
         body: z.string().min(1),
@@ -187,7 +206,7 @@ export const vcsActions: readonly BuiltinToolAction[] = [
     },
     {
       requires: none('PR comments have no admission gate or approval discriminant'),
-      ensures: declared({ source: 'event-append', when: 'success', event: 'pr.commented' }),
+      ensures: VCS_SPLIT_ENSURES,
       needs: VCS_PROVIDER_NEEDS,
       touches: {
         frame: 'single-machine',
@@ -195,14 +214,21 @@ export const vcsActions: readonly BuiltinToolAction[] = [
       },
       executionAuthority: { kind: 'local' },
       replay: { kind: 'reject-replay', because: 'posting a comment is a remote side effect that would duplicate the thread entry' },
-      emissions: declared({ event: 'pr.commented', condition: 'always', owner: 'orchestrate', role: 'primary' }),
+      // `pr.commented` used to stand here and nothing appends it. The intent
+      // record rides `appendComputed`, which the append-site census cannot read
+      // through, so declaring it shrinks no measurement — it is declared anyway
+      // because the handler does perform it.
+      emissions: declared(
+        { event: 'pr.comment.requested', condition: 'always', owner: 'orchestrate', role: 'primary' },
+        { event: 'pr.comment.executed', condition: 'always', owner: 'orchestrate', role: 'primary' },
+      ),
     },
     { annotations: COMPENSABLE_REMOTE },
   ),
   withActionContract(
     {
       name: 'create_issue',
-      description: 'Create an issue via the VCS provider abstraction. Auto-emits issue.created event.',
+      description: 'Create an issue via the VCS provider abstraction. Auto-emits issue.create.requested before the provider call and issue.create.executed after it.',
       schema: z.object({
         title: z.string().min(1),
         body: z.string().min(1),
@@ -215,7 +241,7 @@ export const vcsActions: readonly BuiltinToolAction[] = [
     },
     {
       requires: none('issue creation has no admission gate or approval discriminant'),
-      ensures: declared({ source: 'event-append', when: 'success', event: 'issue.created' }),
+      ensures: VCS_SPLIT_ENSURES,
       needs: VCS_PROVIDER_NEEDS,
       touches: {
         frame: 'single-machine',
@@ -223,7 +249,11 @@ export const vcsActions: readonly BuiltinToolAction[] = [
       },
       executionAuthority: { kind: 'local' },
       replay: { kind: 'reject-replay', because: 'creating an issue is a remote side effect that would open a second issue' },
-      emissions: declared({ event: 'issue.created', condition: 'always', owner: 'orchestrate', role: 'primary' }),
+      // `issue.created` used to stand here and nothing appends it.
+      emissions: declared(
+        { event: 'issue.create.requested', condition: 'always', owner: 'orchestrate', role: 'primary' },
+        { event: 'issue.create.executed', condition: 'always', owner: 'orchestrate', role: 'primary' },
+      ),
     },
     { annotations: COMPENSABLE_REMOTE },
   ),

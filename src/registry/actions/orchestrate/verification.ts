@@ -333,10 +333,21 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     outputSchema: vacuityWaiver('exarchos_orchestrate.classify_review_items'),
     annotations: LOCAL_MUTATION,
   }, {
-    ensures: none('classify_review_items groups ActionItems in memory and appends no catalog events'),
+    // The classification telemetry is best-effort by design: the handler logs an
+    // append failure and still returns the grouping, which is the shepherd-visible
+    // result. A postcondition would turn that deliberate tolerance into a dispatch
+    // failure, so the append is carried on the emission axis alone.
+    ensures: none('the classification record is best-effort — the handler swallows an append failure and still returns the grouping'),
     needs: declared('mcp:exarchos'),
     resources: declared({ kind: 'stream', selector: 'featureId' }),
     replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: declared({
+      event: 'dispatch.classified',
+      condition: 'conditional',
+      owner: 'orchestrate',
+      role: 'primary',
+      description: 'When an event store is wired and the append succeeds',
+    }),
   }),
   withContract({
     name: 'generate_traceability',

@@ -66,13 +66,26 @@ export const lifecycleOpsActions: readonly BuiltinToolAction[] = [
       },
       executionAuthority: { kind: 'local' },
       replay: { kind: 'reject-replay', because: 'a destructive prune must not repeat the cancel pass' },
-      emissions: declared({
-        event: 'workflow.pruned',
-        condition: 'conditional',
-        description: 'Per pruned workflow when dryRun is false',
-        role: 'primary',
-        owner: 'orchestrate',
-      }),
+      emissions: declared(
+        {
+          event: 'workflow.pruned',
+          condition: 'conditional',
+          description: 'Per pruned workflow when dryRun is false',
+          role: 'primary',
+          owner: 'orchestrate',
+        },
+        {
+          // The evaluation's own audit line, written on both dry-run and apply.
+          // Conditional because the malformed-entry handling can suppress the
+          // diagnostics payload entirely, and because the append is
+          // fire-and-forget — a failure never reaches the caller.
+          event: 'prune.diagnostics',
+          condition: 'conditional',
+          description: 'Once per evaluation, unless diagnostics are suppressed',
+          role: 'primary',
+          owner: 'orchestrate',
+        },
+      ),
     },
   ),
   contracted(

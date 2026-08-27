@@ -112,6 +112,23 @@ export const mergeActions: readonly BuiltinToolAction[] = [
           role: 'primary',
           description: 'After the merge lands and the terminal marker is written',
         },
+        {
+          // Conditional rather than unconditional: a dryRun call returns success
+          // after preflight without ever entering the executing phase, so the
+          // liveness marker is genuinely absent on a successful run.
+          event: 'merge.executing_started',
+          condition: 'conditional',
+          owner: 'orchestrate',
+          role: 'primary',
+          description: 'When the executor enters the executing phase, before the first merge attempt',
+        },
+        {
+          event: 'merge.retry_attempt',
+          condition: 'conditional',
+          owner: 'orchestrate',
+          role: 'primary',
+          description: 'Once per timeout-triggered retry of the merge attempt',
+        },
       ),
     },
   ),

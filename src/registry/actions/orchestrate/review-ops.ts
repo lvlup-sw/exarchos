@@ -334,7 +334,11 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
     },
     {
       requires: none('prepare_review provisions the review packet; it does not admit a prior gate'),
-      ensures: none('prepare_review returns ephemeral review provisioning with no durable postcondition'),
+      // The plan scope DOES write a durable record — the counted dispatch the
+      // revision cap reads back. It is not an `ensures` because a postcondition
+      // is observed on every successful return, and the default scope returns
+      // successfully without provisioning a plan review at all.
+      ensures: none('the plan-review dispatch record is written only on the plan scope, which a postcondition observed on every success cannot express'),
       needs: declared('subagent:spawn'),
       touches: {
         frame: 'single-machine',
@@ -345,7 +349,13 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
       },
       executionAuthority: { kind: 'host', obligation: 'agent-spawn' },
       replay: { kind: 'claim-required', scope: 'stream-subject-request' },
-      emissions: none('prepare_review emits no catalog events'),
+      emissions: declared({
+        event: 'workflow.plan-review-dispatched',
+        condition: 'conditional',
+        owner: 'orchestrate',
+        role: 'primary',
+        description: 'One per plan-review dispatch; the default review scope appends nothing',
+      }),
     },
   ),
   contracted(

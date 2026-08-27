@@ -343,6 +343,9 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   },
   'provider.parse-error': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'dispatch.classified': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  // No projection folds it — it is the prune evaluation's own audit line, read
+  // from the stream by dashboards rather than by a view.
+  'prune.diagnostics': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'dispatch.preflight': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'stash.detected': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'command.resolved': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },

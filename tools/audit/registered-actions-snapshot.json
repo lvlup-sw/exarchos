@@ -5,7 +5,7 @@
     "tools": 5,
     "visibleTools": 4,
     "actions": 124,
-    "eventTypes": 176
+    "eventTypes": 177
   },
   "tools": [
     {
@@ -660,6 +660,12 @@
     },
     {
       "type": "provider.unknown-tier",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "prune.diagnostics",
       "lifecycle": "active",
       "tier": "substrate",
       "rationale": "operation-record"
