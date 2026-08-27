@@ -48,30 +48,23 @@ function withContract(
 export const executeActions: readonly BuiltinToolAction[] = [
   withContract({
     name: 'execute_intent',
+    // Trimmed to the per-action description budget: the three intents, their
+    // args, and the one precondition a caller cannot discover from a schema.
+    // The reasons behind each required field live on the argument schemas.
     description:
-      'Compile a NAMED intent into a segment of already-registered local actions and ' +
-      "run it leaf by leaf, committing one orchestrate.intent_executed record on both " +
-      "the committed and the failed path. `intent` names a runbook; `args` is validated " +
-      "against that intent's own typed argument schema (Record<string,string> is not " +
-      'accepted — the caller can never submit an action array). Three intents ship. ' +
-      "'task-completion' (delegate phase: check_test_adequacy, check_contract_drift, " +
-      'check_mock_boundary, check_static_analysis, then the terminal task_complete) takes ' +
-      '{ taskId, worktreePath, riskTier, boundaryTouching, branch? }; riskTier and ' +
-      'boundaryTouching are REQUIRED because every gate step passes them and a step whose ' +
-      'variable cannot be bound is refused before any effect, and both are recorded on the ' +
-      "receipt with steering.source:'caller-args' — no durable per-task stamp exists yet to " +
-      "read them from instead. 'quality-evaluation' (review phase: check_static_analysis, " +
-      'check_security_scan, check_convergence, check_invariant_conformance, then ' +
-      'check_review_verdict) takes { high, medium, low, diffContent, diff?, repoRoot?, ' +
-      'worktreePath?, blockedReason? }; it runs only against a stream that ALREADY carries ' +
-      'passing gate evidence for the active phase attempt under the review requirement, ' +
-      'because the invariant-conformance leaf requires that resolved gate and no leaf in ' +
-      "the segment produces it. 'plan-closeout' (plan phase: check_plan_coverage, " +
-      'check_provenance_chain, then generate_traceability) takes { specPath } — one path ' +
-      'for the one unified spec both gates and the matrix generator read. A ' +
-      'caller-supplied `operationId` replays: the same id with the same request returns ' +
-      'the persisted receipt and executes nothing; the same id with a different request is ' +
-      'rejected.',
+      'Compile a NAMED intent (a runbook id) into a segment of already-registered local ' +
+      'actions and run it leaf by leaf, committing one orchestrate.intent_executed record ' +
+      'on both the committed and the failed path. `args` is validated against that ' +
+      "intent's own typed schema — the caller can never submit an action array. Intents: " +
+      "'task-completion' (delegate) { taskId, worktreePath, riskTier, boundaryTouching, " +
+      "branch? }, whose riskTier/boundaryTouching are recorded as steering.source:" +
+      "'caller-args'; 'quality-evaluation' (review) { high, medium, low, diffContent, " +
+      'diff?, repoRoot?, worktreePath?, blockedReason? }, which REQUIRES the stream to ' +
+      'already carry passing gate evidence under the review requirement for the active ' +
+      'phase attempt, since its invariant-conformance leaf needs that gate and no leaf ' +
+      "produces it; 'plan-closeout' (plan) { specPath }, one path for the unified spec. " +
+      'A caller-supplied `operationId` replays: the same id with the same request returns ' +
+      'the persisted receipt and executes nothing; a different request under it is rejected.',
     schema: z
       .object({
         intent: z.string().min(1),

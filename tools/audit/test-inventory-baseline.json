@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1236,
-    "parsedFiles": 1191,
+    "testFiles": 1242,
+    "parsedFiles": 1197,
     "shellFiles": 45,
-    "cases": 13653,
-    "dynamicTitles": 144,
+    "cases": 13690,
+    "dynamicTitles": 145,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -42892,6 +42892,11 @@
         },
         {
           "suite": "Runbook definitions",
+          "name": "PlanCloseout_HasThreeSteps_TwoBlockingGatesFirst",
+          "dynamic": false
+        },
+        {
+          "suite": "Runbook definitions",
           "name": "Runbook_PhaseMergePending_ReturnsPopulatedSteps",
           "dynamic": false
         },
@@ -50565,6 +50570,11 @@
           "dynamic": false
         },
         {
+          "suite": "compileIntent argument construction",
+          "name": "StepParamNamedStreamId_CannotDisplaceTheSubject",
+          "dynamic": false
+        },
+        {
           "suite": "compileIntent over the live registry",
           "name": "TaskCompletion_CompilesToFiveLocalLeaves",
           "dynamic": false
@@ -50586,7 +50596,7 @@
         },
         {
           "suite": "compileIntent over the live registry",
-          "name": "EveryOtherRunbook_IsNotCompilable_OneIntentShips",
+          "name": "EveryOtherRunbook_IsNotCompilable_ThreeIntentsShip",
           "dynamic": false
         },
         {
@@ -50772,6 +50782,16 @@
           "dynamic": false
         },
         {
+          "suite": "handleExecuteIntent commit races",
+          "name": "ConcurrentSameRequest_RunsTheSegmentOnceAndBothCallersGetTheReceipt",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent commit races",
+          "name": "ConcurrentDifferentRequest_SecondIsRefusedWithoutRunningItsLeaves",
+          "dynamic": false
+        },
+        {
           "suite": "handleExecuteIntent without an ambient dispatch context",
           "name": "OperationRecordAndLeafEvents_ShareTheMintedOuterCorrelationId",
           "dynamic": false
@@ -50804,6 +50824,16 @@
         {
           "suite": "handleExecuteIntent emission enforcement on a continue leaf",
           "name": "AdvisoryMode_CommitsAndRecordsTheViolationOnTheLeaf",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent emission enforcement on a continue leaf",
+          "name": "APriorAttemptsViolationRow_IsNotFoldedIntoTheRetriedReceipt",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent emission enforcement on a continue leaf",
+          "name": "AnAdvisoryFindingOnAFailedSegment_SurvivesIntoTheErrorEnvelope",
           "dynamic": false
         },
         {
@@ -50880,6 +50910,171 @@
         {
           "suite": "retrieving the trace a receipt describes",
           "name": "LeafEventsByDerivedId_OperationRecordByTheOuterDispatchId",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/plan-closeout-compile.test.ts": {
+      "file": "tests/unit/verbs/execute/plan-closeout-compile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "plan-closeout compiles against the live registry",
+          "name": "PlanCloseout_CompilesToTheThreeShippedLeaves_InRunbookOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "plan-closeout compiles against the live registry",
+          "name": "PlanCloseout_OneSpecPath_BindsOntoBothLeafSpellings",
+          "dynamic": false
+        },
+        {
+          "suite": "plan-closeout compiles against the live registry",
+          "name": "PlanCloseout_WithoutSpecPath_RefusedByTheIntentSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "plan-closeout compiles against the live registry",
+          "name": "PlanCloseout_UnknownKey_Refused",
+          "dynamic": false
+        },
+        {
+          "suite": "plan-closeout compiles against the live registry",
+          "name": "PlanCloseout_ValidatedArgsWithoutTheVariable_HitTheUnboundFence",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/plan-closeout-executor.test.ts": {
+      "file": "tests/unit/verbs/execute/plan-closeout-executor.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "plan-closeout over the live handler table",
+          "name": "PlanCloseout_CoherentSpec_CommitsOneOperationRecord",
+          "dynamic": false
+        },
+        {
+          "suite": "plan-closeout over the live handler table",
+          "name": "PlanCloseout_EachGateLeaf_HoldsItsOwnEvidenceAndSignal",
+          "dynamic": false
+        },
+        {
+          "suite": "plan-closeout over the live handler table",
+          "name": "PlanCloseout_SameOperationIdSameRequest_ReplaysWithoutReExecuting",
+          "dynamic": false
+        },
+        {
+          "suite": "plan-closeout over the live handler table",
+          "name": "PlanCloseout_SameOperationIdDifferentRequest_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "plan-closeout over the live handler table",
+          "name": "PlanCloseout_BlockingLeafFails_HaltsAndStillCommits",
+          "dynamic": false
+        },
+        {
+          "suite": "plan-closeout over the live handler table",
+          "name": "PlanCloseout_FailedSegment_ReplaysToTheSameFailedReceipt",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/quality-evaluation-compile.test.ts": {
+      "file": "tests/unit/verbs/execute/quality-evaluation-compile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "quality-evaluation compiles against the live registry",
+          "name": "QualityEvaluation_CompilesToTheFiveShippedLeaves_InRunbookOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation compiles against the live registry",
+          "name": "QualityEvaluation_SubjectIdentity_ReachesEveryLeafThatDeclaresIt",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation compiles against the live registry",
+          "name": "QualityEvaluation_FindingCounts_ReachTheVerdictLeafAsNumbers",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation compiles against the live registry",
+          "name": "QualityEvaluation_Without%s_RefusesNamingTheField",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation compiles against the live registry",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "quality-evaluation compiles against the live registry",
+          "name": "QualityEvaluation_WithoutDiffContent_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation compiles against the live registry",
+          "name": "QualityEvaluation_UnknownKey_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation compiles against the live registry",
+          "name": "QualityEvaluation_FeatureIdArgument_Refused_SubjectIsNotACallerArgument",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/quality-evaluation-executor.test.ts": {
+      "file": "tests/unit/verbs/execute/quality-evaluation-executor.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "quality-evaluation over the deterministic leaf subset",
+          "name": "QualityEvaluation_WithoutTheReviewFloor_HaltsAtInvariantConformance",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation over the deterministic leaf subset",
+          "name": "QualityEvaluation_WithTheReviewFloorSeeded_Commits",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation over the deterministic leaf subset",
+          "name": "QualityEvaluation_EveryLeaf_HoldsItsEvidenceAndSignal",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation over the deterministic leaf subset",
+          "name": "QualityEvaluation_Replay_ReturnsThePersistedReceiptAndRunsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation over the deterministic leaf subset",
+          "name": "QualityEvaluation_GateRevertedToABareAppend_IsRefusedByTheExecutor",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation over the deterministic leaf subset",
+          "name": "QualityEvaluation_RepairedGates_AllThreeDeclareDurableEvidence",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/quality-evaluation-parity.test.ts": {
+      "file": "tests/unit/verbs/execute/quality-evaluation-parity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "quality-evaluation over the no-shell leaf subset",
+          "name": "ExecutorAndPrimitiveBaseline_ProduceTheSameFacts",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation over the no-shell leaf subset",
+          "name": "BothPathsLeaveTheSameWorkflowProjection",
           "dynamic": false
         }
       ]
@@ -53485,6 +53680,32 @@
         {
           "suite": "handleProvenanceChain",
           "name": "should report orphan refs from the TS result",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/review-gate-evidence-dispatch.test.ts": {
+      "file": "tests/unit/verbs/gates/review-gate-evidence-dispatch.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "review gates that declare durable evidence pay it on dispatch",
+          "name": "CheckSecurityScan_Dispatched_SucceedsAndRecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "review gates that declare durable evidence pay it on dispatch",
+          "name": "CheckConvergence_Dispatched_SucceedsAndRecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "review gates that declare durable evidence pay it on dispatch",
+          "name": "CheckInvariantConformance_Dispatched_SucceedsAndRecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "review gates that declare durable evidence pay it on dispatch",
+          "name": "EachGate_AttachesTheEvidenceItRecorded_ToItsOwnCarrier",
           "dynamic": false
         }
       ]
