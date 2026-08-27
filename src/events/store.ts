@@ -7,6 +7,7 @@ import { validateStreamId } from '../contract/shared/validation.js';
 import { AtomicAppender } from './atomic-appender.js';
 import { migrateEvents } from './event-migration.js';
 import { getDispatchContext } from '../dispatch/dispatch-context.js';
+import { notifyAppendObserved } from './observation/append-observation.js';
 import {
   SubscriptionRegistry,
   type SubscribeOptions,
@@ -456,6 +457,15 @@ export class EventStore {
       timestamp: result.timestamps[0],
     } as WorkflowEvent;
 
+    // Only here: past every rejection branch and past the cache-hit return, so
+    // an observer is told about an event that genuinely landed and never about
+    // one an idempotency claim collapsed onto a prior write.
+    notifyAppendObserved({
+      type: fullEvent.type,
+      streamId,
+      sequence: fullEvent.sequence,
+    });
+
     return fullEvent;
   }
 
@@ -568,6 +578,17 @@ export class EventStore {
       }
       return { ...event, sequence, timestamp };
     });
+
+    // One notification per landed event, after the whole batch's durable
+    // result exists. The cache-hit return above persisted nothing new, so it
+    // deliberately falls short of this point.
+    for (const landed of fullEvents) {
+      notifyAppendObserved({
+        type: landed.type,
+        streamId,
+        sequence: landed.sequence,
+      });
+    }
 
     return fullEvents;
   }
