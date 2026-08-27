@@ -92,14 +92,23 @@ vi.mock('../../../src/workflow/cleanup.js', () => ({
   configureCleanupSnapshotStore: vi.fn(),
 }));
 
+// The composite handlers above are mocked, so nothing in this file appends.
+// The post-dispatch emission verifier still runs, and `workflow.init` declares
+// `workflow.started` unconditionally — so this double has to stand in for a
+// handler that kept that promise, or the envelope assertions fail on an
+// emission verdict rather than on what they are about. The operation-scoped
+// read (no `type` filter) is the verifier's read, so that is the arm that
+// answers with the declared event; `append` exists so a verdict is recordable
+// rather than faulting the assessment into `indeterminate`.
 vi.mock('../../../src/events/store.js', () => ({
   EventStore: vi.fn().mockImplementation(() => ({
     initialize: vi.fn().mockResolvedValue(undefined),
+    append: vi.fn().mockResolvedValue({ sequence: 1 }),
     query: vi.fn().mockImplementation(
       (_streamId: string, filters?: { type?: string; operationId?: string }) =>
         Promise.resolve(
           filters?.type === undefined
-            ? []
+            ? [{ type: 'workflow.started', operationId: filters?.operationId, data: {} }]
             : [{ type: filters.type, operationId: filters.operationId, data: {} }],
         ),
     ),
