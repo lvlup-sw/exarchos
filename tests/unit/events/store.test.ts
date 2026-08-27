@@ -1249,6 +1249,69 @@ describe('EventStore append observation', () => {
     store.close();
   });
 
+  it('EventStore_NestedScopes_InnerShadowsOuterThenOuterResumes', async () => {
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    const outer: number[] = [];
+    const inner: number[] = [];
+
+    await runWithAppendObserver(
+      (observation) => {
+        outer.push(observation.sequence);
+      },
+      async () => {
+        await store.append('nested-stream', { type: 'workflow.started' });
+
+        await runWithAppendObserver(
+          (observation) => {
+            inner.push(observation.sequence);
+          },
+          async () => {
+            await store.append('nested-stream', { type: 'task.assigned' });
+          },
+        );
+
+        // Leaving the inner scope restores the outer observer rather than
+        // clearing observation altogether.
+        await store.append('nested-stream', { type: 'task.claimed' });
+      },
+    );
+
+    // A nested scope owns its subtree outright: the outer observer is not
+    // also told about the inner append, so a consumer that nests scopes
+    // cannot double-count one event.
+    expect(inner).toEqual([2]);
+    expect(outer).toEqual([1, 3]);
+
+    store.close();
+  });
+
+  it('EventStore_ThrowingObserver_FaultsTheCallerAndLeavesEventDurable', async () => {
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    await expect(
+      runWithAppendObserver(
+        () => {
+          throw new Error('observer refused');
+        },
+        async () => {
+          await store.append('throwing-stream', { type: 'workflow.started' });
+        },
+      ),
+    ).rejects.toThrow('observer refused');
+
+    // The throw surfaces instead of being swallowed — a consumer built on
+    // this seam must not be able to report success having seen nothing. It
+    // also arrives too late to veto the write: the event is already durable,
+    // which is what makes the seam an observation rather than a hook.
+    const persisted = await store.query('throwing-stream');
+    expect(persisted.map((event) => event.sequence)).toEqual([1]);
+
+    store.close();
+  });
+
   it('EventStore_ConcurrentScopes_DoNotCrossTalk_Property', async () => {
     await fc.assert(
       fc.asyncProperty(
