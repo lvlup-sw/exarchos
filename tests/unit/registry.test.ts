@@ -1942,15 +1942,17 @@ describe('AutoEmits Drift Tests', () => {
   it('RegistryDrift_AutoEmitsMatchEventEmissionRegistry', async () => {
     const { EVENT_EMISSION_REGISTRY } = await import('../../src/events/schemas.js');
 
-    // At least one action must have autoEmits populated
-    let anyPopulated = false;
+    // Measured against the live declared population, not a boolean floor of
+    // one: a single surviving row would pass `anyPopulated` just as happily
+    // as a mass collapse would fail to redden it.
+    let populatedCount = 0;
     const violations: string[] = [];
 
     for (const tool of TOOL_REGISTRY) {
       for (const action of tool.actions) {
         const emissions = contractEmissionsOf(action);
         if (emissions.length === 0) continue;
-        anyPopulated = true;
+        populatedCount += 1;
 
         for (const emission of emissions) {
           const source = (EVENT_EMISSION_REGISTRY as Record<string, string>)[emission.event];
@@ -1967,7 +1969,9 @@ describe('AutoEmits Drift Tests', () => {
       }
     }
 
-    expect(anyPopulated, 'At least one action must have autoEmits populated').toBe(true);
+    expect(populatedCount, 'declared autoEmits population dropped below the floor').toBeGreaterThan(
+      56,
+    );
     expect(violations, `AutoEmits drift:\n${violations.join('\n')}`).toEqual([]);
   });
 

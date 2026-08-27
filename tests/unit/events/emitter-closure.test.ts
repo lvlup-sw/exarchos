@@ -7,28 +7,27 @@
  * Emitter closure: every append in the tree is explained, and every explanation
  * is live.
  *
- * The undeclared baseline is a MEASUREMENT, not a suppression list. The audit
- * reports every row on every run; this file pins today's shape so the set cannot
- * grow unnoticed and shrinks visibly as emitters are declared.
+ * Two arms measure the tree against two declared populations and pin what
+ * they find:
  *
- * It has now shrunk three times, and the third emptied it. First from 33 to 29,
- * when `launch.executed` and `stack.position-filled` got an action that declares
- * them. Then from 29 to 14, when the fifteen action-owned appends below were
- * traced to the action whose handler chain reaches them — three of which had
- * positively reasoned that they emitted nothing. Then from 14 to 0: twelve of
- * the remainder were classified onto the non-action surface with the mechanism
- * stated, one emitter was deleted because no shipped caller invoked it, and one
- * was a test fixture that had no business appending a product event from inside
- * the governed source root.
+ * - The undeclared arm holds at zero. Every append site is explained by
+ *   either an action edge (`registration-validate`) or the non-action surface
+ *   (`MODULE_EMISSIONS`) — there is no third bucket. A zero baseline is the
+ *   most fragile assertion this file makes: `toEqual([])` passes just as
+ *   happily over a census that read nothing, so the denominators (measured
+ *   site count, action-explained count, module-explained count) are asserted
+ *   first and are not decoration.
+ * - The unresolved arm holds a pinned, non-empty, shrink-only baseline: sites
+ *   whose `.append()` discriminant is a runtime value the parser cannot
+ *   reduce to a string. These cannot mechanically resolve today, so an empty
+ *   set here would be dishonest rather than clean. It shrinks only when a
+ *   site becomes resolvable, and a new unresolved site fails the comparison
+ *   the moment it appears.
  *
- * An EMPTY baseline is the point, and it is also the most fragile state this
- * file can be in: `toEqual([])` passes just as happily over a census that read
- * nothing. The denominators below are what separate the two, so they are
- * asserted first and they are not decoration.
- *
- * The phantom arm carries no baseline at all, deliberately. A stale row in the
- * non-action surface is never acceptable, so there is nothing to grandfather —
- * it fails the moment an append it names stops existing.
+ * The module-emission arm below (`EmitterClosure_EveryModuleEmission_IsLiveInTheTree`)
+ * carries no baseline at all, deliberately. A stale row in the non-action
+ * surface is never acceptable, so there is nothing to grandfather — it fails
+ * the moment an append it names stops existing.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -52,18 +51,28 @@ import { scanEvidenceEmission } from '../../../tools/test-helpers/evidence-emiss
 const SOURCE_ROOT = join(process.cwd(), 'src');
 
 /**
- * Appends nothing declares yet, `event <- module`.
+ * Append sites whose discriminant does not reduce to a string, `module:line`.
  *
- * SHRINK-ONLY. An entry leaves when the append is declared — on an action's
- * `autoEmits` if it is that action's effect, or in `MODULE_EMISSIONS` if a
- * wrapper, hook or interceptor performs it. Adding one is a deliberate act that
- * fails here first.
- *
- * It is empty, and it stays a named constant rather than an inline `[]` so that
- * re-opening it is a visible act with a place to state which append regressed
- * and why nothing declares it.
+ * SHRINK-ONLY. An entry leaves when its site is rewritten so the parser can
+ * read the discriminant as a string literal or a known constant. Adding one
+ * is a deliberate act that fails here first.
  */
-const UNDECLARED_BASELINE: readonly string[] = Object.freeze([]);
+const UNRESOLVED_BASELINE: readonly string[] = Object.freeze([
+  'dispatch/core/onboarding/event-ctx.ts:49',
+  'events/store.ts:406',
+  'events/store.ts:530',
+  'events/tools.ts:493',
+  'projections/task-store/event-sourced-task-store.ts:817',
+  'storage/sidecar-merger.ts:126',
+  'storage/sidecar-scheduler.ts:203',
+  'vcs/mutation-owner.ts:457',
+  'vcs/mutation-owner.ts:589',
+  'verbs/gates/mutation-adequacy.ts:1447',
+  'verbs/team/prepare-delegation.ts:883',
+  'verbs/worktree/manager.ts:1385',
+  'verbs/worktree/merge-serializer.ts:204',
+  'workflow/cancel.ts:300',
+]);
 
 function censusOf(
   modulesByEvent: Record<string, readonly string[]>,
@@ -78,7 +87,7 @@ function censusOf(
 }
 
 describe('emitter closure', () => {
-  it('EmitterClosure_LiveTree_MatchesTheUndeclaredBaseline', async () => {
+  it('EmitterClosure_LiveTree_HasNoUndeclaredAppends', async () => {
     const census = await scanAppendSites(
       SOURCE_ROOT,
       scanEvidenceEmission,
@@ -88,18 +97,24 @@ describe('emitter closure', () => {
 
     // DENOMINATORS FIRST. An empty finding set from a scan that read nothing is
     // indistinguishable from a clean tree.
-    expect(closure.measuredSiteCount, 'no append site was measured').toBeGreaterThan(60);
-    expect(closure.explainedByAction, 'no site was explained by an action edge').toBeGreaterThan(25);
-    // The baseline is empty, so this arm is the one carrying the classification
-    // work. Without it an emptied MODULE_EMISSIONS would read as a clean tree.
+    expect(closure.measuredSiteCount, 'no append site was measured').toBeGreaterThan(75);
+    expect(closure.explainedByAction, 'no site was explained by an action edge').toBeGreaterThan(50);
+    // The classification arm carries the work now that the undeclared set is
+    // empty. Without this floor an emptied MODULE_EMISSIONS would read as a
+    // clean tree.
     expect(
       closure.explainedByModule,
       'no site was explained by the non-action surface',
     ).toBeGreaterThan(15);
 
-    expect(closure.undeclared.map((u) => `${u.event} <- ${u.module}`).sort()).toEqual(
-      [...UNDECLARED_BASELINE].sort(),
-    );
+    expect(closure.undeclared, 'an append site is undeclared').toEqual([]);
+
+    // The unresolved arm: its own denominator first, then the pinned set.
+    expect(census.scannedModuleCount, 'no module was scanned').toBeGreaterThan(600);
+    expect(
+      census.unresolved.map((u) => `${u.module}:${u.line}`).sort(),
+      'the unresolved append census drifted from its pinned, shrink-only baseline',
+    ).toEqual([...UNRESOLVED_BASELINE].sort());
   }, 120_000);
 
   it('EmitterClosure_EveryModuleEmission_IsLiveInTheTree', async () => {
