@@ -528,8 +528,13 @@ function ensureContractViolatedResult(
  * needs pass: the approval is the host's job, not a prior local fact.
  * Transition remains one ActionId; its request target is still decided
  * by the HSM transition guard after this gate.
+ *
+ * Exported because the bounded action executor admits each compiled leaf in
+ * execution order and must reach the same verdict this path does. It is a pure
+ * function of its arguments, so one evaluator serving two call sites is the
+ * whole of the sharing — there is no second policy to keep in step.
  */
-async function evaluateDispatchAdmission(input: {
+export async function evaluateDispatchAdmission(input: {
   readonly tool: string;
   readonly actionName: string;
   readonly action: object;

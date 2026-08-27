@@ -397,7 +397,14 @@ function adaptSetupWorktree(): ActionHandler {
   };
 }
 
-const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
+/**
+ * The routing table. Exported because the bounded action executor invokes a
+ * compiled leaf through the SAME entry this composite would route to — a
+ * second copy of the mapping is a second thing that can drift from the
+ * registry. Consumers inside this package read it lazily, inside a call, so a
+ * module that this one also imports never has to be evaluated first.
+ */
+export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   task_claim: adaptWithEventStore(handleTaskClaim),
   task_complete: adaptWithEventStore(handleTaskComplete),
   task_fail: adaptWithEventStore(handleTaskFail),
