@@ -1,13 +1,13 @@
 {
-  "capturedAt": "2026-08-23",
+  "capturedAt": "2026-08-27",
   "discovery": "extension-based over tracked files; not a runner glob",
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1230,
-    "parsedFiles": 1185,
+    "testFiles": 1236,
+    "parsedFiles": 1191,
     "shellFiles": 45,
-    "cases": 13527,
+    "cases": 13653,
     "dynamicTitles": 144,
     "unparseableFiles": 0
   },
@@ -5951,6 +5951,16 @@
           "suite": "the 11 targets → 9 published layers relation (what task 044 asserts)",
           "name": "every target a directory maps to is a target the layer table knows",
           "dynamic": false
+        },
+        {
+          "suite": "EventsLayer_NeverImportsOracle",
+          "name": "no module under events/ resolves an import into contract/oracle/",
+          "dynamic": false
+        },
+        {
+          "suite": "EventsLayer_NeverImportsOracle",
+          "name": "the scan is not vacuous: events/ actually has resolvable edges to inspect",
+          "dynamic": false
         }
       ]
     },
@@ -7076,11 +7086,6 @@
         {
           "suite": "T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)",
           "name": "Governance_Dr3_FrozenRiskTier_ReachesTheGate",
-          "dynamic": false
-        },
-        {
-          "suite": "T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)",
-          "name": "Governance_Dr4_DegradedProjection_IsNeverServedAsSuccess",
           "dynamic": false
         },
         {
@@ -8828,6 +8833,21 @@
         },
         {
           "suite": "emission verifier policy",
+          "name": "EmissionVerifier_LifecycleOnlyViolation_PersistsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "emission verifier policy",
+          "name": "EmissionVerifier_CombinedViolation_PersistsBothAxes",
+          "dynamic": false
+        },
+        {
+          "suite": "emission verifier policy",
+          "name": "EmissionViolatedData refuses a report with both axes empty",
+          "dynamic": false
+        },
+        {
+          "suite": "emission verifier policy",
           "name": "a mixed run reports the determinate count it actually earned",
           "dynamic": false
         },
@@ -8839,6 +8859,36 @@
         {
           "suite": "emission enforcement reaches the dispatch result",
           "name": "EmissionEnforcement_AdvisoryMode_SameViolationReturnsTheHandlerResult",
+          "dynamic": false
+        },
+        {
+          "suite": "emission enforcement reaches the dispatch result",
+          "name": "EmissionVerifier_AdvisoryViolation_ReturnsPayloadAndPersistsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "emission enforcement reaches the dispatch result",
+          "name": "EmissionVerifier_StoreUnavailable_IsIndeterminateAndCannotPromote",
+          "dynamic": false
+        },
+        {
+          "suite": "emission enforcement reaches the dispatch result",
+          "name": "EmissionVerifier_StoreUnavailable_AdvisoryModeSurfacesWithoutBlocking",
+          "dynamic": false
+        },
+        {
+          "suite": "emission enforcement reaches the dispatch result",
+          "name": "EmissionVerifier_NoContract_RemainsBenignNotApplicable",
+          "dynamic": false
+        },
+        {
+          "suite": "emission enforcement reaches the dispatch result",
+          "name": "EmissionVerifier_HandlerRefusal_RemainsBenignNotApplicable",
+          "dynamic": false
+        },
+        {
+          "suite": "emission verifier over the safe corpus",
+          "name": "EmissionVerifier_SafeCorpus_HasNonZeroDeterminateCoverage",
           "dynamic": false
         }
       ]
@@ -17233,6 +17283,16 @@
           "suite": "resolveConfig > emission enforcement",
           "name": "EmissionEnforcement_NoProjectConfig_UsesTheStatedFallback",
           "dynamic": false
+        },
+        {
+          "suite": "resolveConfig > emission enforcement",
+          "name": "EmissionEnforcement_IndeterminateVerdict_BlocksOnConfigAloneNotEnvironment",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveConfig > emission enforcement",
+          "name": "EmissionVerifier_EnvironmentDoesNotOverrideExplicitPolicy",
+          "dynamic": false
         }
       ]
     },
@@ -19252,6 +19312,16 @@
           "suite": "deriveMetaModel — action-contract projection",
           "name": "DeriveMetaModel_ReorderedSets_IsByteStable",
           "dynamic": false
+        },
+        {
+          "suite": "deriveMetaModel — emission source binding",
+          "name": "CompileContract_NonAutoEmissionSource_RejectsActionAndEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "deriveMetaModel — emission source binding",
+          "name": "CompileContract_AutoEmissionSource_RemainsByteStable",
+          "dynamic": false
         }
       ]
     },
@@ -19901,6 +19971,21 @@
           "dynamic": false
         },
         {
+          "suite": "the emission vocabulary is shared by the registry, compiler, verifier and oracle",
+          "name": "EmissionProjection_RegistryCompilerVerifierOracle_Agree",
+          "dynamic": false
+        },
+        {
+          "suite": "the emission vocabulary is shared by the registry, compiler, verifier and oracle",
+          "name": "EnvelopeObservationSubjects_WithholdTheEmissionSet",
+          "dynamic": false
+        },
+        {
+          "suite": "the emission vocabulary is shared by the registry, compiler, verifier and oracle",
+          "name": "EmissionAxis_RealHandlerProbes_HaveNoUnconditionalEdgeToObserve",
+          "dynamic": false
+        },
+        {
           "suite": "DR-24 — real handlers are invoked through the real binding table",
           "name": "RealRegistryActionsAreObservedThroughTheShippedBindings",
           "dynamic": false
@@ -19957,12 +20042,42 @@
         },
         {
           "suite": "the emission axis reaches a verdict on a live subject",
-          "name": "OracleEmission_LiveSubject_ProducesADeterminateVerdict",
+          "name": "OracleEmission_ShippedAppender_ProducesPassFromObservedStoreAppend",
+          "dynamic": false
+        },
+        {
+          "suite": "the emission axis reaches a verdict on a live subject",
+          "name": "OracleEmission_SilentTwinWithSameDeclaration_ProducesFail",
           "dynamic": false
         },
         {
           "suite": "the emission axis reaches a verdict on a live subject",
           "name": "OracleEmission_ZeroObservedSubjects_FailsForThisAxisOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "the emission axis reaches a verdict on a live subject",
+          "name": "RunEmissionOracleSuite_ZeroObserved_FailsDistinctly",
+          "dynamic": false
+        },
+        {
+          "suite": "the emission axis reaches a verdict on a live subject",
+          "name": "CheckEmissionAxisObserved_ZeroSelectedSubjects_FailsDistinctly",
+          "dynamic": false
+        },
+        {
+          "suite": "the shipped-emitter probe corpus",
+          "name": "EmissionProbeCorpus_EveryEntryIsSchemaValidLocalAndIsolated",
+          "dynamic": false
+        },
+        {
+          "suite": "the shipped-emitter probe corpus",
+          "name": "EmissionProbeCorpus_ZeroEntries_FailsTheFloor",
+          "dynamic": false
+        },
+        {
+          "suite": "the shipped-emitter probe corpus",
+          "name": "EmissionProbeCorpus_ExcludedActions_ReportReasons",
           "dynamic": false
         }
       ]
@@ -20049,6 +20164,26 @@
         {
           "suite": "P03-09 oracle — emission axis observes the append, not the declaration",
           "name": "Oracle_Unobserved_IsNotPass",
+          "dynamic": false
+        },
+        {
+          "suite": "P03-09 oracle — emission axis observes the append, not the declaration",
+          "name": "DeclaredEmission_MissingConditionalEdge_DoesNotFail",
+          "dynamic": false
+        },
+        {
+          "suite": "P03-09 oracle — emission axis observes the append, not the declaration",
+          "name": "DeclaredEmission_MissingAlwaysEdge_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "P03-09 oracle — axis selection",
+          "name": "RunOracle_EmptyAxisSelection_RejectsCall",
+          "dynamic": false
+        },
+        {
+          "suite": "P03-09 oracle — axis selection",
+          "name": "RunOracle_StandardOnly_DoesNotEnterEmissionCensus",
           "dynamic": false
         }
       ]
@@ -21503,6 +21638,11 @@
           "dynamic": false
         },
         {
+          "suite": "dispatch > execute_intent action wiring",
+          "name": "Dispatch_ExecuteIntent_ColdDispatch_ClearsAdmissionAndReachesTheHandler",
+          "dynamic": false
+        },
+        {
           "suite": "dispatch > T-12 session.machinery_consumed interceptor",
           "name": "T12_FirstNonRehydrateInvocationAfterRehydrated_EmitsSessionMachineryConsumed",
           "dynamic": false
@@ -21644,7 +21784,12 @@
         },
         {
           "suite": "emission verifier — contract evaluation",
-          "name": "EmissionVerifier_UnreadableStore_IsNotApplicableAndNeverThrows",
+          "name": "EmissionVerifier_UnreadableStore_IsIndeterminateAndNeverThrows",
+          "dynamic": false
+        },
+        {
+          "suite": "emission verifier — contract evaluation",
+          "name": "EmissionVerifier_UnrecordableFinding_IsIndeterminateRatherThanSilentlyDropped",
           "dynamic": false
         },
         {
@@ -21923,7 +22068,12 @@
       "cases": [
         {
           "suite": "EmissionVerifier lifecycle axis",
-          "name": "EmissionVerifier_PlannedOrRetiredEmittedAtRuntime_Fails",
+          "name": "LifecycleVerifier_DeclaredRetiredEvent_FailsAction",
+          "dynamic": false
+        },
+        {
+          "suite": "EmissionVerifier lifecycle axis",
+          "name": "LifecycleVerifier_UnrelatedOperationEvent_DoesNotFailAction",
           "dynamic": false
         },
         {
@@ -21944,6 +22094,11 @@
         {
           "suite": "EmissionVerifier lifecycle axis",
           "name": "reports a missing emission and a lifecycle violation together",
+          "dynamic": false
+        },
+        {
+          "suite": "EmissionVerifier run summary",
+          "name": "counts a store-failure run and a conditional-only run apart, not together",
           "dynamic": false
         },
         {
@@ -23368,12 +23523,37 @@
       "cases": [
         {
           "suite": "emitter closure",
-          "name": "EmitterClosure_LiveTree_MatchesTheUndeclaredBaseline",
+          "name": "EmitterClosure_LiveTree_HasNoUndeclaredAppends",
           "dynamic": false
         },
         {
           "suite": "emitter closure",
           "name": "EmitterClosure_EveryModuleEmission_IsLiveInTheTree",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_ActionOwnedAppends_HaveRegistryEdges",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_FalseReasonedAbstention_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_OwnershipRowWithNoAppend_IsStale",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_LiveAbstentions_QuoteTheirReason",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_SameNamedActionsOnDifferentTools_StayDistinct",
           "dynamic": false
         },
         {
@@ -23384,6 +23564,16 @@
         {
           "suite": "emitter closure",
           "name": "EmitterClosure_ModuleEmissionWithNoAppend_IsAPhantom",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_DuplicatedModuleEmission_BreaksTheRowToSiteCount",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_ModuleRowShadowingAnActionEdge_ExplainsNothing",
           "dynamic": false
         },
         {
@@ -23415,6 +23605,11 @@
         {
           "suite": "EventAnnotations — the DR-2 tier and lifecycle assignment for the event catalog",
           "name": "EmissionViolation_SubstrateTier_CarriesOperationRecordRationale",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAnnotations — the DR-2 tier and lifecycle assignment for the event catalog",
+          "name": "IntentExecuted_SubstrateTier_DerivesAutoSource",
           "dynamic": false
         },
         {
@@ -26981,6 +27176,51 @@
           "suite": "QueryFilters correlation tuple (Wave 4 / #1437)",
           "name": "QueryFilters_AcceptsCorrelationTuple_TypeAndShape",
           "dynamic": false
+        },
+        {
+          "suite": "EventStore append observation",
+          "name": "EventStore_SuccessfulNewAppend_NotifiesScopedObserver",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore append observation",
+          "name": "EventStore_NoScopeInstalled_BurstOfAppendsNotifiesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore append observation",
+          "name": "EventStore_FailedOrCollapsedAppend_DoesNotNotifyObserver",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore append observation",
+          "name": "EventStore_AtomicTrailAppend_NotifiesOncePerLandedEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore append observation",
+          "name": "EventStore_AtomicTrailRetriedOnSameOperationId_NotifiesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore append observation",
+          "name": "EventStore_ConcurrentScopes_DoNotCrossTalk",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore append observation",
+          "name": "EventStore_NestedScopes_InnerShadowsOuterThenOuterResumes",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore append observation",
+          "name": "EventStore_ThrowingObserver_FaultsTheCallerAndLeavesEventDurable",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore append observation",
+          "name": "EventStore_ConcurrentScopes_DoNotCrossTalk_Property",
+          "dynamic": false
         }
       ]
     },
@@ -27552,6 +27792,16 @@
         {
           "suite": "tenant field passthrough",
           "name": "handleBatchAppend_WithTenantFields_PassesThroughToStore",
+          "dynamic": false
+        },
+        {
+          "suite": "handleEventQuery operationId filter passthrough",
+          "name": "handleEventQuery_WithOperationIdFilter_ReturnsOnlyMatchingEvents",
+          "dynamic": false
+        },
+        {
+          "suite": "handleEventQuery operationId filter passthrough",
+          "name": "handleEventQuery_WithEmptyOperationIdFilter_IsIgnoredNotTreatedAsAFilter",
           "dynamic": false
         },
         {
@@ -33907,47 +34157,37 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "CHARACTERIZATION (superseded) — consumers served stale folds as success:true",
-          "name": "ViewComposite_DegradedProjection_ReturnsTypedDegradedResult",
-          "dynamic": false
-        },
-        {
-          "suite": "CHARACTERIZATION (superseded) — consumers served stale folds as success:true",
-          "name": "WorkflowComposite_DegradedProjection_DoesNotReturnStalePayload",
-          "dynamic": false
-        },
-        {
-          "suite": "CHARACTERIZATION (superseded) — consumers served stale folds as success:true",
-          "name": "OrchestrateComposite_DegradedProjection_ReturnsTypedDegradedResult",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-4 — every readiness/workflow/reliability consumer refuses",
+          "suite": "#1855 — every readiness/workflow/reliability consumer answers",
           "name": "<dynamic-case-1>",
           "dynamic": true
         },
         {
-          "suite": "DR-4 — a degraded result is distinguishable from its neighbours",
+          "suite": "#1855 — every readiness/workflow/reliability consumer answers",
+          "name": "Consumer_RewoundFold_AnswersFromTheTail",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — the reserved code still separates its neighbours",
           "name": "DegradedResult_IsNotConfusableWithNoData",
           "dynamic": false
         },
         {
-          "suite": "DR-4 — a degraded result is distinguishable from its neighbours",
+          "suite": "#1855 — the reserved code still separates its neighbours",
           "name": "DegradedResult_IsNotConfusableWithGenuineFailure",
           "dynamic": false
         },
         {
-          "suite": "DR-4 — a degraded result is distinguishable from its neighbours",
-          "name": "HealthyStream_NoDurableRow_ConsumersAnswerNormally",
+          "suite": "#1855 — the reserved code still separates its neighbours",
+          "name": "SuggestedFix_NeverNamesTheCallThatFailed",
           "dynamic": false
         },
         {
-          "suite": "DR-4 — recovery clears the refusal",
-          "name": "DegradedStream_RefoldViaViewChokepoint_PublishesRecoveryAndUnblocksConsumers",
+          "suite": "#1855 — a spent observation clears",
+          "name": "DegradedRow_SurvivingRead_IsClearedByTheViewChokepoint",
           "dynamic": false
         },
         {
-          "suite": "DR-4 — recovery clears the refusal",
+          "suite": "#1855 — a spent observation clears",
           "name": "WorkflowMutationsAndRecoveryActions_StayUnguarded",
           "dynamic": false
         }
@@ -34136,17 +34376,7 @@
         },
         {
           "suite": "projection freshness comparison (EFF-002)",
-          "name": "Freshness_MultipleCursors_ReportsWorstOffenderFirst",
-          "dynamic": false
-        },
-        {
-          "suite": "projection freshness comparison (EFF-002)",
-          "name": "Freshness_AllCursorsAtTail_NotDegraded",
-          "dynamic": false
-        },
-        {
-          "suite": "projection freshness comparison (EFF-002)",
-          "name": "Freshness_NoMaterializedFolds_NotDegraded",
+          "name": "Freshness_IsPerFold_NotPerStream",
           "dynamic": false
         },
         {
@@ -34156,12 +34386,12 @@
         },
         {
           "suite": "view chokepoint marks degraded reads (EFF-002)",
-          "name": "HandleView_ProjectionAheadOfPrunedLog_ReturnsTypedDegradedMarker",
+          "name": "HandleView_ProjectionAheadOfPrunedLog_IsRepairedAndAnswered",
           "dynamic": false
         },
         {
           "suite": "view chokepoint marks degraded reads (EFF-002)",
-          "name": "HandleView_StaleSiblingFold_DegradesTheWholeStreamAnswer",
+          "name": "HandleView_StaleSiblingFold_DoesNotDegradeAnUnrelatedAnswer",
           "dynamic": false
         },
         {
@@ -41638,6 +41868,11 @@
         },
         {
           "suite": "registry economy budgets (DR-1)",
+          "name": "registryEconomy_ExecuteIntent_DeclaresAMeasuredBudgetAndARealSummarizer",
+          "dynamic": false
+        },
+        {
+          "suite": "registry economy budgets (DR-1)",
           "name": "describeAction_WithBudget_SurfacesBudgetTokens",
           "dynamic": false
         },
@@ -41794,6 +42029,11 @@
         {
           "suite": "action-contract algebra",
           "name": "ActionContract_BlankAbstention_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract algebra",
+          "name": "NormalizeEmission_NonAutoEventSource_IsRejected",
           "dynamic": false
         },
         {
@@ -50245,6 +50485,442 @@
         }
       ]
     },
+    "tests/unit/verbs/execute/compile.test.ts": {
+      "file": "tests/unit/verbs/execute/compile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "compileIntent refusals",
+          "name": "UnknownIntent_NoRunbookDeclaresIt_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "RunbookWithoutArgSchema_IsNotCompilable",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "IntentArgs_MissingRequiredField_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "IntentArgs_BooleanSpelledAsString_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "IntentArgs_UnknownKey_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "NativeStep_IsNotClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "DecideStep_IsAHostObligation",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "RetryOnFail_IsRefusedAtCompileTime",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "UnregisteredAction_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "HostAuthorityAction_IsNotLocallyExecutable",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "LeafArgs_RejectedByTheLeafSchema_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "LeafArgs_UnknownRunbookParam_IsRejectedByTheStrictLeafSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent argument construction",
+          "name": "SubstitutesTypedPlaceholders_AndPreservesLiterals",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent argument construction",
+          "name": "UnboundPlaceholder_RefusesRatherThanDroppingOut",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent argument construction",
+          "name": "BoundPlaceholder_IsTheControl_SameStepCompilesWithTheBinding",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent over the live registry",
+          "name": "TaskCompletion_CompilesToFiveLocalLeaves",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent over the live registry",
+          "name": "TaskCompletion_MissingWorktreePath_RefusesBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent over the live registry",
+          "name": "TaskCompletion_WithoutRiskTier_RefusesBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent over the live registry",
+          "name": "TaskCompletion_WithoutBoundaryTouching_RefusesToo",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent over the live registry",
+          "name": "EveryOtherRunbook_IsNotCompilable_OneIntentShips",
+          "dynamic": false
+        },
+        {
+          "suite": "fixture leaf declarations are the real thing",
+          "name": "FixtureAction_CarriesANormalizedContract",
+          "dynamic": false
+        },
+        {
+          "suite": "fixture leaf declarations are the real thing",
+          "name": "FixtureTool_IsTheOnlyToolTheFixtureLookupAnswersFor",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/dispatch-replay.test.ts": {
+      "file": "tests/unit/verbs/execute/dispatch-replay.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "execute_intent replayed through dispatch()",
+          "name": "SecondDispatchOfTheSameOperationId_ReturnsTheReceiptWithNoViolation",
+          "dynamic": false
+        },
+        {
+          "suite": "execute_intent replayed through dispatch()",
+          "name": "ThirdAndFourthReplays_StayClean",
+          "dynamic": false
+        },
+        {
+          "suite": "execute_intent replayed through dispatch()",
+          "name": "SameOperationIdDifferentRequest_IsTheTypedRefusalThroughDispatchToo",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/executor.test.ts": {
+      "file": "tests/unit/verbs/execute/executor.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "handleExecuteIntent request validation",
+          "name": "MissingIntent_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent request validation",
+          "name": "MissingSubject_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent request validation",
+          "name": "FeatureIdIsAcceptedAsTheStreamAlias",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent request validation",
+          "name": "OperationIdOutsideTheAdmissionGrammar_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent request validation",
+          "name": "AbsentOperationId_IsCoreMintedAndReturned",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent request validation",
+          "name": "CompileRefusal_ReachesTheCallerAndCommitsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent commit",
+          "name": "EveryLeafPasses_CommitsTheOperationEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent commit",
+          "name": "CallerSteering_IsRecordedWithItsProvenance",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent commit",
+          "name": "LeafEvents_CarryTheDerivedPerLeafOperationId",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent commit",
+          "name": "TailSequence_IsTheHighestSequenceTheLeavesReached",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent onFail",
+          "name": "StopFailure_HaltsTheSegmentAndCommitsFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent onFail",
+          "name": "BlockingFailure_CannotProduceACommittedOutcome",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent onFail",
+          "name": "ContinueFailure_IsAdvisoryAndTheSegmentProceeds",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent per-leaf emission verification",
+          "name": "SilentLeafThatDeclaredAnEmission_FailsItsOwnContract",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent per-leaf emission verification",
+          "name": "SameLeafDeclarationAppendingTheEvent_Passes",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent per-leaf emission verification",
+          "name": "LeafEmissionCheckIsScopedToItsOwnOperationId",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent replay",
+          "name": "ReplayOfACommittedOperation_ExecutesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent replay",
+          "name": "ReplayOfAFailedOperation_ReproducesTheSameRefusal",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent replay",
+          "name": "SameOperationIdDifferentRequest_IsRejectedWithoutExecuting",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent crash distinguishability",
+          "name": "ThrowMidSegment_LeavesNoClaimAndNoOperationEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent crash distinguishability",
+          "name": "RetryAfterCrash_RunsFromTheTopAndReusesTheDerivedLeafIds",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent operationId bound",
+          "name": "OperationIdAtTheBound_IsAccepted",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent operationId bound",
+          "name": "TheBound_LeavesRoomForTheLongestDerivedLeafIdTheRegistryCanProduce",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent operationId bound",
+          "name": "OperationIdOneOverTheBound_IsRefusedBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent subject resolution",
+          "name": "BothSpellingsPresentAndAgreeing_ResolvesToThatStream",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent subject resolution",
+          "name": "BothSpellingsPresentAndDisagreeing_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent subject resolution",
+          "name": "FeatureIdWins_MatchingTheDispatchLayerStreamResolver",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent commit races",
+          "name": "SameDigest_TheCallerGetsThePersistedReceiptNotTheLocalOne",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent commit races",
+          "name": "DifferentDigest_IsTheTypedReplayRefusalNotAnInternalError",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent without an ambient dispatch context",
+          "name": "OperationRecordAndLeafEvents_ShareTheMintedOuterCorrelationId",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent per-leaf ensures",
+          "name": "SilentLeafWithAnEnsuresEventOutsideItsEmissions_FailsItsContract",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent per-leaf ensures",
+          "name": "SilentLeafWithADurableEvidenceEnsures_FailsItsContract",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent per-leaf ensures",
+          "name": "SameLeafRecordingTheEvidence_Passes",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent per-leaf ensures",
+          "name": "SameLeafAppendingTheEnsuredEvent_Passes",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent emission enforcement on a continue leaf",
+          "name": "BlockMode_HaltsTheSegmentEvenThoughTheLeafIsAdvisory",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent emission enforcement on a continue leaf",
+          "name": "AdvisoryMode_CommitsAndRecordsTheViolationOnTheLeaf",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent failure envelope",
+          "name": "SegmentFailure_CarriesTheCompactReceiptInsideTheError",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent failure envelope",
+          "name": "ReplayOfAFailedOperation_CarriesItTheSecondTimeToo",
+          "dynamic": false
+        },
+        {
+          "suite": "the registered output schema accepts a real receipt",
+          "name": "CommittedAndFailedReceipts_BothParse",
+          "dynamic": false
+        },
+        {
+          "suite": "the registered output schema accepts a real receipt",
+          "name": "AnAdvisoryEmissionViolationOnALeaf_ParsesToo",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/fixture-intent.test.ts": {
+      "file": "tests/unit/verbs/execute/fixture-intent.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "a three-leaf fixture chain",
+          "name": "RunsInRunbookOrder_StampsEachLeafWithItsOwnDerivedIdentity",
+          "dynamic": false
+        },
+        {
+          "suite": "a three-leaf fixture chain",
+          "name": "ReceiptDescribesEveryLeafAndTheTailItReached",
+          "dynamic": false
+        },
+        {
+          "suite": "a terminal leaf whose requirement an earlier leaf satisfies",
+          "name": "InOrder_TheSegmentCommits",
+          "dynamic": false
+        },
+        {
+          "suite": "a terminal leaf whose requirement an earlier leaf satisfies",
+          "name": "SameLeafAdmittedBeforeItsPredecessorRan_IsDenied",
+          "dynamic": false
+        },
+        {
+          "suite": "a terminal leaf whose requirement an earlier leaf satisfies",
+          "name": "DeniedLeaf_HaltsTheSegmentAndCommitsFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "retry after a crash mid-segment",
+          "name": "SameOperationId_AppendsNoDuplicateRowsForTheLeavesThatAlreadyRan",
+          "dynamic": false
+        },
+        {
+          "suite": "retry after a crash mid-segment",
+          "name": "AnUnkeyedLeafDuplicatesInstead_TheKeyIsWhatDedupes",
+          "dynamic": false
+        },
+        {
+          "suite": "an oversized receipt through the registered economy path",
+          "name": "CommittedAndOverBudget_KeepsOperationIdOutcomeAndTailSequence",
+          "dynamic": false
+        },
+        {
+          "suite": "an oversized receipt through the registered economy path",
+          "name": "FailedAndOverBudget_IsReturnedVerbatimAndTheReducerStillPinsFailedLeaf",
+          "dynamic": false
+        },
+        {
+          "suite": "retrieving the trace a receipt describes",
+          "name": "LeafEventsByDerivedId_OperationRecordByTheOuterDispatchId",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/registration.test.ts": {
+      "file": "tests/unit/verbs/execute/registration.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "exarchos_orchestrate routes execute_intent (registration boundary)",
+          "name": "ExecuteIntent_RoutedToHandler_AndEnvelopeWrapped",
+          "dynamic": false
+        },
+        {
+          "suite": "execute_intent registered economy declaration",
+          "name": "the action is registered with a declared budget",
+          "dynamic": false
+        },
+        {
+          "suite": "execute_intent registered economy declaration",
+          "name": "ExecuteIntentEconomy_OverBudgetPlusOne_SummarizesAndKeepsPinnedFields",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/task-completion-parity.test.ts": {
+      "file": "tests/unit/verbs/execute/task-completion-parity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "task-completion over the no-shell leaf subset",
+          "name": "ExecutorAndPrimitiveBaseline_ProduceTheSameFacts",
+          "dynamic": false
+        },
+        {
+          "suite": "task-completion over the no-shell leaf subset",
+          "name": "BothPathsLeaveTheSameWorkflowProjection",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/gates/assess-refactor-scope.test.ts": {
       "file": "tests/unit/verbs/gates/assess-refactor-scope.test.ts",
       "runner": "vitest:root",
@@ -51774,7 +52450,7 @@
         },
         {
           "suite": "mutation-adequacy roster characterization (PIN) > OrchestrateActionRoster_CurrentBuild_PinnedActionSet",
-          "name": "exposes exactly 82 actions (WLM operational-core #1578 added serialize_merge; DR-4 (#1630) added check_exploration_depth; WLM foundation task 008 added acquire_worktree, release_worktree, prune_worktrees; #1587 retired check_tdd_compliance; #1581 task 018 added discover_bridge; #1739 added cutover_readiness + cutover_decide; task 068 added invariants_amend; the effect-ledger remedy added reconcile_worktrees and moved stack_place here from exarchos_view)",
+          "name": "exposes exactly 83 actions (WLM operational-core #1578 added serialize_merge; DR-4 (#1630) added check_exploration_depth; WLM foundation task 008 added acquire_worktree, release_worktree, prune_worktrees; #1587 retired check_tdd_compliance; #1581 task 018 added discover_bridge; #1739 added cutover_readiness + cutover_decide; task 068 added invariants_amend; the effect-ledger remedy added reconcile_worktrees and moved stack_place here from exarchos_view; the bounded action executor added execute_intent)",
           "dynamic": false
         },
         {
@@ -59189,16 +59865,6 @@
         {
           "suite": "assertCurrentBranchNotProtected",
           "name": "assertCurrentBranchNotProtected_OnMain_IncludesRemediationHint",
-          "dynamic": false
-        },
-        {
-          "suite": "runPreflightGuards",
-          "name": "DispatchGuard_AncestryFail_EmitsPreflightWithPassedFalse",
-          "dynamic": false
-        },
-        {
-          "suite": "runPreflightGuards",
-          "name": "DispatchGuard_AllGuardsPass_EmitsPreflightWithPassedTrue",
           "dynamic": false
         },
         {

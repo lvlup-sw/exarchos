@@ -751,7 +751,10 @@ describe('TOOL_REGISTRY', () => {
       // reclaim and the launch / merge reconcilers, moved off `exarchos_view.ps
       // probe:true`) and re-parented `stack_place` from `exarchos_view`, so the
       // second is a MOVE and not a new capability: 80 → 82.
-      expect(composite!.actions).toHaveLength(82);
+      // The bounded action executor added `execute_intent` (compiles a named
+      // intent into a segment of already-registered local actions and runs it
+      // leaf by leaf, committing one operation record): 82 → 83.
+      expect(composite!.actions).toHaveLength(83);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -3178,6 +3181,7 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.serialize_merge': 2000,
   'exarchos_orchestrate.cutover_readiness': 2000,
   'exarchos_orchestrate.cutover_decide': 2000,
+  'exarchos_orchestrate.execute_intent': 1000,
   'exarchos_orchestrate.describe': 8000,
   'exarchos_view.pipeline': 2000,
   'exarchos_view.tasks': 2000,
@@ -3277,7 +3281,13 @@ describe('registry economy budgets (DR-1)', () => {
     expect(EVENT_DESCRIBE_ECONOMY_BUDGET_TOKENS).toBeGreaterThan(DESCRIBE_ECONOMY_BUDGET_TOKENS);
 
     // Nothing outside the allowlist declares an economy block — a stray
-    // declaration would silently widen the budget surface.
+    // declaration would silently widen the budget surface. `execute_intent`
+    // is the one action outside this list that declares an economy block, and
+    // it is checked separately below because it is NOT a "verbose by design"
+    // declaration: its budget sits BELOW the default (a measured ceiling on a
+    // real receipt, not a raised one), and it declares a real `summarize`
+    // reducer rather than relying on the generic capped fallback — a distinct
+    // category the widen-only allowlist above does not name.
     const declared = TOOL_REGISTRY.flatMap((t) =>
       t.actions
         .filter((a) => a.economy !== undefined)
@@ -3287,11 +3297,25 @@ describe('registry economy budgets (DR-1)', () => {
       [
         'exarchos_event.describe',
         'exarchos_orchestrate.describe',
+        'exarchos_orchestrate.execute_intent',
         'exarchos_orchestrate.runbook',
         'exarchos_view.describe',
         'exarchos_workflow.describe',
       ].sort(),
     );
+  });
+
+  it('registryEconomy_ExecuteIntent_DeclaresAMeasuredBudgetAndARealSummarizer', () => {
+    const action = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate')?.actions.find(
+      (a) => a.name === 'execute_intent',
+    );
+    expect(action).toBeDefined();
+    // Below the default, not above it — a measured ceiling on the shipped
+    // receipt shape, the opposite of the verbose-by-design allowlist's reason
+    // for declaring one at all.
+    expect(action?.economy?.budgetTokens).toBeLessThan(DEFAULT_ECONOMY_BUDGET_TOKENS);
+    expect(resolveEconomyBudget(action as ToolAction)).toBe(action?.economy?.budgetTokens);
+    expect(typeof action?.economy?.summarize).toBe('function');
   });
 
   it('describeAction_WithBudget_SurfacesBudgetTokens', async () => {
@@ -3491,6 +3515,15 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       report: cutoverGateReport,
       durableEvidence: cutoverDurableEvidence,
     },
+    // `execute_intent` — the bounded action executor's receipt. `leaves` and
+    // `interaction.deferred` are the only arrays with no minimum, so an empty
+    // segment (compiled but nothing run yet is not a shape this schema emits —
+    // this is the smallest REAL receipt: zero leaves executed) is the floor.
+    'exarchos_orchestrate.execute_intent': {
+      operationId: 'op-1', intent: 'task-completion', outcome: 'committed',
+      leaves: [], tailSequence: 0, requestDigest: `sha256:${'a'.repeat(64)}`,
+      interaction: { leavesExecuted: 0, eventsAppended: 0, requests: 1, deferred: [] },
+    },
   };
   function baselineEnvelope(data: Record<string, unknown>): Record<string, unknown> {
     return {
@@ -3660,7 +3693,11 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       // carrying its waiver across would have swapped one seeded key for
       // another — the edit the seed digest exists to redden — so the only legal
       // move was to write the real schema.
-      expect(actions.length).toBe(16);
+      //
+      // The 17th is the bounded action executor's `execute_intent`, NEW like
+      // `reconcile_worktrees` — a shrink-only allowlist has no waiver for a
+      // fresh action to acquire, so it was declared substantively from the start.
+      expect(actions.length).toBe(17);
       for (const { tool, action } of actions) {
         const parsed = action.outputSchema.safeParse(cappedEnvelope());
         expect(

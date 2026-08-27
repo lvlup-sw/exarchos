@@ -684,7 +684,12 @@ describe('EventTypes', () => {
     //   line. The append has always been there; it reached the store through a
     //   widening assertion at the call site, so the catalog never saw it and the
     //   emission ledger could not attribute it to the action that performs it.
-    expect(EventTypes).toHaveLength(177);
+    // Bumped 177 → 178: orchestrate.intent_executed, the bounded action
+    //   executor's operation record. Appended by the `execute_intent` handler
+    //   itself under the caller's operationId on both the committed and the
+    //   failed path, so a fully-failed segment leaves a queryable fact instead
+    //   of zero events.
+    expect(EventTypes).toHaveLength(178);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -4296,8 +4301,10 @@ describe('WLM operational-core merge lease schemas', () => {
     // post-dispatch verifier's report of a declared emission that did not land
     // (175 → 176), plus prune.diagnostics — the prune evaluation's audit line,
     // which reached the store through a widening assertion instead of the
-    // catalog (176 → 177).
-    expect(EventTypes).toHaveLength(177);
+    // catalog (176 → 177), plus orchestrate.intent_executed — the bounded
+    // action executor's own operation record, appended by its handler on both
+    // the committed and the failed path (177 → 178).
+    expect(EventTypes).toHaveLength(178);
     // No duplicate slipped in while bumping the count.
     expect(new Set(EventTypes).size).toBe(EventTypes.length);
   });

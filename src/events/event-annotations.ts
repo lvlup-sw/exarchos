@@ -475,6 +475,17 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   // no `ConsumerId` to name, and `consumedBy` is a non-empty tuple precisely so
   // that "a human will look at it" cannot be written down as a consumer.
   'emission.violated': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  // The bounded action executor's operation record. Appended by
+  // `execute_intent`'s own handler on both the committed and the failed path —
+  // the durable record of the non-idempotent segment it just ran. No projection
+  // folds it yet, so `capability` (which demands a non-empty `consumedBy`) is
+  // unavailable; `operation-record` claims only what is true today: the code
+  // performing the operation owns the append.
+  'orchestrate.intent_executed': {
+    lifecycle: 'active',
+    tier: 'substrate',
+    rationale: 'operation-record',
+  },
 
   // ── Capability — an effect provider appends it, and named consumers fold it ──
   //

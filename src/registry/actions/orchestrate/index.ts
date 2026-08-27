@@ -22,6 +22,7 @@ import { onboardingActions } from './onboarding.js';
 import { invariantActions } from './invariants.js';
 import { worktreeActions } from './worktree.js';
 import { cutoverActions } from './cutover.js';
+import { executeActions } from './execute.js';
 
 export const orchestrateActions: readonly BuiltinToolAction[] = [
   ...coordinationActions,
@@ -35,5 +36,6 @@ export const orchestrateActions: readonly BuiltinToolAction[] = [
   ...invariantActions,
   ...worktreeActions,
   ...cutoverActions,
+  ...executeActions,
   makeDescribeAction('exarchos_orchestrate.describe'),
 ];

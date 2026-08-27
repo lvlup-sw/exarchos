@@ -454,12 +454,18 @@ describe('DR-4: outputSchema vacuity census', () => {
     //   the route a new action has to take. So one site crossed and one arrived
     //   capped, which is why the waiver count falls by one and the sum rises.
     //
-    // So 111/10/121 became 110/12/122, then 108/14/122, then 107/16/123.
+    //   THE BOUNDED ACTION EXECUTOR added one more capped site (`execute_intent`)
+    //   the same route `reconcile_worktrees` took: a new action, so the
+    //   shrink-only allowlist leaves `withCappedShape` as the only legal
+    //   declaration. The waiver count is untouched and the sum rises again.
+    //
+    // So 111/10/121 became 110/12/122, then 108/14/122, then 107/16/123, then
+    // 107/17/124.
     expect(sites).toHaveLength(waiverSites + cappedSites);
     expect(literalVacuousSites).toBe(0);
     expect(waiverSites).toBe(107);
-    expect(cappedSites).toBe(16);
-    expect(waiverSites + cappedSites).toBe(123);
+    expect(cappedSites).toBe(17);
+    expect(waiverSites + cappedSites).toBe(124);
     // Two of the waivers carry an explicit named binding — the aliased vacuity
     // this census exists to see through.
     expect(namedBindingSites).toBe(2);
@@ -493,14 +499,16 @@ describe('DR-4: outputSchema vacuity census', () => {
     //     arrival rather than inherited.
     //
     // A paydown moves the split; an arrival moves the denominator. Reading the
-    // three together is what makes the ratchet legible.
-    expect(report.total).toBe(124);
+    // three together is what makes the ratchet legible. `execute_intent`
+    // arriving capped is another denominator move: 108/16 -> 108/17 over 124 ->
+    // 125, vacuousCount flat because nothing paid down or was newly waived.
+    expect(report.total).toBe(125);
     expect(report.vacuousCount).toBe(108);
-    expect(report.substantiveCount).toBe(16);
+    expect(report.substantiveCount).toBe(17);
     expect(countByReason(report)).toEqual({
       'unknown-data': 107,
       'wrapped-unknown-data': 1,
-      'typed-data': 16,
+      'typed-data': 17,
       'unreadable-envelope': 0,
     });
 

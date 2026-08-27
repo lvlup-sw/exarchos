@@ -64,6 +64,27 @@ export const ECONOMY_META_TRUNCATED = 'truncated' as const;
 /** `_meta` key stamped on a fail-open (uncapped, degraded) response. */
 export const ECONOMY_META_DEGRADED = 'economyDegraded' as const;
 
+/**
+ * The compact receipt a bounded-segment refusal carries on its error.
+ *
+ * A segment that halted still executed: leaves ran, events landed, and the
+ * operation record committed. `leaves[].events` is the COUNT rather than the
+ * events themselves — the refusal is a pointer back into the log, not a copy
+ * of it, and the derived per-leaf operation id is what retrieves the rest.
+ */
+export interface IntentFailureDetail {
+  readonly operationId: string;
+  readonly outcome: 'committed' | 'failed';
+  readonly failedLeaf?: string;
+  readonly tailSequence: number;
+  readonly leaves: readonly {
+    readonly action: string;
+    readonly status: string;
+    readonly events: number;
+    /** An advisory-mode emission finding survives the refusal, not just the receipt. */
+    readonly emissionViolation?: string;
+  }[];
+}
 
 export interface ToolResult {
   readonly success: boolean;
@@ -95,6 +116,13 @@ export interface ToolResult {
     // refused. Type-only import — erased at runtime, so `format.ts` picks up
     // no dependency on the projections graph.
     projectionDegraded?: ProjectionDegradedDetail;
+    // The compact receipt a bounded-segment refusal carries. `data` is kept
+    // only on the success path at the envelope boundary, so a failed segment's
+    // receipt has to ride inside the error or the caller never sees that the
+    // operation ran at all — which id to replay, how far it got, where the log
+    // now ends. Structural rather than imported so this module picks up no
+    // dependency on the executor's graph.
+    intentReceipt?: IntentFailureDetail;
   };
   readonly warnings?: readonly string[];
   readonly _meta?: unknown;
@@ -553,6 +581,10 @@ export function toEnvelope(result: ToolResult): Envelope<unknown> | ErrorEnvelop
     ...(sourceError.tool !== undefined ? { tool: sourceError.tool } : {}),
     ...(sourceError.action !== undefined ? { action: sourceError.action } : {}),
     ...(sourceError.validActions !== undefined ? { validActions: sourceError.validActions } : {}),
+    // The bounded executor's compact receipt. Threaded explicitly, like every
+    // other field above: this builder copies a named set rather than spreading,
+    // so a detail that is not named here is a detail the caller never receives.
+    ...(sourceError.intentReceipt !== undefined ? { intentReceipt: sourceError.intentReceipt } : {}),
   };
   const failure: ErrorEnvelope = {
     success: false,
