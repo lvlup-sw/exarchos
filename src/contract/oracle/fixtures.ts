@@ -80,6 +80,7 @@ import {
   type ImplementationBinding,
 } from '../bindings/binding-table.js';
 import type { CompositeHandler, DispatchContext } from '../../dispatch/core/dispatch.js';
+import { runWithAppendObserver } from '../../events/observation/append-observation.js';
 import {
   deriveLocalOperatorIdentity,
   snapshotCallerAuthorization,
@@ -1166,4 +1167,398 @@ export async function runEmissionOracleSuite(
     coverage: emissionAxisCoverage(suite.reports),
     vacuity,
   };
+}
+
+// ─── The shipped-emitter probe corpus ────────────────────────────────────────
+//
+// `realHandlerSubjects` admits an action only if it declares `readOnly`, which
+// excludes EVERY action that declares an emission: appending an event is a
+// mutation, so the emitting population and the probed population were disjoint,
+// and the only subject that ever reached the emission axis was a fixture action.
+//
+// The corpus below is the emitting population's own admission rule. It admits a
+// MUTATING action, because the mutation is confined to a caller-owned temporary
+// state directory — a private event store and nothing else. What it will not
+// admit is a handler that leaves that directory: one that reaches the network,
+// shells out to git, inspects or writes the host repository, or runs the
+// project toolchain in a subprocess.
+//
+// Membership is by SAFETY, not by outcome. A member that declines the probe, or
+// that declares an unconditional emission and is then observed appending
+// nothing, stays a member — dropping it would tune the corpus to the answer it
+// is supposed to be able to give.
+//
+// The corpus is deliberately a modest subset (workflow lifecycle, task
+// bookkeeping, a handful of local orchestration verbs). The rest is EXCLUDED
+// WITH A REASON rather than omitted, and {@link emissionProbeCorpus} reports
+// any declared emitter that is in neither list — so a newly-declared emission
+// cannot join the population without being classified.
+
+/** An action dispatched into the isolated state dir before the probe itself. */
+export interface EmissionProbeStep {
+  readonly actionId: string;
+  readonly input: Readonly<Record<string, unknown>>;
+}
+
+/** One shipped emitter the oracle can invoke inside an isolated state dir. */
+export interface EmissionProbe {
+  readonly actionId: string;
+  /** Prerequisite dispatches, in order. Empty when the action needs no prior state. */
+  readonly setup: readonly EmissionProbeStep[];
+  /** The probe input, valid against the action's own declared schema. */
+  readonly input: Readonly<Record<string, unknown>>;
+}
+
+/** A declared emitter the corpus does not probe, and why. */
+export interface ExcludedEmitter {
+  readonly actionId: string;
+  readonly reason: string;
+}
+
+export interface EmissionProbeCorpus {
+  readonly probes: readonly EmissionProbe[];
+  readonly excluded: readonly ExcludedEmitter[];
+  /** Every action whose contract declares an emission — the population partitioned. */
+  readonly declaredEmitters: readonly string[];
+  /** Declared emitters that are neither probed nor excluded. */
+  readonly unclassified: readonly string[];
+  /** Exclusions naming an action that no longer declares an emission. */
+  readonly stale: readonly string[];
+}
+
+/** The feature the workflow-lifecycle probes create inside their own state dir. */
+export const EMISSION_PROBE_FEATURE_ID = 'oracle-emission-probe';
+
+/** Every registered action whose contract declares at least one emission. */
+export function declaredEmittingActions(): readonly {
+  readonly action: ToolAction;
+  readonly actionId: string;
+}[] {
+  return realRegistryActions()
+    .filter(({ action }) => contractEmissionsOf(action).length > 0)
+    .map(({ action, actionId }) => ({ action, actionId }));
+}
+
+function initWorkflow(workflowType: string): EmissionProbeStep {
+  return {
+    actionId: 'exarchos_workflow.init',
+    input: { featureId: EMISSION_PROBE_FEATURE_ID, workflowType },
+  };
+}
+
+const FEATURE_INPUT = { featureId: EMISSION_PROBE_FEATURE_ID };
+
+/**
+ * The probed members. Each input was constructed against the action's declared
+ * schema and each one was executed against a private state directory before
+ * being written down here — the set is measured, not proposed.
+ */
+const EMISSION_PROBES: readonly EmissionProbe[] = [
+  { actionId: 'exarchos_workflow.init', setup: [], input: initWorkflow('feature').input },
+  {
+    actionId: 'exarchos_workflow.update',
+    setup: [initWorkflow('feature')],
+    input: { ...FEATURE_INPUT, updates: { notes: 'emission probe' } },
+  },
+  {
+    actionId: 'exarchos_workflow.cancel',
+    setup: [initWorkflow('feature')],
+    input: { ...FEATURE_INPUT, reason: 'emission probe' },
+  },
+  {
+    actionId: 'exarchos_workflow.feedback',
+    setup: [],
+    input: { ...FEATURE_INPUT, message: 'emission probe feedback' },
+  },
+  {
+    actionId: 'exarchos_workflow.rehydrate',
+    setup: [initWorkflow('feature')],
+    input: FEATURE_INPUT,
+  },
+  {
+    actionId: 'exarchos_workflow.checkpoint',
+    setup: [initWorkflow('feature')],
+    input: FEATURE_INPUT,
+  },
+  {
+    actionId: 'exarchos_orchestrate.task_claim',
+    setup: [],
+    input: { ...FEATURE_INPUT, taskId: 'emission-probe-task', agentId: 'emission-probe-agent' },
+  },
+  {
+    actionId: 'exarchos_orchestrate.task_fail',
+    setup: [],
+    input: { ...FEATURE_INPUT, taskId: 'emission-probe-task', error: 'emission probe failure' },
+  },
+  {
+    actionId: 'exarchos_orchestrate.stack_place',
+    setup: [],
+    input: { streamId: 'emission-probe-stream', position: 1, taskId: 'emission-probe-task' },
+  },
+  {
+    actionId: 'exarchos_orchestrate.request_synthesize',
+    // Only a oneshot workflow admits this verb, so the prerequisite carries the
+    // type rather than the probe reporting a refusal it could have avoided.
+    setup: [initWorkflow('oneshot')],
+    input: FEATURE_INPUT,
+  },
+  { actionId: 'exarchos_orchestrate.prune_stale_workflows', setup: [], input: {} },
+  { actionId: 'exarchos_orchestrate.cutover_decide', setup: [], input: {} },
+  {
+    actionId: 'exarchos_orchestrate.classify_review_items',
+    setup: [],
+    input: {
+      ...FEATURE_INPUT,
+      actionItems: [{ file: 'src/probe.ts', severity: 'low', description: 'emission probe item' }],
+    },
+  },
+];
+
+const GATE_EXCLUSION =
+  'gate action — resolves the host repository and runs the project toolchain in a subprocess, ' +
+  'so the probe is neither offline nor confined to an isolated state dir';
+
+const WORKTREE_EXCLUSION = 'creates or removes git worktrees in the host checkout';
+
+const GATE_ACTIONS: readonly string[] = [
+  'check_static_analysis',
+  'check_integration_suite',
+  'check_security_scan',
+  'check_context_economy',
+  'check_operational_resilience',
+  'check_workflow_determinism',
+  'check_review_verdict',
+  'check_convergence',
+  'check_provenance_chain',
+  'check_design_completeness',
+  'check_plan_coverage',
+  'check_exploration_depth',
+  'check_test_adequacy',
+  'check_contract_drift',
+  'check_mock_boundary',
+  'check_post_merge',
+  'check_task_decomposition',
+  'check_event_emissions',
+  'check_invariant_conformance',
+  'mutation-adequacy',
+  'post_delegation_check',
+  'pre_synthesis_check',
+];
+
+/**
+ * Why each remaining declared emitter is not probed. Hand-authored on purpose:
+ * a family predicate would silently absorb a new emitter that happens to match
+ * it, and the whole point of the census is that a new one has to be looked at.
+ */
+const HAND_AUTHORED_EXCLUSIONS: readonly ExcludedEmitter[] = [
+  ...GATE_ACTIONS.map((name) => ({
+    actionId: `exarchos_orchestrate.${name}`,
+    reason: GATE_EXCLUSION,
+  })),
+  {
+    actionId: 'exarchos_workflow.transition',
+    reason:
+      'a phase transition is admitted only against an on-disk plan artifact, which the probe ' +
+      'would have to author in the host repository',
+  },
+  {
+    actionId: 'exarchos_workflow.cleanup',
+    reason: 'removes worktrees and branches through git — the probe would mutate the host checkout',
+  },
+  {
+    actionId: 'exarchos_orchestrate.task_complete',
+    reason: 'admission requires prior gate evidence the probe would have to manufacture',
+  },
+  {
+    actionId: 'exarchos_orchestrate.review_triage',
+    reason: 'requires pull-request identifiers only a live remote can supply',
+  },
+  {
+    actionId: 'exarchos_orchestrate.prepare_delegation',
+    reason: 'requires an on-disk plan and a task roster the probe does not author',
+  },
+  {
+    actionId: 'exarchos_orchestrate.prepare_synthesis',
+    reason: 'resolves and inspects the host repository through its declared repo root',
+  },
+  {
+    actionId: 'exarchos_orchestrate.discover_bridge',
+    reason: 'requires an on-disk discovery artifact',
+  },
+  {
+    actionId: 'exarchos_orchestrate.prepare_review',
+    reason: 'reads the spec artifact under review out of the host repository',
+  },
+  {
+    actionId: 'exarchos_orchestrate.doctor',
+    reason: 'probes the host toolchain through subprocesses',
+  },
+  {
+    actionId: 'exarchos_orchestrate.onboard',
+    reason: 'installs harness content into the host and shells out to do it',
+  },
+  {
+    actionId: 'exarchos_orchestrate.invariants_add',
+    reason: "writes the repository's invariant catalog outside the isolated state dir",
+  },
+  {
+    actionId: 'exarchos_orchestrate.invariants_amend',
+    reason: "writes the repository's invariant catalog outside the isolated state dir",
+  },
+  { actionId: 'exarchos_orchestrate.acquire_worktree', reason: WORKTREE_EXCLUSION },
+  { actionId: 'exarchos_orchestrate.release_worktree', reason: WORKTREE_EXCLUSION },
+  { actionId: 'exarchos_orchestrate.prune_worktrees', reason: WORKTREE_EXCLUSION },
+  { actionId: 'exarchos_orchestrate.reconcile_worktrees', reason: WORKTREE_EXCLUSION },
+];
+
+/** The reason an `openWorld` emitter is excluded — the registry's own annotation. */
+export const OPEN_WORLD_EXCLUSION =
+  'declares openWorld — the probe would leave the local system';
+
+/**
+ * The corpus, partitioned against the live declared-emission population.
+ *
+ * The `openWorld` exclusions are DERIVED from the registry annotation rather
+ * than listed, so they cannot drift from what the action declares. Everything
+ * else is named by hand, and anything named by neither is reported in
+ * `unclassified` instead of quietly falling out of the population.
+ */
+export function emissionProbeCorpus(): EmissionProbeCorpus {
+  const population = declaredEmittingActions();
+  const declaredEmitters = population.map(({ actionId }) => actionId);
+  const probed = new Set(EMISSION_PROBES.map((probe) => probe.actionId));
+
+  const excluded: ExcludedEmitter[] = [];
+  const named = new Set<string>();
+  for (const { action, actionId } of population) {
+    if (probed.has(actionId) || !action.annotations.openWorld) continue;
+    excluded.push({ actionId, reason: OPEN_WORLD_EXCLUSION });
+    named.add(actionId);
+  }
+  for (const entry of HAND_AUTHORED_EXCLUSIONS) {
+    if (named.has(entry.actionId)) continue;
+    excluded.push(entry);
+    named.add(entry.actionId);
+  }
+
+  const known = new Set(declaredEmitters);
+  return {
+    probes: EMISSION_PROBES,
+    excluded,
+    declaredEmitters,
+    unclassified: declaredEmitters.filter((id) => !probed.has(id) && !named.has(id)),
+    stale: [...named].filter((id) => !known.has(id)).sort(compareText),
+  };
+}
+
+/**
+ * The floor on probes able to reach a DETERMINATE emission verdict — one that
+ * declares an unconditional edge, which `checkDeclaredEmission` resolves to
+ * `pass` or `fail` rather than to `not-observed`. Measured from the corpus, and
+ * pinned to a floor: the set may grow, never quietly shrink.
+ */
+export const EMISSION_PROBE_DETERMINATE_FLOOR = 9;
+
+export interface EmissionProbeFloorVerdict {
+  readonly ok: boolean;
+  /** The probed actions declaring at least one unconditional emission. */
+  readonly determinate: readonly string[];
+  readonly diagnostic: string;
+}
+
+/**
+ * Whether the corpus still carries enough determinate-capable emitters.
+ *
+ * Membership is read from each action's REGISTRY declaration, never from the
+ * probe entry — a corpus that could satisfy its own floor by claiming to be
+ * determinate would be measuring its literals.
+ */
+export function checkEmissionProbeFloor(corpus: EmissionProbeCorpus): EmissionProbeFloorVerdict {
+  const byId = new Map(declaredEmittingActions().map((entry) => [entry.actionId, entry.action]));
+  const determinate = corpus.probes
+    .filter((probe) => {
+      const action = byId.get(probe.actionId);
+      return (
+        action !== undefined &&
+        contractEmissionsOf(action).some((emission) => emission.condition === 'always')
+      );
+    })
+    .map((probe) => probe.actionId)
+    .sort(compareText);
+  const ok = determinate.length >= EMISSION_PROBE_DETERMINATE_FLOOR;
+  return {
+    ok,
+    determinate,
+    diagnostic: ok
+      ? `${determinate.length} probed emitter(s) declare an unconditional edge ` +
+        `(floor ${EMISSION_PROBE_DETERMINATE_FLOOR})`
+      : `only ${determinate.length} probed emitter(s) declare an unconditional edge, below the ` +
+        `floor of ${EMISSION_PROBE_DETERMINATE_FLOOR} — the corpus can no longer put the emission ` +
+        `axis in front of a shipped handler that must append`,
+  };
+}
+
+/** What one probe run observed. */
+export interface EmissionProbeRun {
+  readonly actionId: string;
+  /** Whatever the shipped handler returned. */
+  readonly result: unknown;
+  /** Event types the store confirmed durable during the probe — not its setup. */
+  readonly appended: readonly string[];
+}
+
+async function invokeShippedAction(
+  actionId: string,
+  input: Readonly<Record<string, unknown>>,
+  stateDir: string,
+  makeContext: DispatchContextFactory,
+): Promise<unknown> {
+  const entry = realRegistryActions().find((candidate) => candidate.actionId === actionId);
+  if (entry === undefined) {
+    throw new Error(`oracle fixtures: '${actionId}' is not a registered action`);
+  }
+  const binding = bindingFor(buildBindingTable(), entry.tool.name);
+  if (binding === undefined || !isImplementationBinding(binding)) {
+    throw new Error(`oracle fixtures: no implementation binding for tool '${entry.tool.name}'`);
+  }
+  const roles = registryRequiredRoles(entry.action);
+  const handler = compositeHandlerAdapter(
+    binding.load,
+    entry.action.name,
+    roles,
+    stateDir,
+    makeContext,
+  );
+  return handler(
+    { ...input },
+    { caller: { subjectId: 'emission-probe', roles: [...roles] }, effects: createEffectRecorder() },
+  );
+}
+
+/**
+ * Run one probe against `stateDir`, which the CALLER owns and removes — the
+ * corpus never names a path, so two probes running side by side cannot collide
+ * on a shared one.
+ *
+ * Appends are read off the event store's own durable-observation seam, so what
+ * is reported is what the store confirmed persisted, not what the handler said
+ * it would do. The setup dispatches run OUTSIDE that scope: their appends are
+ * the prerequisite state, not the probe's behavior.
+ */
+export async function runEmissionProbe(
+  probe: EmissionProbe,
+  stateDir: string,
+  makeContext: DispatchContextFactory,
+): Promise<EmissionProbeRun> {
+  for (const step of probe.setup) {
+    await invokeShippedAction(step.actionId, step.input, stateDir, makeContext);
+  }
+  const appended: string[] = [];
+  const result = await runWithAppendObserver(
+    (observation) => {
+      appended.push(observation.type);
+    },
+    () => invokeShippedAction(probe.actionId, probe.input, stateDir, makeContext),
+  );
+  return { actionId: probe.actionId, result, appended };
 }

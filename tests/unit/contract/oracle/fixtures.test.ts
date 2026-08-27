@@ -80,6 +80,9 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { makeTempDir, rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 import { TOOL_REGISTRY, contractEmissionsOf } from '../../../../src/registry.js';
 import { BINDING_TABLE } from '../../../../src/contract/bindings/binding-table.js';
@@ -107,6 +110,8 @@ import {
   type OracleSubject,
 } from '../../../../src/contract/oracle/oracle-seam.js';
 import {
+  EMISSION_PROBE_DETERMINATE_FLOOR,
+  OPEN_WORLD_EXCLUSION,
   REAL_REGISTRY_EMISSION_ACTION,
   REAL_REGISTRY_EMISSION_EVENT,
   REAL_REGISTRY_EMISSION_TOOL,
@@ -114,7 +119,11 @@ import {
   REAL_REGISTRY_PROBE_ROLE,
   REAL_REGISTRY_PROBE_TOOL,
   TRUSTED_CALLER_REQUIRED,
+  checkEmissionProbeFloor,
   correctBaselineSubject,
+  declaredEmittingActions,
+  emissionProbeCorpus,
+  runEmissionProbe,
   liveOutputSubjects,
   realActionDeclaration,
   realHandlerSubjects,
@@ -769,4 +778,188 @@ describe('the emission axis reaches a verdict on a live subject', () => {
       withLiveSubject.suite.failures.map((f) => `${f.actionId}/${f.axis}`).join(', '),
     ).toBe(true);
   }, 120_000);
+});
+
+// ─── The shipped-emitter probe corpus ────────────────────────────────────────
+//
+// The emission axis had exactly one subject it could reach a verdict on, and
+// that subject was a FIXTURE action. Every shipped emitter was outside the
+// probed population by construction: `realHandlerSubjects` admits only
+// `readOnly` actions, and appending an event is a mutation.
+//
+// The corpus is the emitting population's own admission rule — a mutating
+// action is admitted when its mutation is confined to a caller-owned temporary
+// state directory. These three tests hold it to that:
+//
+//   1. every member is schema-valid, runs to completion offline, and writes
+//      inside its own temp dir and nowhere else;
+//   2. the determinate-capable count is pinned to a floor that a shrinking
+//      corpus trips; and
+//   3. the probed and excluded sets PARTITION the declared-emission
+//      population, so a newly-declared emission cannot join it unclassified.
+
+describe('the shipped-emitter probe corpus', () => {
+  /** `success` off an envelope, without asserting the envelope's whole shape. */
+  function envelopeSuccess(value: unknown): unknown {
+    if (typeof value !== 'object' || value === null || !('success' in value)) return undefined;
+    const { success } = value;
+    return success;
+  }
+
+  it('EmissionProbeCorpus_EveryEntryIsSchemaValidLocalAndIsolated', async () => {
+    const corpus = emissionProbeCorpus();
+    expect(corpus.probes.length).toBeGreaterThan(0);
+
+    const byId = new Map(declaredEmittingActions().map((e) => [e.actionId, e.action]));
+    const repoRoot = process.cwd();
+    const repoStateDir = path.join(repoRoot, '.exarchos');
+    const dbLike = (entry: string): boolean => /\.db(-wal|-shm)?$/.test(entry);
+    const usedDirs = new Set<string>();
+    let observedAppends = 0;
+
+    for (const probe of corpus.probes) {
+      const action = byId.get(probe.actionId);
+      expect(action, probe.actionId).toBeDefined();
+      if (action === undefined) continue;
+
+      // Local and offline are the REGISTRY's own words, so a member that starts
+      // reaching outside the machine trips this rather than the containment
+      // check downstream.
+      expect(action.annotations.openWorld, probe.actionId).toBe(false);
+
+      // Schema-valid: the probe input and every prerequisite are validated
+      // against the declared schema they will actually be dispatched through.
+      expect(action.schema.safeParse(probe.input).success, probe.actionId).toBe(true);
+      for (const step of probe.setup) {
+        const stepAction = byId.get(step.actionId) ?? null;
+        const stepSchema =
+          stepAction ?? realRegistryActions().find((e) => e.actionId === step.actionId)?.action;
+        expect(stepSchema, `${probe.actionId} setup ${step.actionId}`).toBeDefined();
+        if (stepSchema === undefined || stepSchema === null) continue;
+        expect(
+          stepSchema.schema.safeParse(step.input).success,
+          `${probe.actionId} setup ${step.actionId}`,
+        ).toBe(true);
+      }
+
+      // Isolated: a fresh temp dir per probe, never a fixed path — two runs on
+      // the same machine must not be able to meet in one directory.
+      const probeDir = makeTempDir('oracle-emission-probe-');
+      expect(probeDir.startsWith(os.tmpdir()), probeDir).toBe(true);
+
+      expect(usedDirs.has(probeDir)).toBe(false);
+      usedDirs.add(probeDir);
+      try {
+        const run = await runEmissionProbe(probe, probeDir, makeRealContext);
+        // It ran to completion and returned a runtime envelope — a member that
+        // throws is not a probe, it is an unhandled path.
+        expect(typeof envelopeSuccess(run.result), `${probe.actionId}: ${String(run.result)}`).toBe(
+          'boolean',
+        );
+        // A probe that appended durably must have a store in its OWN directory:
+        // the append and the file it landed in have to be the same isolation.
+        // Probes that append nothing legitimately leave no store behind.
+        if (run.appended.length > 0) {
+          observedAppends += 1;
+          expect(fs.readdirSync(probeDir).some(dbLike), probe.actionId).toBe(true);
+        }
+      } finally {
+        rmrf(probeDir);
+      }
+      expect(fs.existsSync(probeDir), `${probe.actionId} left its temp dir behind`).toBe(false);
+    }
+
+    // The containment claim needs a denominator: a corpus in which nothing ever
+    // appended would satisfy every check below by never writing at all.
+    expect(observedAppends).toBeGreaterThan(0);
+
+    // Containment: a probe that ran against the ambient state dir instead of
+    // its own would materialise an event store in the repository. Checked after
+    // the whole corpus, so ANY member escaping is caught.
+    expect(
+      fs.readdirSync(repoStateDir).filter(dbLike),
+      'a probe wrote an event store into the repository state dir',
+    ).toEqual([]);
+    expect(
+      fs.readdirSync(repoRoot).filter(dbLike),
+      'a probe wrote an event store into the repository root',
+    ).toEqual([]);
+  }, 300_000);
+
+  it('EmissionProbeCorpus_ZeroEntries_FailsTheFloor', () => {
+    const corpus = emissionProbeCorpus();
+    const verdict = checkEmissionProbeFloor(corpus);
+
+    // The measured floor, and the members it counts are read from the REGISTRY
+    // declaration rather than from the corpus literal.
+    expect(verdict.ok, verdict.diagnostic).toBe(true);
+    expect(verdict.determinate.length).toBeGreaterThanOrEqual(EMISSION_PROBE_DETERMINATE_FLOOR);
+    expect(EMISSION_PROBE_DETERMINATE_FLOOR).toBeGreaterThan(0);
+    for (const actionId of verdict.determinate) {
+      const action = declaredEmittingActions().find((e) => e.actionId === actionId)?.action;
+      expect(action, actionId).toBeDefined();
+      if (action === undefined) continue;
+      expect(
+        contractEmissionsOf(action).some((e) => e.condition === 'always'),
+        actionId,
+      ).toBe(true);
+    }
+
+    // The kill: an emptied corpus fails the same check, and says why. Without
+    // this the floor would be an assertion no state of the world falsifies.
+    const emptied = checkEmissionProbeFloor({ ...corpus, probes: [] });
+    expect(emptied.ok).toBe(false);
+    expect(emptied.determinate).toEqual([]);
+    expect(emptied.diagnostic).toContain('below the floor');
+
+    // And it is not a blanket refusal: a corpus holding only conditional-edge
+    // members is equally short, which is what makes the count mean something.
+    const conditionalOnly = corpus.probes.filter(
+      (probe) => !verdict.determinate.includes(probe.actionId),
+    );
+    expect(conditionalOnly.length).toBeGreaterThan(0);
+    expect(checkEmissionProbeFloor({ ...corpus, probes: conditionalOnly }).ok).toBe(false);
+  });
+
+  it('EmissionProbeCorpus_ExcludedActions_ReportReasons', () => {
+    const corpus = emissionProbeCorpus();
+
+    // The denominator, measured rather than assumed.
+    expect(corpus.declaredEmitters.length).toBeGreaterThanOrEqual(50);
+    expect(new Set(corpus.declaredEmitters).size).toBe(corpus.declaredEmitters.length);
+
+    // The two sets PARTITION the population: every declared emitter is probed
+    // or excluded, nothing is both, and no exclusion names an action that has
+    // stopped declaring an emission.
+    const probed = corpus.probes.map((probe) => probe.actionId);
+    const excluded = corpus.excluded.map((entry) => entry.actionId);
+    expect(corpus.unclassified, 'a declared emitter is neither probed nor excluded').toEqual([]);
+    expect(corpus.stale, 'an exclusion names an action that declares no emission').toEqual([]);
+    expect(new Set(excluded).size).toBe(excluded.length);
+    expect(probed.filter((id) => excluded.includes(id))).toEqual([]);
+    expect([...probed, ...excluded].sort()).toEqual([...corpus.declaredEmitters].sort());
+
+    // Every exclusion carries a REASON — the point of reporting them at all.
+    for (const entry of corpus.excluded) {
+      expect(entry.reason.trim().length, entry.actionId).toBeGreaterThan(0);
+    }
+
+    // The `openWorld` exclusions are derived from the annotation, so they name
+    // exactly the emitters the registry itself says leave the local system.
+    const openWorldEmitters = declaredEmittingActions()
+      .filter((e) => e.action.annotations.openWorld)
+      .map((e) => e.actionId)
+      .sort();
+    expect(openWorldEmitters.length).toBeGreaterThan(0);
+    expect(
+      corpus.excluded
+        .filter((entry) => entry.reason === OPEN_WORLD_EXCLUSION)
+        .map((entry) => entry.actionId)
+        .sort(),
+    ).toEqual(openWorldEmitters);
+
+    // The corpus is a MODEST subset, and says so rather than implying it covers
+    // the population: most declared emitters are excluded, with a reason each.
+    expect(corpus.excluded.length).toBeGreaterThan(corpus.probes.length);
+  });
 });
