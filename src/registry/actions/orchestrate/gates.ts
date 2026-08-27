@@ -143,7 +143,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: false, dimension: 'D1' },
+    gate: { blocking: false, dimension: 'D1', gateClass: 'security-scan' },
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_security_scan'),
     annotations: LOCAL_MUTATION,
   }, {
@@ -290,7 +290,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: false },
+    gate: { blocking: false, gateClass: 'convergence' },
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_convergence'),
     // sentry HIGH on PR #1369: although `check_convergence` reads
     // existing gate state, the handler `emitGateEvent`s on every call,

@@ -36,7 +36,15 @@ export type PhaseGateClass =
   | 'plan-coverage'
   | 'provenance-chain'
   | 'review-verdict'
-  | 'prepare-synthesis';
+  | 'prepare-synthesis'
+  // The three review gates that declared durable gate evidence and paid for it
+  // with a bare `gate.executed` append. Their handlers now route through the
+  // shared phase-gate runner, and the runner resolves a provider by class — so
+  // each class is declared here or the gate cannot record the evidence its own
+  // contract promises.
+  | 'security-scan'
+  | 'convergence'
+  | 'invariant-conformance';
 export type SupportedGateClass = MechanicalGateClass | PhaseGateClass;
 
 export interface GateProviderRegistration {
@@ -138,6 +146,15 @@ const BUILTIN_REGISTRATIONS = {
   },
   'prepare-synthesis': {
     actionName: 'prepare_synthesis',
+  },
+  'security-scan': {
+    actionName: 'check_security_scan',
+  },
+  convergence: {
+    actionName: 'check_convergence',
+  },
+  'invariant-conformance': {
+    actionName: 'check_invariant_conformance',
   },
 } as const satisfies Readonly<
   Record<

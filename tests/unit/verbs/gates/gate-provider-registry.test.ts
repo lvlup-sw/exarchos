@@ -92,7 +92,7 @@ describe('gate provider registry', () => {
         code: 'UNKNOWN_GATE_CLASS',
         message: 'Unknown gate class "contract-drit"',
         gateClass: 'contract-drit',
-        suggestions: ['contract-drift', 'test-adequacy', 'mock-boundary'],
+        suggestions: ['contract-drift', 'convergence', 'test-adequacy'],
         validGateClasses: SUPPORTED_GATE_CLASSES,
       },
     });

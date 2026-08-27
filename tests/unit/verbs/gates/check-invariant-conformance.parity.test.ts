@@ -179,7 +179,20 @@ function normalize(value: unknown): unknown {
   return harnessNormalize(value, {
     timestampPlaceholder: '<TS>',
     uuidPlaceholder: '<UUID>',
-    keyPlaceholders: { ms: '<MS>' },
+    // The gate now returns durable evidence references. Their ids and content
+    // digests are derived from the arm's own phase-attempt identity, and the
+    // two arms are two separate workflows — so those values cannot match by
+    // construction and normalizing them is what keeps the comparison about the
+    // payload rather than about which arm minted which id. The reference
+    // STRUCTURE still has to match, so the fields are placeheld, not dropped.
+    keyPlaceholders: {
+      ms: '<MS>',
+      evidenceId: '<EVIDENCE_ID>',
+      artifactId: '<ARTIFACT_ID>',
+      digest: '<DIGEST>',
+      contentDigest: '<DIGEST>',
+      policyDigest: '<DIGEST>',
+    },
     dropKeys: new Set(['_perf', '_meta']),
   });
 }

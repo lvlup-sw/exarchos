@@ -266,7 +266,7 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
       // advisory-severity check finding (INV-13) surfaces as MEDIUM without
       // gating — so declaring `blocking:true` cannot red CI on the unproven
       // audit-mode rules.
-      gate: { blocking: true },
+      gate: { blocking: true, gateClass: 'invariant-conformance' },
       // DR-4 / task 069: PAID DOWN. This gate governs conformance to the catalog
       // that contains the anti-vacuity invariant, and it used to advertise
       // `EnvelopeSchema(z.unknown())` — total over every payload shape, including
