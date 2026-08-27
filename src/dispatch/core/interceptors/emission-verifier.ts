@@ -458,6 +458,13 @@ export function verifyDeclaredEmissions(input: {
  * is not a pass — it is a question that was not asked — so a run made entirely
  * of them has checked NOTHING, and reporting that as clean is the exact shape
  * of a guard gone vacuous: green, stable, and covering nothing at all.
+ *
+ * `notApplicable` and `indeterminate` are kept as separate counters — the same
+ * split the verdict status itself draws. `notApplicable` is a benign absence
+ * of subject (no unconditional contract, no stream); `indeterminate` is a
+ * subject that existed and was not assessed (an unreadable store, an
+ * unhandled dispatch class). Folding them into one counter would erase that
+ * distinction at the exact point a caller reads it back out.
  */
 export interface EmissionRunSummary {
   /** Every verdict considered. */
@@ -466,7 +473,9 @@ export interface EmissionRunSummary {
   readonly determinate: number;
   readonly ok: number;
   readonly violated: number;
-  /** Everything that answered nothing: out of subject, no stream, unassessed. */
+  /** Benign absence of subject: no unconditional contract, or no stream to read. */
+  readonly notApplicable: number;
+  /** A subject that existed and was not assessed: unread store, unhandled class. */
   readonly indeterminate: number;
   /**
    * True only when something was checked AND nothing was wrong. A run with
@@ -487,10 +496,12 @@ export function summarizeEmissionRun(
 ): EmissionRunSummary {
   let ok = 0;
   let violated = 0;
+  let notApplicable = 0;
   let indeterminate = 0;
   for (const verdict of verdicts) {
     if (verdict.status === 'ok') ok += 1;
     else if (verdict.status === 'violated') violated += 1;
+    else if (verdict.status === 'not-applicable') notApplicable += 1;
     else indeterminate += 1;
   }
   const determinate = ok + violated;
@@ -499,6 +510,7 @@ export function summarizeEmissionRun(
     determinate,
     ok,
     violated,
+    notApplicable,
     indeterminate,
     clean: determinate > 0 && violated === 0,
   };

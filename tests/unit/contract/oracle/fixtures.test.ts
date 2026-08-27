@@ -1054,6 +1054,10 @@ describe('the shipped-emitter probe corpus', () => {
     const excluded = corpus.excluded.map((entry) => entry.actionId);
     expect(corpus.unclassified, 'a declared emitter is neither probed nor excluded').toEqual([]);
     expect(corpus.stale, 'an exclusion names an action that declares no emission').toEqual([]);
+    expect(
+      corpus.doublyClassified,
+      'a hand-authored exclusion names an action the corpus also probes',
+    ).toEqual([]);
     expect(new Set(excluded).size).toBe(excluded.length);
     expect(probed.filter((id) => excluded.includes(id))).toEqual([]);
     expect([...probed, ...excluded].sort()).toEqual([...corpus.declaredEmitters].sort());

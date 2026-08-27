@@ -10,8 +10,10 @@ import { describe, it, expect } from 'vitest';
 import type { EventRegistration } from '../../../../src/events/event-registration.js';
 import {
   lifecycleViolations,
+  summarizeEmissionRun,
   verifierDeclaredEmissions,
   verifyDeclaredEmissions,
+  type EmissionVerdict,
 } from '../../../../src/dispatch/core/interceptors/emission-verifier.js';
 
 /**
@@ -165,6 +167,44 @@ describe('EmissionVerifier lifecycle axis', () => {
     expect(verdict.lifecycleViolations).toEqual([
       { event: 'stack.restacked', lifecycle: 'planned' },
     ]);
+  });
+});
+
+describe('EmissionVerifier run summary', () => {
+  it('counts a store-failure run and a conditional-only run apart, not together', () => {
+    // Same shape at the verdict level — both are "answered nothing" — but a
+    // different REASON: a store failure is a subject that was never assessed,
+    // a conditional-only edge is a subject that was never in scope. Folding
+    // them into one `indeterminate` counter would make the two summaries
+    // below print identically, which is exactly the confusion the split
+    // exists to prevent.
+    const storeFailureRun: readonly EmissionVerdict[] = [
+      {
+        status: 'indeterminate',
+        cause: 'store-unavailable',
+        missingEvents: [],
+        lifecycleViolations: [],
+        required: ['workflow.started'],
+      },
+    ];
+    const conditionalOnlyRun: readonly EmissionVerdict[] = [
+      {
+        status: 'not-applicable',
+        reason: 'no-unconditional-contract',
+        missingEvents: [],
+        lifecycleViolations: [],
+        required: [],
+      },
+    ];
+
+    const storeFailureSummary = summarizeEmissionRun(storeFailureRun);
+    const conditionalOnlySummary = summarizeEmissionRun(conditionalOnlyRun);
+
+    expect(storeFailureSummary.indeterminate).toBe(1);
+    expect(storeFailureSummary.notApplicable).toBe(0);
+    expect(conditionalOnlySummary.notApplicable).toBe(1);
+    expect(conditionalOnlySummary.indeterminate).toBe(0);
+    expect(storeFailureSummary).not.toEqual(conditionalOnlySummary);
   });
 });
 

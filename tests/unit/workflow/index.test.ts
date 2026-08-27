@@ -97,9 +97,12 @@ vi.mock('../../../src/workflow/cleanup.js', () => ({
 // `workflow.started` unconditionally — so this double has to stand in for a
 // handler that kept that promise, or the envelope assertions fail on an
 // emission verdict rather than on what they are about. The operation-scoped
-// read (no `type` filter) is the verifier's read, so that is the arm that
-// answers with the declared event; `append` exists so a verdict is recordable
-// rather than faulting the assessment into `indeterminate`.
+// read (`type` absent AND `operationId` present) is the verifier's read, so
+// that is the arm that answers with the declared event; an unscoped query
+// (neither filter, e.g. a stream read) falls through to the type-filtered arm
+// instead of being handed the same synthetic event. `append` exists so a
+// verdict is recordable rather than faulting the assessment into
+// `indeterminate`.
 vi.mock('../../../src/events/store.js', () => ({
   EventStore: vi.fn().mockImplementation(() => ({
     initialize: vi.fn().mockResolvedValue(undefined),
@@ -107,9 +110,9 @@ vi.mock('../../../src/events/store.js', () => ({
     query: vi.fn().mockImplementation(
       (_streamId: string, filters?: { type?: string; operationId?: string }) =>
         Promise.resolve(
-          filters?.type === undefined
-            ? [{ type: 'workflow.started', operationId: filters?.operationId, data: {} }]
-            : [{ type: filters.type, operationId: filters.operationId, data: {} }],
+          filters?.type === undefined && filters?.operationId !== undefined
+            ? [{ type: 'workflow.started', operationId: filters.operationId, data: {} }]
+            : [{ type: filters?.type, operationId: filters?.operationId, data: {} }],
         ),
     ),
   })),

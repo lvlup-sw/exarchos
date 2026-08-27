@@ -1128,6 +1128,8 @@ export interface EmissionProbeCorpus {
   readonly unclassified: readonly string[];
   /** Exclusions naming an action that no longer declares an emission. */
   readonly stale: readonly string[];
+  /** Hand-authored exclusions naming an action the corpus also probes. */
+  readonly doublyClassified: readonly string[];
 }
 
 /** The feature the workflow-lifecycle probes create inside their own state dir. */
@@ -1339,7 +1341,12 @@ export function emissionProbeCorpus(): EmissionProbeCorpus {
     excluded.push({ actionId, reason: OPEN_WORLD_EXCLUSION });
     named.add(actionId);
   }
+  const doublyClassified: string[] = [];
   for (const entry of HAND_AUTHORED_EXCLUSIONS) {
+    if (probed.has(entry.actionId)) {
+      doublyClassified.push(entry.actionId);
+      continue;
+    }
     if (named.has(entry.actionId)) continue;
     excluded.push(entry);
     named.add(entry.actionId);
@@ -1352,6 +1359,7 @@ export function emissionProbeCorpus(): EmissionProbeCorpus {
     declaredEmitters,
     unclassified: declaredEmitters.filter((id) => !probed.has(id) && !named.has(id)),
     stale: [...named].filter((id) => !known.has(id)).sort(compareText),
+    doublyClassified: doublyClassified.sort(compareText),
   };
 }
 

@@ -119,8 +119,15 @@ describe('emission verifier policy', () => {
     expect(summary.total).toBe(3);
     expect(summary.violated).toBe(0);
     expect(summary.determinate).toBe(0);
-    expect(summary.indeterminate).toBe(3);
     expect(summary.clean).toBe(false);
+
+    // And the two benign-vs-unanswered flavors are counted apart: the two
+    // `not-applicable` verdicts (no contract, no stream) are not the same
+    // finding as the one `indeterminate` verdict (the store itself failed) —
+    // folding them into one counter would make a store outage look like an
+    // ordinary out-of-subject skip.
+    expect(summary.notApplicable).toBe(2);
+    expect(summary.indeterminate).toBe(1);
   });
 
   it('EmissionPolicy_SeededSkippedEmission_FailsTheSuite', async () => {
@@ -303,7 +310,8 @@ describe('emission verifier policy', () => {
       determinate: 3,
       ok: 2,
       violated: 1,
-      indeterminate: 1,
+      notApplicable: 1,
+      indeterminate: 0,
       clean: false,
     });
   });
