@@ -11,15 +11,20 @@
  * reports every row on every run; this file pins today's shape so the set cannot
  * grow unnoticed and shrinks visibly as emitters are declared.
  *
- * It has now shrunk twice. First from 33 to 29, when `launch.executed` and
- * `stack.position-filled` got an action that declares them. Then from 29 to 14,
- * when the fifteen action-owned appends below were traced to the action whose
- * handler chain reaches them — three of which had positively reasoned that they
- * emitted nothing.
+ * It has now shrunk three times, and the third emptied it. First from 33 to 29,
+ * when `launch.executed` and `stack.position-filled` got an action that declares
+ * them. Then from 29 to 14, when the fifteen action-owned appends below were
+ * traced to the action whose handler chain reaches them — three of which had
+ * positively reasoned that they emitted nothing. Then from 14 to 0: twelve of
+ * the remainder were classified onto the non-action surface with the mechanism
+ * stated, one emitter was deleted because no shipped caller invoked it, and one
+ * was a test fixture that had no business appending a product event from inside
+ * the governed source root.
  *
- * What remains is the residue that is NOT an action's effect: the store and the
- * projections writing their own records, the dispatch protocol, a fixture
- * module, and two resolver caches.
+ * An EMPTY baseline is the point, and it is also the most fragile state this
+ * file can be in: `toEqual([])` passes just as happily over a census that read
+ * nothing. The denominators below are what separate the two, so they are
+ * asserted first and they are not decoration.
  *
  * The phantom arm carries no baseline at all, deliberately. A stale row in the
  * non-action surface is never acceptable, so there is nothing to grandfather —
@@ -36,7 +41,10 @@ import {
   auditEmitterClosure,
   reasonedAbstentions,
 } from '../../../src/events/emitter-closure-audit.js';
-import { MODULE_EMISSIONS } from '../../../src/events/module-emissions.js';
+import {
+  MODULE_EMISSIONS,
+  type ModuleEmission,
+} from '../../../src/events/module-emissions.js';
 import { declaredEmissionEdges } from '../../../src/events/registration-validate.js';
 import { EVIDENCE_DISCRIMINANT_CONSTANTS } from '../../../src/verbs/gates/gate-ownership-census.js';
 import { scanEvidenceEmission } from '../../../tools/test-helpers/evidence-emission-scanner.js';
@@ -51,30 +59,11 @@ const SOURCE_ROOT = join(process.cwd(), 'src');
  * wrapper, hook or interceptor performs it. Adding one is a deliberate act that
  * fails here first.
  *
- * They are not one problem. Most are ordinary handler appends whose action
- * simply never declared them (`verbs/vcs/*`, `verbs/team/*`, `verbs/merge/*`).
- * A few are store-internal or projection-internal (`task-store`, `freshness`,
- * `regression-detector`). Two are the dispatch protocol itself
- * (`elicitation-dispatch`). One — `task.assigned <- events/decide-fixtures.ts` —
- * is worth a second look, because a fixture module appending a product event is
- * either a test seam in the shipped tree or a misfiled helper.
+ * It is empty, and it stays a named constant rather than an inline `[]` so that
+ * re-opening it is a visible act with a place to state which append regressed
+ * and why nothing declares it.
  */
-const UNDECLARED_BASELINE: readonly string[] = Object.freeze([
-  'command.resolved <- config/test-runtime-resolver.ts',
-  'dispatch.preflight <- verbs/team/dispatch-guard.ts',
-  'elicitation.declined <- dispatch/elicitation-dispatch.ts',
-  'elicitation.fulfilled <- dispatch/elicitation-dispatch.ts',
-  'elicitation.requested <- dispatch/elicitation-dispatch.ts',
-  'projection.degraded <- projections/freshness.ts',
-  'projection.recovered <- projections/freshness.ts',
-  'quality.regression <- projections/quality/regression-detector.ts',
-  'task.assigned <- events/decide-fixtures.ts',
-  'task.created <- projections/task-store/event-sourced-task-store.ts',
-  'task.polled <- projections/task-store/event-sourced-task-store.ts',
-  'workspace.resolved <- runtime/workspace/discovery.ts',
-  'worktree.create.executed <- runtime/launcher/create-worktree.ts',
-  'worktree.create.requested <- runtime/launcher/create-worktree.ts',
-]);
+const UNDECLARED_BASELINE: readonly string[] = Object.freeze([]);
 
 function censusOf(
   modulesByEvent: Record<string, readonly string[]>,
@@ -101,6 +90,12 @@ describe('emitter closure', () => {
     // indistinguishable from a clean tree.
     expect(closure.measuredSiteCount, 'no append site was measured').toBeGreaterThan(60);
     expect(closure.explainedByAction, 'no site was explained by an action edge').toBeGreaterThan(25);
+    // The baseline is empty, so this arm is the one carrying the classification
+    // work. Without it an emptied MODULE_EMISSIONS would read as a clean tree.
+    expect(
+      closure.explainedByModule,
+      'no site was explained by the non-action surface',
+    ).toBeGreaterThan(15);
 
     expect(closure.undeclared.map((u) => `${u.event} <- ${u.module}`).sort()).toEqual(
       [...UNDECLARED_BASELINE].sort(),
@@ -293,6 +288,69 @@ describe('emitter closure', () => {
     expect(closure.phantoms).toHaveLength(1);
     expect(closure.phantoms[0]?.module).toBe('scanned/module.ts');
     expect(closure.unverifiable).toEqual([]);
+  });
+
+  it('EmitterClosure_DuplicatedModuleEmission_BreaksTheRowToSiteCount', () => {
+    // `explainedByModule === MODULE_EMISSIONS.length` is the only thing standing
+    // between the surface and a row that explains nothing. It catches this case
+    // incidentally, which is another way of saying nobody would notice if it
+    // stopped: the arithmetic is one site per row, so two rows for one site
+    // leaves the count one short while every other arm reports clean.
+    const rows: readonly ModuleEmission[] = [
+      {
+        event: 'seeded.event',
+        module: 'scanned/module.ts',
+        trigger: 'process-hook',
+        rationale: 'seeded',
+      },
+      {
+        event: 'seeded.event',
+        module: 'scanned/module.ts',
+        trigger: 'store-internal',
+        rationale: 'seeded twice',
+      },
+    ];
+    const closure = auditEmitterClosure(
+      censusOf({ 'seeded.event': ['scanned/module.ts'] }, ['scanned/module.ts']),
+      [],
+      rows,
+    );
+
+    // Everything that reports a NAMED fault stays silent — this is the point.
+    expect(closure.ok).toBe(true);
+    expect(closure.undeclared).toEqual([]);
+    expect(closure.phantoms).toEqual([]);
+    expect(closure.unverifiable).toEqual([]);
+
+    // The count is what disagrees.
+    expect(closure.explainedByModule).toBe(1);
+    expect(closure.explainedByModule).not.toBe(rows.length);
+  });
+
+  it('EmitterClosure_ModuleRowShadowingAnActionEdge_ExplainsNothing', () => {
+    // The other way a row can be dead cover: an action already declares the
+    // event, so the action arm claims the site first and the row explains no
+    // site at all. It is not a phantom — the append IS there — so only the
+    // row-to-site count can see it.
+    const rows: readonly ModuleEmission[] = [
+      {
+        event: 'seeded.event',
+        module: 'scanned/module.ts',
+        trigger: 'read-path-publisher',
+        rationale: 'seeded',
+      },
+    ];
+    const closure = auditEmitterClosure(
+      censusOf({ 'seeded.event': ['scanned/module.ts'] }, ['scanned/module.ts']),
+      [{ event: 'seeded.event', action: 'seeded_action', declaringTool: 'exarchos_orchestrate' }],
+      rows,
+    );
+
+    expect(closure.ok).toBe(true);
+    expect(closure.phantoms).toEqual([]);
+    expect(closure.explainedByAction).toBe(1);
+    expect(closure.explainedByModule).toBe(0);
+    expect(closure.explainedByModule).not.toBe(rows.length);
   });
 
   it('EmitterClosure_ModuleOutsideTheScanRoot_IsUnverifiableNotPhantom', () => {

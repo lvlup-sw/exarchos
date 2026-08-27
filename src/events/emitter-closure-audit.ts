@@ -204,10 +204,11 @@ export function auditEmitterClosure(
 // `none` is reported under its own code, with the reason quoted, because that
 // one is a false statement rather than an omission.
 //
-// Rows are event-SCOPED on purpose. `verbs/team/dispatch-guard.ts` appends two
-// events: `stash.detected`, which `prepare_delegation` reaches through the stash
-// probe, and `dispatch.preflight`, whose emitter no shipped caller invokes. A
-// module-wide claim would hand the second to an action that never runs it.
+// Rows are event-SCOPED on purpose. A module-wide claim would hand an action
+// every append in the file, including ones nothing on its path reaches — which
+// is how `verbs/team/dispatch-guard.ts` used to read, back when a second,
+// uninvoked emitter still sat beside the stash probe `prepare_delegation` does
+// reach.
 
 /** An append an action answers for: the module that performs it, and the event. */
 export interface ActionAppendOwnership {

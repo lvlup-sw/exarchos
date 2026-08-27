@@ -2937,9 +2937,9 @@ export const DispatchPreflightData = z.object({
     protectedBranch: z.object({ passed: z.boolean() }),
     mainWorktree: z.object({ passed: z.boolean() }),
     // #1509/#1501 — native-isolation worktree base-pin guard. Optional so
-    // the non-native dispatch path and `runPreflightGuards` (which never
-    // run it) remain schema-valid; populated only on the `nativeIsolation`
-    // path where Claude Code selects the worktree base.
+    // the non-native dispatch path (which never runs it) remains
+    // schema-valid; populated only on the `nativeIsolation` path where
+    // Claude Code selects the worktree base.
     baseRef: z.object({ passed: z.boolean() }).optional(),
   }),
   passed: z.boolean(),

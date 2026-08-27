@@ -6,7 +6,6 @@ import {
   assertMainWorktree,
   assertCurrentBranchNotProtected,
   getCurrentBranch,
-  runPreflightGuards,
   probeStashAndEmit,
 } from '../../../../src/verbs/team/dispatch-guard.js';
 import type { AncestryResult, WorktreeAssertionResult } from '../../../../src/verbs/team/dispatch-guard.js';
@@ -229,98 +228,6 @@ describe('assertCurrentBranchNotProtected', () => {
     expect(result.blocked).toBe(true);
     expect(result.hint).toBeDefined();
     expect(result.hint).toMatch(/checkout|feature/i);
-  });
-});
-
-// ─── runPreflightGuards (#1261) ─────────────────────────────────────────────
-//
-// Emits `dispatch.preflight` once with the per-guard outcome after running
-// ancestry + worktree + protectedBranch + mainWorktree. operationId is
-// inherited from the active DispatchContext (B1 / #1291) via
-// AsyncLocalStorage; tests here exercise the emission shape only.
-
-describe('runPreflightGuards', () => {
-  it('DispatchGuard_AncestryFail_EmitsPreflightWithPassedFalse', async () => {
-    // Arrange: gitExec returns success for HEAD branch resolution and
-    // throws status=1 for the ancestry probe (upstream is not an ancestor).
-    const gitExec = vi.fn().mockImplementation((args: readonly string[]) => {
-      if (args[0] === 'rev-parse') return 'feature/work\n';
-      if (args[0] === 'merge-base' && args[1] === '--is-ancestor') {
-        const err = new Error('exit 1') as Error & { status: number };
-        err.status = 1;
-        throw err;
-      }
-      return '';
-    });
-    const { store, calls } = makeMockEventStore();
-
-    // Act
-    const result = await runPreflightGuards({
-      store,
-      streamId: 'feat-test',
-      integrationBranch: 'feature/work',
-      requiredUpstream: ['main'],
-      gitExec,
-      cwd: '/home/user/repo',
-    });
-
-    // Assert — emission shape + aggregate fail
-    const preflightCalls = calls.filter((c) => c.event.type === 'dispatch.preflight');
-    expect(preflightCalls).toHaveLength(1);
-    const data = preflightCalls[0].event.data as {
-      guards: {
-        ancestry: { passed: boolean };
-        worktree: { passed: boolean };
-        protectedBranch: { passed: boolean };
-        mainWorktree: { passed: boolean };
-      };
-      passed: boolean;
-      durationMs: number;
-    };
-    expect(data.guards.ancestry.passed).toBe(false);
-    expect(data.passed).toBe(false);
-    expect(typeof data.durationMs).toBe('number');
-    expect(data.durationMs).toBeGreaterThanOrEqual(0);
-    expect(result.passed).toBe(false);
-  });
-
-  it('DispatchGuard_AllGuardsPass_EmitsPreflightWithPassedTrue', async () => {
-    // Arrange: gitExec consistently returns success.
-    const gitExec = vi.fn().mockImplementation((args: readonly string[]) => {
-      if (args[0] === 'rev-parse') return 'feature/work\n';
-      return '';
-    });
-    const { store, calls } = makeMockEventStore();
-
-    // Act
-    const result = await runPreflightGuards({
-      store,
-      streamId: 'feat-test',
-      integrationBranch: 'feature/work',
-      requiredUpstream: ['main'],
-      gitExec,
-      cwd: '/home/user/repo',
-    });
-
-    // Assert
-    const preflightCalls = calls.filter((c) => c.event.type === 'dispatch.preflight');
-    expect(preflightCalls).toHaveLength(1);
-    const data = preflightCalls[0].event.data as {
-      guards: {
-        ancestry: { passed: boolean };
-        worktree: { passed: boolean };
-        protectedBranch: { passed: boolean };
-        mainWorktree: { passed: boolean };
-      };
-      passed: boolean;
-      durationMs: number;
-    };
-    expect(data.guards.ancestry.passed).toBe(true);
-    expect(data.guards.worktree.passed).toBe(true);
-    expect(data.guards.protectedBranch.passed).toBe(true);
-    expect(data.guards.mainWorktree.passed).toBe(true);
-    expect(data.passed).toBe(true);
-    expect(result.passed).toBe(true);
   });
 });
 
