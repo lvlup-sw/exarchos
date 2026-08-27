@@ -7,7 +7,7 @@
     "testFiles": 1236,
     "parsedFiles": 1191,
     "shellFiles": 45,
-    "cases": 13650,
+    "cases": 13653,
     "dynamicTitles": 144,
     "unparseableFiles": 0
   },
@@ -50738,6 +50738,11 @@
         },
         {
           "suite": "handleExecuteIntent operationId bound",
+          "name": "TheBound_LeavesRoomForTheLongestDerivedLeafIdTheRegistryCanProduce",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent operationId bound",
           "name": "OperationIdOneOverTheBound_IsRefusedBeforeAnyEffect",
           "dynamic": false
         },
@@ -50774,6 +50779,16 @@
         {
           "suite": "handleExecuteIntent per-leaf ensures",
           "name": "SilentLeafWithAnEnsuresEventOutsideItsEmissions_FailsItsContract",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent per-leaf ensures",
+          "name": "SilentLeafWithADurableEvidenceEnsures_FailsItsContract",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent per-leaf ensures",
+          "name": "SameLeafRecordingTheEvidence_Passes",
           "dynamic": false
         },
         {

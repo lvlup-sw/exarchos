@@ -7,8 +7,8 @@ import { resolveConfig } from '../../../../src/config/resolve.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { runWithDispatchContext } from '../../../../src/dispatch/dispatch-context.js';
 import { EventStore } from '../../../../src/events/store.js';
-import type { WorkflowEvent } from '../../../../src/events/schemas.js';
-import { declared } from '../../../../src/registry.js';
+import { WorkflowEventBase, type WorkflowEvent } from '../../../../src/events/schemas.js';
+import { declared, getFullRegistry } from '../../../../src/registry.js';
 import { toEnvelope, type ToolResult } from '../../../../src/format.js';
 import {
   derivedLeafOperationId,
@@ -33,6 +33,7 @@ import {
   fixtureStep,
   fixtureWiring,
   findFixtureAction,
+  gateEvidenceHandler,
   receiptOf,
   silentHandler,
   throwingHandler,
@@ -516,6 +517,35 @@ describe('handleExecuteIntent operationId bound', () => {
     expect(receiptOf(result).operationId).toBe(key);
   });
 
+  it('TheBound_LeavesRoomForTheLongestDerivedLeafIdTheRegistryCanProduce', () => {
+    // The tooth the boundary tests below cannot carry: they take their input
+    // FROM the constant, so raising it moves them with it. This one measures
+    // the constant against the authority it has to fit — the event row's own
+    // operation-id limit — over the worst suffix the live registry can add.
+    const longestAction = getFullRegistry()
+      .flatMap((tool) => tool.actions.map((action) => action.name))
+      .reduce((longest, name) => (name.length > longest.length ? name : longest), '');
+    expect(longestAction.length).toBeGreaterThan(0);
+
+    const row = (operationId: string): boolean =>
+      WorkflowEventBase.safeParse({
+        streamId: STREAM,
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: INTENT_EXECUTED_EVENT,
+        operationId,
+      }).success;
+
+    const worstCase = derivedLeafOperationId(
+      'a'.repeat(MAX_CALLER_OPERATION_ID_LENGTH),
+      999,
+      longestAction,
+    );
+    expect(row(worstCase)).toBe(true);
+    // And the limit is real rather than assumed: the row refuses a longer id.
+    expect(row('a'.repeat(worstCase.length + 200))).toBe(false);
+  });
+
   it('OperationIdOneOverTheBound_IsRefusedBeforeAnyEffect', async () => {
     // The derived per-leaf id is the caller's key plus a suffix, and it is the
     // DERIVED id the event row has to hold. A key accepted at the admission
@@ -708,6 +738,47 @@ describe('handleExecuteIntent per-leaf ensures', () => {
     expect(result.error?.code).toBe('INTENT_EMISSION_CONTRACT_VIOLATED');
     expect(result.error?.message).toContain('gate.executed');
     expect(receiptOf(result).failedLeaf).toBe('fixture_ensures');
+  });
+
+  /** Declares the durable-evidence source — the one an event query cannot see. */
+  const evidencing = fixtureAction({
+    name: 'fixture_evidences',
+    ensures: declared({ source: 'durable-evidence', when: 'success', evidenceType: 'gate' }),
+  });
+
+  it('SilentLeafWithADurableEvidenceEnsures_FailsItsContract', async () => {
+    // Every shipped gate leaf declares this source. A comparison built only
+    // over appended event types skipped all of them without saying so.
+    const deps = depsFor([fixtureStep('fixture_evidences', 'stop')], {
+      fixture_evidences: silentHandler(),
+    }, [evidencing]);
+    const result = await execute(
+      { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-evidence' },
+      deps,
+    );
+    expect(result.error?.code).toBe('INTENT_EMISSION_CONTRACT_VIOLATED');
+    expect(result.error?.message).toContain('evidence gate');
+  });
+
+  it('SameLeafRecordingTheEvidence_Passes', async () => {
+    // The control: the evidence the gate runner would record, keyed the way it
+    // keys one, under the leaf's own derived identity.
+    const deps = depsFor([fixtureStep('fixture_evidences', 'stop')], {
+      fixture_evidences: gateEvidenceHandler({
+        requirementId: 'gate:review:review',
+        phaseAttemptId: 'attempt-fixture-1',
+        producerRef: 'fixture.evidence-gate',
+      }),
+    }, [evidencing]);
+    const result = await execute(
+      { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-evidence-kept' },
+      deps,
+    );
+    expect(
+      result.success,
+      `${result.error?.code ?? ''} ${result.error?.message ?? ''}`,
+    ).toBe(true);
+    expect(receiptOf(result).leaves[0]?.status).toBe('passed');
   });
 
   it('SameLeafAppendingTheEnsuredEvent_Passes', async () => {
