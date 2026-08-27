@@ -50,14 +50,15 @@
 //     an empty recorder must not read as a clean bill.
 //   • emissions — the declaration carries the registry's own `{event,
 //     condition}` set, and only an `always` edge can produce a verdict. The
-//     canned-envelope subjects withhold it entirely: their observed function is
-//     not the handler, so there is no append to attribute to them.
+//     evidence is the EVENT STORE's own confirmation that an event became
+//     durable, carried out of the store by its async-scoped append seam. The
+//     canned-envelope subjects withhold the declaration entirely: their observed
+//     function is not the handler, so there is no append to attribute to them.
 //
 // This is a test-fixtures module (auto-classified by the `fixtures.ts` name); it
 // is imported only by the oracle's co-located tests.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { z } from 'zod';
 import {
   TOOL_REGISTRY,
@@ -80,7 +81,10 @@ import {
   type ImplementationBinding,
 } from '../bindings/binding-table.js';
 import type { CompositeHandler, DispatchContext } from '../../dispatch/core/dispatch.js';
-import { runWithAppendObserver } from '../../events/observation/append-observation.js';
+import {
+  runWithAppendObserver,
+  type AppendObservation,
+} from '../../events/observation/append-observation.js';
 import {
   deriveLocalOperatorIdentity,
   snapshotCallerAuthorization,
@@ -104,7 +108,6 @@ import {
   type DeclaredEmission,
   type EmissionAxis,
   type EmissionAxisVerdict,
-  type EmissionRecorder,
   type ObservableHandler,
   type ObservationContext,
   type OracleAxis,
@@ -517,33 +520,28 @@ export interface RealHandlerObservationSet {
  */
 export type DispatchContextFactory = (stateDir: string) => DispatchContext;
 
-// ─── Reaching the oracle's emission recorder from inside a real handler ──────
+// ─── Where the oracle's emission evidence comes from ─────────────────────────
 //
-// The oracle mints a fresh emission recorder per invocation and injects it on
-// the {@link ObservationContext}. A real {@link CompositeHandler}, however,
-// takes exactly two arguments and its second is `DispatchContext` — a shipped,
-// closed interface. Neither can carry the recorder without changing a
-// production type for a test-only observation, and stuffing it into `args`
-// would put an unknown key in front of every shipped handler's argument parse.
+// A shipped handler appends through the event store. It has no idea an oracle
+// is watching, and there is no argument through which to tell it: a real
+// {@link CompositeHandler} takes exactly two, and the second is the shipped,
+// closed `DispatchContext`.
 //
-// So it rides an AsyncLocalStorage scope the adapter opens around the
-// invocation — the same primitive `dispatch-context.ts` uses to reach append
-// sites without an argument refactor, so it survives the
-// `runWithDispatchContext` hop and every async continuation beneath it.
+// So the evidence is taken from the STORE instead, through the events layer's
+// async-scoped append seam. The adapter opens that scope around the invocation
+// and forwards every DURABLY-PERSISTED append into the recorder the oracle
+// injected. What the emission axis then reads is the store's own confirmation
+// that an event landed — not a handler's claim that it would append, and not a
+// re-read of the declaration.
+//
+// The seam notifies past every rejection branch and past the idempotency
+// cache-hit return, so a validation failure or a collapsed re-append produces
+// no observation, and it is scoped per async context, so two subjects observed
+// concurrently cannot see each other's appends.
 
-const emissionScope = new AsyncLocalStorage<EmissionRecorder>();
-
-/**
- * The emission recorder the oracle injected for the invocation in flight, or
- * `undefined` outside an observed dispatch.
- *
- * A handler that appends events calls this at the point it commits, exactly
- * where it would call `eventStore.append`. One that never calls it is observed
- * appending nothing — which is the whole signal, so the absence is deliberately
- * silent rather than an error.
- */
-export function observedEmissionRecorder(): EmissionRecorder | undefined {
-  return emissionScope.getStore();
+/** One durable append, as the emission recorder records it. */
+function appendEvidence(observation: AppendObservation): string {
+  return `store append: ${observation.streamId}#${observation.sequence}`;
 }
 
 /**
@@ -562,10 +560,10 @@ export function observedEmissionRecorder(): EmissionRecorder | undefined {
  * consults the trusted-caller boundary refuses the intruder, and one that skips
  * authorization serves it and is caught.
  *
- * It also carries the observation context's emission recorder into the
- * invocation (see {@link observedEmissionRecorder}). Without that hop the
- * recorder is injected and then dropped at this boundary, and EVERY real
- * subject's emission axis reports `not-observed` for a reason that is an
+ * It also installs the event store's append observer for the duration of the
+ * invocation, feeding the observation context's emission recorder. Without that
+ * hop the recorder is injected and then dropped at this boundary, and EVERY
+ * real subject's emission axis reports `not-observed` for a reason that is an
  * artifact of the adapter rather than a fact about the handler — the axis
  * would look inspected while being structurally incapable of a verdict.
  */
@@ -604,10 +602,16 @@ export function compositeHandlerAdapter(
     };
 
     // No recorder on the context means the caller is not observing emissions
-    // here (the admission probe below, for one). Opening a scope over a
-    // throwaway recorder would tell the handler it is being watched when
-    // nothing will read what it records, so the scope simply stays closed.
-    return ctx.emissions === undefined ? invoke() : emissionScope.run(ctx.emissions, invoke);
+    // here (the admission probe below, for one). An observer scope opened over
+    // a throwaway recorder would still SHADOW an enclosing one, so a caller
+    // observing appends from further out would stop seeing them; the scope
+    // simply stays closed instead.
+    const emissions = ctx.emissions;
+    if (emissions === undefined) return invoke();
+    return runWithAppendObserver(
+      (observation) => emissions.record(observation.type, appendEvidence(observation)),
+      invoke,
+    );
   };
 }
 
@@ -916,126 +920,6 @@ export function realRegistryAuthorizationCase(
       // authorization substrate, so withholding the principal is a genuine
       // runtime condition — the authorization axis is truly probeable.
       authorizationSurface: 'dispatch-authority',
-    },
-  };
-}
-
-// ─── The controlled real-registry emission case ──────────────────────────────
-//
-// A shipped action DOES declare the events it appends (its contract's
-// `emissions`), but it appends them through the event store, not through the
-// recorder the oracle injects — so no shipped action can give this axis a
-// determinate verdict, and it reads `not-observed` right across the live
-// surface.
-//
-// Rather than hand-build an observation, this registers a real action the way
-// the authorization case does: through the registry's own validator, bound by
-// the real binding-table constructor, reached through `compositeHandlerAdapter`
-// and the real dispatch scope. Only the handler body varies — one records its
-// append where it commits, the other declares the append and never makes it.
-
-/** The real tool name the emission case registers under. */
-export const REAL_REGISTRY_EMISSION_TOOL = 'exarchos_oracle_emission_probe';
-/** The real action name the emission case registers. */
-export const REAL_REGISTRY_EMISSION_ACTION = 'audited_read';
-/** The event type the emission case's action declares it appends. */
-export const REAL_REGISTRY_EMISSION_EVENT = 'oracle_probe.audit_appended';
-
-/**
- * `appending` records its append through the recorder the adapter put in scope;
- * `silent` declares the same emission and never appends. Both are real handlers
- * bound the real way — the difference is exactly the defect the emission axis
- * has to catch.
- */
-export type EmissionVariant = 'appending' | 'silent';
-
-/**
- * The real handler that APPENDS. It reaches the oracle's recorder
- * ({@link observedEmissionRecorder}) at the point a shipped handler would call
- * `eventStore.append`: the recorder stands in for the store so the probe stays
- * offline and writes to no real stream, but the CALL SITE is the handler's own
- * commit point, and that is what the axis observes.
- *
- * The optional call is deliberate. Outside an observed dispatch there is
- * nothing to record into, and if the adapter ever stops carrying the recorder
- * this handler silently becomes indistinguishable from its silent twin — which
- * is the failure the emission axis then reports, rather than a thrown error
- * from the harness.
- */
-const appendingRealHandler: CompositeHandler = async (): Promise<ToolResult> => {
-  observedEmissionRecorder()?.record(
-    REAL_REGISTRY_EMISSION_EVENT,
-    `append:${REAL_REGISTRY_EMISSION_TOOL}.${REAL_REGISTRY_EMISSION_ACTION}`,
-  );
-  return probeEnvelope({ success: true, data: { audited: true } });
-};
-
-/** The real handler that declares the emission and never performs it. */
-const silentRealHandler: CompositeHandler = async (): Promise<ToolResult> =>
-  probeEnvelope({ success: true, data: { audited: true } });
-
-/**
- * A real action in a real registry instance, bound to a real handler, observed
- * through the real dispatch surface. The `silent` variant is the acceptance
- * case: a REAL handler that declares an emission it never performs must be
- * caught on the emission axis, and the `appending` variant shows the rule is
- * discriminating rather than blanket.
- */
-export function realRegistryEmissionCase(
-  variant: EmissionVariant,
-  stateDir: string,
-  makeContext: DispatchContextFactory,
-): RealRegistryCase {
-  const action = buildRealProbeAction({
-    toolName: REAL_REGISTRY_EMISSION_TOOL,
-    actionName: REAL_REGISTRY_EMISSION_ACTION,
-    // The open-role marker, as the built-ins overwhelmingly declare. This probe
-    // is about emissions; declaring a restrictive role its handler ignores would
-    // seed an authorization defect that has nothing to do with the axis under
-    // observation and would redden a second axis for a fixture-only reason.
-    roles: [OPEN_ROLE_MARKER],
-    description:
-      'Oracle emission probe — a real read that records an audit append where it commits.',
-  });
-  const tool: CompositeTool = {
-    name: REAL_REGISTRY_EMISSION_TOOL,
-    description: 'Oracle emission probe tool.',
-    actions: [action],
-    hidden: true,
-  };
-
-  const handler = variant === 'appending' ? appendingRealHandler : silentRealHandler;
-  const binding = realProbeBinding(tool.name, handler);
-
-  const actionId = `${tool.name}.${action.name}`;
-  const declaration: ContractDeclaration = {
-    ...realActionDeclaration(actionId, action),
-    // Every other field is registry-derived, and this one would be too if the
-    // probe's event were a catalog event — the contract normalizer admits only
-    // catalog names, and this one is deliberately outside the catalog so the
-    // probe writes to no shipped stream. It is stated on the declaration BOTH
-    // variants share, so the two remain byte-identical under
-    // `deriveGeneratedDescriptor` — no generated artifact can tell the
-    // appending handler from the silent one, and only the observation can.
-    declaredEmissions: [{ event: REAL_REGISTRY_EMISSION_EVENT, condition: 'always' }],
-  };
-  return {
-    tool,
-    action,
-    binding,
-    subject: {
-      declaration,
-      handler: compositeHandlerAdapter(
-        binding.load,
-        action.name,
-        declaration.requiredRoles,
-        stateDir,
-        makeContext,
-      ),
-      probeInput: {},
-      // No `authorizationSurface`: this subject probes emissions, and claiming
-      // a surface would point the authorization axis at a handler never built
-      // to enforce anything.
     },
   };
 }
@@ -1561,4 +1445,87 @@ export async function runEmissionProbe(
     () => invokeShippedAction(probe.actionId, probe.input, stateDir, makeContext),
   );
   return { actionId: probe.actionId, result, appended };
+}
+
+// ─── A corpus member as an oracle subject, and its silent control ────────────
+//
+// The emission axis's positive claim is a SHIPPED action: a corpus member
+// dispatched through its real implementation binding into an isolated event
+// store, with the verdict resting on what that store confirmed durable.
+//
+// The negative control is the same action's declaration bound to a handler that
+// returns a well-formed envelope and appends nothing. The twin is a fixture, but
+// its DECLARATION is not: both variants read the shipped action's contract
+// through {@link realActionDeclaration}, so the emission edges are the shipped
+// ones rather than a copy, and no artifact derived from the declaration can tell
+// the two apart. Only the observation can.
+
+/** Which side of the control pair a {@link shippedEmitterCase} builds. */
+export type EmissionVariant = 'appending' | 'silent';
+
+/** A shipped emitter (or its silent twin) prepared for observation. */
+export interface ShippedEmitterCase {
+  readonly actionId: string;
+  /** The REGISTERED action — the declaration's sole source. */
+  readonly action: ToolAction;
+  /** The binding actually invoked: the shipped one, or the twin's. */
+  readonly binding: ImplementationBinding;
+  readonly subject: OracleSubject;
+}
+
+/** The twin: a real binding to a handler that commits nothing. */
+const silentTwinHandler: CompositeHandler = async (): Promise<ToolResult> =>
+  probeEnvelope({ success: true, data: {} });
+
+/**
+ * Prepare `probe` as an {@link OracleSubject} against a state directory the
+ * CALLER owns and removes.
+ *
+ * The probe's prerequisite dispatches run first, for BOTH variants: the twin has
+ * to face the same world the shipped handler faces, or its silence would be
+ * explained by a missing precondition rather than by the missing append.
+ */
+export async function shippedEmitterCase(
+  probe: EmissionProbe,
+  variant: EmissionVariant,
+  stateDir: string,
+  makeContext: DispatchContextFactory,
+): Promise<ShippedEmitterCase> {
+  const entry = realRegistryActions().find((candidate) => candidate.actionId === probe.actionId);
+  if (entry === undefined) {
+    throw new Error(`oracle fixtures: '${probe.actionId}' is not a registered action`);
+  }
+  for (const step of probe.setup) {
+    await invokeShippedAction(step.actionId, step.input, stateDir, makeContext);
+  }
+
+  const binding =
+    variant === 'appending'
+      ? bindingFor(buildBindingTable(), entry.tool.name)
+      : realProbeBinding(entry.tool.name, silentTwinHandler);
+  if (binding === undefined || !isImplementationBinding(binding)) {
+    throw new Error(`oracle fixtures: no implementation binding for tool '${entry.tool.name}'`);
+  }
+
+  const declaration = realActionDeclaration(probe.actionId, entry.action);
+  return {
+    actionId: probe.actionId,
+    action: entry.action,
+    binding,
+    subject: {
+      declaration,
+      handler: compositeHandlerAdapter(
+        binding.load,
+        entry.action.name,
+        declaration.requiredRoles,
+        stateDir,
+        makeContext,
+      ),
+      probeInput: { ...probe.input },
+      volatileCarriers: RUNTIME_CARRIERS,
+      // No `authorizationSurface`: this subject probes emissions, and claiming
+      // one would point the authorization axis at a pair built to differ on
+      // exactly one thing that is not authorization.
+    },
+  };
 }
