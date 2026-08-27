@@ -18,6 +18,7 @@ import { EventStore } from '../../src/events/store.js';
 import {
   runEmissionVerifierInterceptor,
   summarizeEmissionRun,
+  verifyDeclaredEmissions,
   emissionIndeterminacyBlocks,
   emissionViolationBlocks,
   type EmissionVerdict,
@@ -28,6 +29,14 @@ import { resolveConfig } from '../../src/config/resolve.js';
 import type { DispatchContext } from '../../src/dispatch/core/types.js';
 import type { ToolResult } from '../../src/types.js';
 import { EmissionViolatedData } from '../../src/events/schemas.js';
+import { contractEmissionsOf } from '../../src/registry.js';
+import {
+  EMISSION_PROBE_FEATURE_ID,
+  declaredEmittingActions,
+  emissionProbeCorpus,
+  runEmissionProbe,
+  type DispatchContextFactory,
+} from '../../src/contract/oracle/fixtures.js';
 
 const ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Object.freeze({
   'workflow.started': {
@@ -407,6 +416,28 @@ describe('emission enforcement reaches the dispatch result', () => {
     expect(result.success).toBe(true);
   });
 
+  it('EmissionVerifier_AdvisoryViolation_ReturnsPayloadAndPersistsEvidence', async () => {
+    // Advisory does not add a warning for a VIOLATED verdict — that surface is
+    // reserved for `indeterminate` (see the branch above `result` is reused
+    // unchanged). What advisory still owes is the handler's own payload back
+    // to the caller, and the finding durable on the stream either way.
+    const result = await dispatchCleanup(
+      'advisory-violation-payload',
+      resolveConfig({ events: { 'emission-enforcement': 'advisory' } }),
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ performed: 'the-side-effect' });
+
+    // The finding outlived the run: the missing event is on the stream, not
+    // only in a log line the advisory run chose not to fail on.
+    const recorded = await store.query('advisory-violation-payload', {});
+    const violation = recorded.find((event) => event.type === 'emission.violated');
+    expect(violation).toBeDefined();
+    const parsed = EmissionViolatedData.parse(violation?.data);
+    expect(parsed.missingEvents).toEqual(['workflow.cleanup']);
+  });
+
   it('EmissionVerifier_StoreUnavailable_IsIndeterminateAndCannotPromote', async () => {
     // Control: the handler keeps its promise and the dispatch promotes. Without
     // this the case below would be satisfied by a dispatch that refuses this
@@ -506,4 +537,57 @@ describe('emission enforcement reaches the dispatch result', () => {
     expect(result.success).toBe(false);
     expect((result.error as Record<string, unknown>).code).toBe('MERGE_NOT_VERIFIED');
   });
+});
+
+// ─── The safe corpus, beyond workflow.init/cleanup ─────────────────────────
+//
+// The cases above dispatch two actions by hand. This one widens the exercised
+// surface to the whole safe-emission corpus the oracle already maintains
+// (`emissionProbeCorpus()` in `src/contract/oracle/fixtures.ts`) — real
+// registered actions, dispatched through their real implementation binding
+// into a private, per-probe state directory, never leaving it. Reusing that
+// membership means a newly-admitted safe emitter widens this coverage without
+// this file having to re-derive which actions are safe to dispatch locally.
+describe('emission verifier over the safe corpus', () => {
+  it('EmissionVerifier_SafeCorpus_HasNonZeroDeterminateCoverage', async () => {
+    const makeContext: DispatchContextFactory = (dir) => ({
+      stateDir: dir,
+      eventStore: new EventStore(dir),
+      enableTelemetry: false,
+    });
+    const corpus = emissionProbeCorpus();
+    expect(corpus.probes.length).toBeGreaterThan(0);
+    const byId = new Map(declaredEmittingActions().map((entry) => [entry.actionId, entry.action]));
+
+    const verdicts: EmissionVerdict[] = [];
+    for (const probe of corpus.probes) {
+      const action = byId.get(probe.actionId);
+      if (action === undefined) continue;
+      const probeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'emission-safe-corpus-'));
+      try {
+        const run = await runEmissionProbe(probe, probeDir, makeContext);
+        // The same comparison `runEmissionVerifierInterceptor` makes, fed the
+        // exact appended set the store confirmed durable for THIS probe (the
+        // observer already excludes the setup dispatches' own appends).
+        verdicts.push(
+          verifyDeclaredEmissions({
+            declared: contractEmissionsOf(action),
+            streamId: EMISSION_PROBE_FEATURE_ID,
+            landed: run.appended,
+          }),
+        );
+      } finally {
+        await rmrfAsync(probeDir);
+      }
+    }
+
+    const summary = summarizeEmissionRun(verdicts);
+    // The denominator rides along with the assertion: "0 violated" only means
+    // something next to how many were actually determinate.
+    expect(
+      summary.determinate,
+      `${summary.total} probed, ${summary.determinate} determinate, ${summary.indeterminate} indeterminate`,
+    ).toBeGreaterThan(0);
+    expect(summary.total).toBe(corpus.probes.length);
+  }, 300_000);
 });

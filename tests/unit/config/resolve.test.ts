@@ -588,5 +588,32 @@ describe('resolveConfig', () => {
         else process.env.EXARCHOS_EMISSION_ENFORCEMENT = previous;
       }
     });
+
+    it('EmissionVerifier_EnvironmentDoesNotOverrideExplicitPolicy', () => {
+      // A plausible env flag is set, naming the OPPOSITE of what the explicit
+      // config says, on both explicit values. If the environment reached this
+      // decision at all, one of the two would flip.
+      const previous = process.env.EXARCHOS_EMISSION_ENFORCEMENT;
+      process.env.EXARCHOS_EMISSION_ENFORCEMENT = 'advisory';
+      try {
+        expect(
+          resolveConfig({ events: { 'emission-enforcement': 'block' } }).events.emissionEnforcement,
+        ).toBe('block');
+      } finally {
+        if (previous === undefined) delete process.env.EXARCHOS_EMISSION_ENFORCEMENT;
+        else process.env.EXARCHOS_EMISSION_ENFORCEMENT = previous;
+      }
+
+      process.env.EXARCHOS_EMISSION_ENFORCEMENT = 'block';
+      try {
+        expect(
+          resolveConfig({ events: { 'emission-enforcement': 'advisory' } }).events
+            .emissionEnforcement,
+        ).toBe('advisory');
+      } finally {
+        if (previous === undefined) delete process.env.EXARCHOS_EMISSION_ENFORCEMENT;
+        else process.env.EXARCHOS_EMISSION_ENFORCEMENT = previous;
+      }
+    });
   });
 });
