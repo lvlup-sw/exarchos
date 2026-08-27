@@ -7,7 +7,7 @@
  * emission actually reddens a suite rather than being absorbed as a warning.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -18,6 +18,7 @@ import { EventStore } from '../../src/events/store.js';
 import {
   runEmissionVerifierInterceptor,
   summarizeEmissionRun,
+  emissionIndeterminacyBlocks,
   emissionViolationBlocks,
   type EmissionVerdict,
 } from '../../src/dispatch/core/interceptors/emission-verifier.js';
@@ -61,8 +62,9 @@ afterEach(async () => {
 describe('emission verifier policy', () => {
   it('EmissionVerifier_AllIndeterminateRun_FailsRatherThanReportingClean', async () => {
     // Three dispatches, none of which could be assessed: no unconditional
-    // contract, no stream, and an unreadable store. Every one is a legitimate
-    // `not-applicable` — and together they are a run that checked nothing.
+    // contract, no stream, and an unreadable store. The first two are benign
+    // exemptions and the third is an unread answer — different statuses, and
+    // together still a run that checked nothing.
     const noContract = await runEmissionVerifierInterceptor(store, {
       tool: 'exarchos_workflow',
       action: 'get',
@@ -94,9 +96,11 @@ describe('emission verifier policy', () => {
       annotations: ANNOTATIONS,
     });
 
-    for (const verdict of [noContract, noStream, unreadable]) {
+    for (const verdict of [noContract, noStream]) {
       expect(verdict.status).toBe('not-applicable');
     }
+    expect(unreadable.status).toBe('indeterminate');
+    expect(unreadable.cause).toBe('store-unavailable');
 
     const summary = summarizeEmissionRun([noContract, noStream, unreadable]);
 
@@ -318,13 +322,44 @@ describe('emission enforcement reaches the dispatch result', () => {
     data: { performed: 'the-side-effect' },
   });
 
+  /**
+   * A handler that DOES keep its promise. `append` picks the operationId up
+   * from the ambient dispatch scope, so both post-dispatch axes can find the
+   * row — which is what makes an unread store distinguishable from a real miss.
+   */
+  const keepingHandler = async (args: Record<string, unknown>): Promise<ToolResult> => {
+    const featureId = typeof args.featureId === 'string' ? args.featureId : '';
+    await store.append(featureId, {
+      type: 'workflow.cleanup',
+      data: { from: 'synthesizing', to: 'completed', trigger: 'test', featureId },
+    });
+    return { success: true, data: { performed: 'the-side-effect' } };
+  };
+
+  /**
+   * Break exactly the emission verifier's read — a stream query filtered by
+   * operationId and nothing else. The ensures observer filters by type as well,
+   * so it still reaches the real store: what is under test is one axis going
+   * unanswered, not the store disappearing.
+   */
+  const breakVerifierRead = (): void => {
+    const real = store.query.bind(store);
+    vi.spyOn(store, 'query').mockImplementation(async (streamId, filters) => {
+      if (filters?.operationId !== undefined && filters.type === undefined) {
+        throw new Error('synthetic store failure');
+      }
+      return real(streamId, filters);
+    });
+  };
+
   const dispatchCleanup = async (
     featureId: string,
     projectConfig?: DispatchContext['projectConfig'],
+    handler: (args: Record<string, unknown>) => Promise<ToolResult> = silentHandler,
   ): Promise<ToolResult> => {
     const had = TOOL in COMPOSITE_HANDLERS;
     const prev = COMPOSITE_HANDLERS[TOOL];
-    COMPOSITE_HANDLERS[TOOL] = silentHandler;
+    COMPOSITE_HANDLERS[TOOL] = handler;
     try {
       return await dispatch(
         TOOL,
@@ -370,5 +405,105 @@ describe('emission enforcement reaches the dispatch result', () => {
     );
 
     expect(result.success).toBe(true);
+  });
+
+  it('EmissionVerifier_StoreUnavailable_IsIndeterminateAndCannotPromote', async () => {
+    // Control: the handler keeps its promise and the dispatch promotes. Without
+    // this the case below would be satisfied by a dispatch that refuses this
+    // action under every condition.
+    const kept = await dispatchCleanup('indeterminate-control', undefined, keepingHandler);
+    expect(kept.success).toBe(true);
+
+    // Same handler, same promise kept — only the verifier's read fails. The
+    // contract is now UNASSESSED, which is a different thing from having no
+    // contract, and block mode will not promote on it. Before the split this
+    // resolved `not-applicable` and promoted: a store that failed on every call
+    // disabled enforcement outright while every verdict read benign.
+    breakVerifierRead();
+    const result = await dispatchCleanup('indeterminate-block', undefined, keepingHandler);
+
+    expect(result.success).toBe(false);
+    const error = result.error as Record<string, unknown>;
+    expect(error.code).toBe('EMISSION_VERIFICATION_INDETERMINATE');
+    // Not the violation code: nothing was found missing, because nothing was read.
+    expect(error.code).not.toBe('EMISSION_CONTRACT_VIOLATED');
+    expect(error.message).toContain('could not be verified');
+    // Same disposition as the violation envelope — the effects are performed.
+    expect(error.message).toMatch(/do NOT retry/i);
+    expect(result.data).toEqual({ performed: 'the-side-effect' });
+  });
+
+  it('EmissionVerifier_StoreUnavailable_AdvisoryModeSurfacesWithoutBlocking', async () => {
+    // `block` and `advisory` remain the only two answers, and they are config,
+    // not environment. Advisory reports the unassessed contract on the envelope
+    // the caller already reads rather than swallowing it.
+    breakVerifierRead();
+    const result = await dispatchCleanup(
+      'indeterminate-advisory',
+      resolveConfig({ events: { 'emission-enforcement': 'advisory' } }),
+      keepingHandler,
+    );
+
+    expect(result.success).toBe(true);
+    expect((result.warnings ?? []).join(' ')).toContain('could not be verified');
+    expect((result.warnings ?? []).join(' ')).toContain('workflow.cleanup');
+  });
+
+  it('EmissionVerifier_NoContract_RemainsBenignNotApplicable', async () => {
+    // An action with no unconditional edge never reads the store, so a store
+    // that would refuse cannot turn its benign exemption into an unassessed
+    // one. The ordering is the whole claim: contract first, read second.
+    const querySpy = vi.spyOn(store, 'query');
+    const verdict = await runEmissionVerifierInterceptor(store, {
+      tool: 'exarchos_workflow',
+      action: 'reconcile',
+      operationId: 'op-no-contract',
+      streamId: 'feature-no-contract',
+      declared: [],
+      annotations: ANNOTATIONS,
+    });
+
+    expect(verdict.status).toBe('not-applicable');
+    expect(verdict.reason).toBe('no-unconditional-contract');
+    expect(verdict.cause).toBeUndefined();
+    expect(querySpy).not.toHaveBeenCalled();
+    expect(emissionIndeterminacyBlocks(verdict, undefined)).toBe(false);
+    expect(emissionViolationBlocks(verdict, undefined)).toBe(false);
+  });
+
+  it('EmissionVerifier_HandlerRefusal_RemainsBenignNotApplicable', async () => {
+    // A handler that refused the work owes no record of having done it, and it
+    // is decided BEFORE any read — so a business failure can never arrive
+    // wearing the infrastructure name.
+    const querySpy = vi
+      .spyOn(store, 'query')
+      .mockRejectedValue(new Error('synthetic store failure'));
+    const verdict = await runEmissionVerifierInterceptor(store, {
+      tool: 'exarchos_workflow',
+      action: 'cleanup',
+      operationId: 'op-refused',
+      streamId: 'feature-refused',
+      declared: [{ event: 'workflow.started', condition: 'always' }],
+      handlerSucceeded: false,
+      annotations: ANNOTATIONS,
+    });
+
+    expect(verdict.status).toBe('not-applicable');
+    expect(verdict.reason).toBe('handler-refused');
+    expect(verdict.cause).toBeUndefined();
+    expect(querySpy).not.toHaveBeenCalled();
+    expect(emissionIndeterminacyBlocks(verdict, undefined)).toBe(false);
+    querySpy.mockRestore();
+
+    // And through the real dispatch: the caller reads the handler's own
+    // failure, not an emission verdict laid over it.
+    breakVerifierRead();
+    const refusing = async (): Promise<ToolResult> => ({
+      success: false,
+      error: { code: 'MERGE_NOT_VERIFIED', message: 'the handler refused the work' },
+    });
+    const result = await dispatchCleanup('refusal-block', undefined, refusing);
+    expect(result.success).toBe(false);
+    expect((result.error as Record<string, unknown>).code).toBe('MERGE_NOT_VERIFIED');
   });
 });

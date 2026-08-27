@@ -2233,14 +2233,15 @@ describe('emission verifier — contract evaluation', () => {
     }
   });
 
-  it('EmissionVerifier_UnreadableStore_IsNotApplicableAndNeverThrows', async () => {
+  it('EmissionVerifier_UnreadableStore_IsIndeterminateAndNeverThrows', async () => {
     const failingStore = {
       query: vi.fn().mockRejectedValue(new Error('boom — synthetic store failure')),
       append: vi.fn(),
     } as unknown as EventStore;
 
-    // An unread store is an unanswered question, not a clean bill — and a
-    // verifier that threw would turn a working dispatch into a failed one.
+    // An unread store is an unanswered question, not a clean bill and not a
+    // benign exemption — and a verifier that threw would turn a working
+    // dispatch into a failed one.
     const verdict = await runEmissionVerifierInterceptor(failingStore, {
       tool: 'exarchos_workflow',
       action: 'init',
@@ -2248,9 +2249,30 @@ describe('emission verifier — contract evaluation', () => {
       streamId: 'feat-verifier',
       declared: [edge('workflow.started', 'always')],
     });
-    expect(verdict.status).toBe('not-applicable');
-    expect(verdict.reason).toBe('store-unavailable');
+    expect(verdict.status).toBe('indeterminate');
+    expect(verdict.cause).toBe('store-unavailable');
+    expect(verdict.reason).toBeUndefined();
     expect(failingStore.append).not.toHaveBeenCalled();
+  });
+
+  it('EmissionVerifier_UnrecordableFinding_IsIndeterminateRatherThanSilentlyDropped', async () => {
+    // The read succeeded and found a genuine miss; recording it did not. The
+    // run holds no durable answer either way, so it reports one it does not
+    // have rather than a verdict whose evidence was never written.
+    const halfBrokenStore = {
+      query: vi.fn().mockResolvedValue([]),
+      append: vi.fn().mockRejectedValue(new Error('boom — synthetic append failure')),
+    } as unknown as EventStore;
+
+    const verdict = await runEmissionVerifierInterceptor(halfBrokenStore, {
+      tool: 'exarchos_workflow',
+      action: 'init',
+      operationId: 'op-emission-4',
+      streamId: 'feat-verifier',
+      declared: [edge('workflow.started', 'always')],
+    });
+    expect(verdict.status).toBe('indeterminate');
+    expect(verdict.cause).toBe('verification-fault');
   });
 
   it('EmissionVerifier_NoUnconditionalContract_TouchesTheStoreNotAtAll', async () => {

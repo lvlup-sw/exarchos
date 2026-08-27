@@ -31,8 +31,12 @@ import {
 } from '../../adapters/cli/schema-to-flags.js';
 import { runSessionMachineryConsumedInterceptor } from './interceptors/session-machinery.js';
 import {
+  describeEmissionIndeterminacy,
   dispatchStreamId,
+  emissionIndeterminacyBlocks,
+  emissionIndeterminacyWarning,
   emissionViolationBlocks,
+  EMISSION_INDETERMINATE_ERROR_CODE,
   runEmissionVerifierInterceptor,
   verifierDeclaredEmissions,
 } from './interceptors/emission-verifier.js';
@@ -1627,6 +1631,42 @@ export async function dispatch(
   // re-fail it under a different code.
   if (emissionVerdict.status === 'violated') {
     return attachMeta(result);
+  }
+
+  // Unassessed is not exempt. The action had an unconditional contract and
+  // nobody could read whether it was kept, so under `block` the dispatch does
+  // not report a success it has no evidence for. The ensures axis a few lines
+  // below already fails closed the same way on a store that will not answer;
+  // the two are separate mechanisms over separate declarations and are left
+  // that way deliberately here rather than unified in passing.
+  if (emissionVerdict.status === 'indeterminate') {
+    if (emissionIndeterminacyBlocks(emissionVerdict, ctx.projectConfig)) {
+      return attachMeta({
+        success: false,
+        data: result.data,
+        error: {
+          code: EMISSION_INDETERMINATE_ERROR_CODE,
+          message:
+            `${tool}.${dispatchedActionName} declares unconditional emissions ` +
+            `(${emissionVerdict.required.join(', ')}) that could not be verified: ` +
+            `${describeEmissionIndeterminacy(emissionVerdict)}. THE OPERATION COMPLETED ` +
+            'AND ITS EFFECTS ARE PERFORMED — do NOT retry this call; retrying repeats a ' +
+            'mutation that already succeeded. Its result is preserved on `data`. What ' +
+            'failed is the verification, not the work: no evidence was read either way, ' +
+            'so the run refuses to assert the contract held. Restore the event store and ' +
+            'inspect the operation; to surface this without failing the run, set ' +
+            '`events.emission-enforcement: advisory` in `.exarchos.yml`.',
+        },
+      });
+    }
+    // Advisory: the finding rides on the envelope the caller already reads.
+    result = {
+      ...result,
+      warnings: [
+        ...(result.warnings ?? []),
+        emissionIndeterminacyWarning(tool, dispatchedActionName, emissionVerdict),
+      ],
+    };
   }
 
   // Host-owned actions never reach here: they returned the obligation before

@@ -94,6 +94,25 @@
  * the resolved default is never consulted at all, so this interceptor names the
  * mode it uses instead of inheriting a default that cannot reach it. Both land
  * on `block`: the absence of a config file is not an opt-out of enforcement.
+ *
+ * ── "We did not check" is not "there was nothing to check" ──────────────────
+ *
+ * Two very different outcomes used to share one status. A conditional-only
+ * action has no unconditional promise, so there is nothing to keep — benign,
+ * and permanently so. A store that would not answer leaves the promise
+ * UNASSESSED — the events may be missing and nobody looked. Collapsing the
+ * second into the first meant an infrastructure fault presented as a clean
+ * exemption, and since only `violated` blocked, a store that failed on every
+ * call disabled enforcement entirely while every verdict read benign.
+ *
+ * `indeterminate` is therefore its own status, and under `block` it refuses
+ * promotion exactly as a violation does: an operation whose bookkeeping could
+ * not be read is not a successful operation. The benign exemptions — no
+ * contract, no unconditional edge, no stream, a handler that never ran, threw,
+ * refused or was stubbed, a reasoned read-only abstention — stay
+ * `not-applicable` and never block. A handler REFUSAL in particular is decided
+ * before any store read, so a business failure can never present as an
+ * infrastructure one.
  */
 
 import type { EventStore } from '../../../events/store.js';
@@ -180,8 +199,6 @@ export const EMISSION_INAPPLICABILITY_REASONS = [
   'no-unconditional-contract',
   /** No stream id on the call, so there is nowhere for the events to have landed. */
   'no-stream',
-  /** The store could not be read; the contract was not assessed either way. */
-  'store-unavailable',
   /**
    * The handler ran and returned an unsuccessful result. Its declared emissions
    * record work performed; a refusal performed none, so their absence is the
@@ -204,6 +221,23 @@ export const EMISSION_INAPPLICABILITY_REASONS = [
 
 export type EmissionInapplicabilityReason =
   (typeof EMISSION_INAPPLICABILITY_REASONS)[number];
+
+/**
+ * Why a dispatch that DID carry an assessable contract was left unassessed.
+ *
+ * Every member names a fault in the verifier's own machinery or in what it
+ * depends on — never a decision the handler made. A handler that refused the
+ * work is decided before any of these can arise, so a business failure cannot
+ * arrive here wearing an infrastructure name.
+ */
+export const EMISSION_INDETERMINACY_CAUSES = [
+  /** The store would not answer the query; the contract was not read at all. */
+  'store-unavailable',
+  /** The read succeeded and the assessment itself faulted after it. */
+  'verification-fault',
+] as const;
+
+export type EmissionIndeterminacyCause = (typeof EMISSION_INDETERMINACY_CAUSES)[number];
 
 /** Whether a class of return carries an emission contract, and if not, why not. */
 export type EmissionApplicability =
@@ -241,7 +275,16 @@ export function applicableReturnClasses(
 
 // ─── Verdict ────────────────────────────────────────────────────────────────
 
-export type EmissionVerificationStatus = 'ok' | 'violated' | 'not-applicable';
+/**
+ * `not-applicable` and `indeterminate` are deliberately separate. The first is
+ * a benign absence of subject; the second is a subject that exists and was not
+ * assessed. Only the second is a reason to refuse promotion.
+ */
+export type EmissionVerificationStatus =
+  | 'ok'
+  | 'violated'
+  | 'not-applicable'
+  | 'indeterminate';
 
 /**
  * The lifecycle values that assert nothing emits the event. `active` is absent
@@ -260,6 +303,8 @@ export interface EmissionVerdict {
   readonly status: EmissionVerificationStatus;
   /** Present only when `status === 'not-applicable'`. */
   readonly reason?: EmissionInapplicabilityReason;
+  /** Present only when `status === 'indeterminate'`. */
+  readonly cause?: EmissionIndeterminacyCause;
   /** The unconditionally declared events that did not land. Empty unless violated. */
   readonly missingEvents: readonly string[];
   /**
@@ -421,7 +466,7 @@ export interface EmissionRunSummary {
   readonly determinate: number;
   readonly ok: number;
   readonly violated: number;
-  /** `not-applicable` — out of subject, unread store, no stream. */
+  /** Everything that answered nothing: out of subject, no stream, unassessed. */
   readonly indeterminate: number;
   /**
    * True only when something was checked AND nothing was wrong. A run with
@@ -475,6 +520,53 @@ export function emissionViolationBlocks(
   return verdict.status === 'violated' && resolveEmissionEnforcement(config) === 'block';
 }
 
+/** The error code a blocked indeterminate verdict is returned under. */
+export const EMISSION_INDETERMINATE_ERROR_CODE = 'EMISSION_VERIFICATION_INDETERMINATE';
+
+/**
+ * Whether an unassessed contract must refuse promotion.
+ *
+ * Under `block` it does. The dispatch either kept its unconditional promise or
+ * it did not, and nobody knows which — reporting success asserts the first on
+ * no evidence. Under `advisory` it does not: the operator asked for the finding
+ * without the failure, and that choice covers this axis too.
+ *
+ * Deliberately a SECOND predicate rather than a widened `emissionViolationBlocks`.
+ * The two answer different questions and their messages differ in the only way
+ * that matters to a caller — one names events that are known missing, the other
+ * names none because none were read.
+ */
+export function emissionIndeterminacyBlocks(
+  verdict: EmissionVerdict,
+  config?: Pick<ResolvedProjectConfig, 'events'>,
+): boolean {
+  return verdict.status === 'indeterminate' && resolveEmissionEnforcement(config) === 'block';
+}
+
+/** Why the contract went unassessed, in one clause a caller can act on. */
+export function describeEmissionIndeterminacy(verdict: EmissionVerdict): string {
+  return verdict.cause === 'verification-fault'
+    ? 'the emission check faulted after reading the stream'
+    : 'the event store would not answer the query';
+}
+
+/**
+ * The advisory-mode surface. The finding still reaches the caller — a mode that
+ * chose not to fail is not a mode that chose not to report.
+ */
+export function emissionIndeterminacyWarning(
+  tool: string,
+  action: string,
+  verdict: EmissionVerdict,
+): string {
+  return (
+    `${tool}.${action} declares unconditional emissions ` +
+    `(${verdict.required.join(', ')}) that could not be verified: ` +
+    `${describeEmissionIndeterminacy(verdict)}. The operation's effects are performed; ` +
+    'whether its declared events landed is unknown.'
+  );
+}
+
 // ─── Interceptor entry point ────────────────────────────────────────────────
 
 export interface EmissionVerifierCall {
@@ -526,11 +618,12 @@ export interface EmissionVerifierCall {
  * The subject set is computed before any I/O, so an action with no unconditional
  * contract (most of the read surface) costs one registry read and no query.
  *
- * Failures are LOGGED-AND-SWALLOWED, same posture as the sibling interceptor: a
- * verifier that turned a working dispatch into a failed one would be a worse
- * bug than any it could report. A swallowed failure resolves `not-applicable`
- * with reason `store-unavailable` rather than `ok`, because an unread store is
- * an unanswered question, not a clean bill.
+ * Failures are LOGGED-AND-SWALLOWED, same posture as the sibling interceptor:
+ * this function never throws, so a verifier fault cannot turn a working
+ * dispatch into an unhandled one. It resolves `indeterminate`, not `ok` and not
+ * `not-applicable` — an unread store is an unanswered question, and what the
+ * caller does with an unanswered question is the enforcement mode's decision,
+ * not this function's.
  */
 export async function runEmissionVerifierInterceptor(
   eventStore: EventStore,
@@ -586,8 +679,36 @@ export async function runEmissionVerifierInterceptor(
     };
   }
 
+  const unassessed = (cause: EmissionIndeterminacyCause, err: unknown): EmissionVerdict => {
+    verifierLogger.warn(
+      {
+        tool: call.tool,
+        action: call.action,
+        operationId: call.operationId,
+        cause,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      'emission verifier swallowed error; the contract was not assessed',
+    );
+    return {
+      status: 'indeterminate',
+      cause,
+      missingEvents: [],
+      lifecycleViolations: [],
+      required,
+    };
+  };
+
+  // The read is fenced on its own so an unanswerable store is distinguishable
+  // from a fault in the assessment that followed a successful read.
+  let observed: readonly { readonly type: string }[];
   try {
-    const observed = await eventStore.query(streamId, { operationId: call.operationId });
+    observed = await eventStore.query(streamId, { operationId: call.operationId });
+  } catch (err) {
+    return unassessed('store-unavailable', err);
+  }
+
+  try {
     const verdict = verifyDeclaredEmissions({
       declared: call.declared,
       streamId,
@@ -631,21 +752,9 @@ export async function runEmissionVerifierInterceptor(
     else verifierLogger.warn(report, message);
     return verdict;
   } catch (err) {
-    verifierLogger.warn(
-      {
-        tool: call.tool,
-        action: call.action,
-        operationId: call.operationId,
-        err: err instanceof Error ? err.message : String(err),
-      },
-      'emission verifier swallowed error; the contract was not assessed',
-    );
-    return {
-      status: 'not-applicable',
-      reason: 'store-unavailable',
-      missingEvents: [],
-      lifecycleViolations: [],
-      required,
-    };
+    // Reached when the finding could not be recorded, or when the comparison
+    // itself faulted. Either way the run holds no durable answer, so it reports
+    // one it does not have rather than a verdict it cannot stand behind.
+    return unassessed('verification-fault', err);
   }
 }
