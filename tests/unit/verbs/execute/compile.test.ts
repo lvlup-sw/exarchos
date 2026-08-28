@@ -98,6 +98,40 @@ describe('compileIntent refusals', () => {
     expect(refusal.step).toBe('1:spawn');
   });
 
+  it('StepWithNoHandlerInTheTable_IsNotClosed', () => {
+    // Registered, local, schema-satisfied — and still not invokable, because the
+    // leaves run through ONE handler table. Discovered at the leaf's turn this
+    // refusal arrives after every leaf before it has run, which for a segment
+    // that reaches a remote is after an effect nothing takes back.
+    const orphan = fixtureAction({ name: 'fixture_no_handler' });
+    const deps = depsFor(
+      [fixtureStep('fixture_pass', 'stop'), fixtureStep('fixture_no_handler', 'stop')],
+      {
+        findAction: findFixtureAction([passing, orphan]),
+        handlers: { fixture_pass: () => undefined },
+      },
+    );
+    const refusal = refusalOf(compileIntent('fixture-intent', SUBJECT, ARGS, deps));
+    expect(refusal.code).toBe('INTENT_NOT_CLOSED');
+    expect(refusal.step).toBe('1:fixture_no_handler');
+    expect(refusal.message).toContain('no handler');
+  });
+
+  it('EveryStepHasAHandler_Compiles', () => {
+    // The other half: the fence refuses a MISSING handler, not a present one.
+    const deps = depsFor([fixtureStep('fixture_pass', 'stop')], {
+      handlers: { fixture_pass: () => undefined },
+    });
+    expect(segmentOf(compileIntent('fixture-intent', SUBJECT, ARGS, deps))).toHaveLength(1);
+  });
+
+  it('NoHandlerTableSupplied_CompilesForInspection', () => {
+    // A caller compiling to INSPECT a segment owns no handler table, and the
+    // fence must not turn that into a refusal.
+    const deps = depsFor([fixtureStep('fixture_pass', 'stop')]);
+    expect(segmentOf(compileIntent('fixture-intent', SUBJECT, ARGS, deps))).toHaveLength(1);
+  });
+
   it('DecideStep_IsAHostObligation', () => {
     const deps = depsFor([
       {

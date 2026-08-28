@@ -91,6 +91,9 @@ export interface ExecuteIntentDeps extends CompileDeps {
    * live table and routes to this module, so reaching back for it would close
    * a runtime import ring between the two. Tests supply their own fixture
    * table through the same parameter.
+   *
+   * The compiler reads the same table — through the optional member it declares
+   * — to refuse a step this table could not have invoked, before any leaf runs.
    */
   readonly handlers: LeafHandlerTable;
 }
@@ -592,8 +595,18 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
   const derived = derivedLeafOperationId(operationId, leaf.index, leaf.action);
   const captures: Capture[] = [];
 
+  // The stream travels with the sequence. A sequence is only meaningful inside
+  // the stream that minted it, and a leaf whose records land on a shared
+  // infrastructure stream reports sequences from THAT stream in the same
+  // receipt as a tail from the subject's — so a receipt that named only the
+  // number would hand the caller a position to resolve against the stream they
+  // asked about, where it means something else or nothing.
   const receiptEvents = (): ReceiptEvent[] =>
-    captures.map((capture) => ({ type: capture.type, sequence: capture.sequence }));
+    captures.map((capture) => ({
+      type: capture.type,
+      streamId: capture.streamId,
+      sequence: capture.sequence,
+    }));
 
   const failFor = (
     code: 'INTENT_SEGMENT_FAILED' | 'INTENT_EMISSION_CONTRACT_VIOLATED',

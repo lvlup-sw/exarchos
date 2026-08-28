@@ -146,6 +146,14 @@ export async function handleCreatePr(
   // the same operation collapses onto the first write, while two genuinely
   // distinct calls still leave two pairs.
   //
+  // How much that buys depends on the caller, and only one caller makes it a
+  // guarantee. A leaf of a bounded segment runs under an id DERIVED from the
+  // caller's operation key, which a retry of that operation reuses verbatim —
+  // so the retry keys onto the first attempt's rows. A fresh MCP dispatch mints
+  // a fresh operation id per request, so a retry that arrives as a new request
+  // is a new operation here and is covered by the remote-recovery precheck
+  // below, not by this key.
+  //
   // Outside a dispatch scope there is no operation for a second append to be
   // the same as, so the per-call uuid is the honest fallback: a constant key
   // there would collapse calls that have nothing to do with each other. Same

@@ -3,7 +3,8 @@
 // Runbooks stay pure data. This module is the only thing that reads one as
 // something to EXECUTE, and it refuses anything it cannot close over: a step
 // naming an agent-side tool, a decision point the model owes an answer to, an
-// action no registry declares, or one whose authority is not local.
+// action no registry declares, one whose authority is not local, or one the
+// caller's own handler table has no way to invoke.
 //
 // Every refusal here happens before the first effect. That ordering is the
 // whole point of separating compilation from execution — a segment that cannot
@@ -27,6 +28,17 @@ export interface CompileDeps {
   readonly runbookTable: readonly RunbookDefinition[];
   readonly findAction: (tool: string, action: string) => ToolAction | undefined;
   readonly argSchemas: IntentArgSchemas;
+  /**
+   * The table the leaves will be invoked through, keyed by bare action name.
+   * Optional so a caller compiling to INSPECT a segment need not own one; when
+   * it is present, a step naming an action the table cannot invoke is refused
+   * here rather than discovered at that leaf's turn — after every leaf before
+   * it has already run.
+   *
+   * Typed as an opaque record because this module only asks whether a key is
+   * present. The executor's own handler type narrows it.
+   */
+  readonly handlers?: Readonly<Record<string, unknown>>;
 }
 
 export const PRODUCTION_COMPILE_DEPS: CompileDeps = {
@@ -236,6 +248,22 @@ export function compileIntent(
         message:
           `step ${where} of '${intent}' names '${step.tool}.${step.action}', whose execution ` +
           'authority is not local — the executor may only invoke locally-authoritative actions',
+      });
+    }
+
+    // Registered and local is not the same as invokable. The leaves run through
+    // ONE table — the orchestrate composite's — so a step on another composite
+    // tool resolves a declaration here and then finds no handler at its turn.
+    // For a segment whose earlier leaves reach a remote, that discovery arrives
+    // after an effect it cannot take back.
+    if (deps.handlers !== undefined && !(step.action in deps.handlers)) {
+      return refuse({
+        code: 'INTENT_NOT_CLOSED',
+        step: where,
+        message:
+          `step ${where} of '${intent}' names '${step.tool}.${step.action}', which no handler ` +
+          'in the executor table can invoke. The segment is not closed over actions this ' +
+          'process can execute.',
       });
     }
 

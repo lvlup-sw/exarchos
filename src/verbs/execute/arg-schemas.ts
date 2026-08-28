@@ -93,9 +93,12 @@ export const PlanClosureArgs = z
  * request body, then open the request through the provider abstraction.
  *
  * `prBody` binds onto two leaf spellings of the SAME text — `validate_pr_body`
- * takes it as `body` and `create_pr` takes it as `body` too — so the body that
- * is validated is the body that is opened. One variable for one document,
- * exactly as `specPath` does for `plan-closeout`.
+ * takes it as `body` and `create_pr` takes it as `body` too. One variable for
+ * one document, exactly as `specPath` does for `plan-closeout`, so the two
+ * leaves cannot be handed different texts. The create leaf may still ENRICH
+ * what it opens: given a subject whose state carries a captured intent it
+ * appends a grounded `## Intent` section before both its journal append and the
+ * provider call, so the opened body is the validated body plus that section.
  *
  * `title`, `baseBranch` and `headBranch` are REQUIRED because `create_pr`'s own
  * registered schema requires them and the compiler validates each leaf against
@@ -116,6 +119,16 @@ export const PlanClosureArgs = z
  * the synthesis/review family — and it must not already own a pull request,
  * because `create_pr` reads that from projected state and refuses
  * `PR_ALREADY_OWNED`.
+ *
+ * A RESIDUAL OBLIGATION the caller still owes after a committed receipt:
+ * recording the pull request in workflow state. The segment's last leaf
+ * journals `pr.create.requested` / `pr.create.executed`, and the workflow-state
+ * projection folds both to identity — no projected field is derived from
+ * either. So `artifacts.pr` / `synthesis.prUrl` stay unset, and those are the
+ * two fields the synthesize→completed guard reads and the two the
+ * single-PR-owner refusal above reads. The URL is on the receipt and on the
+ * `pr.create.executed` record; patching one of those fields from it is the
+ * caller's step, and until it lands the workflow cannot leave synthesize.
  */
 export const SynthesisCloseoutArgs = z
   .object({

@@ -205,25 +205,34 @@ export const SYNTHESIS_FLOW: RunbookDefinition = {
 export const SYNTHESIS_CLOSEOUT: RunbookDefinition = {
   id: 'synthesis-closeout',
   phase: 'synthesize',
-  description: 'Validate the PR body and open the pull request through the provider abstraction.',
+  description:
+    'Validate the PR body and open the pull request through the provider abstraction. ' +
+    'Recording the PR URL in state is left to the caller.',
   steps: [
     // The body is validated as TEXT the caller already holds. Passing `pr`
     // instead would send the handler to the remote to read a body that does not
     // exist yet, which is the wrong order for a closeout that is about to
     // create the request.
     //
-    // `stop` covers this step's REFUSALS — an unreadable template, a missing
-    // input source. It does not cover the section verdict: the handler reports
-    // a missing section on its success carrier rather than as an error, so a
-    // body short of a section still reaches the create. Tightening that is a
-    // change to the action, not to this step's policy.
+    // `enforce` is what makes `stop` cover the section verdict. Without it the
+    // handler reports a missing section on its SUCCESS carrier, a step's
+    // failure policy reads the envelope rather than the payload, and a body
+    // short of every required section reached the create — the segment would
+    // have opened a pull request its own first leaf judged deficient, and
+    // reported that leaf as passed. With it the verdict leaves as a refusal
+    // naming the missing sections, so the policy acts on it and the caller
+    // reads it off the receipt's failure.
     { tool: 'exarchos_orchestrate', action: 'validate_pr_body', onFail: 'stop',
-      params: { body: '<prBody>' } },
+      params: { body: '<prBody>', enforce: true } },
     { tool: 'exarchos_orchestrate', action: 'create_pr', onFail: 'stop',
       params: { title: '<title>', body: '<prBody>', base: '<baseBranch>', head: '<headBranch>' } },
   ],
-  // `prBody` binds onto both leaves' `body` parameter, so the body that is
-  // validated is the body that is opened — one variable for one document.
+  // `prBody` binds onto both leaves' `body` parameter: one variable for one
+  // document, so the two leaves cannot be handed different texts. The create
+  // leaf may still ENRICH what it opens — given a subject whose state carries a
+  // captured intent it appends a grounded `## Intent` section before both its
+  // journal append and the provider call — so the opened body is the validated
+  // body plus that section, never a different document.
   templateVars: ['featureId', 'title', 'prBody', 'baseBranch', 'headBranch'],
   // `prepare_synthesis` is left out for what it would cost a request-bounded
   // segment: all four of its readiness legs shell out, including a full test
@@ -235,12 +244,21 @@ export const SYNTHESIS_CLOSEOUT: RunbookDefinition = {
   // postcondition halts the segment whatever the step's failure policy says.
   //
   // The state-patch step the hand-followed synthesis flow ends with is left out
-  // because the executor's leaf handler table is keyed by bare action name and
-  // is the ORCHESTRATE table: a leaf on another composite tool compiles and
-  // then finds no handler, failing mid-segment after the pull request has
-  // already been opened. The number and the URL are on the `pr.create.executed`
-  // record and on the segment receipt, so nothing is lost by not writing them
-  // a second time from here.
+  // because the executor invokes leaves through the ORCHESTRATE handler table:
+  // a step on another composite tool has no handler there, and the compiler
+  // refuses the whole segment for it rather than letting it fail mid-flight.
+  //
+  // That patch is therefore an obligation this segment LEAVES WITH THE CALLER,
+  // not one it discharges. The pull request's number and URL are on the
+  // `pr.create.executed` record and on the receipt, but the workflow-state
+  // projection folds both `pr.create.*` rows to identity, so neither
+  // `artifacts.pr` nor `synthesis.prUrl` is derived from them. Those two fields
+  // are what the synthesize→completed guard reads, and they are what the
+  // single-PR-owner refusal in `create_pr` reads. Until the caller patches one
+  // of them the workflow cannot leave the synthesize phase, and a second
+  // `create_pr` for the same subject is refused only by the remote-recovery
+  // precheck rather than by that structural guard. Same shape as the
+  // transition this segment's plan-phase sibling leaves to its caller.
   //
   // Only the two `create_pr` records: both are declared unconditionally, and
   // `validate_pr_body` declares no emission at all.
@@ -715,14 +733,22 @@ export const PLAN_CLOSEOUT: RunbookDefinition = {
   // the same path.
   templateVars: ['featureId', 'specPath'],
   // The advisory decomposition gate and the spec-coverage declaration check are
-  // left out for what they would cost this segment, not for a broken contract:
-  // both now record the durable gate evidence they declare. The coverage check
-  // requires a repo root — a wave-level absolute path this segment's
-  // one-document argument deliberately does not carry — and without `skipRun`
-  // it shells a test run once per test file the plan references, which is not
-  // work a request-bounded segment should do. Both are advisory, so adding them
-  // would move the pinned three-step shape and widen the intent's argument
-  // schema for verdicts that stop nothing.
+  // left out, and NOT for a broken contract: both now record the durable gate
+  // evidence they declare.
+  //
+  // The coverage check requires a repo root, a wave-level absolute path this
+  // segment's one-document argument deliberately does not carry. That missing
+  // argument is the whole of the obstacle — at plan depth the check shells
+  // nothing and does not require the root to exist on disk, so the cost this
+  // comment once claimed (a test run per referenced test file) is a
+  // post-implementation cost that a plan-phase step would never pay.
+  //
+  // The decomposition gate needs no argument this segment lacks: its schema is
+  // the subject identity the compiler writes plus one plan path, which is the
+  // binding the three shipped steps already use. What keeps it out is a
+  // deliberate scope choice rather than a cost — it is advisory, it would move
+  // a step shape the suite pins, and an advisory verdict that stops nothing is
+  // worth adding on purpose or not at all.
   //
   // The move out of planning is left to the caller: the target depends on a
   // plan-review approval this segment cannot observe, so a transition leaf here

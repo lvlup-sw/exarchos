@@ -2,19 +2,16 @@
 //
 // ─── The cross-stream observation mechanism, killed and revived ─────────────
 //
-// NO PARITY TEST FOR THIS INTENT, and the reason is the shape of the segment
-// rather than an omission. The only leaf here that neither shells out nor
-// reaches a remote is `validate_pr_body`, whose contract is `ensures: none` /
-// `emissions: none` — it appends nothing. A two-store event comparison over
-// this segment therefore has an EMPTY denominator on both sides and passes by
-// construction. A guard that cannot fail is worse than an absent one, because
-// it reads as coverage. `plan-closeout` shipped without a parity test for the
-// same class of reason.
+// The composition-parity comparison for this intent lives in
+// `synthesis-closeout-parity.test.ts`: `create_pr`'s two journal rows are a
+// real denominator once the provider is stubbed at the factory, so the
+// two-store comparison is not the vacuous one an earlier reading of this
+// segment assumed.
 //
-// What stands in its place is a kill probe on the one mechanism this segment
-// actually depends on. `create_pr` journals its intent and its result onto the
-// shared `vcs` stream; the leaf's declared emissions are observed there because
-// the ACTION DECLARES that stream on its resource axis. Strip the declaration
+// What this file adds is a kill probe on the one mechanism parity cannot
+// separate, because both of its paths share it. `create_pr` journals its intent
+// and its result onto the shared `vcs` stream; the emissions are observed there
+// because the ACTION DECLARES that stream on its resource axis. Strip it
 // and the observation falls back to the subject stream, where the handler wrote
 // nothing — and the leaf must be refused for breaking a contract it kept.
 //

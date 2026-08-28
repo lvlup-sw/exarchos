@@ -242,6 +242,11 @@ export const verificationActions: readonly BuiltinToolAction[] = [
       // DR-1 (#1593) task 006: optional — enables the advisory intent-grounding
       // check (reads `artifacts.intent`). Absent → unchanged legacy validation.
       featureId: featureIdSchema.optional(),
+      // Optional, and the default keeps the shipped semantics: a deficient body
+      // is reported on the success carrier. A caller whose next step depends on
+      // the verdict cannot read a payload field — a composition sees the
+      // envelope — so it asks for the verdict as a refusal instead.
+      enforce: z.boolean().optional(),
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,

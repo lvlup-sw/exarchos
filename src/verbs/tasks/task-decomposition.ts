@@ -877,11 +877,13 @@ export async function handleTaskDecomposition(
   }
 
   // The gate declares durable gate evidence as a postcondition, and a bare
-  // `gate.executed` append never paid it: every caller that observes
-  // postconditions — the dispatch path and the bounded intent executor alike —
-  // read a success carrier that had broken its own contract. Routing through
-  // the shared phase-gate runner records the evidence before any success
-  // carrier escapes, the same way the sibling gates do.
+  // `gate.executed` append never paid it: the dispatch path observes declared
+  // postconditions after the handler returns and read a success carrier that
+  // had broken its own contract. Routing through the shared phase-gate runner
+  // records the evidence before any success carrier escapes, the same way the
+  // sibling gates do. The bounded intent executor observes the same
+  // postconditions the same way, so a segment that ever names this gate reads
+  // the repaired answer too — no segment names it today.
   return runPhaseGateWithEvidence({
     streamId: args.featureId,
     gateClass: 'task-decomposition',

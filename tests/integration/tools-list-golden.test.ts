@@ -135,6 +135,25 @@
 // which gate evidence the review intent needs — lives on that intent's argument
 // schema, where a caller reading the refusal message meets it.
 //
+// ── The body check gains an enforcement switch ────────────────────────────
+//
+// MEASURED, not eyeballed: normalising both goldens and diffing yields ONE
+// changed tool description (`exarchos_orchestrate`) with exactly THREE changed
+// lines inside it, plus one JSON-schema property:
+//
+//     validate_pr_body(…, featureId?) → (…, featureId?, enforce?)
+//     execute_intent  — one clause shortened, one clause added: the closeout
+//                       intent leaves recording the PR URL to the caller
+//     create_pr       — digest only; its `ensures` abstention now states the
+//                       reason that survives the stream it declares
+//
+// The `enforce` half is a WIDENING and back-compatible: absent, the handler
+// answers exactly as before. Present, a failing section verdict leaves as a
+// refusal — which is the only form a composition can act on, since a step's
+// failure policy reads the envelope and not the payload. No tool or action was
+// added or removed, no order changed, and no other action's schema or digest
+// moved.
+//
 // Regenerate deliberately (and review the diff) with:
 //   UPDATE_TOOLS_LIST_GOLDEN=1 npx vitest run src/__tests__/integration/tools-list-golden.test.ts
 

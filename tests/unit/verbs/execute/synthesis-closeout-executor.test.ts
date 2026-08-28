@@ -83,13 +83,29 @@ let store: EventStore;
 let createPr: ReturnType<typeof vi.fn>;
 
 function makeProvider(): VcsProvider {
-  createPr = vi.fn().mockResolvedValue({ number: 42, url: 'https://example.invalid/pr/42' });
+  // STATEFUL, and that is the point: a stub that reports no open request after
+  // one was created is a remote that cannot exist, and it defeats the handler's
+  // own crash-recovery precheck — the guard that stops a retry from opening a
+  // SECOND pull request. With it always empty, a retry re-fires `createPr` and
+  // a types-only assertion still passes, because the duplicate is hidden by the
+  // idempotency-key dedup on the journal rows.
+  const opened: { number: number; url: string; headRefName: string; baseRefName: string }[] = [];
+  createPr = vi.fn().mockImplementation(async (input: { headBranch: string; baseBranch: string }) => {
+    const pr = {
+      number: 42,
+      url: 'https://example.invalid/pr/42',
+      headRefName: input.headBranch,
+      baseRefName: input.baseBranch,
+    };
+    opened.push(pr);
+    return { number: pr.number, url: pr.url };
+  });
   return {
     name: 'github',
     createPr,
-    // "No existing PR", so the handler falls through to the create rather than
-    // short-circuiting on the crash-recovery path.
-    listPrs: vi.fn().mockResolvedValue([]),
+    // What the remote holds: empty until the create resolves, and the created
+    // request afterwards.
+    listPrs: vi.fn().mockImplementation(async () => [...opened]),
     checkCi: vi.fn(),
     mergePr: vi.fn(),
     addComment: vi.fn(),
@@ -130,26 +146,15 @@ async function vcsRowsFor(operationId: string): Promise<WorkflowEvent[]> {
 }
 
 /**
- * The live handler table with the body check driven into ITS OWN refusal.
- *
- * A missing section is not a refusal: the shipped handler reports the section
- * verdict on its success carrier, so `onFail: 'stop'` never sees it and no
- * argument this intent accepts can make the first leaf fail. What the handler
- * does refuse is a call naming no body source at all — so the source is
- * stripped on the way in and the refusal that halts the segment is the shipped
- * handler's own, not a fabricated envelope standing in for one.
+ * A body the section check must reject — an argument this intent accepts, so
+ * the halt is driven by the SHIPPED handler under the shipped runbook rather
+ * than by a fixture standing in for a refusal. Nothing is stubbed but the
+ * provider.
  */
-function refusingBodyCheck(): LeafHandlerTable {
-  const bodyCheck = ACTION_HANDLERS.validate_pr_body;
-  if (bodyCheck === undefined) throw new Error('validate_pr_body has no handler');
-  return {
-    ...ACTION_HANDLERS,
-    validate_pr_body: async (args, dir, ctx) => {
-      const { body: _stripped, ...withoutSource } = args;
-      return bodyCheck(withoutSource, dir, ctx);
-    },
-  };
-}
+const DEFICIENT_ARGS = {
+  ...ARGS,
+  prBody: 'A body with prose and no required section headers at all.',
+};
 
 beforeEach(async () => {
   vi.clearAllMocks();
@@ -223,6 +228,30 @@ describe('synthesis-closeout over the live handler table', () => {
     expect(receipt.tailSequence).toBe(0);
   });
 
+  it('SynthesisCloseout_ReceiptEvents_CarryTheStreamTheirSequencesNumber', async () => {
+    const receipt = receiptOf(await execute('op-synthesis-closeout-receipt', ARGS));
+
+    const createLeaf = receipt.leaves.find((leaf) => leaf.action === 'create_pr');
+    expect(createLeaf?.events.map((event) => event.type).sort()).toEqual([
+      'pr.create.executed',
+      'pr.create.requested',
+    ]);
+    // The same receipt carries a `tailSequence` in the SUBJECT stream's
+    // numbering. Without the stream on each event, these sequences read as
+    // positions in that stream — where they are somebody else's rows or
+    // nobody's — and a caller resolving one gets an unrelated event.
+    expect(createLeaf?.events.every((event) => event.streamId === VCS_STREAM)).toBe(true);
+
+    // Not a constant on the type: the rows are where the store put them, which
+    // for this leaf is the stream its contract declares and not the subject's.
+    const [index, action] = CREATE_LEAF;
+    const derived = derivedLeafOperationId('op-synthesis-closeout-receipt', index, action);
+    const rows = await vcsRowsFor(derived);
+    expect(createLeaf?.events.map((event) => event.sequence).sort()).toEqual(
+      rows.map((row) => row.sequence).sort(),
+    );
+  });
+
   it('SynthesisCloseout_SameOperationIdSameRequest_ReplaysWithoutReExecuting', async () => {
     const first = receiptOf(await execute('op-synthesis-closeout-replay', ARGS));
     const beforeSubject = await store.query(STREAM);
@@ -289,24 +318,31 @@ describe('synthesis-closeout over the live handler table', () => {
     // One of each. Two of either would be one pull request journalled twice,
     // and the receipt bakes those sequences in permanently.
     expect(types).toEqual(['pr.create.executed', 'pr.create.requested']);
+
+    // ONE pull request, which is the fact the row count alone cannot show: the
+    // journal dedups on the retried operation's key, so a retry that re-fired
+    // the remote would leave exactly these two rows while describing the first
+    // attempt's number and url and the caller's receipt described the second.
+    // The retry reaches the recovery precheck instead and never calls again.
+    expect(createPr).toHaveBeenCalledTimes(1);
   });
 
-  it('SynthesisCloseout_BlockingLeafRefuses_HaltsBeforeTheRemoteCall', async () => {
-    const result = await execute(
-      'op-synthesis-closeout-halt',
-      ARGS,
-      refusingBodyCheck(),
-    );
+  it('SynthesisCloseout_BodyMissingRequiredSections_HaltsBeforeTheRemoteCall', async () => {
+    const result = await execute('op-synthesis-closeout-halt', DEFICIENT_ARGS);
     const receipt = receiptOf(result);
 
     expect(result.success).toBe(false);
     expect(receipt.outcome).toBe('failed');
     expect(receipt.failedLeaf).toBe('validate_pr_body');
     expect(receipt.failure?.code).toBe('INTENT_SEGMENT_FAILED');
-    // It stops for the leaf's OWN stated reason rather than a wiring error — a
-    // halt for an admission or handler-lookup fault would prove nothing about
-    // the failure policy.
-    expect(receipt.failure?.message).toContain('No input source provided');
+    // It stops for the leaf's OWN verdict rather than a wiring error — a halt
+    // for an admission or handler-lookup fault would prove nothing about the
+    // failure policy. The sections the body lacks reach the caller here, which
+    // is the only place a receipt can carry them: a leaf's payload is not on
+    // the receipt.
+    expect(receipt.failure?.message).toContain('Summary');
+    expect(receipt.failure?.message).toContain('Changes');
+    expect(receipt.failure?.message).toContain('Test Plan');
     // Halted: the create leaf never ran, so no request was opened and the
     // shared stream is untouched.
     expect(receipt.leaves.map((leaf) => leaf.action)).toEqual(['validate_pr_body']);
@@ -328,10 +364,8 @@ describe('synthesis-closeout over the live handler table', () => {
   });
 
   it('SynthesisCloseout_FailedSegment_ReplaysToTheSameFailedReceipt', async () => {
-    const handlers = refusingBodyCheck();
-
-    const first = await execute('op-synthesis-closeout-failreplay', ARGS, handlers);
-    const second = await execute('op-synthesis-closeout-failreplay', ARGS, handlers);
+    const first = await execute('op-synthesis-closeout-failreplay', DEFICIENT_ARGS);
+    const second = await execute('op-synthesis-closeout-failreplay', DEFICIENT_ARGS);
 
     // Both outcomes commit, so both outcomes replay. A failed segment that
     // re-ran on replay would repeat its effects for a call the claim already

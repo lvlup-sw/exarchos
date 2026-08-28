@@ -253,7 +253,9 @@ describe('handleExecuteIntent commit', () => {
     const appended = await store.query(STREAM, { type: 'task.completed' });
     expect(receipt.tailSequence).toBe(appended[0]?.sequence);
     expect(receipt.leaves[0]?.events).toEqual([
-      { type: 'task.completed', sequence: appended[0]?.sequence },
+      // The stream travels with the sequence: this leaf addresses the subject,
+      // so the pair names the subject stream.
+      { type: 'task.completed', streamId: STREAM, sequence: appended[0]?.sequence },
     ]);
   });
 });

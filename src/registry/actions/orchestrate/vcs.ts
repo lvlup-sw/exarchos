@@ -15,20 +15,34 @@ const VCS_READ_EMISSIONS = none('read-only VCS queries emit no catalog events');
  * The mutating VCS handlers journal intent before the remote call and the
  * result after it, and BOTH records land on the shared `vcs` stream rather than
  * on a feature stream. Dispatch resolves the stream it observes postconditions
- * against from the call's own arguments (or an infrastructure selector), and
- * `vcs` was neither, so an `ensures` here would name a fact the observer looks
- * for in the wrong place and report every successful call as a violation. The
- * appends are declared on the emission axis instead, which is stream-agnostic.
+ * against from the call's own arguments or from a stream the contract itself
+ * declares. These two actions name neither, so an `ensures` here would name a
+ * fact the observer looks for in the wrong place and report every successful
+ * call as a violation. The appends are declared on the emission axis instead,
+ * which is stream-agnostic.
  *
- * The stream those records land on is now stated on the RESOURCE axis of the
- * handlers that carry it, so post-dispatch observation resolves it from the
- * declaration rather than failing to resolve it from the arguments. That is
- * what lets the emission axis be checked at all; it does not by itself put the
- * postcondition axis back, because these handlers write no evidence and the
- * `ensures` above still describes them correctly.
+ * `create_pr` is no longer one of them — it declares the stream, and carries
+ * its own reason below.
  */
 const VCS_SPLIT_ENSURES = none(
   'the intent/result records land on the shared vcs stream, which post-dispatch observation does not resolve from this action\'s arguments',
+);
+
+/**
+ * `create_pr` states the shared `vcs` stream on its RESOURCE axis, so
+ * observation resolves the stream its two journal records land on from the
+ * declaration. The stream-resolution reason above therefore does not apply to
+ * it, and the abstention has to stand on something else.
+ *
+ * It stands on the division between the axes. Both records are catalog events
+ * appended unconditionally, which is what the emission axis declares and what
+ * the verifier already checks — on that same resolved stream. Restating them as
+ * postconditions would give one fact two declarations free to drift apart. What
+ * the postcondition axis carries and the emission axis cannot express is
+ * durable evidence, and this handler records none.
+ */
+const CREATE_PR_ENSURES = none(
+  'the two journal records are declared on the emission axis and checked there against the vcs stream this action declares; the postcondition axis carries the durable evidence this handler does not record',
 );
 
 export const vcsActions: readonly BuiltinToolAction[] = [
@@ -56,7 +70,7 @@ export const vcsActions: readonly BuiltinToolAction[] = [
     },
     {
       requires: none('PR creation has no admission gate or approval discriminant'),
-      ensures: VCS_SPLIT_ENSURES,
+      ensures: CREATE_PR_ENSURES,
       needs: VCS_PROVIDER_NEEDS,
       touches: {
         frame: 'single-machine',

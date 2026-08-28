@@ -49,21 +49,22 @@ export const executeActions: readonly BuiltinToolAction[] = [
   withContract({
     name: 'execute_intent',
     // Trimmed to the per-action description budget: the shipped intents, their
-    // args, and the one precondition a caller cannot discover from a schema.
-    // The reasons behind each required field live on the argument schemas.
+    // args, the one precondition a caller cannot discover from a schema, and
+    // the one obligation a committed receipt leaves behind. The reasons behind
+    // each required field live on the argument schemas.
     description:
       'Compile a NAMED intent (a runbook id) into a segment of already-registered local ' +
       'actions and run it leaf by leaf, committing one orchestrate.intent_executed record ' +
-      'on both the committed and the failed path. `args` is validated against that ' +
-      "intent's own typed schema — the caller can never submit an action array. Intents: " +
-      "'task-completion' (delegate) { taskId, worktreePath, riskTier, boundaryTouching, " +
-      "branch? }, whose riskTier/boundaryTouching are recorded as steering.source:" +
-      "'caller-args'; 'quality-evaluation' (review) { high, medium, low, diffContent, " +
-      'diff?, repoRoot?, worktreePath?, blockedReason? }, which REQUIRES the stream to ' +
-      'already carry passing gate evidence for the active phase attempt under the review ' +
-      "requirement; 'plan-closeout' (plan) { specPath }, one path for the unified spec; " +
-      "'synthesis-closeout' (synthesize) { title, prBody, baseBranch, headBranch }, which " +
-      'validates the body then opens the PR. ' +
+      "on either outcome. `args` is validated against that intent's own typed schema — the " +
+      "caller can never submit an action array. Intents: 'task-completion' (delegate) " +
+      '{ taskId, worktreePath, riskTier, boundaryTouching, branch? }, whose riskTier/' +
+      "boundaryTouching are recorded as steering.source:'caller-args'; 'quality-evaluation' " +
+      '(review) { high, medium, low, diffContent, diff?, repoRoot?, worktreePath?, ' +
+      'blockedReason? }, which REQUIRES passing gate evidence on the stream for the active ' +
+      "phase attempt under the review requirement; 'plan-closeout' (plan) { specPath }, one " +
+      "path for the unified spec; 'synthesis-closeout' (synthesize) { title, prBody, " +
+      'baseBranch, headBranch }, which validates the body then opens the PR — recording its ' +
+      'URL in state stays with the caller. ' +
       'A caller-supplied `operationId` replays: the same id with the same request returns ' +
       'the persisted receipt and executes nothing; a different request under it is rejected.',
     schema: z

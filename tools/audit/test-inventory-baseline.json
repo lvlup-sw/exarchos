@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1246,
-    "parsedFiles": 1201,
+    "testFiles": 1247,
+    "parsedFiles": 1202,
     "shellFiles": 45,
-    "cases": 13717,
+    "cases": 13725,
     "dynamicTitles": 145,
     "unparseableFiles": 0
   },
@@ -50531,6 +50531,21 @@
         },
         {
           "suite": "compileIntent refusals",
+          "name": "StepWithNoHandlerInTheTable_IsNotClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "EveryStepHasAHandler_Compiles",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "NoHandlerTableSupplied_CompilesForInspection",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
           "name": "DecideStep_IsAHostObligation",
           "dynamic": false
         },
@@ -51188,6 +51203,11 @@
         },
         {
           "suite": "synthesis-closeout over the live handler table",
+          "name": "SynthesisCloseout_ReceiptEvents_CarryTheStreamTheirSequencesNumber",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout over the live handler table",
           "name": "SynthesisCloseout_SameOperationIdSameRequest_ReplaysWithoutReExecuting",
           "dynamic": false
         },
@@ -51203,12 +51223,28 @@
         },
         {
           "suite": "synthesis-closeout over the live handler table",
-          "name": "SynthesisCloseout_BlockingLeafRefuses_HaltsBeforeTheRemoteCall",
+          "name": "SynthesisCloseout_BodyMissingRequiredSections_HaltsBeforeTheRemoteCall",
           "dynamic": false
         },
         {
           "suite": "synthesis-closeout over the live handler table",
           "name": "SynthesisCloseout_FailedSegment_ReplaysToTheSameFailedReceipt",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/synthesis-closeout-parity.test.ts": {
+      "file": "tests/unit/verbs/execute/synthesis-closeout-parity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "synthesis-closeout driven by hand and by the executor",
+          "name": "ExecutorAndPrimitiveBaseline_ProduceTheSameJournalFacts",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout driven by hand and by the executor",
+          "name": "BothPathsHaltAtTheBodyCheck_WhenTheBodyIsDeficient",
           "dynamic": false
         }
       ]
@@ -63026,6 +63062,16 @@
         {
           "suite": "handleValidatePrBody",
           "name": "MissingSection_ReturnsFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "handleValidatePrBody",
+          "name": "MissingSectionUnderEnforce_ReturnsRefusalNamingTheSections",
+          "dynamic": false
+        },
+        {
+          "suite": "handleValidatePrBody",
+          "name": "AllSectionsPresentUnderEnforce_StillReturnsThePassingCarrier",
           "dynamic": false
         },
         {

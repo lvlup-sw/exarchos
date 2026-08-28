@@ -75,6 +75,10 @@ describe('synthesis-closeout compiles against the live registry', () => {
     expect(byAction.get('validate_pr_body')).toMatchObject({
       featureId: SUBJECT.streamId,
       body: PR_BODY,
+      // The step's own literal, and load-bearing: without it the section
+      // verdict rides the success carrier, where this step's `stop` policy
+      // cannot see it and the create runs on a body the check judged deficient.
+      enforce: true,
     });
     // Never `pr`: with a PR number the body check shells out to read the body
     // back from the remote, and at this point in the flow there is no remote
