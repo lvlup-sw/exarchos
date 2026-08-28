@@ -108,6 +108,33 @@
 // or action was added or removed, no order changed, and no other action's
 // schema moved.
 //
+// ── A fourth compilable intent, and the stream `create_pr` declares ────────
+//
+// MEASURED, not eyeballed: normalising both goldens and diffing yields exactly
+// ONE changed line — the `exarchos_orchestrate` tool description — and within
+// it, one changed action signature line plus exactly TWO changed contract
+// digests out of the 83 the line carries:
+//
+//     execute_intent  — description names a fourth intent; two git-ref
+//                       resources join its `touches`
+//     create_pr       — the shared `vcs` stream joins its `touches`, so
+//                       post-dispatch observation resolves the stream its two
+//                       journal records land on from the declaration
+//
+// Both goldens carry 82 action signatures in the same order. No tool or action
+// was added or removed, and no other action's schema or digest moved.
+//
+// The `execute_intent` half is a WIDENING: the request schema is unchanged
+// (`intent`, `args`, subject identity, `operationId`), and `intent` was always
+// a free-form runbook id — one more id now compiles instead of being refused as
+// not-compilable. The `create_pr` half changes no schema at all; it states on
+// the contract where records the handler has always written go.
+//
+// The description also shrank again to fit the per-action budget, which is why
+// a sentence moved rather than only accumulating. The reason that left it —
+// which gate evidence the review intent needs — lives on that intent's argument
+// schema, where a caller reading the refusal message meets it.
+//
 // Regenerate deliberately (and review the diff) with:
 //   UPDATE_TOOLS_LIST_GOLDEN=1 npx vitest run src/__tests__/integration/tools-list-golden.test.ts
 
