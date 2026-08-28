@@ -641,6 +641,48 @@ export const DESIGN_REFINEMENT: RunbookDefinition = {
   autoEmits: [],
 };
 
+export const PLAN_CLOSEOUT: RunbookDefinition = {
+  id: 'plan-closeout',
+  phase: 'plan',
+  description: 'Run the blocking plan gates over the unified spec and emit the traceability matrix.',
+  steps: [
+    // The two blocking plan gates, in the order the plan-depth policy resolves
+    // them. `onFail` mirrors each action's own declared blocking-ness rather
+    // than restating a policy: both gates block, so both stop.
+    { tool: 'exarchos_orchestrate', action: 'check_plan_coverage', onFail: 'stop',
+      params: { designPath: '<specPath>', planPath: '<specPath>' } },
+    { tool: 'exarchos_orchestrate', action: 'check_provenance_chain', onFail: 'stop',
+      params: { designPath: '<specPath>', planPath: '<specPath>' } },
+    // Not a gate — it writes a matrix. A failure here leaves the gates' verdicts
+    // standing, so it does not halt the segment.
+    { tool: 'exarchos_orchestrate', action: 'generate_traceability', onFail: 'continue',
+      params: { designFile: '<specPath>', planFile: '<specPath>' } },
+  ],
+  // One variable for one document: design and plan are two sections of the same
+  // unified artifact, and the four parameter spellings above are four names for
+  // the same path.
+  templateVars: ['featureId', 'specPath'],
+  // The advisory decomposition gate and the spec-coverage declaration check are
+  // left out because their handlers do not record the durable gate evidence
+  // their contracts declare, and a leaf that breaks its own postcondition halts
+  // the segment whatever the step's failure policy says.
+  //
+  // The move out of planning is left to the caller: the target depends on a
+  // plan-review approval this segment cannot observe, so a transition leaf here
+  // would either guess the target or commit one the approval has not yet earned.
+  //
+  // Only `gate.executed`: both gates declare it unconditionally, and the matrix
+  // generator declares no emission at all.
+  //
+  // The durable evidence each gate also records is deliberately NOT named here.
+  // `autoEmits` mirrors the actions' declared `emissions`, and the two plan
+  // gates carry their evidence obligation on the separate `durable-evidence`
+  // postcondition axis instead. Naming the evidence row here is not a more
+  // complete declaration but a false one — the bijection derives the permitted
+  // set from those same `emissions`, so it reddens on the addition.
+  autoEmits: ['gate.executed'],
+};
+
 export const PLAN_COVERAGE_CHECK: RunbookDefinition = {
   id: 'plan-coverage-check',
   phase: 'plan-review',
@@ -765,6 +807,7 @@ export const ALL_RUNBOOKS: readonly RunbookDefinition[] = [
   TASK_CLASSIFICATION,
   REVIEW_STRATEGY,
   DESIGN_REFINEMENT,
+  PLAN_CLOSEOUT,
   PLAN_COVERAGE_CHECK,
   PHASE_COMPRESSION,
   MERGE_ORCHESTRATION,

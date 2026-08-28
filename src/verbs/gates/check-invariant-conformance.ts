@@ -39,6 +39,8 @@
 // ToolResult on CLI and MCP (INV-2).
 // ────────────────────────────────────────────────────────────────────────────
 
+import { createHash } from 'node:crypto';
+
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import type { PluginFinding } from '../../review/check-catalog.js';
@@ -62,7 +64,9 @@ import {
   computeVerdict,
   generateVerdictReport,
 } from '../review/review-verdict.js';
-import { emitGateEvent } from './gate-utils.js';
+import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
+import { runPhaseGateWithEvidence } from './gate-runner.js';
+import { emitGateEvent, sameOperationGateKey } from './gate-utils.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -200,7 +204,7 @@ function toFindingSeverity(severity: 'blocking' | 'advisory'): PluginFinding['se
 
 export async function handleCheckInvariantConformance(
   args: CheckInvariantConformanceArgs,
-  _stateDir: string,
+  stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
   if (!eventStore) {
@@ -220,6 +224,41 @@ export async function handleCheckInvariantConformance(
     };
   }
 
+  // The gate declares durable gate evidence as a postcondition, and a bare
+  // `gate.executed` append never paid it: every caller that observes
+  // postconditions — the dispatch path and the bounded intent executor alike —
+  // read a success carrier that had broken its own contract. Routing through
+  // the shared phase-gate runner records the evidence before any success
+  // carrier escapes, the same way the sibling review gates do.
+  const featureId = args.featureId;
+  const diffDigest = createHash('sha256')
+    .update(args.diff ?? args.diffContent ?? '', 'utf8')
+    .digest('hex');
+  return runPhaseGateWithEvidence({
+    streamId: featureId,
+    gateClass: 'invariant-conformance',
+    requirementId: 'requirement:invariant-conformance',
+    stateDir,
+    eventStore,
+    subject: (phaseAttemptId) =>
+      createEvidenceSubject(
+        { kind: 'phase-attempt', phaseAttemptId },
+        {
+          gate: 'invariant-conformance',
+          workflowType: args.workflowType ?? null,
+          phase: args.phase ?? null,
+          diffDigest,
+        },
+      ),
+    providerInput: args,
+    executeProvider: async () => executeCheckInvariantConformance(args, eventStore),
+  });
+}
+
+async function executeCheckInvariantConformance(
+  args: CheckInvariantConformanceArgs,
+  eventStore: EventStore,
+): Promise<ToolResult> {
   const workflowType = args.workflowType ?? 'feature';
   const phase = args.phase ?? 'review';
   const diff = args.diff ?? args.diffContent ?? '';
@@ -437,6 +476,7 @@ export async function handleCheckInvariantConformance(
         auditProjection,
         auditInvariantCount: auditInvariantIds.length,
       },
+      sameOperationGateKey('invariant-conformance'),
     );
   } catch { /* fire-and-forget */ }
 

@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 
 import { withHermeticEnv, type HermeticEnv } from './hermetic.js';
+import { WIN32_SPAWN_HEADROOM } from '../../vitest.config.js';
 
 describe('withHermeticEnv', () => {
   it('WithHermeticEnv_Success_ProvidesFreshHomeAndStateAndCwd', async () => {
@@ -123,7 +124,7 @@ describe('withHermeticEnv', () => {
     expect(ids.length).toBe(COUNT);
     expect(new Set(ids).size).toBe(COUNT);
     expect(new Set(homeDirs).size).toBe(COUNT);
-  }, 20_000);
+  }, 20_000 * WIN32_SPAWN_HEADROOM);
 
   it('WithHermeticEnv_EnvVarsSet_HomeAndStateDirMatchTmp', async () => {
     await withHermeticEnv(async (env) => {

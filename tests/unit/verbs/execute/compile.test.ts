@@ -315,17 +315,22 @@ describe('compileIntent over the live registry', () => {
     expect(refusal.message).toContain('boundaryTouching');
   });
 
-  it('EveryOtherRunbook_IsNotCompilable_OneIntentShips', () => {
+  it('EveryOtherRunbook_IsNotCompilable_ThreeIntentsShip', () => {
     // Reaching past INTENT_NOT_COMPILABLE is what "executable" means here, so
-    // the denominator is every declared runbook, not a hand-kept list.
+    // the denominator is every declared runbook, not a hand-kept list. The
+    // order is the table's own.
     const executable = PRODUCTION_COMPILE_DEPS.runbookTable
       .map((runbook) => {
         const outcome = compileIntent(runbook.id, { streamId: 'wf-live' }, {}, PRODUCTION_COMPILE_DEPS);
         return { id: runbook.id, notCompilable: !outcome.ok && outcome.refusal.code === 'INTENT_NOT_COMPILABLE' };
       })
       .filter((entry) => !entry.notCompilable);
-    expect(PRODUCTION_COMPILE_DEPS.runbookTable.length).toBeGreaterThan(1);
-    expect(executable.map((entry) => entry.id)).toEqual(['task-completion']);
+    expect(PRODUCTION_COMPILE_DEPS.runbookTable.length).toBeGreaterThan(3);
+    expect(executable.map((entry) => entry.id)).toEqual([
+      'task-completion',
+      'quality-evaluation',
+      'plan-closeout',
+    ]);
   });
 });
 

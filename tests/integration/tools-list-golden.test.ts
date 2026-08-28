@@ -71,6 +71,27 @@
 // ASK the operator for a value they already held: the workflow stream id IS the
 // bare featureId, which is the name every workflow surface uses.
 //
+// ── Two more compilable intents on `execute_intent` ────────────────────────
+//
+// MEASURED, not eyeballed: normalising both goldens and diffing yields exactly
+// ONE changed line — the `exarchos_orchestrate` tool description — and within
+// it, one changed action signature line plus the schema digest that line feeds.
+// The whole delta is `execute_intent`'s description, which now names the three
+// compilable intents instead of one:
+//
+//     'task-completion'                → + 'quality-evaluation', 'plan-closeout'
+//
+// This is a WIDENING and therefore not a compatibility break: the request
+// schema is unchanged (`intent`, `args`, subject identity, `operationId`), no
+// action or tool was added or removed, no order changed, and no other action's
+// schema moved. `intent` was always a free-form runbook id; two more ids now
+// compile instead of being refused as not-compilable.
+//
+// The description also SHRANK to fit the per-action description budget, which
+// is why sentences moved rather than only accumulated. The reasons that left
+// the description live on the intents' argument schemas, where a caller reading
+// the refusal message meets them.
+//
 // Regenerate deliberately (and review the diff) with:
 //   UPDATE_TOOLS_LIST_GOLDEN=1 npx vitest run src/__tests__/integration/tools-list-golden.test.ts
 

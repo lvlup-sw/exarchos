@@ -9,7 +9,7 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
-import { emitGateEvent } from './gate-utils.js';
+import { emitGateEvent, sameOperationGateKey } from './gate-utils.js';
 import { acceptanceCriteriaFinding } from '../pure/design-completeness.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
@@ -890,14 +890,22 @@ async function executePlanCoverage(
   const foldedResult =
     foldedAdvisories.length > 0 ? { ...result, advisories: foldedAdvisories } : result;
 
-  await emitGateEvent(eventStore, args.featureId, 'plan-coverage', 'planning', result.passed, {
-    dimension: 'D1',
-    phase: 'plan',
-    covered: result.coverage.covered,
-    gaps: result.coverage.gaps,
-    deferred: result.coverage.deferred,
-    totalSections: result.coverage.total,
-  });
+  await emitGateEvent(
+    eventStore,
+    args.featureId,
+    'plan-coverage',
+    'planning',
+    result.passed,
+    {
+      dimension: 'D1',
+      phase: 'plan',
+      covered: result.coverage.covered,
+      gaps: result.coverage.gaps,
+      deferred: result.coverage.deferred,
+      totalSections: result.coverage.total,
+    },
+    sameOperationGateKey('plan-coverage'),
+  );
 
   return { success: true, data: { ...foldedResult } };
 }

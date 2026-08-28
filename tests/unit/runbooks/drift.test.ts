@@ -140,8 +140,8 @@ describe('Runbook drift detection', () => {
     // Plan-phase blocking gates that don't yet have runbooks.
     // When a plan-phase runbook is added, remove entries from this set to enforce coverage.
     const KNOWN_UNRUNBOOKED_GATES = new Set([
-      'exarchos_orchestrate.check_provenance_chain',
-      'exarchos_orchestrate.check_plan_coverage',
+      // check_provenance_chain and check_plan_coverage left this set when
+      // PLAN_CLOSEOUT gave them a runbook.
       'exarchos_orchestrate.check_exploration_depth',
       'exarchos_orchestrate.debug_review_gate',
       'exarchos_orchestrate.pre_synthesis_check',

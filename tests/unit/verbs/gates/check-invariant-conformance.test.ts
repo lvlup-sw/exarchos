@@ -13,7 +13,7 @@
 // disk IO; the default loader reads `.exarchos/invariants.md`.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -24,6 +24,36 @@ import type { ExarchosConfig } from '../../../../src/config/exarchos-config-sche
 import { handleCheckInvariantConformance } from '../../../../src/verbs/gates/check-invariant-conformance.js';
 import { CheckInvariantConformanceData } from '../../../../src/verbs/gates/check-invariant-conformance-schema.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+
+// The gate now records durable evidence through the shared phase-gate runner
+// before any success carrier escapes. These cases are about the PROVIDER's
+// verdict — catalog resolution, check-mode findings, severity folding — so the
+// runner is stubbed down to its provider call, the same seam every other
+// migrated gate's unit test stubs. The runner's own guarantee is proven against
+// a real store in `gate-runner.test.ts`, and this gate's real-runner path in
+// `check-invariant-conformance.parity.test.ts`.
+vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
+  runPhaseGateWithEvidence: vi.fn(async (request) => {
+    try {
+      return await request.executeProvider(
+        {
+          gateClass: request.gateClass,
+          providerRef: 'test-provider',
+          actionName: 'test-provider',
+        },
+        request.providerInput,
+      );
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: 'GATE_PROVIDER_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }),
+}));
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 

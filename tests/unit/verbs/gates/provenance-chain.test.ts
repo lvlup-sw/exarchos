@@ -13,8 +13,12 @@ vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(async (path: string) => `fixture:${path}`),
 }));
 
+// The key has to come with the emitter it is passed to: a stub module missing
+// it turns a call into a TypeError, which the emit site would report as the
+// gate failing rather than as an incomplete double.
 vi.mock('../../../../src/verbs/gates/gate-utils.js', () => ({
   emitGateEvent: vi.fn(async () => {}),
+  sameOperationGateKey: vi.fn((gateName: string) => `gate.executed:${gateName}:op-fixture`),
 }));
 
 vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
@@ -210,6 +214,7 @@ describe('handleProvenanceChain', () => {
         gaps: 0,
         orphanRefs: 0,
       }),
+      'gate.executed:provenance-chain:op-fixture',
     );
   });
 
@@ -243,6 +248,7 @@ describe('handleProvenanceChain', () => {
       expect.objectContaining({
         phase: 'plan',
       }),
+      'gate.executed:provenance-chain:op-fixture',
     );
   });
 

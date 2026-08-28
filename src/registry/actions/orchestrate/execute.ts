@@ -13,7 +13,7 @@ import { EXECUTE_INTENT_ECONOMY_BUDGET_TOKENS, summarizeIntentReceipt } from '..
 import { z } from 'zod';
 import { declared, none, withActionContract, type ActionContract } from '../../action-contract.js';
 import { LOCAL_MUTATION } from '../../annotations.js';
-import { DELEGATE_PHASES, ROLE_ANY } from '../../phases.js';
+import { DELEGATE_PHASES, PLAN_PHASES, REVIEW_PHASES, ROLE_ANY } from '../../phases.js';
 import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
 
 function withContract(
@@ -48,22 +48,23 @@ function withContract(
 export const executeActions: readonly BuiltinToolAction[] = [
   withContract({
     name: 'execute_intent',
+    // Trimmed to the per-action description budget: the three intents, their
+    // args, and the one precondition a caller cannot discover from a schema.
+    // The reasons behind each required field live on the argument schemas.
     description:
-      'Compile a NAMED intent into a segment of already-registered local actions and ' +
-      "run it leaf by leaf, committing one orchestrate.intent_executed record on both " +
-      "the committed and the failed path. `intent` names a runbook; `args` is validated " +
-      "against that intent's own typed argument schema (Record<string,string> is not " +
-      'accepted — the caller can never submit an action array). The one shipped intent ' +
-      "is 'task-completion' (the delegate-phase runbook: check_test_adequacy, " +
-      'check_contract_drift, check_mock_boundary, check_static_analysis, then the ' +
-      "terminal task_complete), whose args are { taskId, worktreePath, riskTier, " +
-      "boundaryTouching, branch? }. riskTier and boundaryTouching are REQUIRED: every " +
-      'gate step in that runbook passes them and a step whose variable cannot be bound ' +
-      "is refused before any effect. Both are recorded on the receipt with " +
-      "steering.source:'caller-args' — no durable per-task stamp exists yet to read " +
-      'them from instead. A caller-supplied `operationId` replays: the same ' +
-      'id with the same request returns the persisted receipt and executes nothing; the ' +
-      'same id with a different request is rejected.',
+      'Compile a NAMED intent (a runbook id) into a segment of already-registered local ' +
+      'actions and run it leaf by leaf, committing one orchestrate.intent_executed record ' +
+      'on both the committed and the failed path. `args` is validated against that ' +
+      "intent's own typed schema — the caller can never submit an action array. Intents: " +
+      "'task-completion' (delegate) { taskId, worktreePath, riskTier, boundaryTouching, " +
+      "branch? }, whose riskTier/boundaryTouching are recorded as steering.source:" +
+      "'caller-args'; 'quality-evaluation' (review) { high, medium, low, diffContent, " +
+      'diff?, repoRoot?, worktreePath?, blockedReason? }, which REQUIRES the stream to ' +
+      'already carry passing gate evidence under the review requirement for the active ' +
+      'phase attempt, since its invariant-conformance leaf needs that gate and no leaf ' +
+      "produces it; 'plan-closeout' (plan) { specPath }, one path for the unified spec. " +
+      'A caller-supplied `operationId` replays: the same id with the same request returns ' +
+      'the persisted receipt and executes nothing; a different request under it is rejected.',
     schema: z
       .object({
         intent: z.string().min(1),
@@ -75,7 +76,11 @@ export const executeActions: readonly BuiltinToolAction[] = [
         operationId: z.string().optional(),
       })
       .strict(),
-    phases: DELEGATE_PHASES,
+    // The union of the three shipped intents' phase families. Advisory — only
+    // the next-actions computer reads it — but it must not EQUAL the plan
+    // binding: an action whose phase set is exactly that set is treated as a
+    // canonical plan gate, and this one is an executor, not a gate.
+    phases: new Set<string>([...DELEGATE_PHASES, ...REVIEW_PHASES, ...PLAN_PHASES]),
     roles: ROLE_ANY,
     // Runs the compiled segment's leaves in-process, including gates that
     // shell out to lint/typecheck/test commands (check_static_analysis,
@@ -118,6 +123,9 @@ export const executeActions: readonly BuiltinToolAction[] = [
       { kind: 'path', selector: 'args.worktreePath' },
       { kind: 'worktree', selector: 'args.worktreePath' },
       { kind: 'git-ref', selector: 'args.branch' },
+      // The plan-closeout leaves read one document under four spellings; the
+      // intent binds all four from this single argument.
+      { kind: 'path', selector: 'args.specPath' },
     ),
     replay: { kind: 'claim-required', scope: 'stream-subject-request' },
     // `conditional`, not `always`. The post-dispatch emission verifier queries

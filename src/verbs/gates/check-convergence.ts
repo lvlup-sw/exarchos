@@ -11,7 +11,9 @@ import { foldToTail } from '../../projections/fold-at-tail.js';
 import { getOrCreateMaterializer } from '../../projections/views/tools.js';
 import { ALL_DIMENSIONS, CONVERGENCE_VIEW } from '../../projections/views/convergence-view.js';
 import type { ConvergenceViewState } from '../../projections/views/convergence-view.js';
-import { emitGateEvent } from './gate-utils.js';
+import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
+import { runPhaseGateWithEvidence } from './gate-runner.js';
+import { emitGateEvent, sameOperationGateKey } from './gate-utils.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -59,9 +61,40 @@ export async function handleCheckConvergence(
     };
   }
 
+  // The gate declares durable gate evidence as a postcondition, and a bare
+  // `gate.executed` append never paid it: every caller that observes
+  // postconditions — the dispatch path and the bounded intent executor alike —
+  // read a success carrier that had broken its own contract. Routing through
+  // the shared phase-gate runner records the evidence before any success
+  // carrier escapes, the same way the sibling review gates do.
+  return runPhaseGateWithEvidence({
+    streamId: args.featureId,
+    gateClass: 'convergence',
+    requirementId: 'requirement:convergence',
+    stateDir,
+    eventStore,
+    subject: (phaseAttemptId) =>
+      createEvidenceSubject(
+        { kind: 'phase-attempt', phaseAttemptId },
+        { gate: 'convergence', phase: args.phase ?? null, workflowId: args.workflowId ?? null },
+      ),
+    providerInput: args,
+    executeProvider: async () => executeCheckConvergence(args, stateDir, eventStore),
+  });
+}
+
+async function executeCheckConvergence(
+  args: CheckConvergenceArgs,
+  stateDir: string,
+  eventStore: EventStore,
+): Promise<ToolResult> {
   const store = eventStore;
   const materializer = getOrCreateMaterializer(stateDir);
-  const streamId = args.workflowId ?? args.featureId;
+  // `workflowId` re-points the READ at another stream; it never moved the
+  // write, and treating it as if it did put the gate's own row on a stream the
+  // action does not declare it touches. The verdict is folded from wherever
+  // the caller asked; the record that this gate ran belongs on the subject.
+  const readStreamId = args.workflowId ?? args.featureId;
 
   // Fold the convergence view over `gate.executed` up to the durable tail. A
   // reliability verdict derived from a fold that has not seen the latest gate
@@ -69,7 +102,7 @@ export async function handleCheckConvergence(
   const { view } = await foldToTail<ConvergenceViewState>(
     store,
     materializer,
-    streamId,
+    readStreamId,
     CONVERGENCE_VIEW,
   );
 
@@ -89,11 +122,22 @@ export async function handleCheckConvergence(
 
   // Emit meta gate.executed event (fire-and-forget)
   try {
-    await emitGateEvent(store, streamId, 'convergence', 'meta', passed, {
-      phase: 'meta',
-      uncheckedDimensions,
-      dimensionSummary: filteredDimensions,
-    });
+    await emitGateEvent(
+      store,
+      args.featureId,
+      'convergence',
+      'meta',
+      passed,
+      {
+        phase: 'meta',
+        ...(args.workflowId !== undefined && args.workflowId !== args.featureId
+          ? { readStreamId }
+          : {}),
+        uncheckedDimensions,
+        dimensionSummary: filteredDimensions,
+      },
+      sameOperationGateKey('convergence'),
+    );
   } catch { /* fire-and-forget */ }
 
   return {
