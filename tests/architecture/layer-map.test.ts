@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scanLayerEdges } from '../../src/architecture/layer-boundaries-seam.js';
 import { lexModule } from '../../tools/test-helpers/module-lexer.js';
+import { WIN32_SPAWN_HEADROOM } from '../../vitest.config.js';
 
 // ─── The authoritative layer mapping (DR-2, task 010) ────────────────────────
 //
@@ -208,7 +209,9 @@ describe('the 11 targets → 9 published layers relation (what task 044 asserts)
 // first one to run pays the cold filesystem cache for the whole scan. They were
 // passing at roughly a fifth of the budget locally and timing out in CI, which
 // is the shape of a latent flake rather than a slow test. Given the explicit
-// headroom the tier grants its other filesystem-bound cases.
+// headroom the tier grants its other filesystem-bound cases — scaled by the
+// same win32 factor the tier uses, because a flat literal would OVERRIDE that
+// scaling and hand Windows a SMALLER budget than it inherits by default.
 describe('EventsLayer_NeverImportsOracle', () => {
   it('no module under events/ resolves an import into contract/oracle/', async () => {
     const edges = await scanLayerEdges(SRC, lexModule);
@@ -220,7 +223,7 @@ describe('EventsLayer_NeverImportsOracle', () => {
       'The oracle judges what the event store produces; an import running the ' +
         'other way would let the store depend on its own judge.',
     ).toEqual([]);
-  }, 20000);
+  }, 20_000 * WIN32_SPAWN_HEADROOM);
 
   it('the scan is not vacuous: events/ actually has resolvable edges to inspect', async () => {
     // A scan root that resolved to nothing, or a lexer that never returned an
@@ -228,5 +231,5 @@ describe('EventsLayer_NeverImportsOracle', () => {
     const edges = await scanLayerEdges(SRC, lexModule);
     const eventsEdges = edges.filter((e) => e.module.startsWith('events/'));
     expect(eventsEdges.length).toBeGreaterThan(0);
-  }, 20000);
+  }, 20_000 * WIN32_SPAWN_HEADROOM);
 });
