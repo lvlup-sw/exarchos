@@ -315,7 +315,7 @@ describe('compileIntent over the live registry', () => {
     expect(refusal.message).toContain('boundaryTouching');
   });
 
-  it('EveryOtherRunbook_IsNotCompilable_ThreeIntentsShip', () => {
+  it('EveryOtherRunbook_IsNotCompilable_FourIntentsShip', () => {
     // Reaching past INTENT_NOT_COMPILABLE is what "executable" means here, so
     // the denominator is every declared runbook, not a hand-kept list. The
     // order is the table's own.
@@ -325,10 +325,11 @@ describe('compileIntent over the live registry', () => {
         return { id: runbook.id, notCompilable: !outcome.ok && outcome.refusal.code === 'INTENT_NOT_COMPILABLE' };
       })
       .filter((entry) => !entry.notCompilable);
-    expect(PRODUCTION_COMPILE_DEPS.runbookTable.length).toBeGreaterThan(3);
+    expect(PRODUCTION_COMPILE_DEPS.runbookTable.length).toBeGreaterThan(4);
     expect(executable.map((entry) => entry.id)).toEqual([
       'task-completion',
       'quality-evaluation',
+      'synthesis-closeout',
       'plan-closeout',
     ]);
   });

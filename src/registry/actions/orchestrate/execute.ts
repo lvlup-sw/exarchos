@@ -48,7 +48,7 @@ function withContract(
 export const executeActions: readonly BuiltinToolAction[] = [
   withContract({
     name: 'execute_intent',
-    // Trimmed to the per-action description budget: the three intents, their
+    // Trimmed to the per-action description budget: the shipped intents, their
     // args, and the one precondition a caller cannot discover from a schema.
     // The reasons behind each required field live on the argument schemas.
     description:
@@ -60,9 +60,10 @@ export const executeActions: readonly BuiltinToolAction[] = [
       "branch? }, whose riskTier/boundaryTouching are recorded as steering.source:" +
       "'caller-args'; 'quality-evaluation' (review) { high, medium, low, diffContent, " +
       'diff?, repoRoot?, worktreePath?, blockedReason? }, which REQUIRES the stream to ' +
-      'already carry passing gate evidence under the review requirement for the active ' +
-      'phase attempt, since its invariant-conformance leaf needs that gate and no leaf ' +
-      "produces it; 'plan-closeout' (plan) { specPath }, one path for the unified spec. " +
+      'already carry passing gate evidence for the active phase attempt under the review ' +
+      "requirement; 'plan-closeout' (plan) { specPath }, one path for the unified spec; " +
+      "'synthesis-closeout' (synthesize) { title, prBody, baseBranch, headBranch }, which " +
+      'validates the body then opens the PR. ' +
       'A caller-supplied `operationId` replays: the same id with the same request returns ' +
       'the persisted receipt and executes nothing; a different request under it is rejected.',
     schema: z
@@ -76,11 +77,18 @@ export const executeActions: readonly BuiltinToolAction[] = [
         operationId: z.string().optional(),
       })
       .strict(),
-    // The union of the three shipped intents' phase families. Advisory — only
-    // the next-actions computer reads it — but it must not EQUAL the plan
-    // binding: an action whose phase set is exactly that set is treated as a
-    // canonical plan gate, and this one is an executor, not a gate.
-    phases: new Set<string>([...DELEGATE_PHASES, ...REVIEW_PHASES, ...PLAN_PHASES]),
+    // The union of the shipped intents' phase families. Advisory — only the
+    // next-actions computer reads it — but it must not EQUAL the plan binding:
+    // an action whose phase set is exactly that set is treated as a canonical
+    // plan gate, and this one is an executor, not a gate. The synthesize member
+    // is the literal set the PR-stack gate binds to; there is no exported
+    // constant for that phase alone.
+    phases: new Set<string>([
+      ...DELEGATE_PHASES,
+      ...REVIEW_PHASES,
+      ...PLAN_PHASES,
+      'synthesize',
+    ]),
     roles: ROLE_ANY,
     // Runs the compiled segment's leaves in-process, including gates that
     // shell out to lint/typecheck/test commands (check_static_analysis,
@@ -126,6 +134,14 @@ export const executeActions: readonly BuiltinToolAction[] = [
       // The plan-closeout leaves read one document under four spellings; the
       // intent binds all four from this single argument.
       { kind: 'path', selector: 'args.specPath' },
+      // The synthesis-closeout leaves address a branch pair. Deliberately NOT
+      // a `{ kind: 'stream', selector: 'vcs' }` entry: a declared
+      // infrastructure stream WINS over the arg-derived one, so naming it here
+      // would re-point this action's own post-dispatch observation at the vcs
+      // stream — where it declares no unconditional emission to observe. The
+      // leaf that writes there declares it for itself.
+      { kind: 'git-ref', selector: 'args.baseBranch' },
+      { kind: 'git-ref', selector: 'args.headBranch' },
     ),
     replay: { kind: 'claim-required', scope: 'stream-subject-request' },
     // `conditional`, not `always`. The post-dispatch emission verifier queries

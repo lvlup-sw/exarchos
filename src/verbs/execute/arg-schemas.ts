@@ -5,7 +5,7 @@
 // what turns caller text into the typed values the runbook's `<var>`
 // placeholders substitute, and what rejects an unknown key before any effect.
 //
-// Three intents ship. Adding another is adding a row here plus the runbook it
+// Four intents ship. Adding another is adding a row here plus the runbook it
 // names — not a change to the compiler.
 //
 // None of them declares `featureId`. Subject identity is written LAST by the
@@ -88,11 +88,50 @@ export const PlanClosureArgs = z
   })
   .strict();
 
+/**
+ * `synthesis-closeout` — the synthesize-phase runbook: validate the pull
+ * request body, then open the request through the provider abstraction.
+ *
+ * `prBody` binds onto two leaf spellings of the SAME text — `validate_pr_body`
+ * takes it as `body` and `create_pr` takes it as `body` too — so the body that
+ * is validated is the body that is opened. One variable for one document,
+ * exactly as `specPath` does for `plan-closeout`.
+ *
+ * `title`, `baseBranch` and `headBranch` are REQUIRED because `create_pr`'s own
+ * registered schema requires them and the compiler validates each leaf against
+ * that schema before any effect. An optional field here would only move the
+ * refusal past the point where the body has already been validated.
+ *
+ * The body leaf is called with `body`, never `pr`. Given `pr` its handler
+ * shells out to read the body back from the remote; given `body` it does not,
+ * and this segment validates text the caller already holds — which is the only
+ * thing there is to validate before the request exists.
+ *
+ * No `draft` and no `labels`. Every field here is one a leaf's schema requires;
+ * an optional provider knob no leaf needs is surface with no contract behind
+ * it.
+ *
+ * PRECONDITIONS the caller owes and this schema cannot express: the stream must
+ * be in a phase the leaves' own bindings admit — `validate_pr_body` is bound to
+ * the synthesis/review family — and it must not already own a pull request,
+ * because `create_pr` reads that from projected state and refuses
+ * `PR_ALREADY_OWNED`.
+ */
+export const SynthesisCloseoutArgs = z
+  .object({
+    title: z.string().min(1),
+    prBody: z.string().min(1),
+    baseBranch: z.string().min(1),
+    headBranch: z.string().min(1),
+  })
+  .strict();
+
 /** Intent id → the schema its `args` must satisfy. */
 export type IntentArgSchemas = Readonly<Record<string, z.ZodObject<z.ZodRawShape>>>;
 
 export const INTENT_ARG_SCHEMAS: IntentArgSchemas = {
   'task-completion': TaskCompletionArgs,
   'quality-evaluation': QualityEvaluationArgs,
+  'synthesis-closeout': SynthesisCloseoutArgs,
   'plan-closeout': PlanClosureArgs,
 };

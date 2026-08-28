@@ -202,6 +202,58 @@ export const SYNTHESIS_FLOW: RunbookDefinition = {
   autoEmits: ['gate.executed'],
 };
 
+export const SYNTHESIS_CLOSEOUT: RunbookDefinition = {
+  id: 'synthesis-closeout',
+  phase: 'synthesize',
+  description: 'Validate the PR body and open the pull request through the provider abstraction.',
+  steps: [
+    // The body is validated as TEXT the caller already holds. Passing `pr`
+    // instead would send the handler to the remote to read a body that does not
+    // exist yet, which is the wrong order for a closeout that is about to
+    // create the request.
+    //
+    // `stop` covers this step's REFUSALS — an unreadable template, a missing
+    // input source. It does not cover the section verdict: the handler reports
+    // a missing section on its success carrier rather than as an error, so a
+    // body short of a section still reaches the create. Tightening that is a
+    // change to the action, not to this step's policy.
+    { tool: 'exarchos_orchestrate', action: 'validate_pr_body', onFail: 'stop',
+      params: { body: '<prBody>' } },
+    { tool: 'exarchos_orchestrate', action: 'create_pr', onFail: 'stop',
+      params: { title: '<title>', body: '<prBody>', base: '<baseBranch>', head: '<headBranch>' } },
+  ],
+  // `prBody` binds onto both leaves' `body` parameter, so the body that is
+  // validated is the body that is opened — one variable for one document.
+  templateVars: ['featureId', 'title', 'prBody', 'baseBranch', 'headBranch'],
+  // `prepare_synthesis` is left out for what it would cost a request-bounded
+  // segment: all four of its readiness legs shell out, including a full test
+  // run under a two-minute timeout, against a caller-supplied worktree path.
+  // That verdict is owed BEFORE the closeout is asked for, not inside it.
+  //
+  // `validate_pr_stack` is left out because its handler does not record the
+  // durable gate evidence its contract declares, and a leaf that breaks its own
+  // postcondition halts the segment whatever the step's failure policy says.
+  //
+  // The state-patch step the hand-followed synthesis flow ends with is left out
+  // because the executor's leaf handler table is keyed by bare action name and
+  // is the ORCHESTRATE table: a leaf on another composite tool compiles and
+  // then finds no handler, failing mid-segment after the pull request has
+  // already been opened. The number and the URL are on the `pr.create.executed`
+  // record and on the segment receipt, so nothing is lost by not writing them
+  // a second time from here.
+  //
+  // Only the two `create_pr` records: both are declared unconditionally, and
+  // `validate_pr_body` declares no emission at all.
+  //
+  // Any durable evidence a leaf records is deliberately NOT named here.
+  // `autoEmits` mirrors the actions' declared `emissions`, and evidence rides
+  // the separate postcondition axis instead. Naming an evidence row here is not
+  // a more complete declaration but a false one — the bijection derives the
+  // permitted set from those same `emissions`, so it reddens on the addition.
+  // Measured, not argued.
+  autoEmits: ['pr.create.requested', 'pr.create.executed'],
+};
+
 export const SHEPHERD_ITERATION: RunbookDefinition = {
   id: 'shepherd-iteration',
   phase: 'synthesize',
@@ -801,6 +853,7 @@ export const ALL_RUNBOOKS: readonly RunbookDefinition[] = [
   QUALITY_EVALUATION,
   AGENT_TEAMS_SAGA,
   SYNTHESIS_FLOW,
+  SYNTHESIS_CLOSEOUT,
   SHEPHERD_ITERATION,
   TASK_FIX,
   TRIAGE_DECISION,
