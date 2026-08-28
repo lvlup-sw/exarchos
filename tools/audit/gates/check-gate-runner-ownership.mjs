@@ -77,6 +77,13 @@ const DISPOSITIONS = Object.freeze([
     ['src/verbs/gates/check-convergence.ts', 'orchestrate/gate-runner'],
     ['src/verbs/gates/check-invariant-conformance.ts', 'orchestrate/gate-runner'],
     ['src/verbs/gates/security-scan.ts', 'orchestrate/gate-runner'],
+    // The two plan gates in the same register: one paid its declared durable
+    // evidence with a bare `gate.executed` append, the other with no append at
+    // all. Both now route through the canonical runner, which is the OWNED
+    // path — the row records the seam they use, alongside the
+    // compatibility-observation row task-decomposition already carried.
+    ['src/verbs/tasks/task-decomposition.ts', 'orchestrate/gate-runner'],
+    ['src/verbs/gates/spec-coverage-check.ts', 'orchestrate/gate-runner'],
   ].map(([file, owner]) => ({
     file,
     kind: 'durable-runner',

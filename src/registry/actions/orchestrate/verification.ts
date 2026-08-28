@@ -44,7 +44,7 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     }),
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: false, dimension: 'D5' },
+    gate: { blocking: false, dimension: 'D5', gateClass: 'task-decomposition' },
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_task_decomposition'),
     annotations: LOCAL_MUTATION,
   }, {
@@ -242,6 +242,11 @@ export const verificationActions: readonly BuiltinToolAction[] = [
       // DR-1 (#1593) task 006: optional — enables the advisory intent-grounding
       // check (reads `artifacts.intent`). Absent → unchanged legacy validation.
       featureId: featureIdSchema.optional(),
+      // Optional, and the default keeps the shipped semantics: a deficient body
+      // is reported on the success carrier. A caller whose next step depends on
+      // the verdict cannot read a payload field — a composition sees the
+      // envelope — so it asks for the verdict as a refusal instead.
+      enforce: z.boolean().optional(),
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
@@ -374,6 +379,11 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     name: 'spec_coverage_check',
     description: 'Verify that test files referenced in the plan exist in the repo',
     schema: z.object({
+      // The gate declares durable gate evidence keyed to a phase attempt, and
+      // evidence is recorded against a stream — the action cannot pay a
+      // postcondition it has no subject for. Required rather than optional:
+      // `when: 'always'` admits no "when the caller supplied one".
+      featureId: z.string().min(1),
       planFile: z.string().min(1),
       repoRoot: z.string().min(1),
       skipRun: z.boolean().optional(),
@@ -395,13 +405,14 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     }),
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: false, dimension: 'D1' },
+    gate: { blocking: false, dimension: 'D1', gateClass: 'spec-coverage' },
     outputSchema: vacuityWaiver('exarchos_orchestrate.spec_coverage_check'),
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared({ source: 'durable-evidence', when: 'always', evidenceType: 'gate' }),
     needs: declared('fs:read'),
     resources: declared(
+      { kind: 'stream', selector: 'featureId' },
       { kind: 'path', selector: 'planFile' },
       { kind: 'path', selector: 'repoRoot' },
     ),

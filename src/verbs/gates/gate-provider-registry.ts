@@ -44,7 +44,13 @@ export type PhaseGateClass =
   // contract promises.
   | 'security-scan'
   | 'convergence'
-  | 'invariant-conformance';
+  | 'invariant-conformance'
+  // The two plan gates that declared durable gate evidence and paid it with a
+  // bare `gate.executed` append and with nothing at all respectively. The
+  // runner resolves a provider by class, so the class exists here or the gate
+  // cannot record the evidence its own contract promises.
+  | 'task-decomposition'
+  | 'spec-coverage';
 export type SupportedGateClass = MechanicalGateClass | PhaseGateClass;
 
 export interface GateProviderRegistration {
@@ -155,6 +161,12 @@ const BUILTIN_REGISTRATIONS = {
   },
   'invariant-conformance': {
     actionName: 'check_invariant_conformance',
+  },
+  'task-decomposition': {
+    actionName: 'check_task_decomposition',
+  },
+  'spec-coverage': {
+    actionName: 'spec_coverage_check',
   },
 } as const satisfies Readonly<
   Record<

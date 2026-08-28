@@ -6,11 +6,11 @@
 // the compiler, and `CompiledSegment` is what it produces.
 //
 // CompiledSegment is an INTERIM executable form, and deliberately private to
-// this directory. There is no workflow-builder intermediate representation in
-// this tree to lower it into yet; lowering is deferred until one exists
-// (lvlup-sw/exarchos#1258). Nothing outside `verbs/execute/` should grow a
-// dependency on this shape, because a later lowering would then have to
-// preserve it rather than replace it.
+// this directory. There is no second intermediate representation in this tree
+// to lower it into yet; lowering is deferred until the shared kernel that owns
+// that representation exists (`lvlup-sw/strategos#193`). Nothing outside
+// `verbs/execute/` should grow a dependency on this shape, because a later
+// lowering would then have to preserve it rather than replace it.
 
 import type { ActionContract, ToolAction } from '../../registry.js';
 
@@ -30,6 +30,14 @@ export interface CompiledLeaf {
   readonly onFail: 'stop' | 'continue';
   /** Arguments as the action's registered schema parsed them. */
   readonly args: Record<string, unknown>;
+  /**
+   * The stream this leaf's declared emissions and postconditions are OBSERVED
+   * on, resolved at compile time from the leaf's arguments and its contract.
+   * Usually the segment's own stream; not always, because a leaf whose records
+   * land on a shared infrastructure stream cannot be checked against a stream
+   * it never writes to.
+   */
+  readonly observationStreamId: string;
   /** The registry declaration — the source of the schema, contract and gate metadata. */
   readonly declaration: ToolAction;
   /** The declaration's normalized contract. Absent declarations never compile. */
@@ -60,9 +68,13 @@ export type CompileRefusalCode =
   /** The caller's `args` did not satisfy the intent's typed argument schema. */
   | 'INTENT_ARGS_INVALID'
   /**
-   * A step names a `native:` tool. Those are agent-side tools with no registry
-   * schema and no local handler, so the segment is not closed over anything
-   * this process can execute.
+   * A step names something this process cannot invoke: a `native:` tool (an
+   * agent-side tool with no registry schema and no local handler), or a
+   * registered action absent from the handler table the leaves run through.
+   * Either way the segment is not closed over what this process can execute,
+   * and the refusal is owed BEFORE the first leaf rather than mid-flight —
+   * a segment that stops after its irreversible step has already run is the
+   * outcome this code exists to prevent.
    */
   | 'INTENT_NOT_CLOSED'
   /**
@@ -102,9 +114,19 @@ export type CompileOutcome =
 /** Per-leaf outcome after the runbook failure policy has been applied. */
 export type LeafStatus = 'passed' | 'failed' | 'advisory-failed';
 
-/** What one leaf appended, as the store confirmed it. */
+/**
+ * What one leaf appended, as the store confirmed it.
+ *
+ * `streamId` is part of the fact, not decoration: a sequence numbers a position
+ * within ONE stream, and a leaf whose contract says its records land on a
+ * shared infrastructure stream reports positions from that stream while the
+ * receipt's `tailSequence` stays the subject stream's. The pair is what a
+ * caller can resolve; the number alone is ambiguous across the two.
+ */
 export interface ReceiptEvent {
   readonly type: string;
+  /** The stream the sequence belongs to — not always the segment's subject. */
+  readonly streamId: string;
   readonly sequence: number;
 }
 

@@ -3,7 +3,8 @@
 // Runbooks stay pure data. This module is the only thing that reads one as
 // something to EXECUTE, and it refuses anything it cannot close over: a step
 // naming an agent-side tool, a decision point the model owes an answer to, an
-// action no registry declares, or one whose authority is not local.
+// action no registry declares, one whose authority is not local, or one the
+// caller's own handler table has no way to invoke.
 //
 // Every refusal here happens before the first effect. That ordering is the
 // whole point of separating compilation from execution — a segment that cannot
@@ -15,6 +16,7 @@
 
 import type { z } from 'zod';
 
+import { observationStreamId } from '../../dispatch/core/interceptors/emission-verifier.js';
 import { findActionInRegistry, type ActionContract, type ToolAction } from '../../registry.js';
 import { ALL_RUNBOOKS } from '../../runbooks/definitions.js';
 import type { RunbookDefinition, RunbookStep } from '../../runbooks/types.js';
@@ -26,6 +28,17 @@ export interface CompileDeps {
   readonly runbookTable: readonly RunbookDefinition[];
   readonly findAction: (tool: string, action: string) => ToolAction | undefined;
   readonly argSchemas: IntentArgSchemas;
+  /**
+   * The table the leaves will be invoked through, keyed by bare action name.
+   * Optional so a caller compiling to INSPECT a segment need not own one; when
+   * it is present, a step naming an action the table cannot invoke is refused
+   * here rather than discovered at that leaf's turn — after every leaf before
+   * it has already run.
+   *
+   * Typed as an opaque record because this module only asks whether a key is
+   * present. The executor's own handler type narrows it.
+   */
+  readonly handlers?: Readonly<Record<string, unknown>>;
 }
 
 export const PRODUCTION_COMPILE_DEPS: CompileDeps = {
@@ -238,6 +251,22 @@ export function compileIntent(
       });
     }
 
+    // Registered and local is not the same as invokable. The leaves run through
+    // ONE table — the orchestrate composite's — so a step on another composite
+    // tool resolves a declaration here and then finds no handler at its turn.
+    // For a segment whose earlier leaves reach a remote, that discovery arrives
+    // after an effect it cannot take back.
+    if (deps.handlers !== undefined && !(step.action in deps.handlers)) {
+      return refuse({
+        code: 'INTENT_NOT_CLOSED',
+        step: where,
+        message:
+          `step ${where} of '${intent}' names '${step.tool}.${step.action}', which no handler ` +
+          'in the executor table can invoke. The segment is not closed over actions this ' +
+          'process can execute.',
+      });
+    }
+
     const built = buildLeafArgs(step, declaration, subject, args);
     if (!built.ok && 'unbound' in built) {
       return refuse({
@@ -267,6 +296,14 @@ export function compileIntent(
       action: step.action,
       onFail: step.onFail,
       args: built.args,
+      // Resolved through the SAME function the dispatch path resolves its
+      // observation stream with, so a leaf run here and the same action
+      // dispatched directly are never checked against different streams. The
+      // fallback is the segment's subject: an action that declares no
+      // infrastructure stream and carries no subject argument is still a leaf
+      // of this segment, and the segment's stream is where its records would
+      // have to be.
+      observationStreamId: observationStreamId(built.args, contract) ?? subject.streamId,
       declaration,
       contract,
     });

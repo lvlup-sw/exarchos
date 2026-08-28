@@ -253,7 +253,9 @@ describe('handleExecuteIntent commit', () => {
     const appended = await store.query(STREAM, { type: 'task.completed' });
     expect(receipt.tailSequence).toBe(appended[0]?.sequence);
     expect(receipt.leaves[0]?.events).toEqual([
-      { type: 'task.completed', sequence: appended[0]?.sequence },
+      // The stream travels with the sequence: this leaf addresses the subject,
+      // so the pair names the subject stream.
+      { type: 'task.completed', streamId: STREAM, sequence: appended[0]?.sequence },
     ]);
   });
 });
@@ -605,6 +607,31 @@ describe('handleExecuteIntent subject resolution', () => {
     expect(result.error?.message).toContain('different streams');
     expect(await operationEvents()).toHaveLength(0);
     expect(await store.query('wf-somewhere-else')).toHaveLength(0);
+  });
+
+  it('ReservedInfraStreamAsStreamId_IsRefusedBeforeCompilation', async () => {
+    // 'vcs' is a reserved infrastructure stream; binding a segment's subject
+    // to it would interleave the operation claim and receipts with the journal
+    // records the reservation keeps separate from feature streams.
+    const result = await execute(
+      { intent: INTENT, streamId: 'vcs', args: { taskId: 't1' }, operationId: 'op-reserved-stream' },
+      deps(),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('reserved infrastructure stream');
+    expect(await store.query('vcs')).toHaveLength(0);
+  });
+
+  it('ReservedInfraStreamAsFeatureIdAlias_IsRefusedTheSameWay', async () => {
+    const result = await execute(
+      { intent: INTENT, featureId: 'telemetry', args: { taskId: 't1' }, operationId: 'op-reserved-alias' },
+      deps(),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('reserved infrastructure stream');
+    expect(await store.query('telemetry')).toHaveLength(0);
   });
 
   it('FeatureIdWins_MatchingTheDispatchLayerStreamResolver', async () => {

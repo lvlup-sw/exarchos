@@ -130,6 +130,7 @@ import {
 // the dispatch layer reaches the declarations through the barrel every other
 // consumer uses, and the layer-boundary audit holds it to that.
 import type { ActionContract, AutoEmission } from '../../../registry.js';
+import { INFRA_STREAM_IDS } from '../infra-streams.js';
 import { logger } from '../../../logger.js';
 
 const verifierLogger = logger.child({ subsystem: 'emission-verifier' });
@@ -156,6 +157,40 @@ export function dispatchStreamId(args: Record<string, unknown>): string | undefi
     if (typeof value === 'string' && value.length > 0) return value;
   }
   return undefined;
+}
+
+/**
+ * The stream a call's declared emissions and postconditions are OBSERVED on.
+ *
+ * A declared infrastructure stream wins over the argument spelling, and the
+ * order matters: an action that states in its own contract which stream its
+ * records land on has said something a caller's subject argument does not
+ * override. The argument names the SUBJECT of the call — the feature the pull
+ * request is about, the workflow the reconcile was asked for — while the
+ * declaration names where the records go. Reading the argument first sent the
+ * observer to the feature stream for a handler that had journalled onto a
+ * shared one, and every successful call was then reported as a violation.
+ *
+ * Only a selector the reserved-stream set recognises is treated as a stream
+ * literal. Every other stream resource names an ARGUMENT (`featureId`,
+ * `streamId`, `stream`), which is the arg-derived answer already.
+ *
+ * `undefined` when the call names neither: a real answer, resolving
+ * `no-stream` rather than a quiet pass.
+ */
+export function observationStreamId(
+  args: Record<string, unknown>,
+  contract: ActionContract | undefined,
+): string | undefined {
+  const resources = contract?.touches.resources;
+  if (resources !== undefined && resources.kind === 'declared') {
+    for (const resource of resources.values) {
+      if (resource.kind === 'stream' && INFRA_STREAM_IDS.has(resource.selector)) {
+        return resource.selector;
+      }
+    }
+  }
+  return dispatchStreamId(args);
 }
 
 // ─── Declared applicability ─────────────────────────────────────────────────

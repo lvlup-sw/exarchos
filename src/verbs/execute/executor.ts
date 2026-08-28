@@ -33,6 +33,7 @@ import { evaluateDispatchAdmission } from '../../dispatch/core/dispatch-admissio
 // Type-only, and deliberately so: the dispatch module routes to the composite
 // that routes here, so a value import of it would close a runtime ring.
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
+import { isFeatureStream } from '../../dispatch/core/infra-streams.js';
 import {
   EMISSION_VIOLATION_EVENT,
   runEmissionVerifierInterceptor,
@@ -91,6 +92,9 @@ export interface ExecuteIntentDeps extends CompileDeps {
    * live table and routes to this module, so reaching back for it would close
    * a runtime import ring between the two. Tests supply their own fixture
    * table through the same parameter.
+   *
+   * The compiler reads the same table — through the optional member it declares
+   * — to refuse a step this table could not have invoked, before any leaf runs.
    */
   readonly handlers: LeafHandlerTable;
 }
@@ -352,6 +356,17 @@ export async function handleExecuteIntent(
       'streamId is required (featureId is accepted as an alias — the workflow stream id is the bare featureId)',
     );
   }
+  // Either spelling can smuggle a reserved infrastructure id in as the subject,
+  // and the compiler would bind every leaf to it — interleaving the operation
+  // claim, receipts, and leaf emissions with the records the reservation
+  // exists to keep separate. Refused here, before compilation, for the same
+  // reason every compile refusal fires before the first effect.
+  if (!isFeatureStream(streamId)) {
+    return invalid(
+      `'${streamId}' is a reserved infrastructure stream, not a workflow subject — ` +
+        "pass the feature's own id",
+    );
+  }
 
   let intentArgs: Record<string, unknown> = {};
   const rawArgs = raw.args;
@@ -588,12 +603,22 @@ function foldHeldRows(
 }
 
 async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
-  const { leaf, operationId, stateDir, ctx, outer, handlers, segment } = input;
+  const { leaf, operationId, stateDir, ctx, outer, handlers } = input;
   const derived = derivedLeafOperationId(operationId, leaf.index, leaf.action);
   const captures: Capture[] = [];
 
+  // The stream travels with the sequence. A sequence is only meaningful inside
+  // the stream that minted it, and a leaf whose records land on a shared
+  // infrastructure stream reports sequences from THAT stream in the same
+  // receipt as a tail from the subject's — so a receipt that named only the
+  // number would hand the caller a position to resolve against the stream they
+  // asked about, where it means something else or nothing.
   const receiptEvents = (): ReceiptEvent[] =>
-    captures.map((capture) => ({ type: capture.type, sequence: capture.sequence }));
+    captures.map((capture) => ({
+      type: capture.type,
+      streamId: capture.streamId,
+      sequence: capture.sequence,
+    }));
 
   const failFor = (
     code: 'INTENT_SEGMENT_FAILED' | 'INTENT_EMISSION_CONTRACT_VIOLATED',
@@ -654,10 +679,15 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
     // taken after it would count the verifier's own row as something the leaf
     // emitted. Unconditional: the receipt's event list, its tail and its
     // append count are owed on every path, not only where a contract is.
+    // On the leaf's OWN observation stream, which is the segment's stream for
+    // every leaf that addresses the subject and a shared infrastructure stream
+    // for one whose contract says its records land there. A leaf's receipt
+    // sequences are therefore sequences in that leaf's observation stream; the
+    // segment tail stays the segment stream's, and `runSegment` filters for it.
     foldHeldRows(
       captures,
-      segment.streamId,
-      await ctx.eventStore.query(segment.streamId, { operationId: derived }),
+      leaf.observationStreamId,
+      await ctx.eventStore.query(leaf.observationStreamId, { operationId: derived }),
     );
 
     // The interceptor records its own finding against the derived id. Run
@@ -667,7 +697,7 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
       tool: leaf.tool,
       action: leaf.action,
       operationId: derived,
-      streamId: segment.streamId,
+      streamId: leaf.observationStreamId,
       declared: verifierDeclaredEmissions(leaf.contract),
       handlerSucceeded: result.success,
       ...(ctx.projectConfig !== undefined ? { projectConfig: ctx.projectConfig } : {}),
@@ -691,7 +721,7 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
         ensures: leaf.contract.ensures,
         store: ctx.eventStore,
         evidence: ctx.eventStore,
-        streamId: segment.streamId,
+        streamId: leaf.observationStreamId,
         operationId: derived,
         outcome: 'success',
       });
@@ -719,7 +749,9 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
     // cannot answer for this leaf.
     const owed = obligedEmissions(leaf);
     const landed = new Set(
-      captures.filter((capture) => capture.streamId === segment.streamId).map((capture) => capture.type),
+      captures
+        .filter((capture) => capture.streamId === leaf.observationStreamId)
+        .map((capture) => capture.type),
     );
     const missing = [...owed].filter((type) => !landed.has(type));
     if (missing.length > 0 || verdict.status === 'violated') {

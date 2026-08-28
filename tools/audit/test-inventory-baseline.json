@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1243,
-    "parsedFiles": 1198,
+    "testFiles": 1247,
+    "parsedFiles": 1202,
     "shellFiles": 45,
-    "cases": 13696,
+    "cases": 13725,
     "dynamicTitles": 145,
     "unparseableFiles": 0
   },
@@ -42892,6 +42892,11 @@
         },
         {
           "suite": "Runbook definitions",
+          "name": "SynthesisCloseout_HasTwoSteps_BodyCheckThenCreate",
+          "dynamic": false
+        },
+        {
+          "suite": "Runbook definitions",
           "name": "PlanCloseout_HasThreeSteps_TwoBlockingGatesFirst",
           "dynamic": false
         },
@@ -50526,6 +50531,21 @@
         },
         {
           "suite": "compileIntent refusals",
+          "name": "StepWithNoHandlerInTheTable_IsNotClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "EveryStepHasAHandler_Compiles",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "NoHandlerTableSupplied_CompilesForInspection",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
           "name": "DecideStep_IsAHostObligation",
           "dynamic": false
         },
@@ -50596,7 +50616,7 @@
         },
         {
           "suite": "compileIntent over the live registry",
-          "name": "EveryOtherRunbook_IsNotCompilable_ThreeIntentsShip",
+          "name": "EveryOtherRunbook_IsNotCompilable_FourIntentsShip",
           "dynamic": false
         },
         {
@@ -51106,6 +51126,125 @@
         {
           "suite": "execute_intent registered economy declaration",
           "name": "ExecuteIntentEconomy_OverBudgetPlusOne_SummarizesAndKeepsPinnedFields",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/synthesis-closeout-compile.test.ts": {
+      "file": "tests/unit/verbs/execute/synthesis-closeout-compile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "synthesis-closeout compiles against the live registry",
+          "name": "SynthesisCloseout_CompilesToTheTwoShippedLeaves_InRunbookOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout compiles against the live registry",
+          "name": "SynthesisCloseout_OnePrBody_BindsOntoBothLeafSpellings",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout compiles against the live registry",
+          "name": "SynthesisCloseout_CreatePrLeaf_IsObservedOnTheSharedVcsStream",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout compiles against the live registry",
+          "name": "SynthesisCloseout_WithoutHeadBranch_RefusedByTheIntentSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout compiles against the live registry",
+          "name": "SynthesisCloseout_DraftKnob_Refused",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout compiles against the live registry",
+          "name": "SynthesisCloseout_ValidatedArgsWithoutTheVariable_HitTheUnboundFence",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/synthesis-closeout-emission-scope.test.ts": {
+      "file": "tests/unit/verbs/execute/synthesis-closeout-emission-scope.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the declared observation stream is load-bearing",
+          "name": "SynthesisCloseout_WithoutTheDeclaredStream_LeafIsRefusedForItsOwnEmissions",
+          "dynamic": false
+        },
+        {
+          "suite": "the declared observation stream is load-bearing",
+          "name": "SynthesisCloseout_WithTheShippedDeclaration_TheSameSegmentPasses",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/synthesis-closeout-executor.test.ts": {
+      "file": "tests/unit/verbs/execute/synthesis-closeout-executor.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "synthesis-closeout over the live handler table",
+          "name": "SynthesisCloseout_CoherentInput_CommitsOneOperationRecord",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout over the live handler table",
+          "name": "SynthesisCloseout_CreatePrLeaf_HoldsBothJournalRowsOnTheVcsStream",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout over the live handler table",
+          "name": "SynthesisCloseout_VcsLeaf_DoesNotMoveTheSegmentTail",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout over the live handler table",
+          "name": "SynthesisCloseout_ReceiptEvents_CarryTheStreamTheirSequencesNumber",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout over the live handler table",
+          "name": "SynthesisCloseout_SameOperationIdSameRequest_ReplaysWithoutReExecuting",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout over the live handler table",
+          "name": "SynthesisCloseout_SameOperationIdDifferentRequest_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout over the live handler table",
+          "name": "SynthesisCloseout_CrashedMidSegmentThenRetried_LeavesOneRowPerJournalPhase",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout over the live handler table",
+          "name": "SynthesisCloseout_BodyMissingRequiredSections_HaltsBeforeTheRemoteCall",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout over the live handler table",
+          "name": "SynthesisCloseout_FailedSegment_ReplaysToTheSameFailedReceipt",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/synthesis-closeout-parity.test.ts": {
+      "file": "tests/unit/verbs/execute/synthesis-closeout-parity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "synthesis-closeout driven by hand and by the executor",
+          "name": "ExecutorAndPrimitiveBaseline_ProduceTheSameJournalFacts",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout driven by hand and by the executor",
+          "name": "BothPathsHaltAtTheBodyCheck_WhenTheBodyIsDeficient",
           "dynamic": false
         }
       ]
@@ -53720,6 +53859,21 @@
         },
         {
           "suite": "review gates that declare durable evidence pay it on dispatch",
+          "name": "CheckTaskDecomposition_Dispatched_SucceedsAndRecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "review gates that declare durable evidence pay it on dispatch",
+          "name": "SpecCoverageCheck_Dispatched_SucceedsAndRecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "review gates that declare durable evidence pay it on dispatch",
+          "name": "CheckTaskDecomposition_SameOperationRetried_LeavesOneGateExecutedRow",
+          "dynamic": false
+        },
+        {
+          "suite": "review gates that declare durable evidence pay it on dispatch",
           "name": "EachGate_AttachesTheEvidenceItRecorded_ToItsOwnCarrier",
           "dynamic": false
         }
@@ -53899,6 +54053,11 @@
         {
           "suite": "spec_coverage_check — the dispatch boundary (WFQ-010)",
           "name": "registrySchema_BuildsWithoutAFieldCollision",
+          "dynamic": false
+        },
+        {
+          "suite": "spec_coverage_check — the dispatch boundary (WFQ-010)",
+          "name": "registrySchema_FeatureIdOmitted_IsRejected",
           "dynamic": false
         },
         {
@@ -62903,6 +63062,16 @@
         {
           "suite": "handleValidatePrBody",
           "name": "MissingSection_ReturnsFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "handleValidatePrBody",
+          "name": "MissingSectionUnderEnforce_ReturnsRefusalNamingTheSections",
+          "dynamic": false
+        },
+        {
+          "suite": "handleValidatePrBody",
+          "name": "AllSectionsPresentUnderEnforce_StillReturnsThePassingCarrier",
           "dynamic": false
         },
         {

@@ -461,7 +461,7 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   extract_fix_tasks: adaptArgsWithStateDirAndEventStore(handleExtractFixTasks),
   classify_review_items: adaptArgsWithEventStore(handleClassifyReviewItems),
   generate_traceability: adaptArgs(handleGenerateTraceability),
-  spec_coverage_check: adaptArgs(handleSpecCoverageCheck),
+  spec_coverage_check: adaptWithEventStore(handleSpecCoverageCheck),
   verify_worktree_baseline: adapt(handleVerifyWorktreeBaseline),
   setup_worktree: adaptSetupWorktree(),
   verify_delegation_saga: adaptArgs(handleVerifyDelegationSaga),

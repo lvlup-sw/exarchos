@@ -190,6 +190,7 @@ exarchos_orchestrate({
 ```typescript
 exarchos_orchestrate({
   action: "spec_coverage_check",
+  featureId: "<feature-id>",
   planFile: "docs/specs/<date>-<feature>.md",
   repoRoot: ".",
   coveragePhase: "plan"
@@ -267,7 +268,7 @@ for orchestrate action schemas.
 - [ ] Plan verification passed — `exarchos_orchestrate({ action: "check_plan_coverage" })` returns passed: true
 - [ ] Provenance chain checked — `exarchos_orchestrate({ action: "check_provenance_chain" })` passed (blocking; gaps must be resolved before proceeding)
 - [ ] Task decomposition checked — `exarchos_orchestrate({ action: "check_task_decomposition" })` run (advisory; findings presented but non-blocking)
-- [ ] Spec coverage check passed — `exarchos_orchestrate({ action: "spec_coverage_check" })` passed: true
+- [ ] Spec coverage check passed — `exarchos_orchestrate({ action: "spec_coverage_check", featureId: "<feature-id>" })` passed: true
 - [ ] Coverage thresholds met — `exarchos_orchestrate({ action: "check_coverage_thresholds" })` passed: true:
 
 ```typescript

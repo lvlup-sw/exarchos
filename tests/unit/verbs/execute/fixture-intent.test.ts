@@ -175,7 +175,11 @@ describe('a three-leaf fixture chain', () => {
       (event) => event.type !== INTENT_EXECUTED_EVENT,
     );
     expect(receipt.leaves.map((leaf) => leaf.events)).toEqual(
-      CHAIN.map(([, event], index) => [{ type: event, sequence: appended[index]?.sequence }]),
+      CHAIN.map(([, event], index) => [
+        // Type, the stream the sequence numbers, and the sequence. Every leaf
+        // here addresses the subject, so every pair names the subject stream.
+        { type: event, streamId: STREAM, sequence: appended[index]?.sequence },
+      ]),
     );
     expect(receipt.tailSequence).toBe(appended[appended.length - 1]?.sequence);
     expect(receipt.interaction).toMatchObject({
@@ -382,8 +386,8 @@ describe('retry after a crash mid-segment', () => {
     // plainly in the log. The leaf's own derived id is what retrieves them.
     const retried = receiptOf(result);
     expect(retried.leaves.map((leaf) => leaf.events)).toEqual([
-      [{ type: 'task.claimed', sequence: afterCrash[0]?.sequence }],
-      [{ type: 'gate.executed', sequence: afterCrash[1]?.sequence }],
+      [{ type: 'task.claimed', streamId: STREAM, sequence: afterCrash[0]?.sequence }],
+      [{ type: 'gate.executed', streamId: STREAM, sequence: afterCrash[1]?.sequence }],
       [],
       [],
     ]);

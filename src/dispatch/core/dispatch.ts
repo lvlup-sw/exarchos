@@ -29,11 +29,11 @@ import {
 import { runSessionMachineryConsumedInterceptor } from './interceptors/session-machinery.js';
 import {
   describeEmissionIndeterminacy,
-  dispatchStreamId,
   emissionIndeterminacyBlocks,
   emissionIndeterminacyWarning,
   emissionViolationBlocks,
   EMISSION_INDETERMINATE_ERROR_CODE,
+  observationStreamId,
   runEmissionVerifierInterceptor,
   verifierDeclaredEmissions,
 } from './interceptors/emission-verifier.js';
@@ -75,7 +75,6 @@ import {
   observeActionPostconditions,
   type ActionPostconditionObservation,
 } from './action-postconditions.js';
-import { INFRA_STREAM_IDS } from './infra-streams.js';
 
 // NOTE: `../telemetry/middleware.js` is intentionally NOT imported at module
 // top-level. The middleware instantiates a singleton TraceWriter at import,
@@ -249,22 +248,6 @@ export function extractSingleMissingRequiredField(
   const received = (only as { received?: unknown }).received;
   if (received !== 'undefined' && received !== undefined) return undefined;
   return key;
-}
-
-function observationStreamId(
-  args: Record<string, unknown>,
-  contract: ActionContract | undefined,
-): string | undefined {
-  const fromArgs = dispatchStreamId(args);
-  if (fromArgs !== undefined) return fromArgs;
-  const resources = contract?.touches.resources;
-  if (resources === undefined || resources.kind !== 'declared') return undefined;
-  for (const resource of resources.values) {
-    if (resource.kind === 'stream' && INFRA_STREAM_IDS.has(resource.selector)) {
-      return resource.selector;
-    }
-  }
-  return undefined;
 }
 
 function actionIsReadOnly(tool: string, actionName: string, action: ToolAction | undefined): boolean {

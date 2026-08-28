@@ -18,6 +18,11 @@ import { EnvelopeSchema } from '../../contract/schemas/envelope.js';
 const ReceiptEventSchema = z
   .object({
     type: z.string().min(1),
+    // The sequence's stream. Required, because a sequence without the stream it
+    // numbers is not resolvable: a leaf that journals onto a shared
+    // infrastructure stream reports positions from there alongside a tail from
+    // the subject's.
+    streamId: z.string().min(1),
     sequence: z.number().int().nonnegative(),
   })
   .passthrough();

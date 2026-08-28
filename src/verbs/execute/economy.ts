@@ -1,12 +1,15 @@
 // ─── Response-economy declaration for `execute_intent` ──────────────────────
 //
-// A measured budget, not the registry-wide default. Three intents ship —
-// `task-completion` (five leaves), `quality-evaluation` (five) and
-// `plan-closeout` (three) — and the budget is measured against the largest of
-// them: a five-leaf receipt carrying two events per gate leaf serializes to
-// ~1,200 bytes / ~300 estimated tokens (`estimateOutputTokens`, byte length
-// over 4). `EXECUTE_INTENT_ECONOMY_BUDGET_TOKENS` sits at roughly three times
-// that measured shape — enough headroom for a failure receipt's longer refusal
+// A measured budget, not the registry-wide default. Four intents ship —
+// `task-completion` (five leaves), `quality-evaluation` (five),
+// `plan-closeout` (three) and `synthesis-closeout` (two) — and the budget is
+// measured against the largest of them, which the two-leaf closeout does not
+// move: a five-leaf receipt carrying two events per gate leaf serializes to
+// ~1,500 bytes / ~375 estimated tokens (`estimateOutputTokens`, byte length
+// over 4). Each receipt event carries the stream its sequence belongs to, which
+// is about a third of that figure and is what makes the sequence resolvable at
+// all. `EXECUTE_INTENT_ECONOMY_BUDGET_TOKENS` sits at well over twice that
+// measured shape — enough headroom for a failure receipt's longer refusal
 // message or a runbook with a few more leaves without tripping the cap on
 // ordinary use, while still bounding a genuinely oversized response instead of
 // inheriting the registry-wide default unmeasured.
