@@ -44,7 +44,7 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     }),
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: false, dimension: 'D5' },
+    gate: { blocking: false, dimension: 'D5', gateClass: 'task-decomposition' },
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_task_decomposition'),
     annotations: LOCAL_MUTATION,
   }, {
@@ -374,6 +374,11 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     name: 'spec_coverage_check',
     description: 'Verify that test files referenced in the plan exist in the repo',
     schema: z.object({
+      // The gate declares durable gate evidence keyed to a phase attempt, and
+      // evidence is recorded against a stream — the action cannot pay a
+      // postcondition it has no subject for. Required rather than optional:
+      // `when: 'always'` admits no "when the caller supplied one".
+      featureId: z.string().min(1),
       planFile: z.string().min(1),
       repoRoot: z.string().min(1),
       skipRun: z.boolean().optional(),
@@ -395,13 +400,14 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     }),
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: false, dimension: 'D1' },
+    gate: { blocking: false, dimension: 'D1', gateClass: 'spec-coverage' },
     outputSchema: vacuityWaiver('exarchos_orchestrate.spec_coverage_check'),
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared({ source: 'durable-evidence', when: 'always', evidenceType: 'gate' }),
     needs: declared('fs:read'),
     resources: declared(
+      { kind: 'stream', selector: 'featureId' },
       { kind: 'path', selector: 'planFile' },
       { kind: 'path', selector: 'repoRoot' },
     ),

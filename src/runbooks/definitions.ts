@@ -663,9 +663,14 @@ export const PLAN_CLOSEOUT: RunbookDefinition = {
   // the same path.
   templateVars: ['featureId', 'specPath'],
   // The advisory decomposition gate and the spec-coverage declaration check are
-  // left out because their handlers do not record the durable gate evidence
-  // their contracts declare, and a leaf that breaks its own postcondition halts
-  // the segment whatever the step's failure policy says.
+  // left out for what they would cost this segment, not for a broken contract:
+  // both now record the durable gate evidence they declare. The coverage check
+  // requires a repo root — a wave-level absolute path this segment's
+  // one-document argument deliberately does not carry — and without `skipRun`
+  // it shells a test run once per test file the plan references, which is not
+  // work a request-bounded segment should do. Both are advisory, so adding them
+  // would move the pinned three-step shape and widen the intent's argument
+  // schema for verdicts that stop nothing.
   //
   // The move out of planning is left to the caller: the target depends on a
   // plan-review approval this segment cannot observe, so a transition leaf here
