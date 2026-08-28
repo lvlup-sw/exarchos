@@ -9,7 +9,9 @@
 import { spawnCommandSync } from '../../utils/process.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
-import { emitGateEvent } from './gate-utils.js';
+import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
+import { runPhaseGateWithEvidence } from './gate-runner.js';
+import { emitGateEvent, sameOperationGateKey } from './gate-utils.js';
 import { checkPostMerge } from '../pure/post-merge.js';
 import type { CommandResult } from '../pure/post-merge.js';
 
@@ -87,6 +89,36 @@ export async function handlePostMerge(
     };
   }
 
+  // Durable gate evidence is a declared postcondition here, and a bare
+  // `gate.executed` append does not pay it — the observer reads
+  // `admission.evidence-recorded`. The shared phase-gate runner records that
+  // before any success carrier escapes; the declared signal is still minted by
+  // the provider closure below.
+  return runPhaseGateWithEvidence({
+    streamId: args.featureId,
+    gateClass: 'post-merge',
+    requirementId: 'requirement:post-merge',
+    stateDir,
+    eventStore,
+    subject: (phaseAttemptId) =>
+      createEvidenceSubject(
+        { kind: 'phase-attempt', phaseAttemptId },
+        {
+          gate: 'post-merge',
+          phase: 'synthesize',
+          prUrl: args.prUrl,
+          mergeSha: args.mergeSha,
+        },
+      ),
+    providerInput: args,
+    executeProvider: async () => executePostMerge(args, eventStore),
+  });
+}
+
+async function executePostMerge(
+  args: PostMergeArgs,
+  eventStore: EventStore,
+): Promise<ToolResult> {
   // Run the pure TypeScript post-merge check
   const cwd = args.repoRoot;
   const checkResult = await checkPostMerge({
@@ -101,13 +133,21 @@ export async function handlePostMerge(
   // Emit gate.executed event for flywheel integration (fire-and-forget)
   try {
     const store = eventStore;
-    await emitGateEvent(store, args.featureId, 'post-merge', 'post-merge', passed, {
-      dimension: 'D4',
-      phase: 'synthesize',
-      prUrl: args.prUrl,
-      mergeSha: args.mergeSha,
-      findings,
-    });
+    await emitGateEvent(
+      store,
+      args.featureId,
+      'post-merge',
+      'post-merge',
+      passed,
+      {
+        dimension: 'D4',
+        phase: 'synthesize',
+        prUrl: args.prUrl,
+        mergeSha: args.mergeSha,
+        findings,
+      },
+      sameOperationGateKey('post-merge'),
+    );
   } catch { /* fire-and-forget: emission failure must not break the gate check */ }
 
   // Build result
