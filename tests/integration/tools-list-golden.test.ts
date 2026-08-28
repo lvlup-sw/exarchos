@@ -92,6 +92,22 @@
 // the description live on the intents' argument schemas, where a caller reading
 // the refusal message meets them.
 //
+// ── `spec_coverage_check` gains the stream it records evidence against ─────
+//
+// MEASURED, not eyeballed: normalising both goldens and diffing yields exactly
+// ONE changed line — the `exarchos_orchestrate` tool description — and within
+// it, one action's signature line gaining one leading field plus the schema
+// digest that line feeds:
+//
+//     spec_coverage_check(planFile, repoRoot, …) → (featureId, planFile, …)
+//
+// This is a NARROWING and deliberately so: the field is required, because the
+// gate declares durable gate evidence `when: 'always'` and evidence is keyed to
+// a stream. A caller that omits it is now refused at the parse rather than
+// reaching a handler with no subject to pay its own postcondition with. No tool
+// or action was added or removed, no order changed, and no other action's
+// schema moved.
+//
 // Regenerate deliberately (and review the diff) with:
 //   UPDATE_TOOLS_LIST_GOLDEN=1 npx vitest run src/__tests__/integration/tools-list-golden.test.ts
 

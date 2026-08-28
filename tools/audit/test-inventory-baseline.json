@@ -7,7 +7,7 @@
     "testFiles": 1243,
     "parsedFiles": 1198,
     "shellFiles": 45,
-    "cases": 13696,
+    "cases": 13700,
     "dynamicTitles": 145,
     "unparseableFiles": 0
   },
@@ -53720,6 +53720,21 @@
         },
         {
           "suite": "review gates that declare durable evidence pay it on dispatch",
+          "name": "CheckTaskDecomposition_Dispatched_SucceedsAndRecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "review gates that declare durable evidence pay it on dispatch",
+          "name": "SpecCoverageCheck_Dispatched_SucceedsAndRecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "review gates that declare durable evidence pay it on dispatch",
+          "name": "CheckTaskDecomposition_SameOperationRetried_LeavesOneGateExecutedRow",
+          "dynamic": false
+        },
+        {
+          "suite": "review gates that declare durable evidence pay it on dispatch",
           "name": "EachGate_AttachesTheEvidenceItRecorded_ToItsOwnCarrier",
           "dynamic": false
         }
@@ -53899,6 +53914,11 @@
         {
           "suite": "spec_coverage_check — the dispatch boundary (WFQ-010)",
           "name": "registrySchema_BuildsWithoutAFieldCollision",
+          "dynamic": false
+        },
+        {
+          "suite": "spec_coverage_check — the dispatch boundary (WFQ-010)",
+          "name": "registrySchema_FeatureIdOmitted_IsRejected",
           "dynamic": false
         },
         {
