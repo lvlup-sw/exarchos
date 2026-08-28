@@ -139,8 +139,14 @@ export async function seedGateEvidence(
 ): Promise<string> {
   const producerRef = input.producerRef ?? 'check_review_verdict';
   const invocationId = `seed:${input.requirementId}`;
+  // The attempt is part of the identity because the real runner puts it there
+  // (`evidenceIdFor` hashes it alongside the operation, the provider and the
+  // requirement). Leaving it out made the key coarser than the thing it
+  // simulates: a second attempt on the same stream reused the first attempt's
+  // row, so a caller seeding two attempts got one — carrying the wrong
+  // `phaseAttemptId` — while an exact repeat still dedupes as it should.
   const evidenceId = `evidence:${createHash('sha256')
-    .update([invocationId, producerRef].join('\0'), 'utf8')
+    .update([invocationId, producerRef, input.phaseAttemptId].join('\0'), 'utf8')
     .digest('hex')}`;
   const createdAt = new Date().toISOString();
   const record = AdmissionEvidenceRecordedData.parse({
