@@ -4,6 +4,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { execFileSync } from 'node:child_process';
+import { getDispatchContext } from '../../dispatch/dispatch-context.js';
 import { orchestrateLogger } from '../../logger.js';
 import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
@@ -134,6 +135,30 @@ export async function emitGateEvent(
   } else {
     await store.append(streamId, event);
   }
+}
+
+/**
+ * The key that collapses a self-emitted `gate.executed` row onto the one the
+ * first attempt of the SAME operation already wrote.
+ *
+ * A gate that mints its own row instead of letting the canonical runner mint
+ * one is still re-executed by a same-operation retry: the runner runs the
+ * provider before it can discover that the operation already produced
+ * evidence, so the provider's append fires twice while the evidence row —
+ * keyed on its own deterministic id — collapses to one. Unkeyed, that leaves
+ * two rows describing one gate run, and every reader that folds the log
+ * (receipts, convergence, prior-fix-cycle counts) sees the duplicate.
+ *
+ * Keyed on the operation identity a retry deliberately reuses, so two distinct
+ * calls still leave two rows and only a retry collapses.
+ *
+ * `undefined` outside a dispatch scope: there is no operation for a second
+ * append to be the same as, and a constant key would collapse calls that have
+ * nothing to do with each other.
+ */
+export function sameOperationGateKey(gateName: string): string | undefined {
+  const operationId = getDispatchContext()?.operationId;
+  return operationId === undefined ? undefined : `gate.executed:${gateName}:${operationId}`;
 }
 
 // ─── Canonical gate-runner result helpers ───────────────────────────────────

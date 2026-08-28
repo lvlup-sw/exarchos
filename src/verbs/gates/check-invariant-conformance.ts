@@ -66,7 +66,7 @@ import {
 } from '../review/review-verdict.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
-import { emitGateEvent } from './gate-utils.js';
+import { emitGateEvent, sameOperationGateKey } from './gate-utils.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -476,6 +476,7 @@ async function executeCheckInvariantConformance(
         auditProjection,
         auditInvariantCount: auditInvariantIds.length,
       },
+      sameOperationGateKey('invariant-conformance'),
     );
   } catch { /* fire-and-forget */ }
 

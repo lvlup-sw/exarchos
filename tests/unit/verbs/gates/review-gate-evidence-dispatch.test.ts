@@ -125,6 +125,30 @@ describe('review gates that declare durable evidence pay it on dispatch', () => 
     expect(await evidenceCount()).toBe(before + 1);
   });
 
+  it('CheckConvergence_WorkflowIdNamingAnotherStream_StillRecordsOnTheSubject', async () => {
+    // `workflowId` re-points the READ. It used to re-point the WRITE too, which
+    // put the gate's own row on a stream the action does not declare it touches
+    // — so the caller got a refusal for a shape its own schema still accepts,
+    // and the evidence and the signal ended up on two different streams.
+    const other = 'wf-review-gate-evidence-other';
+    await seedActivePhaseAttempt(store, other, { phase: 'review' });
+
+    const result = await call({
+      action: 'check_convergence',
+      featureId: STREAM,
+      workflowId: other,
+    });
+
+    expect(result.error?.code).toBeUndefined();
+    expect(result.success).toBe(true);
+    // Both durable rows on the declared subject; the read stream carries none.
+    const signal = await store.query(STREAM, { type: 'gate.executed' });
+    expect(signal.map((row) => (row.data as { gateName?: string }).gateName)).toContain(
+      'convergence',
+    );
+    expect(await store.query(other, { type: 'gate.executed' })).toHaveLength(0);
+  });
+
   it('EachGate_AttachesTheEvidenceItRecorded_ToItsOwnCarrier', async () => {
     // The evidence is not only in the log — the gate's carrier references it, so
     // a caller reading the result can find the record without querying.

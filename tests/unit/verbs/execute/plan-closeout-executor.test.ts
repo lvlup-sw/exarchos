@@ -29,6 +29,7 @@ import {
   handleExecuteIntent,
   INTENT_EXECUTED_EVENT,
   type ExecuteIntentDeps,
+  type LeafHandlerTable,
 } from '../../../../src/verbs/execute/executor.js';
 import type { IntentReceipt } from '../../../../src/verbs/execute/types.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
@@ -85,26 +86,28 @@ let stateDir: string;
 let store: EventStore;
 let specPath: string;
 
-function deps(): ExecuteIntentDeps {
+function deps(handlers: LeafHandlerTable = ACTION_HANDLERS): ExecuteIntentDeps {
   return {
     runbookTable: ALL_RUNBOOKS,
     findAction: findActionInRegistry,
     argSchemas: INTENT_ARG_SCHEMAS,
-    // The LIVE table the orchestrate composite hands the executor.
-    handlers: ACTION_HANDLERS,
+    // The LIVE table the orchestrate composite hands the executor, unless a
+    // case substitutes one leaf to stage a failure the shipped table cannot.
+    handlers,
   };
 }
 
 async function execute(
   operationId: string,
   args: Record<string, unknown>,
+  handlers?: LeafHandlerTable,
 ): Promise<ToolResult> {
   return runWithDispatchContext(fixtureCorrelation(), () =>
     handleExecuteIntent(
       { intent: INTENT, streamId: STREAM, args, operationId },
       stateDir,
       fixtureWiring(stateDir, store),
-      deps(),
+      deps(handlers),
     ),
   );
 }
@@ -180,6 +183,42 @@ describe('plan-closeout over the live handler table', () => {
     expect(after.map((row) => `${row.sequence}:${row.type}`)).toEqual(
       before.map((row) => `${row.sequence}:${row.type}`),
     );
+  });
+
+  it('PlanCloseout_CrashedMidSegmentThenRetried_LeavesOneRowPerGateLeaf', async () => {
+    // The uncommitted retry, which the replay case above cannot reach: a crash
+    // before the commit leaves no claim, so the retry re-runs the gate leaves
+    // instead of short-circuiting on a persisted receipt. Both gates mint their
+    // own `gate.executed` from inside the provider, and the runner re-runs the
+    // provider before it can see that this operation already produced evidence
+    // — so the row has to be keyed or the second attempt writes a duplicate.
+    const traceability = ACTION_HANDLERS.generate_traceability;
+    if (traceability === undefined) throw new Error('generate_traceability has no handler');
+    let crash = true;
+    const handlers: LeafHandlerTable = {
+      ...ACTION_HANDLERS,
+      generate_traceability: async (args, dir, ctx) => {
+        if (crash) throw new Error('mid-segment crash');
+        return traceability(args, dir, ctx);
+      },
+    };
+
+    await expect(execute('op-plan-closeout-crash', { specPath }, handlers)).rejects.toThrow(
+      'mid-segment crash',
+    );
+    expect(await store.query(STREAM, { type: INTENT_EXECUTED_EVENT })).toHaveLength(0);
+
+    crash = false;
+    const result = await execute('op-plan-closeout-crash', { specPath }, handlers);
+
+    expect(result.success).toBe(true);
+    for (const [index, action] of GATE_LEAVES) {
+      const derived = derivedLeafOperationId('op-plan-closeout-crash', index, action);
+      const types = (await rowsFor(derived)).map((row) => row.type).sort();
+      // One of each. Two `gate.executed` rows here would be one gate run
+      // described twice, and the receipt bakes those sequences in permanently.
+      expect(types, action).toEqual(['admission.evidence-recorded', 'gate.executed']);
+    }
   });
 
   it('PlanCloseout_SameOperationIdDifferentRequest_IsRefused', async () => {

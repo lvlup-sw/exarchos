@@ -13,7 +13,7 @@ import { ALL_DIMENSIONS, CONVERGENCE_VIEW } from '../../projections/views/conver
 import type { ConvergenceViewState } from '../../projections/views/convergence-view.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
-import { emitGateEvent } from './gate-utils.js';
+import { emitGateEvent, sameOperationGateKey } from './gate-utils.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -90,7 +90,11 @@ async function executeCheckConvergence(
 ): Promise<ToolResult> {
   const store = eventStore;
   const materializer = getOrCreateMaterializer(stateDir);
-  const streamId = args.workflowId ?? args.featureId;
+  // `workflowId` re-points the READ at another stream; it never moved the
+  // write, and treating it as if it did put the gate's own row on a stream the
+  // action does not declare it touches. The verdict is folded from wherever
+  // the caller asked; the record that this gate ran belongs on the subject.
+  const readStreamId = args.workflowId ?? args.featureId;
 
   // Fold the convergence view over `gate.executed` up to the durable tail. A
   // reliability verdict derived from a fold that has not seen the latest gate
@@ -98,7 +102,7 @@ async function executeCheckConvergence(
   const { view } = await foldToTail<ConvergenceViewState>(
     store,
     materializer,
-    streamId,
+    readStreamId,
     CONVERGENCE_VIEW,
   );
 
@@ -118,11 +122,22 @@ async function executeCheckConvergence(
 
   // Emit meta gate.executed event (fire-and-forget)
   try {
-    await emitGateEvent(store, streamId, 'convergence', 'meta', passed, {
-      phase: 'meta',
-      uncheckedDimensions,
-      dimensionSummary: filteredDimensions,
-    });
+    await emitGateEvent(
+      store,
+      args.featureId,
+      'convergence',
+      'meta',
+      passed,
+      {
+        phase: 'meta',
+        ...(args.workflowId !== undefined && args.workflowId !== args.featureId
+          ? { readStreamId }
+          : {}),
+        uncheckedDimensions,
+        dimensionSummary: filteredDimensions,
+      },
+      sameOperationGateKey('convergence'),
+    );
   } catch { /* fire-and-forget */ }
 
   return {

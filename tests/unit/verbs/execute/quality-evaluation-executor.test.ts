@@ -207,6 +207,42 @@ describe('quality-evaluation over the deterministic leaf subset', () => {
     );
   });
 
+  it('QualityEvaluation_CrashedMidSegmentThenRetried_LeavesOneRowPerLeaf', async () => {
+    await seedReviewFloor();
+
+    // The crash the derived-identity design exists for: the segment dies before
+    // the commit, so no claim is persisted and the retry re-runs every leaf
+    // from the first. What must NOT happen is a second row for the leaves that
+    // already succeeded — and the evidence row was never the whole story, since
+    // these gates mint their OWN `gate.executed` from inside the provider and
+    // the runner re-runs the provider before it can discover the retry.
+    const verdict = ACTION_HANDLERS.check_review_verdict;
+    if (verdict === undefined) throw new Error('check_review_verdict has no handler');
+    let crash = true;
+    const handlers: LeafHandlerTable = {
+      ...ACTION_HANDLERS,
+      check_review_verdict: async (args, dir, ctx) => {
+        if (crash) throw new Error('mid-segment crash');
+        return verdict(args, dir, ctx);
+      },
+    };
+
+    await expect(execute('op-quality-crash', handlers)).rejects.toThrow('mid-segment crash');
+    expect(await store.query(STREAM, { type: INTENT_EXECUTED_EVENT })).toHaveLength(0);
+
+    crash = false;
+    const result = await execute('op-quality-crash', handlers);
+
+    expect(result.success).toBe(true);
+    for (const [index, action] of COVERED.entries()) {
+      const derived = derivedLeafOperationId('op-quality-crash', index, action);
+      const types = (await rowsFor(derived)).map((row) => row.type).sort();
+      // Exactly one of each, not "at least one": the duplicate this guards
+      // against is a SECOND `gate.executed` under the very same identity.
+      expect(types, action).toEqual(['admission.evidence-recorded', 'gate.executed']);
+    }
+  });
+
   // ─── Kill probe for the durable-evidence repair ───────────────────────────
 
   it('QualityEvaluation_GateRevertedToABareAppend_IsRefusedByTheExecutor', async () => {
