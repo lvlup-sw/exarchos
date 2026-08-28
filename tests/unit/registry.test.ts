@@ -2127,7 +2127,6 @@ describe('Plugin Integration Registry Wiring', () => {
 // handlers (Zod single-field `.min(1)` can't express it).
 describe('#1499 state-source migration schema (regression guard)', () => {
   it.each([
-    'pre_synthesis_check',
     'verify_review_triage',
     'extract_fix_tasks',
   ])('%s accepts a stateFile-only input (featureId optional)', (action) => {
@@ -2139,6 +2138,24 @@ describe('#1499 state-source migration schema (regression guard)', () => {
     ).toBe(true);
     // The canonical event-store path (featureId-only) must also validate.
     expect(found!.schema.safeParse({ featureId: 'wf-x' }).success).toBe(true);
+  });
+
+  it.each([
+    'pre_synthesis_check',
+    'post_delegation_check',
+  ])('%s requires featureId — the stream its declared evidence records against', (action) => {
+    const found = findActionInRegistry('exarchos_orchestrate', action);
+    expect(found, `${action} must be registered`).toBeDefined();
+    // These two declare durable gate evidence, and the postcondition observer
+    // reads that record on the stream the CALL names. A stateFile-only call had
+    // no stream to record against, so the declaration could not be paid — the
+    // gate returned a success carrier that had broken its own contract.
+    // `stateFile` stays available as the state-resolution override.
+    expect(
+      found!.schema.safeParse({ stateFile: '/tmp/wf.state.json', repoRoot: '.' }).success,
+      `${action} must reject stateFile-only`,
+    ).toBe(false);
+    expect(found!.schema.safeParse({ featureId: 'wf-x', repoRoot: '.' }).success).toBe(true);
   });
 });
 

@@ -19,6 +19,11 @@ import {
   resolveExplorationSkip,
   SKIPPED_BY_DEPTH,
 } from '../../../../src/verbs/gates/check-exploration-depth.js';
+import type { ToolResult } from '../../../../src/format.js';
+import {
+  runAsTrustedCaller,
+  seedActivePhaseAttempt,
+} from '../../../../tools/test-helpers/trusted-context.js';
 
 const FEATURE_ID = 'exploration-feature';
 
@@ -81,7 +86,16 @@ describe('check_exploration_depth gate (DR-4)', () => {
       enableTelemetry: false,
       cwd: base,
     } as unknown as DispatchContext;
+    // The gate records durable evidence, which binds to the active phase
+    // attempt and reads the caller's authorization from the ambient dispatch
+    // scope. Driving the handler below `dispatch()` means the test has to open
+    // both, or it exercises the fail-closed path instead of the gate.
+    await seedActivePhaseAttempt(eventStore, FEATURE_ID, { phase: 'plan' });
   });
+
+  async function orchestrate(args: Record<string, unknown>): Promise<ToolResult> {
+    return runAsTrustedCaller(stateDir, () => handleOrchestrate(args, ctx));
+  }
 
   afterEach(async () => {
     // MUST close the SQLite handle before removing the temp dir — on Windows an
@@ -94,9 +108,8 @@ describe('check_exploration_depth gate (DR-4)', () => {
   // ── Dispatch wiring: the action must route end-to-end ──────────────────────
 
   it('routes through handleOrchestrate (not UNKNOWN_ACTION)', async () => {
-    const result = await handleOrchestrate(
+    const result = await orchestrate(
       { action: 'check_exploration_depth', featureId: FEATURE_ID, designDepth: 'standard' },
-      ctx,
     );
     const errCode = result.success === false ? result.error?.code : undefined;
     expect(errCode).not.toBe('UNKNOWN_ACTION');
@@ -109,14 +122,13 @@ describe('check_exploration_depth gate (DR-4)', () => {
     const specPath = path.join(base, 'deep-without.md');
     await writeFile(specPath, DEEP_WITHOUT_EXPLORATION, 'utf-8');
 
-    const result = await handleOrchestrate(
+    const result = await orchestrate(
       {
         action: 'check_exploration_depth',
         featureId: FEATURE_ID,
         designDepth: 'deep',
         designPath: specPath,
       },
-      ctx,
     );
 
     expect(result.success).toBe(true);
@@ -132,14 +144,13 @@ describe('check_exploration_depth gate (DR-4)', () => {
     const specPath = path.join(base, 'deep-with.md');
     await writeFile(specPath, DEEP_WITH_EXPLORATION, 'utf-8');
 
-    const result = await handleOrchestrate(
+    const result = await orchestrate(
       {
         action: 'check_exploration_depth',
         featureId: FEATURE_ID,
         designDepth: 'deep',
         designPath: specPath,
       },
-      ctx,
     );
 
     expect(result.success).toBe(true);
@@ -151,9 +162,8 @@ describe('check_exploration_depth gate (DR-4)', () => {
   // ── (c) standard / thin → SELF-SKIP (no artifact touched) ──────────────────
 
   it('standard depth self-skips the gate', async () => {
-    const result = await handleOrchestrate(
+    const result = await orchestrate(
       { action: 'check_exploration_depth', featureId: FEATURE_ID, designDepth: 'standard' },
-      ctx,
     );
 
     expect(result.success).toBe(true);
@@ -164,9 +174,8 @@ describe('check_exploration_depth gate (DR-4)', () => {
   });
 
   it('thin depth self-skips the gate', async () => {
-    const result = await handleOrchestrate(
+    const result = await orchestrate(
       { action: 'check_exploration_depth', featureId: FEATURE_ID, designDepth: 'thin' },
-      ctx,
     );
 
     expect(result.success).toBe(true);
@@ -176,9 +185,8 @@ describe('check_exploration_depth gate (DR-4)', () => {
   });
 
   it('reports INVALID_INPUT when featureId is missing', async () => {
-    const result = await handleOrchestrate(
+    const result = await orchestrate(
       { action: 'check_exploration_depth', designDepth: 'standard' },
-      ctx,
     );
     expect(result.success).toBe(false);
     if (result.success === false) {
