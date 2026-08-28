@@ -588,7 +588,7 @@ function foldHeldRows(
 }
 
 async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
-  const { leaf, operationId, stateDir, ctx, outer, handlers, segment } = input;
+  const { leaf, operationId, stateDir, ctx, outer, handlers } = input;
   const derived = derivedLeafOperationId(operationId, leaf.index, leaf.action);
   const captures: Capture[] = [];
 
@@ -654,10 +654,15 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
     // taken after it would count the verifier's own row as something the leaf
     // emitted. Unconditional: the receipt's event list, its tail and its
     // append count are owed on every path, not only where a contract is.
+    // On the leaf's OWN observation stream, which is the segment's stream for
+    // every leaf that addresses the subject and a shared infrastructure stream
+    // for one whose contract says its records land there. A leaf's receipt
+    // sequences are therefore sequences in that leaf's observation stream; the
+    // segment tail stays the segment stream's, and `runSegment` filters for it.
     foldHeldRows(
       captures,
-      segment.streamId,
-      await ctx.eventStore.query(segment.streamId, { operationId: derived }),
+      leaf.observationStreamId,
+      await ctx.eventStore.query(leaf.observationStreamId, { operationId: derived }),
     );
 
     // The interceptor records its own finding against the derived id. Run
@@ -667,7 +672,7 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
       tool: leaf.tool,
       action: leaf.action,
       operationId: derived,
-      streamId: segment.streamId,
+      streamId: leaf.observationStreamId,
       declared: verifierDeclaredEmissions(leaf.contract),
       handlerSucceeded: result.success,
       ...(ctx.projectConfig !== undefined ? { projectConfig: ctx.projectConfig } : {}),
@@ -691,7 +696,7 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
         ensures: leaf.contract.ensures,
         store: ctx.eventStore,
         evidence: ctx.eventStore,
-        streamId: segment.streamId,
+        streamId: leaf.observationStreamId,
         operationId: derived,
         outcome: 'success',
       });
@@ -719,7 +724,9 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
     // cannot answer for this leaf.
     const owed = obligedEmissions(leaf);
     const landed = new Set(
-      captures.filter((capture) => capture.streamId === segment.streamId).map((capture) => capture.type),
+      captures
+        .filter((capture) => capture.streamId === leaf.observationStreamId)
+        .map((capture) => capture.type),
     );
     const missing = [...owed].filter((type) => !landed.has(type));
     if (missing.length > 0 || verdict.status === 'violated') {

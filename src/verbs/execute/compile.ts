@@ -15,6 +15,7 @@
 
 import type { z } from 'zod';
 
+import { observationStreamId } from '../../dispatch/core/interceptors/emission-verifier.js';
 import { findActionInRegistry, type ActionContract, type ToolAction } from '../../registry.js';
 import { ALL_RUNBOOKS } from '../../runbooks/definitions.js';
 import type { RunbookDefinition, RunbookStep } from '../../runbooks/types.js';
@@ -267,6 +268,14 @@ export function compileIntent(
       action: step.action,
       onFail: step.onFail,
       args: built.args,
+      // Resolved through the SAME function the dispatch path resolves its
+      // observation stream with, so a leaf run here and the same action
+      // dispatched directly are never checked against different streams. The
+      // fallback is the segment's subject: an action that declares no
+      // infrastructure stream and carries no subject argument is still a leaf
+      // of this segment, and the segment's stream is where its records would
+      // have to be.
+      observationStreamId: observationStreamId(built.args, contract) ?? subject.streamId,
       declaration,
       contract,
     });

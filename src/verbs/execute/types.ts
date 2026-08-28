@@ -6,11 +6,11 @@
 // the compiler, and `CompiledSegment` is what it produces.
 //
 // CompiledSegment is an INTERIM executable form, and deliberately private to
-// this directory. There is no workflow-builder intermediate representation in
-// this tree to lower it into yet; lowering is deferred until one exists
-// (lvlup-sw/exarchos#1258). Nothing outside `verbs/execute/` should grow a
-// dependency on this shape, because a later lowering would then have to
-// preserve it rather than replace it.
+// this directory. There is no second intermediate representation in this tree
+// to lower it into yet; lowering is deferred until the shared kernel that owns
+// that representation exists (`lvlup-sw/strategos#193`). Nothing outside
+// `verbs/execute/` should grow a dependency on this shape, because a later
+// lowering would then have to preserve it rather than replace it.
 
 import type { ActionContract, ToolAction } from '../../registry.js';
 
@@ -30,6 +30,14 @@ export interface CompiledLeaf {
   readonly onFail: 'stop' | 'continue';
   /** Arguments as the action's registered schema parsed them. */
   readonly args: Record<string, unknown>;
+  /**
+   * The stream this leaf's declared emissions and postconditions are OBSERVED
+   * on, resolved at compile time from the leaf's arguments and its contract.
+   * Usually the segment's own stream; not always, because a leaf whose records
+   * land on a shared infrastructure stream cannot be checked against a stream
+   * it never writes to.
+   */
+  readonly observationStreamId: string;
   /** The registry declaration — the source of the schema, contract and gate metadata. */
   readonly declaration: ToolAction;
   /** The declaration's normalized contract. Absent declarations never compile. */

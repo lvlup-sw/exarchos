@@ -16,9 +16,16 @@ const VCS_READ_EMISSIONS = none('read-only VCS queries emit no catalog events');
  * result after it, and BOTH records land on the shared `vcs` stream rather than
  * on a feature stream. Dispatch resolves the stream it observes postconditions
  * against from the call's own arguments (or an infrastructure selector), and
- * `vcs` is neither, so an `ensures` here would name a fact the observer looks
+ * `vcs` was neither, so an `ensures` here would name a fact the observer looks
  * for in the wrong place and report every successful call as a violation. The
  * appends are declared on the emission axis instead, which is stream-agnostic.
+ *
+ * The stream those records land on is now stated on the RESOURCE axis of the
+ * handlers that carry it, so post-dispatch observation resolves it from the
+ * declaration rather than failing to resolve it from the arguments. That is
+ * what lets the emission axis be checked at all; it does not by itself put the
+ * postcondition axis back, because these handlers write no evidence and the
+ * `ensures` above still describes them correctly.
  */
 const VCS_SPLIT_ENSURES = none(
   'the intent/result records land on the shared vcs stream, which post-dispatch observation does not resolve from this action\'s arguments',
@@ -54,6 +61,13 @@ export const vcsActions: readonly BuiltinToolAction[] = [
       touches: {
         frame: 'single-machine',
         resources: declared(
+          // First, and a stream LITERAL rather than an argument name: the two
+          // journal records go here whatever `featureId` the caller passed.
+          // Spelled out rather than imported from the reserved-id module, the
+          // way every other infrastructure-stream declaration in this tree is —
+          // the declarations may reference schemas, not reach into the
+          // dispatch core.
+          { kind: 'stream', selector: 'vcs' },
           { kind: 'git-ref', selector: 'head' },
           { kind: 'git-ref', selector: 'base' },
         ),
