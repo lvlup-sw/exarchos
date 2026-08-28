@@ -18,6 +18,34 @@ vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
 }));
 
+// The gate now records durable evidence through the shared phase-gate runner
+// before any success carrier escapes. These cases are about the PROVIDER's
+// verdict, so the runner is stubbed down to its provider call — the same seam
+// every other migrated gate's unit test stubs. What the runner itself
+// guarantees is proven against a real store in `gate-runner.test.ts`.
+vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
+  runPhaseGateWithEvidence: vi.fn(async (request) => {
+    try {
+      return await request.executeProvider(
+        {
+          gateClass: request.gateClass,
+          providerRef: 'test-provider',
+          actionName: 'test-provider',
+        },
+        request.providerInput,
+      );
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: 'GATE_PROVIDER_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }),
+}));
+
 import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import {
@@ -25,6 +53,29 @@ import {
   extractTestFiles,
   testPathWellFormednessError,
 } from '../../../../src/verbs/gates/spec-coverage-check.js';
+import type { SpecCoverageCheckArgs } from '../../../../src/verbs/gates/spec-coverage-check.js';
+import type { ToolResult } from '../../../../src/format.js';
+import type { EventStore } from '../../../../src/events/store.js';
+
+const STATE_DIR = '/tmp/test-spec-coverage-check';
+
+// The handler now takes the two arguments the evidence runner needs. Every case
+// below is about the verdict, so the stream identity is a constant and the
+// store is never reached: the runner above is stubbed down to the provider.
+const stubStore = {
+  append: vi.fn().mockResolvedValue(undefined),
+  query: vi.fn().mockResolvedValue([]),
+} as unknown as EventStore;
+
+async function runSpecCoverageCheck(
+  args: Omit<SpecCoverageCheckArgs, 'featureId'> & { featureId?: string },
+): Promise<ToolResult> {
+  return handleSpecCoverageCheck(
+    { featureId: 'feature-under-test', ...args },
+    STATE_DIR,
+    stubStore,
+  );
+}
 
 const mockedExistsSync = vi.mocked(existsSync);
 const mockedReadFileSync = vi.mocked(readFileSync);
@@ -65,7 +116,7 @@ describe('handleSpecCoverageCheck', () => {
 
   // ─── 1. All test files exist and pass ───────────────────────────────────
 
-  it('allTestFilesExistAndPass_returnsPassed', () => {
+  it('allTestFilesExistAndPass_returnsPassed', async () => {
     // Plan file exists, repo root exists
     mockedExistsSync.mockImplementation((p: unknown) => {
       const path = String(p);
@@ -78,7 +129,7 @@ describe('handleSpecCoverageCheck', () => {
     mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
     mockedExecFileSync.mockReturnValue(Buffer.from(''));
 
-    const result = handleSpecCoverageCheck({
+    const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
     });
@@ -100,7 +151,7 @@ describe('handleSpecCoverageCheck', () => {
 
   // ─── 2. Missing test file ──────────────────────────────────────────────
 
-  it('missingTestFile_returnsFailedWithMissingList', () => {
+  it('missingTestFile_returnsFailedWithMissingList', async () => {
     mockedExistsSync.mockImplementation((p: unknown) => {
       const path = String(p);
       if (path === '/repo/plan.md') return true;
@@ -111,7 +162,7 @@ describe('handleSpecCoverageCheck', () => {
     });
     mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
 
-    const result = handleSpecCoverageCheck({
+    const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
     });
@@ -129,7 +180,7 @@ describe('handleSpecCoverageCheck', () => {
 
   // ─── 3. No test files in plan ─────────────────────────────────────────
 
-  it('noTestFilesInPlan_returnsFailedWithZeroTests', () => {
+  it('noTestFilesInPlan_returnsFailedWithZeroTests', async () => {
     mockedExistsSync.mockImplementation((p: unknown) => {
       const path = String(p);
       if (path === '/repo/plan.md') return true;
@@ -138,7 +189,7 @@ describe('handleSpecCoverageCheck', () => {
     });
     mockedReadFileSync.mockReturnValue(PLAN_WITHOUT_TESTS);
 
-    const result = handleSpecCoverageCheck({
+    const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
     });
@@ -156,7 +207,7 @@ describe('handleSpecCoverageCheck', () => {
 
   // ─── 4. Test execution fails ──────────────────────────────────────────
 
-  it('testExecutionFails_returnsFailedWithReport', () => {
+  it('testExecutionFails_returnsFailedWithReport', async () => {
     mockedExistsSync.mockImplementation((p: unknown) => {
       const path = String(p);
       if (path === '/repo/plan.md') return true;
@@ -175,7 +226,7 @@ describe('handleSpecCoverageCheck', () => {
       return Buffer.from('');
     });
 
-    const result = handleSpecCoverageCheck({
+    const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
     });
@@ -191,7 +242,7 @@ describe('handleSpecCoverageCheck', () => {
 
   // ─── 5. skipRun skips execution ───────────────────────────────────────
 
-  it('skipRunTrue_skipsExecutionOnlyChecksExistence', () => {
+  it('skipRunTrue_skipsExecutionOnlyChecksExistence', async () => {
     mockedExistsSync.mockImplementation((p: unknown) => {
       const path = String(p);
       if (path === '/repo/plan.md') return true;
@@ -202,7 +253,7 @@ describe('handleSpecCoverageCheck', () => {
     });
     mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
 
-    const result = handleSpecCoverageCheck({
+    const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
       skipRun: true,
@@ -223,7 +274,7 @@ describe('handleSpecCoverageCheck', () => {
 
   // ─── 6. Plan file not found ───────────────────────────────────────────
 
-  it('planFileNotFound_returnsError', () => {
+  it('planFileNotFound_returnsError', async () => {
     mockedExistsSync.mockImplementation((p: unknown) => {
       const path = String(p);
       if (path === '/repo/plan.md') return false;
@@ -231,7 +282,7 @@ describe('handleSpecCoverageCheck', () => {
       return false;
     });
 
-    const result = handleSpecCoverageCheck({
+    const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
     });
@@ -243,7 +294,7 @@ describe('handleSpecCoverageCheck', () => {
 
   // ─── 7. Multiple test files, some missing ─────────────────────────────
 
-  it('multipleTestFilesSomeMissing_partialReport', () => {
+  it('multipleTestFilesSomeMissing_partialReport', async () => {
     const planContent = makePlanWithTests([
       'src/a.test.ts',
       'src/b.test.ts',
@@ -260,7 +311,7 @@ describe('handleSpecCoverageCheck', () => {
     });
     mockedReadFileSync.mockReturnValue(planContent);
 
-    const result = handleSpecCoverageCheck({
+    const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
     });
@@ -283,7 +334,7 @@ describe('handleSpecCoverageCheck', () => {
 
   // ─── 8. Repo root not found ───────────────────────────────────────────
 
-  it('repoRootNotFound_returnsError', () => {
+  it('repoRootNotFound_returnsError', async () => {
     mockedExistsSync.mockImplementation((p: unknown) => {
       const path = String(p);
       if (path === '/repo/plan.md') return true;
@@ -291,7 +342,7 @@ describe('handleSpecCoverageCheck', () => {
       return false;
     });
 
-    const result = handleSpecCoverageCheck({
+    const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
     });
@@ -303,7 +354,7 @@ describe('handleSpecCoverageCheck', () => {
 
   // ─── 9. Report contains markdown structure ────────────────────────────
 
-  it('report_containsMarkdownStructure', () => {
+  it('report_containsMarkdownStructure', async () => {
     mockedExistsSync.mockImplementation((p: unknown) => {
       const path = String(p);
       if (path === '/repo/plan.md') return true;
@@ -315,7 +366,7 @@ describe('handleSpecCoverageCheck', () => {
     mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
     mockedExecFileSync.mockReturnValue(Buffer.from(''));
 
-    const result = handleSpecCoverageCheck({
+    const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
     });
@@ -331,7 +382,7 @@ describe('handleSpecCoverageCheck', () => {
 // ─── extractTestFiles — declaration forms ────────────────────────────────────
 
 describe('extractTestFiles', () => {
-  it('extractsLegacyTestFileDeclarations', () => {
+  it('extractsLegacyTestFileDeclarations', async () => {
     const plan = [
       '### Task: build widget',
       '**Test file:** `src/widget.test.ts`',
@@ -339,7 +390,7 @@ describe('extractTestFiles', () => {
     expect(extractTestFiles(plan)).toEqual(['src/widget.test.ts']);
   });
 
-  it('extractsTestPathsFromUnifiedFilesList', () => {
+  it('extractsTestPathsFromUnifiedFilesList', async () => {
     // Canonical unified spec: test files appear as backticked paths in the
     // per-task `**Files:**` list, alongside implementation files. Only the
     // test paths are collected.
@@ -357,7 +408,7 @@ describe('extractTestFiles', () => {
     ]);
   });
 
-  it('deduplicatesRepeatedTestPaths', () => {
+  it('deduplicatesRepeatedTestPaths', async () => {
     const plan = [
       '- `src/widget.test.ts`',
       '**Test file:** `src/widget.test.ts`',
@@ -369,25 +420,25 @@ describe('extractTestFiles', () => {
 // ─── testPathWellFormednessError — plan-time syntax ──────────────────────────
 
 describe('testPathWellFormednessError', () => {
-  it('acceptsRepoRelativeTestPath', () => {
+  it('acceptsRepoRelativeTestPath', async () => {
     expect(testPathWellFormednessError('src/widget.test.ts')).toBeNull();
     expect(testPathWellFormednessError('packages/a/foo.spec.tsx')).toBeNull();
   });
 
-  it('rejectsNonTestFile', () => {
+  it('rejectsNonTestFile', async () => {
     expect(testPathWellFormednessError('src/widget.ts')).not.toBeNull();
   });
 
-  it('rejectsAbsolutePath', () => {
+  it('rejectsAbsolutePath', async () => {
     expect(testPathWellFormednessError('/repo/src/widget.test.ts')).not.toBeNull();
     expect(testPathWellFormednessError('C:\\repo\\widget.test.ts')).not.toBeNull();
   });
 
-  it('rejectsParentEscape', () => {
+  it('rejectsParentEscape', async () => {
     expect(testPathWellFormednessError('../outside/widget.test.ts')).not.toBeNull();
   });
 
-  it('rejectsEmptyPath', () => {
+  it('rejectsEmptyPath', async () => {
     expect(testPathWellFormednessError('   ')).not.toBeNull();
   });
 });
@@ -399,7 +450,7 @@ describe('handleSpecCoverageCheck — plan-syntax phase (WFQ-010)', () => {
     vi.clearAllMocks();
   });
 
-  it('planPhase_NotYetCreatedTestPaths_Passes', () => {
+  it('planPhase_NotYetCreatedTestPaths_Passes', async () => {
     // Exit proof (a): a plan declaring test files that do NOT yet exist on disk
     // is a valid forward declaration and PASSES the plan-time check.
     mockedExistsSync.mockImplementation((p: unknown) => {
@@ -410,7 +461,7 @@ describe('handleSpecCoverageCheck — plan-syntax phase (WFQ-010)', () => {
     });
     mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
 
-    const result = handleSpecCoverageCheck({
+    const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
       coveragePhase: 'plan',
@@ -435,7 +486,7 @@ describe('handleSpecCoverageCheck — plan-syntax phase (WFQ-010)', () => {
     expect(mockedExecFileSync).not.toHaveBeenCalled();
   });
 
-  it('planPhase_DoesNotProbeTestPathsOnDisk', () => {
+  it('planPhase_DoesNotProbeTestPathsOnDisk', async () => {
     // Discriminating: plan-time must not stat the declared test paths. Track
     // every path existsSync is asked about; only the plan file may be probed.
     const probed: string[] = [];
@@ -446,7 +497,7 @@ describe('handleSpecCoverageCheck — plan-syntax phase (WFQ-010)', () => {
     });
     mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
 
-    handleSpecCoverageCheck({
+    await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
       coveragePhase: 'plan',
@@ -457,13 +508,13 @@ describe('handleSpecCoverageCheck — plan-syntax phase (WFQ-010)', () => {
     expect(probed.some((p) => p.includes('utils.test.ts'))).toBe(false);
   });
 
-  it('planPhase_RepoRootNeedNotExist', () => {
+  it('planPhase_RepoRootNeedNotExist', async () => {
     // Plan-time validation runs before the worktree is laid down, so a missing
     // repo root must NOT error the way the post-implementation phase does.
     mockedExistsSync.mockImplementation((p: unknown) => String(p) === '/repo/plan.md');
     mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
 
-    const result = handleSpecCoverageCheck({
+    const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/does/not/exist',
       coveragePhase: 'plan',
@@ -473,7 +524,7 @@ describe('handleSpecCoverageCheck — plan-syntax phase (WFQ-010)', () => {
     expect((result.data as { passed: boolean }).passed).toBe(true);
   });
 
-  it('planPhase_MalformedTestPath_Fails', () => {
+  it('planPhase_MalformedTestPath_Fails', async () => {
     // Exit proof: a plan-time syntax gap (a declared path that is not a valid
     // test path) is still rejected.
     mockedExistsSync.mockImplementation((p: unknown) => String(p) === '/repo/plan.md');
@@ -481,7 +532,7 @@ describe('handleSpecCoverageCheck — plan-syntax phase (WFQ-010)', () => {
       ['### Task: build widget', '**Test file:** `src/widget.ts`'].join('\n'),
     );
 
-    const result = handleSpecCoverageCheck({
+    const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
       coveragePhase: 'plan',
@@ -493,11 +544,11 @@ describe('handleSpecCoverageCheck — plan-syntax phase (WFQ-010)', () => {
     expect(data.malformed).toContain('src/widget.ts');
   });
 
-  it('planPhase_NoTestFilesDeclared_Fails', () => {
+  it('planPhase_NoTestFilesDeclared_Fails', async () => {
     mockedExistsSync.mockImplementation((p: unknown) => String(p) === '/repo/plan.md');
     mockedReadFileSync.mockReturnValue(PLAN_WITHOUT_TESTS);
 
-    const result = handleSpecCoverageCheck({
+    const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
       coveragePhase: 'plan',
@@ -516,7 +567,7 @@ describe('handleSpecCoverageCheck — post-implementation phase (WFQ-010)', () =
     vi.clearAllMocks();
   });
 
-  it('postImplementationPhase_SamePathsMissing_Fails', () => {
+  it('postImplementationPhase_SamePathsMissing_Fails', async () => {
     // Exit proof (b): the SAME plan that passed plan-syntax fails the
     // post-implementation phase while the declared files are still missing.
     mockedExistsSync.mockImplementation((p: unknown) => {
@@ -527,7 +578,7 @@ describe('handleSpecCoverageCheck — post-implementation phase (WFQ-010)', () =
     });
     mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
 
-    const result = handleSpecCoverageCheck({
+    const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
       coveragePhase: 'post-implementation',
@@ -546,7 +597,7 @@ describe('handleSpecCoverageCheck — post-implementation phase (WFQ-010)', () =
     expect(mockedExecFileSync).not.toHaveBeenCalled();
   });
 
-  it('postImplementationPhase_FilesExistAndPass_Passes', () => {
+  it('postImplementationPhase_FilesExistAndPass_Passes', async () => {
     // Exit proof (b, positive): once the files exist and their tests really
     // run and pass, the post-implementation phase passes.
     mockedExistsSync.mockImplementation((p: unknown) => {
@@ -560,7 +611,7 @@ describe('handleSpecCoverageCheck — post-implementation phase (WFQ-010)', () =
     mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
     mockedExecFileSync.mockReturnValue(Buffer.from(''));
 
-    const result = handleSpecCoverageCheck({
+    const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
       coveragePhase: 'post-implementation',
@@ -572,7 +623,7 @@ describe('handleSpecCoverageCheck — post-implementation phase (WFQ-010)', () =
     expect(mockedExecFileSync).toHaveBeenCalledTimes(2);
   });
 
-  it('postImplementationPhase_FilesExistButTestsFail_Fails', () => {
+  it('postImplementationPhase_FilesExistButTestsFail_Fails', async () => {
     // Post-implementation stays honest: present files whose tests do NOT pass
     // still fail.
     mockedExistsSync.mockImplementation((p: unknown) => {
@@ -592,7 +643,7 @@ describe('handleSpecCoverageCheck — post-implementation phase (WFQ-010)', () =
       return Buffer.from('');
     });
 
-    const result = handleSpecCoverageCheck({
+    const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
       coveragePhase: 'post-implementation',
@@ -602,7 +653,7 @@ describe('handleSpecCoverageCheck — post-implementation phase (WFQ-010)', () =
     expect((result.data as { passed: boolean }).passed).toBe(false);
   });
 
-  it('defaultsToPostImplementationPhase', () => {
+  it('defaultsToPostImplementationPhase', async () => {
     // Backward compatibility: no explicit phase behaves as post-implementation
     // (checks existence + execution).
     mockedExistsSync.mockImplementation((p: unknown) => {
@@ -613,7 +664,7 @@ describe('handleSpecCoverageCheck — post-implementation phase (WFQ-010)', () =
     });
     mockedReadFileSync.mockReturnValue(PLAN_WITH_TWO_TESTS);
 
-    const result = handleSpecCoverageCheck({
+    const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
     });

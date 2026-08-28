@@ -28,6 +28,7 @@ function specCoverageSchema(): z.ZodType {
 describe('spec_coverage_check — the dispatch boundary (WFQ-010)', () => {
   it('registrySchema_PlanPhaseArg_SurvivesTheParse', () => {
     const parsed = specCoverageSchema().safeParse({
+      featureId: 'feature-under-test',
       planFile: 'docs/specs/plan.md',
       repoRoot: '.',
       coveragePhase: 'plan',
@@ -40,6 +41,7 @@ describe('spec_coverage_check — the dispatch boundary (WFQ-010)', () => {
 
   it('registrySchema_PostImplementationPhaseArg_SurvivesTheParse', () => {
     const parsed = specCoverageSchema().safeParse({
+      featureId: 'feature-under-test',
       planFile: 'docs/specs/plan.md',
       repoRoot: '.',
       coveragePhase: 'post-implementation',
@@ -54,6 +56,7 @@ describe('spec_coverage_check — the dispatch boundary (WFQ-010)', () => {
     // requires the constraint at the schema level, not a prose hint the handler
     // re-checks later.
     const parsed = specCoverageSchema().safeParse({
+      featureId: 'feature-under-test',
       planFile: 'docs/specs/plan.md',
       repoRoot: '.',
       coveragePhase: 'during-implementation',
@@ -90,10 +93,23 @@ describe('spec_coverage_check — the dispatch boundary (WFQ-010)', () => {
     }
   });
 
+  it('registrySchema_FeatureIdOmitted_IsRejected', () => {
+    // The gate's durable-evidence postcondition is recorded against a stream,
+    // and the stream comes from this field. Declaring it optional would let a
+    // caller reach a handler that has no subject to pay the postcondition with,
+    // so the refusal belongs at the parse rather than inside the handler.
+    const parsed = specCoverageSchema().safeParse({
+      planFile: 'docs/specs/plan.md',
+      repoRoot: '.',
+    });
+    expect(parsed.success).toBe(false);
+  });
+
   it('registrySchema_PhaseOmitted_StillParses', () => {
     // `phase` stays optional: the handler's documented back-compat default
     // (post-implementation) must remain reachable by omission.
     const parsed = specCoverageSchema().safeParse({
+      featureId: 'feature-under-test',
       planFile: 'docs/specs/plan.md',
       repoRoot: '.',
     });

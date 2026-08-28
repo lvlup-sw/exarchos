@@ -8,7 +8,38 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
 
 vi.mock('../../../../src/verbs/gates/gate-utils.js', () => ({
   emitGateEvent: vi.fn().mockResolvedValue(undefined),
+  // Without this export the emit site raises a TypeError the handler swallows
+  // in its fire-and-forget try, leaving the emission unexercised.
+  sameOperationGateKey: vi.fn(() => undefined),
 }));
+// The gate now records durable evidence through the shared phase-gate runner
+// before any success carrier escapes. These cases are about the PROVIDER's
+// verdict, so the runner is stubbed down to its provider call — the same seam
+// every other migrated gate's unit test stubs. What the runner itself
+// guarantees is proven against a real store in `gate-runner.test.ts`.
+vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
+  runPhaseGateWithEvidence: vi.fn(async (request) => {
+    try {
+      return await request.executeProvider(
+        {
+          gateClass: request.gateClass,
+          providerRef: 'test-provider',
+          actionName: 'test-provider',
+        },
+        request.providerInput,
+      );
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: 'GATE_PROVIDER_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }),
+}));
+
 
 vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(),
