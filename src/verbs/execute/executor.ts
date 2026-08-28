@@ -33,6 +33,7 @@ import { evaluateDispatchAdmission } from '../../dispatch/core/dispatch-admissio
 // Type-only, and deliberately so: the dispatch module routes to the composite
 // that routes here, so a value import of it would close a runtime ring.
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
+import { isFeatureStream } from '../../dispatch/core/infra-streams.js';
 import {
   EMISSION_VIOLATION_EVENT,
   runEmissionVerifierInterceptor,
@@ -353,6 +354,17 @@ export async function handleExecuteIntent(
   if (streamId === undefined) {
     return invalid(
       'streamId is required (featureId is accepted as an alias — the workflow stream id is the bare featureId)',
+    );
+  }
+  // Either spelling can smuggle a reserved infrastructure id in as the subject,
+  // and the compiler would bind every leaf to it — interleaving the operation
+  // claim, receipts, and leaf emissions with the records the reservation
+  // exists to keep separate. Refused here, before compilation, for the same
+  // reason every compile refusal fires before the first effect.
+  if (!isFeatureStream(streamId)) {
+    return invalid(
+      `'${streamId}' is a reserved infrastructure stream, not a workflow subject — ` +
+        "pass the feature's own id",
     );
   }
 

@@ -609,6 +609,31 @@ describe('handleExecuteIntent subject resolution', () => {
     expect(await store.query('wf-somewhere-else')).toHaveLength(0);
   });
 
+  it('ReservedInfraStreamAsStreamId_IsRefusedBeforeCompilation', async () => {
+    // 'vcs' is a reserved infrastructure stream; binding a segment's subject
+    // to it would interleave the operation claim and receipts with the journal
+    // records the reservation keeps separate from feature streams.
+    const result = await execute(
+      { intent: INTENT, streamId: 'vcs', args: { taskId: 't1' }, operationId: 'op-reserved-stream' },
+      deps(),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('reserved infrastructure stream');
+    expect(await store.query('vcs')).toHaveLength(0);
+  });
+
+  it('ReservedInfraStreamAsFeatureIdAlias_IsRefusedTheSameWay', async () => {
+    const result = await execute(
+      { intent: INTENT, featureId: 'telemetry', args: { taskId: 't1' }, operationId: 'op-reserved-alias' },
+      deps(),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('reserved infrastructure stream');
+    expect(await store.query('telemetry')).toHaveLength(0);
+  });
+
   it('FeatureIdWins_MatchingTheDispatchLayerStreamResolver', async () => {
     // Not a preference: the dispatch-layer resolver reads `featureId` first,
     // and the two have to agree on which stream this call is about.
