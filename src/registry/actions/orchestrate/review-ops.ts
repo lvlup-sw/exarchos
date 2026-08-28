@@ -47,8 +47,11 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
       name: 'pre_synthesis_check',
       description: 'Run pre-synthesis checks: task completion, reviews, tests, and stack health',
       schema: z.object({
-        // featureId OR stateFile — the handler enforces "at least one source".
-        featureId: z.string().min(1).optional(),
+        // Required, not optional: the gate declares durable evidence, and the
+        // observer reads that record on the stream the call names. A
+        // stateFile-only call had no stream to record against, so the
+        // declaration could not be paid.
+        featureId: z.string().min(1),
         // INV-1: the event store is the sole source of truth. `stateFile` is an
         // optional override; when omitted the gate materializes state from the
         // event store via `featureId` (MCP-only workflows have no `.state.json`).
@@ -60,7 +63,7 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
       }),
       phases: new Set<string>(['synthesize']),
       roles: ROLE_LEAD,
-      gate: { blocking: true },
+      gate: { blocking: true, gateClass: 'pre-synthesis' },
       // DR-5: runs the full project test suite + typecheck + build + stack
       // assessment; routinely seconds-to-minutes on real repos.
       longRunning: true,

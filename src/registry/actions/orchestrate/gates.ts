@@ -166,7 +166,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: false, dimension: 'D3' },
+    gate: { blocking: false, dimension: 'D3', gateClass: 'context-economy' },
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_context_economy'),
     annotations: LOCAL_MUTATION,
   }, {
@@ -193,7 +193,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: false, dimension: 'D4' },
+    gate: { blocking: false, dimension: 'D4', gateClass: 'operational-resilience' },
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_operational_resilience'),
     annotations: LOCAL_MUTATION,
   }, {
@@ -220,7 +220,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: false, dimension: 'D5' },
+    gate: { blocking: false, dimension: 'D5', gateClass: 'workflow-determinism' },
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_workflow_determinism'),
     annotations: LOCAL_MUTATION,
   }, {
@@ -428,7 +428,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     // binding, so it uses the subset idiom (cf. the check_design_completeness alias).
     phases: new Set<string>(['plan']),
     roles: ROLE_LEAD,
-    gate: { blocking: true, dimension: 'D1' },
+    gate: { blocking: true, dimension: 'D1', gateClass: 'exploration-depth' },
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_exploration_depth'),
     annotations: LOCAL_MUTATION,
   }, {
@@ -707,7 +707,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     }),
     phases: new Set<string>(['synthesize']),
     roles: ROLE_LEAD,
-    gate: { blocking: false, dimension: 'D4' },
+    gate: { blocking: false, dimension: 'D4', gateClass: 'post-merge' },
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_post_merge'),
     annotations: LOCAL_MUTATION,
   }, {
