@@ -1,3 +1,5 @@
+// @oracle-sources: ../../../../src/verbs/execute/compile.ts, the three-action runbook order written out by hand directly above the quantifier — the population `every` ranges over is pinned to exactly that list on the preceding line so a short or empty segment cannot satisfy the execution-authority predicate vacuously
+//
 // ─── Compiling the plan-closeout segment ────────────────────────────────────
 //
 // One argument binds onto four leaf parameters, and that is the whole reason

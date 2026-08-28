@@ -1,3 +1,5 @@
+// @oracle-sources: ../../../../src/verbs/execute/compile.ts, the `SHIPPED_LEAVES` list this file writes by hand — the population both `every` quantifiers range over is pinned against that list and against a literal index sequence before either runs, so a segment that compiled short or empty cannot satisfy a per-leaf predicate vacuously
+//
 // ─── Compiling the review-closeout segment ──────────────────────────────────
 //
 // `quality-evaluation` is compiled against the LIVE table — the shipped runbook,
