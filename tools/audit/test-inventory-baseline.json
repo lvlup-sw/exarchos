@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1247,
-    "parsedFiles": 1202,
+    "testFiles": 1248,
+    "parsedFiles": 1203,
     "shellFiles": 45,
-    "cases": 13725,
-    "dynamicTitles": 145,
+    "cases": 13740,
+    "dynamicTitles": 146,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -41677,6 +41677,16 @@
           "dynamic": true
         },
         {
+          "suite": "#1499 state-source migration schema (regression guard)",
+          "name": "%s requires featureId — the stream its declared evidence records against",
+          "dynamic": false
+        },
+        {
+          "suite": "#1499 state-source migration schema (regression guard)",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
           "suite": "Registry_OutputSchema (T40, DR-11)",
           "name": "Registry_OutputSchema_RegistersMetaDeprecationOnAffectedActions",
           "dynamic": false
@@ -50788,6 +50798,16 @@
         },
         {
           "suite": "handleExecuteIntent subject resolution",
+          "name": "ReservedInfraStreamAsStreamId_IsRefusedBeforeCompilation",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent subject resolution",
+          "name": "ReservedInfraStreamAsFeatureIdAlias_IsRefusedTheSameWay",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent subject resolution",
           "name": "FeatureIdWins_MatchingTheDispatchLayerStreamResolver",
           "dynamic": false
         },
@@ -54658,6 +54678,67 @@
         {
           "suite": "check_test_adequacy toolchain test-glob threading (FIX-3)",
           "name": "CheckTestAdequacy_PythonTestsLayout_ClassifiedAsTest",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/unrunbooked-gate-evidence-dispatch.test.ts": {
+      "file": "tests/unit/verbs/gates/unrunbooked-gate-evidence-dispatch.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "CheckCoverageThresholds_Dispatched_RecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "ValidatePrStack_Dispatched_RecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "DebugReviewGate_Dispatched_RecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "PostDelegationCheck_Dispatched_RecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "PreSynthesisCheck_Dispatched_RecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "CheckContextEconomy_Dispatched_RecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "CheckOperationalResilience_Dispatched_RecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "CheckWorkflowDeterminism_Dispatched_RecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "CheckPostMerge_Dispatched_RecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "CheckExplorationDepth_Dispatched_RecordsEvidenceOnTheSkipPath",
+          "dynamic": false
+        },
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "EachGate_AttachesTheEvidenceItRecorded_ToItsOwnCarrier",
           "dynamic": false
         }
       ]
@@ -60285,12 +60366,12 @@
         },
         {
           "suite": "handlePostDelegationCheck",
-          "name": "stateFileNotFound_returnsError",
+          "name": "stateSourceUnreadable_returnsError",
           "dynamic": false
         },
         {
           "suite": "handlePostDelegationCheck",
-          "name": "invalidJson_returnsError",
+          "name": "noStateSource_returnsNoStateSource",
           "dynamic": false
         },
         {

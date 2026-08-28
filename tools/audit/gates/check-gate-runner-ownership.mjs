@@ -84,6 +84,23 @@ const DISPOSITIONS = Object.freeze([
     // compatibility-observation row task-decomposition already carried.
     ['src/verbs/tasks/task-decomposition.ts', 'orchestrate/gate-runner'],
     ['src/verbs/gates/spec-coverage-check.ts', 'orchestrate/gate-runner'],
+    // The ten remaining gates in the same register. Each declared durable gate
+    // evidence and paid it with a bare `gate.executed` append or with nothing
+    // at all — a different record on a different axis from the one dispatch
+    // observes, so each answered a contract violation on every call. Routing
+    // them through the canonical runner is what closed that, and it is the
+    // OWNED path: the row records the seam they now use, alongside the
+    // compatibility-observation row several of them already carried.
+    ['src/verbs/gates/check-coverage-thresholds.ts', 'orchestrate/gate-runner'],
+    ['src/verbs/gates/check-exploration-depth.ts', 'orchestrate/gate-runner'],
+    ['src/verbs/gates/context-economy.ts', 'orchestrate/gate-runner'],
+    ['src/verbs/gates/operational-resilience.ts', 'orchestrate/gate-runner'],
+    ['src/verbs/gates/post-merge.ts', 'orchestrate/gate-runner'],
+    ['src/verbs/gates/pre-synthesis-check.ts', 'orchestrate/gate-runner'],
+    ['src/verbs/gates/workflow-determinism.ts', 'orchestrate/gate-runner'],
+    ['src/verbs/review/debug-review-gate.ts', 'orchestrate/gate-runner'],
+    ['src/verbs/team/post-delegation-check.ts', 'orchestrate/gate-runner'],
+    ['src/verbs/vcs/validate-pr-stack.ts', 'orchestrate/gate-runner'],
   ].map(([file, owner]) => ({
     file,
     kind: 'durable-runner',
@@ -128,6 +145,11 @@ const DISPOSITIONS = Object.freeze([
     ['src/verbs/gates/operational-resilience.ts', 1, 'orchestrate/operational-resilience'],
     ['src/verbs/gates/plan-coverage.ts', 1, 'orchestrate/plan-coverage'],
     ['src/verbs/gates/post-merge.ts', 1, 'orchestrate/post-merge'],
+    // Both gates declare `gate.executed` unconditionally and appended nothing;
+    // the row is minted from inside the provider closure, under the canonical
+    // runner, so the declared signal and the durable proof land together.
+    ['src/verbs/gates/pre-synthesis-check.ts', 1, 'orchestrate/pre-synthesis-check'],
+    ['src/verbs/team/post-delegation-check.ts', 1, 'orchestrate/post-delegation-check'],
     ['src/verbs/team/prepare-delegation.ts', 1, 'orchestrate/prepare-delegation'],
     ['src/verbs/team/prepare-synthesis.ts', 3, 'orchestrate/prepare-synthesis'],
     ['src/verbs/gates/provenance-chain.ts', 1, 'orchestrate/provenance-chain'],

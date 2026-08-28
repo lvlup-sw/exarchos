@@ -5,6 +5,42 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { VcsProvider, PrSummary, PrFilter } from '../../../../src/vcs/provider.js';
 import { handleValidatePrStack } from '../../../../src/verbs/vcs/validate-pr-stack.js';
+import type { EventStore } from '../../../../src/events/store.js';
+// The gate now records durable evidence through the shared phase-gate runner
+// before any success carrier escapes. These cases are about the PROVIDER's
+// verdict, so the runner is stubbed down to its provider call — the same seam
+// every other migrated gate's unit test stubs. The evidence a caller actually
+// gets is proven over real dispatch in
+// `unrunbooked-gate-evidence-dispatch.test.ts`.
+vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
+  runPhaseGateWithEvidence: vi.fn(async (request) => {
+    try {
+      return await request.executeProvider(
+        {
+          gateClass: request.gateClass,
+          providerRef: 'test-provider',
+          actionName: 'test-provider',
+        },
+        request.providerInput,
+      );
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: 'GATE_PROVIDER_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }),
+}));
+
+const STATE_DIR = '/tmp/test-validate-pr-stack';
+const FEATURE_ID = 'pr-stack-feature';
+const eventStore = {
+  append: vi.fn().mockResolvedValue(undefined),
+  query: vi.fn().mockResolvedValue([]),
+} as unknown as EventStore;
 
 // ─── Mock VcsProvider Helper ────────────────────────────────────────────────
 
@@ -36,7 +72,7 @@ describe('handleValidatePrStack', () => {
 
   it('NoPRs_ReturnsPassedTrue', async () => {
     const provider = createMockProvider({ listPrs: [] });
-    const result = await handleValidatePrStack({ baseBranch: 'main' }, provider);
+    const result = await handleValidatePrStack({ featureId: FEATURE_ID, baseBranch: 'main' }, STATE_DIR, eventStore, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; prCount: number; errors: readonly string[] };
@@ -52,7 +88,7 @@ describe('handleValidatePrStack', () => {
       { number: 3, url: '', title: '', baseRefName: 'feat-b', headRefName: 'feat-c', state: 'OPEN' },
     ];
     const provider = createMockProvider({ listPrs: prs });
-    const result = await handleValidatePrStack({ baseBranch: 'main' }, provider);
+    const result = await handleValidatePrStack({ featureId: FEATURE_ID, baseBranch: 'main' }, STATE_DIR, eventStore, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; prCount: number; report: string; errors: readonly string[] };
@@ -74,7 +110,7 @@ describe('handleValidatePrStack', () => {
       { number: 2, url: '', title: '', baseRefName: 'orphan-branch', headRefName: 'feat-b', state: 'OPEN' },
     ];
     const provider = createMockProvider({ listPrs: prs });
-    const result = await handleValidatePrStack({ baseBranch: 'main' }, provider);
+    const result = await handleValidatePrStack({ featureId: FEATURE_ID, baseBranch: 'main' }, STATE_DIR, eventStore, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; errors: readonly string[] };
@@ -89,7 +125,7 @@ describe('handleValidatePrStack', () => {
       { number: 2, url: '', title: '', baseRefName: 'main', headRefName: 'feat-b', state: 'OPEN' },
     ];
     const provider = createMockProvider({ listPrs: prs });
-    const result = await handleValidatePrStack({ baseBranch: 'main' }, provider);
+    const result = await handleValidatePrStack({ featureId: FEATURE_ID, baseBranch: 'main' }, STATE_DIR, eventStore, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; errors: readonly string[] };
@@ -103,7 +139,7 @@ describe('handleValidatePrStack', () => {
       { number: 2, url: '', title: '', baseRefName: 'feat-b', headRefName: 'feat-c', state: 'OPEN' },
     ];
     const provider = createMockProvider({ listPrs: prs });
-    const result = await handleValidatePrStack({ baseBranch: 'main' }, provider);
+    const result = await handleValidatePrStack({ featureId: FEATURE_ID, baseBranch: 'main' }, STATE_DIR, eventStore, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; errors: readonly string[] };
@@ -115,7 +151,7 @@ describe('handleValidatePrStack', () => {
     const provider = createMockProvider({
       listPrsError: new Error('gh: command not found'),
     });
-    const result = await handleValidatePrStack({ baseBranch: 'main' }, provider);
+    const result = await handleValidatePrStack({ featureId: FEATURE_ID, baseBranch: 'main' }, STATE_DIR, eventStore, provider);
 
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
@@ -129,7 +165,7 @@ describe('handleValidatePrStack', () => {
       { number: 3, url: '', title: '', baseRefName: 'feat-a', headRefName: 'feat-c', state: 'OPEN' },
     ];
     const provider = createMockProvider({ listPrs: prs });
-    const result = await handleValidatePrStack({ baseBranch: 'main' }, provider);
+    const result = await handleValidatePrStack({ featureId: FEATURE_ID, baseBranch: 'main' }, STATE_DIR, eventStore, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; errors: readonly string[] };
@@ -138,7 +174,7 @@ describe('handleValidatePrStack', () => {
   });
 
   it('MissingBaseBranch_ReturnsError', async () => {
-    const result = await handleValidatePrStack({ baseBranch: '' });
+    const result = await handleValidatePrStack({ featureId: FEATURE_ID, baseBranch: '' }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
@@ -147,7 +183,7 @@ describe('handleValidatePrStack', () => {
 
   it('UsesProviderListPrs_WithStateOpenFilter', async () => {
     const provider = createMockProvider({ listPrs: [] });
-    await handleValidatePrStack({ baseBranch: 'main' }, provider);
+    await handleValidatePrStack({ featureId: FEATURE_ID, baseBranch: 'main' }, STATE_DIR, eventStore, provider);
 
     expect(provider.listPrs).toHaveBeenCalledWith({ state: 'open' });
   });

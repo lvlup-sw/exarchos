@@ -239,9 +239,10 @@ export const SYNTHESIS_CLOSEOUT: RunbookDefinition = {
   // run under a two-minute timeout, against a caller-supplied worktree path.
   // That verdict is owed BEFORE the closeout is asked for, not inside it.
   //
-  // `validate_pr_stack` is left out because its handler does not record the
-  // durable gate evidence its contract declares, and a leaf that breaks its own
-  // postcondition halts the segment whatever the step's failure policy says.
+  // `validate_pr_stack` now records the durable gate evidence its contract
+  // declares, so the postcondition that used to halt this segment no longer
+  // does. Extending the segment to carry it is a separate decision about what
+  // the closeout should DO, not a repair, and is deliberately not made here.
   //
   // The state-patch step the hand-followed synthesis flow ends with is left out
   // because the executor invokes leaves through the ORCHESTRATE handler table:

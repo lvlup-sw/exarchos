@@ -164,6 +164,7 @@ When tasks complete, run the post-delegation check:
 ```typescript
 exarchos_orchestrate({
   action: "post_delegation_check",
+  featureId: "<feature-id>",
   stateFile: "<path-to-state.json>",
   repoRoot: "<project-root>"
 })
@@ -189,7 +190,7 @@ When using `--mode agent-team`:
 - On quality gate fail: exit code 2 sends feedback + `team.task.failed` event emitted
 - Rich event data: taskId, teammateName, durationMs, filesChanged, testsPassed
 - After all teammates finish: append `team.disbanded` event with summary metrics
-- Run `exarchos_orchestrate({ action: "post_delegation_check" })` as usual for final validation
+- Run `exarchos_orchestrate({ action: "post_delegation_check", featureId: "<feature-id>" })` as usual for final validation
 <!-- /requires -->
 
 ## Step 7: Schema Sync (Auto-Detection)

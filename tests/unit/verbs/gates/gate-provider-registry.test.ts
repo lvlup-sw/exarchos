@@ -27,7 +27,7 @@ describe('gate provider registry', () => {
         code: 'UNKNOWN_GATE_CLASS',
         message: 'Unknown gate class "static-anlysis"',
         gateClass: 'static-anlysis',
-        suggestions: ['static-analysis', 'test-adequacy', 'plan-coverage'],
+        suggestions: ['static-analysis', 'pre-synthesis', 'test-adequacy'],
         validGateClasses: SUPPORTED_GATE_CLASSES,
       },
     });
@@ -92,7 +92,7 @@ describe('gate provider registry', () => {
         code: 'UNKNOWN_GATE_CLASS',
         message: 'Unknown gate class "contract-drit"',
         gateClass: 'contract-drit',
-        suggestions: ['contract-drift', 'convergence', 'test-adequacy'],
+        suggestions: ['contract-drift', 'convergence', 'context-economy'],
         validGateClasses: SUPPORTED_GATE_CLASSES,
       },
     });

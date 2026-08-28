@@ -8,10 +8,15 @@ import { execFileSync } from 'node:child_process';
 import { runCommandSync } from '../../utils/process.js';
 import { existsSync } from 'node:fs';
 import type { ToolResult } from '../../format.js';
+import type { EventStore } from '../../events/store.js';
+import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
+import { runPhaseGateWithEvidence } from '../gates/gate-runner.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface DebugReviewGateArgs {
+  /** The stream the gate's durable evidence is recorded against. */
+  readonly featureId: string;
   readonly repoRoot: string;
   readonly baseBranch: string;
   readonly skipRun?: boolean;
@@ -29,7 +34,45 @@ const TEST_FILE_PATTERN = /\.(test|spec)\.(ts|js|sh)$/;
 
 // ─── Handler ────────────────────────────────────────────────────────────────
 
-export function handleDebugReviewGate(args: DebugReviewGateArgs): ToolResult {
+export async function handleDebugReviewGate(
+  args: DebugReviewGateArgs,
+  stateDir: string,
+  eventStore: EventStore,
+): Promise<ToolResult> {
+  if (!args.featureId) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'featureId is required' },
+    };
+  }
+
+  // The gate declares durable gate evidence as a postcondition and appended
+  // nothing, so every postcondition-observing caller read a success carrier
+  // that had broken its own contract. Routing through the shared phase-gate
+  // runner records the evidence before any success carrier escapes; the action
+  // declares no catalog emission, so no `gate.executed` row is minted here.
+  return runPhaseGateWithEvidence({
+    streamId: args.featureId,
+    gateClass: 'debug-review',
+    requirementId: 'requirement:debug-review',
+    stateDir,
+    eventStore,
+    subject: (phaseAttemptId) =>
+      createEvidenceSubject(
+        { kind: 'phase-attempt', phaseAttemptId },
+        {
+          gate: 'debug-review',
+          phase: 'debug-review',
+          repoRoot: args.repoRoot,
+          baseBranch: args.baseBranch,
+        },
+      ),
+    providerInput: args,
+    executeProvider: async () => executeDebugReviewGate(args),
+  });
+}
+
+function executeDebugReviewGate(args: DebugReviewGateArgs): ToolResult {
   // Validate required args
   if (!args.repoRoot) {
     return {

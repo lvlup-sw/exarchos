@@ -178,6 +178,11 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     name: 'check_coverage_thresholds',
     description: 'Check code coverage metrics against threshold values',
     schema: z.object({
+      // The stream the gate's durable evidence is recorded against. Required:
+      // the postcondition observer reads the record on the stream the CALL
+      // names, so a gate with no stream identity can never pay the evidence it
+      // declares.
+      featureId: z.string().min(1),
       coverageFile: z.string().min(1),
       lineThreshold: z.number().optional(),
       branchThreshold: z.number().optional(),
@@ -185,13 +190,16 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: false, dimension: 'D3' },
+    gate: { blocking: false, dimension: 'D3', gateClass: 'coverage-thresholds' },
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_coverage_thresholds'),
     annotations: READ_ONLY_LOCAL,
   }, {
     ensures: declared({ source: 'durable-evidence', when: 'always', evidenceType: 'gate' }),
-    needs: declared('fs:read'),
-    resources: declared({ kind: 'path', selector: 'coverageFile' }),
+    needs: declared('fs:read', 'mcp:exarchos'),
+    resources: declared(
+      { kind: 'stream', selector: 'featureId' },
+      { kind: 'path', selector: 'coverageFile' },
+    ),
     replay: { kind: 'safe-repeat' },
   }),
   withContract({
@@ -262,36 +270,48 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     name: 'validate_pr_stack',
     description: 'Validate PR stack ordering and base branch consistency',
     schema: z.object({
+      // The stream the gate's durable evidence is recorded against. Required
+      // for the same reason the sibling gates need one: the observer looks for
+      // the record on the stream the call names.
+      featureId: z.string().min(1),
       baseBranch: z.string().min(1),
     }),
     phases: new Set<string>(['synthesize']),
     roles: ROLE_LEAD,
-    gate: { blocking: true },
+    gate: { blocking: true, gateClass: 'pr-stack' },
     outputSchema: vacuityWaiver('exarchos_orchestrate.validate_pr_stack'),
     annotations: READ_ONLY_LOCAL,
   }, {
     ensures: declared({ source: 'durable-evidence', when: 'always', evidenceType: 'gate' }),
-    needs: declared('fs:read'),
-    resources: declared({ kind: 'git-ref', selector: 'baseBranch' }),
+    needs: declared('fs:read', 'mcp:exarchos'),
+    resources: declared(
+      { kind: 'stream', selector: 'featureId' },
+      { kind: 'git-ref', selector: 'baseBranch' },
+    ),
     replay: { kind: 'safe-repeat' },
   }),
   withContract({
     name: 'debug_review_gate',
     description: 'Run debug-track review gate: verify test files exist and pass for changed files',
     schema: z.object({
+      // The stream the gate's durable evidence is recorded against. The action
+      // already replayed under a stream-subject claim scope while naming no
+      // stream at all; this is the identity that scope always presumed.
+      featureId: z.string().min(1),
       repoRoot: z.string().min(1),
       baseBranch: z.string().min(1),
       skipRun: z.boolean().optional(),
     }),
     phases: new Set<string>(['debug-review']),
     roles: ROLE_LEAD,
-    gate: { blocking: true },
+    gate: { blocking: true, gateClass: 'debug-review' },
     outputSchema: vacuityWaiver('exarchos_orchestrate.debug_review_gate'),
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared({ source: 'durable-evidence', when: 'always', evidenceType: 'gate' }),
-    needs: declared('fs:read', 'shell:exec'),
+    needs: declared('fs:read', 'mcp:exarchos', 'shell:exec'),
     resources: declared(
+      { kind: 'stream', selector: 'featureId' },
       { kind: 'path', selector: 'repoRoot' },
       { kind: 'git-ref', selector: 'baseBranch' },
     ),
@@ -486,13 +506,17 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     description: 'Run post-delegation checks: task completion, test pass, branch existence',
     schema: z.object({
       stateFile: z.string().min(1).optional(),
-      featureId: z.string().min(1).optional(),
+      // Required, not optional: the gate declares durable evidence, and the
+      // observer reads that record on the stream the call names. A stateFile-only
+      // call had no stream to record against, so the declaration could not be
+      // paid. `stateFile` remains the optional state-resolution override.
+      featureId: z.string().min(1),
       repoRoot: z.string().min(1),
       skipTests: z.boolean().optional(),
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: true },
+    gate: { blocking: true, gateClass: 'post-delegation' },
     // DR-5: chains `npm run test:run` across every task worktree with a
     // 120s per-worktree timeout; scales with the number of tasks.
     longRunning: true,

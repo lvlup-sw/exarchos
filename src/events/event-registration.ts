@@ -340,8 +340,7 @@ export const RECONCILER_IDS: readonly ['worktree', 'branch', 'pr'] = ['worktree'
 export const GROUND_TRUTH_SOURCES: readonly ['process', 'network'] = ['process', 'network'];
 
 /**
- * {@link SupportedGateClass} as data — the fourteen classes with exactly one registered provider
- * each.
+ * {@link SupportedGateClass} as data — the classes with exactly one registered provider each.
  *
  * Deliberately NOT imported from `verbs/gates/gate-provider-registry.ts` as a value. That module
  * builds its provider registry at module load, and every import in THIS file is `import type`
@@ -364,6 +363,16 @@ export const JUDGMENT_GATE_CLASSES: readonly [
   'invariant-conformance',
   'task-decomposition',
   'spec-coverage',
+  'context-economy',
+  'coverage-thresholds',
+  'debug-review',
+  'exploration-depth',
+  'operational-resilience',
+  'post-delegation',
+  'post-merge',
+  'pr-stack',
+  'pre-synthesis',
+  'workflow-determinism',
 ] = [
   'test-adequacy',
   'contract-drift',
@@ -379,6 +388,16 @@ export const JUDGMENT_GATE_CLASSES: readonly [
   'invariant-conformance',
   'task-decomposition',
   'spec-coverage',
+  'context-economy',
+  'coverage-thresholds',
+  'debug-review',
+  'exploration-depth',
+  'operational-resilience',
+  'post-delegation',
+  'post-merge',
+  'pr-stack',
+  'pre-synthesis',
+  'workflow-determinism',
 ];
 
 // ─── The variants ───────────────────────────────────────────────────────────

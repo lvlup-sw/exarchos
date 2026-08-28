@@ -20,6 +20,35 @@ vi.mock('node:child_process', () => ({
   execFile: vi.fn(),
 }));
 
+// The gate now records durable evidence through the shared phase-gate runner
+// before any success carrier escapes. These cases are about the PROVIDER's
+// verdict, so the runner is stubbed down to its provider call — the same seam
+// every other migrated gate's unit test stubs. The evidence a caller actually
+// gets is proven over real dispatch in
+// `unrunbooked-gate-evidence-dispatch.test.ts`.
+vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
+  runPhaseGateWithEvidence: vi.fn(async (request) => {
+    try {
+      return await request.executeProvider(
+        {
+          gateClass: request.gateClass,
+          providerRef: 'test-provider',
+          actionName: 'test-provider',
+        },
+        request.providerInput,
+      );
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: 'GATE_PROVIDER_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }),
+}));
+
 // ─── Mock VCS factory to avoid loading shell.ts/detector.ts ────────────────
 
 vi.mock('../../../../src/vcs/factory.js', () => ({
@@ -33,6 +62,49 @@ import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import { handlePreSynthesisCheck } from '../../../../src/verbs/gates/pre-synthesis-check.js';
 import { EventStore } from '../../../../src/events/store.js';
+
+// ─── Dispatch wiring the gate needs to record its declared evidence ─────────
+//
+// The gate now names the stream its durable evidence records against, and takes
+// the event store and state directory from the dispatch context rather than the
+// caller. These cases drive the handler below `dispatch()`, so they supply the
+// same three — and because the event store is the authoritative state source
+// (the `.state.json` is a derived stamp), the state each case sets up is fed
+// through a store the projection can fold, not only through the file mock.
+const STATE_DIR = '/tmp/test-pre-synthesis-check';
+const FEATURE_ID = 'pre-synthesis-feature';
+
+let currentStore: EventStore;
+
+function storeFrom(stateJson: string): EventStore {
+  const { phase, workflowType, ...patch } = JSON.parse(stateJson) as Record<string, unknown>;
+  // `phase` and `workflowType` are lifecycle-owned in the projection — a
+  // `state.patched` naming them is ignored — so they arrive as the lifecycle
+  // events that actually set them.
+  const events: { type: string; data: Record<string, unknown> }[] = [
+    { type: 'workflow.started', data: { featureId: FEATURE_ID, workflowType: workflowType ?? 'feature' } },
+  ];
+  if (typeof phase === 'string') {
+    events.push({ type: 'workflow.transition', data: { to: phase } });
+  }
+  events.push({ type: 'state.patched', data: { patch } });
+  return {
+    append: vi.fn().mockResolvedValue(undefined),
+    query: vi.fn().mockResolvedValue(events),
+  } as unknown as EventStore;
+}
+
+/** A store with nothing usable to say — the no-state-source case. */
+function unavailableStore(): EventStore {
+  return {
+    append: vi.fn().mockResolvedValue(undefined),
+    query: vi.fn().mockRejectedValue(new Error('store unavailable')),
+  } as unknown as EventStore;
+}
+
+function gateWiring(): { featureId: string; stateDir: string; eventStore: EventStore } {
+  return { featureId: FEATURE_ID, stateDir: STATE_DIR, eventStore: currentStore };
+}
 
 // ─── Test Helpers ───────────────────────────────────────────────────────────
 
@@ -64,6 +136,7 @@ function setupValidState(stateJson: string): void {
   // (correctly) rejects.
   vi.mocked(existsSync).mockImplementation((p) => !String(p).endsWith('.exarchos.yml'));
   vi.mocked(readFileSync).mockReturnValue(stateJson);
+  currentStore = storeFrom(stateJson);
 }
 
 // ─── Mock VcsProvider Helper ────────────────────────────────────────────────
@@ -107,6 +180,7 @@ function mockTestsOnly(): void {
 describe('handlePreSynthesisCheck', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    currentStore = unavailableStore();
   });
 
   // ─── Test 1: All checks pass ────────────────────────────────────────────
@@ -120,7 +194,8 @@ describe('handlePreSynthesisCheck', () => {
       listPrs: [{ number: 1, url: '', title: 'Test', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
     });
 
-    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+    const result = await handlePreSynthesisCheck({
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -140,7 +215,8 @@ describe('handlePreSynthesisCheck', () => {
       listPrs: [{ number: 42, url: '', title: 'My PR', headRefName: 'feat/my-branch', baseRefName: 'main', state: 'OPEN' }],
     });
 
-    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+    const result = await handlePreSynthesisCheck({
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
 
     expect(result.success).toBe(true);
     expect(provider.listPrs).toHaveBeenCalledWith({ state: 'open', head: 'feat/my-branch' });
@@ -151,7 +227,8 @@ describe('handlePreSynthesisCheck', () => {
   it('StateFileNotFound_ReturnsError', async () => {
     vi.mocked(existsSync).mockReturnValue(false);
 
-    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/missing.json' });
+    const result = await handlePreSynthesisCheck({
+      ...gateWiring(), stateFile: '/tmp/missing.json' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -171,7 +248,8 @@ describe('handlePreSynthesisCheck', () => {
       listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
     });
 
-    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+    const result = await handlePreSynthesisCheck({
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -197,7 +275,8 @@ describe('handlePreSynthesisCheck', () => {
       listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
     });
 
-    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+    const result = await handlePreSynthesisCheck({
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -219,7 +298,8 @@ describe('handlePreSynthesisCheck', () => {
       listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
     });
 
-    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+    const result = await handlePreSynthesisCheck({
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -243,7 +323,8 @@ describe('handlePreSynthesisCheck', () => {
       listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
     });
 
-    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+    const result = await handlePreSynthesisCheck({
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -263,6 +344,7 @@ describe('handlePreSynthesisCheck', () => {
     });
 
     const result = await handlePreSynthesisCheck({
+      ...gateWiring(),
       stateFile: '/tmp/state.json',
       skipTests: true,
     }, provider);
@@ -282,6 +364,7 @@ describe('handlePreSynthesisCheck', () => {
     mockTestsOnly();
 
     const result = await handlePreSynthesisCheck({
+      ...gateWiring(),
       stateFile: '/tmp/state.json',
       skipStack: true,
     });
@@ -313,7 +396,8 @@ describe('handlePreSynthesisCheck', () => {
       listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
     });
 
-    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+    const result = await handlePreSynthesisCheck({
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -339,7 +423,8 @@ describe('handlePreSynthesisCheck', () => {
       listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
     });
 
-    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+    const result = await handlePreSynthesisCheck({
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -360,7 +445,8 @@ describe('handlePreSynthesisCheck', () => {
       listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
     });
 
-    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+    const result = await handlePreSynthesisCheck({
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -374,7 +460,8 @@ describe('handlePreSynthesisCheck', () => {
     vi.mocked(existsSync).mockReturnValue(true);
     vi.mocked(readFileSync).mockReturnValue('{ invalid json }');
 
-    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' });
+    const result = await handlePreSynthesisCheck({
+      ...gateWiring(), stateFile: '/tmp/state.json' });
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -393,7 +480,8 @@ describe('handlePreSynthesisCheck', () => {
       listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
     });
 
-    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+    const result = await handlePreSynthesisCheck({
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -412,7 +500,8 @@ describe('handlePreSynthesisCheck', () => {
       listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
     });
 
-    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+    const result = await handlePreSynthesisCheck({
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -434,7 +523,8 @@ describe('handlePreSynthesisCheck', () => {
       listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
     });
 
-    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+    const result = await handlePreSynthesisCheck({
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -456,7 +546,8 @@ describe('handlePreSynthesisCheck', () => {
       listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
     });
 
-    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+    const result = await handlePreSynthesisCheck({
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -478,7 +569,8 @@ describe('handlePreSynthesisCheck', () => {
       listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
     });
 
-    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+    const result = await handlePreSynthesisCheck({
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -495,7 +587,8 @@ describe('handlePreSynthesisCheck', () => {
 
     const provider = createMockProvider({ listPrs: [] });
 
-    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+    const result = await handlePreSynthesisCheck({
+      ...gateWiring(), stateFile: '/tmp/state.json' }, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
@@ -551,8 +644,8 @@ describe('handlePreSynthesisCheck', () => {
       ],
     });
 
-    const result = await handlePreSynthesisCheck(
-      { featureId, eventStore, skipTests: true, skipStack: true },
+    const result = await handlePreSynthesisCheck({
+      ...gateWiring(), featureId, eventStore, skipTests: true, skipStack: true },
       provider,
     );
 
@@ -612,8 +705,8 @@ describe('handlePreSynthesisCheck', () => {
 
     const provider = createMockProvider({ listPrs: [] });
 
-    const result = await handlePreSynthesisCheck(
-      { stateFile: BAD, featureId, eventStore, skipTests: true, skipStack: true },
+    const result = await handlePreSynthesisCheck({
+      ...gateWiring(), stateFile: BAD, featureId, eventStore, skipTests: true, skipStack: true },
       provider,
     );
 

@@ -282,8 +282,8 @@ export const WELD_RESOLUTION_POLICY: Readonly<Record<EventTier, WeldResolutionPo
     judgment: {
       resolvedAt: 'compile',
       note:
-        '`SupportedGateClass` is the shipped nine-class union, pinned to `JUDGMENT_GATE_CLASSES`. ' +
-        'A tenth gate class reddens `event-registration.ts` before it can reach a registration.',
+        '`SupportedGateClass` is the shipped closed union, pinned to `JUDGMENT_GATE_CLASSES`. ' +
+        'One more gate class reddens `event-registration.ts` before it can reach a registration.',
     },
     'workflow-local': {
       resolvedAt: 'never',
