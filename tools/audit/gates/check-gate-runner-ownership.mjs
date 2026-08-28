@@ -68,6 +68,15 @@ const DISPOSITIONS = Object.freeze([
     ['src/verbs/team/prepare-synthesis.ts', 'orchestrate/gate-runner'],
     ['src/verbs/gates/provenance-chain.ts', 'orchestrate/gate-runner'],
     ['src/verbs/review/review-verdict.ts', 'orchestrate/gate-runner'],
+    // These three declared durable gate evidence and paid it with a bare
+    // `gate.executed` append, which is the postcondition dispatch observes
+    // after the handler returns — so each answered a contract violation on
+    // every call. Routing them through the canonical runner is what closed
+    // that, and it is the OWNED path: the row below records the seam they now
+    // use, next to the compatibility-observation row each already carried.
+    ['src/verbs/gates/check-convergence.ts', 'orchestrate/gate-runner'],
+    ['src/verbs/gates/check-invariant-conformance.ts', 'orchestrate/gate-runner'],
+    ['src/verbs/gates/security-scan.ts', 'orchestrate/gate-runner'],
   ].map(([file, owner]) => ({
     file,
     kind: 'durable-runner',
