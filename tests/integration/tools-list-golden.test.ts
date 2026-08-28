@@ -71,7 +71,7 @@
 // ASK the operator for a value they already held: the workflow stream id IS the
 // bare featureId, which is the name every workflow surface uses.
 //
-// ── THIRD REVIEWED MOVE: two more intents on `execute_intent` ──────────────
+// ── Two more compilable intents on `execute_intent` ────────────────────────
 //
 // MEASURED, not eyeballed: normalising both goldens and diffing yields exactly
 // ONE changed line — the `exarchos_orchestrate` tool description — and within

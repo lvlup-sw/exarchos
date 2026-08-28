@@ -673,6 +673,13 @@ export const PLAN_CLOSEOUT: RunbookDefinition = {
   //
   // Only `gate.executed`: both gates declare it unconditionally, and the matrix
   // generator declares no emission at all.
+  //
+  // The durable evidence each gate also records is deliberately NOT named here.
+  // `autoEmits` mirrors the actions' declared `emissions`, and the two plan
+  // gates carry their evidence obligation on the separate `durable-evidence`
+  // postcondition axis instead. Naming the evidence row here is not a more
+  // complete declaration but a false one — the bijection derives the permitted
+  // set from those same `emissions`, so it reddens on the addition.
   autoEmits: ['gate.executed'],
 };
 
