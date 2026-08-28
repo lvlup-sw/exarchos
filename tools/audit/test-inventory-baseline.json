@@ -1,13 +1,13 @@
 {
-  "capturedAt": "2026-08-27",
+  "capturedAt": "2026-08-28",
   "discovery": "extension-based over tracked files; not a runner glob",
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1242,
-    "parsedFiles": 1197,
+    "testFiles": 1243,
+    "parsedFiles": 1198,
     "shellFiles": 45,
-    "cases": 13690,
+    "cases": 13696,
     "dynamicTitles": 145,
     "unparseableFiles": 0
   },
@@ -50966,6 +50966,11 @@
         },
         {
           "suite": "plan-closeout over the live handler table",
+          "name": "PlanCloseout_CrashedMidSegmentThenRetried_LeavesOneRowPerGateLeaf",
+          "dynamic": false
+        },
+        {
+          "suite": "plan-closeout over the live handler table",
           "name": "PlanCloseout_SameOperationIdDifferentRequest_IsRefused",
           "dynamic": false
         },
@@ -51049,6 +51054,11 @@
         {
           "suite": "quality-evaluation over the deterministic leaf subset",
           "name": "QualityEvaluation_Replay_ReturnsThePersistedReceiptAndRunsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation over the deterministic leaf subset",
+          "name": "QualityEvaluation_CrashedMidSegmentThenRetried_LeavesOneRowPerLeaf",
           "dynamic": false
         },
         {
@@ -53701,6 +53711,11 @@
         {
           "suite": "review gates that declare durable evidence pay it on dispatch",
           "name": "CheckInvariantConformance_Dispatched_SucceedsAndRecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "review gates that declare durable evidence pay it on dispatch",
+          "name": "CheckConvergence_WorkflowIdNamingAnotherStream_StillRecordsOnTheSubject",
           "dynamic": false
         },
         {
@@ -80173,6 +80188,27 @@
         {
           "suite": "tracked-population — the second authority is itself checked",
           "name": "TrackedPopulation_MissedFiles_CapsTheReportSoAFailureStaysLegible",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/test-helpers/trusted-context.test.ts": {
+      "file": "tools/test-helpers/trusted-context.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "seedGateEvidence keys its evidence the way the gate runner keys its own",
+          "name": "SeedGateEvidence_TwoPhaseAttempts_LeaveTwoRowsCarryingTheirOwnAttempt",
+          "dynamic": false
+        },
+        {
+          "suite": "seedGateEvidence keys its evidence the way the gate runner keys its own",
+          "name": "SeedGateEvidence_SameAttemptSeededTwice_ReusesTheExistingRow",
+          "dynamic": false
+        },
+        {
+          "suite": "seedGateEvidence keys its evidence the way the gate runner keys its own",
+          "name": "SeedGateEvidence_DifferentRequirements_StayDistinctWithinOneAttempt",
           "dynamic": false
         }
       ]
