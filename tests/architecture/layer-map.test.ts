@@ -203,6 +203,12 @@ describe('the 11 targets → 9 published layers relation (what task 044 asserts)
 // import into `contract/oracle/`. It reuses the same lexer-backed edge scan
 // the general census runs on, so a specifier hidden in a comment or a
 // template cannot manufacture or hide an edge here either.
+// Both tests below walk the real `src/` tree rather than a fixture, which puts
+// them outside this tier's "fast, in-memory" 5s budget on a loaded runner: the
+// first one to run pays the cold filesystem cache for the whole scan. They were
+// passing at roughly a fifth of the budget locally and timing out in CI, which
+// is the shape of a latent flake rather than a slow test. Given the explicit
+// headroom the tier grants its other filesystem-bound cases.
 describe('EventsLayer_NeverImportsOracle', () => {
   it('no module under events/ resolves an import into contract/oracle/', async () => {
     const edges = await scanLayerEdges(SRC, lexModule);
@@ -214,7 +220,7 @@ describe('EventsLayer_NeverImportsOracle', () => {
       'The oracle judges what the event store produces; an import running the ' +
         'other way would let the store depend on its own judge.',
     ).toEqual([]);
-  });
+  }, 20000);
 
   it('the scan is not vacuous: events/ actually has resolvable edges to inspect', async () => {
     // A scan root that resolved to nothing, or a lexer that never returned an
@@ -222,5 +228,5 @@ describe('EventsLayer_NeverImportsOracle', () => {
     const edges = await scanLayerEdges(SRC, lexModule);
     const eventsEdges = edges.filter((e) => e.module.startsWith('events/'));
     expect(eventsEdges.length).toBeGreaterThan(0);
-  });
+  }, 20000);
 });
