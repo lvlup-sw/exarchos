@@ -281,7 +281,9 @@ describe('create_issue — crash recovery keys the retry under its own operation
       expect(second.error?.code).not.toBe('EMISSION_CONTRACT_VIOLATED');
       expect(second.success).toBe(true);
     } finally {
-      await fs.rm(tmpDir, { recursive: true, force: true });
+      eventStore.close();
+      const { rmrfAsync } = await import('../../../../tools/test-helpers/temp-dir.js');
+      await rmrfAsync(tmpDir);
     }
   });
 });
