@@ -78,6 +78,21 @@ export type CompileRefusalCode =
    */
   | 'INTENT_NOT_CLOSED'
   /**
+   * A step would be checked against a handler table, but the compile deps
+   * name no tool that table belongs to. A table's keys alone cannot say which
+   * tool minted them, and an unnamed owner cannot be trusted to be the step's
+   * own tool — so compilation refuses rather than assuming it.
+   */
+  | 'INTENT_HANDLER_TABLE_UNOWNED'
+  /**
+   * A step names a tool that disagrees with the handler table's declared
+   * owner. Registered and local is not the same as invokable through THIS
+   * table: an action name that happens to collide with one in the table would
+   * otherwise resolve the step's declaration correctly and then run the wrong
+   * tool's handler for it.
+   */
+  | 'INTENT_HANDLER_TOOL_MISMATCH'
+  /**
    * A step is a decision point rather than a call — it names no tool and asks
    * the model or the host to choose. The obligation is the caller's to
    * discharge; the executor refuses rather than deciding on its behalf.

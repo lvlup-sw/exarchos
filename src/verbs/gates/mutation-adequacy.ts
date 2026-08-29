@@ -35,7 +35,7 @@ import {
   resolveMutationDiffScope,
   type MutationDiffScope,
 } from '../../config/toolchains.js';
-import { defaultGitExec, emitGateEvent, resolveRepoRoot } from './gate-utils.js';
+import { defaultGitExec, requireGateEvent, resolveRepoRoot } from './gate-utils.js';
 import { orchestrateLogger } from '../../logger.js';
 
 // ─── Stryker mutation-testing-report-schema (subset we consume) ─────────────
@@ -1027,31 +1027,14 @@ export async function handleMutationAdequacy(
       runtime.remediation ??
       'no mutation runner resolved for this repository — install one (e.g. stryker, ' +
         'cargo-mutants, mutmut) or set `mutation:` in .exarchos.yml';
-    // DR-2a: emit a skip-passing gate.executed so the projection records
+    // Emit a skip-passing gate.executed so the projection records
     // `reviews['mutation-adequacy']` as skip-pass. Without this the required
     // dimension is silently absent and `review → synthesize` dead-locks at HIGH
-    // tier on a repo that has no mutation runner (INV-1: presence is satisfied
-    // by a recorded fact, not by dropping the requirement).
-    try {
-      await emitGateEvent(
-        eventStore,
-        args.featureId,
-        MUTATION_GATE_NAME,
-        MUTATION_GATE_LAYER,
-        true,
-        { skipped: true, reason, mutationScore: 0 },
-        mutationGateKey(args.operationId, 'skip-no-toolchain'),
-      );
-    } catch (err) {
-      // Fire-and-forget — emission failure must not break the advisory verdict,
-      // but a dropped no-toolchain skip-pass re-enters the DR-2a dead-lock at
-      // review→synthesize, so surface a diagnostic (RVC-R4).
-      orchestrateLogger.warn(
-        { featureId: args.featureId, err: err instanceof Error ? err.message : String(err) },
-        'mutation-adequacy: failed to emit no-toolchain skip-pass gate.executed; dimension may be absent at review→synthesize',
-      );
-    }
-    return {
+    // tier on a repo that has no mutation runner (presence is satisfied by a
+    // recorded fact, not by dropping the requirement) — so a dropped append
+    // here withholds the skip-pass carrier rather than returning one the log
+    // does not back.
+    const gateCarrier: ToolResult = {
       success: true,
       data: {
         passed: true,
@@ -1064,6 +1047,18 @@ export async function handleMutationAdequacy(
         total: 0,
       },
     };
+    const unrecorded = await requireGateEvent(
+      eventStore,
+      args.featureId,
+      MUTATION_GATE_NAME,
+      MUTATION_GATE_LAYER,
+      true,
+      gateCarrier,
+      { skipped: true, reason, mutationScore: 0 },
+      mutationGateKey(args.operationId, 'skip-no-toolchain'),
+    );
+    if (unrecorded !== undefined) return unrecorded;
+    return gateCarrier;
   }
 
   // ── Compose the command. `full` (offline opt-in, DR-6) runs the whole tree —
@@ -1098,8 +1093,7 @@ export async function handleMutationAdequacy(
     projectDeclaredCommand: runtime.mutationProjectDeclared,
   });
   if (!runnerCwd.ok) {
-    await emitAdvisoryGate(eventStore, args, runnerCwd.reason);
-    return warningCarrier(runnerCwd.reason, scoped.warning);
+    return emitAdvisoryGate(eventStore, args, runnerCwd.reason, scoped.warning);
   }
   const cwd = runnerCwd.cwd;
 
@@ -1161,15 +1155,13 @@ export async function handleMutationAdequacy(
 
   // ── Run-level degrade (no parseable report) → Warning, never a throw. ──────
   if (!runResult.ok) {
-    await emitAdvisoryGate(eventStore, args, runResult.reason);
-    return warningCarrier(runResult.reason, scoped.warning);
+    return emitAdvisoryGate(eventStore, args, runResult.reason, scoped.warning);
   }
 
   // ── Parse + fold (001). Malformed report → Warning (degrade). ──────────────
   const parsed = parseMutationReport(runResult.report);
   if (!parsed.ok) {
-    await emitAdvisoryGate(eventStore, args, parsed.reason);
-    return warningCarrier(parsed.reason, scoped.warning);
+    return emitAdvisoryGate(eventStore, args, parsed.reason, scoped.warning);
   }
 
   const carrier = parsed.carrier;
@@ -1208,8 +1200,7 @@ export async function handleMutationAdequacy(
       `'${relativeToRepo(repoRoot, cwd)}' (${runnerCwd.rationale}) against the ` +
       `mutation config ` +
       `'${runnerCwd.configPath === null ? '<declared runner dir>' : relativeToRepo(repoRoot, runnerCwd.configPath)}'.`;
-    await emitAdvisoryGate(eventStore, args, reason);
-    return warningCarrier(reason, scoped.warning);
+    return emitAdvisoryGate(eventStore, args, reason, scoped.warning);
   }
 
   // The SECOND axis: NoCoverage. For a *diff*-scoped run an uncovered changed
@@ -1231,39 +1222,9 @@ export async function handleMutationAdequacy(
   const passed = trivialPass || (carrier.mutationScore >= threshold && !noCoverageBlocks);
   const nextActions = survivorAffordances(parsed.report);
 
-  // ── Emit the foldable gate.executed (004 / INV-1). Idempotent via an
-  // OUTCOME-suffixed operationId key (INV-8, RVC-R7) — NO CAS-pin on the
-  // follow-on event. ─────────────────────────────────────────────────────────
-  try {
-    await emitGateEvent(
-      eventStore,
-      args.featureId,
-      MUTATION_GATE_NAME,
-      MUTATION_GATE_LAYER,
-      passed,
-      {
-        mutationScore: carrier.mutationScore,
-        killed: carrier.killed,
-        survived: carrier.survived,
-        noCoverage: carrier.noCoverage,
-        total: carrier.total,
-        threshold,
-      },
-      mutationGateKey(args.operationId, 'scored'),
-    );
-  } catch (err) {
-    // Fire-and-forget — emission failure must not break the verdict. A dropped
-    // real-score emission leaves the dimension absent, which fails CLOSED at
-    // review→synthesize (safe), but still warrants a diagnostic trail (RVC-R4).
-    orchestrateLogger.warn(
-      { featureId: args.featureId, err: err instanceof Error ? err.message : String(err) },
-      'mutation-adequacy: failed to emit scored gate.executed',
-    );
-  }
-
-  // ── INV-5b advisory carrier. Severity (006) is applied by the dispatch
+  // ── Build the advisory carrier. Severity is applied by the dispatch
   // adapter (applyLadderGateSeverity) AFTER this returns. ────────────────────
-  return {
+  const resultCarrier: ToolResult = {
     success: true,
     ...(scoped.warning ? { warnings: [scoped.warning] } : {}),
     data: {
@@ -1274,13 +1235,13 @@ export async function handleMutationAdequacy(
       noCoverage: carrier.noCoverage,
       total: carrier.total,
       threshold,
-      // DR-6 (additive, INV-5b): the resolved NoCoverage budget, an explicit
-      // trivial-pass marker for an empty mutatable surface, and — when the
-      // NoCoverage axis blocks — the file:line-attributed failure message.
+      // The resolved NoCoverage budget, an explicit trivial-pass marker for an
+      // empty mutatable surface, and — when the NoCoverage axis blocks — the
+      // file:line-attributed failure message.
       maxNoCoverage,
-      // DR-8 (additive): the run root the score was actually measured in, why
-      // it was chosen, and the config it was derived from. A reader can now
-      // check the gate's reach instead of assuming it.
+      // The run root the score was actually measured in, why it was chosen,
+      // and the config it was derived from. A reader can now check the
+      // gate's reach instead of assuming it.
       runnerCwd: relativeToRepo(repoRoot, cwd),
       runnerCwdRationale: runnerCwd.rationale,
       mutationConfigPath:
@@ -1291,6 +1252,31 @@ export async function handleMutationAdequacy(
       next_actions: nextActions,
     },
   };
+
+  // ── Emit the foldable gate.executed. Idempotent via an OUTCOME-suffixed
+  // operationId key — NO CAS-pin on the follow-on event. A dropped append
+  // withholds this success carrier: the score is trustworthy proof only when
+  // the durable row backing it actually landed. ──────────────────────────────
+  const unrecorded = await requireGateEvent(
+    eventStore,
+    args.featureId,
+    MUTATION_GATE_NAME,
+    MUTATION_GATE_LAYER,
+    passed,
+    resultCarrier,
+    {
+      mutationScore: carrier.mutationScore,
+      killed: carrier.killed,
+      survived: carrier.survived,
+      noCoverage: carrier.noCoverage,
+      total: carrier.total,
+      threshold,
+    },
+    mutationGateKey(args.operationId, 'scored'),
+  );
+  if (unrecorded !== undefined) return unrecorded;
+
+  return resultCarrier;
 }
 
 /**
@@ -1371,31 +1357,28 @@ function resolveMaxNoCoverage(args: MutationAdequacyArgs): number {
  * no-toolchain case stays advisory even under block mode — it is "a backstop the
  * repo cannot run" (spec §Trade-offs, DR-2a), not a backstop that failed.
  *
- * Fire-and-forget: an emission failure must never break the advisory verdict, but
- * a dropped emission leaves the dimension absent and re-enters the dead-lock, so
- * surface it via the structured logger (stderr — stdout is the MCP protocol).
+ * A dropped emission leaves the dimension absent and re-enters the dead-lock,
+ * so a failed append withholds the degraded Warning carrier this call would
+ * otherwise return, rather than returning one the log does not back.
  */
 async function emitAdvisoryGate(
   eventStore: EventStore,
   args: MutationAdequacyArgs,
   reason: string,
-): Promise<void> {
-  try {
-    await emitGateEvent(
-      eventStore,
-      args.featureId,
-      MUTATION_GATE_NAME,
-      MUTATION_GATE_LAYER,
-      true,
-      { skipped: true, degraded: true, reason, mutationScore: 0 },
-      mutationGateKey(args.operationId, 'degraded'),
-    );
-  } catch (err) {
-    orchestrateLogger.warn(
-      { featureId: args.featureId, err: err instanceof Error ? err.message : String(err) },
-      'mutation-adequacy: failed to emit degraded skip-pass gate.executed; dimension may be absent at review→synthesize',
-    );
-  }
+  scopeWarning?: string,
+): Promise<ToolResult> {
+  const carrier = warningCarrier(reason, scopeWarning);
+  const unrecorded = await requireGateEvent(
+    eventStore,
+    args.featureId,
+    MUTATION_GATE_NAME,
+    MUTATION_GATE_LAYER,
+    true,
+    carrier,
+    { skipped: true, degraded: true, reason, mutationScore: 0 },
+    mutationGateKey(args.operationId, 'degraded'),
+  );
+  return unrecorded ?? carrier;
 }
 
 /** Build a degraded Warning carrier (a malformed/empty report never throws). */

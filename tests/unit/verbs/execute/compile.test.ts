@@ -22,6 +22,10 @@ function depsFor(
     runbookTable: [fixtureRunbook('fixture-intent', steps)],
     findAction: findFixtureAction([passing]),
     argSchemas: { 'fixture-intent': fixtureIntentArgs },
+    // Every fixture step names `FIXTURE_TOOL`, so this is the correct default
+    // owner for a `handlers` table a test supplies without overriding it. A
+    // test exercising the owner fence itself overrides `handlerTool` directly.
+    handlerTool: FIXTURE_TOOL,
     ...overrides,
   };
 }
@@ -130,6 +134,55 @@ describe('compileIntent refusals', () => {
     // fence must not turn that into a refusal.
     const deps = depsFor([fixtureStep('fixture_pass', 'stop')]);
     expect(segmentOf(compileIntent('fixture-intent', SUBJECT, ARGS, deps))).toHaveLength(1);
+  });
+
+  describe('the handler table owner fence', () => {
+    // `fixture_pass` resolved under BOTH tool names — the collision the fence
+    // exists to catch. `findFixtureAction` on its own answers only for
+    // `FIXTURE_TOOL`, so this local override is what makes the collision
+    // reachable at all.
+    function findAcrossBothTools(tool: string, action: string) {
+      return (tool === FIXTURE_TOOL || tool === 'exarchos_event') && action === 'fixture_pass'
+        ? passing
+        : undefined;
+    }
+
+    const collidingRunbook = [
+      fixtureRunbook('fixture-intent', [
+        { tool: 'exarchos_event', action: 'fixture_pass', onFail: 'stop' as const },
+      ]),
+    ];
+
+    it('CrossToolActionNameCollision_IsRefusedBeforeAnyEffect', () => {
+      // Kill probe: delete the tool arm in compile.ts and this step compiles
+      // into a leaf that would dispatch to the orchestrate handler table for
+      // an action the step never named on that tool.
+      const deps: CompileDeps = {
+        runbookTable: collidingRunbook,
+        findAction: findAcrossBothTools,
+        argSchemas: { 'fixture-intent': fixtureIntentArgs },
+        handlers: { fixture_pass: () => undefined },
+        handlerTool: FIXTURE_TOOL,
+      };
+      const refusal = refusalOf(compileIntent('fixture-intent', SUBJECT, ARGS, deps));
+      expect(refusal.code).toBe('INTENT_HANDLER_TOOL_MISMATCH');
+      expect(refusal.message).toContain('exarchos_event');
+      expect(refusal.message).toContain(FIXTURE_TOOL);
+    });
+
+    it('HandlerTableWithoutAnOwner_RefusesRatherThanTrustingTheName', () => {
+      // Same collision, but the table names no owner at all. An optional
+      // `handlerTool` a caller can simply omit would leave the fence above
+      // silently inert in exactly the callers that must exercise it.
+      const deps: CompileDeps = {
+        runbookTable: collidingRunbook,
+        findAction: findAcrossBothTools,
+        argSchemas: { 'fixture-intent': fixtureIntentArgs },
+        handlers: { fixture_pass: () => undefined },
+      };
+      const refusal = refusalOf(compileIntent('fixture-intent', SUBJECT, ARGS, deps));
+      expect(refusal.code).toBe('INTENT_HANDLER_TABLE_UNOWNED');
+    });
   });
 
   it('DecideStep_IsAHostObligation', () => {

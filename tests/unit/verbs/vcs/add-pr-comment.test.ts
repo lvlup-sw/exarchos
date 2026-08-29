@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import type { VcsProvider, PrComment, RepoInfo } from '../../../../src/vcs/provider.js';
 import type { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
-import { ConcurrencyError } from '../../../../src/events/index.js';
+import { SqliteBusyExhaustedError } from '../../../../src/storage/sqlite/errors.js';
 
 vi.mock('../../../../src/vcs/factory.js', () => ({
   createVcsProvider: vi.fn(),
@@ -39,9 +39,6 @@ function makeMockCtx(eventStoreOverride?: Partial<EventStore>): DispatchContext 
     stateDir: '/tmp/test-state',
     eventStore: {
       append: vi.fn().mockResolvedValue({ sequence: 1, type: 'pr.comment.requested', streamId: 'vcs', timestamp: new Date().toISOString() }),
-      getAppender: vi.fn().mockReturnValue({
-        appendComputed: vi.fn().mockResolvedValue({ ok: true, kind: 'committed', sequences: [1], eventIds: ['eid-1'], timestamps: [new Date().toISOString()] }),
-      }),
       ...eventStoreOverride,
     } as unknown as EventStore,
     enableTelemetry: false,
@@ -169,11 +166,12 @@ describe('handleAddPrComment', () => {
       replyCtx,
     );
 
-    const appender = replyCtx.eventStore.getAppender();
-    const [, , computeFn] = vi.mocked(appender.appendComputed).mock.calls[0];
-    const events = await computeFn();
-    expect(events[0].type).toBe('pr.comment.requested');
-    expect((events[0].data as Record<string, unknown>).threadId).toBe(201);
+    const requestedCall = vi
+      .mocked(replyCtx.eventStore.append)
+      .mock.calls.find((call) => (call[1] as { type: string }).type === 'pr.comment.requested');
+    expect(requestedCall).toBeDefined();
+    const data = (requestedCall?.[1] as { data: Record<string, unknown> }).data;
+    expect(data.threadId).toBe(201);
   });
 
   it('handleAddPrComment_InvalidThreadId_ReturnsInvalidInput', async () => {
@@ -191,15 +189,13 @@ describe('handleAddPrComment', () => {
 
     await handleAddPrComment(args, ctx);
 
-    // Phase A — pr.comment.requested must be committed via appendComputed
-    const appender = ctx.eventStore.getAppender();
-    expect(appender.appendComputed).toHaveBeenCalledTimes(1);
-    const [streamId, , computeFn] = vi.mocked(appender.appendComputed).mock.calls[0];
-    expect(streamId).toBe('vcs');
-    // The compute function should produce a pr.comment.requested event
-    const events = await computeFn();
-    expect(events).toHaveLength(1);
-    expect(events[0].type).toBe('pr.comment.requested');
+    // Phase A — pr.comment.requested must be committed via a plain append,
+    // so the ambient dispatch operation id gets stamped onto the row.
+    expect(ctx.eventStore.append).toHaveBeenCalledWith(
+      'vcs',
+      expect.objectContaining({ type: 'pr.comment.requested' }),
+      expect.anything(),
+    );
 
     // Phase C — pr.comment.executed must also be appended
     expect(ctx.eventStore.append).toHaveBeenCalledWith(
@@ -260,9 +256,9 @@ describe('handleAddPrComment', () => {
 // The two-event split's load-bearing property: the non-idempotent side
 // effect (`addComment`) lives BETWEEN Phase A (`pr.comment.requested` append)
 // and Phase C (`pr.comment.executed` append), but is NEVER inside a retry
-// boundary. If Phase A's appendComputed throws ConcurrencyError, withStateRetry
-// must catch it and retry Phase A. addComment must be called AT MOST ONCE
-// across the entire retry cycle (not during Phase A retries).
+// boundary. If Phase A's plain append throws a retryable substrate signal,
+// withStateRetry must catch it and retry Phase A. addComment must be called
+// AT MOST ONCE across the entire retry cycle (not during Phase A retries).
 
 describe('handleAddPrComment — B2.2 Phase-A retry non-refire', () => {
   const scratchRoots: string[] = [];
@@ -276,55 +272,37 @@ describe('handleAddPrComment — B2.2 Phase-A retry non-refire', () => {
   });
 
   it('AddPrComment_PhaseARetry_DoesNotRefireGhPrComment', async () => {
-    // Arrange: set up a real-ish event store with a spied appendComputed that
-    // throws ConcurrencyError on the first call, then succeeds.
+    // Arrange: set up a real-ish event store whose plain append throws on the
+    // first Phase-A attempt, then succeeds. The thrown class is what the real
+    // `EventStore.append` actually raises for storage contention — the raw
+    // `SqliteBusyExhaustedError` cause (`src/events/store.ts` `delegateAppend`),
+    // NOT `ConcurrencyError`. A mock throwing `ConcurrencyError` here would
+    // pass without exercising `translateStorageError`'s mapping at all.
     const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), 'b2-refire-'));
     scratchRoots.push(stateDir);
 
-    // Build a mock eventStore whose appender's appendComputed fails once, then succeeds.
     let phaseAAttempts = 0;
-    const appendComputedMock = vi.fn().mockImplementation(
-      async (
-        _streamId: string,
-        _key: string,
-        _compute: () => Promise<unknown[]>,
-        _opts?: unknown,
-      ) => {
-        phaseAAttempts += 1;
-        if (phaseAAttempts === 1) {
-          // First attempt — synthesize a ConcurrencyError that withStateRetry catches.
-          throw new ConcurrencyError({
-            streamId: 'vcs',
-            reducerId: 'add-pr-comment',
-            expectedVersion: 0,
-            actualVersion: 1,
-          });
+    const appendMock = vi.fn().mockImplementation(
+      async (_streamId: string, event: { type: string }, _opts?: unknown) => {
+        if (event.type === 'pr.comment.requested') {
+          phaseAAttempts += 1;
+          if (phaseAAttempts === 1) {
+            throw new SqliteBusyExhaustedError(5, new Error('SQLITE_BUSY'));
+          }
         }
-        // Second attempt — succeed (return committed AppendResult shape).
         return {
-          ok: true,
-          kind: 'committed' as const,
-          sequences: [1],
-          eventIds: ['eid-1'],
-          timestamps: [new Date().toISOString()],
+          sequence: 2,
+          type: event.type,
+          streamId: 'vcs',
+          timestamp: new Date().toISOString(),
         };
       },
     );
-
-    const appendMock = vi.fn().mockResolvedValue({
-      sequence: 2,
-      type: 'pr.comment.executed',
-      streamId: 'vcs',
-      timestamp: new Date().toISOString(),
-    });
 
     const mockCtx: DispatchContext = {
       stateDir,
       eventStore: {
         append: appendMock,
-        getAppender: vi.fn().mockReturnValue({
-          appendComputed: appendComputedMock,
-        }),
       } as unknown as EventStore,
       enableTelemetry: false,
     };
@@ -361,6 +339,37 @@ describe('handleAddPrComment — B2.2 Phase-A retry non-refire', () => {
 
     // Assert — addComment fired AT MOST ONCE (not re-fired during Phase A retries)
     expect(mockProvider.addComment).toHaveBeenCalledTimes(1);
+  });
+
+  it('AddPrComment_PhaseABusyBudgetExhausted_ReturnsStorageBusyNotGenericVcsError', async () => {
+    // Every attempt throws the raw substrate cause `EventStore.append` raises
+    // for storage contention. Pre-fix, `translateStorageError` did not exist:
+    // `isRetryable` did not recognize `SqliteBusyExhaustedError`, so the first
+    // throw propagated straight to the outer catch and surfaced as a generic
+    // `VCS_ERROR` naming a VCS failure for an append that never reached the
+    // VCS. This proves the busy-specific STORAGE_BUSY envelope survives.
+    const appendMock = vi.fn().mockImplementation(
+      async (_streamId: string, event: { type: string }) => {
+        if (event.type === 'pr.comment.requested') {
+          throw new SqliteBusyExhaustedError(5, new Error('SQLITE_BUSY'));
+        }
+        return { sequence: 1, type: event.type, streamId: 'vcs', timestamp: new Date().toISOString() };
+      },
+    );
+    const mockCtx: DispatchContext = {
+      stateDir: '/tmp/b2-busy-exhausted',
+      eventStore: { append: appendMock } as unknown as EventStore,
+      enableTelemetry: false,
+    };
+
+    const result = await handleAddPrComment({ prId: '42', body: 'busy probe' }, mockCtx);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('STORAGE_BUSY');
+    // withStateRetry attempted the append MAX_STATE_RETRIES times before
+    // exhausting, proving the busy signal was actually retried rather than
+    // failing on the first attempt.
+    expect(appendMock).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -401,17 +410,9 @@ describe('handleAddPrComment — B2.3 Idempotent operationId marker check', () =
     });
     vi.mocked(createVcsProvider).mockResolvedValue(mockProvider);
 
-    // Build a ctx whose appendComputed returns a cache-hit for the seeded
-    // operationId (simulating that Phase A already committed).
-    const appendComputedMock = vi.fn().mockResolvedValue({
-      ok: true,
-      kind: 'cache-hit' as const,
-      sequences: [1],
-      eventIds: ['eid-seed'],
-      timestamps: ['2026-05-12T00:00:00Z'],
-      persistedEvents: [],
-    });
-
+    // Phase A is a plain, idempotency-keyed append — the store's own
+    // idempotencyKey dedup is what makes a re-invocation with the seeded
+    // operationId a no-op on re-append; the mock here just needs to resolve.
     const appendMock = vi.fn().mockResolvedValue({
       sequence: 2,
       type: 'pr.comment.executed',
@@ -425,9 +426,6 @@ describe('handleAddPrComment — B2.3 Idempotent operationId marker check', () =
       stateDir: '/tmp/b2-idem-test',
       eventStore: {
         append: appendMock,
-        getAppender: vi.fn().mockReturnValue({
-          appendComputed: appendComputedMock,
-        }),
       } as unknown as EventStore,
       enableTelemetry: false,
     };
@@ -481,14 +479,6 @@ describe('handleAddPrComment — B2.3 Idempotent operationId marker check', () =
     });
     vi.mocked(createVcsProvider).mockResolvedValue(mockProvider);
 
-    const appendComputedMock = vi.fn().mockResolvedValue({
-      ok: true,
-      kind: 'cache-hit' as const,
-      sequences: [1],
-      eventIds: ['eid-seed'],
-      timestamps: ['2026-05-12T00:00:00Z'],
-      persistedEvents: [],
-    });
     const appendMock = vi.fn().mockResolvedValue({
       sequence: 2,
       type: 'pr.comment.executed',
@@ -500,7 +490,6 @@ describe('handleAddPrComment — B2.3 Idempotent operationId marker check', () =
       stateDir: '/tmp/b2-idem-reply-test',
       eventStore: {
         append: appendMock,
-        getAppender: vi.fn().mockReturnValue({ appendComputed: appendComputedMock }),
       } as unknown as EventStore,
       enableTelemetry: false,
     };
@@ -513,7 +502,10 @@ describe('handleAddPrComment — B2.3 Idempotent operationId marker check', () =
     expect(result.success).toBe(true);
     // Recovery path: no new reply posted.
     expect(mockProvider.addReply).not.toHaveBeenCalled();
-    const url = (appendMock.mock.calls[0]?.[1] as { data: { url: string } }).data.url;
+    const executedCall = appendMock.mock.calls.find(
+      (call) => (call[1] as { type: string }).type === 'pr.comment.executed',
+    );
+    const url = (executedCall?.[1] as { data: { url: string } }).data.url;
     expect(url).toContain(`#discussion_r${existingCommentId}`);
     expect(url).not.toContain('#issuecomment-');
   });

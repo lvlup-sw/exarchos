@@ -104,6 +104,7 @@ function deps(): ExecuteIntentDeps {
     // The LIVE orchestrate table, not a fixture one — the composite hands the
     // executor this same object, so both paths reach the same handlers.
     handlers: ACTION_HANDLERS,
+    handlerTool: 'exarchos_orchestrate',
   };
 }
 

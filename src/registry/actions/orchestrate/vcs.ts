@@ -12,36 +12,20 @@ const VCS_PROVIDER_NEEDS = none('VCS provider calls are not in the closed capabi
 const VCS_READ_EMISSIONS = none('read-only VCS queries emit no catalog events');
 
 /**
- * The mutating VCS handlers journal intent before the remote call and the
- * result after it, and BOTH records land on the shared `vcs` stream rather than
- * on a feature stream. Dispatch resolves the stream it observes postconditions
- * against from the call's own arguments or from a stream the contract itself
- * declares. These two actions name neither, so an `ensures` here would name a
- * fact the observer looks for in the wrong place and report every successful
- * call as a violation. The appends are declared on the emission axis instead,
- * which is stream-agnostic.
+ * `create_pr`, `add_pr_comment` and `create_issue` all state the shared `vcs`
+ * stream on their RESOURCE axis, so observation resolves the stream their two
+ * journal records land on from the declaration itself rather than from the
+ * call's own arguments.
  *
- * `create_pr` is no longer one of them — it declares the stream, and carries
- * its own reason below.
+ * Given that, the abstention here stands on the division between the axes,
+ * not on stream resolution. Both records are catalog events appended
+ * unconditionally, which is what the emission axis declares and what the
+ * verifier already checks — on that same resolved stream. Restating them as
+ * postconditions would give one fact two declarations free to drift apart.
+ * What the postcondition axis carries and the emission axis cannot express is
+ * durable evidence, and these handlers record none.
  */
-const VCS_SPLIT_ENSURES = none(
-  'the intent/result records land on the shared vcs stream, which post-dispatch observation does not resolve from this action\'s arguments',
-);
-
-/**
- * `create_pr` states the shared `vcs` stream on its RESOURCE axis, so
- * observation resolves the stream its two journal records land on from the
- * declaration. The stream-resolution reason above therefore does not apply to
- * it, and the abstention has to stand on something else.
- *
- * It stands on the division between the axes. Both records are catalog events
- * appended unconditionally, which is what the emission axis declares and what
- * the verifier already checks — on that same resolved stream. Restating them as
- * postconditions would give one fact two declarations free to drift apart. What
- * the postcondition axis carries and the emission axis cannot express is
- * durable evidence, and this handler records none.
- */
-const CREATE_PR_ENSURES = none(
+const VCS_JOURNAL_ENSURES = none(
   'the two journal records are declared on the emission axis and checked there against the vcs stream this action declares; the postcondition axis carries the durable evidence this handler does not record',
 );
 
@@ -70,7 +54,7 @@ export const vcsActions: readonly BuiltinToolAction[] = [
     },
     {
       requires: none('PR creation has no admission gate or approval discriminant'),
-      ensures: CREATE_PR_ENSURES,
+      ensures: VCS_JOURNAL_ENSURES,
       needs: VCS_PROVIDER_NEEDS,
       touches: {
         frame: 'single-machine',
@@ -113,11 +97,27 @@ export const vcsActions: readonly BuiltinToolAction[] = [
     },
     {
       requires: none('provider PR merge has no authored admission discriminant'),
-      ensures: declared({ source: 'event-append', when: 'success', event: 'pr.merged' }),
+      // The append fires only when the provider reports the merge landed —
+      // a declined merge is a successful call with no record, and the
+      // postcondition vocabulary (`success` / `failure` / `always`) has no
+      // way to state "required when the remote outcome says so, silent
+      // otherwise". A `when: 'success'` ensures here would fire the
+      // postcondition check on every declined merge too, reporting a
+      // violation for a call that correctly wrote nothing.
+      //
+      // That is a real gap in what this axis can express, not a reason to
+      // leave the record unguarded: the handler itself refuses to report
+      // success when the merge landed but the append then failed, rather
+      // than let a completed merge go unrecorded with no signal anywhere.
+      // The postcondition axis cannot state that conditional obligation;
+      // the handler enforces it directly instead.
+      ensures: none(
+        'a declined merge is a successful call with no durable record and the postcondition vocabulary cannot express that condition; when the merge DOES land, the handler itself withholds success on a failed append rather than reporting one silently missing',
+      ),
       needs: VCS_PROVIDER_NEEDS,
       touches: {
         frame: 'single-machine',
-        resources: declared({ kind: 'git-ref', selector: 'prId' }),
+        resources: declared({ kind: 'stream', selector: 'vcs' }, { kind: 'git-ref', selector: 'prId' }),
       },
       executionAuthority: { kind: 'local' },
       replay: { kind: 'reject-replay', because: 'merging a pull request is a one-shot remote mutation' },
@@ -234,18 +234,15 @@ export const vcsActions: readonly BuiltinToolAction[] = [
     },
     {
       requires: none('PR comments have no admission gate or approval discriminant'),
-      ensures: VCS_SPLIT_ENSURES,
+      ensures: VCS_JOURNAL_ENSURES,
       needs: VCS_PROVIDER_NEEDS,
       touches: {
         frame: 'single-machine',
-        resources: declared({ kind: 'git-ref', selector: 'prId' }),
+        resources: declared({ kind: 'stream', selector: 'vcs' }, { kind: 'git-ref', selector: 'prId' }),
       },
       executionAuthority: { kind: 'local' },
       replay: { kind: 'reject-replay', because: 'posting a comment is a remote side effect that would duplicate the thread entry' },
-      // `pr.commented` used to stand here and nothing appends it. The intent
-      // record rides `appendComputed`, which the append-site census cannot read
-      // through, so declaring it shrinks no measurement — it is declared anyway
-      // because the handler does perform it.
+      // `pr.commented` used to stand here and nothing appends it.
       emissions: declared(
         { event: 'pr.comment.requested', condition: 'always', owner: 'orchestrate', role: 'primary' },
         { event: 'pr.comment.executed', condition: 'always', owner: 'orchestrate', role: 'primary' },
@@ -269,11 +266,11 @@ export const vcsActions: readonly BuiltinToolAction[] = [
     },
     {
       requires: none('issue creation has no admission gate or approval discriminant'),
-      ensures: VCS_SPLIT_ENSURES,
+      ensures: VCS_JOURNAL_ENSURES,
       needs: VCS_PROVIDER_NEEDS,
       touches: {
         frame: 'single-machine',
-        resources: none('creates a remote issue without touching a local stream, path, worktree, or git-ref'),
+        resources: declared({ kind: 'stream', selector: 'vcs' }),
       },
       executionAuthority: { kind: 'local' },
       replay: { kind: 'reject-replay', because: 'creating an issue is a remote side effect that would open a second issue' },

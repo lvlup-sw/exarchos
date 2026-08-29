@@ -34,6 +34,7 @@ import {
   appendingHandler,
   countingHandler,
   failingHandler,
+  FIXTURE_TOOL,
   fixtureAction,
   fixtureCorrelation,
   fixtureIntentArgs,
@@ -89,6 +90,7 @@ function depsFor(
     findAction: findFixtureAction(actions),
     argSchemas: { [INTENT]: fixtureIntentArgs },
     handlers,
+    handlerTool: FIXTURE_TOOL,
   };
 }
 

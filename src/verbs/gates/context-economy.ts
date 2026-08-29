@@ -9,7 +9,7 @@ import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
-import { emitGateEvent, getDiff, sameOperationGateKey } from './gate-utils.js';
+import { getDiff, requireGateEvent, sameOperationGateKey } from './gate-utils.js';
 import { checkContextEconomy } from '../pure/context-economy.js';
 import { queryRuntimeMetrics } from '../../projections/telemetry/telemetry-queries.js';
 import type { RuntimeMetrics } from '../../projections/telemetry/telemetry-queries.js';
@@ -102,23 +102,6 @@ async function executeContextEconomy(
 
   const store = eventStore;
 
-  // Emit gate.executed event (fire-and-forget)
-  try {
-    await emitGateEvent(
-      store,
-      args.featureId,
-      'context-economy',
-      'quality',
-      passed,
-      {
-        dimension: 'D3',
-        phase: 'review',
-        findingCount,
-      },
-      sameOperationGateKey('context-economy'),
-    );
-  } catch { /* fire-and-forget */ }
-
   // Query runtime metrics via telemetry query abstraction (graceful degradation on failure)
   const runtimeMetrics = await queryRuntimeMetrics(store, stateDir);
 
@@ -129,6 +112,23 @@ async function executeContextEconomy(
     report,
     runtimeMetrics,
   };
+  const carrier: ToolResult = { success: true, data: result };
 
-  return { success: true, data: result };
+  const unrecorded = await requireGateEvent(
+    store,
+    args.featureId,
+    'context-economy',
+    'quality',
+    passed,
+    carrier,
+    {
+      dimension: 'D3',
+      phase: 'review',
+      findingCount,
+    },
+    sameOperationGateKey('context-economy'),
+  );
+  if (unrecorded !== undefined) return unrecorded;
+
+  return carrier;
 }

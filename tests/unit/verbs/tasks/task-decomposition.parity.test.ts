@@ -8,8 +8,11 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
 
 vi.mock('../../../../src/verbs/gates/gate-utils.js', () => ({
   emitGateEvent: vi.fn().mockResolvedValue(undefined),
-  // Without this export the emit site raises a TypeError the handler swallows
-  // in its fire-and-forget try, leaving the emission unexercised.
+  // The handler calls `requireGateEvent` directly. Without this export the
+  // call site raises a TypeError instead of resolving, leaving the emission
+  // unexercised — this stub always succeeds (`undefined`), since these
+  // parity cases exercise the parser, not the append failure path.
+  requireGateEvent: vi.fn().mockResolvedValue(undefined),
   sameOperationGateKey: vi.fn(() => undefined),
 }));
 // The gate now records durable evidence through the shared phase-gate runner

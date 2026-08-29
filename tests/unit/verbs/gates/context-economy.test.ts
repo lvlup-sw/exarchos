@@ -17,6 +17,34 @@ vi.mock('../../../../src/verbs/gates/gate-utils.js', () => ({
   getDiff: (...args: [string, string]) => mockGetDiff(...args),
   emitGateEvent: (...args: unknown[]) => mockEmitGateEvent(...args),
   sameOperationGateKey: (gateName: string) => mockSameOperationGateKey(gateName),
+  // The handler now calls `requireGateEvent`, not `emitGateEvent`, directly.
+  // This stub mirrors the real helper's semantics — append via the same
+  // mocked `emitGateEvent`, withhold the carrier when the append throws — so
+  // a test controls the failure through `mockEmitGateEvent` exactly as before.
+  requireGateEvent: async (
+    store: unknown,
+    streamId: string,
+    gateName: string,
+    layer: string,
+    passed: boolean,
+    carrier: { data?: unknown },
+    details?: Record<string, unknown>,
+    idempotencyKey?: string,
+  ) => {
+    try {
+      await mockEmitGateEvent(store, streamId, gateName, layer, passed, details, idempotencyKey);
+      return undefined;
+    } catch (err) {
+      return {
+        success: false,
+        data: carrier.data,
+        error: {
+          code: 'GATE_EVENT_UNRECORDED',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      };
+    }
+  },
 }));
 
 // The gate now records durable evidence through the shared phase-gate runner
@@ -343,6 +371,30 @@ describe('handleContextEconomy', () => {
       expect(data.runtimeMetrics.sessionTokens).toBe(0);
       expect(data.runtimeMetrics.toolCount).toBe(0);
       expect(data.runtimeMetrics.totalInvocations).toBe(0);
+    });
+  });
+
+  // ─── Gate Event Append Failure ─────────────────────────────────────────────
+
+  describe('gate event append failure', () => {
+    it('ContextEconomy_GateEventAppendFails_WithholdsTheSuccessCarrier', async () => {
+      mockGetDiff.mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
+      vi.mocked(checkContextEconomy).mockReturnValue({
+        pass: true,
+        checksRun: 4,
+        checksPassed: 4,
+        findings: [],
+      });
+      mockEmitGateEvent.mockRejectedValueOnce(new Error('store unavailable'));
+
+      const args = { featureId: 'feat-1' };
+      const result = await handleContextEconomy(args, STATE_DIR, mockStore as unknown as EventStore);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('GATE_EVENT_UNRECORDED');
+      const data = result.data as { passed: boolean; findingCount: number };
+      expect(data.passed).toBe(true);
+      expect(data.findingCount).toBe(0);
     });
   });
 });

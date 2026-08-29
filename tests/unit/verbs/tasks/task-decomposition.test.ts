@@ -5,9 +5,45 @@ import { fileURLToPath } from 'node:url';
 
 const STUB_GATE_KEY = 'gate.executed:task-decomposition:stub-operation';
 
+// `vi.mock` factories are hoisted above module-level `const`s; `vi.hoisted`
+// hoists the mock function itself alongside so the factory below can
+// reference it directly instead of only through a lazy wrapper.
+const { mockEmitGateEvent } = vi.hoisted(() => ({
+  mockEmitGateEvent: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Mock dependencies before importing the module under test
 vi.mock('../../../../src/verbs/gates/gate-utils.js', () => ({
-  emitGateEvent: vi.fn().mockResolvedValue(undefined),
+  emitGateEvent: mockEmitGateEvent,
+  // The handler calls `requireGateEvent`, not `emitGateEvent`, directly — this
+  // stub mirrors the real helper's semantics (append via the mocked
+  // `emitGateEvent`, withhold the carrier on a thrown append) so a test can
+  // still drive the append through the one exported mock and existing
+  // `mockedEmitGateEvent` call-shape assertions keep working unchanged.
+  requireGateEvent: async (
+    store: unknown,
+    streamId: string,
+    gateName: string,
+    layer: string,
+    passed: boolean,
+    carrier: { data?: unknown },
+    details?: Record<string, unknown>,
+    idempotencyKey?: string,
+  ) => {
+    try {
+      await mockEmitGateEvent(store, streamId, gateName, layer, passed, details, idempotencyKey);
+      return undefined;
+    } catch (err) {
+      return {
+        success: false,
+        data: carrier.data,
+        error: {
+          code: 'GATE_EVENT_UNRECORDED',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      };
+    }
+  },
   // Without this export the emit site raises a TypeError the handler swallows
   // in its fire-and-forget try, leaving the emission unexercised. The stub
   // returns a fixed key so the assertion below can see that the append is
@@ -1236,6 +1272,21 @@ describe('handleTaskDecomposition', () => {
       // already produced evidence, and only the evidence row collapsed.
       STUB_GATE_KEY,
     );
+  });
+
+  it('TaskDecomposition_GateEventAppendFails_WithholdsTheSuccessCarrier', async () => {
+    mockedReadFile.mockResolvedValue(WELL_DECOMPOSED_PLAN);
+    mockEmitGateEvent.mockRejectedValueOnce(new Error('store unavailable'));
+
+    const result = await handleTaskDecomposition(baseArgs, stateDir, mockStore as unknown as EventStore);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_EVENT_UNRECORDED');
+    // The gate's own verdict is still readable on `data` — nothing is lost,
+    // only the success carrier is withheld.
+    const data = result.data as { passed: boolean; totalTasks: number };
+    expect(data.passed).toBe(true);
+    expect(data.totalTasks).toBe(3);
   });
 });
 

@@ -123,6 +123,7 @@ function deps(input: {
     findAction: input.findAction ?? findActionInRegistry,
     argSchemas: INTENT_ARG_SCHEMAS,
     handlers: ACTION_HANDLERS,
+    handlerTool: TOOL,
   };
 }
 

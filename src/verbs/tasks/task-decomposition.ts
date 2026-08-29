@@ -14,7 +14,7 @@ import type { EventStore } from '../../events/store.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from '../gates/gate-runner.js';
-import { emitGateEvent, sameOperationGateKey } from '../gates/gate-utils.js';
+import { requireGateEvent, sameOperationGateKey } from '../gates/gate-utils.js';
 import { canonicaliseTaskId } from '../../utils/task-id.js';
 import {
   assessDecompositionPlausibility,
@@ -1063,26 +1063,6 @@ async function executeTaskDecomposition(
 
   const report = reportLines.join('\n');
 
-  // Emit gate.executed event (fire-and-forget: emission failure must not break the gate check)
-  try {
-    const store = eventStore;
-    await emitGateEvent(
-      store,
-      args.featureId,
-      'task-decomposition',
-      'planning',
-      passed,
-      {
-        dimension: 'D5',
-        phase: 'plan',
-        wellDecomposed,
-        needsRework,
-        totalTasks,
-      },
-      sameOperationGateKey('task-decomposition'),
-    );
-  } catch { /* fire-and-forget */ }
-
   // Return structured result
   const result: TaskDecompositionResult = {
     passed,
@@ -1094,6 +1074,26 @@ async function executeTaskDecomposition(
     plausibility,
     report,
   };
+  const carrier: ToolResult = { success: true, data: { ...result } };
 
-  return { success: true, data: { ...result } };
+  const store = eventStore;
+  const unrecorded = await requireGateEvent(
+    store,
+    args.featureId,
+    'task-decomposition',
+    'planning',
+    passed,
+    carrier,
+    {
+      dimension: 'D5',
+      phase: 'plan',
+      wellDecomposed,
+      needsRework,
+      totalTasks,
+    },
+    sameOperationGateKey('task-decomposition'),
+  );
+  if (unrecorded !== undefined) return unrecorded;
+
+  return carrier;
 }

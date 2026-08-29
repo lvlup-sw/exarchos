@@ -123,4 +123,22 @@ describe('handleMergePr', () => {
     expect(result.error?.code).toBe('VCS_ERROR');
     expect(result.error?.message).toContain('API timeout');
   });
+
+  it('handleMergePr_MergedButAppendFails_ReturnsFailureNotSilentSuccess', async () => {
+    // The merge landed on the remote — the append recording it is what fails.
+    // A swallowed catch here would report success:true with no durable trace
+    // of a merge that actually happened.
+    vi.mocked(ctx.eventStore.append).mockRejectedValue(new Error('SQLITE_BUSY'));
+
+    const args = { prId: '42', strategy: 'squash' as const };
+
+    const result = await handleMergePr(args, ctx);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('PR_MERGED_EVENT_UNRECORDED');
+    expect(result.error?.message).toContain('SQLITE_BUSY');
+    // The merge's own result is preserved — the effect happened and is worth
+    // reading even though the durable record of it did not land.
+    expect(result.data).toEqual({ merged: true, sha: 'abc123' });
+  });
 });
