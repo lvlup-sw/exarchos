@@ -1,13 +1,13 @@
 {
-  "capturedAt": "2026-08-28",
+  "capturedAt": "2026-08-29",
   "discovery": "extension-based over tracked files; not a runner glob",
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1248,
-    "parsedFiles": 1203,
+    "testFiles": 1249,
+    "parsedFiles": 1204,
     "shellFiles": 45,
-    "cases": 13740,
+    "cases": 13757,
     "dynamicTitles": 146,
     "unparseableFiles": 0
   },
@@ -23386,6 +23386,32 @@
         }
       ]
     },
+    "tests/unit/events/consumer-closure.test.ts": {
+      "file": "tests/unit/events/consumer-closure.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "consumer closure",
+          "name": "ConsumerClosure_LiveTree_EveryConsumedByResolves",
+          "dynamic": false
+        },
+        {
+          "suite": "consumer closure",
+          "name": "ConsumerClosure_DeletedConsumer_IsNamed",
+          "dynamic": false
+        },
+        {
+          "suite": "consumer closure",
+          "name": "ConsumerClosure_SeededGhostConsumer_IsNamedWithItsEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "consumer closure",
+          "name": "ConsumerClosure_EmptyPopulation_FailsClosed",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/events/cross-stream-handler.test.ts": {
       "file": "tests/unit/events/cross-stream-handler.test.ts",
       "runner": "vitest:root",
@@ -23529,6 +23555,31 @@
         {
           "suite": "emitter closure",
           "name": "EmitterClosure_EveryModuleEmission_IsLiveInTheTree",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_EveryActionEmission_IsLiveOrOnTheAllowance",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_ActionEmissionWithNoAppend_IsAPhantom",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_AllowanceCoveredEvent_IsUnverifiableNotPhantom",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_AllowanceRowWhoseAppendResolved_IsStale",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_AllowanceRowWithNoEdge_IsStale",
           "dynamic": false
         },
         {
@@ -51525,6 +51576,46 @@
         {
           "suite": "handleOrchestrate integration",
           "name": "HandleOrchestrate_CheckEventEmissions_HandlerExists",
+          "dynamic": false
+        },
+        {
+          "suite": "expectation-surface liveness",
+          "name": "ModelEmittedOnly_RetiredType_ThrowsInsteadOfFiltering",
+          "dynamic": false
+        },
+        {
+          "suite": "expectation-surface liveness",
+          "name": "ModelEmittedOnly_AutoType_IsFilteredSilently",
+          "dynamic": false
+        },
+        {
+          "suite": "expectation-surface liveness",
+          "name": "ModelEmittedOnly_UnregisteredType_Throws",
+          "dynamic": false
+        },
+        {
+          "suite": "expectation-surface liveness",
+          "name": "AssertExpectationsLive_EmptyPhaseRow_Throws",
+          "dynamic": false
+        },
+        {
+          "suite": "expectation-surface liveness",
+          "name": "AssertExpectationsLive_NonModelEntry_Throws",
+          "dynamic": false
+        },
+        {
+          "suite": "expectation-surface liveness",
+          "name": "AssertExpectationsLive_ModelEntries_Pass",
+          "dynamic": false
+        },
+        {
+          "suite": "expectation-surface liveness",
+          "name": "AssertDescriptionsLive_DemotedKey_Throws",
+          "dynamic": false
+        },
+        {
+          "suite": "expectation-surface liveness",
+          "name": "PhaseExpectedEvents_DerivedRows_AreNonEmpty",
           "dynamic": false
         }
       ]
