@@ -110,7 +110,6 @@ export const UNRESOLVED_ACTION_EVENT_ALLOWANCE: readonly string[] = Object.freez
   'onboard.executed',
   'onboard.requested',
   'orchestrate.intent_executed',
-  'pr.comment.requested',
   'state.patched',
   'workflow.cancel',
   'workflow.checkpoint',
