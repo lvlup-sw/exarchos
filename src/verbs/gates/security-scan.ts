@@ -11,7 +11,7 @@ import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
-import { emitGateEvent, sameOperationGateKey } from './gate-utils.js';
+import { requireGateEvent, sameOperationGateKey } from './gate-utils.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -252,24 +252,6 @@ async function executeSecurityScan(
   const passed = findings.length === 0;
   const report = generateReport(findings);
 
-  // Emit gate.executed event (fire-and-forget: emission failure must not break the gate check)
-  try {
-    const store = eventStore;
-    await emitGateEvent(
-      store,
-      featureId,
-      'security-scan',
-      'quality',
-      passed,
-      {
-        dimension: 'D1',
-        phase: 'review',
-        findingCount: findings.length,
-      },
-      sameOperationGateKey('security-scan'),
-    );
-  } catch { /* fire-and-forget */ }
-
   // Return structured result
   const result: SecurityScanResult = {
     passed,
@@ -277,6 +259,24 @@ async function executeSecurityScan(
     findings,
     report,
   };
+  const carrier: ToolResult = { success: true, data: result };
 
-  return { success: true, data: result };
+  const store = eventStore;
+  const unrecorded = await requireGateEvent(
+    store,
+    featureId,
+    'security-scan',
+    'quality',
+    passed,
+    carrier,
+    {
+      dimension: 'D1',
+      phase: 'review',
+      findingCount: findings.length,
+    },
+    sameOperationGateKey('security-scan'),
+  );
+  if (unrecorded !== undefined) return unrecorded;
+
+  return carrier;
 }

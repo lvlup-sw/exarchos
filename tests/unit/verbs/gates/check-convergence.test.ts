@@ -211,7 +211,7 @@ describe('handleCheckConvergence', () => {
     expect(event.data.details.phase).toBe('meta');
   });
 
-  it('CheckConvergence_GateEmissionFailure_DoesNotBreakHandler', async () => {
+  it('CheckConvergence_GateEventAppendFails_WithholdsTheSuccessCarrier', async () => {
     mockViewState = {
       featureId: 'test-feature',
       overallConverged: false,
@@ -228,9 +228,13 @@ describe('handleCheckConvergence', () => {
       mockStore as unknown as EventStore,
     );
 
-    // Handler should still succeed despite emission failure
-    expect(result.success).toBe(true);
-    expect(result.data.passed).toBe(false);
+    // `convergence` declares `gate.executed` unconditionally — a dropped
+    // append withholds the success carrier rather than returning one the log
+    // does not back. The gate's own verdict is still readable on `data`.
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_EVENT_UNRECORDED');
+    const data = result.data as { passed: boolean };
+    expect(data.passed).toBe(false);
   });
 
   it('CheckConvergence_UsesWorkflowIdAsStreamId', async () => {

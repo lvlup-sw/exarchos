@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1248,
-    "parsedFiles": 1203,
+    "testFiles": 1252,
+    "parsedFiles": 1206,
     "shellFiles": 45,
-    "cases": 13740,
-    "dynamicTitles": 146,
+    "cases": 13777,
+    "dynamicTitles": 150,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -50555,6 +50555,16 @@
           "dynamic": false
         },
         {
+          "suite": "the handler table owner fence",
+          "name": "CrossToolActionNameCollision_IsRefusedBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "the handler table owner fence",
+          "name": "HandlerTableWithoutAnOwner_RefusesRatherThanTrustingTheName",
+          "dynamic": false
+        },
+        {
           "suite": "compileIntent refusals",
           "name": "DecideStep_IsAHostObligation",
           "dynamic": false
@@ -50950,6 +50960,42 @@
         {
           "suite": "retrieving the trace a receipt describes",
           "name": "LeafEventsByDerivedId_OperationRecordByTheOuterDispatchId",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/leaf-replay-policy.test.ts": {
+      "file": "tests/unit/verbs/execute/leaf-replay-policy.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "a reject-replay leaf that already completed",
+          "name": "RejectReplayLeaf_CompletedBeforeALaterLeafCrashed_IsNotReInvokedOnRetry",
+          "dynamic": false
+        },
+        {
+          "suite": "a reject-replay leaf that already completed",
+          "name": "SafeRepeatLeaf_InTheSamePosition_IsReInvokedOnRetry",
+          "dynamic": false
+        },
+        {
+          "suite": "a reject-replay leaf that already completed",
+          "name": "RejectReplayLeaf_CrashedMidHandler_StillRunsOnRetry",
+          "dynamic": false
+        },
+        {
+          "suite": "a reject-replay leaf that already completed",
+          "name": "RejectReplayLeaf_DeclaringNoUnconditionalEmission_IsAlwaysInvoked",
+          "dynamic": false
+        },
+        {
+          "suite": "a reject-replay leaf that already completed",
+          "name": "RejectReplayLeaf_DeclaringEnsures_IsNeverElidedOnRetry",
+          "dynamic": false
+        },
+        {
+          "suite": "a reject-replay leaf that already completed",
+          "name": "RejectReplayLeaf_ElidedOnRetry_DoesNotFoldAPriorEmissionViolationRowIntoItsCaptures",
           "dynamic": false
         }
       ]
@@ -51362,7 +51408,7 @@
         },
         {
           "suite": "handleCheckConvergence",
-          "name": "CheckConvergence_GateEmissionFailure_DoesNotBreakHandler",
+          "name": "CheckConvergence_GateEventAppendFails_WithholdsTheSuccessCarrier",
           "dynamic": false
         },
         {
@@ -51514,7 +51560,7 @@
         },
         {
           "suite": "handleCheckEventEmissions",
-          "name": "CheckEventEmissions_GateEmissionFailure_DoesNotBreakHandler",
+          "name": "CheckEventEmissions_GateEventAppendFails_WithholdsTheSuccessCarrier",
           "dynamic": false
         },
         {
@@ -51561,6 +51607,16 @@
         {
           "suite": "check_exploration_depth gate (DR-4)",
           "name": "reports INVALID_INPUT when featureId is missing",
+          "dynamic": false
+        },
+        {
+          "suite": "check_exploration_depth gate (DR-4)",
+          "name": "ExplorationDepth_GateEventAppendFails_WithholdsTheSuccessCarrier (self-skip path)",
+          "dynamic": false
+        },
+        {
+          "suite": "check_exploration_depth gate (DR-4)",
+          "name": "ExplorationDepth_GateEventAppendFails_WithholdsTheSuccessCarrier (deep path)",
           "dynamic": false
         },
         {
@@ -51790,6 +51846,11 @@
           "suite": "handleCheckInvariantConformance (DR-3, DR-4)",
           "name": "CheckInvariantConformance_EnforcementAdvisory_DoesNotBlockVerdict",
           "dynamic": false
+        },
+        {
+          "suite": "handleCheckInvariantConformance (DR-3, DR-4)",
+          "name": "CheckInvariantConformance_GateEventAppendFails_WithholdsTheSuccessCarrier",
+          "dynamic": false
         }
       ]
     },
@@ -51886,6 +51947,11 @@
         {
           "suite": "handleContextEconomy > telemetry integration",
           "name": "handleContextEconomy_WithoutTelemetryData_ReturnsZeroMetrics",
+          "dynamic": false
+        },
+        {
+          "suite": "handleContextEconomy > gate event append failure",
+          "name": "ContextEconomy_GateEventAppendFails_WithholdsTheSuccessCarrier",
           "dynamic": false
         }
       ]
@@ -52068,6 +52134,27 @@
         {
           "suite": "runDurableGateProducer — pre-v2.12 legacy-state backfill",
           "name": "StampedState_PersistedAttemptWins_OverLegacyDerivation",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/gate-event-honesty.test.ts": {
+      "file": "tests/unit/verbs/gates/gate-event-honesty.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "gate.executed append failure — durable evidence honesty",
+          "name": "GateEventUnrecorded_UnderTheSharedRunner_RecordsAnIndeterminateVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "gate.executed append failure — durable evidence honesty",
+          "name": "RequireGateEvent_AppendSucceeds_ReturnsNothingAndLeavesOneRow",
+          "dynamic": false
+        },
+        {
+          "suite": "gate.executed append failure — durable evidence honesty",
+          "name": "RequireGateEvent_SameOperationRetry_CollapsesOntoTheFirstRow",
           "dynamic": false
         }
       ]
@@ -53040,6 +53127,21 @@
           "dynamic": false
         },
         {
+          "suite": "mutation-adequacy liveness + gate emission",
+          "name": "MutationAdequacy_GateEventAppendFails_WithholdsTheSuccessCarrier_SkipNoToolchain",
+          "dynamic": false
+        },
+        {
+          "suite": "mutation-adequacy liveness + gate emission",
+          "name": "MutationAdequacy_GateEventAppendFails_WithholdsTheSuccessCarrier_Degraded",
+          "dynamic": false
+        },
+        {
+          "suite": "mutation-adequacy liveness + gate emission",
+          "name": "MutationAdequacy_GateEventAppendFails_WithholdsTheSuccessCarrier_Scored",
+          "dynamic": false
+        },
+        {
           "suite": "mutation-adequacy survivor affordances (next_actions)",
           "name": "MutationAdequacy_SurvivingMutants_EmitKillTestNextActions",
           "dynamic": false
@@ -53299,6 +53401,11 @@
         {
           "suite": "handleOperationalResilience > git diff failure",
           "name": "handleOperationalResilience_GitDiffFails_ReturnsError",
+          "dynamic": false
+        },
+        {
+          "suite": "handleOperationalResilience > gate event append failure",
+          "name": "OperationalResilience_GateEventAppendFails_WithholdsTheSuccessCarrier",
           "dynamic": false
         }
       ]
@@ -53683,6 +53790,11 @@
           "suite": "handlePostMerge",
           "name": "handlePostMerge_PassesRunCommandAdapter",
           "dynamic": false
+        },
+        {
+          "suite": "handlePostMerge",
+          "name": "PostMerge_GateEventAppendFails_WithholdsTheSuccessCarrier",
+          "dynamic": false
         }
       ]
     },
@@ -54047,6 +54159,11 @@
         {
           "suite": "handleSecurityScan > report format",
           "name": "handleSecurityScan_FindingsReport_ContainsMarkdownHeading",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSecurityScan > gate event append failure",
+          "name": "SecurityScan_GateEventAppendFails_WithholdsTheSuccessCarrier",
           "dynamic": false
         }
       ]
@@ -54938,6 +55055,11 @@
         {
           "suite": "handleWorkflowDeterminism > git diff failure",
           "name": "handleWorkflowDeterminism_GitDiffFails_ReturnsError",
+          "dynamic": false
+        },
+        {
+          "suite": "handleWorkflowDeterminism > gate event append failure",
+          "name": "WorkflowDeterminism_GateEventAppendFails_WithholdsTheSuccessCarrier",
           "dynamic": false
         }
       ]
@@ -60233,6 +60355,11 @@
           "dynamic": false
         },
         {
+          "suite": "handleTaskDecomposition",
+          "name": "TaskDecomposition_GateEventAppendFails_WithholdsTheSuccessCarrier",
+          "dynamic": false
+        },
+        {
           "suite": "handleTaskDecomposition — plausibility (P02-06)",
           "name": "HandleTaskDecomposition_48TasksUniformLowNoBoundary_ChallengesButPasses",
           "dynamic": false
@@ -62251,6 +62378,11 @@
           "dynamic": false
         },
         {
+          "suite": "handleAddPrComment — B2.2 Phase-A retry non-refire",
+          "name": "AddPrComment_PhaseABusyBudgetExhausted_ReturnsStorageBusyNotGenericVcsError",
+          "dynamic": false
+        },
+        {
           "suite": "handleAddPrComment — B2.3 Idempotent operationId marker check",
           "name": "AddPrComment_RequestedEventCommittedButExecutionInterrupted_RecoversWithoutDuplicate",
           "dynamic": false
@@ -62995,6 +63127,11 @@
         {
           "suite": "handleMergePr",
           "name": "handleMergePr_ProviderError_ReturnsFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "handleMergePr",
+          "name": "handleMergePr_MergedButAppendFails_ReturnsFailureNotSilentSuccess",
           "dynamic": false
         }
       ]
@@ -80687,6 +80824,63 @@
       "file": "tools/skill-validators/validate-frontmatter.test.sh",
       "runner": "shell",
       "cases": []
+    },
+    "tests/acceptance/action-contract-vcs-observation.test.ts": {
+      "file": "tests/acceptance/action-contract-vcs-observation.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "vcs journal action observation declarations",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "vcs journal action observation declarations",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "vcs journal action observation declarations",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "vcs journal action observation declarations",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/unit/verbs/vcs/vcs-observation.dispatch.test.ts": {
+      "file": "tests/unit/verbs/vcs/vcs-observation.dispatch.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "vcs journal actions — dispatch-level observation",
+          "name": "MergePr_MergedSuccessfully_DispatchReturnsSuccess",
+          "dynamic": false
+        },
+        {
+          "suite": "vcs journal actions — dispatch-level observation",
+          "name": "MergePr_ProviderDeclinedTheMerge_DispatchStillReturnsSuccess",
+          "dynamic": false
+        },
+        {
+          "suite": "vcs journal actions — dispatch-level observation",
+          "name": "AddPrComment_Dispatched_BothJournalRowsAreFindableByTheDispatchOperation",
+          "dynamic": false
+        },
+        {
+          "suite": "vcs journal actions — dispatch-level observation",
+          "name": "CreateIssue_Dispatched_BothJournalRowsLandOnTheSharedStream",
+          "dynamic": false
+        },
+        {
+          "suite": "create_issue — crash recovery keys the retry under its own operation",
+          "name": "CreateIssue_RetryAfterPriorCrash_DispatchReturnsSuccessNotEmissionViolation",
+          "dynamic": false
+        }
+      ]
     }
   }
 }

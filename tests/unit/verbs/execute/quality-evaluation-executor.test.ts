@@ -98,6 +98,7 @@ function deps(handlers: LeafHandlerTable = ACTION_HANDLERS): ExecuteIntentDeps {
     findAction: findActionInRegistry,
     argSchemas: { [SUBSET_INTENT]: schema },
     handlers,
+    handlerTool: 'exarchos_orchestrate',
   };
 }
 

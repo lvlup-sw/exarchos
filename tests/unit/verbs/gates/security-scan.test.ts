@@ -476,4 +476,19 @@ describe('handleSecurityScan', () => {
       expect(data.report).toContain('Findings');
     });
   });
+
+  describe('gate event append failure', () => {
+    it('SecurityScan_GateEventAppendFails_WithholdsTheSuccessCarrier', async () => {
+      mockStore.append.mockRejectedValueOnce(new Error('store unavailable'));
+
+      const args = { featureId: 'feat-1', diffContent: makeCleanDiff() };
+      const result = await handleSecurityScan(args, STATE_DIR, mockStore as unknown as EventStore);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('GATE_EVENT_UNRECORDED');
+      const data = result.data as { passed: boolean; findingCount: number };
+      expect(data.passed).toBe(true);
+      expect(data.findingCount).toBe(0);
+    });
+  });
 });

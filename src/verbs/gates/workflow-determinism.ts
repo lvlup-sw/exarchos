@@ -9,7 +9,7 @@ import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
-import { emitGateEvent, getDiff, sameOperationGateKey } from './gate-utils.js';
+import { getDiff, requireGateEvent, sameOperationGateKey } from './gate-utils.js';
 import { checkWorkflowDeterminism } from '../pure/workflow-determinism.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -82,30 +82,29 @@ async function executeWorkflowDeterminism(
   const passed = tsResult.status === 'pass';
   const findingCount = tsResult.findingCount;
 
-  // Emit gate.executed event (fire-and-forget)
-  try {
-    const store = eventStore;
-    await emitGateEvent(
-      store,
-      args.featureId,
-      'workflow-determinism',
-      'quality',
-      passed,
-      {
-        dimension: 'D5',
-        phase: 'review',
-        findingCount,
-      },
-      sameOperationGateKey('workflow-determinism'),
-    );
-  } catch { /* fire-and-forget */ }
-
   // Return structured result
   const result: WorkflowDeterminismResult = {
     passed,
     findingCount,
     report: tsResult.report,
   };
+  const carrier: ToolResult = { success: true, data: result };
 
-  return { success: true, data: result };
+  const unrecorded = await requireGateEvent(
+    eventStore,
+    args.featureId,
+    'workflow-determinism',
+    'quality',
+    passed,
+    carrier,
+    {
+      dimension: 'D5',
+      phase: 'review',
+      findingCount,
+    },
+    sameOperationGateKey('workflow-determinism'),
+  );
+  if (unrecorded !== undefined) return unrecorded;
+
+  return carrier;
 }

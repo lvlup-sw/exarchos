@@ -266,4 +266,23 @@ describe('handlePostMerge', () => {
     expect(callArgs.mergeSha).toBe('abc1234');
     expect(typeof callArgs.runCommand).toBe('function');
   });
+
+  // ─── Test 6: gate.executed append failure withholds the success carrier ──
+
+  it('PostMerge_GateEventAppendFails_WithholdsTheSuccessCarrier', async () => {
+    mockCheckPostMerge.mockReturnValue(makePassingResult());
+    mockStore.append.mockRejectedValueOnce(new Error('store unavailable'));
+
+    const result = await handlePostMerge(
+      { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
+      STATE_DIR,
+      mockStore as unknown as EventStore,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_EVENT_UNRECORDED');
+    const data = result.data as { passed: boolean; prUrl: string };
+    expect(data.passed).toBe(true);
+    expect(data.prUrl).toBe('https://github.com/org/repo/pull/42');
+  });
 });

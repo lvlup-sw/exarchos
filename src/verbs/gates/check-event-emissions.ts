@@ -13,7 +13,7 @@ import { foldToTail } from '../../projections/fold-at-tail.js';
 import { getOrCreateMaterializer } from '../../projections/views/tools.js';
 import { WORKFLOW_STATE_VIEW } from '../../projections/views/workflow-state-projection.js';
 import type { WorkflowStateView } from '../../projections/views/workflow-state-projection.js';
-import { emitGateEvent } from './gate-utils.js';
+import { requireGateEvent, sameOperationGateKey } from './gate-utils.js';
 import { getRegisteredEventTypes } from '../../projections/rehydration/reducer.js';
 
 // ─── Phase-to-Expected-Events Registry ──────────────────────────────────────
@@ -214,17 +214,7 @@ export async function handleCheckEventEmissions(
   const missing = hints.length;
   const complete = missing === 0;
 
-  // Emit gate.executed event (fire-and-forget)
-  try {
-    await emitGateEvent(store, streamId, 'event-emissions', 'observability', complete, {
-      phase,
-      checked,
-      missing,
-      missingTypes: hints.map((h) => h.eventType),
-    });
-  } catch { /* fire-and-forget */ }
-
-  return {
+  const carrier: ToolResult = {
     success: true,
     data: {
       phase,
@@ -234,4 +224,23 @@ export async function handleCheckEventEmissions(
       missing,
     } satisfies CheckEventEmissionsResult,
   };
+
+  const unrecorded = await requireGateEvent(
+    store,
+    streamId,
+    'event-emissions',
+    'observability',
+    complete,
+    carrier,
+    {
+      phase,
+      checked,
+      missing,
+      missingTypes: hints.map((h) => h.eventType),
+    },
+    sameOperationGateKey('event-emissions'),
+  );
+  if (unrecorded !== undefined) return unrecorded;
+
+  return carrier;
 }

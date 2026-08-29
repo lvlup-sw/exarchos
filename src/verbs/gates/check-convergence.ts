@@ -13,7 +13,7 @@ import { ALL_DIMENSIONS, CONVERGENCE_VIEW } from '../../projections/views/conver
 import type { ConvergenceViewState } from '../../projections/views/convergence-view.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
-import { emitGateEvent, sameOperationGateKey } from './gate-utils.js';
+import { requireGateEvent, sameOperationGateKey } from './gate-utils.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -120,27 +120,7 @@ async function executeCheckConvergence(
   });
   const passed = overallConverged;
 
-  // Emit meta gate.executed event (fire-and-forget)
-  try {
-    await emitGateEvent(
-      store,
-      args.featureId,
-      'convergence',
-      'meta',
-      passed,
-      {
-        phase: 'meta',
-        ...(args.workflowId !== undefined && args.workflowId !== args.featureId
-          ? { readStreamId }
-          : {}),
-        uncheckedDimensions,
-        dimensionSummary: filteredDimensions,
-      },
-      sameOperationGateKey('convergence'),
-    );
-  } catch { /* fire-and-forget */ }
-
-  return {
+  const carrier: ToolResult = {
     success: true,
     data: {
       passed,
@@ -149,4 +129,25 @@ async function executeCheckConvergence(
       dimensions: filteredDimensions,
     },
   };
+
+  const unrecorded = await requireGateEvent(
+    store,
+    args.featureId,
+    'convergence',
+    'meta',
+    passed,
+    carrier,
+    {
+      phase: 'meta',
+      ...(args.workflowId !== undefined && args.workflowId !== args.featureId
+        ? { readStreamId }
+        : {}),
+      uncheckedDimensions,
+      dimensionSummary: filteredDimensions,
+    },
+    sameOperationGateKey('convergence'),
+  );
+  if (unrecorded !== undefined) return unrecorded;
+
+  return carrier;
 }

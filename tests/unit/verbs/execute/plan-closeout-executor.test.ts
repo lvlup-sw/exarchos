@@ -94,6 +94,7 @@ function deps(handlers: LeafHandlerTable = ACTION_HANDLERS): ExecuteIntentDeps {
     // The LIVE table the orchestrate composite hands the executor, unless a
     // case substitutes one leaf to stage a failure the shipped table cannot.
     handlers,
+    handlerTool: 'exarchos_orchestrate',
   };
 }
 
