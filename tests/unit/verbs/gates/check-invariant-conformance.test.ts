@@ -762,4 +762,33 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       await rmrfAsync(fixture.repoRoot);
     }
   });
+
+  it('CheckInvariantConformance_GateEventAppendFails_WithholdsTheSuccessCarrier', async () => {
+    const arm = await createArm('inv-conformance-append-fails-');
+    try {
+      vi.spyOn(arm.eventStore, 'append').mockRejectedValueOnce(new Error('store unavailable'));
+
+      const result = await handleCheckInvariantConformance(
+        {
+          featureId: 'feat-append-fails',
+          workflowType: 'feature',
+          diffContent: 'anything',
+          loadInvariantsFn: () => [],
+        },
+        arm.stateDir,
+        arm.eventStore,
+      );
+
+      // `invariant-conformance` declares `gate.executed` unconditionally — a
+      // dropped append withholds the success carrier rather than returning
+      // one the log does not back. The gate's own verdict is still readable
+      // on `data`.
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('GATE_EVENT_UNRECORDED');
+      const data = result.data as { verdict: string };
+      expect(data.verdict).toBe('APPROVED');
+    } finally {
+      await rmrfAsync(arm.stateDir);
+    }
+  });
 });

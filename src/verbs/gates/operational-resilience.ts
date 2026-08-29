@@ -9,7 +9,7 @@ import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
-import { emitGateEvent, getDiff, sameOperationGateKey } from './gate-utils.js';
+import { getDiff, requireGateEvent, sameOperationGateKey } from './gate-utils.js';
 import { checkOperationalResilience } from '../pure/operational-resilience.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -95,29 +95,29 @@ async function executeOperationalResilience(
   }
   const report = reportLines.join('\n');
 
-  // Emit gate.executed event (fire-and-forget)
-  try {
-    await emitGateEvent(
-      eventStore,
-      args.featureId,
-      'operational-resilience',
-      'quality',
-      passed,
-      {
-        dimension: 'D4',
-        phase: 'review',
-        findingCount,
-      },
-      sameOperationGateKey('operational-resilience'),
-    );
-  } catch { /* fire-and-forget */ }
-
   // Return structured result
   const result: OperationalResilienceResult = {
     passed,
     findingCount,
     report,
   };
+  const carrier: ToolResult = { success: true, data: result };
 
-  return { success: true, data: result };
+  const unrecorded = await requireGateEvent(
+    eventStore,
+    args.featureId,
+    'operational-resilience',
+    'quality',
+    passed,
+    carrier,
+    {
+      dimension: 'D4',
+      phase: 'review',
+      findingCount,
+    },
+    sameOperationGateKey('operational-resilience'),
+  );
+  if (unrecorded !== undefined) return unrecorded;
+
+  return carrier;
 }

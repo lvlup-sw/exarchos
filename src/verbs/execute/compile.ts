@@ -39,6 +39,19 @@ export interface CompileDeps {
    * present. The executor's own handler type narrows it.
    */
   readonly handlers?: Readonly<Record<string, unknown>>;
+  /**
+   * The tool `handlers` belongs to. A table keyed by bare action name cannot
+   * say which tool minted its keys, so a step on a DIFFERENT tool whose
+   * action name happens to collide with one in the table would resolve a
+   * declaration from its own tool here and then, at that leaf's turn, run the
+   * other tool's handler under the wrong contract. Naming the owner turns
+   * that collision into a refusal before any effect, instead of a silent
+   * misroute discovered only by what ran.
+   *
+   * Optional for the same reason `handlers` is: a caller compiling only to
+   * INSPECT a segment owns no table and names no owner for one.
+   */
+  readonly handlerTool?: string;
 }
 
 export const PRODUCTION_COMPILE_DEPS: CompileDeps = {
@@ -256,6 +269,36 @@ export function compileIntent(
     // tool resolves a declaration here and then finds no handler at its turn.
     // For a segment whose earlier leaves reach a remote, that discovery arrives
     // after an effect it cannot take back.
+    //
+    // A table's keys alone cannot say which tool minted them, so this asks
+    // FIRST whether the table names an owner at all, and fails closed if it
+    // does not: an optional owner that a caller could simply omit would leave
+    // the fence below silently inert in exactly the callers that must exercise
+    // it, rather than refusing to compile.
+    if (deps.handlers !== undefined) {
+      if (deps.handlerTool === undefined) {
+        return refuse({
+          code: 'INTENT_HANDLER_TABLE_UNOWNED',
+          step: where,
+          message:
+            `step ${where} of '${intent}' would be checked against a handler table, but the ` +
+            'compile deps name no tool that table belongs to. A table with no declared owner ' +
+            'cannot be trusted to belong to the tool a step names, so compilation refuses rather ' +
+            'than assuming it does.',
+        });
+      }
+      if (step.tool !== deps.handlerTool) {
+        return refuse({
+          code: 'INTENT_HANDLER_TOOL_MISMATCH',
+          step: where,
+          message:
+            `step ${where} of '${intent}' names tool '${step.tool}', but the injected handler ` +
+            `table belongs to '${deps.handlerTool}'. An action name that happens to match one in ` +
+            "that table would resolve this step's declaration correctly and then invoke the " +
+            "wrong tool's handler for it — refused before that can happen.",
+        });
+      }
+    }
     if (deps.handlers !== undefined && !(step.action in deps.handlers)) {
       return refuse({
         code: 'INTENT_NOT_CLOSED',

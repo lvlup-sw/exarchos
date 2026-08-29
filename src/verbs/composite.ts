@@ -399,6 +399,13 @@ function adaptSetupWorktree(): ActionHandler {
 }
 
 /**
+ * The tool `ACTION_HANDLERS` belongs to. Named so the executor can refuse a
+ * leaf whose tool disagrees with this table's owner instead of trusting that
+ * every key it finds was minted under `exarchos_orchestrate`.
+ */
+const ACTION_HANDLERS_TOOL = 'exarchos_orchestrate';
+
+/**
  * The routing table. The bounded action executor invokes a compiled leaf
  * through the SAME entry this composite would route to — a second copy of the
  * mapping is a second thing that can drift from the registry — but it receives
@@ -565,7 +572,7 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   // self-reference safe.
   execute_intent: async (args, stateDir, ctx) => {
     if (!ctx) throw new Error('DispatchContext required for execute_intent');
-    return handleExecuteIntent(args, stateDir, ctx, productionExecuteDeps(ACTION_HANDLERS));
+    return handleExecuteIntent(args, stateDir, ctx, productionExecuteDeps(ACTION_HANDLERS, ACTION_HANDLERS_TOOL));
   },
 };
 

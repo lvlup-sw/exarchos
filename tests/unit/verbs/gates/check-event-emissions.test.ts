@@ -340,7 +340,7 @@ describe('handleCheckEventEmissions', () => {
     expect(event.data.passed).toBe(true);
   });
 
-  it('CheckEventEmissions_GateEmissionFailure_DoesNotBreakHandler', async () => {
+  it('CheckEventEmissions_GateEventAppendFails_WithholdsTheSuccessCarrier', async () => {
     mockViewState = { phase: 'delegate' };
 
     mockStore.query.mockResolvedValueOnce([]);
@@ -352,8 +352,13 @@ describe('handleCheckEventEmissions', () => {
       mockStore as unknown as EventStore,
     );
 
-    expect(result.success).toBe(true);
-    expect(result.data.complete).toBe(false);
+    // `event-emissions` declares `gate.executed` unconditionally — a dropped
+    // append withholds the success carrier rather than returning one the log
+    // does not back. The gate's own verdict is still readable on `data`.
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_EVENT_UNRECORDED');
+    const data = result.data as { complete: boolean };
+    expect(data.complete).toBe(false);
   });
 
   it('CheckEventEmissions_UsesWorkflowIdAsStreamId', async () => {

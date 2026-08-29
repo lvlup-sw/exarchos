@@ -123,6 +123,7 @@ function deps(handlers: LeafHandlerTable = ACTION_HANDLERS): ExecuteIntentDeps {
     findAction: findActionInRegistry,
     argSchemas: INTENT_ARG_SCHEMAS,
     handlers,
+    handlerTool: 'exarchos_orchestrate',
   };
 }
 

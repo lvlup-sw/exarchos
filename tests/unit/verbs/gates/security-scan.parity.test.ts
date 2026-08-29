@@ -7,10 +7,13 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
 }));
 
 // `sameOperationGateKey` belongs in the double alongside the emitter it feeds:
-// the gate's emit sits inside a fire-and-forget try, so a stub module missing
-// it would swallow a TypeError and leave the emission silently unexercised.
+// a stub module missing it would swallow a TypeError and leave the emission
+// silently unexercised. The handler calls `requireGateEvent`, not
+// `emitGateEvent`, directly — this stub always succeeds, since these parity
+// cases exercise the scanner, not the append failure path.
 vi.mock('../../../../src/verbs/gates/gate-utils.js', () => ({
   emitGateEvent: vi.fn().mockResolvedValue(undefined),
+  requireGateEvent: vi.fn().mockResolvedValue(undefined),
   sameOperationGateKey: vi.fn((gateName: string) => `gate.executed:${gateName}:op-fixture`),
   getDiff: vi.fn(),
 }));

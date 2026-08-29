@@ -6,7 +6,7 @@
 // that returns UNKNOWN_ACTION.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -192,6 +192,62 @@ describe('check_exploration_depth gate (DR-4)', () => {
     if (result.success === false) {
       expect(result.error?.code).toBe('INVALID_INPUT');
     }
+  });
+
+  // ── gate.executed append failure withholds the success carrier ────────────
+
+  it('ExplorationDepth_GateEventAppendFails_WithholdsTheSuccessCarrier (self-skip path)', async () => {
+    const originalAppend = eventStore.append.bind(eventStore);
+    vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, options) => {
+      if ((event as { type?: string }).type === 'gate.executed') {
+        throw new Error('store unavailable');
+      }
+      return originalAppend(streamId, event, options);
+    });
+
+    const result = await orchestrate(
+      { action: 'check_exploration_depth', featureId: FEATURE_ID, designDepth: 'standard' },
+    );
+
+    expect(result.success).toBe(false);
+    if (result.success === false) {
+      expect(result.error?.code).toBe('GATE_EVENT_UNRECORDED');
+    }
+    // The gate's own verdict is still readable on `data` — nothing is lost,
+    // only the success carrier is withheld.
+    const data = result.data as EnvelopeData;
+    expect(data.passed).toBe(true);
+    expect(data.skipped).toBe(true);
+  });
+
+  it('ExplorationDepth_GateEventAppendFails_WithholdsTheSuccessCarrier (deep path)', async () => {
+    const specPath = path.join(base, 'deep-with.md');
+    await writeFile(specPath, DEEP_WITH_EXPLORATION, 'utf-8');
+
+    const originalAppend = eventStore.append.bind(eventStore);
+    vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, options) => {
+      if ((event as { type?: string }).type === 'gate.executed') {
+        throw new Error('store unavailable');
+      }
+      return originalAppend(streamId, event, options);
+    });
+
+    const result = await orchestrate(
+      {
+        action: 'check_exploration_depth',
+        featureId: FEATURE_ID,
+        designDepth: 'deep',
+        designPath: specPath,
+      },
+    );
+
+    expect(result.success).toBe(false);
+    if (result.success === false) {
+      expect(result.error?.code).toBe('GATE_EVENT_UNRECORDED');
+    }
+    const data = result.data as EnvelopeData;
+    expect(data.passed).toBe(true);
+    expect(data.skipped).toBe(false);
   });
 });
 

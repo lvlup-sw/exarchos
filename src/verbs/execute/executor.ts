@@ -97,15 +97,27 @@ export interface ExecuteIntentDeps extends CompileDeps {
    * — to refuse a step this table could not have invoked, before any leaf runs.
    */
   readonly handlers: LeafHandlerTable;
+  /**
+   * The tool `handlers` belongs to. Optional on {@link CompileDeps} — a
+   * caller compiling only to inspect a segment owns no table at all — but
+   * required here: this module runs a leaf through the table, and it checks
+   * the leaf's own tool against this name immediately before that lookup, as
+   * defence in depth alongside the compiler's own refusal of the mismatch.
+   */
+  readonly handlerTool: string;
 }
 
 /**
- * The production collaborator set, closed over the caller's handler table. The
- * registry-backed compile deps belong to this module; the handler table does
- * not, so its owner passes it in.
+ * The production collaborator set, closed over the caller's handler table and
+ * the tool it belongs to. The registry-backed compile deps belong to this
+ * module; the handler table and its owning tool do not, so the caller passes
+ * both in.
  */
-export function productionExecuteDeps(handlers: LeafHandlerTable): ExecuteIntentDeps {
-  return { ...PRODUCTION_COMPILE_DEPS, handlers };
+export function productionExecuteDeps(
+  handlers: LeafHandlerTable,
+  handlerTool: string,
+): ExecuteIntentDeps {
+  return { ...PRODUCTION_COMPILE_DEPS, handlers, handlerTool };
 }
 
 // ─── Request validation ─────────────────────────────────────────────────────
@@ -448,6 +460,7 @@ export async function handleExecuteIntent(
       ctx,
       outer,
       handlers,
+      handlerTool: deps.handlerTool,
     });
     if (committed.kind === 'digest-mismatch') {
       return digestMismatchResult(
@@ -500,6 +513,7 @@ interface RunSegmentInput {
   readonly ctx: DispatchContext;
   readonly outer: CorrelationContext;
   readonly handlers: LeafHandlerTable;
+  readonly handlerTool: string;
 }
 
 interface LeafOutcome {
@@ -512,7 +526,7 @@ interface LeafOutcome {
 }
 
 async function runSegment(input: RunSegmentInput): Promise<CommitOutcome> {
-  const { segment, operationId, stateDir, ctx, outer, handlers } = input;
+  const { segment, operationId, stateDir, ctx, outer, handlers, handlerTool } = input;
   const leaves: ReceiptLeaf[] = [];
   let tailSequence = 0;
   let eventsAppended = 0;
@@ -520,7 +534,7 @@ async function runSegment(input: RunSegmentInput): Promise<CommitOutcome> {
   let failure: IntentReceipt['failure'];
 
   for (const leaf of segment.leaves) {
-    const outcome = await runLeaf({ leaf, operationId, stateDir, ctx, outer, handlers, segment });
+    const outcome = await runLeaf({ leaf, operationId, stateDir, ctx, outer, handlers, handlerTool, segment });
     leaves.push({
       action: leaf.action,
       status: outcome.status,
@@ -602,8 +616,75 @@ function foldHeldRows(
   }
 }
 
+/**
+ * Whether a `reject-replay` leaf's effect can be shown to have already
+ * happened, read off the leaf's own derived operation identity rather than
+ * assumed from the segment-level operation claim.
+ *
+ * A leaf whose contract refuses replay must not have its effect performed
+ * twice. The executor's crash-retry model re-runs every leaf of a segment
+ * that crashed before its claim committed — each leaf again under the SAME
+ * derived operation identity as its first attempt, because that identity is
+ * built from the caller's operation id, the leaf's position and its action
+ * name, none of which change on a retry. The only thing the executor can read
+ * as proof the effect already happened is that leaf's own
+ * unconditionally-declared rows under that stable identity, so that is what
+ * this reads — and a partial set is not proof: `undefined` sends the leaf
+ * back through its handler, where a leaf with its own remote precheck (a
+ * pull-request creator checking for an already-open request, for instance)
+ * still has that precheck as its line of defence.
+ *
+ * Eliding skips the two things the non-elided path runs AFTER the handler:
+ * `runEmissionVerifierInterceptor` and, when the leaf declares one,
+ * `observeActionPostconditions`. The emissions half is covered by this
+ * function's own "every owed event landed" check standing in for the
+ * verifier's unconditional-emissions read. The postcondition half is not —
+ * `ensures` is a durable-evidence axis the emissions check cannot stand in
+ * for, so a leaf that declares one is refused elision entirely and always
+ * takes the handler path, where its postcondition is actually observed.
+ * No shipped `reject-replay` action combines a declared `ensures` with a
+ * non-empty obliged set today, so this is a guard against the first one
+ * that does, not a change in current behavior.
+ */
+async function replayElidedRows(input: {
+  readonly leaf: CompiledLeaf;
+  readonly derived: string;
+  readonly ctx: DispatchContext;
+}): Promise<readonly Capture[] | undefined> {
+  const { leaf, derived, ctx } = input;
+  if (leaf.contract.replay.kind !== 'reject-replay') return undefined;
+  if (leaf.contract.ensures.kind !== 'none') return undefined;
+
+  // `safe-repeat` is idempotent by the registry's own admission rule and
+  // needs no gate here; `claim-required` is already served by the
+  // segment-level operation claim above this function's caller. Only
+  // `reject-replay` has nothing else standing between a retry and a second
+  // effect.
+  const owed = obligedEmissions(leaf);
+  // An action that declares no unconditional emission leaves no durable trace
+  // this gate could read. Without this branch, "every owed event is present"
+  // is vacuously true over an empty set, and the gate would treat a leaf that
+  // has never run as already done on its very first attempt.
+  if (owed.size === 0) return undefined;
+
+  const rows = await ctx.eventStore.query(leaf.observationStreamId, { operationId: derived });
+  const landed = new Set(rows.map((row) => row.type));
+  for (const type of owed) {
+    if (!landed.has(type)) return undefined;
+  }
+  // The verifier records its own `emission.violated` finding under this same
+  // derived id (`runEmissionVerifierInterceptor`, called from the non-elided
+  // path below) — a bookkeeping row ABOUT the leaf, not something the leaf
+  // emitted. `foldHeldRows` excludes it for the same reason on the non-elided
+  // path; folding it into an elided leaf's captures would report a prior
+  // attempt's finding as an event THIS run emitted.
+  return rows
+    .filter((row) => row.type !== EMISSION_VIOLATION_EVENT)
+    .map((row) => ({ type: row.type, streamId: leaf.observationStreamId, sequence: row.sequence }));
+}
+
 async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
-  const { leaf, operationId, stateDir, ctx, outer, handlers } = input;
+  const { leaf, operationId, stateDir, ctx, outer, handlers, handlerTool } = input;
   const derived = derivedLeafOperationId(operationId, leaf.index, leaf.action);
   const captures: Capture[] = [];
 
@@ -651,6 +732,25 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
         'INTENT_SEGMENT_FAILED',
         `leaf '${leaf.action}' was not admitted: ${admission.error?.message ?? 'admission denied'}`,
       );
+    }
+
+    // Compile already refuses a step whose tool disagrees with this table's
+    // owner (`INTENT_HANDLER_TOOL_MISMATCH`). This arm exists so the lookup
+    // just below can never be reached on a tool the table does not belong to,
+    // even for a caller that compiled a segment under one set of deps and
+    // executes it under another.
+    if (leaf.tool !== handlerTool) {
+      return failFor(
+        'INTENT_SEGMENT_FAILED',
+        `leaf '${leaf.action}' names tool '${leaf.tool}', but the injected handler table belongs ` +
+          `to '${handlerTool}'`,
+      );
+    }
+
+    const elided = await replayElidedRows({ leaf, derived, ctx });
+    if (elided !== undefined) {
+      captures.push(...elided);
+      return { status: 'passed', events: receiptEvents(), captures };
     }
 
     const handler = handlers[leaf.action];

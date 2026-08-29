@@ -18,6 +18,14 @@
 // runbook in the runbook table, a typed argument schema in the intent table, a
 // registered action for the leaf, and a handler in the orchestrate table. No
 // dependency injection — the point is the path that has none.
+//
+// The step names `exarchos_orchestrate` rather than a private fixture tool
+// name, and the declaration is registered directly onto that tool's own
+// action list rather than through `registerCustomTool` (which refuses a name
+// colliding with a built-in tool). The executor now refuses a step whose tool
+// disagrees with the handler table's declared owner — this fixture leaf is
+// invoked through the REAL orchestrate table, so it has to be named the tool
+// that owns that table, the same as every shipped leaf is.
 
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import * as path from 'node:path';
@@ -27,7 +35,7 @@ import { tmpdir } from 'node:os';
 // Hoisted with the `vi.mock` factories that read them: a factory runs before
 // this module's own top-level bindings are initialized.
 const { FIXTURE_TOOL, FIXTURE_LEAF, FIXTURE_INTENT, leaf } = vi.hoisted(() => ({
-  FIXTURE_TOOL: 'fixture_dispatch_tool',
+  FIXTURE_TOOL: 'exarchos_orchestrate',
   FIXTURE_LEAF: 'fixture_dispatch_leaf',
   FIXTURE_INTENT: 'fixture-dispatch-intent',
   leaf: { calls: 0 },
@@ -67,7 +75,8 @@ import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js'
 import { dispatch } from '../../../../src/dispatch/core/dispatch.js';
 import { EMISSION_VIOLATION_EVENT } from '../../../../src/dispatch/core/interceptors/emission-verifier.js';
 import { EventStore } from '../../../../src/events/store.js';
-import { clearCustomTools, registerCustomTool } from '../../../../src/registry.js';
+import { TOOL_REGISTRY, type ToolAction } from '../../../../src/registry.js';
+import { admitActionContract } from '../../../../src/registry/annotations.js';
 import { ACTION_HANDLERS } from '../../../../src/verbs/composite.js';
 import { INTENT_EXECUTED_EVENT } from '../../../../src/verbs/execute/executor.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
@@ -76,19 +85,34 @@ import { appendingHandler, fixtureAction } from './fixtures.js';
 let stateDir: string;
 let store: EventStore;
 
+// `registerCustomTool` refuses a name colliding with a built-in tool, and this
+// leaf is deliberately named `exarchos_orchestrate` now (see the header) — so
+// the declaration is spliced directly onto that tool's own action list rather
+// than through the custom-tool surface, and removed the same way afterward.
+const orchestrateTool = TOOL_REGISTRY.find((tool) => tool.name === FIXTURE_TOOL);
+if (orchestrateTool === undefined) {
+  throw new Error(`'${FIXTURE_TOOL}' is missing from TOOL_REGISTRY`);
+}
+const orchestrateActions = orchestrateTool.actions as unknown as ToolAction[];
+
 beforeAll(() => {
-  registerCustomTool({
-    name: FIXTURE_TOOL,
-    description: 'fixture tool carrying the dispatch-replay leaf',
-    actions: [
-      fixtureAction({
-        name: FIXTURE_LEAF,
-        // The registry admits a custom action's contract for real, and it does
-        // not accept `safe-repeat` from a mutating annotation.
-        replay: { kind: 'claim-required', scope: 'stream-subject-request' },
-      }),
-    ],
+  const fixtureLeaf = fixtureAction({
+    name: FIXTURE_LEAF,
+    // `admitActionContract` below is what makes this real — it does not
+    // accept `safe-repeat` from a mutating annotation.
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
   });
+  // Admit the contract BEFORE touching the shared registry array, the same
+  // gate `registerCustomTool` runs for every action it accepts
+  // (`src/registry/custom-tools.ts`) — that surface refuses this fixture's
+  // name outright (it collides with the built-in `exarchos_orchestrate`,
+  // which this leaf is deliberately named to match the new handler-table
+  // owner fence in `compile.ts`), so the admission call is made directly
+  // here instead. Throwing here, before the push, means an invalid fixture
+  // contract never reaches the shared array in the first place — nothing
+  // for `afterAll` to have missed.
+  admitActionContract(fixtureLeaf, FIXTURE_TOOL);
+  orchestrateActions.push(fixtureLeaf);
   // The leaf's handler goes into the orchestrate table ITSELF, which is the
   // object the composite hands the executor. Replacing the module's export
   // would not reach it: the composite reads its own table directly, so an
@@ -109,7 +133,8 @@ beforeAll(() => {
 
 afterAll(() => {
   Reflect.deleteProperty(ACTION_HANDLERS, FIXTURE_LEAF);
-  clearCustomTools();
+  const index = orchestrateActions.findIndex((action) => action.name === FIXTURE_LEAF);
+  if (index !== -1) orchestrateActions.splice(index, 1);
 });
 
 beforeEach(async () => {

@@ -273,6 +273,12 @@ export type BoundReplayPolicy =
  * without claiming. `claim-required` is {@link ReplayLedger.claim} on the
  * existing identity. `reject-replay` executes the first claim and refuses a
  * second without running the executor.
+ *
+ * This is the in-memory ledger primitive — it answers within one process,
+ * against keys this module claims itself. A compiled leaf's own `reject-replay`
+ * declaration is enforced separately and durably, in the bounded action
+ * executor, by reading the leaf's own rows back from the event store under its
+ * derived operation identity rather than by consulting a ledger here.
  */
 export function applyReplayPolicy<R>(
   replay: BoundReplayPolicy | undefined,

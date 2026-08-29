@@ -66,7 +66,7 @@ import {
 } from '../review/review-verdict.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
-import { emitGateEvent, sameOperationGateKey } from './gate-utils.js';
+import { requireGateEvent, sameOperationGateKey } from './gate-utils.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -456,30 +456,7 @@ async function executeCheckInvariantConformance(
     generateVerdictReport(verdict, counts) +
     renderAuditDirective(auditInvariantIds);
 
-  // STILL emit gate.executed even when the applicable catalog is empty
-  // (fire-and-forget: emission failure must not break the gate check).
-  try {
-    await emitGateEvent(
-      eventStore,
-      args.featureId,
-      'invariant-conformance',
-      'review',
-      verdict === 'APPROVED',
-      {
-        verdict,
-        phase,
-        workflowType,
-        high,
-        medium,
-        low,
-        applicableCount: applicable.length,
-        auditProjection,
-        auditInvariantCount: auditInvariantIds.length,
-      },
-      sameOperationGateKey('invariant-conformance'),
-    );
-  } catch { /* fire-and-forget */ }
-
+  // STILL emit gate.executed even when the applicable catalog is empty.
   const result: CheckInvariantConformanceResult = {
     verdict,
     high,
@@ -492,8 +469,31 @@ async function executeCheckInvariantConformance(
     applicableCount: applicable.length,
     report,
   };
+  const carrier: ToolResult = { success: true, data: result };
 
-  return { success: true, data: result };
+  const unrecorded = await requireGateEvent(
+    eventStore,
+    args.featureId,
+    'invariant-conformance',
+    'review',
+    verdict === 'APPROVED',
+    carrier,
+    {
+      verdict,
+      phase,
+      workflowType,
+      high,
+      medium,
+      low,
+      applicableCount: applicable.length,
+      auditProjection,
+      auditInvariantCount: auditInvariantIds.length,
+    },
+    sameOperationGateKey('invariant-conformance'),
+  );
+  if (unrecorded !== undefined) return unrecorded;
+
+  return carrier;
 }
 
 // ─── The audit directive (DR-4, task 069) ───────────────────────────────────

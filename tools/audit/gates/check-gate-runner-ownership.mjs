@@ -134,17 +134,19 @@ const DISPOSITIONS = Object.freeze([
   })),
 
   // Typed, exact-file non-enforceable observation exemptions.
+  //
+  // The eleven fire-and-forget gates that used to call `emitGateEvent`
+  // directly (swallowing a failed append behind a success carrier) now call
+  // the shared `requireGateEvent` wrapper in gate-utils.ts instead — the
+  // withholding is no longer a bare compatibility observation, so those
+  // eleven files carry no `direct-gate-emitter` row here any more. The one
+  // literal `emitGateEvent(` call that used to live in each of them collapsed
+  // into the single call inside `requireGateEvent`, which is why
+  // gate-utils.ts's own row below counts 2, not 1: its `emitGateEvent`
+  // function definition, plus that one shared internal call site.
   ...[
-    ['src/verbs/gates/check-convergence.ts', 1, 'orchestrate/check-convergence'],
-    ['src/verbs/gates/check-event-emissions.ts', 1, 'orchestrate/check-event-emissions'],
-    ['src/verbs/gates/check-exploration-depth.ts', 2, 'orchestrate/check-exploration-depth'],
-    ['src/verbs/gates/check-invariant-conformance.ts', 1, 'orchestrate/check-invariant-conformance'],
-    ['src/verbs/gates/context-economy.ts', 1, 'orchestrate/context-economy'],
-    ['src/verbs/gates/gate-utils.ts', 1, 'orchestrate/gate-utils'],
-    ['src/verbs/gates/mutation-adequacy.ts', 3, 'orchestrate/mutation-adequacy'],
-    ['src/verbs/gates/operational-resilience.ts', 1, 'orchestrate/operational-resilience'],
+    ['src/verbs/gates/gate-utils.ts', 2, 'orchestrate/gate-utils'],
     ['src/verbs/gates/plan-coverage.ts', 1, 'orchestrate/plan-coverage'],
-    ['src/verbs/gates/post-merge.ts', 1, 'orchestrate/post-merge'],
     // Both gates declare `gate.executed` unconditionally and appended nothing;
     // the row is minted from inside the provider closure, under the canonical
     // runner, so the declared signal and the durable proof land together.
@@ -154,9 +156,6 @@ const DISPOSITIONS = Object.freeze([
     ['src/verbs/team/prepare-synthesis.ts', 3, 'orchestrate/prepare-synthesis'],
     ['src/verbs/gates/provenance-chain.ts', 1, 'orchestrate/provenance-chain'],
     ['src/verbs/review/review-verdict.ts', 3, 'orchestrate/review-verdict'],
-    ['src/verbs/gates/security-scan.ts', 1, 'orchestrate/security-scan'],
-    ['src/verbs/tasks/task-decomposition.ts', 1, 'orchestrate/task-decomposition'],
-    ['src/verbs/gates/workflow-determinism.ts', 1, 'orchestrate/workflow-determinism'],
   ].map(([file, count, owner]) => ({
     file,
     kind: 'direct-gate-emitter',
