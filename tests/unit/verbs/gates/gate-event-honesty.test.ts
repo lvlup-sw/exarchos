@@ -111,7 +111,7 @@ describe('gate.executed append failure — durable evidence honesty', () => {
     });
     expect(events).toHaveLength(1);
     const record = AdmissionEvidenceRecordedData.parse(events[0]!.data);
-    // DR-7: an error envelope from the provider is indeterminate, never a
+    // An error envelope from the provider is indeterminate, never a
     // fabricated `fail` — the gate did not produce trustworthy proof, but
     // nothing observed a genuine failing verdict either.
     expect(record.evidence.verdict).toBe('indeterminate');

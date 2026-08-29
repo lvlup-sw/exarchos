@@ -137,8 +137,10 @@ describe('handleMergePr', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('PR_MERGED_EVENT_UNRECORDED');
     expect(result.error?.message).toContain('SQLITE_BUSY');
-    // The merge's own result is preserved — the effect happened and is worth
-    // reading even though the durable record of it did not land.
-    expect(result.data).toEqual({ merged: true, sha: 'abc123' });
+    // The merge's own result is preserved on the error block — the effect
+    // happened and is worth reading even though the durable record of it did
+    // not land, and the failed envelope variant admits no top-level `data`.
+    expect(result.error?.mergeResult).toEqual({ merged: true, sha: 'abc123' });
+    expect(result.data).toBeUndefined();
   });
 });

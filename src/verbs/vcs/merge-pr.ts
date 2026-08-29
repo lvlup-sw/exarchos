@@ -40,9 +40,9 @@ export async function handleMergePr(
     // observer that the drift happened. Withholding the success carrier on a
     // failed append (rather than reporting success with a silently missing
     // row) mirrors `requireGateEvent`'s shape elsewhere in this lane: the
-    // merge's own result still rides on `data`, because the effect happened
-    // and is worth reading, but `success` reflects whether the durable record
-    // of it does too.
+    // merge's own result still rides on `error.mergeResult`, because the
+    // effect happened and is worth reading, but the failed envelope variant
+    // admits no top-level `data` — the same rule `intentReceipt` follows.
     try {
       await ctx.eventStore.append('vcs', {
         type: 'pr.merged',
@@ -58,13 +58,14 @@ export async function handleMergePr(
       const message = err instanceof Error ? err.message : String(err);
       return {
         success: false,
-        data: result,
         error: {
           code: 'PR_MERGED_EVENT_UNRECORDED',
           message:
-            `merge_pr: the merge succeeded and its result is preserved on \`data\` — ` +
-            `what failed is the durable \`pr.merged\` record. Do NOT retry: retrying ` +
-            `would repeat a merge that already landed. Underlying error: ${message}`,
+            `merge_pr: the merge succeeded and its result is preserved on ` +
+            `\`error.mergeResult\` — what failed is the durable \`pr.merged\` record. ` +
+            `Do NOT retry: retrying would repeat a merge that already landed. ` +
+            `Underlying error: ${message}`,
+          mergeResult: result,
         },
       };
     }

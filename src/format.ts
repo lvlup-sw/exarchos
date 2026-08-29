@@ -123,6 +123,12 @@ export interface ToolResult {
     // now ends. Structural rather than imported so this module picks up no
     // dependency on the executor's graph.
     intentReceipt?: IntentFailureDetail;
+    // The merge result a PR_MERGED_EVENT_UNRECORDED refusal preserves. Same
+    // rule as `intentReceipt`: the remote merge already landed, so the caller
+    // must be able to read what happened off the failure — and the failed
+    // envelope variant admits no top-level `data`, so the result rides inside
+    // the error. Structural for the same no-new-dependency reason.
+    mergeResult?: { readonly merged: boolean; readonly sha?: string; readonly error?: string };
   };
   readonly warnings?: readonly string[];
   readonly _meta?: unknown;
