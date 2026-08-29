@@ -61,6 +61,72 @@ export interface UnverifiableModuleEmission {
   readonly reason: 'outside-scan-root';
 }
 
+/** A declared action emission with no measured append site and no allowance covering it. */
+export interface PhantomActionEmission {
+  readonly code: 'PHANTOM_ACTION_EMISSION';
+  readonly event: string;
+  /** The qualified `tool.action` names declaring the event. */
+  readonly declaredBy: readonly string[];
+  readonly message: string;
+}
+
+/** An allowance row that no longer describes the tree. */
+export interface StaleUnresolvedAllowance {
+  readonly code: 'STALE_UNRESOLVED_ALLOWANCE';
+  readonly event: string;
+  readonly reason: 'append-now-resolved' | 'no-declaring-edge';
+  readonly message: string;
+}
+
+/** A declared action emission the census cannot confirm or refute. */
+export interface UnverifiableActionEmission {
+  readonly event: string;
+  readonly reason: 'append-not-resolvable';
+}
+
+/**
+ * Declared action emissions whose append site the census cannot resolve.
+ *
+ * An action edge names an event, never a file, so the only measurement the
+ * census can offer is "some module appends this event". These events fail even
+ * that: every append they ride goes through machinery whose `type:`
+ * discriminant is a runtime value, so the site lands in the census's
+ * `unresolved` bucket, which carries no event name. The census genuinely cannot
+ * tell these apart from a declaration whose append was deleted.
+ *
+ * So the distinction is pinned here and held to the tree in BOTH directions,
+ * the same ratchet every declared surface in this file carries. SHRINK-ONLY: a
+ * row leaves when its append becomes resolvable (it then confirms like any
+ * other event, and keeping the row is reported as stale) or when the last edge
+ * declaring the event is retired (a row covering no declaration is reported as
+ * stale). A row must never be ADDED to silence a phantom finding without first
+ * confirming the new append really is one the parser cannot read — that is
+ * what this list is for, and using it for anything else re-opens the hole it
+ * closes.
+ */
+export const UNRESOLVED_ACTION_EVENT_ALLOWANCE: readonly string[] = Object.freeze([
+  'mutation.executed',
+  'mutation.executing_started',
+  'onboard.executed',
+  'onboard.requested',
+  'orchestrate.intent_executed',
+  'pr.comment.requested',
+  'state.patched',
+  'workflow.cancel',
+  'workflow.checkpoint',
+  'workflow.cleanup',
+  'workflow.compensation',
+  'workflow.fix-cycle',
+  'workflow.rehydrated',
+  'workflow.started',
+  'workflow.transition',
+  'worktree.merge_executed',
+  'worktree.merge_requested',
+  'worktree.orphan_detected',
+  'worktree.released',
+  'worktree.reserved',
+]);
+
 export interface EmitterClosureResult {
   /** Every measured append is claimed, and every claim is live. */
   readonly ok: boolean;
@@ -70,9 +136,14 @@ export interface EmitterClosureResult {
   readonly explainedByAction: number;
   /** Sites explained by a {@link MODULE_EMISSIONS} row. */
   readonly explainedByModule: number;
+  /** Distinct events the action edges declare — the action arm's DENOMINATOR. */
+  readonly declaredActionEventCount: number;
   readonly undeclared: readonly UndeclaredAppendSite[];
   readonly phantoms: readonly PhantomModuleEmission[];
   readonly unverifiable: readonly UnverifiableModuleEmission[];
+  readonly phantomActionEmissions: readonly PhantomActionEmission[];
+  readonly staleAllowance: readonly StaleUnresolvedAllowance[];
+  readonly unverifiableActionEmissions: readonly UnverifiableActionEmission[];
 }
 
 /** `event → the modules declared to append it` from the non-action surface. */
@@ -101,6 +172,7 @@ export function auditEmitterClosure(
   census: AppendSiteCensus,
   actionEdges: readonly EmissionEdge[],
   moduleEmissions: readonly ModuleEmission[] = MODULE_EMISSIONS,
+  unresolvedAllowance: readonly string[] = UNRESOLVED_ACTION_EVENT_ALLOWANCE,
 ): EmitterClosureResult {
   const declaredByAction = new Set(actionEdges.map((edge) => edge.event));
   const declaredByModule = moduleIndex(moduleEmissions);
@@ -158,19 +230,102 @@ export function auditEmitterClosure(
     });
   }
 
+  // ── The action arm's stale-cover direction ────────────────────────────────
+  //
+  // The loops above answer "is every measured append declared?" and "is every
+  // module declaration live?". Nothing yet answers it for the ACTION surface: a
+  // contract emission naming an event with zero append sites anywhere never
+  // enters `census.modulesByEvent`, so both loops walk past it. An edge like
+  // that is the same stale cover the module arm refuses — a claim the tree does
+  // not support, sitting there looking like coverage.
+  //
+  // The census cannot refute such an edge outright, because an append whose
+  // discriminant is a runtime value lands in `unresolved` without an event
+  // name. So the verdict is three-way: confirmed (some module appends the
+  // event), covered by the pinned {@link UNRESOLVED_ACTION_EVENT_ALLOWANCE}
+  // (unverifiable, not refuted), or phantom. The allowance itself is held to
+  // the tree in both directions so it cannot rot into a mute list.
+  const allowance = new Set(unresolvedAllowance);
+  const declaredBy = new Map<string, Set<string>>();
+  for (const edge of actionEdges) {
+    const owners = declaredBy.get(edge.event) ?? new Set<string>();
+    owners.add(`${edge.declaringTool}.${edge.action}`);
+    declaredBy.set(edge.event, owners);
+  }
+
+  const phantomActionEmissions: PhantomActionEmission[] = [];
+  const unverifiableActionEmissions: UnverifiableActionEmission[] = [];
+  for (const [event, owners] of declaredBy) {
+    if (census.modulesByEvent.has(event)) continue;
+    if (allowance.has(event)) {
+      unverifiableActionEmissions.push({ event, reason: 'append-not-resolvable' });
+      continue;
+    }
+    phantomActionEmissions.push({
+      code: 'PHANTOM_ACTION_EMISSION',
+      event,
+      declaredBy: Object.freeze([...owners].sort()),
+      message:
+        `${[...owners].sort().join(', ')} declare(s) the emission of '${event}', and the census ` +
+        'finds no module that appends it. The append moved, was deleted, or its type stopped ' +
+        'resolving. Delete the declaration or follow the append — and only if the append is real ' +
+        'but rides a runtime-valued discriminant does the event belong on the unresolved-append ' +
+        'allowance. A declared emission with no append reads as coverage while covering nothing.',
+    });
+  }
+
+  const staleAllowance: StaleUnresolvedAllowance[] = [];
+  for (const event of allowance) {
+    if (census.modulesByEvent.has(event)) {
+      staleAllowance.push({
+        code: 'STALE_UNRESOLVED_ALLOWANCE',
+        event,
+        reason: 'append-now-resolved',
+        message:
+          `the unresolved-append allowance covers '${event}', and the census now resolves an ` +
+          'append for it. The event no longer needs cover, and cover it does not need is cover ' +
+          'that would silently absorb the next real phantom. Remove the row.',
+      });
+      continue;
+    }
+    if (!declaredBy.has(event)) {
+      staleAllowance.push({
+        code: 'STALE_UNRESOLVED_ALLOWANCE',
+        event,
+        reason: 'no-declaring-edge',
+        message:
+          `the unresolved-append allowance covers '${event}', and no action edge declares that ` +
+          'event. The allowance exists to keep a DECLARED emission from being misread as stale; ' +
+          'a row covering no declaration protects nothing. Remove the row.',
+      });
+    }
+  }
+
   const byEvent = (
     a: { event: string; module: string },
     b: { event: string; module: string },
   ): number => a.event.localeCompare(b.event) || a.module.localeCompare(b.module);
+  const byEventOnly = (a: { event: string }, b: { event: string }): number =>
+    a.event.localeCompare(b.event);
 
   return Object.freeze({
-    ok: undeclared.length === 0 && phantoms.length === 0,
+    ok:
+      undeclared.length === 0 &&
+      phantoms.length === 0 &&
+      phantomActionEmissions.length === 0 &&
+      staleAllowance.length === 0,
     measuredSiteCount,
     explainedByAction,
     explainedByModule,
+    declaredActionEventCount: declaredBy.size,
     undeclared: Object.freeze([...undeclared].sort(byEvent)),
     phantoms: Object.freeze([...phantoms].sort(byEvent)),
     unverifiable: Object.freeze([...unverifiable].sort(byEvent)),
+    phantomActionEmissions: Object.freeze([...phantomActionEmissions].sort(byEventOnly)),
+    staleAllowance: Object.freeze([...staleAllowance].sort(byEventOnly)),
+    unverifiableActionEmissions: Object.freeze(
+      [...unverifiableActionEmissions].sort(byEventOnly),
+    ),
   });
 }
 
