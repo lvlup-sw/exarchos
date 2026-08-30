@@ -8,6 +8,9 @@ import { AtomicAppender } from './atomic-appender.js';
 import { migrateEvents } from './event-migration.js';
 import { getDispatchContext } from '../dispatch/dispatch-context.js';
 import { notifyAppendObserved } from './observation/append-observation.js';
+import { checkRunBundleIntegrity } from './bundle/integrity.js';
+import type { BundleIntegrityResult } from './bundle/integrity.js';
+import { RunBundleStore } from './bundle/run-bundle-store.js';
 import {
   SubscriptionRegistry,
   type SubscribeOptions,
@@ -136,6 +139,14 @@ export type IntegrityResult =
 
 /** Default upper bound on `runIntegrityCheck` wall time. */
 const DEFAULT_INTEGRITY_TIMEOUT_MS = 2000;
+
+/**
+ * Default upper bound on `runBundleIntegrityCheck` wall time. Larger than the
+ * pragma probe's budget because this sweep enumerates every stream, reads its
+ * events, and re-hashes every referenced blob — it scales with the ledger,
+ * where the pragma is one bounded backend call.
+ */
+const DEFAULT_BUNDLE_INTEGRITY_TIMEOUT_MS = 10_000;
 
 // ─── Event Store ────────────────────────────────────────────────────────────
 
@@ -1046,6 +1057,128 @@ export class EventStore {
         return await Promise.race([probePromise, timeoutPromise, externalAbortPromise]);
       }
       return await Promise.race([probePromise, timeoutPromise]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      if (externalSignal) {
+        externalSignal.removeEventListener('abort', onExternalAbort);
+      }
+    }
+  }
+
+  /**
+   * Run the run-bundle resolvability oracle with bounded wall time.
+   *
+   * Sibling of {@link runIntegrityCheck} and deliberately the same posture:
+   * bounded internally, honours the caller's AbortSignal, and exposes no raw
+   * handle — neither the sqlite connection nor the bundle store's filesystem
+   * root escapes. It answers a different question. The pragma probe asks
+   * whether the substrate holding the ledger is intact; this asks whether the
+   * bytes the ledger references still exist and still hash to what was
+   * recorded. A ledger can be perfectly intact while the artifacts it names
+   * have been deleted.
+   *
+   * Verdicts:
+   *   - Backend cannot enumerate streams → `{ok: 'skipped'}`
+   *   - Streams enumerated, no references and no settlement → `{ok: 'empty'}`
+   *     (nothing was checked — NOT the same claim as "nothing was wrong")
+   *   - Every reference resolved → `{ok: true}` with the denominator it checked
+   *   - Any unresolvable, corrupt, or malformed reference, or a settled stream
+   *     that references nothing → `{ok: false}` with the violations named
+   *   - Sweep exceeds `timeoutMs` → `{ok: false}` with the timeout in `details`
+   *   - External abort → rejects with AbortError, since caller-initiated
+   *     cancellation is an exception rather than a verdict
+   */
+  async runBundleIntegrityCheck(opts?: {
+    signal?: AbortSignal;
+    timeoutMs?: number;
+    bundleStore?: RunBundleStore;
+  }): Promise<BundleIntegrityResult> {
+    const probeBackend = this.getReadBackend();
+    if (typeof probeBackend.listStreams !== 'function') {
+      return {
+        ok: 'skipped',
+        reason: 'backend does not enumerate streams',
+      };
+    }
+
+    const timeoutMs = opts?.timeoutMs ?? DEFAULT_BUNDLE_INTEGRITY_TIMEOUT_MS;
+    const externalSignal = opts?.signal;
+
+    if (externalSignal?.aborted) {
+      const err = new Error('aborted');
+      err.name = 'AbortError';
+      throw err;
+    }
+
+    const bundleStore = opts?.bundleStore ?? RunBundleStore.forStateDir(this.stateDir);
+
+    // Chain the caller's signal into an internal controller so the timeout can
+    // also stop the sweep without mutating the caller's signal.
+    const controller = new AbortController();
+    const onExternalAbort = () => controller.abort();
+    if (externalSignal) {
+      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
+
+    let timer: NodeJS.Timeout | undefined;
+    let didTimeout = false;
+    const timeoutDetails = `run-bundle integrity check timed out after ${timeoutMs}ms`;
+    const timedOut: BundleIntegrityResult = {
+      ok: false,
+      scannedStreamCount: 0,
+      referenceCount: 0,
+      details: timeoutDetails,
+      violations: [],
+    };
+    const timeoutPromise = new Promise<BundleIntegrityResult>((resolve) => {
+      timer = setTimeout(() => {
+        didTimeout = true;
+        controller.abort();
+        resolve(timedOut);
+      }, timeoutMs);
+    });
+
+    const sweepPromise = (async (): Promise<BundleIntegrityResult> => {
+      try {
+        return await checkRunBundleIntegrity(
+          {
+            listStreams: () => this.listStreams(),
+            query: (streamId) => this.query(streamId),
+          },
+          bundleStore,
+          controller.signal,
+        );
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          if (didTimeout && !externalSignal?.aborted) return timedOut;
+          throw err;
+        }
+        return {
+          ok: false,
+          scannedStreamCount: 0,
+          referenceCount: 0,
+          details: err instanceof Error ? err.message : String(err),
+          violations: [],
+        };
+      }
+    })();
+
+    try {
+      if (externalSignal) {
+        const externalAbortPromise = new Promise<never>((_, reject) => {
+          externalSignal.addEventListener(
+            'abort',
+            () => {
+              const err = new Error('aborted');
+              err.name = 'AbortError';
+              reject(err);
+            },
+            { once: true },
+          );
+        });
+        return await Promise.race([sweepPromise, timeoutPromise, externalAbortPromise]);
+      }
+      return await Promise.race([sweepPromise, timeoutPromise]);
     } finally {
       if (timer !== undefined) clearTimeout(timer);
       if (externalSignal) {

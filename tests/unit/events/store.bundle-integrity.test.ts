@@ -1,0 +1,215 @@
+/**
+ * EventStore.runBundleIntegrityCheck — the oracle against a real store.
+ *
+ * The case that carries this file is the replay counterexample. The appender's
+ * operation-claim fast path returns a settled operation's recorded result
+ * without reading a single bundle byte, so deleting a referenced artifact
+ * leaves replay reporting success. That test asserts BOTH halves in one place:
+ * replay still green, oracle red. If the oracle ever stops naming it, nothing
+ * in the system does.
+ *
+ * These cases open a real SQLite store on a temp directory, so they carry an
+ * explicit per-test timeout rather than the tier default.
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as path from 'node:path';
+import { mkdtemp, unlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { EventStore } from '../../../src/events/store.js';
+import { RunBundleStore } from '../../../src/events/bundle/run-bundle-store.js';
+import {
+  BUNDLE_REF_FIELD,
+  SETTLED_EVENT_TYPES,
+} from '../../../src/events/bundle/digest-references.js';
+import { ArtifactIdSchema } from '../../../src/workflow/admission/types.js';
+import type { StorageBackend } from '../../../src/storage/backend.js';
+import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
+
+const FS_TIMEOUT_MS = 15_000;
+const SETTLED_TYPE = SETTLED_EVENT_TYPES[0] ?? 'orchestrate.intent_executed';
+
+let tempDir: string;
+
+beforeEach(async () => {
+  tempDir = await mkdtemp(path.join(tmpdir(), 'store-bundle-integrity-test-'));
+});
+
+afterEach(async () => {
+  await rmrfAsync(tempDir);
+});
+
+function blobPath(root: string, digest: { algorithm: string; value: string }): string {
+  return path.join(root, digest.algorithm, digest.value.slice(0, 2), digest.value.slice(2));
+}
+
+describe('EventStore.runBundleIntegrityCheck', () => {
+  it(
+    'BundleIntegrityCheck_FreshStore_ReportsEmptyNotClear',
+    async () => {
+      const store = new EventStore(tempDir);
+
+      const result = await store.runBundleIntegrityCheck();
+
+      expect(result.ok).toBe('empty');
+      if (result.ok === 'empty') {
+        expect(result.referenceCount).toBe(0);
+        expect(result.scannedStreamCount).toBeGreaterThanOrEqual(0);
+      }
+      // The empty verdict carries no violations field at all — an empty
+      // violation array would read as "checked and found nothing wrong".
+      expect(Object.hasOwn(result, 'violations')).toBe(false);
+    },
+    FS_TIMEOUT_MS,
+  );
+
+  it(
+    'BundleIntegrityCheck_SeededResolvableReference_ReportsClear',
+    async () => {
+      const store = new EventStore(tempDir);
+      const bundles = RunBundleStore.forStateDir(tempDir);
+
+      const committed = await bundles.putThenReference(
+        ArtifactIdSchema.parse('run-bundle:seeded'),
+        Buffer.from('seeded bundle payload', 'utf8'),
+        async (ref) =>
+          store.append('feat-bundle', {
+            type: SETTLED_TYPE,
+            data: { [BUNDLE_REF_FIELD]: [ref] },
+          }),
+      );
+      expect(committed.sequence).toBeGreaterThan(0);
+
+      const result = await store.runBundleIntegrityCheck();
+
+      expect(
+        result.ok === true || result.ok === false ? result.referenceCount : -1,
+        'the sweep did not check the one reference that was seeded',
+      ).toBe(1);
+      expect(result.ok).toBe(true);
+    },
+    FS_TIMEOUT_MS,
+  );
+
+  it(
+    'BundleIntegrityCheck_DeletedBlob_IsNamedWhileClaimReplayStaysGreen',
+    async () => {
+      const store = new EventStore(tempDir);
+      const bundles = RunBundleStore.forStateDir(tempDir);
+      const digest = await bundles.put(Buffer.from('artifact that will vanish', 'utf8'));
+      const ref = { artifactId: ArtifactIdSchema.parse('run-bundle:vanishing'), digest };
+
+      // Settle the operation through the claim-backed atomic trail, which is
+      // the path whose replay short-circuits on the recorded claim.
+      const operationId = 'op-bundle-replay';
+      await store.appendTrailAtomically(
+        'feat-bundle',
+        [{ type: SETTLED_TYPE, data: { [BUNDLE_REF_FIELD]: [ref] } }],
+        operationId,
+      );
+
+      const clear = await store.runBundleIntegrityCheck();
+      expect(clear.ok, 'the seeded reference must resolve before it is broken').toBe(true);
+
+      await unlink(blobPath(bundles.root, digest));
+
+      // Half one: replay is still green. The claim fast path returns the
+      // recorded result without ever opening the bundle, so the deletion is
+      // invisible to it.
+      await expect(
+        store.appendTrailAtomically(
+          'feat-bundle',
+          [{ type: SETTLED_TYPE, data: { [BUNDLE_REF_FIELD]: [ref] } }],
+          operationId,
+        ),
+      ).resolves.toBeUndefined();
+      const afterReplay = await store.query('feat-bundle');
+      expect(
+        afterReplay.filter((e) => e.type === SETTLED_TYPE),
+        'the replay must be a claim hit, not a second append',
+      ).toHaveLength(1);
+
+      // Half two: the oracle names what replay could not see.
+      const result = await store.runBundleIntegrityCheck();
+      expect(result.ok).toBe(false);
+      if (result.ok !== false) return;
+      expect(result.referenceCount).toBe(1);
+      expect(result.violations.map((v) => v.kind)).toEqual(['blob-missing']);
+      expect(result.violations[0]?.digest).toBe(`sha256:${digest.value}`);
+      expect(result.details).toContain('run-bundle violation');
+    },
+    FS_TIMEOUT_MS,
+  );
+
+  it(
+    'BundleIntegrityCheck_BackendWithoutStreamEnumeration_ReportsSkipped',
+    async () => {
+      const backend: Partial<StorageBackend> = { queryEvents: () => [] };
+      const store = new EventStore(tempDir, {
+        backend: backend as unknown as StorageBackend,
+      });
+
+      const result = await store.runBundleIntegrityCheck();
+
+      expect(result.ok).toBe('skipped');
+      if (result.ok === 'skipped') {
+        expect(result.reason.length).toBeGreaterThan(0);
+      }
+    },
+    FS_TIMEOUT_MS,
+  );
+
+  it(
+    'BundleIntegrityCheck_SweepExceedsBudget_ReportsTimeout',
+    async () => {
+      const store = new EventStore(tempDir);
+      const bundles = RunBundleStore.forStateDir(tempDir);
+      const digest = await bundles.put(Buffer.from('slow read', 'utf8'));
+      await store.append('feat-bundle', {
+        type: SETTLED_TYPE,
+        data: {
+          [BUNDLE_REF_FIELD]: [
+            { artifactId: ArtifactIdSchema.parse('run-bundle:slow'), digest },
+          ],
+        },
+      });
+
+      // A bundle store whose reads never settle. The wall-clock bound has to
+      // come from the method itself, not from the filesystem being fast.
+      const stalled = new RunBundleStore(bundles.root, {
+        mkdir: async () => undefined,
+        writeFile: async () => undefined,
+        readFile: () => new Promise<Buffer>(() => {}),
+        publish: async () => undefined,
+        unlink: async () => undefined,
+      });
+
+      const result = await store.runBundleIntegrityCheck({
+        timeoutMs: 25,
+        bundleStore: stalled,
+      });
+
+      expect(result.ok).toBe(false);
+      if (result.ok !== false) return;
+      expect(result.details).toContain('timed out after 25ms');
+      expect(result.violations).toEqual([]);
+    },
+    FS_TIMEOUT_MS,
+  );
+
+  it(
+    'BundleIntegrityCheck_PreAbortedSignal_RejectsWithAbortError',
+    async () => {
+      const store = new EventStore(tempDir);
+      const controller = new AbortController();
+      controller.abort();
+
+      // Caller-initiated cancellation is an exception, not a verdict — a
+      // cancelled sweep must never be mistaken for a clean one.
+      await expect(
+        store.runBundleIntegrityCheck({ signal: controller.signal }),
+      ).rejects.toThrow(/aborted/);
+    },
+    FS_TIMEOUT_MS,
+  );
+});
