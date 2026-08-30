@@ -11,7 +11,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, writeFile, unlink } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import {
   checkRunBundleIntegrity,
@@ -268,6 +268,34 @@ describe('checkRunBundleIntegrity', () => {
     expect(result.violations[0]?.kind).toBe('malformed-reference');
   });
 
+  it(
+    'BundleIntegrity_SettledStreamWithOnlyMalformedReferences_ReportsBothViolations',
+    async () => {
+      // The two arms interact here: the malformed entry is named, and because
+      // nothing parseable survived it, the stream also settled while
+      // referencing nothing. Reporting only one of the two would let a writer
+      // hide a custody gap behind a parse error.
+      const source = fakeSource({
+        'feat-a': [
+          event('feat-a', 1, SETTLED_TYPE, {
+            [BUNDLE_REF_FIELD]: [{ artifactId: 'x' }],
+          }),
+        ],
+      });
+
+      const result = await checkRunBundleIntegrity(source, store);
+
+      expect(result.ok).toBe(false);
+      if (result.ok !== false) return;
+      expect(result.referenceCount).toBe(0);
+      expect([...result.violations].map((v) => v.kind).sort()).toEqual([
+        'malformed-reference',
+        'settled-stream-without-references',
+      ]);
+    },
+    FS_TIMEOUT_MS,
+  );
+
   it('BundleIntegrity_AbortedSignal_StopsTheSweep', async () => {
     const controller = new AbortController();
     controller.abort();
@@ -278,5 +306,74 @@ describe('checkRunBundleIntegrity', () => {
     await expect(
       checkRunBundleIntegrity(source, store, controller.signal),
     ).rejects.toThrow(/aborted/);
+  });
+
+  it(
+    'BundleIntegrity_AbortMidStream_LeavesTheRemainingEventsUnprobed',
+    async () => {
+      // Rejecting is only half the claim. A sweep that walked every remaining
+      // event and threw at the end would satisfy `rejects` while doing all the
+      // work the bound was supposed to prevent, so the probe count is the
+      // assertion that actually pins "stops" rather than "discards".
+      const controller = new AbortController();
+      const one = await seedRef('run-bundle:one', 'payload one');
+      const two = await seedRef('run-bundle:two', 'payload two');
+      const three = await seedRef('run-bundle:three', 'payload three');
+
+      let probes = 0;
+      const probing = new RunBundleStore(store.root, {
+        mkdir: async () => undefined,
+        writeFile: async () => undefined,
+        readFile: async (file: string) => {
+          probes += 1;
+          controller.abort();
+          return readFile(file);
+        },
+        publish: async () => undefined,
+        unlink: async () => undefined,
+      });
+
+      // ONE stream, so the between-streams check can never fire: whatever stops
+      // this sweep has to be the per-event check.
+      const source = fakeSource({
+        'feat-a': [
+          event('feat-a', 1, 'workflow.started', { [BUNDLE_REF_FIELD]: [one] }),
+          event('feat-a', 2, 'workflow.started', { [BUNDLE_REF_FIELD]: [two] }),
+          event('feat-a', 3, 'workflow.started', { [BUNDLE_REF_FIELD]: [three] }),
+        ],
+      });
+
+      await expect(
+        checkRunBundleIntegrity(source, probing, controller.signal),
+      ).rejects.toThrow(/aborted/);
+      expect(
+        probes,
+        'the sweep kept probing blobs after the signal aborted mid-stream',
+      ).toBe(1);
+    },
+    FS_TIMEOUT_MS,
+  );
+
+  it('BundleIntegrity_AbortBetweenStreams_LeavesTheRemainingStreamsUnqueried', async () => {
+    // The sibling bound. Every stream here is empty, so no per-event check can
+    // fire and only the between-streams check can stop the walk.
+    const controller = new AbortController();
+    let queries = 0;
+    const source: BundleEventSource = {
+      listStreams: () => ['feat-a', 'feat-b', 'feat-c'],
+      query: async () => {
+        queries += 1;
+        controller.abort();
+        return [];
+      },
+    };
+
+    await expect(
+      checkRunBundleIntegrity(source, store, controller.signal),
+    ).rejects.toThrow(/aborted/);
+    expect(
+      queries,
+      'the sweep queried further streams after the signal aborted',
+    ).toBe(1);
   });
 });

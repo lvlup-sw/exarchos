@@ -78,6 +78,34 @@ describe('RunBundleStore', () => {
   );
 
   it(
+    'RunBundleStore_ProbeHitsEnvironmentFault_RethrowsRatherThanReportingMissing',
+    async () => {
+      const digest = await store.put(Buffer.from('readable until it is not', 'utf8'));
+
+      // An unreadable directory is an environment fault, not a custody
+      // violation. Collapsing it to 'missing' would have the oracle accuse the
+      // ledger of losing bytes that are sitting right there.
+      const denied = new RunBundleStore(store.root, {
+        mkdir: async () => undefined,
+        writeFile: async () => undefined,
+        readFile: async () => {
+          const error: NodeJS.ErrnoException = new Error('EACCES: permission denied, open');
+          error.code = 'EACCES';
+          throw error;
+        },
+        publish: async () => undefined,
+        unlink: async () => undefined,
+      });
+
+      await expect(denied.has(digest)).rejects.toThrow(/EACCES/);
+      // And the same bytes are still resolvable through a store that can read
+      // them, so the rejection above is about the fault and not about the blob.
+      await expect(store.has(digest)).resolves.toBe('ok');
+    },
+    FS_TIMEOUT_MS,
+  );
+
+  it(
     'RunBundleStore_PutThenReference_BlobIsDurableBeforeCommitRuns',
     async () => {
       const bytes = Buffer.from('ordered write', 'utf8');

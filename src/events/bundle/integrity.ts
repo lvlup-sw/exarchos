@@ -59,6 +59,15 @@ export type BundleIntegrityResult =
       referenceCount: number;
       details: string;
       violations: readonly BundleViolation[];
+      /**
+       * Set when the sweep did not run to completion (it timed out, or it threw
+       * before it could finish). The counts on such a result are UNKNOWN rather
+       * than measured, and `violations` being empty means "nothing was
+       * collected" rather than "nothing was found". Without this flag a
+       * hardcoded zero-count abort verdict is shape-identical to a genuine
+       * zero-denominator failure, and only prose in `details` separates them.
+       */
+      incomplete?: true;
     };
 
 function formatDigest(digest: { algorithm: string; value: string }): string {
@@ -76,10 +85,14 @@ function abortIfRequested(signal: AbortSignal | undefined): void {
  * Sweep every stream the source enumerates and verify each declared bundle
  * reference resolves.
  *
- * The abort signal is re-checked between streams and between references so a
- * caller's timeout actually stops the sweep rather than merely discarding its
- * result — this walks the whole ledger, so an unbounded sweep would outlive
- * the bound its caller advertised.
+ * The abort signal is re-checked before each stream is fetched AND before each
+ * of that stream's events is examined, so a caller's timeout actually stops the
+ * sweep rather than merely discarding its result — this walks the whole ledger,
+ * so an unbounded sweep would outlive the bound its caller advertised. Both
+ * checks are load-bearing on their own: the per-stream one is the only guard
+ * for a source with many streams and few events, and the per-event one is the
+ * only guard once a single long stream is already being walked. Each is pinned
+ * by a case that aborts mid-sweep and asserts how much work was left undone.
  */
 export async function checkRunBundleIntegrity(
   source: BundleEventSource,

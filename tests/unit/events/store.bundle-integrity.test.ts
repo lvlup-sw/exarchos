@@ -137,6 +137,9 @@ describe('EventStore.runBundleIntegrityCheck', () => {
       expect(result.violations.map((v) => v.kind)).toEqual(['blob-missing']);
       expect(result.violations[0]?.digest).toBe(`sha256:${digest.value}`);
       expect(result.details).toContain('run-bundle violation');
+      // A sweep that ran to completion carries no incompleteness marker, so the
+      // marker on the timeout verdict below actually discriminates.
+      expect(result.incomplete).toBeUndefined();
     },
     FS_TIMEOUT_MS,
   );
@@ -155,6 +158,33 @@ describe('EventStore.runBundleIntegrityCheck', () => {
       if (result.ok === 'skipped') {
         expect(result.reason.length).toBeGreaterThan(0);
       }
+    },
+    FS_TIMEOUT_MS,
+  );
+
+  it(
+    'BundleIntegrityCheck_SweepEnumeratesTheSameBackendTheSkipGuardTested',
+    async () => {
+      // The skip verdict is decided by looking at one object's `listStreams`.
+      // If the sweep then enumerated through some other path, the guard would
+      // be vouching for an enumerator that never runs. Injecting a backend
+      // whose stream list is recognisable proves the sweep walked exactly the
+      // enumerator the guard admitted.
+      const backend: Partial<StorageBackend> = {
+        listStreams: () => ['guarded-enumerator-stream'],
+        queryEvents: () => [],
+      };
+      const store = new EventStore(tempDir, {
+        backend: backend as unknown as StorageBackend,
+      });
+
+      const result = await store.runBundleIntegrityCheck();
+
+      expect(result.ok, 'the injected backend enumerates, so this must not skip').toBe(
+        'empty',
+      );
+      if (result.ok !== 'empty') return;
+      expect(result.scannedStreamCount).toBe(1);
     },
     FS_TIMEOUT_MS,
   );
@@ -193,6 +223,15 @@ describe('EventStore.runBundleIntegrityCheck', () => {
       if (result.ok !== false) return;
       expect(result.details).toContain('timed out after 25ms');
       expect(result.violations).toEqual([]);
+      // The zero counts on a timeout are placeholders for work never done. The
+      // flag is what says so structurally — without it this verdict is
+      // shape-identical to a completed sweep that found a zero-denominator
+      // failure, and only the prose in `details` tells them apart.
+      expect(
+        result.incomplete,
+        'a timed-out sweep must mark its counts as unmeasured',
+      ).toBe(true);
+      expect(result.referenceCount).toBe(0);
     },
     FS_TIMEOUT_MS,
   );

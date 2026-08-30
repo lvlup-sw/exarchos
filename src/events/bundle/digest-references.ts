@@ -73,10 +73,14 @@ export interface ExtractedBundleRefs {
 /**
  * Recover the bundle references an event declares.
  *
- * Reads the dedicated field only, and only when it holds an array. A missing
- * field, a non-array value, or an empty array all yield zero references with
- * zero malformed entries — an event that never claimed to carry bundle bytes
- * is not evidence of a broken bundle.
+ * Reads the dedicated field only. Absence is silence: a missing (or null)
+ * field yields zero references and zero malformed entries, because an event
+ * that never claimed to carry bundle bytes is not evidence of a broken bundle.
+ * An empty array is the same silence, deliberately declared.
+ *
+ * A present-but-non-array value is NOT silence — a writer reached for the
+ * custody field and produced something no reader can follow, so it is counted
+ * as one malformed reference rather than dropped.
  */
 export function extractBundleRefs(event: WorkflowEvent): ExtractedBundleRefs {
   const raw = event.data?.[BUNDLE_REF_FIELD];

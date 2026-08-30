@@ -1084,9 +1084,18 @@ export class EventStore {
    *   - Every reference resolved → `{ok: true}` with the denominator it checked
    *   - Any unresolvable, corrupt, or malformed reference, or a settled stream
    *     that references nothing → `{ok: false}` with the violations named
-   *   - Sweep exceeds `timeoutMs` → `{ok: false}` with the timeout in `details`
+   *   - Sweep exceeds `timeoutMs` → `{ok: false, incomplete: true}` with the
+   *     timeout in `details`; the counts on that verdict are unknown, not zero
    *   - External abort → rejects with AbortError, since caller-initiated
    *     cancellation is an exception rather than a verdict
+   *
+   * ON DEMAND ONLY. Nothing in the append, replay or projection path consults
+   * this method, and nothing should: it walks every stream and re-hashes every
+   * referenced blob, which is orders of magnitude past what a write may pay.
+   * That is precisely why the claim fast path can replay a settled operation
+   * over a deleted artifact and stay green — the oracle is an audit a caller
+   * (doctor, a custody migration) runs deliberately, never an invariant the
+   * store enforces inline.
    */
   async runBundleIntegrityCheck(opts?: {
     signal?: AbortSignal;
@@ -1100,6 +1109,10 @@ export class EventStore {
         reason: 'backend does not enumerate streams',
       };
     }
+    // Bind the very function the skip guard just tested. Routing the sweep
+    // through a same-named wrapper instead would let the guard vouch for one
+    // enumerator while a different one runs.
+    const listStreams = probeBackend.listStreams.bind(probeBackend);
 
     const timeoutMs = opts?.timeoutMs ?? DEFAULT_BUNDLE_INTEGRITY_TIMEOUT_MS;
     const externalSignal = opts?.signal;
@@ -1123,12 +1136,16 @@ export class EventStore {
     let timer: NodeJS.Timeout | undefined;
     let didTimeout = false;
     const timeoutDetails = `run-bundle integrity check timed out after ${timeoutMs}ms`;
+    // `incomplete` is what separates this from a sweep that genuinely finished
+    // with a zero denominator; the zeroes below are placeholders for counts the
+    // aborted sweep never got to report, not measurements.
     const timedOut: BundleIntegrityResult = {
       ok: false,
       scannedStreamCount: 0,
       referenceCount: 0,
       details: timeoutDetails,
       violations: [],
+      incomplete: true,
     };
     const timeoutPromise = new Promise<BundleIntegrityResult>((resolve) => {
       timer = setTimeout(() => {
@@ -1142,7 +1159,7 @@ export class EventStore {
       try {
         return await checkRunBundleIntegrity(
           {
-            listStreams: () => this.listStreams(),
+            listStreams,
             query: (streamId) => this.query(streamId),
           },
           bundleStore,
@@ -1159,6 +1176,7 @@ export class EventStore {
           referenceCount: 0,
           details: err instanceof Error ? err.message : String(err),
           violations: [],
+          incomplete: true,
         };
       }
     })();
