@@ -36,6 +36,7 @@ import { join } from 'node:path';
 import { scanAppendSites, type AppendSiteCensus } from '../../../src/events/append-site-census.js';
 import {
   ACTION_APPEND_OWNERSHIP,
+  UNRESOLVED_ACTION_EVENT_ALLOWANCE,
   auditActionOwnedAppends,
   auditEmitterClosure,
   reasonedAbstentions,
@@ -197,6 +198,119 @@ describe('emitter closure', () => {
     ).toEqual([]);
     expect(closure.explainedByModule).toBe(MODULE_EMISSIONS.length);
   }, 120_000);
+
+  it('EmitterClosure_EveryActionEmission_IsLiveOrOnTheAllowance', async () => {
+    // The action-surface twin of the module phantom arm. A contract emission
+    // naming an event with zero append sites anywhere used to be invisible to
+    // every oracle: the undeclared loop is keyed off MEASURED sites, so an
+    // event nothing appends never enters it, and the declaration sat there
+    // reading as coverage. Now every declared action event must either resolve
+    // to a measured site or sit on the pinned unresolved-append allowance —
+    // and the allowance itself is held to the tree in both directions, so it
+    // cannot rot into a mute list.
+    const census = await scanAppendSites(
+      SOURCE_ROOT,
+      scanEvidenceEmission,
+      EVIDENCE_DISCRIMINANT_CONSTANTS,
+    );
+    const edges = declaredEmissionEdges();
+    const closure = auditEmitterClosure(census, edges);
+
+    // DENOMINATORS FIRST, and the primary one is DERIVED from the registry
+    // rather than hand-pinned: the audit's count must equal the distinct event
+    // set of the edges it was handed, so a shrunken edge flattener cannot read
+    // as a clean tree.
+    const distinctDeclaredEvents = new Set(edges.map((edge) => edge.event)).size;
+    expect(closure.declaredActionEventCount, 'no action event was considered').toBe(
+      distinctDeclaredEvents,
+    );
+    expect(closure.declaredActionEventCount, 'the declared population collapsed').toBeGreaterThan(
+      50,
+    );
+    expect(UNRESOLVED_ACTION_EVENT_ALLOWANCE.length, 'the allowance is empty').toBeGreaterThan(0);
+
+    expect(
+      closure.phantomActionEmissions,
+      'a declared action emission has no measured append site and no allowance cover',
+    ).toEqual([]);
+    expect(closure.staleAllowance, 'an allowance row no longer describes the tree').toEqual([]);
+
+    // The allowance is FULLY consumed: every row covers exactly one declared,
+    // unresolved event. Anything less means a row went stale; anything more is
+    // impossible by construction. This is the bijection that keeps the
+    // allowance shrink-only in practice, not just in prose.
+    expect(closure.unverifiableActionEmissions.map((row) => row.event)).toEqual(
+      [...UNRESOLVED_ACTION_EVENT_ALLOWANCE].sort(),
+    );
+  }, 120_000);
+
+  it('EmitterClosure_ActionEmissionWithNoAppend_IsAPhantom', () => {
+    // The kill probe: a declared edge whose event the census never sees, with
+    // no allowance cover, must be NAMED — with its declaring actions — and
+    // must fail the closure.
+    const closure = auditEmitterClosure(
+      censusOf({}, ['scanned/module.ts']),
+      [{ event: 'seeded.event', action: 'seeded_action', declaringTool: 'exarchos_orchestrate' }],
+      [],
+      [],
+    );
+
+    expect(closure.ok).toBe(false);
+    expect(closure.declaredActionEventCount).toBe(1);
+    expect(closure.phantomActionEmissions).toHaveLength(1);
+    expect(closure.phantomActionEmissions[0]?.event).toBe('seeded.event');
+    expect(closure.phantomActionEmissions[0]?.declaredBy).toEqual([
+      'exarchos_orchestrate.seeded_action',
+    ]);
+    expect(closure.unverifiableActionEmissions).toEqual([]);
+  });
+
+  it('EmitterClosure_AllowanceCoveredEvent_IsUnverifiableNotPhantom', () => {
+    // An event on the allowance is unanswered, not refuted — the census
+    // cannot see through a runtime-valued discriminant, and blaming the
+    // declaration for the parser's boundary would redden every generic append.
+    const closure = auditEmitterClosure(
+      censusOf({}, ['scanned/module.ts']),
+      [{ event: 'seeded.event', action: 'seeded_action', declaringTool: 'exarchos_orchestrate' }],
+      [],
+      ['seeded.event'],
+    );
+
+    expect(closure.ok).toBe(true);
+    expect(closure.phantomActionEmissions).toEqual([]);
+    expect(closure.unverifiableActionEmissions).toEqual([
+      { event: 'seeded.event', reason: 'append-not-resolvable' },
+    ]);
+  });
+
+  it('EmitterClosure_AllowanceRowWhoseAppendResolved_IsStale', () => {
+    // The shrink-only direction with teeth: the moment an allowed event's
+    // append becomes resolvable, keeping the row is dead cover that would
+    // silently absorb the next real phantom, so the row itself is the fault.
+    const closure = auditEmitterClosure(
+      censusOf({ 'seeded.event': ['scanned/module.ts'] }, ['scanned/module.ts']),
+      [{ event: 'seeded.event', action: 'seeded_action', declaringTool: 'exarchos_orchestrate' }],
+      [],
+      ['seeded.event'],
+    );
+
+    expect(closure.ok).toBe(false);
+    expect(closure.staleAllowance).toHaveLength(1);
+    expect(closure.staleAllowance[0]?.reason).toBe('append-now-resolved');
+    expect(closure.phantomActionEmissions).toEqual([]);
+  });
+
+  it('EmitterClosure_AllowanceRowWithNoEdge_IsStale', () => {
+    // The other stale direction: an allowance row covering an event no action
+    // declares protects nothing — the declaration it was written for is gone.
+    const closure = auditEmitterClosure(censusOf({}, ['scanned/module.ts']), [], [], [
+      'seeded.event',
+    ]);
+
+    expect(closure.ok).toBe(false);
+    expect(closure.staleAllowance).toHaveLength(1);
+    expect(closure.staleAllowance[0]?.reason).toBe('no-declaring-edge');
+  });
 
   it('EmitterClosure_ActionOwnedAppends_HaveRegistryEdges', async () => {
     // The attribution arm over the LIVE tree. Every append an action answers for
@@ -389,6 +503,7 @@ describe('emitter closure', () => {
       censusOf({ 'seeded.event': ['somewhere/module.ts'] }, ['somewhere/module.ts']),
       [],
       [],
+      [],
     );
 
     expect(closure.ok).toBe(false);
@@ -408,6 +523,7 @@ describe('emitter closure', () => {
           rationale: 'seeded',
         },
       ],
+      [],
     );
     expect(declared.ok).toBe(true);
     expect(declared.explainedByModule).toBe(1);
@@ -416,14 +532,19 @@ describe('emitter closure', () => {
   it('EmitterClosure_ModuleEmissionWithNoAppend_IsAPhantom', () => {
     // The other direction: the row names a module the census DID scan and
     // found no such append in.
-    const closure = auditEmitterClosure(censusOf({}, ['scanned/module.ts']), [], [
-      {
-        event: 'seeded.event',
-        module: 'scanned/module.ts',
-        trigger: 'process-hook',
-        rationale: 'seeded',
-      },
-    ]);
+    const closure = auditEmitterClosure(
+      censusOf({}, ['scanned/module.ts']),
+      [],
+      [
+        {
+          event: 'seeded.event',
+          module: 'scanned/module.ts',
+          trigger: 'process-hook',
+          rationale: 'seeded',
+        },
+      ],
+      [],
+    );
 
     expect(closure.ok).toBe(false);
     expect(closure.phantoms).toHaveLength(1);
@@ -455,6 +576,7 @@ describe('emitter closure', () => {
       censusOf({ 'seeded.event': ['scanned/module.ts'] }, ['scanned/module.ts']),
       [],
       rows,
+      [],
     );
 
     // Everything that reports a NAMED fault stays silent — this is the point.
@@ -485,6 +607,7 @@ describe('emitter closure', () => {
       censusOf({ 'seeded.event': ['scanned/module.ts'] }, ['scanned/module.ts']),
       [{ event: 'seeded.event', action: 'seeded_action', declaringTool: 'exarchos_orchestrate' }],
       rows,
+      [],
     );
 
     expect(closure.ok).toBe(true);
@@ -497,14 +620,19 @@ describe('emitter closure', () => {
   it('EmitterClosure_ModuleOutsideTheScanRoot_IsUnverifiableNotPhantom', () => {
     // A row the census never looked at is unanswered, not refuted. Reporting it
     // as a phantom would blame a declaration for the scan's own boundary.
-    const closure = auditEmitterClosure(censusOf({}, ['scanned/module.ts']), [], [
-      {
-        event: 'seeded.event',
-        module: 'elsewhere/harness.ts',
-        trigger: 'process-hook',
-        rationale: 'seeded',
-      },
-    ]);
+    const closure = auditEmitterClosure(
+      censusOf({}, ['scanned/module.ts']),
+      [],
+      [
+        {
+          event: 'seeded.event',
+          module: 'elsewhere/harness.ts',
+          trigger: 'process-hook',
+          rationale: 'seeded',
+        },
+      ],
+      [],
+    );
 
     expect(closure.phantoms).toEqual([]);
     expect(closure.unverifiable).toEqual([
