@@ -16,7 +16,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, unlink } from 'node:fs/promises';
+import { mkdtemp, readFile, unlink } from 'node:fs/promises';
 import { getEventListeners } from 'node:events';
 import { tmpdir } from 'node:os';
 import { EventStore } from '../../../src/events/store.js';
@@ -258,6 +258,64 @@ describe('EventStore.runBundleIntegrityCheck', () => {
         getEventListeners(controller.signal, 'abort'),
         'a sweep that completed without aborting left a listener on the caller\'s signal',
       ).toHaveLength(0);
+    },
+    FS_TIMEOUT_MS,
+  );
+
+  it(
+    'BundleIntegrityCheck_ExternalAbortMidSweep_RejectsOnceWithNoUnhandledRejection',
+    async () => {
+      // A mid-sweep caller abort settles TWO arms of the race with an
+      // AbortError: the sweep itself and the external-abort rejection. Only one
+      // can win, so this pins that the loser is never reported as an unhandled
+      // rejection — `Promise.race` subscribes to every arm it is handed, and
+      // the process-level hook is the observer that would catch a regression
+      // to a shape (a detached `.then`, a late-created arm) that does not.
+      const store = new EventStore(tempDir);
+      const bundles = RunBundleStore.forStateDir(tempDir);
+      const refs = await Promise.all(
+        ['one', 'two', 'three'].map(async (label) => ({
+          artifactId: ArtifactIdSchema.parse(`run-bundle:${label}`),
+          digest: await bundles.put(Buffer.from(`payload ${label}`, 'utf8')),
+        })),
+      );
+      await store.append('feat-bundle', {
+        type: SETTLED_TYPE,
+        data: { [BUNDLE_REF_FIELD]: refs },
+      });
+
+      const controller = new AbortController();
+      let probes = 0;
+      const probing = new RunBundleStore(bundles.root, {
+        mkdir: async () => undefined,
+        writeFile: async () => undefined,
+        readFile: async (file: string) => {
+          probes += 1;
+          controller.abort();
+          return readFile(file);
+        },
+        publish: async () => undefined,
+        unlink: async () => undefined,
+      });
+
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown) => {
+        unhandled.push(reason);
+      };
+      process.on('unhandledRejection', onUnhandled);
+      try {
+        await expect(
+          store.runBundleIntegrityCheck({ signal: controller.signal, bundleStore: probing }),
+        ).rejects.toThrow(/aborted/);
+        // Give a losing arm's rejection every chance to surface before judging.
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      } finally {
+        process.off('unhandledRejection', onUnhandled);
+      }
+
+      expect(unhandled, 'a losing arm of the race surfaced as an unhandled rejection').toEqual([]);
+      expect(probes, 'the sweep kept probing after the caller aborted').toBe(1);
+      expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
     },
     FS_TIMEOUT_MS,
   );
