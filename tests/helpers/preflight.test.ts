@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import crypto from 'node:crypto';
 import { assertExarchosOnPath, assertExarchosVersion } from './preflight.js';
+import { WIN32_SPAWN_HEADROOM } from '../../vitest.config.js';
 
 /**
  * Budget for the tests that really spawn `where`/`which` via `execFileSync`.
@@ -13,7 +14,7 @@ import { assertExarchosOnPath, assertExarchosVersion } from './preflight.js';
  * assert. The budget is generous because it exists to absorb host latency, not
  * to bound the assertion.
  */
-const PATH_LOOKUP_TIMEOUT_MS = 30_000;
+const PATH_LOOKUP_TIMEOUT_MS = 30_000 * WIN32_SPAWN_HEADROOM;
 
 describe('assertExarchosOnPath', () => {
   it('AssertExarchosOnPath_BinaryResolvable_DoesNotThrow', () => {
