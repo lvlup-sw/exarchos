@@ -69,6 +69,7 @@ const ALLOWED_UNTRACKED: Record<string, string> = {
   coverage: 'Coverage output.',
   '.worktrees': 'Legacy worktree root.',
   '.serena': 'Serena MCP project cache.',
+  '.lavish': 'Lavish Editor review sessions and their artifacts. Tool-created and gitignored, so it exists only on a machine that has run the tool.',
   '.vscode': 'Editor workspace settings. Untracked, so it appears on some machines and not others.',
   '.azurite': 'Azurite emulator state.',
   '.nyc_output': 'Legacy coverage output.',
