@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1253,
-    "parsedFiles": 1208,
+    "testFiles": 1254,
+    "parsedFiles": 1209,
     "shellFiles": 45,
-    "cases": 13795,
+    "cases": 13797,
     "dynamicTitles": 150,
     "unparseableFiles": 0
   },
@@ -80992,6 +80992,22 @@
       "file": "tools/skill-validators/validate-frontmatter.test.sh",
       "runner": "shell",
       "cases": []
+    },
+    "tests/helpers/hermetic-install-identity.test.ts": {
+      "file": "tests/helpers/hermetic-install-identity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "hermetic install identity scratch directory",
+          "name": "InstallIdentityScratch_IsKeyedOnThisRunsHostProcess",
+          "dynamic": false
+        },
+        {
+          "suite": "hermetic install identity scratch directory",
+          "name": "InstallIdentitySweep_RemovesADeadRunsDirectoryAndKeepsLiveOnes",
+          "dynamic": false
+        }
+      ]
     }
   }
 }
