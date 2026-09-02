@@ -39,7 +39,11 @@ export class ContentAddressedStoreError extends Error {
 export interface ContentAddressedStoreIo {
   mkdir(directory: string, options: { readonly recursive: true }): Promise<unknown>;
   writeFile(file: string, data: Buffer): Promise<void>;
-  readFile(file: string): Promise<Buffer>;
+  /**
+   * `signal` cancels a read that is still pending; the default forwards it to
+   * `fs.readFile`, which rejects with an `AbortError`.
+   */
+  readFile(file: string, signal?: AbortSignal): Promise<Buffer>;
   publish(temporary: string, target: string): Promise<void>;
   unlink(file: string): Promise<void>;
 }
@@ -61,7 +65,7 @@ const DEFAULT_IO: ContentAddressedStoreIo = {
       await handle.close();
     }
   },
-  readFile: (file) => fs.readFile(file),
+  readFile: (file, signal) => (signal === undefined ? fs.readFile(file) : fs.readFile(file, { signal })),
   publish: (temporary, target) => publishTempFile(temporary, target),
   unlink: (file) => fs.unlink(file),
 };
@@ -187,13 +191,13 @@ export class ContentAddressedStore {
     return digest;
   }
 
-  async resolve(digestInput: unknown): Promise<Buffer> {
+  async resolve(digestInput: unknown, signal?: AbortSignal): Promise<Buffer> {
     const digest = parseDigest(digestInput);
     const target = this.pathFor(digest);
 
     let content: Buffer;
     try {
-      content = await this.io.readFile(target);
+      content = await this.io.readFile(target, signal);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         throw new ContentAddressedStoreError(
