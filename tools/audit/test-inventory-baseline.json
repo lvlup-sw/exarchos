@@ -7,7 +7,7 @@
     "testFiles": 1257,
     "parsedFiles": 1212,
     "shellFiles": 45,
-    "cases": 13826,
+    "cases": 13827,
     "dynamicTitles": 150,
     "unparseableFiles": 0
   },
@@ -8296,7 +8296,7 @@
       "cases": [
         {
           "suite": "hermetic install identity scratch directory",
-          "name": "InstallIdentityScratch_IsKeyedOnThisRunsHostProcess",
+          "name": "InstallIdentityScratch_IsKeyedOnThisRunsHostProcessAndRunId",
           "dynamic": false
         },
         {
@@ -8307,6 +8307,11 @@
         {
           "suite": "hermetic install identity scratch directory",
           "name": "InstallIdentitySweep_RemovesADeadRunsDirectoryAndKeepsLiveOnes",
+          "dynamic": false
+        },
+        {
+          "suite": "hermetic install identity scratch directory",
+          "name": "InstallIdentitySweep_AnEarlierIncarnationOfThisHostsPid_IsSweptNotReused",
           "dynamic": false
         }
       ]

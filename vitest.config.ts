@@ -1,4 +1,5 @@
 import { defineConfig, configDefaults } from 'vitest/config';
+import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 // Captured eval ARTIFACTS live under a run dir (`tests/evals/**/runs/<task>__<arm>__r<rep>/`)
@@ -57,6 +58,14 @@ const CORE_BENCHES = [
 // Windows (#1620), so scaling it again would double-count the same headroom.
 export const WIN32_SPAWN_HEADROOM = process.platform === 'win32' ? 6 : 1;
 const tierTimeout = (linuxBudgetMs: number): number => linuxBudgetMs * WIN32_SPAWN_HEADROOM;
+
+// A discriminator for THIS run, minted once in the vitest host and inherited by
+// every worker it forks. The host pid alone cannot name a run: an exited
+// host's pid can be handed to a later host, which would then find the earlier
+// run's per-run scratch state (`tests/helpers/hermetic-install-identity.ts`)
+// under its own name and reuse it. This file is also imported by tests inside
+// workers, where the inherited value must win — hence `??=`, never `=`.
+process.env['EXARCHOS_TEST_RUN_ID'] ??= `${Date.now().toString(36)}${randomBytes(4).toString('hex')}`;
 
 export default defineConfig({
   test: {
