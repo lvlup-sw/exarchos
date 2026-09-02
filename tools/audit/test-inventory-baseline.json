@@ -7,7 +7,7 @@
     "testFiles": 1256,
     "parsedFiles": 1211,
     "shellFiles": 45,
-    "cases": 13820,
+    "cases": 13823,
     "dynamicTitles": 150,
     "unparseableFiles": 0
   },
@@ -23197,6 +23197,11 @@
         },
         {
           "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_RepeatedDigest_ProbesTheStoreOncePerDistinctDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
           "name": "BundleIntegrity_DeletedBlob_ReportsBlobMissingAndKeepsDenominator",
           "dynamic": false
         },
@@ -27050,6 +27055,11 @@
         },
         {
           "suite": "EventStore.runBundleIntegrityCheck",
+          "name": "BundleIntegrityCheck_ReusedSignalAcrossSweeps_LeavesNoListenersBehind",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore.runBundleIntegrityCheck",
           "name": "BundleIntegrityCheck_PreAbortedSignal_RejectsWithAbortError",
           "dynamic": false
         }
@@ -27072,6 +27082,11 @@
         {
           "suite": "EventStore.runIntegrityCheck",
           "name": "RunIntegrityCheck_HealthySqlite_ReturnsOk",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore.runIntegrityCheck",
+          "name": "RunIntegrityCheck_ReusedSignalAcrossProbes_LeavesNoListenersBehind",
           "dynamic": false
         },
         {

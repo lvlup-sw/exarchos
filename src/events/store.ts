@@ -148,6 +148,37 @@ const DEFAULT_INTEGRITY_TIMEOUT_MS = 2000;
  */
 const DEFAULT_BUNDLE_INTEGRITY_TIMEOUT_MS = 10_000;
 
+/**
+ * A promise that rejects with `AbortError` when `signal` fires, paired with the
+ * `dispose` that detaches it.
+ *
+ * `{ once: true }` self-removes the listener only on the abort path, so a race
+ * that settles any other way leaves it attached to the caller's signal along
+ * with the reject closure of a promise that can now never settle. A caller
+ * reusing one long-lived signal across repeated calls accumulates both. The
+ * caller must `dispose()` in a `finally`.
+ */
+function abortRejection(signal: AbortSignal): {
+  promise: Promise<never>;
+  dispose: () => void;
+} {
+  let onAbort: (() => void) | undefined;
+  const promise = new Promise<never>((_, reject) => {
+    onAbort = () => {
+      const err = new Error('aborted');
+      err.name = 'AbortError';
+      reject(err);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  return {
+    promise,
+    dispose: () => {
+      if (onAbort) signal.removeEventListener('abort', onAbort);
+    },
+  };
+}
+
 // ─── Event Store ────────────────────────────────────────────────────────────
 
 /**
@@ -1038,27 +1069,18 @@ export class EventStore {
       }
     })();
 
+    const externalAbort = externalSignal ? abortRejection(externalSignal) : undefined;
     try {
       // If the external signal aborted, the probe will reject with
       // AbortError; Promise.race propagates that. Timeout arm resolves
       // with an IntegrityResult.
-      if (externalSignal) {
-        const externalAbortPromise = new Promise<never>((_, reject) => {
-          externalSignal.addEventListener(
-            'abort',
-            () => {
-              const err = new Error('aborted');
-              err.name = 'AbortError';
-              reject(err);
-            },
-            { once: true },
-          );
-        });
-        return await Promise.race([probePromise, timeoutPromise, externalAbortPromise]);
+      if (externalAbort) {
+        return await Promise.race([probePromise, timeoutPromise, externalAbort.promise]);
       }
       return await Promise.race([probePromise, timeoutPromise]);
     } finally {
       if (timer !== undefined) clearTimeout(timer);
+      externalAbort?.dispose();
       if (externalSignal) {
         externalSignal.removeEventListener('abort', onExternalAbort);
       }
@@ -1181,24 +1203,15 @@ export class EventStore {
       }
     })();
 
+    const externalAbort = externalSignal ? abortRejection(externalSignal) : undefined;
     try {
-      if (externalSignal) {
-        const externalAbortPromise = new Promise<never>((_, reject) => {
-          externalSignal.addEventListener(
-            'abort',
-            () => {
-              const err = new Error('aborted');
-              err.name = 'AbortError';
-              reject(err);
-            },
-            { once: true },
-          );
-        });
-        return await Promise.race([sweepPromise, timeoutPromise, externalAbortPromise]);
+      if (externalAbort) {
+        return await Promise.race([sweepPromise, timeoutPromise, externalAbort.promise]);
       }
       return await Promise.race([sweepPromise, timeoutPromise]);
     } finally {
       if (timer !== undefined) clearTimeout(timer);
+      externalAbort?.dispose();
       if (externalSignal) {
         externalSignal.removeEventListener('abort', onExternalAbort);
       }

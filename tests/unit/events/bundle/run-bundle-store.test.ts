@@ -13,7 +13,9 @@ import * as path from 'node:path';
 import { mkdtemp, readFile, writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { RunBundleStore } from '../../../../src/events/bundle/run-bundle-store.js';
+import type { BundleRefV1 } from '../../../../src/events/bundle/digest-references.js';
 import { ArtifactIdSchema } from '../../../../src/workflow/admission/types.js';
+import type { ContentDigestV1 } from '../../../../src/workflow/admission/types.js';
 import { RUN_BUNDLE_DIRNAME } from '../../../../src/utils/paths.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
@@ -31,7 +33,7 @@ afterEach(async () => {
   await rmrfAsync(tempDir);
 });
 
-function blobPath(root: string, digest: { algorithm: string; value: string }): string {
+function blobPath(root: string, digest: ContentDigestV1): string {
   return path.join(root, digest.algorithm, digest.value.slice(0, 2), digest.value.slice(2));
 }
 
@@ -114,10 +116,8 @@ describe('RunBundleStore', () => {
       // The commit callback reads the blob back through the store. If the
       // reference were committed first this read would fail, which is exactly
       // the dangling-digest window the ordering exists to eliminate.
-      const commit = vi.fn(async (ref: { digest: { algorithm: string; value: string } }) => {
-        const readBack = await store.resolve(
-          ref.digest as Parameters<typeof store.resolve>[0],
-        );
+      const commit = vi.fn(async (ref: BundleRefV1) => {
+        const readBack = await store.resolve(ref.digest);
         return readBack.toString('utf8');
       });
 
@@ -136,7 +136,7 @@ describe('RunBundleStore', () => {
     async () => {
       const bytes = Buffer.from('orphaned bundle', 'utf8');
       const artifactId = ArtifactIdSchema.parse('run-bundle:orphan');
-      let captured: { algorithm: string; value: string } | undefined;
+      let captured: ContentDigestV1 | undefined;
 
       await expect(
         store.putThenReference(artifactId, bytes, async (ref) => {
@@ -152,9 +152,7 @@ describe('RunBundleStore', () => {
       // exists to find already present.
       expect(captured).toBeDefined();
       if (captured === undefined) return;
-      await expect(
-        store.has(captured as Parameters<typeof store.has>[0]),
-      ).resolves.toBe('ok');
+      await expect(store.has(captured)).resolves.toBe('ok');
     },
     FS_TIMEOUT_MS,
   );

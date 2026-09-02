@@ -23,7 +23,7 @@
 
 import type { WorkflowEvent } from '../schemas.js';
 import { extractBundleRefs, isSettlementEvent } from './digest-references.js';
-import type { RunBundleStore } from './run-bundle-store.js';
+import type { BundleResolution, RunBundleStore } from './run-bundle-store.js';
 
 /**
  * Read seam the sweep needs. `EventStore` satisfies this structurally, and so
@@ -101,6 +101,12 @@ export async function checkRunBundleIntegrity(
 ): Promise<BundleIntegrityResult> {
   const streamIds = source.listStreams();
   const violations: BundleViolation[] = [];
+  // One probe per distinct digest. `has` re-reads and re-hashes the blob, and
+  // the question it answers — "do the persisted bytes hash to this digest" — is
+  // a property of the store, not of the referencing event, so a second read
+  // within one sweep cannot answer differently. Each reference still gets its
+  // own violation attributed to its own stream and sequence.
+  const probed = new Map<string, BundleResolution>();
   let referenceCount = 0;
   let settledStreamCount = 0;
 
@@ -133,20 +139,25 @@ export async function checkRunBundleIntegrity(
         // the count always means "references actually probed".
         referenceCount += 1;
         streamReferenceCount += 1;
-        const verdict = await store.has(ref.digest);
+        const key = formatDigest(ref.digest);
+        let verdict = probed.get(key);
+        if (verdict === undefined) {
+          verdict = await store.has(ref.digest);
+          probed.set(key, verdict);
+        }
         if (verdict === 'missing') {
           violations.push({
             kind: 'blob-missing',
             streamId,
             sequence: event.sequence,
-            digest: formatDigest(ref.digest),
+            digest: key,
           });
         } else if (verdict === 'mismatch') {
           violations.push({
             kind: 'digest-mismatch',
             streamId,
             sequence: event.sequence,
-            digest: formatDigest(ref.digest),
+            digest: key,
           });
         }
       }

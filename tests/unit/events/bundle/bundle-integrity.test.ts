@@ -9,7 +9,7 @@
  * its references, one reference made unparseable.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp, readFile, writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -129,6 +129,42 @@ describe('checkRunBundleIntegrity', () => {
         'the sweep did not enumerate both seeded streams',
       ).toBe(2);
       expect(result.ok, 'every seeded blob resolves, so the verdict must be clear').toBe(true);
+    },
+    FS_TIMEOUT_MS,
+  );
+
+  it(
+    'BundleIntegrity_RepeatedDigest_ProbesTheStoreOncePerDistinctDigest',
+    async () => {
+      const shared = await seedRef('run-bundle:shared', 'shared payload');
+      const other = await seedRef('run-bundle:other', 'other payload');
+
+      // The same digest referenced four times across two streams. Each probe
+      // re-reads and re-hashes the blob, and the sweep runs under a wall-clock
+      // bound whose expiry is reported as `incomplete` — so repeating a probe
+      // the store already answered spends the budget that bound is protecting.
+      const source = fakeSource({
+        'feat-a': [
+          event('feat-a', 1, 'workflow.started', { [BUNDLE_REF_FIELD]: [shared, other] }),
+          event('feat-a', 2, 'workflow.started', { [BUNDLE_REF_FIELD]: [shared] }),
+        ],
+        'feat-b': [event('feat-b', 1, 'workflow.started', { [BUNDLE_REF_FIELD]: [shared] })],
+      });
+
+      const probe = vi.spyOn(store, 'has');
+      const result = await checkRunBundleIntegrity(source, store);
+
+      // DENOMINATOR FIRST. Memoizing the probe must not shrink the count of
+      // references the sweep reports having checked — otherwise "one probe" and
+      // "one reference" become indistinguishable.
+      expect(
+        result.ok === true || result.ok === false ? result.referenceCount : -1,
+        'memoization must not collapse the reference denominator',
+      ).toBe(4);
+      expect(result.ok, 'every seeded blob resolves, so the verdict must be clear').toBe(true);
+      expect(probe, 'the store was probed more than once per distinct digest').toHaveBeenCalledTimes(
+        2,
+      );
     },
     FS_TIMEOUT_MS,
   );

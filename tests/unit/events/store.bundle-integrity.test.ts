@@ -15,6 +15,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp, unlink } from 'node:fs/promises';
+import { getEventListeners } from 'node:events';
 import { tmpdir } from 'node:os';
 import { EventStore } from '../../../src/events/store.js';
 import { RunBundleStore } from '../../../src/events/bundle/run-bundle-store.js';
@@ -232,6 +233,29 @@ describe('EventStore.runBundleIntegrityCheck', () => {
         'a timed-out sweep must mark its counts as unmeasured',
       ).toBe(true);
       expect(result.referenceCount).toBe(0);
+    },
+    FS_TIMEOUT_MS,
+  );
+
+  it(
+    'BundleIntegrityCheck_ReusedSignalAcrossSweeps_LeavesNoListenersBehind',
+    async () => {
+      const store = new EventStore(tempDir);
+      const controller = new AbortController();
+
+      // The caller owns this signal and outlives any one sweep. Every arm of
+      // the race attaches to it, and `{ once: true }` detaches only on the
+      // abort path — so a sweep that finishes normally is the case that leaks.
+      // Each retained listener also pins the reject closure of a promise that
+      // can no longer settle.
+      for (let i = 0; i < 5; i += 1) {
+        await store.runBundleIntegrityCheck({ signal: controller.signal });
+      }
+
+      expect(
+        getEventListeners(controller.signal, 'abort'),
+        'a sweep that completed without aborting left a listener on the caller\'s signal',
+      ).toHaveLength(0);
     },
     FS_TIMEOUT_MS,
   );
