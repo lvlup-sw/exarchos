@@ -92,15 +92,15 @@ if [ "$BUN_BIN" != "/usr/local/bin/bun" ]; then
 fi
 echo "==> bun $(bun --version) on PATH at $(command -v bun)"
 
-# 2. Dependencies — root workspace + the MCP server workspace. `npm ci` is
-#    deterministic/idempotent (it wipes and rebuilds node_modules from the
-#    lockfile). The retry wrapper survives transient registry/CDN stalls, and
-#    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD avoids the eval-only chromium download.
+# 2. Dependencies. ONE workspace: the MCP server is a subcommand of the root
+#    package, not a separate npm project, and the root lockfile is the only
+#    tracked one. `npm ci` is deterministic/idempotent (it wipes and rebuilds
+#    node_modules from the lockfile). The retry wrapper survives transient
+#    registry/CDN stalls, and PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD avoids the
+#    eval-only chromium download. This mirrors what CI installs.
 export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-echo "==> Installing root dependencies"
+echo "==> Installing dependencies"
 bash tools/release/npm-ci-retry.sh
-echo "==> Installing servers/exarchos-mcp dependencies"
-( cd servers/exarchos-mcp && bash "$REPO_ROOT/tools/release/npm-ci-retry.sh" )
 
 # 3. Compile the host CLI + MCP server into a single binary and expose it on
 #    PATH. This makes `exarchos` usable immediately and lets the process-fidelity
