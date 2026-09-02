@@ -5,6 +5,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInSandbox } from './sandbox.js';
 import { compile } from './compiler.js';
+import { WIN32_SPAWN_HEADROOM } from '../../../../vitest.config.js';
 
 const TEST_DIR = join(dirname(fileURLToPath(import.meta.url)), '.test-sandbox-fixtures');
 
@@ -33,7 +34,13 @@ const describeWithGpp = hasGpp() ? describe : describe.skip;
 // loaded Windows runner all three timed out at ~5001ms. The budget bounds the
 // TEST HARNESS; the sandbox's own `timeLimitMs` still bounds the behaviour
 // under test, so a genuinely hung sandbox still fails rather than sitting here.
-const COMPILE_BEARING_TIMEOUT_MS = 30_000;
+//
+// Scaled by the same win32 factor the tiers use, because a bare 30s is not the
+// headroom it looks like: the `unit` tier is `tierTimeout(5000)`, which is
+// already 30s on Windows. A hardcoded 30s therefore bought this file six times
+// the budget on Linux and NOTHING on the platform the comment above is about,
+// and a cold g++ compile on a loaded Windows runner duly ran past it.
+const COMPILE_BEARING_TIMEOUT_MS = 30_000 * WIN32_SPAWN_HEADROOM;
 
 describeWithGpp('runInSandbox', () => {
   beforeAll(() => {
