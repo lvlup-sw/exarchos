@@ -14,6 +14,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
+import { getEventListeners } from 'node:events';
 import { tmpdir } from 'node:os';
 import { EventStore } from '../../../src/events/store.js';
 import { SqliteBackend } from '../../../src/storage/sqlite-backend.js';
@@ -71,6 +72,26 @@ describe('EventStore.runIntegrityCheck', () => {
     const result = await store.runIntegrityCheck();
 
     expect(result.ok).toBe(true);
+    backend.close();
+  });
+
+  it('RunIntegrityCheck_ReusedSignalAcrossProbes_LeavesNoListenersBehind', async () => {
+    const backend = new SqliteBackend(':memory:');
+    backend.initialize();
+    const store = new EventStore(tempDir, { backend });
+    const controller = new AbortController();
+
+    // The signal is the caller's and outlives the probe. Both race arms attach
+    // to it with `{ once: true }`, which detaches only when the abort fires —
+    // so the probe that finishes normally is the one that leaks.
+    for (let i = 0; i < 5; i += 1) {
+      await store.runIntegrityCheck({ signal: controller.signal });
+    }
+
+    expect(
+      getEventListeners(controller.signal, 'abort'),
+      'a probe that completed without aborting left a listener on the caller\'s signal',
+    ).toHaveLength(0);
     backend.close();
   });
 

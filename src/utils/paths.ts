@@ -287,6 +287,15 @@ export function resolveStateDir(inputs?: StorePathResolutionInputs): string {
 export const STORE_DB_FILENAME = 'exarchos.db';
 
 /**
+ * Canonical run-bundle directory name, resolved relative to the same state
+ * directory that holds {@link STORE_DB_FILENAME}. Bundle blobs and the ledger
+ * that references them must share a state directory, otherwise a store pointed
+ * at one directory would report every digest written under the other as
+ * missing. Naming the leaf once is what makes that co-location checkable.
+ */
+export const RUN_BUNDLE_DIRNAME = 'run-bundles';
+
+/**
  * Resolve the absolute event-store database path — the ONE resolver the CLI and
  * plugin MCP surfaces share (DR-11 B-5). Composes the state-dir cascade
  * ({@link resolveStateDir}) with {@link STORE_DB_FILENAME}, so a change to the

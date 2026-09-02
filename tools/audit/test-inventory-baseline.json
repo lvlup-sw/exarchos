@@ -1,13 +1,13 @@
 {
-  "capturedAt": "2026-08-29",
+  "capturedAt": "2026-09-02",
   "discovery": "extension-based over tracked files; not a runner glob",
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1253,
-    "parsedFiles": 1208,
+    "testFiles": 1256,
+    "parsedFiles": 1211,
     "shellFiles": 45,
-    "cases": 13795,
+    "cases": 13823,
     "dynamicTitles": 150,
     "unparseableFiles": 0
   },
@@ -23176,6 +23176,113 @@
         }
       ]
     },
+    "tests/unit/events/bundle/bundle-integrity.test.ts": {
+      "file": "tests/unit/events/bundle/bundle-integrity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_NoStreams_ReportsEmptyNotClear",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_DigestlessStreams_ReportsEmpty",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_AllReferencesResolve_ReportsClearWithItsDenominator",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_RepeatedDigest_ProbesTheStoreOncePerDistinctDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_DeletedBlob_ReportsBlobMissingAndKeepsDenominator",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_CorruptedBlob_ReportsDigestMismatch",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_SettledStreamWithZeroReferences_IsAViolationNotEmpty",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_SettledStreamWithAResolvableReference_IsClear",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_UnparseableReference_ReportsMalformed",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_NonArrayReferenceField_ReportsMalformed",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_SettledStreamWithOnlyMalformedReferences_ReportsBothViolations",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_AbortedSignal_StopsTheSweep",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_AbortMidStream_LeavesTheRemainingEventsUnprobed",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_AbortBetweenStreams_LeavesTheRemainingStreamsUnqueried",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/events/bundle/run-bundle-store.test.ts": {
+      "file": "tests/unit/events/bundle/run-bundle-store.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "RunBundleStore",
+          "name": "RunBundleStore_PutThenResolve_RoundTripsBytes",
+          "dynamic": false
+        },
+        {
+          "suite": "RunBundleStore",
+          "name": "RunBundleStore_Has_SeparatesOkFromMissingFromMismatch",
+          "dynamic": false
+        },
+        {
+          "suite": "RunBundleStore",
+          "name": "RunBundleStore_ProbeHitsEnvironmentFault_RethrowsRatherThanReportingMissing",
+          "dynamic": false
+        },
+        {
+          "suite": "RunBundleStore",
+          "name": "RunBundleStore_PutThenReference_BlobIsDurableBeforeCommitRuns",
+          "dynamic": false
+        },
+        {
+          "suite": "RunBundleStore",
+          "name": "RunBundleStore_CommitThrows_LeavesCollectableOrphanBlob",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/events/channel/delivery.test.ts": {
       "file": "tests/unit/events/channel/delivery.test.ts",
       "runner": "vitest:root",
@@ -26912,6 +27019,52 @@
         }
       ]
     },
+    "tests/unit/events/store.bundle-integrity.test.ts": {
+      "file": "tests/unit/events/store.bundle-integrity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "EventStore.runBundleIntegrityCheck",
+          "name": "BundleIntegrityCheck_FreshStore_ReportsEmptyNotClear",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore.runBundleIntegrityCheck",
+          "name": "BundleIntegrityCheck_SeededResolvableReference_ReportsClear",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore.runBundleIntegrityCheck",
+          "name": "BundleIntegrityCheck_DeletedBlob_IsNamedWhileClaimReplayStaysGreen",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore.runBundleIntegrityCheck",
+          "name": "BundleIntegrityCheck_BackendWithoutStreamEnumeration_ReportsSkipped",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore.runBundleIntegrityCheck",
+          "name": "BundleIntegrityCheck_SweepEnumeratesTheSameBackendTheSkipGuardTested",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore.runBundleIntegrityCheck",
+          "name": "BundleIntegrityCheck_SweepExceedsBudget_ReportsTimeout",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore.runBundleIntegrityCheck",
+          "name": "BundleIntegrityCheck_ReusedSignalAcrossSweeps_LeavesNoListenersBehind",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore.runBundleIntegrityCheck",
+          "name": "BundleIntegrityCheck_PreAbortedSignal_RejectsWithAbortError",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/events/store.integrity.test.ts": {
       "file": "tests/unit/events/store.integrity.test.ts",
       "runner": "vitest:root",
@@ -26929,6 +27082,11 @@
         {
           "suite": "EventStore.runIntegrityCheck",
           "name": "RunIntegrityCheck_HealthySqlite_ReturnsOk",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore.runIntegrityCheck",
+          "name": "RunIntegrityCheck_ReusedSignalAcrossProbes_LeavesNoListenersBehind",
           "dynamic": false
         },
         {
