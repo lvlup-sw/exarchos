@@ -1,5 +1,7 @@
 // ─── Stack MCP Tool Handlers ────────────────────────────────────────────────
 
+import { toCoverageFailure } from '../../projections/degraded-result.js';
+import { foldToTail } from '../../projections/fold-at-tail.js';
 import type { EventStore } from '../../events/store.js';
 import { toEventAck, type ToolResult } from '../../format.js';
 import { getOrCreateMaterializer } from '../../projections/views/tools.js';
@@ -25,9 +27,7 @@ export async function handleStackStatus(
     const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
 
-    await materializer.loadFromSnapshot(args.streamId, STACK_VIEW);
-    const events = await store.query(args.streamId);
-    const view = materializer.materialize<StackViewState>(args.streamId, STACK_VIEW, events);
+    const { view } = await foldToTail<StackViewState>(store, materializer, args.streamId, STACK_VIEW);
 
     let positions = view.positions;
 
@@ -43,6 +43,8 @@ export async function handleStackStatus(
 
     return { success: true, data: positions };
   } catch (err) {
+    const refusal = toCoverageFailure(err, { tool: 'exarchos_view', action: 'stack_status' });
+    if (refusal) return refusal;
     return {
       success: false,
       error: {

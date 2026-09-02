@@ -1032,6 +1032,73 @@ describe('mutation-adequacy liveness + gate emission', () => {
     // Idempotency-collapse → exactly one gate.executed for the operationId.
     expect(mutationGates).toHaveLength(1);
   });
+
+  // ─── gate.executed append failure withholds the success carrier ──────────
+  //
+  // `mutation-adequacy` has three append sites — skip-no-toolchain, degraded,
+  // and scored — each its own producer of the declared `gate.executed` row.
+  // A dropped append at any of them must withhold the success carrier rather
+  // than returning one the log does not back.
+
+  function failGateExecutedAppends(eventStore: EventStore): void {
+    const originalAppend = eventStore.append.bind(eventStore);
+    vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, options) => {
+      if ((event as { type?: string }).type === 'gate.executed') {
+        throw new Error('store unavailable');
+      }
+      return originalAppend(streamId, event, options);
+    });
+  }
+
+  it('MutationAdequacy_GateEventAppendFails_WithholdsTheSuccessCarrier_SkipNoToolchain', async () => {
+    const { stateDir, eventStore } = await newStore();
+    failGateExecutedAppends(eventStore);
+
+    const result = await dispatchMutation({ mutationCmd: null, eventStore, stateDir });
+
+    expect(result.success).toBe(false);
+    const error = (result as unknown as { error?: { code?: string } }).error;
+    expect(error?.code).toBe('GATE_EVENT_UNRECORDED');
+    // The gate's own verdict is still readable on `data` — nothing is lost.
+    expect(result.data.skipped).toBe(true);
+    expect(result.data.passed).toBe(true);
+  });
+
+  it('MutationAdequacy_GateEventAppendFails_WithholdsTheSuccessCarrier_Degraded', async () => {
+    const { stateDir, eventStore } = await newStore();
+    failGateExecutedAppends(eventStore);
+
+    const result = await dispatchMutation({
+      runResult: { ok: false, reason: 'stryker exited 1' },
+      eventStore,
+      stateDir,
+    });
+
+    expect(result.success).toBe(false);
+    const error = (result as unknown as { error?: { code?: string } }).error;
+    expect(error?.code).toBe('GATE_EVENT_UNRECORDED');
+    expect(result.data.passed).toBe(true);
+  });
+
+  it('MutationAdequacy_GateEventAppendFails_WithholdsTheSuccessCarrier_Scored', async () => {
+    const { stateDir, eventStore } = await newStore();
+    failGateExecutedAppends(eventStore);
+
+    const result = await dispatchMutation({
+      eventStore,
+      stateDir,
+      runResult: {
+        ok: true,
+        report: strykerReport([{ status: 'Killed' }, { status: 'Killed' }, { status: 'Survived' }]),
+      },
+    });
+
+    expect(result.success).toBe(false);
+    const error = (result as unknown as { error?: { code?: string } }).error;
+    expect(error?.code).toBe('GATE_EVENT_UNRECORDED');
+    // The scored verdict is still readable on `data` — nothing is lost.
+    expect(result.data.mutationScore).toBeCloseTo(2 / 3, 5);
+  });
 });
 
 

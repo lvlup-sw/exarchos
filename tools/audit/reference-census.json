@@ -1,7 +1,7 @@
 {
-  "capturedAt": "2026-08-20",
-  "trackedFiles": 2971,
-  "scannedFiles": 2868,
+  "capturedAt": "2026-08-23",
+  "trackedFiles": 3022,
+  "scannedFiles": 2917,
   "namedFilesIncluded": [
     ".github/CODEOWNERS",
     ".gitattributes",
@@ -126,18 +126,19 @@
     "docs/audits": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 1,
+      "externalReferrers": 2,
       "referrersByKind": {
         "code": 1,
-        "config": 0,
+        "config": 1,
         "snapshot": 0,
         "markdownLive": 0,
         "markdownArchival": 0,
         "other": 0
       },
-      "liveReferrers": 1,
+      "liveReferrers": 2,
       "sampleReferrers": [
-        "tests/architecture/prose-exodus.test.ts"
+        "tests/architecture/prose-exodus.test.ts",
+        "tools/audit/projection-fold-seam.json"
       ],
       "sampleLiveCodeReferrers": [
         "tests/architecture/prose-exodus.test.ts"

@@ -6,12 +6,19 @@
 // TypeScript port of scripts/check-coverage-thresholds.sh — no jq/awk needed.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { createHash } from 'node:crypto';
+
 import { existsSync, readFileSync } from 'node:fs';
 import type { ToolResult } from '../../format.js';
+import type { EventStore } from '../../events/store.js';
+import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
+import { runPhaseGateWithEvidence } from './gate-runner.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface CheckCoverageThresholdsArgs {
+  /** The stream the gate's durable evidence is recorded against. */
+  readonly featureId: string;
   readonly coverageFile: string;
   readonly lineThreshold?: number;
   readonly branchThreshold?: number;
@@ -63,7 +70,54 @@ function isCoverageSummary(value: unknown): value is CoverageSummary {
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
-export function handleCheckCoverageThresholds(
+export async function handleCheckCoverageThresholds(
+  args: CheckCoverageThresholdsArgs,
+  stateDir: string,
+  eventStore: EventStore,
+): Promise<ToolResult> {
+  if (!args.featureId) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'featureId is required' },
+    };
+  }
+
+  // The gate declares durable gate evidence as a postcondition and used to
+  // append nothing at all, so every postcondition-observing caller read a
+  // success carrier that had broken its own contract. Routing through the
+  // shared phase-gate runner records the evidence before any success carrier
+  // escapes. The runner is the only append here: this action declares no
+  // catalog emissions, so it still mints no `gate.executed` row of its own.
+  //
+  // The subject binds the coverage FILE as well as the phase attempt: two runs
+  // of this gate over different coverage summaries are two different facts, and
+  // the digest of the path is what tells them apart.
+  const coverageDigest = createHash('sha256')
+    .update(args.coverageFile, 'utf8')
+    .digest('hex')
+    .slice(0, 32);
+  return runPhaseGateWithEvidence({
+    streamId: args.featureId,
+    gateClass: 'coverage-thresholds',
+    requirementId: 'requirement:coverage-thresholds',
+    stateDir,
+    eventStore,
+    subject: (phaseAttemptId) =>
+      createEvidenceSubject(
+        { kind: 'phase-attempt', phaseAttemptId },
+        {
+          gate: 'coverage-thresholds',
+          phase: 'review',
+          coverageFile: args.coverageFile,
+          coverageDigest,
+        },
+      ),
+    providerInput: args,
+    executeProvider: async () => executeCheckCoverageThresholds(args),
+  });
+}
+
+function executeCheckCoverageThresholds(
   args: CheckCoverageThresholdsArgs,
 ): ToolResult {
   const { coverageFile } = args;

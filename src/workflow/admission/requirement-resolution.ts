@@ -31,7 +31,7 @@
 // resolves; the same context always yields the same frozen set.
 
 import type { RiskTier } from '../verification-policy.js';
-import { resolveGateSet, type ResolveGateSetCtx } from '../phase-kind.js';
+import { resolveGateSet, type ResolveGateSetCtx, type ResolvedGate } from '../phase-kind.js';
 import {
   type BoundaryStatus,
   type ReliabilityState,
@@ -40,6 +40,8 @@ import {
 } from './requirement-context.js';
 import {
   BOTTOM_REQUIREMENTS,
+  canonicalizeGates,
+  deepFreezeRequirements,
   joinAll,
   type FrozenResolvedRequirements,
   type ResolvedRequirements,
@@ -151,6 +153,39 @@ function policyContribution(ctx: RequirementContext): ResolvedRequirements {
   };
 }
 
+// ─── ActionId-wide requires (authored discriminants, no freeze-time ids) ─────
+
+/**
+ * Structural ActionId-wide require. Kept local so admission does not import
+ * the registry layer; a registry `ActionContract` require is assignable here.
+ */
+export type ActionIdRequirement =
+  | { readonly family: ResolvedGate['family']; readonly gate: string }
+  | { readonly kind: 'approvals'; readonly minimum: number }
+  | { readonly kind: 'corroboration'; readonly minimum: number };
+
+export type ActionIdRequires =
+  | { readonly kind: 'none'; readonly because: string }
+  | { readonly kind: 'declared'; readonly values: readonly ActionIdRequirement[] };
+
+function isResolvedGateFamily(
+  family: string,
+): family is ResolvedGate['family'] {
+  return (
+    family === 'ladder' ||
+    family === 'plan' ||
+    family === 'review' ||
+    family === 'synthesis'
+  );
+}
+
+function asResolvedGate(requirement: ActionIdRequirement): ResolvedGate | undefined {
+  if (!('family' in requirement) || !isResolvedGateFamily(requirement.family)) {
+    return undefined;
+  }
+  return { family: requirement.family, gate: requirement.gate } as ResolvedGate;
+}
+
 // ─── The resolver ────────────────────────────────────────────────────────────
 
 /**
@@ -171,4 +206,56 @@ export function resolveRequirements(
     reliabilityContribution(context),
     policyContribution(context),
   ]);
+}
+
+/**
+ * Project ActionId-wide `requires` into the obligation lattice without
+ * inventing freeze-time requirement ids and without folding shared IR,
+ * phase-kind, or HSM-edge obligations into the set.
+ *
+ * `none` is the identity (bottom): an advertised phase verb whose contract
+ * abstains from ActionId-wide requires does not pick up someone else's
+ * lattice. Declared discriminants are conjuncts of one another.
+ */
+export function resolveActionIdRequirements(
+  requires: ActionIdRequires,
+): FrozenResolvedRequirements {
+  if (requires.kind === 'none') {
+    return BOTTOM_REQUIREMENTS;
+  }
+
+  const gates: ResolvedGate[] = [];
+  let minimumApprovals = 0;
+  let minimumCorroboratingSources = 0;
+  for (const requirement of requires.values) {
+    const gate = asResolvedGate(requirement);
+    if (gate !== undefined) {
+      gates.push(gate);
+      continue;
+    }
+    if ('kind' in requirement && requirement.kind === 'approvals') {
+      minimumApprovals = Math.max(minimumApprovals, requirement.minimum);
+      continue;
+    }
+    if ('kind' in requirement && requirement.kind === 'corroboration') {
+      minimumCorroboratingSources = Math.max(
+        minimumCorroboratingSources,
+        requirement.minimum,
+      );
+    }
+  }
+
+  return deepFreezeRequirements({
+    gates: canonicalizeGates(gates),
+    minimumApprovals,
+    minimumCorroboratingSources,
+    waivable: true,
+  });
+}
+
+/** Authored discriminants in contract order, empty when the contract abstains. */
+export function authoredActionRequirements(
+  requires: ActionIdRequires,
+): readonly ActionIdRequirement[] {
+  return requires.kind === 'none' ? [] : requires.values;
 }

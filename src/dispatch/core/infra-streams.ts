@@ -28,12 +28,24 @@ export const ONBOARD_STREAM_ID = 'exarchos-onboard';
 // rather than any feature stream or `<featureId>/admission-shadow` sidecar.
 export const ADMISSION_STREAM_ID = 'exarchos-admission';
 
+// The mutating VCS handlers journal the INTENT before the remote call and the
+// RESULT after it, and both records land here rather than on any feature
+// stream: a pull request is a fact about the repository, and the same handler
+// serves callers that carry no featureId at all. Reserving the id is what lets
+// post-dispatch observation resolve the stream those records land on from the
+// action's own declaration instead of failing to find it in the arguments.
+export const VCS_STREAM_ID = 'vcs';
+
 export const INFRA_STREAM_IDS: ReadonlySet<string> = new Set([
   INIT_STREAM_ID,
   DOCTOR_STREAM_ID,
   TELEMETRY_STREAM,
   ONBOARD_STREAM_ID,
   ADMISSION_STREAM_ID,
+  VCS_STREAM_ID,
+  // workflow/feedback.ts owns this selector; listed so observation can
+  // resolve the unscoped stream the feedback contract names.
+  'meta/feedback',
 ]);
 
 export function isFeatureStream(streamId: string): boolean {

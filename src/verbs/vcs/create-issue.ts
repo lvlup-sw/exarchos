@@ -16,6 +16,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
+import { getDispatchContext } from '../../dispatch/dispatch-context.js';
 import type { ToolResult } from '../../format.js';
 import { createVcsProvider } from '../../vcs/factory.js';
 import {
@@ -182,12 +183,29 @@ export async function handleCreateIssue(
   }
   const marker = buildBodyMarker(operationId);
 
-  // Idempotency keys derived from operationId — mirrors create-pr.ts so a
-  // retried Phase A or recovered Phase B append deduplicates at the EventStore
-  // boundary instead of producing duplicate `issue.create.*` events on retry
-  // / crash recovery (Sentry #14058672).
-  const phaseAKey = `issue.create.requested:${operationId}`;
-  const phaseBKey = `issue.create.executed:${operationId}`;
+  // The idempotency key is NOT the recovery marker. `operationId` above is
+  // deliberately STABLE across a crash retry — that stability is what lets
+  // the body-marker scan in Phase B find an issue a prior attempt created.
+  // Keying the EventStore append on that same stable value would make a
+  // second, genuinely new dispatch collide with the first at the append
+  // layer: the journal row on stream `vcs` is stamped with the AMBIENT
+  // dispatch operation id (`src/events/store.ts` stamps it automatically),
+  // and the post-dispatch emission verifier queries that stream filtered by
+  // THIS dispatch's ambient operation id. A key derived from the recovery
+  // marker produces a cache-hit on retry — no new row lands under the retry's
+  // ambient id — so the verifier finds the Phase C row but not Phase A's, and
+  // reports EMISSION_CONTRACT_VIOLATED on a call that actually succeeded.
+  //
+  // Mirrors create-pr.ts's `keySuffix`: key on the ambient dispatch operation
+  // id so retries *within* one dispatch (an internal `withStateRetry` OCC/busy
+  // retry) still collapse onto the first committed row, while a retry that
+  // arrives as a NEW dispatch gets its own pair of journal rows under its own
+  // operation id. Cross-dispatch duplicate-issue avoidance is the job of the
+  // Phase B marker scan below, not of this key — same division create-pr.ts
+  // documents for its own remote-recovery precheck.
+  const keySuffix = getDispatchContext()?.operationId ?? operationId;
+  const phaseAKey = `issue.create.requested:${keySuffix}`;
+  const phaseBKey = `issue.create.executed:${keySuffix}`;
 
   // The recovery precheck is load-bearing for the two-event split (INV-1).
   // A missing dependency would silently disable the precheck and re-fire

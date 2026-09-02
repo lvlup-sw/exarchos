@@ -95,8 +95,8 @@ function expectRejectedForTheFixture(dir: string, files: readonly string[], fixt
 function runLiveWithNoRecorder(dir: string, relaxations: readonly Relaxation[]): string {
   materializeCarrier(dir, relaxations);
 
-  // Emit rather than type-check. The carrier's one import is type-only, so the
-  // emitted module has no imports at all and needs no resolution at runtime.
+  // Emit rather than type-check. Replay identity is a runtime import, so the
+  // local stub has to be emitted beside the carrier.
   try {
     execFileSync(
       process.execPath,
@@ -110,6 +110,8 @@ function runLiveWithNoRecorder(dir: string, relaxations: readonly Relaxation[]):
         '--outDir',
         'out',
         'schemas.ts',
+        'request-context.ts',
+        'action-contract.ts',
         'effect-carrier.ts',
       ],
       { cwd: dir, encoding: 'utf8', stdio: 'pipe' },
@@ -219,6 +221,15 @@ describe('kill probes: every gate is shown to fail', () => {
         find: "return plan.emits.kind === 'records' ? plan.emits.emissions : [];",
         replace:
           "return plan.emits !== undefined && plan.emits.kind === 'records' ? plan.emits.emissions : [];",
+      },
+      {
+        find: 'planEmissionsFromContract(fields.emits, contract.emissions)',
+        replace:
+          'planEmissionsFromContract(fields.emits ?? recordsNothing("relaxed"), contract.emissions)',
+      },
+      {
+        find: '? fields.emits',
+        replace: '? fields.emits ?? recordsNothing("relaxed")',
       },
     ]);
     expect(

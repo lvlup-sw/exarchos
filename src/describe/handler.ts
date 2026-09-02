@@ -1,6 +1,15 @@
 import { zodToJsonSchema } from '../utils/json-schema.js';
-import { resolveEconomyBudget } from '../registry.js';
-import type { ToolAction } from '../registry.js';
+import {
+  actionContractCanonicalBytes,
+  contractEmissionsOf,
+  normalizeActionContract,
+  resolveEconomyBudget,
+  type ActionContract,
+  type ActionEmission,
+  type DeclaredSet,
+  type ReplayPolicy,
+  type ToolAction,
+} from '../registry.js';
 import type { ToolResult } from '../format.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import {
@@ -14,10 +23,125 @@ import { serializeTopology, listWorkflowTypes } from '../workflow/state-machine.
 import { serializePlaybooks, listPlaybookWorkflowTypes } from '../workflow/playbooks.js';
 import { buildConfigDescription } from '../workflow/describe-config.js';
 import { RESERVED_FIELDS_DESCRIPTOR } from '../workflow/schemas.js';
-// T5a.1/DR-4 (#1259, v2.11): Worktree/Task/Artifacts/Synthesis schemas
-// were previously imported here to populate the `set` action's
-// stateSchema discoverability slot. The slot and its consumer
-// (`buildSetStateSchema`) are removed alongside the action.
+
+type ContractDimension =
+  | 'requires'
+  | 'ensures'
+  | 'needs'
+  | 'touches'
+  | 'executionAuthority'
+  | 'replay'
+  | 'emissions';
+
+export const ACTION_CONTRACT_DIMENSIONS: readonly ContractDimension[] = [
+  'requires',
+  'ensures',
+  'needs',
+  'touches',
+  'executionAuthority',
+  'replay',
+  'emissions',
+];
+
+export type CompactDeclaredSet<T> =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'declared'; readonly values: readonly T[] };
+
+export interface CompactActionContract {
+  readonly requires: CompactDeclaredSet<unknown>;
+  readonly ensures: CompactDeclaredSet<unknown>;
+  readonly needs: CompactDeclaredSet<unknown>;
+  readonly touches: {
+    readonly frame: ActionContract['touches']['frame'];
+    readonly resources: CompactDeclaredSet<unknown>;
+  };
+  readonly executionAuthority: ActionContract['executionAuthority'];
+  readonly replay: Exclude<ReplayPolicy, { readonly kind: 'reject-replay' }> | { readonly kind: 'reject-replay' };
+  readonly emissions: CompactDeclaredSet<Omit<ActionEmission, 'description'>>;
+  readonly digest: string;
+}
+
+function readDeclaredActionContract(action: ToolAction): unknown {
+  if (!('actionContract' in action)) return undefined;
+  return Reflect.get(action, 'actionContract');
+}
+
+/**
+ * Project a declared registry contract through describe. Missing contracts
+ * stay missing — annotations and top-level autoEmits are not a source.
+ */
+export function projectDescribedActionContract(action: ToolAction): ActionContract | undefined {
+  const declared = readDeclaredActionContract(action);
+  if (declared === undefined) return undefined;
+  return normalizeActionContract(declared, { annotations: action.annotations });
+}
+
+// Overloaded rather than defaulted: with `U = T` the compiler cannot see that
+// the untransformed branch already yields `readonly U[]`, and the only way to
+// keep one signature was to assert it. The two call shapes are genuinely
+// different return types, so declaring them is both honest and cast-free.
+function compactDeclaredSet<T>(set: DeclaredSet<T>): CompactDeclaredSet<T>;
+function compactDeclaredSet<T, U>(
+  set: DeclaredSet<T>,
+  compactItem: (item: T) => U,
+): CompactDeclaredSet<U>;
+function compactDeclaredSet<T, U>(
+  set: DeclaredSet<T>,
+  compactItem?: (item: T) => U,
+): CompactDeclaredSet<T | U> {
+  if (set.kind === 'none') return { kind: 'none' };
+  return {
+    kind: 'declared',
+    values: compactItem === undefined ? set.values : set.values.map(compactItem),
+  };
+}
+
+function compactEmission(emission: ActionEmission): Omit<ActionEmission, 'description'> {
+  return {
+    event: emission.event,
+    condition: emission.condition,
+    owner: emission.owner,
+    role: emission.role,
+    ...(emission.recoveryExpiresAt === undefined ? {} : { recoveryExpiresAt: emission.recoveryExpiresAt }),
+  };
+}
+
+function compactReplay(
+  replay: ReplayPolicy,
+): { readonly kind: 'reject-replay' } | Exclude<ReplayPolicy, { readonly kind: 'reject-replay' }> {
+  if (replay.kind === 'reject-replay') return { kind: 'reject-replay' };
+  return replay;
+}
+
+/**
+ * Compact projection of a normalized contract. Prose (`because`, emission
+ * descriptions) may be omitted; every dimension and the digest stay.
+ */
+export function projectCompactActionContract(contract: ActionContract): CompactActionContract {
+  return {
+    requires: compactDeclaredSet(contract.requires),
+    ensures: compactDeclaredSet(contract.ensures),
+    needs: compactDeclaredSet(contract.needs),
+    touches: {
+      frame: contract.touches.frame,
+      resources: compactDeclaredSet(contract.touches.resources),
+    },
+    executionAuthority: contract.executionAuthority,
+    replay: compactReplay(contract.replay),
+    emissions: compactDeclaredSet(contract.emissions, compactEmission),
+    digest: actionContractCanonicalBytes(contract),
+  };
+}
+
+function describedActionContractFields(action: ToolAction): Record<string, unknown> {
+  const actionContract = projectDescribedActionContract(action);
+  if (actionContract === undefined) return {};
+  return {
+    actionContract,
+    actionContractDigest: actionContractCanonicalBytes(actionContract),
+    actionContractCompact: projectCompactActionContract(actionContract),
+  };
+}
 
 /**
  * Handles the `describe` action for composite tools.
@@ -111,13 +235,14 @@ export async function handleDescribe(
         };
       }
 
+      const emissions = contractEmissionsOf(action);
       const actionResult: Record<string, unknown> = {
         description: action.description,
         schema: zodToJsonSchema(action.schema),
         gate: (action as ToolAction & { gate?: unknown }).gate ?? null,
         phases: [...action.phases],
         roles: [...action.roles],
-        ...(action.autoEmits ? { autoEmits: [...action.autoEmits] } : {}),
+        ...(emissions.length > 0 ? { autoEmits: [...emissions] } : {}),
         // T41 / DR-4 / DR-11: surface the `deprecated` flag so model-facing
         // agents can pivot to the canonical action without parsing the
         // description string. Surfaced unconditionally (not just when true)
@@ -161,6 +286,7 @@ export async function handleDescribe(
         ...(actionName === 'update'
           ? { reservedFields: RESERVED_FIELDS_DESCRIPTOR }
           : {}),
+        ...describedActionContractFields(action),
       };
 
       // T5a.1/DR-4 (#1259, v2.11): the prior `set`-specific stateSchema

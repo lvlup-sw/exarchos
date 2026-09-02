@@ -32,6 +32,8 @@ import * as path from 'node:path';
 import { EventStore } from '../../../src/events/store.js';
 import type { DispatchContext, CompositeHandler } from '../../../src/dispatch/core/dispatch.js';
 import { stubCompositeHandler } from '../../../src/dispatch/core/dispatch.js';
+import { deriveLocalOperatorIdentity } from '../../../src/dispatch/caller-identity.js';
+import { buildDefaultProcessResolver } from '../../../src/workflow/capabilities/resolver.js';
 import type { ToolResult } from '../../../src/format.js';
 import {
   callCli as harnessCallCli,
@@ -94,6 +96,8 @@ async function createArm(prefix: string): Promise<ArmContext> {
     stateDir,
     eventStore,
     enableTelemetry: false,
+    callerIdentity: deriveLocalOperatorIdentity(stateDir),
+    capabilityResolver: buildDefaultProcessResolver(),
   };
   return { stateDir, ctx };
 }

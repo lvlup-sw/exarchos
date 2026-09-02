@@ -18,6 +18,34 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
   getOrCreateMaterializer: () => ({}),
 }));
 
+// The gate now records durable evidence through the shared phase-gate runner
+// before any success carrier escapes. These cases are about the PROVIDER's
+// verdict, so the runner is stubbed down to its provider call — the same seam
+// every other migrated gate's unit test stubs. What the runner itself
+// guarantees is proven against a real store in `gate-runner.test.ts`.
+vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
+  runPhaseGateWithEvidence: vi.fn(async (request) => {
+    try {
+      return await request.executeProvider(
+        {
+          gateClass: request.gateClass,
+          providerRef: 'test-provider',
+          actionName: 'test-provider',
+        },
+        request.providerInput,
+      );
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: 'GATE_PROVIDER_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }),
+}));
+
 import { handleSecurityScan, scanDiffContent } from '../../../../src/verbs/gates/security-scan.js';
 import type { SecurityFinding } from '../../../../src/verbs/gates/security-scan.js';
 
@@ -446,6 +474,21 @@ describe('handleSecurityScan', () => {
       const data = result.data as { report: string };
       expect(data.report).toContain('## Security Scan Report');
       expect(data.report).toContain('Findings');
+    });
+  });
+
+  describe('gate event append failure', () => {
+    it('SecurityScan_GateEventAppendFails_WithholdsTheSuccessCarrier', async () => {
+      mockStore.append.mockRejectedValueOnce(new Error('store unavailable'));
+
+      const args = { featureId: 'feat-1', diffContent: makeCleanDiff() };
+      const result = await handleSecurityScan(args, STATE_DIR, mockStore as unknown as EventStore);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('GATE_EVENT_UNRECORDED');
+      const data = result.data as { passed: boolean; findingCount: number };
+      expect(data.passed).toBe(true);
+      expect(data.findingCount).toBe(0);
     });
   });
 });

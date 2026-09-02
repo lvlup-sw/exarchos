@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
-import { emitGateEvent } from './gate-utils.js';
+import { emitGateEvent, sameOperationGateKey } from './gate-utils.js';
 import { verifyProvenanceChain } from '../pure/provenance-chain.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
@@ -140,14 +140,22 @@ async function executeProvenanceChain(
     orphanRefs: tsResult.orphanRefs,
   };
 
-  await emitGateEvent(eventStore, args.featureId, 'provenance-chain', 'planning', passed, {
-    dimension: 'D1',
-    phase: 'plan',
-    requirements: metrics.requirements,
-    covered: metrics.covered,
-    gaps: metrics.gaps,
-    orphanRefs: metrics.orphanRefs,
-  });
+  await emitGateEvent(
+    eventStore,
+    args.featureId,
+    'provenance-chain',
+    'planning',
+    passed,
+    {
+      dimension: 'D1',
+      phase: 'plan',
+      requirements: metrics.requirements,
+      covered: metrics.covered,
+      gaps: metrics.gaps,
+      orphanRefs: metrics.orphanRefs,
+    },
+    sameOperationGateKey('provenance-chain'),
+  );
 
   // Return structured result
   const result: ProvenanceChainResult = {

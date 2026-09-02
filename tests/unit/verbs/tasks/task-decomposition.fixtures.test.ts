@@ -55,7 +55,41 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // disk so the integration is end-to-end.
 vi.mock('../../../../src/verbs/gates/gate-utils.js', () => ({
   emitGateEvent: vi.fn().mockResolvedValue(undefined),
+  // The handler calls `requireGateEvent` directly. Without this export the
+  // call site raises a TypeError instead of resolving, leaving the emission
+  // unexercised — this stub always succeeds (`undefined`), since these
+  // fixture cases exercise the parser, not the append failure path.
+  requireGateEvent: vi.fn().mockResolvedValue(undefined),
+  sameOperationGateKey: vi.fn(() => undefined),
 }));
+// The gate now records durable evidence through the shared phase-gate runner
+// before any success carrier escapes. These cases are about the PROVIDER's
+// verdict, so the runner is stubbed down to its provider call — the same seam
+// every other migrated gate's unit test stubs. What the runner itself
+// guarantees is proven against a real store in `gate-runner.test.ts`.
+vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
+  runPhaseGateWithEvidence: vi.fn(async (request) => {
+    try {
+      return await request.executeProvider(
+        {
+          gateClass: request.gateClass,
+          providerRef: 'test-provider',
+          actionName: 'test-provider',
+        },
+        request.providerInput,
+      );
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: 'GATE_PROVIDER_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }),
+}));
+
 
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';

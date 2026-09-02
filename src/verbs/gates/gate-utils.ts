@@ -4,6 +4,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { execFileSync } from 'node:child_process';
+import { getDispatchContext } from '../../dispatch/dispatch-context.js';
 import { orchestrateLogger } from '../../logger.js';
 import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
@@ -134,6 +135,85 @@ export async function emitGateEvent(
   } else {
     await store.append(streamId, event);
   }
+}
+
+/**
+ * Append `gate.executed` and make its landing a precondition of the gate's own
+ * success carrier, for the gates that declare the event unconditionally
+ * (`emissions: gate.executed always`). A handler that swallows the append and
+ * still returns a success carrier is asserting a fact — "this run produced the
+ * declared durable row" — that the log does not hold; the two are only kept
+ * from disagreeing by making the append part of the result, not a side note.
+ *
+ * Wraps {@link emitGateEvent} rather than re-implementing the append, so the
+ * `gate.executed` literal stays owned by exactly one call site per handler
+ * (the per-file producer census in `check-gate-runner-ownership.mjs` counts
+ * literals, not call graphs).
+ *
+ * Returns `undefined` when the row landed — the caller proceeds to its own
+ * success return. On a thrown append it returns a failure envelope carrying
+ * the gate's own result data through on `data` (the verdict the gate reached
+ * is still true and still worth reading) with `error.code`
+ * `GATE_EVENT_UNRECORDED`, mirroring how `EMISSION_CONTRACT_VIOLATED`
+ * preserves `result.data` for a completed operation whose bookkeeping failed
+ * (`src/dispatch/core/dispatch.ts`) — the effect happened, only the durable
+ * record of it did not.
+ *
+ * @param carrier - the `ToolResult` the caller would otherwise have returned;
+ *   only its `data` rides into the failure envelope.
+ */
+export async function requireGateEvent(
+  store: EventStore,
+  streamId: string,
+  gateName: string,
+  layer: string,
+  passed: boolean,
+  carrier: ToolResult,
+  details?: Record<string, unknown>,
+  idempotencyKey?: string,
+): Promise<ToolResult | undefined> {
+  try {
+    await emitGateEvent(store, streamId, gateName, layer, passed, details, idempotencyKey);
+    return undefined;
+  } catch (err) {
+    return {
+      success: false,
+      data: carrier.data,
+      error: {
+        code: 'GATE_EVENT_UNRECORDED',
+        message:
+          `${gateName}: the gate ran and its verdict is preserved on \`data\` — ` +
+          `what failed is the durable \`gate.executed\` record this action ` +
+          `declares unconditionally. Withholding the success carrier rather than ` +
+          `letting the declaration and the log disagree: ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      },
+    };
+  }
+}
+
+/**
+ * The key that collapses a self-emitted `gate.executed` row onto the one the
+ * first attempt of the SAME operation already wrote.
+ *
+ * A gate that mints its own row instead of letting the canonical runner mint
+ * one is still re-executed by a same-operation retry: the runner runs the
+ * provider before it can discover that the operation already produced
+ * evidence, so the provider's append fires twice while the evidence row —
+ * keyed on its own deterministic id — collapses to one. Unkeyed, that leaves
+ * two rows describing one gate run, and every reader that folds the log
+ * (receipts, convergence, prior-fix-cycle counts) sees the duplicate.
+ *
+ * Keyed on the operation identity a retry deliberately reuses, so two distinct
+ * calls still leave two rows and only a retry collapses.
+ *
+ * `undefined` outside a dispatch scope: there is no operation for a second
+ * append to be the same as, and a constant key would collapse calls that have
+ * nothing to do with each other.
+ */
+export function sameOperationGateKey(gateName: string): string | undefined {
+  const operationId = getDispatchContext()?.operationId;
+  return operationId === undefined ? undefined : `gate.executed:${gateName}:${operationId}`;
 }
 
 // ─── Canonical gate-runner result helpers ───────────────────────────────────

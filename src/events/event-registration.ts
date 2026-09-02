@@ -340,13 +340,13 @@ export const RECONCILER_IDS: readonly ['worktree', 'branch', 'pr'] = ['worktree'
 export const GROUND_TRUTH_SOURCES: readonly ['process', 'network'] = ['process', 'network'];
 
 /**
- * {@link SupportedGateClass} as data — the nine classes with exactly one registered provider each.
+ * {@link SupportedGateClass} as data — the classes with exactly one registered provider each.
  *
  * Deliberately NOT imported from `verbs/gates/gate-provider-registry.ts` as a value. That module
  * builds its provider registry at module load, and every import in THIS file is `import type`
  * precisely so the module contributes zero runtime import edges (see the header). The
  * mutual-assignability proof below binds this tuple to the shipped union just as tightly as an
- * import would, at no runtime cost: a tenth gate class is a compile error here.
+ * import would, at no runtime cost: one more gate class is a compile error here.
  */
 export const JUDGMENT_GATE_CLASSES: readonly [
   'test-adequacy',
@@ -358,6 +358,21 @@ export const JUDGMENT_GATE_CLASSES: readonly [
   'provenance-chain',
   'review-verdict',
   'prepare-synthesis',
+  'security-scan',
+  'convergence',
+  'invariant-conformance',
+  'task-decomposition',
+  'spec-coverage',
+  'context-economy',
+  'coverage-thresholds',
+  'debug-review',
+  'exploration-depth',
+  'operational-resilience',
+  'post-delegation',
+  'post-merge',
+  'pr-stack',
+  'pre-synthesis',
+  'workflow-determinism',
 ] = [
   'test-adequacy',
   'contract-drift',
@@ -368,6 +383,21 @@ export const JUDGMENT_GATE_CLASSES: readonly [
   'provenance-chain',
   'review-verdict',
   'prepare-synthesis',
+  'security-scan',
+  'convergence',
+  'invariant-conformance',
+  'task-decomposition',
+  'spec-coverage',
+  'context-economy',
+  'coverage-thresholds',
+  'debug-review',
+  'exploration-depth',
+  'operational-resilience',
+  'post-delegation',
+  'post-merge',
+  'pr-stack',
+  'pre-synthesis',
+  'workflow-determinism',
 ];
 
 // ─── The variants ───────────────────────────────────────────────────────────

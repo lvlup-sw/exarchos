@@ -12,7 +12,9 @@ import { readFile } from 'node:fs/promises';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
-import { emitGateEvent } from '../gates/gate-utils.js';
+import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
+import { runPhaseGateWithEvidence } from '../gates/gate-runner.js';
+import { requireGateEvent, sameOperationGateKey } from '../gates/gate-utils.js';
 import { canonicaliseTaskId } from '../../utils/task-id.js';
 import {
   assessDecompositionPlausibility,
@@ -862,7 +864,7 @@ function renderPlausibilitySection(assessment: PlausibilityAssessment): string[]
 
 export async function handleTaskDecomposition(
   args: TaskDecompositionArgs,
-  _stateDir: string,
+  stateDir: string,
   eventStore: EventStore,
   baseline?: PlausibilityBaseline,
 ): Promise<ToolResult> {
@@ -874,6 +876,37 @@ export async function handleTaskDecomposition(
     };
   }
 
+  // The gate declares durable gate evidence as a postcondition, and a bare
+  // `gate.executed` append never paid it: the dispatch path observes declared
+  // postconditions after the handler returns and read a success carrier that
+  // had broken its own contract. Routing through the shared phase-gate runner
+  // records the evidence before any success carrier escapes, the same way the
+  // sibling gates do. The bounded intent executor observes the same
+  // postconditions the same way, so a segment that ever names this gate reads
+  // the repaired answer too — no segment names it today.
+  return runPhaseGateWithEvidence({
+    streamId: args.featureId,
+    gateClass: 'task-decomposition',
+    requirementId: 'requirement:task-decomposition',
+    stateDir,
+    eventStore,
+    subject: (phaseAttemptId) =>
+      createEvidenceSubject(
+        { kind: 'phase-attempt', phaseAttemptId },
+        { gate: 'task-decomposition', phase: 'planning' },
+      ),
+    providerInput: args,
+    executeProvider: async () =>
+      executeTaskDecomposition(args, stateDir, eventStore, baseline),
+  });
+}
+
+async function executeTaskDecomposition(
+  args: TaskDecompositionArgs,
+  _stateDir: string,
+  eventStore: EventStore,
+  baseline?: PlausibilityBaseline,
+): Promise<ToolResult> {
   if (!args.planPath) {
     return {
       success: false,
@@ -1030,18 +1063,6 @@ export async function handleTaskDecomposition(
 
   const report = reportLines.join('\n');
 
-  // Emit gate.executed event (fire-and-forget: emission failure must not break the gate check)
-  try {
-    const store = eventStore;
-    await emitGateEvent(store, args.featureId, 'task-decomposition', 'planning', passed, {
-      dimension: 'D5',
-      phase: 'plan',
-      wellDecomposed,
-      needsRework,
-      totalTasks,
-    });
-  } catch { /* fire-and-forget */ }
-
   // Return structured result
   const result: TaskDecompositionResult = {
     passed,
@@ -1053,6 +1074,26 @@ export async function handleTaskDecomposition(
     plausibility,
     report,
   };
+  const carrier: ToolResult = { success: true, data: { ...result } };
 
-  return { success: true, data: { ...result } };
+  const store = eventStore;
+  const unrecorded = await requireGateEvent(
+    store,
+    args.featureId,
+    'task-decomposition',
+    'planning',
+    passed,
+    carrier,
+    {
+      dimension: 'D5',
+      phase: 'plan',
+      wellDecomposed,
+      needsRework,
+      totalTasks,
+    },
+    sameOperationGateKey('task-decomposition'),
+  );
+  if (unrecorded !== undefined) return unrecorded;
+
+  return carrier;
 }

@@ -84,6 +84,8 @@ export interface SchemaRefs {
   readonly capped: string;
 }
 
+export type ProjectedActionContract = NonNullable<ActionMetaModel['actionContract']>;
+
 export interface ActionDescriptor {
   readonly actionId: string;
   readonly tool: string;
@@ -95,16 +97,35 @@ export interface ActionDescriptor {
   readonly outputKinds: readonly string[];
   readonly schemaRefs: SchemaRefs;
   readonly types: ActionTypeNames;
+  /**
+   * Declared action contract, projected when present. Absent live contracts
+   * stay absent — this is not reconstructed from annotations or autoEmits.
+   * Dispatch does not read compiled descriptors as runtime authority.
+   */
+  readonly actionContract?: ProjectedActionContract;
   /** `sha256:` content address over the descriptor's canonical body. */
   readonly digest: string;
+}
+
+/**
+ * The declared contract bound into a descriptor digest. Prefers the
+ * entry-level projection; falls back to the policy copy. Missing stays missing.
+ */
+export function projectedActionContract(
+  entry: ActionMetaModel,
+): ProjectedActionContract | undefined {
+  return entry.actionContract ?? entry.policy.actionContract;
 }
 
 /**
  * Compile a validated meta-model entry into its runtime descriptor. The digest
  * covers everything EXCEPT itself (a self-referential digest would never
  * stabilize), computed over the canonical JSON so key order is irrelevant.
+ * A present action contract is a first-class hashed field: any contract-field
+ * mutation moves this action's digest.
  */
 export function compileDescriptor(entry: ActionMetaModel): ActionDescriptor {
+  const actionContract = projectedActionContract(entry);
   const body = {
     actionId: entry.actionId,
     tool: entry.tool,
@@ -121,6 +142,7 @@ export function compileDescriptor(entry: ActionMetaModel): ActionDescriptor {
       capped: SURFACE_CAPPED_SCHEMA_REF,
     },
     types: deriveTypeNames(entry.actionId),
+    ...(actionContract === undefined ? {} : { actionContract }),
   };
   return { ...body, digest: digestText(canonicalJson(body)) };
 }

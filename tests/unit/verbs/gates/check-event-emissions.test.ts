@@ -27,7 +27,28 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
   queryDeltaEvents: vi.fn().mockResolvedValue([]),
 }));
 
-import { PHASE_EXPECTED_EVENTS, handleCheckEventEmissions } from '../../../../src/verbs/gates/check-event-emissions.js';
+// #1855 — the gate folds its view to the stream's durable tail through
+// `foldToTail` rather than pairing `queryDeltaEvents` with a bare
+// `materialize`. The fold is the seam a unit test of the VERDICT should stub:
+// what the fold itself guarantees is covered against a real store in
+// `tests/unit/projections/fold-at-tail.test.ts`.
+// `foldToTail` guarantees the fold covers the stream's durable tail, and
+// callers now bound their own evidence to the sequence it reports. These
+// fixtures ARE the stream, so the stub reports a sequence at or past every
+// fixture event; a lower one would assert a lag this file never sets up.
+const AT_TAIL = Number.MAX_SAFE_INTEGER;
+
+vi.mock('../../../../src/projections/fold-at-tail.js', () => ({
+  foldToTail: vi.fn(async () => ({ view: mockViewState, sequence: AT_TAIL })),
+}));
+
+import {
+  PHASE_EXPECTED_EVENTS,
+  assertDescriptionsLive,
+  assertExpectationsLive,
+  handleCheckEventEmissions,
+  modelEmittedOnly,
+} from '../../../../src/verbs/gates/check-event-emissions.js';
 
 const STATE_DIR = '/tmp/test-check-event-emissions';
 
@@ -319,7 +340,7 @@ describe('handleCheckEventEmissions', () => {
     expect(event.data.passed).toBe(true);
   });
 
-  it('CheckEventEmissions_GateEmissionFailure_DoesNotBreakHandler', async () => {
+  it('CheckEventEmissions_GateEventAppendFails_WithholdsTheSuccessCarrier', async () => {
     mockViewState = { phase: 'delegate' };
 
     mockStore.query.mockResolvedValueOnce([]);
@@ -331,14 +352,19 @@ describe('handleCheckEventEmissions', () => {
       mockStore as unknown as EventStore,
     );
 
-    expect(result.success).toBe(true);
-    expect(result.data.complete).toBe(false);
+    // `event-emissions` declares `gate.executed` unconditionally — a dropped
+    // append withholds the success carrier rather than returning one the log
+    // does not back. The gate's own verdict is still readable on `data`.
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_EVENT_UNRECORDED');
+    const data = result.data as { complete: boolean };
+    expect(data.complete).toBe(false);
   });
 
   it('CheckEventEmissions_UsesWorkflowIdAsStreamId', async () => {
     mockViewState = { phase: 'delegate' };
 
-    const { queryDeltaEvents } = await import('../../../../src/projections/views/tools.js');
+    const { foldToTail } = await import('../../../../src/projections/fold-at-tail.js');
 
     await handleCheckEventEmissions(
       { featureId: 'test-feature', workflowId: 'custom-stream' },
@@ -346,7 +372,7 @@ describe('handleCheckEventEmissions', () => {
       mockStore as unknown as EventStore,
     );
 
-    expect(queryDeltaEvents).toHaveBeenCalledWith(
+    expect(foldToTail).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       'custom-stream',
@@ -379,5 +405,81 @@ describe('handleOrchestrate integration', () => {
     } finally {
       rmrf(isolatedDir);
     }
+  });
+});
+
+// ─── The expectation surfaces cannot go stale or empty ──────────────────────
+//
+// Three load-time guards keep the expectation tables honest, and each throw
+// path is proven here with a seeded registry rather than trusted: a retired
+// event cannot silently vanish from a derived expectation list, a phase row
+// cannot silently derive to empty, and a description cannot outlive the
+// model-emitted status of its event.
+
+describe('expectation-surface liveness', () => {
+  const seededRegistry = new Map<string, string>([
+    ['seeded.model', 'model'],
+    ['seeded.auto', 'auto'],
+    ['seeded.retired', 'retired'],
+  ]);
+
+  it('ModelEmittedOnly_RetiredType_ThrowsInsteadOfFiltering', () => {
+    // Silent filtering is for events the RUNTIME emits. A retired event is
+    // emitted by nobody, so dropping it empties the expectation while every
+    // check over it stays green — the throw couples the retirement to the
+    // expectation edit.
+    expect(() => modelEmittedOnly(['seeded.model', 'seeded.retired'], seededRegistry)).toThrow(
+      /retired and still expected/,
+    );
+  });
+
+  it('ModelEmittedOnly_AutoType_IsFilteredSilently', () => {
+    // The documented behavior stays: auto-emitted events are recognised by the
+    // reducer for folding but never nagged for.
+    expect(modelEmittedOnly(['seeded.model', 'seeded.auto'], seededRegistry)).toEqual([
+      'seeded.model',
+    ]);
+  });
+
+  it('ModelEmittedOnly_UnregisteredType_Throws', () => {
+    expect(() => modelEmittedOnly(['seeded.typo'], seededRegistry)).toThrow(/not registered/);
+  });
+
+  it('AssertExpectationsLive_EmptyPhaseRow_Throws', () => {
+    expect(() =>
+      assertExpectationsLive({ delegate: [] }, seededRegistry),
+    ).toThrow(/is empty/);
+  });
+
+  it('AssertExpectationsLive_NonModelEntry_Throws', () => {
+    expect(() =>
+      assertExpectationsLive(
+        { delegate: ['seeded.auto' as EventType] },
+        seededRegistry,
+      ),
+    ).toThrow(/non-model event/);
+  });
+
+  it('AssertExpectationsLive_ModelEntries_Pass', () => {
+    expect(() =>
+      assertExpectationsLive({ delegate: ['seeded.model' as EventType] }, seededRegistry),
+    ).not.toThrow();
+  });
+
+  it('AssertDescriptionsLive_DemotedKey_Throws', () => {
+    expect(() =>
+      assertDescriptionsLive({ 'seeded.auto': 'Emit seeded.auto' }, seededRegistry),
+    ).toThrow(/stale/);
+    expect(() =>
+      assertDescriptionsLive({ 'seeded.gone': 'Emit seeded.gone' }, seededRegistry),
+    ).toThrow(/unregistered/);
+  });
+
+  it('PhaseExpectedEvents_DerivedRows_AreNonEmpty', () => {
+    // The load-time assertion already fails the whole module if a derived row
+    // empties; this floor pins the same fact where a reader of the delegate
+    // contract will look for it.
+    expect(PHASE_EXPECTED_EVENTS['delegate']?.length).toBeGreaterThan(0);
+    expect(PHASE_EXPECTED_EVENTS['overhaul-delegate']?.length).toBeGreaterThan(0);
   });
 });

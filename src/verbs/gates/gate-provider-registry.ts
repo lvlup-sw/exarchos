@@ -36,7 +36,38 @@ export type PhaseGateClass =
   | 'plan-coverage'
   | 'provenance-chain'
   | 'review-verdict'
-  | 'prepare-synthesis';
+  | 'prepare-synthesis'
+  // The three review gates that declared durable gate evidence and paid for it
+  // with a bare `gate.executed` append. Their handlers now route through the
+  // shared phase-gate runner, and the runner resolves a provider by class — so
+  // each class is declared here or the gate cannot record the evidence its own
+  // contract promises.
+  | 'security-scan'
+  | 'convergence'
+  | 'invariant-conformance'
+  // The two plan gates that declared durable gate evidence and paid it with a
+  // bare `gate.executed` append and with nothing at all respectively. The
+  // runner resolves a provider by class, so the class exists here or the gate
+  // cannot record the evidence its own contract promises.
+  | 'task-decomposition'
+  | 'spec-coverage'
+  // The remaining gates that declared durable gate evidence and paid it with
+  // either a bare `gate.executed` append or with nothing at all. A
+  // `gate.executed` row is NOT the durable-evidence record the postcondition
+  // observer reads — that reader asks for `admission.evidence-recorded` — so
+  // each of these declared a postcondition no caller could observe. The runner
+  // resolves a provider by class, so the class exists here or the gate cannot
+  // record the evidence its own contract promises.
+  | 'context-economy'
+  | 'coverage-thresholds'
+  | 'debug-review'
+  | 'exploration-depth'
+  | 'operational-resilience'
+  | 'post-delegation'
+  | 'post-merge'
+  | 'pr-stack'
+  | 'pre-synthesis'
+  | 'workflow-determinism';
 export type SupportedGateClass = MechanicalGateClass | PhaseGateClass;
 
 export interface GateProviderRegistration {
@@ -138,6 +169,51 @@ const BUILTIN_REGISTRATIONS = {
   },
   'prepare-synthesis': {
     actionName: 'prepare_synthesis',
+  },
+  'security-scan': {
+    actionName: 'check_security_scan',
+  },
+  convergence: {
+    actionName: 'check_convergence',
+  },
+  'invariant-conformance': {
+    actionName: 'check_invariant_conformance',
+  },
+  'task-decomposition': {
+    actionName: 'check_task_decomposition',
+  },
+  'spec-coverage': {
+    actionName: 'spec_coverage_check',
+  },
+  'context-economy': {
+    actionName: 'check_context_economy',
+  },
+  'coverage-thresholds': {
+    actionName: 'check_coverage_thresholds',
+  },
+  'debug-review': {
+    actionName: 'debug_review_gate',
+  },
+  'exploration-depth': {
+    actionName: 'check_exploration_depth',
+  },
+  'operational-resilience': {
+    actionName: 'check_operational_resilience',
+  },
+  'post-delegation': {
+    actionName: 'post_delegation_check',
+  },
+  'post-merge': {
+    actionName: 'check_post_merge',
+  },
+  'pr-stack': {
+    actionName: 'validate_pr_stack',
+  },
+  'pre-synthesis': {
+    actionName: 'pre_synthesis_check',
+  },
+  'workflow-determinism': {
+    actionName: 'check_workflow_determinism',
   },
 } as const satisfies Readonly<
   Record<

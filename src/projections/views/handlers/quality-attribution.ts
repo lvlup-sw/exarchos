@@ -1,4 +1,5 @@
 import { narrowAffordance } from '../../../dispatch/core/economy.js';
+import { toViewFailure } from '../../degraded-result.js';
 import { EventStore } from '../../../events/store.js';
 import type { ToolResult } from '../../../format.js';
 import type { NextAction } from '../../../next-action.js';
@@ -7,6 +8,7 @@ import { CODE_QUALITY_VIEW, type CodeQualityViewState } from '../code-quality-vi
 import { EVAL_RESULTS_VIEW, type EvalResultsViewState } from '../eval-results-view.js';
 import { compactAttributionEntry } from './analytic-contract.js';
 import { resolveInventoryWindow } from './inventory-contract.js';
+import { foldPairToTail } from '../../fold-at-tail.js';
 import { getOrCreateMaterializer } from './materializer.js';
 import { buildPage } from './pipeline.js';
 import { deriveCorrelationFilters, hasCorrelationFilters, materializeFiltered, queryDeltaEvents } from './query.js';
@@ -54,27 +56,35 @@ export async function handleViewQualityAttribution(
     const correlationFilters = deriveCorrelationFilters(args);
     const correlationFiltered = hasCorrelationFilters(correlationFilters);
 
-    // See handleViewQualityCorrelation above — under a correlation filter
-    // both projections fold from the same backend payload, so fetch once.
-    const cqEvents = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW, correlationFilters);
-    const cqView = correlationFiltered
-      ? materializeFiltered<CodeQualityViewState>(materializer, CODE_QUALITY_VIEW, cqEvents)
-      : materializer.materialize<CodeQualityViewState>(
-          streamId,
-          CODE_QUALITY_VIEW,
-          cqEvents,
-        );
-
-    const erEvents = correlationFiltered
-      ? cqEvents
-      : await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW);
-    const erView = correlationFiltered
-      ? materializeFiltered<EvalResultsViewState>(materializer, EVAL_RESULTS_VIEW, erEvents)
-      : materializer.materialize<EvalResultsViewState>(
-          streamId,
-          EVAL_RESULTS_VIEW,
-          erEvents,
-        );
+    // Both projections describe ONE state of the stream, so both must come from
+    // one sequence. Filtered, that is the single fetched event list they each
+    // fold; unfiltered, it is the single tail `foldPairToTail` pins for the
+    // pair. Folding them independently would let an append between the two
+    // produce a comparison of a state the stream was never in — and would also
+    // charge every unfiltered read for an event query it does not use.
+    let cqView: CodeQualityViewState;
+    let erView: EvalResultsViewState;
+    if (correlationFiltered) {
+      const cqEvents = await queryDeltaEvents(
+        store,
+        materializer,
+        streamId,
+        CODE_QUALITY_VIEW,
+        correlationFilters,
+      );
+      cqView = materializeFiltered<CodeQualityViewState>(materializer, CODE_QUALITY_VIEW, cqEvents);
+      erView = materializeFiltered<EvalResultsViewState>(materializer, EVAL_RESULTS_VIEW, cqEvents);
+    } else {
+      const pair = await foldPairToTail<CodeQualityViewState, EvalResultsViewState>(
+        store,
+        materializer,
+        streamId,
+        CODE_QUALITY_VIEW,
+        EVAL_RESULTS_VIEW,
+      );
+      cqView = pair.first;
+      erView = pair.second;
+    }
 
     // AttributionQuery.timeRange expects ISO 8601 duration string (e.g., 'P7D'),
     // but the MCP handler receives { start, end } — compute duration from the range
@@ -129,12 +139,6 @@ export async function handleViewQualityAttribution(
       ...nextActionsWrap,
     };
   } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'VIEW_ERROR',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
+    return toViewFailure(err, { tool: 'exarchos_view', action: 'quality_attribution' });
   }
 }

@@ -20,7 +20,9 @@ import { readFile } from 'node:fs/promises';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import type { DesignDepth } from '../../workflow/plan-depth-policy.js';
-import { emitGateEvent } from './gate-utils.js';
+import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
+import { runPhaseGateWithEvidence } from './gate-runner.js';
+import { requireGateEvent, sameOperationGateKey } from './gate-utils.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 
 /** Discriminant carried by a gate skipped because the spec is not `deep` depth. */
@@ -198,7 +200,7 @@ async function resolveDepthAndPath(
  */
 export async function handleCheckExplorationDepth(
   args: CheckExplorationDepthArgs,
-  _stateDir: string,
+  stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
   if (!eventStore) {
@@ -211,24 +213,37 @@ export async function handleCheckExplorationDepth(
     return { success: false, error: { code: 'INVALID_INPUT', message: 'featureId is required' } };
   }
 
+  // Durable gate evidence is a declared postcondition here, and a bare
+  // `gate.executed` append does not pay it — the observer reads
+  // `admission.evidence-recorded`. The shared phase-gate runner records that
+  // before any success carrier escapes; the declared signal is still minted by
+  // the provider closure below, on the skip path as well as the deep one.
+  return runPhaseGateWithEvidence({
+    streamId: args.featureId,
+    gateClass: 'exploration-depth',
+    requirementId: 'requirement:exploration-depth',
+    stateDir,
+    eventStore,
+    subject: (phaseAttemptId) =>
+      createEvidenceSubject(
+        { kind: 'phase-attempt', phaseAttemptId },
+        { gate: 'exploration-depth', phase: 'plan' },
+      ),
+    providerInput: args,
+    executeProvider: async () => executeCheckExplorationDepth(args, eventStore),
+  });
+}
+
+async function executeCheckExplorationDepth(
+  args: CheckExplorationDepthArgs,
+  eventStore: EventStore,
+): Promise<ToolResult> {
   const { designDepth, designPath } = await resolveDepthAndPath(args, eventStore);
 
   // ── Deep-only self-skip (parity with resolvePolicySkip stamp routing) ──────
   const skip = resolveExplorationSkip(designDepth);
   if (skip) {
-    try {
-      await emitGateEvent(eventStore, args.featureId, 'exploration-depth', 'planning', true, {
-        dimension: 'D1',
-        phase: 'plan',
-        designDepth: designDepth ?? null,
-        skipped: true,
-        discriminant: SKIPPED_BY_DEPTH,
-        reason: skip.reason,
-      });
-    } catch {
-      /* fire-and-forget */
-    }
-    return {
+    const carrier: ToolResult = {
       success: true,
       data: {
         passed: true,
@@ -238,6 +253,25 @@ export async function handleCheckExplorationDepth(
         reason: skip.reason,
       },
     };
+    const unrecorded = await requireGateEvent(
+      eventStore,
+      args.featureId,
+      'exploration-depth',
+      'planning',
+      true,
+      carrier,
+      {
+        dimension: 'D1',
+        phase: 'plan',
+        designDepth: designDepth ?? null,
+        skipped: true,
+        discriminant: SKIPPED_BY_DEPTH,
+        reason: skip.reason,
+      },
+      sameOperationGateKey('exploration-depth'),
+    );
+    if (unrecorded !== undefined) return unrecorded;
+    return carrier;
   }
 
   // ── Deep depth — the Exploration citation is required ──────────────────────
@@ -264,20 +298,7 @@ export async function handleCheckExplorationDepth(
 
   const result = checkExplorationDepth(content);
 
-  try {
-    await emitGateEvent(eventStore, args.featureId, 'exploration-depth', 'planning', result.passed, {
-      dimension: 'D1',
-      phase: 'plan',
-      designDepth: 'deep',
-      hasSection: result.hasSection,
-      citesPath: result.citesPath,
-      citesCorrelationId: result.citesCorrelationId,
-    });
-  } catch {
-    /* fire-and-forget */
-  }
-
-  return {
+  const carrier: ToolResult = {
     success: true,
     data: {
       passed: result.passed,
@@ -289,4 +310,25 @@ export async function handleCheckExplorationDepth(
       reason: result.reason,
     },
   };
+
+  const unrecorded = await requireGateEvent(
+    eventStore,
+    args.featureId,
+    'exploration-depth',
+    'planning',
+    result.passed,
+    carrier,
+    {
+      dimension: 'D1',
+      phase: 'plan',
+      designDepth: 'deep',
+      hasSection: result.hasSection,
+      citesPath: result.citesPath,
+      citesCorrelationId: result.citesCorrelationId,
+    },
+    sameOperationGateKey('exploration-depth'),
+  );
+  if (unrecorded !== undefined) return unrecorded;
+
+  return carrier;
 }

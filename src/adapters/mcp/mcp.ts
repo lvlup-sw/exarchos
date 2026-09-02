@@ -10,6 +10,7 @@ import {
   buildRegistrationSchema,
   buildToolDescription,
 } from '../../registry.js';
+import { appendCompactActionContracts } from '../../registry/schema-builders.js';
 import type { ToolAction } from '../../registry.js';
 import { toEnvelope } from '../../format.js';
 import type { Envelope, ErrorEnvelope } from '../../format.js';
@@ -565,7 +566,10 @@ export function createMcpServer(ctx: DispatchContext): V2McpServer {
     // contract.
     if (tool.hidden) continue;
     const inputSchema = buildRegistrationSchema(tool.actions);
-    const description = buildToolDescription(tool, ctx.slimRegistration ?? false);
+    const slim = ctx.slimRegistration === true;
+    const description = slim
+      ? buildToolDescription(tool, true)
+      : appendCompactActionContracts(buildToolDescription(tool, false), tool.actions);
 
     const toolName = tool.name;
 

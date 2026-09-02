@@ -29,6 +29,18 @@ export interface ValidatePrBodyArgs {
    * (unchanged legacy result).
    */
   readonly featureId?: string;
+  /**
+   * Turn the required-sections verdict into a REFUSAL instead of a fact on the
+   * success carrier.
+   *
+   * Absent (the default) the handler answers `success: true` with
+   * `passed: false` for a deficient body, which is what a caller that only
+   * wants the report needs. A composition that runs this check to decide
+   * whether a later step may proceed cannot read that field: a runbook step's
+   * failure policy sees the envelope, not the payload. Such a caller passes
+   * `enforce: true` and gets the verdict where its policy can act on it.
+   */
+  readonly enforce?: boolean;
 }
 
 interface ValidatePrBodyResult {
@@ -248,9 +260,31 @@ export async function handleValidatePrBody(
       report: `${report}\n${advisory}`,
       intentGrounded,
     };
-    return { success: true, data: result };
+    return carry(result, args.enforce === true);
   }
 
   const result: ValidatePrBodyResult = { passed, missingSections, report };
+  return carry(result, args.enforce === true);
+}
+
+/**
+ * Both verdict exits in one place — the advisory-grounded result and the plain
+ * one. Under `enforce` a failing section verdict leaves as a refusal
+ * carrying the missing sections and the report in its message — the caller that
+ * asked for enforcement reads the envelope, and the detail it would have read
+ * off the payload is in the text rather than dropped.
+ */
+function carry(result: ValidatePrBodyResult, enforce: boolean): ToolResult {
+  if (enforce && !result.passed) {
+    return {
+      success: false,
+      error: {
+        code: 'PR_BODY_INCOMPLETE',
+        message:
+          `PR body is missing required section(s): ${result.missingSections.join(', ')}. ` +
+          result.report,
+      },
+    };
+  }
   return { success: true, data: result };
 }

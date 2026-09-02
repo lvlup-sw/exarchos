@@ -571,7 +571,16 @@ describe('EventTypes', () => {
     // report that a handler completed without an event its own registration
     // declares unconditionally. Also new: the catalog held no contract-violation
     // name at all, so a detected miss had nowhere durable to land.
-    expect(EventTypes).toHaveLength(176);
+    //
+    // Bumped 176 → 177 for `prune.diagnostics`, the prune evaluation's audit
+    // line. The append pre-dates the catalog and reached the store through a
+    // widening assertion at the call site, so no static reader of the catalog
+    // could see it and no action could be held to it.
+    //
+    // Bumped 177 → 178 for `orchestrate.intent_executed`, the bounded action
+    // executor's own operation record — appended by the handler under the
+    // caller's operationId on both the committed and the failed path.
+    expect(EventTypes).toHaveLength(178);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');

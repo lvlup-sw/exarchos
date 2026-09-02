@@ -211,6 +211,7 @@ If the stack looks broken, validate its ordering and base-branch consistency:
 ```typescript
 exarchos_orchestrate({
   action: "validate_pr_stack",
+  featureId: "<feature-id>",
   baseBranch: "<integration-branch>"
 })
 ```

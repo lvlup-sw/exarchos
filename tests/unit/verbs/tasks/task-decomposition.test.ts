@@ -3,10 +3,81 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+const STUB_GATE_KEY = 'gate.executed:task-decomposition:stub-operation';
+
+// `vi.mock` factories are hoisted above module-level `const`s; `vi.hoisted`
+// hoists the mock function itself alongside so the factory below can
+// reference it directly instead of only through a lazy wrapper.
+const { mockEmitGateEvent } = vi.hoisted(() => ({
+  mockEmitGateEvent: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Mock dependencies before importing the module under test
 vi.mock('../../../../src/verbs/gates/gate-utils.js', () => ({
-  emitGateEvent: vi.fn().mockResolvedValue(undefined),
+  emitGateEvent: mockEmitGateEvent,
+  // The handler calls `requireGateEvent`, not `emitGateEvent`, directly — this
+  // stub mirrors the real helper's semantics (append via the mocked
+  // `emitGateEvent`, withhold the carrier on a thrown append) so a test can
+  // still drive the append through the one exported mock and existing
+  // `mockedEmitGateEvent` call-shape assertions keep working unchanged.
+  requireGateEvent: async (
+    store: unknown,
+    streamId: string,
+    gateName: string,
+    layer: string,
+    passed: boolean,
+    carrier: { data?: unknown },
+    details?: Record<string, unknown>,
+    idempotencyKey?: string,
+  ) => {
+    try {
+      await mockEmitGateEvent(store, streamId, gateName, layer, passed, details, idempotencyKey);
+      return undefined;
+    } catch (err) {
+      return {
+        success: false,
+        data: carrier.data,
+        error: {
+          code: 'GATE_EVENT_UNRECORDED',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      };
+    }
+  },
+  // Without this export the emit site raises a TypeError the handler swallows
+  // in its fire-and-forget try, leaving the emission unexercised. The stub
+  // returns a fixed key so the assertion below can see that the append is
+  // keyed at all; what the real key collapses is a same-operation retry.
+  sameOperationGateKey: vi.fn(() => STUB_GATE_KEY),
 }));
+// The gate now records durable evidence through the shared phase-gate runner
+// before any success carrier escapes. These cases are about the PROVIDER's
+// verdict, so the runner is stubbed down to its provider call — the same seam
+// every other migrated gate's unit test stubs. What the runner itself
+// guarantees is proven against a real store in `gate-runner.test.ts`.
+vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
+  runPhaseGateWithEvidence: vi.fn(async (request) => {
+    try {
+      return await request.executeProvider(
+        {
+          gateClass: request.gateClass,
+          providerRef: 'test-provider',
+          actionName: 'test-provider',
+        },
+        request.providerInput,
+      );
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: 'GATE_PROVIDER_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }),
+}));
+
 
 // Stub EventStore for handler injection
 const mockStore = {
@@ -1195,7 +1266,27 @@ describe('handleTaskDecomposition', () => {
         needsRework: 0,
         totalTasks: 3,
       }),
+      // The append carries an idempotency key rather than none. Unkeyed, a
+      // same-operation retry left two `gate.executed` rows for one gate run:
+      // the runner re-runs the provider before it can discover the operation
+      // already produced evidence, and only the evidence row collapsed.
+      STUB_GATE_KEY,
     );
+  });
+
+  it('TaskDecomposition_GateEventAppendFails_WithholdsTheSuccessCarrier', async () => {
+    mockedReadFile.mockResolvedValue(WELL_DECOMPOSED_PLAN);
+    mockEmitGateEvent.mockRejectedValueOnce(new Error('store unavailable'));
+
+    const result = await handleTaskDecomposition(baseArgs, stateDir, mockStore as unknown as EventStore);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_EVENT_UNRECORDED');
+    // The gate's own verdict is still readable on `data` — nothing is lost,
+    // only the success carrier is withheld.
+    const data = result.data as { passed: boolean; totalTasks: number };
+    expect(data.passed).toBe(true);
+    expect(data.totalTasks).toBe(3);
   });
 });
 

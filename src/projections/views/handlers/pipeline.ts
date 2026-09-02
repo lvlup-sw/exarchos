@@ -1,4 +1,5 @@
 import { countBy, estimateOutputTokens, narrowAffordance, PIPELINE_DEFAULT_ITEM_CAP, resolveOutputTokenThreshold, SUMMARY_FIRST_PAGE_ITEMS } from '../../../dispatch/core/economy.js';
+import { toViewFailure } from '../../degraded-result.js';
 import { isFeatureStream } from '../../../dispatch/core/infra-streams.js';
 import { EventStore } from '../../../events/store.js';
 import type { ToolResult } from '../../../format.js';
@@ -10,7 +11,7 @@ import { PROJECTION_LAG_THRESHOLD_MS } from '../../index.js';
 import { PIPELINE_VIEW, type PipelineViewState } from '../pipeline-view.js';
 import { isSnapshotSafeId } from '../snapshot-store.js';
 import { getOrCreateMaterializer } from './materializer.js';
-import { queryDeltaEvents } from './query.js';
+import { foldToTail } from '../../fold-at-tail.js';
 import { discoverStreams } from './streams.js';
 
 // ─── View Pipeline Handler ─────────────────────────────────────────────────
@@ -210,12 +211,7 @@ export async function handleViewPipeline(
     const allWorkflows: PipelineViewState[] = [];
 
     for (const streamId of streamIds) {
-      const events = await queryDeltaEvents(store, materializer, streamId, PIPELINE_VIEW);
-      const view = materializer.materialize<PipelineViewState>(
-        streamId,
-        PIPELINE_VIEW,
-        events,
-      );
+      const { view } = await foldToTail<PipelineViewState>(store, materializer, streamId, PIPELINE_VIEW);
       allWorkflows.push(view);
     }
 
@@ -415,12 +411,6 @@ export async function handleViewPipeline(
       ...(meta ? { _meta: meta } : {}),
     };
   } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'VIEW_ERROR',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
+    return toViewFailure(err, { tool: 'exarchos_view', action: 'pipeline' });
   }
 }

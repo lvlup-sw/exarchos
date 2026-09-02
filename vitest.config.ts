@@ -299,6 +299,20 @@ export default defineConfig({
         },
       },
       {
+        resolve: {
+          alias: {
+            // Five acceptance suites use `src/storage/sqlite-backend.ts`,
+            // which imports the bun-only `bun:sqlite` virtual module. The
+            // acceptance project runs under plain `node` (this lane cannot
+            // afford the bun-runtime install cost) so the same node-shim
+            // alias the `core`/`outcome`/`conformance` projects use is
+            // applied here too. The compiled binary still imports the real
+            // `bun:sqlite` at runtime — this alias is test-only.
+            'bun:sqlite': fileURLToPath(
+              new URL('./src/storage/__shims__/bun-sqlite-node.ts', import.meta.url),
+            ),
+          },
+        },
         test: {
           // End-to-end install acceptance. Separate from every tier above
           // because it materializes HEAD into a scratch dir and runs the real

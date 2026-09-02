@@ -39,6 +39,10 @@ import {
   type ActionDescriptor,
   type JsonSchema,
 } from '../compiler/index.js';
+import {
+  normalizeActionContract,
+  type ActionContract,
+} from '../../registry/action-contract.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -80,6 +84,12 @@ export interface CliCommand {
   readonly successExitCode: number;
   /** Every stable error code → CLI exit code, from the frozen contract. */
   readonly errorExits: readonly CliExitMapping[];
+  /**
+   * The compiler's normalized action contract, when the descriptor carries one.
+   * Absent live contracts stay absent — this view does not invent a contract
+   * from annotations or auto-emits.
+   */
+  readonly actionContract?: ActionContract;
 }
 
 /** The whole generated CLI client surface — a byte-stable contract projection. */
@@ -134,11 +144,22 @@ export function deriveFlags(inputSchema: JsonSchema | undefined): CliFlag[] {
   return flags.sort((a, b) => byString(a.name, b.name));
 }
 
+/**
+ * Project the compiler's declared contract into the CLI view. Missing stays
+ * missing — annotations and auto-emits are not a source for inventing one.
+ */
+function projectCliActionContract(descriptor: ActionDescriptor): ActionContract | undefined {
+  const declared = descriptor.actionContract ?? descriptor.policy.actionContract;
+  if (declared === undefined) return undefined;
+  return normalizeActionContract(declared);
+}
+
 function deriveCommand(descriptor: ActionDescriptor, input: JsonSchema | undefined): CliCommand {
   const presentation = descriptor.policy.presentation;
   const errorExits: CliExitMapping[] = [...descriptor.errorCodes]
     .sort(byString)
     .map((code) => ({ code, exitCode: exitCodeForError(code) }));
+  const actionContract = projectCliActionContract(descriptor);
   return {
     actionId: descriptor.actionId,
     group: descriptor.tool.replace(/^exarchos_/, ''),
@@ -150,6 +171,7 @@ function deriveCommand(descriptor: ActionDescriptor, input: JsonSchema | undefin
     flags: deriveFlags(input),
     successExitCode: CONTRACT_EXIT_CODES.SUCCESS,
     errorExits,
+    ...(actionContract === undefined ? {} : { actionContract }),
   };
 }
 
@@ -157,7 +179,8 @@ function deriveCommand(descriptor: ActionDescriptor, input: JsonSchema | undefin
  * Derive the generated CLI client surface from a compiled contract. Total and
  * deterministic: commands are sorted by ActionId, flags + exit mappings are
  * sorted, and every field comes from the frozen contract (descriptors, schemas,
- * the P03-02 exit-code authority) — no clock, path, or locale leaks in.
+ * the declared action contract when present, and the exit-code authority) —
+ * no clock, path, or locale leaks in.
  */
 export function deriveCliSurface(contract: CompiledContract): CliSurface {
   const commands = [...contract.descriptors]
