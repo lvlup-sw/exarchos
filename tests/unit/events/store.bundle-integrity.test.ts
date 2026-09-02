@@ -14,7 +14,7 @@
  * @oracle-sources: ../../../src/events/store.ts, the blob files themselves on disk under the temp state dir — deleted and rewritten directly so custody is judged against the filesystem rather than against the ledger that named it
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp, readFile, unlink } from 'node:fs/promises';
 import { getEventListeners } from 'node:events';
@@ -285,15 +285,14 @@ describe('EventStore.runBundleIntegrityCheck', () => {
       });
 
       const controller = new AbortController();
-      let probes = 0;
+      const probe = vi.fn(async (file: string) => {
+        controller.abort();
+        return readFile(file);
+      });
       const probing = new RunBundleStore(bundles.root, {
         mkdir: async () => undefined,
         writeFile: async () => undefined,
-        readFile: async (file: string) => {
-          probes += 1;
-          controller.abort();
-          return readFile(file);
-        },
+        readFile: probe,
         publish: async () => undefined,
         unlink: async () => undefined,
       });
@@ -314,7 +313,7 @@ describe('EventStore.runBundleIntegrityCheck', () => {
       }
 
       expect(unhandled, 'a losing arm of the race surfaced as an unhandled rejection').toEqual([]);
-      expect(probes, 'the sweep kept probing after the caller aborted').toBe(1);
+      expect(probe, 'the sweep kept probing after the caller aborted').toHaveBeenCalledTimes(1);
       expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
     },
     FS_TIMEOUT_MS,

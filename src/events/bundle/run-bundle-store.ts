@@ -71,8 +71,8 @@ export class RunBundleStore {
    * `ContentAddressedStoreError` for an absent or corrupted blob — callers
    * that want a verdict instead of an exception use {@link has}.
    */
-  async resolve(digest: ContentDigestV1): Promise<Buffer> {
-    return this.blobs.resolve(digest);
+  async resolve(digest: ContentDigestV1, signal?: AbortSignal): Promise<Buffer> {
+    return this.blobs.resolve(digest, signal);
   }
 
   /**
@@ -83,10 +83,15 @@ export class RunBundleStore {
    * escaped schema parsing) propagates, because reporting an unreadable
    * directory as a missing blob would let an environment fault masquerade as
    * a custody violation.
+   *
+   * `signal` reaches the underlying file read, so a probe that is still
+   * pending when the caller cancels rejects with an `AbortError` instead of
+   * running to completion — the same propagation as any other non-content
+   * failure.
    */
-  async has(digest: ContentDigestV1): Promise<BundleResolution> {
+  async has(digest: ContentDigestV1, signal?: AbortSignal): Promise<BundleResolution> {
     try {
-      await this.blobs.resolve(digest);
+      await this.blobs.resolve(digest, signal);
       return 'ok';
     } catch (error) {
       if (error instanceof ContentAddressedStoreError) {

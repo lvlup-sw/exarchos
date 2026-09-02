@@ -95,6 +95,12 @@ function abortIfRequested(signal: AbortSignal | undefined): void {
  * already being walked, and the per-reference one is the only guard inside a
  * single event that declares many distinct digests. Each is pinned by a case
  * that aborts mid-sweep and asserts how much work was left undone.
+ *
+ * The signal is also handed to each probe, so a file read that is still
+ * pending when the caller cancels is itself abandoned rather than merely
+ * having its verdict discarded. Stream reads are not cancellable: the source
+ * is a synchronous SQLite query that has either returned or not started, so
+ * the between-streams check is the bound on that side.
  */
 export async function checkRunBundleIntegrity(
   source: BundleEventSource,
@@ -149,7 +155,7 @@ export async function checkRunBundleIntegrity(
         const key = formatDigest(ref.digest);
         let verdict = probed.get(key);
         if (verdict === undefined) {
-          verdict = await store.has(ref.digest);
+          verdict = await store.has(ref.digest, signal);
           abortIfRequested(signal);
           probed.set(key, verdict);
         }

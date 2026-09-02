@@ -358,15 +358,14 @@ describe('checkRunBundleIntegrity', () => {
       const two = await seedRef('run-bundle:two', 'payload two');
       const three = await seedRef('run-bundle:three', 'payload three');
 
-      let probes = 0;
+      const probe = vi.fn(async (file: string) => {
+        controller.abort();
+        return readFile(file);
+      });
       const probing = new RunBundleStore(store.root, {
         mkdir: async () => undefined,
         writeFile: async () => undefined,
-        readFile: async (file: string) => {
-          probes += 1;
-          controller.abort();
-          return readFile(file);
-        },
+        readFile: probe,
         publish: async () => undefined,
         unlink: async () => undefined,
       });
@@ -385,9 +384,9 @@ describe('checkRunBundleIntegrity', () => {
         checkRunBundleIntegrity(source, probing, controller.signal),
       ).rejects.toThrow(/aborted/);
       expect(
-        probes,
+        probe,
         'the sweep kept probing blobs after the signal aborted mid-stream',
-      ).toBe(1);
+      ).toHaveBeenCalledTimes(1);
     },
     FS_TIMEOUT_MS,
   );
@@ -395,23 +394,22 @@ describe('checkRunBundleIntegrity', () => {
   it(
     'BundleIntegrity_AbortMidEvent_LeavesTheRemainingReferencesUnprobed',
     async () => {
-      // The third bound. ONE stream holding ONE event, so neither the
-      // between-streams nor the per-event check can fire once the walk is
-      // inside it: only the per-reference check can stop the probes.
+      // ONE stream holding ONE event, so neither the between-streams nor the
+      // per-event check can fire once the walk is inside it: only the
+      // per-reference check can stop the probes.
       const controller = new AbortController();
       const one = await seedRef('run-bundle:one', 'payload one');
       const two = await seedRef('run-bundle:two', 'payload two');
       const three = await seedRef('run-bundle:three', 'payload three');
 
-      let probes = 0;
+      const probe = vi.fn(async (file: string) => {
+        controller.abort();
+        return readFile(file);
+      });
       const probing = new RunBundleStore(store.root, {
         mkdir: async () => undefined,
         writeFile: async () => undefined,
-        readFile: async (file: string) => {
-          probes += 1;
-          controller.abort();
-          return readFile(file);
-        },
+        readFile: probe,
         publish: async () => undefined,
         unlink: async () => undefined,
       });
@@ -428,9 +426,60 @@ describe('checkRunBundleIntegrity', () => {
         checkRunBundleIntegrity(source, probing, controller.signal),
       ).rejects.toThrow(/aborted/);
       expect(
-        probes,
+        probe,
         'the sweep kept probing references after the signal aborted mid-event',
-      ).toBe(1);
+      ).toHaveBeenCalledTimes(1);
+    },
+    FS_TIMEOUT_MS,
+  );
+
+  it(
+    'BundleIntegrity_AbortDuringAPendingProbe_AbandonsTheRead',
+    async () => {
+      // The checks between probes cannot reach a probe that is already in
+      // flight. The signal is handed to the read itself, so a probe that
+      // blocks — a slow or hung filesystem — is abandoned on cancellation
+      // rather than holding the sweep open until it happens to return.
+      const controller = new AbortController();
+      const one = await seedRef('run-bundle:one', 'payload one');
+
+      // A read that only ever settles through the signal it was handed.
+      const probe = vi.fn(
+        (_file: string, signal?: AbortSignal) =>
+          new Promise<Buffer>((_, reject) => {
+            signal?.addEventListener('abort', () => {
+              const err = new Error('aborted');
+              err.name = 'AbortError';
+              reject(err);
+            });
+          }),
+      );
+      const hanging = new RunBundleStore(store.root, {
+        mkdir: async () => undefined,
+        writeFile: async () => undefined,
+        readFile: probe,
+        publish: async () => undefined,
+        unlink: async () => undefined,
+      });
+      const source = fakeSource({
+        'feat-a': [event('feat-a', 1, 'workflow.started', { [BUNDLE_REF_FIELD]: [one] })],
+      });
+
+      const sweep = checkRunBundleIntegrity(source, hanging, controller.signal);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(probe, 'the read never started').toHaveBeenCalledTimes(1);
+      controller.abort();
+
+      // A sweep that does not thread the signal never settles here; the race
+      // turns that into a named failure instead of a suite timeout.
+      const outcome = await Promise.race([
+        sweep.then(
+          () => 'resolved',
+          (err: unknown) => (err instanceof Error ? err.name : 'rejected'),
+        ),
+        new Promise<string>((resolve) => setTimeout(() => resolve('hung'), 2_000)),
+      ]);
+      expect(outcome, 'the pending probe was not abandoned on cancellation').toBe('AbortError');
     },
     FS_TIMEOUT_MS,
   );
