@@ -1,7 +1,7 @@
 {
   "name": "exarchos",
   "description": "A local-first SDLC workflow harness — structured, durable state for coding agents, with convergence gates, agent teams, and full audit trail.",
-  "version": "2.12.0-preview.3",
+  "version": "2.12.0-preview.4",
   "author": {
     "name": "LevelUp Software"
   },
@@ -19,13 +19,13 @@
     "code-review"
   ],
   "agents": [
-    "./agents/implementer.md",
-    "./agents/fixer.md",
-    "./agents/reviewer.md",
-    "./agents/scaffolder.md"
+    "./rendered/agents/implementer.md",
+    "./rendered/agents/fixer.md",
+    "./rendered/agents/reviewer.md",
+    "./rendered/agents/scaffolder.md"
   ],
-  "commands": "./commands/",
-  "skills": "./skills/",
+  "commands": "./rendered/commands/",
+  "skills": "./rendered/skills/",
   "mcpServers": {
     "exarchos": {
       "type": "stdio",
@@ -41,7 +41,7 @@
   },
   "metadata": {
     "compat": {
-      "minBinaryVersion": "2.12.0-preview.3"
+      "minBinaryVersion": "2.12.0-preview.4"
     }
   }
 }

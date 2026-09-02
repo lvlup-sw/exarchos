@@ -1,7 +1,7 @@
 // dependency-cruiser config — SIV-3 Layer A import-boundary rules.
 //
 // This is the worked example for the boundary-lint leg that rides the Exarchos
-// static-analysis gate (servers/exarchos-mcp/src/orchestrate/pure/static-analysis.ts,
+// static-analysis gate (src/verbs/pure/static-analysis.ts,
 // `runBoundaryLint`). The gate detects this file at the repo root and runs
 // `npx depcruise --validate` over the configured source dirs, folding the
 // PASS/FAIL into the gate's report and counts. Absent this file, the leg SKIPs
@@ -13,11 +13,11 @@
 // repo root.
 //
 // The seeded rule encodes the real domain-core / IO-facade split inside the
-// MCP server: the event-store and workflow domain cores must not import from
+// MCP server: the events and workflow domain cores must not import from
 // the `adapters/` IO facade (CLI / MCP / hooks surfaces). That separation
 // keeps the event-sourced core free of transport concerns. The rule is scoped
 // to non-test sources — test fixtures legitimately import adapter exports to
-// exercise them (e.g. event-store/schemas.test.ts pulls json-schema), so the
+// exercise them (e.g. events/schemas.test.ts pulls json-schema), so the
 // `from` path excludes `*.test.ts`.
 
 /** @type {import('dependency-cruiser').IConfiguration} */
@@ -31,7 +31,7 @@ module.exports = {
       // for ERROR-severity violations, so a `warn` here surfaces cycles in the
       // advisory output WITHOUT turning the dogfooded gate permanently red.
       //
-      // Blocking enforcement lives ELSEWHERE — scripts/audit/cycle-gate.ts runs
+      // Blocking enforcement lives ELSEWHERE — tools/audit/cycle-gate.ts runs
       // over the `--output-type json` graph, computes the runtime cycles itself
       // (Tarjan, via architecture/import-cycles.ts), and fails CLOSED in CI on any
       // unbaselined cycle / expired-or-phantom baseline entry. This rule's job is
@@ -44,7 +44,7 @@ module.exports = {
       comment:
         'Runtime import cycles are forbidden (DR-4). `warn` here so the dogfooded ' +
         'runBoundaryLint (`depcruise --validate`) stays green; the blocking ratchet ' +
-        'is scripts/audit/cycle-gate.ts over the depcruise JSON graph.',
+        'is tools/audit/cycle-gate.ts over the depcruise JSON graph.',
       severity: 'warn',
       from: {},
       to: {
@@ -54,16 +54,19 @@ module.exports = {
     {
       name: 'no-domain-core-to-io-adapters',
       comment:
-        'Domain core (event-store, workflow) must not import the IO facade ' +
+        'Domain core (events, workflow) must not import the IO facade ' +
         '(adapters/). Route transport/CLI/MCP concerns through the orchestrate ' +
         'handlers instead of reaching into adapters from the core.',
       severity: 'error',
+      // No `pathNot` for tests: task 030 lifted every co-located suite out of
+      // `src/`, so nothing under this `from` path is a test file any more and
+      // the exclusion had stopped excluding anything. `DepcruiseRule_FromSet_`
+      // `HoldsNoTestFile` keeps that true rather than assuming it.
       from: {
-        path: '^servers/exarchos-mcp/src/(event-store|workflow)/',
-        pathNot: '\\.test\\.ts$',
+        path: '^src/(events|workflow)/',
       },
       to: {
-        path: '^servers/exarchos-mcp/src/adapters/',
+        path: '^src/adapters/',
       },
     },
   ],

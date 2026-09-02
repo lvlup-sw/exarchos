@@ -12,14 +12,14 @@ npm run test:run
 
 ## Building the binary locally
 
-For contributors debugging the bootstrap script (`scripts/get-exarchos.sh` /
-`scripts/get-exarchos.ps1`) or the compiled-binary install path end-to-end,
+For contributors debugging the bootstrap script (`tools/release/get-exarchos.sh` /
+`tools/release/get-exarchos.ps1`) or the compiled-binary install path end-to-end,
 produce a local binary instead of waiting for a release build in CI:
 
 ```bash
 npm run build:binary                                # cross-compiles all 5 targets
-bun run scripts/build-binary.ts                     # host-platform binary only
-bun run scripts/build-binary.ts --target linux-x64  # single named target
+bun run tools/release/build-binary.ts                     # host-platform binary only
+bun run tools/release/build-binary.ts --target linux-x64  # single named target
 ```
 
 The resulting artifacts land in `dist/bin/` as `exarchos-<os>-<arch>` (plus
@@ -30,7 +30,7 @@ dist/bin/exarchos-<os>-<arch> --version
 ```
 
 The cross-compile target matrix and Bun `--compile` flags live in
-[`scripts/build-binary.ts`](scripts/build-binary.ts). This is the same script
+[`tools/release/build-binary.ts`](tools/release/build-binary.ts). This is the same script
 the release workflow invokes, so a local `build:binary` reproduces what the
 bootstrap script will ultimately download from GitHub Releases — handy when
 you need to iterate on bootstrap behavior without pushing tags.
@@ -56,17 +56,24 @@ Use these prefixes for branch names:
 
 ## Editing skills
 
-Skill source lives at `skills-src/<name>/SKILL.md`. The `skills/<runtime>/...` tree is generated from it — don't edit those files directly; they get overwritten on every build.
+Skill source lives at `content/<domain>/skills/<name>/SKILL.md`, where `<domain>` is one of
+`design`, `delivery`, `review`, `synthesis`, `continuity`, `governance`, `remediation`, `harness`
+or `_shared`. The `rendered/` tree is generated from it — don't edit those files directly; they get
+overwritten on every build.
 
 To add or change a skill:
 
-1. Edit `skills-src/<name>/SKILL.md` (or anything under `skills-src/<name>/references/`).
+1. Edit the `SKILL.md` (or anything under its `references/`).
 2. Run `npm run build:skills` to regenerate the per-runtime variants.
-3. Commit both the source and the regenerated `skills/` tree.
+3. Commit both the source and the regenerated `rendered/` tree.
 
-CI runs `skills:guard` on every push and fails your PR if `skills/` is out of sync with `skills-src/`. That catches forgotten rebuilds and stale direct edits in one shot.
+CI runs `render:guard` on every push and fails your PR if `rendered/` is out of sync with
+`content/`. That catches forgotten rebuilds and stale direct edits in one shot.
 
-See [`docs/skills-authoring.md`](docs/skills-authoring.md) for the full workflow: placeholder vocabulary, adding a runtime, and the structural-override escape hatch.
+The placeholder vocabulary, how to add a runtime, and the structural-override
+escape hatch are documented in `content/README.md` and in the renderer's own
+module headers under `src/install/build-skills/`. The longer authoring guide
+moved to the `lvlup-sw/docs` repository (`npm run docs:mount` to read it here).
 
 ## Commit Messages
 

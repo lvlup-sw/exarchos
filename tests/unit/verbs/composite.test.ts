@@ -1,0 +1,959 @@
+// ─── Composite Orchestrate Handler Tests ────────────────────────────────────
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { ToolResult } from '../../../src/format.js';
+import type { DispatchContext } from '../../../src/dispatch/core/dispatch.js';
+import { EventStore } from '../../../src/events/store.js';
+
+// ─── Mock task handler functions ────────────────────────────────────────────
+
+vi.mock('../../../src/verbs/tasks/tools.js', () => ({
+  handleTaskClaim: vi.fn(),
+  handleTaskComplete: vi.fn(),
+  handleTaskFail: vi.fn(),
+}));
+
+vi.mock('../../../src/review/tools.js', () => ({
+  handleReviewTriage: vi.fn(),
+}));
+
+vi.mock('../../../src/verbs/team/prepare-delegation.js', () => ({
+  handlePrepareDelegation: vi.fn(),
+}));
+
+vi.mock('../../../src/verbs/team/prepare-synthesis.js', () => ({
+  handlePrepareSynthesis: vi.fn(),
+}));
+
+vi.mock('../../../src/verbs/vcs/assess-stack.js', () => ({
+  handleAssessStack: vi.fn(),
+}));
+
+vi.mock('../../../src/verbs/gates/design-completeness.js', () => ({
+  handleDesignCompleteness: vi.fn(),
+}));
+
+vi.mock('../../../src/verbs/gates/plan-coverage.js', () => ({
+  handlePlanCoverage: vi.fn(),
+}));
+
+
+vi.mock('../../../src/verbs/gates/post-merge.js', () => ({
+  handlePostMerge: vi.fn(),
+}));
+
+vi.mock('../../../src/verbs/team/prune-stale-workflows.js', () => ({
+  handlePruneStaleWorkflows: vi.fn(),
+}));
+
+vi.mock('../../../src/verbs/team/request-synthesize.js', () => ({
+  handleRequestSynthesize: vi.fn(),
+}));
+
+vi.mock('../../../src/verbs/tasks/finalize-oneshot.js', () => ({
+  handleFinalizeOneshot: vi.fn(),
+}));
+
+vi.mock('../../../src/verbs/doctor/index.js', () => ({
+  handleDoctor: vi.fn(),
+}));
+
+vi.mock('../../../src/verbs/vcs/create-pr.js', () => ({
+  handleCreatePr: vi.fn(),
+}));
+
+vi.mock('../../../src/verbs/vcs/merge-pr.js', () => ({
+  handleMergePr: vi.fn(),
+}));
+
+vi.mock('../../../src/verbs/vcs/check-ci.js', () => ({
+  handleCheckCi: vi.fn(),
+}));
+
+vi.mock('../../../src/verbs/vcs/list-prs.js', () => ({
+  handleListPrs: vi.fn(),
+}));
+
+vi.mock('../../../src/verbs/vcs/get-pr-comments.js', () => ({
+  handleGetPrComments: vi.fn(),
+}));
+
+vi.mock('../../../src/verbs/vcs/add-pr-comment.js', () => ({
+  handleAddPrComment: vi.fn(),
+}));
+
+vi.mock('../../../src/verbs/vcs/create-issue.js', () => ({
+  handleCreateIssue: vi.fn(),
+}));
+
+// The composite handler for `create_issue` instantiates the VCS provider so it
+// can inject `searchIssuesByMarker` as the recovery precheck dependency
+// (CodeRabbit #3224631237). Stub the factory so we don't hit the real gh CLI.
+vi.mock('../../../src/vcs/factory.js', () => ({
+  createVcsProvider: vi.fn().mockResolvedValue({
+    searchIssuesByMarker: vi.fn().mockResolvedValue([]),
+  }),
+}));
+
+
+vi.mock('../../../src/verbs/merge/merge-orchestrate.js', () => ({
+  handleMergeOrchestrate: vi.fn(),
+}));
+
+vi.mock('../../../src/runtime/agents/handler.js', async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>;
+  return {
+    ...actual,
+    handleAgentSpec: vi.fn(),
+  };
+});
+
+vi.mock('../../../src/runbooks/handler.js', () => ({
+  handleRunbook: vi.fn(),
+}));
+
+vi.mock('../../../src/verbs/invariants/scaffold.js', () => ({
+  handleScaffold: vi.fn(),
+}));
+
+vi.mock('../../../src/verbs/invariants/add.js', () => ({
+  handleAdd: vi.fn(),
+}));
+
+import { handleTaskClaim, handleTaskComplete, handleTaskFail } from '../../../src/verbs/tasks/tools.js';
+import { handleReviewTriage } from '../../../src/review/tools.js';
+import { handlePrepareDelegation } from '../../../src/verbs/team/prepare-delegation.js';
+import { handlePrepareSynthesis } from '../../../src/verbs/team/prepare-synthesis.js';
+import { handleAssessStack } from '../../../src/verbs/vcs/assess-stack.js';
+import { handleDesignCompleteness } from '../../../src/verbs/gates/design-completeness.js';
+import { handlePlanCoverage } from '../../../src/verbs/gates/plan-coverage.js';
+import { handlePostMerge } from '../../../src/verbs/gates/post-merge.js';
+import { handleAgentSpec } from '../../../src/runtime/agents/handler.js';
+import { handleRunbook } from '../../../src/runbooks/handler.js';
+import { handlePruneStaleWorkflows } from '../../../src/verbs/team/prune-stale-workflows.js';
+import { handleRequestSynthesize } from '../../../src/verbs/team/request-synthesize.js';
+import { handleFinalizeOneshot } from '../../../src/verbs/tasks/finalize-oneshot.js';
+import { handleDoctor } from '../../../src/verbs/doctor/index.js';
+import { handleCreatePr } from '../../../src/verbs/vcs/create-pr.js';
+import { handleMergePr } from '../../../src/verbs/vcs/merge-pr.js';
+import { handleCheckCi } from '../../../src/verbs/vcs/check-ci.js';
+import { handleListPrs } from '../../../src/verbs/vcs/list-prs.js';
+import { handleGetPrComments } from '../../../src/verbs/vcs/get-pr-comments.js';
+import { handleAddPrComment } from '../../../src/verbs/vcs/add-pr-comment.js';
+import { handleCreateIssue } from '../../../src/verbs/vcs/create-issue.js';
+import { handleMergeOrchestrate } from '../../../src/verbs/merge/merge-orchestrate.js';
+import { handleScaffold } from '../../../src/verbs/invariants/scaffold.js';
+import { handleAdd } from '../../../src/verbs/invariants/add.js';
+import { TOOL_REGISTRY } from '../../../src/registry.js';
+import { handleOrchestrate } from '../../../src/verbs/composite.js';
+
+const STATE_DIR = '/tmp/test-state';
+
+function makeCtx(stateDir: string): DispatchContext {
+  return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };
+}
+
+const CTX = makeCtx(STATE_DIR);
+
+function successResult(data: unknown): ToolResult {
+  return { success: true, data };
+}
+
+/**
+ * T038: successful orchestrate responses are wrapped in Envelope<T> at the
+ * composite boundary. Each test asserts that the wrapped result preserves
+ * the handler's `data` payload and carries the canonical envelope fields
+ * (`next_actions: []`, `_meta`, `_perf.ms`). Reference equality
+ * (`expect(result).toBe(expected)`) no longer holds because `wrap()`
+ * constructs a new object.
+ */
+function expectEnvelopedSuccess(result: ToolResult, expected: ToolResult): void {
+  expect(result.success).toBe(true);
+  expect(result.data).toEqual(expected.data);
+  const env = result as unknown as Record<string, unknown>;
+  expect(Array.isArray(env.next_actions)).toBe(true);
+  expect((env.next_actions as unknown[]).length).toBe(0);
+  expect(env._meta).toBeTypeOf('object');
+  expect(env._perf).toBeTypeOf('object');
+  expect(typeof (env._perf as Record<string, unknown>).ms).toBe('number');
+}
+
+describe('handleOrchestrate', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // ─── Task Actions ───────────────────────────────────────────────────────
+
+  describe('task actions', () => {
+    it('handleOrchestrate_TaskClaim_DelegatesToHandleTaskClaim', async () => {
+      // Arrange
+      const expected = successResult({ streamId: 's1', sequence: 1, type: 'task.claimed' });
+      vi.mocked(handleTaskClaim).mockResolvedValue(expected);
+      const args = {
+        action: 'task_claim',
+        taskId: 't1',
+        agentId: 'agent-1',
+        streamId: 's1',
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert
+      expectEnvelopedSuccess(result, expected);
+      expect(handleTaskClaim).toHaveBeenCalledWith(
+        { taskId: 't1', agentId: 'agent-1', streamId: 's1' },
+        STATE_DIR,
+        CTX.eventStore,
+      );
+    });
+
+    it('handleOrchestrate_TaskComplete_DelegatesToHandleTaskComplete', async () => {
+      // Arrange
+      const expected = successResult({ streamId: 's1', sequence: 2, type: 'task.completed' });
+      vi.mocked(handleTaskComplete).mockResolvedValue(expected);
+      const args = {
+        action: 'task_complete',
+        taskId: 't1',
+        result: { artifacts: ['file.ts'] },
+        streamId: 's1',
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert
+      expectEnvelopedSuccess(result, expected);
+      expect(handleTaskComplete).toHaveBeenCalledWith(
+        { taskId: 't1', result: { artifacts: ['file.ts'] }, streamId: 's1' },
+        STATE_DIR,
+        CTX.eventStore,
+      );
+    });
+
+    it('handleOrchestrate_TaskFail_DelegatesToHandleTaskFail', async () => {
+      // Arrange
+      const expected = successResult({ streamId: 's1', sequence: 3, type: 'task.failed' });
+      vi.mocked(handleTaskFail).mockResolvedValue(expected);
+      const args = {
+        action: 'task_fail',
+        taskId: 't1',
+        error: 'something broke',
+        diagnostics: { log: 'details' },
+        streamId: 's1',
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert
+      expectEnvelopedSuccess(result, expected);
+      expect(handleTaskFail).toHaveBeenCalledWith(
+        { taskId: 't1', error: 'something broke', diagnostics: { log: 'details' }, streamId: 's1' },
+        STATE_DIR,
+        CTX.eventStore,
+      );
+    });
+  });
+
+  // ─── Composite Actions ──────────────────────────────────────────────
+
+  describe('composite actions', () => {
+    it('HandleOrchestrate_PrepareDelegation_DelegatesToHandler', async () => {
+      // Arrange
+      const expected = successResult({ ready: true, readiness: { planApproved: true, tasksExist: true } });
+      vi.mocked(handlePrepareDelegation).mockResolvedValue(expected);
+      const args = {
+        action: 'prepare_delegation',
+        featureId: 'feat-123',
+        tasks: [{ id: 't1', title: 'Task 1' }],
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert
+      expectEnvelopedSuccess(result, expected);
+      expect(handlePrepareDelegation).toHaveBeenCalledWith(
+        { featureId: 'feat-123', tasks: [{ id: 't1', title: 'Task 1' }] },
+        STATE_DIR,
+        CTX,
+      );
+    });
+
+    it('HandleOrchestrate_PrepareSynthesis_DelegatesToHandler', async () => {
+      // Arrange
+      const expected = successResult({ ready: true, readiness: { allPassed: true } });
+      vi.mocked(handlePrepareSynthesis).mockResolvedValue(expected);
+      const args = {
+        action: 'prepare_synthesis',
+        featureId: 'feat-456',
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert
+      expectEnvelopedSuccess(result, expected);
+      expect(handlePrepareSynthesis).toHaveBeenCalledWith(
+        { featureId: 'feat-456' },
+        STATE_DIR,
+        CTX.eventStore,
+      );
+    });
+
+    it('Composite_InvariantsScaffold_Dispatches', async () => {
+      // P2/T7: dispatching action:'invariants_scaffold' reaches handleScaffold.
+      const expected = successResult({
+        catalog: { wrote: true, path: '/repo/.exarchos/invariants.md', reason: 'created' },
+        registration: { wrote: true, path: '/repo/.exarchos.yml', reason: 'registered' },
+        tier: 'user',
+        next_actions: ['doctor', 'view invariants_effective'],
+      });
+      vi.mocked(handleScaffold).mockResolvedValue(expected);
+      const args = {
+        action: 'invariants_scaffold',
+        repoRoot: '/repo',
+        path: '.exarchos/invariants.md',
+        tier: 'user',
+      };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expectEnvelopedSuccess(result, expected);
+      expect(handleScaffold).toHaveBeenCalledTimes(1);
+      // First positional arg carries the scaffold args (sans `action`).
+      const callArgs = vi.mocked(handleScaffold).mock.calls[0]![0];
+      expect(callArgs).toMatchObject({
+        repoRoot: '/repo',
+        path: '.exarchos/invariants.md',
+        tier: 'user',
+      });
+    });
+
+    it('Composite_InvariantsAdd_EmitsInvariantAuthored', async () => {
+      // P2/T11: committing (dryRun:false) emits invariant.authored, and the
+      // first registration of a catalog emits catalog.registered (INV-1). The
+      // handler owns the writes + event emission; dispatch threads ctx through.
+      const expected = successResult({
+        committed: true,
+        id: 'U-1',
+        events: ['invariant.authored', 'catalog.registered'],
+        next_actions: ['doctor', 'view invariants_effective'],
+      });
+      vi.mocked(handleAdd).mockResolvedValue(expected);
+      const args = {
+        action: 'invariants_add',
+        repoRoot: '/repo',
+        catalog: '.exarchos/invariants.md',
+        tier: 'user',
+        dryRun: false,
+        entry: {
+          dimension: 'd',
+          axis: 'authoring',
+          'cost-of-load': 'reference-only',
+          'applies-to': ['src/**'],
+          summary: 's',
+          references: [],
+          severity: { default: 'advisory' },
+          enforcement: { mode: 'audit', 'audit-prompt': 'p' },
+        },
+      };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expectEnvelopedSuccess(result, expected);
+      expect(handleAdd).toHaveBeenCalledTimes(1);
+      // The add handler must receive the DispatchContext (it emits events).
+      const callArgsLen = vi.mocked(handleAdd).mock.calls[0]!.length;
+      expect(callArgsLen).toBeGreaterThanOrEqual(2);
+    });
+
+    it('Composite_InvariantsScaffold_InvalidTier_ReturnsInvalidInputNoHandlerCall', async () => {
+      // #1487 review: the dispatch boundary must reject malformed input with a
+      // structured INVALID_INPUT envelope BEFORE constructing handler args —
+      // the handler must never be invoked.
+      const args = {
+        action: 'invariants_scaffold',
+        repoRoot: '/repo',
+        tier: 'superuser', // not 'dev' | 'user'
+      };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(handleScaffold).not.toHaveBeenCalled();
+    });
+
+    it('Composite_InvariantsAdd_NonObjectEntry_ReturnsInvalidInputNoHandlerCall', async () => {
+      // #1487 review: a non-object `entry` is rejected at the boundary; the
+      // add handler is never reached.
+      const args = {
+        action: 'invariants_add',
+        repoRoot: '/repo',
+        entry: 'not-an-object',
+      };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(handleAdd).not.toHaveBeenCalled();
+    });
+
+    it('Composite_InvariantsAdd_NonStringRepoRoot_ReturnsInvalidInputNoHandlerCall', async () => {
+      const args = {
+        action: 'invariants_add',
+        repoRoot: 42, // not a string
+        entry: { dimension: 'd', summary: 's' },
+      };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(handleAdd).not.toHaveBeenCalled();
+    });
+
+    it('HandleOrchestrate_CheckPostMerge_DelegatesToHandler', async () => {
+      // Arrange
+      const expected = successResult({ passed: true, prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', findings: [], report: '...' });
+      vi.mocked(handlePostMerge).mockResolvedValue(expected);
+      const args = {
+        action: 'check_post_merge',
+        featureId: 'feat-123',
+        prUrl: 'https://github.com/org/repo/pull/42',
+        mergeSha: 'abc1234',
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert
+      expectEnvelopedSuccess(result, expected);
+      expect(handlePostMerge).toHaveBeenCalledWith(
+        { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
+        STATE_DIR,
+        CTX.eventStore,
+      );
+    });
+
+    it('HandleOrchestrate_AssessStack_DelegatesToHandler', async () => {
+      // Arrange
+      const expected = successResult({ status: 'healthy', actionItems: [], recommendation: 'proceed' });
+      vi.mocked(handleAssessStack).mockResolvedValue(expected);
+      const args = {
+        action: 'assess_stack',
+        featureId: 'feat-789',
+        prNumbers: [101, 102],
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert
+      expectEnvelopedSuccess(result, expected);
+      expect(handleAssessStack).toHaveBeenCalledWith(
+        { featureId: 'feat-789', prNumbers: [101, 102] },
+        STATE_DIR,
+        CTX.eventStore,
+      );
+    });
+
+    it('HandleOrchestrate_CheckDesignCompleteness_DelegatesToHandler', async () => {
+      // Arrange
+      const expected = successResult({ passed: true, advisory: true, findings: [] });
+      vi.mocked(handleDesignCompleteness).mockResolvedValue(expected);
+      const args = {
+        action: 'check_design_completeness',
+        featureId: 'feat-200',
+        designPath: '/tmp/design.md',
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert
+      expectEnvelopedSuccess(result, expected);
+      expect(handleDesignCompleteness).toHaveBeenCalledWith(
+        { featureId: 'feat-200', designPath: '/tmp/design.md' },
+        STATE_DIR,
+        CTX.eventStore,
+      );
+    });
+
+    it('HandleOrchestrate_CheckPlanCoverage_DelegatesToHandler', async () => {
+      // Arrange
+      const expected = successResult({ passed: true, coverage: { covered: 5, gaps: 0, deferred: 0, total: 5 } });
+      vi.mocked(handlePlanCoverage).mockResolvedValue(expected);
+      const args = {
+        action: 'check_plan_coverage',
+        featureId: 'feat-100',
+        designPath: '/tmp/design.md',
+        planPath: '/tmp/plan.md',
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert
+      expectEnvelopedSuccess(result, expected);
+      expect(handlePlanCoverage).toHaveBeenCalledWith(
+        { featureId: 'feat-100', designPath: '/tmp/design.md', planPath: '/tmp/plan.md' },
+        STATE_DIR,
+        CTX.eventStore,
+      );
+    });
+  });
+
+  // ─── Removed Team Actions ─────────────────────────────────────────────
+
+  describe('removed team actions', () => {
+    it('should reject removed team actions', async () => {
+      for (const action of ['team_spawn', 'team_message', 'team_broadcast', 'team_shutdown', 'team_status']) {
+        const result = await handleOrchestrate({ action }, makeCtx('/tmp/test'));
+        expect(result.success).toBe(false);
+        expect(result.error?.code).toBe('UNKNOWN_ACTION');
+      }
+    });
+  });
+
+  // ─── Describe Routing ────────────────────────────────────────────────
+
+  describe('describe routing', () => {
+    it('HandleOrchestrate_Describe_RoutesToDescribeHandler', async () => {
+      // Arrange — describe is not mocked; it resolves schemas from the live registry
+      const args = { action: 'describe', actions: ['task_claim'] };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert — verify describe returns schema metadata for the requested action
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data).toHaveProperty('task_claim');
+      const desc = data['task_claim'] as Record<string, unknown>;
+      expect(desc).toHaveProperty('description');
+      expect(desc).toHaveProperty('schema');
+    });
+  });
+
+  // ─── Agent Spec Routing ──────────────────────────────────────────────────
+
+  describe('agent spec routing', () => {
+    it('OrchestrateComposite_AgentSpecAction_RoutesToHandler', async () => {
+      // Arrange
+      const expected = successResult({
+        agent: 'implementer',
+        systemPrompt: 'You are a TDD implementer',
+        tools: ['Read', 'Write'],
+      });
+      vi.mocked(handleAgentSpec).mockResolvedValue(expected);
+      const args = {
+        action: 'agent_spec',
+        agent: 'implementer',
+        outputFormat: 'full',
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert
+      expectEnvelopedSuccess(result, expected);
+      expect(handleAgentSpec).toHaveBeenCalledWith(
+        { agent: 'implementer', outputFormat: 'full' },
+        STATE_DIR,
+      );
+    });
+  });
+
+  // ─── Runbook Routing ──────────────────────────────────────────────────
+
+  describe('runbook routing', () => {
+    it('HandleOrchestrate_RunbookList_RoutesToHandleRunbook', async () => {
+      // Arrange
+      const expected = successResult([{ id: 'task-completion', phase: 'delegate', description: 'Complete a task', stepCount: 3 }]);
+      vi.mocked(handleRunbook).mockResolvedValue(expected);
+      const args = { action: 'runbook', phase: 'delegate' };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert
+      expectEnvelopedSuccess(result, expected);
+      expect(handleRunbook).toHaveBeenCalledWith({ phase: 'delegate' });
+    });
+
+    it('HandleOrchestrate_RunbookDetail_RoutesToHandleRunbook', async () => {
+      // Arrange
+      const expected = successResult({ id: 'task-completion', steps: [] });
+      vi.mocked(handleRunbook).mockResolvedValue(expected);
+      const args = { action: 'runbook', id: 'task-completion' };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert
+      expectEnvelopedSuccess(result, expected);
+      expect(handleRunbook).toHaveBeenCalledWith({ id: 'task-completion' });
+    });
+  });
+
+  // ─── Oneshot + Pruning Actions ───────────────────────────────────────────
+
+  describe('oneshot and pruning actions', () => {
+    it('compositeHandler_pruneStaleWorkflowsAction_dispatches', async () => {
+      // Arrange
+      const expected = successResult({ candidates: [], skipped: [], pruned: [] });
+      vi.mocked(handlePruneStaleWorkflows).mockResolvedValue(expected);
+      const args = {
+        action: 'prune_stale_workflows',
+        dryRun: true,
+        includeOneShot: false,
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert — handler is registered directly so it receives (args, stateDir, ctx)
+      expectEnvelopedSuccess(result, expected);
+      expect(handlePruneStaleWorkflows).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handlePruneStaleWorkflows).mock.calls[0];
+      expect(call[0]).toEqual({
+        dryRun: true,
+        includeOneShot: false,
+      });
+      expect(call[1]).toBe(STATE_DIR);
+      expect(call[2]).toBe(CTX);
+    });
+
+    it('compositeHandler_requestSynthesizeAction_dispatches', async () => {
+      // Arrange
+      const expected = successResult({ eventAppended: true });
+      vi.mocked(handleRequestSynthesize).mockResolvedValue(expected);
+      const args = {
+        action: 'request_synthesize',
+        featureId: 'feat-oneshot-1',
+        reason: 'user requested PR review',
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert — adapter injects both stateDir and eventStore from ctx
+      // into args, matching the finalize_oneshot pattern. The stateDir
+      // injection replaces the old hardcoded `.exarchos/state/...`
+      // fallback inside the handler.
+      expectEnvelopedSuccess(result, expected);
+      expect(handleRequestSynthesize).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleRequestSynthesize).mock.calls[0][0];
+      expect(call.featureId).toBe('feat-oneshot-1');
+      expect(call.reason).toBe('user requested PR review');
+      expect(call.eventStore).toBe(CTX.eventStore);
+      expect(call.stateDir).toBe(STATE_DIR);
+    });
+
+    it('compositeHandler_finalizeOneshotAction_dispatches', async () => {
+      // Arrange
+      const expected = successResult({
+        featureId: 'feat-oneshot-2',
+        previousPhase: 'implementing',
+        newPhase: 'completed',
+      });
+      vi.mocked(handleFinalizeOneshot).mockResolvedValue(expected);
+      const args = {
+        action: 'finalize_oneshot',
+        featureId: 'feat-oneshot-2',
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert — adapter injects BOTH stateDir and eventStore from ctx into args
+      expectEnvelopedSuccess(result, expected);
+      expect(handleFinalizeOneshot).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleFinalizeOneshot).mock.calls[0][0];
+      expect(call.featureId).toBe('feat-oneshot-2');
+      expect(call.stateDir).toBe(STATE_DIR);
+      expect(call.eventStore).toBe(CTX.eventStore);
+    });
+  });
+
+  // ─── Doctor Routing ─────────────────────────────────────────────────────
+
+  describe('doctor routing', () => {
+    it('OrchestrateComposite_DispatchDoctorAction_InvokesHandleDoctor', async () => {
+      // Arrange
+      const expected = successResult({
+        checks: [],
+        summary: { passed: 0, warnings: 0, failed: 0, skipped: 0 },
+      });
+      vi.mocked(handleDoctor).mockResolvedValue(expected);
+      const args = { action: 'doctor', timeoutMs: 1500 };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert — doctor handler called with args (minus the action) and ctx
+      expectEnvelopedSuccess(result, expected);
+      expect(handleDoctor).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleDoctor).mock.calls[0];
+      expect(call[0]).toEqual({ timeoutMs: 1500 });
+      expect(call[1]).toBe(CTX);
+    });
+
+    it('OrchestrateRegistry_ActionList_IncludesDoctor', () => {
+      // Arrange — the orchestrate action registry is the single source of
+      // truth consulted by dispatch-level validation; doctor must be in it
+      // for `exarchos_orchestrate { action: "doctor" }` to pass schema gate.
+      const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
+      expect(orchestrate).toBeDefined();
+
+      // Assert
+      const actionNames = orchestrate!.actions.map((a) => a.name);
+      expect(actionNames).toContain('doctor');
+    });
+  });
+
+  // ─── VCS Actions ─────────────────────────────────────────────────────────
+
+  describe('VCS actions', () => {
+    it('OrchestrateComposite_CreatePr_RoutesToHandler', async () => {
+      const expected = successResult({ url: 'https://github.com/repo/pull/1', number: 1 });
+      vi.mocked(handleCreatePr).mockResolvedValue(expected);
+      const args = {
+        action: 'create_pr',
+        title: 'feat: test',
+        body: 'body',
+        base: 'main',
+        head: 'feat/test',
+      };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expectEnvelopedSuccess(result, expected);
+      expect(handleCreatePr).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleCreatePr).mock.calls[0];
+      expect(call[0]).toEqual({ title: 'feat: test', body: 'body', base: 'main', head: 'feat/test' });
+      expect(call[1]).toBe(CTX);
+    });
+
+    it('OrchestrateComposite_MergePr_RoutesToHandler', async () => {
+      const expected = successResult({ merged: true, sha: 'abc' });
+      vi.mocked(handleMergePr).mockResolvedValue(expected);
+      const args = { action: 'merge_pr', prId: '42', strategy: 'squash' };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expectEnvelopedSuccess(result, expected);
+      expect(handleMergePr).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleMergePr).mock.calls[0];
+      expect(call[0]).toEqual({ prId: '42', strategy: 'squash' });
+      expect(call[1]).toBe(CTX);
+    });
+
+    it('OrchestrateComposite_CheckCi_RoutesToHandler', async () => {
+      const expected = successResult({ status: 'pass', checks: [] });
+      vi.mocked(handleCheckCi).mockResolvedValue(expected);
+      const args = { action: 'check_ci', prId: '42' };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expectEnvelopedSuccess(result, expected);
+      expect(handleCheckCi).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleCheckCi).mock.calls[0];
+      expect(call[0]).toEqual({ prId: '42' });
+      expect(call[1]).toBe(CTX);
+    });
+
+    it('OrchestrateComposite_ListPrs_RoutesToHandler', async () => {
+      const expected = successResult([]);
+      vi.mocked(handleListPrs).mockResolvedValue(expected);
+      const args = { action: 'list_prs', state: 'open' };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expectEnvelopedSuccess(result, expected);
+      expect(handleListPrs).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleListPrs).mock.calls[0];
+      expect(call[0]).toEqual({ state: 'open' });
+      expect(call[1]).toBe(CTX);
+    });
+
+    it('OrchestrateComposite_GetPrComments_RoutesToHandler', async () => {
+      const expected = successResult([]);
+      vi.mocked(handleGetPrComments).mockResolvedValue(expected);
+      const args = { action: 'get_pr_comments', prId: '42' };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expectEnvelopedSuccess(result, expected);
+      expect(handleGetPrComments).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleGetPrComments).mock.calls[0];
+      expect(call[0]).toEqual({ prId: '42' });
+      expect(call[1]).toBe(CTX);
+    });
+
+    it('OrchestrateComposite_AddPrComment_RoutesToHandler', async () => {
+      const expected = successResult(undefined);
+      vi.mocked(handleAddPrComment).mockResolvedValue(expected);
+      const args = { action: 'add_pr_comment', prId: '42', body: 'comment' };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expectEnvelopedSuccess(result, expected);
+      expect(handleAddPrComment).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleAddPrComment).mock.calls[0];
+      expect(call[0]).toEqual({ prId: '42', body: 'comment' });
+      expect(call[1]).toBe(CTX);
+    });
+
+    it('OrchestrateComposite_CreateIssue_RoutesToHandler', async () => {
+      const expected = successResult({ number: 1, url: 'https://github.com/repo/issues/1' });
+      vi.mocked(handleCreateIssue).mockResolvedValue(expected);
+      const args = { action: 'create_issue', title: 'Bug', body: 'Details' };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expectEnvelopedSuccess(result, expected);
+      expect(handleCreateIssue).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleCreateIssue).mock.calls[0];
+      // The composite injects `listIssuesByMarker` (provider-backed) into the
+      // handler args — see CodeRabbit #3224631237.
+      expect(call[0]).toMatchObject({ title: 'Bug', body: 'Details' });
+      expect(typeof (call[0] as { listIssuesByMarker?: unknown }).listIssuesByMarker).toBe('function');
+      expect(call[1]).toBe(CTX);
+    });
+
+    it('OrchestrateRegistry_ActionList_IncludesVcsActions', () => {
+      const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
+      expect(orchestrate).toBeDefined();
+      const actionNames = orchestrate!.actions.map((a) => a.name);
+      expect(actionNames).toContain('create_pr');
+      expect(actionNames).toContain('merge_pr');
+      expect(actionNames).toContain('check_ci');
+      expect(actionNames).toContain('list_prs');
+      expect(actionNames).toContain('get_pr_comments');
+      expect(actionNames).toContain('add_pr_comment');
+      expect(actionNames).toContain('create_issue');
+    });
+  });
+
+  // ─── Init Routing ──────────────────────────────────────────────────────
+
+  describe('init routing', () => {
+    it('OrchestrateRegistry_ActionList_SwapsInitForOnboard', () => {
+      // Task 011 swap (design line 322): the `init` ACTION was removed from the
+      // registry and `onboard` registered in its place. DR-5 (task 018) then
+      // removed the composite.ts `if (action === 'init')` dispatch branch + the
+      // `handleInit` handler entirely — `onboard` reproduces init's outputs via
+      // the GENERATE writers. `init` is no longer an enumerable registry action
+      // and no longer has a dispatch branch.
+      const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
+      expect(orchestrate).toBeDefined();
+      const actionNames = orchestrate!.actions.map((a) => a.name);
+      expect(actionNames).not.toContain('init');
+      expect(actionNames).toContain('onboard');
+    });
+  });
+
+  // ─── Merge Orchestrate Routing ──────────────────────────────────────────
+
+  describe('merge orchestrate routing', () => {
+    it('compositeOrchestrate_ActionMergeOrchestrate_RoutesToHandleMergeOrchestrate', async () => {
+      // Arrange
+      const expected = successResult({
+        phase: 'completed',
+        mergeSha: 'a'.repeat(40),
+        rollbackSha: 'b'.repeat(40),
+        preflight: { passed: true },
+      });
+      vi.mocked(handleMergeOrchestrate).mockResolvedValue(expected);
+      const args = {
+        action: 'merge_orchestrate',
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        // Required-no-default per registry contract — assert it is forwarded
+        // so a future schema-shape regression cannot silently drop it.
+        strategy: 'squash',
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert — handler is registered via adaptCtx, so it receives (args, ctx)
+      expectEnvelopedSuccess(result, expected);
+      expect(handleMergeOrchestrate).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleMergeOrchestrate).mock.calls[0];
+      expect(call[0]).toEqual({
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        strategy: 'squash',
+      });
+      expect(call[1]).toBe(CTX);
+    });
+
+    it('OrchestrateRegistry_ActionList_IncludesMergeOrchestrate', () => {
+      // Arrange — registry must enumerate merge_orchestrate so dispatch-level
+      // schema validation accepts the action.
+      const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
+      expect(orchestrate).toBeDefined();
+
+      // Assert
+      const actionNames = orchestrate!.actions.map((a) => a.name);
+      expect(actionNames).toContain('merge_orchestrate');
+    });
+  });
+
+  // ─── Error Handling ─────────────────────────────────────────────────────
+
+  describe('error handling', () => {
+    it('handleOrchestrate_UnknownAction_ReturnsError', async () => {
+      // Arrange
+      const args = { action: 'unknown_action' };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('UNKNOWN_ACTION');
+      expect(result.error?.message).toContain('unknown_action');
+    });
+  });
+
+  // ─── Optional-eventStore handlers (file-based fallback) ───────────────────
+  //
+  // select_debug_track and investigation_timer resolve state from EITHER a
+  // stateFile OR featureId + event store, so their eventStore param is optional.
+  // Dispatching them through a context WITHOUT an eventStore must NOT throw
+  // (regression: the throwing adaptWithEventStore adapter crashed the file-based
+  // path with "ctx.eventStore required").
+
+  describe('optional-eventStore handlers', () => {
+    const ctxNoStore = { stateDir: STATE_DIR, enableTelemetry: false } as unknown as DispatchContext;
+
+    it('SelectDebugTrack_DispatchedWithoutEventStore_DoesNotThrow', async () => {
+      const result = await handleOrchestrate(
+        { action: 'select_debug_track', urgency: 'high', rootCauseKnown: true },
+        ctxNoStore,
+      );
+
+      expect(result.success).toBe(true);
+      expect((result.data as { track: string }).track).toBe('hotfix');
+    });
+
+    it('InvestigationTimer_DispatchedWithoutEventStore_DoesNotThrow', async () => {
+      const result = await handleOrchestrate(
+        { action: 'investigation_timer', startedAt: '2026-05-30T00:00:00Z', budgetMinutes: 15 },
+        ctxNoStore,
+      );
+
+      expect(result.success).toBe(true);
+    });
+  });
+});

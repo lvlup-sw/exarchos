@@ -1,0 +1,64 @@
+{
+  "lockVersion": 1,
+  "approved": true,
+  "approvedBy": "Reed (re-approved for the effect-ledger remedy: reconcile_worktrees added and stack_place re-parented onto exarchos_orchestrate, closing three provider disagreements; decision recorded on their instruction). Previously: Reed (v2.12.0-preview.4 release bump)",
+  "note": "PROGRAM-03 contract authority freeze (P03-01, extended by P03-02 with the closed `contract-surface` authority; re-approved by T-35 / DR-26 after the invariant catalog was re-pointed to the GOVERNING framing of INV-2 (contract-client equivalence by construction), INV-4 (standards-conformance plus thin shims), INV-7 (closed cross-process serialization claim, EFF-001) and INV-11 (lifecycle/placement by construction; spatial write confinement excluded and declared per-harness); re-approved again after the DR-25 PRIMARY resolution landed — the CLI now addresses actions through the generated client `contract/cli/generated-client.ts`, the `cli-direct-dispatch` deviation is retired, and the catalog records the retirement; re-approved again under DR-4 after INV-17 was amended to treat a VACUOUS `outputSchema` as a violation rather than a pass — the catalog wording is the frozen input, so the amendment re-enters the freeze through this gesture; re-approved again under DR-0 task 049, which completed the MCP SDK v1→v2 source migration and removed `@modelcontextprotocol/sdk` — the `mcp-sdk` and `mcp-protocol` authorities now read from `@modelcontextprotocol/server`. The protocol VERSION is unchanged across that move, which is the freeze corroborating DR-0's no-wire-change claim rather than merely restating it); re-approved again after the `servers/exarchos-mcp` package was folded into the repo root — the catalog cited 54 file paths inside the dissolved package, and a citation that resolves to nothing governs nothing. The retarget is MECHANICAL: every reference was mapped through the fold's own move table and verified to exist on disk, and NO invariant summary, dimension, enforcement mode or audit prompt changed at that fold. Re-approved again under #1764 DR-7 task 086, which re-pointed INV-4 from `mode: check` to `mode: audit` deferring to `render:guard`. The old predicate greped `skills/**` for `@@` and so fired on EVERY conforming regeneration — a blocking invariant no conforming change could satisfy. Same shape as the DR-4 INV-17 amendment above: the catalog wording is the frozen input, so the amendment re-enters the freeze through this gesture rather than around it). Regenerate with `npx tsx src/contract/authority-lock-cli.ts` after reviewing and approving the new authority digests, then commit this file. RE-APPROVED for 2.12.0-preview.4. The ONLY difference was the `strategos-contracts` version string: every digest — that authority's own content digest, plus `action-id-registry`, `contract-surface` and `invariant-catalog` — matched the live tree unchanged, so the frozen surface is byte-identical and nothing about the contract actually moved. WORTH FIXING AT THE ROOT: this authority's `version` is the PACKAGE version, read from package.json by the collector, so the freeze trips on every release whether or not the contract changed — and each trip costs a re-approval plus roughly eighteen red drift guards until someone performs it. The content digest already carries the real signal. A freeze that fires loudest when it has the least to say trains its readers to re-approve without looking, which is the opposite of what a freeze is for. RE-APPROVED for the effect-ledger remedy that moved two writers off the read surface. Unlike the preview.4 bump above, this one is a REAL surface change and the `action-id-registry` digest moves because the action set moved: `exarchos_orchestrate.reconcile_worktrees` is NEW (the reservation reclaim and the launch / merge reconcilers that rode `exarchos_view.ps probe:true`), and `stack_place` is re-parented from `exarchos_view` to `exarchos_orchestrate`. Both moves close a provider disagreement rather than introducing capability: every event involved — `worktree.orphan_detected`, `launch.executed`, `stack.position-filled` — was ALREADY registered to `exarchos_orchestrate` while being appended from a `exarchos_view` action, so the registry and the tree disagreed about who performs the effect. No event schema, no invariant and no wire format changed; `ps` loses its `probe` parameter and becomes genuinely read-only, which is the user-visible half.",
+  "authorities": {
+    "strategos-contracts": {
+      "kind": "schema",
+      "version": "2.12.0-preview.4",
+      "versionSpec": "2.12.0-preview.4",
+      "digest": "sha256:d25c878006dd4d9719306f24047d8a8f3a091de392e8b44b2c1a8ef7fb1feb86",
+      "source": "src/architecture/invariant-schema.ts (hand-written Strategos.Contracts stand-in) pinned at the exarchos-mcp package version",
+      "approved": true
+    },
+    "mcp-protocol": {
+      "kind": "protocol",
+      "version": "2025-11-25",
+      "versionSpec": "2025-11-25",
+      "digest": null,
+      "source": "@modelcontextprotocol/server LATEST_PROTOCOL_VERSION",
+      "approved": true
+    },
+    "mcp-sdk": {
+      "kind": "package",
+      "version": "2.0.0",
+      "versionSpec": "2.0.0",
+      "digest": null,
+      "source": "package.json dependencies[\"@modelcontextprotocol/server\"]",
+      "approved": true
+    },
+    "action-id-registry": {
+      "kind": "registry",
+      "version": null,
+      "versionSpec": null,
+      "digest": "sha256:230442c5c42a499f9fe7b05e4ca16efe75e9f59875610f7729e06f7110ce72ff",
+      "source": "registry.ts TOOL_REGISTRY — flattened, deduped, sorted ActionIds",
+      "approved": true
+    },
+    "compatibility-policy": {
+      "kind": "policy",
+      "version": "1.0.0",
+      "versionSpec": "1.0.0",
+      "digest": "sha256:6d412fc7e8e2e3a2cd65a899ca3e06aa10211c0372bbbbd6d7a1d85177247567",
+      "source": "src/lib/plugin-compat.ts pinned at COMPATIBILITY_POLICY_VERSION",
+      "approved": true
+    },
+    "invariant-catalog": {
+      "kind": "catalog",
+      "version": "3",
+      "versionSpec": "3",
+      "digest": "sha256:0080c83122fba1ddd007ee71538e8dcd92b2fbef4a4018fc65f4428b38e7f9c0",
+      "source": ".exarchos/invariants.md pinned at frontmatter schema-version",
+      "approved": true
+    },
+    "contract-surface": {
+      "kind": "schema",
+      "version": "1.0.0",
+      "versionSpec": "1.0.0",
+      "digest": "sha256:23af63c9fd859f1364a7b144bd852822b666aea49355a9955008cddf48770627",
+      "source": "src/contract/{error-families,envelope,request-context,compatibility}.ts closed contract surface (P03-02), pinned at CONTRACT_SURFACE_VERSION",
+      "approved": true
+    }
+  }
+}

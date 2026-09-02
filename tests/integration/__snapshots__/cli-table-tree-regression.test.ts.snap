@@ -1,0 +1,218 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`F.7 — CLI table/tree pretty-print regression (Wave 0 §7) > CliRender_VwLs_TreeOrJsonPath_StableSnapshot 1`] = `
+{
+  "stderr": "<<perf>>",
+  "stdout": "workflows:
+total: 0
+unscopedTotal: 0
+page:
+  total: 0
+  offset: 0
+  limit: 10
+  hasMore: false
+scope: repo
+",
+}
+`;
+
+exports[`F.7 — CLI table/tree pretty-print regression (Wave 0 §7) > CliRender_WfDescribeActionInit_TreeOrInferredPath_StableSnapshot 1`] = `
+{
+  "stderr": "<<perf>>",
+  "stdout": "init:
+  description: Initialize a new workflow. Auto-emits workflow.started event. For workflowType=oneshot, an optional synthesisPolicy (always | never | on-request) seeds state.oneshot.synthesisPolicy; silently ignored for other workflow types.
+  schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    type: object
+    properties:
+      featureId:
+        type: string
+        minLength: 1
+        pattern: ^[a-z0-9-]+$
+      workflowType:
+        type: string
+      synthesisPolicy:
+        type: string
+        enum:
+          - always
+          - never
+          - on-request
+    required:
+      - featureId
+      - workflowType
+    additionalProperties: false
+  gate: null
+  phases:
+  roles:
+    - lead
+  autoEmits:
+    event: workflow.started
+    condition: always
+    owner: workflow
+    role: primary
+  economyBudgetTokens: 2000
+  outputSchema:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    oneOf:
+      type: object
+      properties:
+        success:
+          [...]
+        data:
+          [...]
+        next_actions:
+          [...]
+        _meta:
+          [...]
+        _perf:
+          [...]
+        _eventHints:
+          [...]
+        _cacheHints:
+          [...]
+        warnings:
+          [...]
+        _corrections:
+          [...]
+      required:
+        - success
+        - data
+        - next_actions
+        - _meta
+        - _perf
+      additionalProperties: false
+      type: object
+      properties:
+        success:
+          [...]
+        error:
+          [...]
+        _meta:
+          [...]
+        _perf:
+          [...]
+        warnings:
+          [...]
+        _corrections:
+          [...]
+      required:
+        - success
+        - error
+        - _meta
+        - _perf
+      additionalProperties: false
+  outputSchemaJson:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    oneOf:
+      type: object
+      properties:
+        success:
+          [...]
+        data:
+          [...]
+        next_actions:
+          [...]
+        _meta:
+          [...]
+        _perf:
+          [...]
+        _eventHints:
+          [...]
+        _cacheHints:
+          [...]
+        warnings:
+          [...]
+        _corrections:
+          [...]
+      required:
+        - success
+        - data
+        - next_actions
+        - _meta
+        - _perf
+      additionalProperties: false
+      type: object
+      properties:
+        success:
+          [...]
+        error:
+          [...]
+        _meta:
+          [...]
+        _perf:
+          [...]
+        warnings:
+          [...]
+        _corrections:
+          [...]
+      required:
+        - success
+        - error
+        - _meta
+        - _perf
+      additionalProperties: false
+  actionContract:
+    requires:
+      kind: none
+      because: init creates a workflow and does not wait on a prior gate
+    ensures:
+      kind: declared
+      values:
+        source: event-append
+        when: success
+        event: workflow.started
+    needs:
+      kind: none
+      because: init writes through the in-process event store
+    touches:
+      frame: single-machine
+      resources:
+        kind: declared
+        values:
+          [...]
+    executionAuthority:
+      kind: local
+    replay:
+      kind: claim-required
+      scope: stream-subject-request
+    emissions:
+      kind: declared
+      values:
+        event: workflow.started
+        condition: always
+        owner: workflow
+        role: primary
+  actionContractDigest: {"requires":{"kind":"none","because":"init creates a workflow and does not wait on a prior gate"},"ensures":{"kind":"declared","values":[{"source":"event-append","when":"success","event":"workflow.started"}]},"needs":{"kind":"none","because":"init writes through the in-process event store"},"touches":{"frame":"single-machine","resources":{"kind":"declared","values":[{"kind":"stream","selector":"featureId"}]}},"executionAuthority":{"kind":"local"},"replay":{"kind":"claim-required","scope":"stream-subject-request"},"emissions":{"kind":"declared","values":[{"event":"workflow.started","condition":"always","owner":"workflow","role":"primary"}]}}
+  actionContractCompact:
+    requires:
+      kind: none
+    ensures:
+      kind: declared
+      values:
+        source: event-append
+        when: success
+        event: workflow.started
+    needs:
+      kind: none
+    touches:
+      frame: single-machine
+      resources:
+        kind: declared
+        values:
+          [...]
+    executionAuthority:
+      kind: local
+    replay:
+      kind: claim-required
+      scope: stream-subject-request
+    emissions:
+      kind: declared
+      values:
+        event: workflow.started
+        condition: always
+        owner: workflow
+        role: primary
+    digest: {"requires":{"kind":"none","because":"init creates a workflow and does not wait on a prior gate"},"ensures":{"kind":"declared","values":[{"source":"event-append","when":"success","event":"workflow.started"}]},"needs":{"kind":"none","because":"init writes through the in-process event store"},"touches":{"frame":"single-machine","resources":{"kind":"declared","values":[{"kind":"stream","selector":"featureId"}]}},"executionAuthority":{"kind":"local"},"replay":{"kind":"claim-required","scope":"stream-subject-request"},"emissions":{"kind":"declared","values":[{"event":"workflow.started","condition":"always","owner":"workflow","role":"primary"}]}}
+",
+}
+`;

@@ -1,0 +1,55 @@
+# Lowest-common-denominator runtime map.
+#
+# This map describes a hypothetical agent runtime with none of the
+# capabilities Exarchos likes to lean on (subagents, slash commands, hooks,
+# skill chaining). Any target runtime the installer does not explicitly
+# recognise falls back to this map.
+#
+# Design rationale:
+#   - `hasSubagents: false` → the renderer must emit prose delegation
+#     instructions ("Execute each task sequentially") rather than a Task tool
+#     call, because we cannot assume any spawn primitive exists.
+#   - `hasSlashCommands: false` → commands are referenced by name only,
+#     without a `/prefix:` sigil.
+#   - `hooks.profile: none` → no lifecycle-hook system; the Exarchos binding is
+#     carried by the AGENTS.md orientation block only (no executable hook).
+#   - `hasSkillChaining: false` → chain tokens are replaced with a plain
+#     "invoke the next skill" directive.
+#   - `mcpPrefix: "mcp__exarchos__"` → canonical stdio-MCP tool prefix used
+#     when exarchos is installed as a bare MCP server (no plugin wrapping).
+#
+# Implements: DR-4, DR-5 (generic branch)
+name: generic
+# preferredFacade: cli — unknown runtimes have no guaranteed MCP client, so
+# CLI is the safest lowest-common-denominator invocation surface.
+# See docs/architecture/facade-and-deployment.md for facade selection rationale
+# (relocated with the rest of the prose; `npm run docs:mount` puts it back).
+preferredFacade: cli
+capabilities:
+  hasSubagents: false
+  hasSlashCommands: false
+  hooks:
+    profile: none
+    canInjectContext: false
+    sessionStartEvent: null
+    sessionEndEvent: null
+  hasSkillChaining: false
+  mcpPrefix: "mcp__exarchos__"
+skillsInstallPath: "~/.agents/skills"
+detection:
+  binaries: []
+  envVars: []
+placeholders:
+  MCP_PREFIX: "mcp__exarchos__"
+  COMMAND_PREFIX: ""
+  TASK_TOOL: "[sequential execution]"
+  CHAIN: "[Invoke the exarchos:{{next}} skill with args: {{args}}]"
+  SPAWN_AGENT_CALL: "Execute each task sequentially in the current session, one at a time, against the prepared worktrees."
+  # Wave A (P4 prose layer) — generic has `hasSubagents: false`, so the
+  # delegation skill renders sequential in-session execution. There is
+  # no subagent to "complete" or to fetch a "result" from; the work
+  # happens inline. The tokens are kept (so the renderer doesn't fall
+  # back to a missing-token error) but reworded to describe in-session
+  # checkpoints rather than a subagent channel.
+  SUBAGENT_COMPLETION_HOOK: "in-session checkpoint (no subagent channel)"
+  SUBAGENT_RESULT_API: "[task output is the assistant's next message]"

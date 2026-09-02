@@ -1,0 +1,123 @@
+// ─── Operational Resilience Gate ──────────────────────────────────────────────
+//
+// Orchestrates operational resilience checking by calling the pure TypeScript
+// checkOperationalResilience function and emitting gate.executed events for
+// quality-layer gate checks.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import type { ToolResult } from '../../format.js';
+import type { EventStore } from '../../events/store.js';
+import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
+import { runPhaseGateWithEvidence } from './gate-runner.js';
+import { getDiff, requireGateEvent, sameOperationGateKey } from './gate-utils.js';
+import { checkOperationalResilience } from '../pure/operational-resilience.js';
+
+// ─── Types ─────────────────────────────────────────────────────────────────
+
+interface OperationalResilienceArgs {
+  readonly featureId: string;
+  readonly repoRoot?: string;
+  readonly baseBranch?: string;
+}
+
+interface OperationalResilienceResult {
+  readonly passed: boolean;
+  readonly findingCount: number;
+  readonly report: string;
+}
+
+// ─── Handler ───────────────────────────────────────────────────────────────
+
+export async function handleOperationalResilience(
+  args: OperationalResilienceArgs,
+  stateDir: string,
+  eventStore: EventStore,
+): Promise<ToolResult> {
+  // Guard clause: validate required inputs
+  if (!args.featureId) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'featureId is required' },
+    };
+  }
+
+  // Durable gate evidence is a declared postcondition here, and a bare
+  // `gate.executed` append does not pay it — the observer reads
+  // `admission.evidence-recorded`. The shared phase-gate runner records that
+  // before any success carrier escapes; the declared signal is still minted by
+  // the provider closure below.
+  return runPhaseGateWithEvidence({
+    streamId: args.featureId,
+    gateClass: 'operational-resilience',
+    requirementId: 'requirement:operational-resilience',
+    stateDir,
+    eventStore,
+    subject: (phaseAttemptId) =>
+      createEvidenceSubject(
+        { kind: 'phase-attempt', phaseAttemptId },
+        { gate: 'operational-resilience', phase: 'review' },
+      ),
+    providerInput: args,
+    executeProvider: async () => executeOperationalResilience(args, eventStore),
+  });
+}
+
+async function executeOperationalResilience(
+  args: OperationalResilienceArgs,
+  eventStore: EventStore,
+): Promise<ToolResult> {
+  const repoRoot = args.repoRoot || process.cwd();
+  const baseBranch = args.baseBranch || 'main';
+
+  // Get the diff — fail-closed if git is unavailable
+  const diff = getDiff(repoRoot, baseBranch);
+  if (diff === null) {
+    return {
+      success: false,
+      error: { code: 'DIFF_ERROR', message: `Failed to get diff from git in ${repoRoot}` },
+    };
+  }
+  const tsResult = checkOperationalResilience(diff);
+
+  const passed = tsResult.pass;
+  const findingCount = tsResult.findingCount;
+
+  // Build report from structured result
+  const reportLines: string[] = [];
+  if (findingCount > 0) {
+    for (const f of tsResult.findings) {
+      reportLines.push(`- **${f.severity}**: ${f.message}`);
+    }
+    reportLines.push('');
+    reportLines.push(`Result: FINDINGS (${findingCount} findings detected)`);
+  } else {
+    reportLines.push('Result: PASS (all operational resilience checks passed)');
+  }
+  const report = reportLines.join('\n');
+
+  // Return structured result
+  const result: OperationalResilienceResult = {
+    passed,
+    findingCount,
+    report,
+  };
+  const carrier: ToolResult = { success: true, data: result };
+
+  const unrecorded = await requireGateEvent(
+    eventStore,
+    args.featureId,
+    'operational-resilience',
+    'quality',
+    passed,
+    carrier,
+    {
+      dimension: 'D4',
+      phase: 'review',
+      findingCount,
+    },
+    sameOperationGateKey('operational-resilience'),
+  );
+  if (unrecorded !== undefined) return unrecorded;
+
+  return carrier;
+}

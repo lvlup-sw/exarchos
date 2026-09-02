@@ -2,7 +2,7 @@
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import tseslint from 'typescript-eslint';
-import noHandlerThrow from './eslint-rules/no-handler-throw.js';
+import noHandlerThrow from './tools/eslint-rules/no-handler-throw.js';
 
 /**
  * Dedicated flat config for the error-envelope lint (#1706 DR-1/DR-2).
@@ -13,11 +13,11 @@ import noHandlerThrow from './eslint-rules/no-handler-throw.js';
  *     (#1623). Loading a type-aware rule there would silently convert that
  *     filtered step into a type-checked run and let it evaluate a rule the
  *     filtered lane was never meant to carry.
- *   - this config is invoked ONLY by `scripts/lint-envelopes.mjs` (task 002)
+ *   - this config is invoked ONLY by `tools/audit/gates/lint-envelopes.mjs` (task 002)
  *     on the UNFILTERED `grep-gates` lane — the two-surface hosting rule in
  *     `docs/guides/ci-gate-hosting.md`.
  *
- * The lint glob is scoped to `servers/exarchos-mcp/src/orchestrate/**` — the
+ * The lint glob is scoped to `src/verbs/**` — the
  * registration-set surface (`composite.ts` owns `ACTION_HANDLERS` + the six
  * special-cased branches) — to bound the type-aware run's cost (the #1721
  * whole-tree OOM class). `parserOptions.project` points at the MCP server's
@@ -33,18 +33,18 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 export default tseslint.config(
   {
     // Test files are excluded from the MCP tsconfig's `include` (see
-    // servers/exarchos-mcp/tsconfig.json), so they are not part of the
+    // tsconfig.json), so they are not part of the
     // `ts.Program` `parserOptions.project` builds below — linting them here
     // would error with "file not in project". They carry no ACTION_HANDLERS
     // registration surface anyway.
-    ignores: ['servers/exarchos-mcp/src/orchestrate/**/*.test.ts'],
+    ignores: ['src/verbs/**/*.test.ts'],
   },
   {
-    files: ['servers/exarchos-mcp/src/orchestrate/**/*.ts'],
+    files: ['src/verbs/**/*.ts'],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
-        project: './servers/exarchos-mcp/tsconfig.json',
+        project: './tsconfig.json',
         tsconfigRootDir: HERE,
       },
     },

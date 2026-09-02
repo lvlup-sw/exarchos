@@ -1,7 +1,8 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "ignoreDependencies": [
-    "tsx"
+    "tsx",
+    "dependency-cruiser"
   ],
   "ignoreExportsUsedInFile": true,
   "tags": [
@@ -10,46 +11,43 @@
   "workspaces": {
     ".": {
       "entry": [
-        "src/build-skills.ts",
-        "src/install-skills.ts",
-        "src/skills-guard.ts",
-        "src/placeholder-lint.ts",
-        "scripts/audit/knip-diff.ts",
-        "scripts/measured-premises-derive.ts",
-        "scripts/**/*.test.ts",
-        "test/**/*.test.ts",
-        "test/fixtures/__helpers__/mock-mcp-server.mjs"
-      ],
-      "project": [
-        "src/**/*.ts",
-        "scripts/**/*.ts",
-        "test/**/*.ts",
-        "test/**/*.mjs"
-      ]
-    },
-    "servers/exarchos-mcp": {
-      "entry": [
         "src/index.ts",
+        "src/install/build-skills.ts",
+        "src/install/install-skills.ts",
+        "src/install/skills-guard.ts",
+        "src/install/placeholder-lint.ts",
         "src/projections/index.ts",
         "src/projections/rehydration/fingerprint-cli.ts",
         "src/projections/rehydration/prose-lint-cli.ts",
-        "src/**/*.test.ts",
-        "src/**/*.bench.ts",
-        "src/__tests__/**/*.ts",
-        "src/bench/**/*.ts",
-        "src/benchmarks/**/*.ts",
-        "src/evals/**/*.ts"
+        "tools/audit/knip-diff.ts",
+        "tools/audit/gates/measured-premises-derive.ts",
+        "tests/**/*.test.ts",
+        "tests/helpers/__helpers__/mock-mcp-server.mjs",
+        "tools/conformance/src/**/*.test.ts",
+        "tools/evals/**/*.ts",
+        "tools/evals-pkg/src/index.ts",
+        "tools/git-hooks/**/*.ts",
+        "tools/release/**/*.ts",
+        "tools/test-helpers/**/*.ts",
+        "docs/.vitepress/**/*.ts"
       ],
       "project": [
-        "src/**/*.ts"
-      ],
-      "ignoreDependencies": [
-        "patch-package",
-        "dependency-cruiser"
+        "src/**/*.ts",
+        "tests/**/*.ts",
+        "!tests/evals/**/runs/**",
+        "tools/audit/**/*.ts",
+        "tools/conformance/src/**/*.ts",
+        "tools/evals/**/*.ts",
+        "tools/evals-pkg/**/*.ts",
+        "tools/git-hooks/**/*.ts",
+        "tools/release/**/*.ts",
+        "tools/test-helpers/**/*.ts",
+        "docs/.vitepress/**/*.ts"
       ]
     }
   },
   "ignore": [
-    "servers/exarchos-mcp/src/mcp/elicitation-method.ts"
+    "src/mcp/elicitation-method.ts",
+    "tools/eslint-rules/__fixtures__/**"
   ]
 }

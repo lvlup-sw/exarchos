@@ -1,0 +1,1162 @@
+{
+  "note": "Live TOOL_REGISTRY and event-annotation denominator. Regenerated from the live registry whenever a registration is deliberately added or removed; the counts are a measurement, not a target.",
+  "capturedAt": "2026-08-27",
+  "counts": {
+    "tools": 5,
+    "visibleTools": 4,
+    "actions": 125,
+    "eventTypes": 178
+  },
+  "tools": [
+    {
+      "name": "exarchos_event",
+      "hidden": false,
+      "actions": [
+        "append",
+        "batch_append",
+        "describe",
+        "query"
+      ]
+    },
+    {
+      "name": "exarchos_orchestrate",
+      "hidden": false,
+      "actions": [
+        "acquire_worktree",
+        "add_pr_comment",
+        "agent_spec",
+        "assess_refactor_scope",
+        "assess_stack",
+        "check_ci",
+        "check_coderabbit",
+        "check_context_economy",
+        "check_contract_drift",
+        "check_convergence",
+        "check_coverage_thresholds",
+        "check_design_completeness",
+        "check_event_emissions",
+        "check_exploration_depth",
+        "check_integration_suite",
+        "check_invariant_conformance",
+        "check_mock_boundary",
+        "check_operational_resilience",
+        "check_plan_coverage",
+        "check_polish_scope",
+        "check_post_merge",
+        "check_pr_comments",
+        "check_provenance_chain",
+        "check_review_verdict",
+        "check_security_scan",
+        "check_static_analysis",
+        "check_task_decomposition",
+        "check_test_adequacy",
+        "check_workflow_determinism",
+        "classify_review_items",
+        "create_issue",
+        "create_pr",
+        "cutover_decide",
+        "cutover_readiness",
+        "debug_review_gate",
+        "describe",
+        "discover_bridge",
+        "doctor",
+        "execute_intent",
+        "extract_fix_tasks",
+        "extract_task",
+        "finalize_oneshot",
+        "generate_traceability",
+        "get_pr_comments",
+        "invariants_add",
+        "invariants_amend",
+        "invariants_scaffold",
+        "investigation_timer",
+        "list_prs",
+        "merge_orchestrate",
+        "merge_pr",
+        "mutation-adequacy",
+        "needs_schema_sync",
+        "onboard",
+        "post_delegation_check",
+        "pre_synthesis_check",
+        "prepare_delegation",
+        "prepare_review",
+        "prepare_synthesis",
+        "prune_stale_workflows",
+        "prune_worktrees",
+        "reconcile_state",
+        "reconcile_worktrees",
+        "release_worktree",
+        "request_synthesize",
+        "review_diff",
+        "review_triage",
+        "runbook",
+        "select_debug_track",
+        "serialize_merge",
+        "setup_worktree",
+        "spec_coverage_check",
+        "stack_place",
+        "task_claim",
+        "task_complete",
+        "task_fail",
+        "validate_pr_body",
+        "validate_pr_stack",
+        "verify_delegation_saga",
+        "verify_doc_links",
+        "verify_review_triage",
+        "verify_worktree",
+        "verify_worktree_baseline"
+      ]
+    },
+    {
+      "name": "exarchos_sync",
+      "hidden": true,
+      "actions": [
+        "now"
+      ]
+    },
+    {
+      "name": "exarchos_view",
+      "hidden": false,
+      "actions": [
+        "code_quality",
+        "convergence",
+        "delegation_readiness",
+        "delegation_timeline",
+        "describe",
+        "eval_results",
+        "export",
+        "gate_reliability",
+        "inspect",
+        "invariants_effective",
+        "pipeline",
+        "provenance",
+        "ps",
+        "quality_attribution",
+        "quality_correlation",
+        "quality_hints",
+        "session_provenance",
+        "shepherd_status",
+        "stack_status",
+        "synthesis_readiness",
+        "tasks",
+        "team_performance",
+        "telemetry",
+        "wait",
+        "workflow_status",
+        "worktrees"
+      ]
+    },
+    {
+      "name": "exarchos_workflow",
+      "hidden": false,
+      "actions": [
+        "cancel",
+        "checkpoint",
+        "cleanup",
+        "describe",
+        "feedback",
+        "get",
+        "init",
+        "reconcile",
+        "rehydrate",
+        "transition",
+        "update"
+      ]
+    }
+  ],
+  "eventTypes": [
+    {
+      "type": "admission.contradiction-recorded",
+      "lifecycle": "planned",
+      "tier": "capability"
+    },
+    {
+      "type": "admission.cutover-ready",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "admission.disagreement-disposition",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "admission.enforcement-enabled",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "admission.evidence-recorded",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "admission.reassessment-completed",
+      "lifecycle": "planned",
+      "tier": "capability"
+    },
+    {
+      "type": "admission.reassessment-requested",
+      "lifecycle": "planned",
+      "tier": "capability"
+    },
+    {
+      "type": "admission.requirement-resolved",
+      "lifecycle": "planned",
+      "tier": "capability"
+    },
+    {
+      "type": "admission.rollout-decision",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "admission.shadow-attempt",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "admission.transition-decided",
+      "lifecycle": "planned",
+      "tier": "capability"
+    },
+    {
+      "type": "admission.waiver-recorded",
+      "lifecycle": "planned",
+      "tier": "capability"
+    },
+    {
+      "type": "benchmark.completed",
+      "lifecycle": "planned",
+      "tier": "capability"
+    },
+    {
+      "type": "branch.delete.executed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "branch.delete.requested",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "cancel.compensation-completed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "compensation-record"
+    },
+    {
+      "type": "cancel.compensation-failed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "compensation-record"
+    },
+    {
+      "type": "cancel.compensation-requested",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "compensation-record"
+    },
+    {
+      "type": "cancel.compensation-retry-scheduled",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "compensation-record"
+    },
+    {
+      "type": "cancel.manual-intervention-required",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "compensation-record"
+    },
+    {
+      "type": "cancel.ownership-acquired",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "concurrency-outcome"
+    },
+    {
+      "type": "cancel.ready",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "compensation-record"
+    },
+    {
+      "type": "cancel.requested",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "compensation-record"
+    },
+    {
+      "type": "catalog.registered",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "checkpoint.enforced",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "checkpoint.state_missing",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "ci.status",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "command.resolved",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "comment.posted",
+      "lifecycle": "active",
+      "tier": "workflow-local"
+    },
+    {
+      "type": "comment.resolved",
+      "lifecycle": "active",
+      "tier": "workflow-local"
+    },
+    {
+      "type": "diagnostic.executed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "dispatch.classified",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "dispatch.preflight",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "elicitation.declined",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "append-path"
+    },
+    {
+      "type": "elicitation.fulfilled",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "append-path"
+    },
+    {
+      "type": "elicitation.requested",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "append-path"
+    },
+    {
+      "type": "emission.violated",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "eval.case.completed",
+      "lifecycle": "planned",
+      "tier": "capability"
+    },
+    {
+      "type": "eval.judge.calibrated",
+      "lifecycle": "active",
+      "tier": "harness"
+    },
+    {
+      "type": "eval.run.completed",
+      "lifecycle": "planned",
+      "tier": "capability"
+    },
+    {
+      "type": "eval.run.started",
+      "lifecycle": "planned",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "export.executed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "export.requested",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "feedback.recorded",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "gate.executed",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "hsm.deprecated_action_invoked",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "append-path"
+    },
+    {
+      "type": "invariant.amended",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "invariant.authored",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "issue.create.executed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "issue.create.requested",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "issue.created",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "launch.executed",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "launch.executing_started",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "merge.completed",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "merge.executed",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "merge.executing_started",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "merge.preflight",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "merge.recovered",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "merge.requested",
+      "lifecycle": "active",
+      "tier": "workflow-local"
+    },
+    {
+      "type": "merge.retry_attempt",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "merge.rollback",
+      "lifecycle": "retired",
+      "tier": "capability"
+    },
+    {
+      "type": "migration.completed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "session-lifecycle"
+    },
+    {
+      "type": "migration.correlation_backfill_progress",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "session-lifecycle"
+    },
+    {
+      "type": "migration.failed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "session-lifecycle"
+    },
+    {
+      "type": "migration.legacy_jsonl_imported",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "session-lifecycle"
+    },
+    {
+      "type": "migration.workflow_type_unknown",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "session-lifecycle"
+    },
+    {
+      "type": "mutation.executed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "mutation.executing_started",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "onboard.executed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "onboard.requested",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "orchestrate.intent_executed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "phase.blocked",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "transition-record"
+    },
+    {
+      "type": "phase.contract_missing",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "phase.entered",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "transition-record"
+    },
+    {
+      "type": "phase.exited",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "transition-record"
+    },
+    {
+      "type": "pr.comment.executed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "pr.comment.requested",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "pr.commented",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "pr.create.executed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "pr.create.requested",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "pr.created",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "pr.merged",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "preflight.blocked",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "preflight.executed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "projection.degraded",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "session-lifecycle"
+    },
+    {
+      "type": "projection.recovered",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "session-lifecycle"
+    },
+    {
+      "type": "promotion.executed",
+      "lifecycle": "planned",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "provider.parse-error",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "provider.unknown-tier",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "prune.diagnostics",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "prune.executed",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "prune.executing_started",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "quality.hint.generated",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "quality.refinement.suggested",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "quality.regression",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "remediation.attempted",
+      "lifecycle": "active",
+      "tier": "judgment"
+    },
+    {
+      "type": "remediation.succeeded",
+      "lifecycle": "active",
+      "tier": "judgment"
+    },
+    {
+      "type": "review.completed",
+      "lifecycle": "active",
+      "tier": "judgment"
+    },
+    {
+      "type": "review.escalated",
+      "lifecycle": "active",
+      "tier": "judgment"
+    },
+    {
+      "type": "review.finding",
+      "lifecycle": "active",
+      "tier": "judgment"
+    },
+    {
+      "type": "review.routed",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "session.machinery_consumed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "session-lifecycle"
+    },
+    {
+      "type": "session.tagged",
+      "lifecycle": "active",
+      "tier": "workflow-local"
+    },
+    {
+      "type": "shepherd.approval_requested",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "shepherd.completed",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "shepherd.escalated",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "shepherd.iteration",
+      "lifecycle": "active",
+      "tier": "workflow-local"
+    },
+    {
+      "type": "shepherd.started",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "spec.legacy_capabilities_array",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "stack.enqueued",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "stack.position-filled",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "stack.restacked",
+      "lifecycle": "planned",
+      "tier": "capability"
+    },
+    {
+      "type": "stack.submitted",
+      "lifecycle": "active",
+      "tier": "workflow-local"
+    },
+    {
+      "type": "stash.detected",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "state.patched",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "append-path"
+    },
+    {
+      "type": "subagent.tokens_used",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "synthesize.requested",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "transition-record"
+    },
+    {
+      "type": "task.assigned",
+      "lifecycle": "active",
+      "tier": "workflow-local"
+    },
+    {
+      "type": "task.cancelled",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "append-path"
+    },
+    {
+      "type": "task.claimed",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "task.completed",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "task.created",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "append-path"
+    },
+    {
+      "type": "task.failed",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "task.polled",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "append-path"
+    },
+    {
+      "type": "task.progressed",
+      "lifecycle": "active",
+      "tier": "workflow-local"
+    },
+    {
+      "type": "task.result",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "append-path"
+    },
+    {
+      "type": "team.disbanded",
+      "lifecycle": "active",
+      "tier": "workflow-local"
+    },
+    {
+      "type": "team.spawned",
+      "lifecycle": "active",
+      "tier": "workflow-local"
+    },
+    {
+      "type": "team.task.assigned",
+      "lifecycle": "active",
+      "tier": "workflow-local"
+    },
+    {
+      "type": "team.task.completed",
+      "lifecycle": "active",
+      "tier": "workflow-local"
+    },
+    {
+      "type": "team.task.failed",
+      "lifecycle": "active",
+      "tier": "workflow-local"
+    },
+    {
+      "type": "team.task.planned",
+      "lifecycle": "active",
+      "tier": "workflow-local"
+    },
+    {
+      "type": "team.teammate.dispatched",
+      "lifecycle": "active",
+      "tier": "workflow-local"
+    },
+    {
+      "type": "test.result",
+      "lifecycle": "active",
+      "tier": "judgment"
+    },
+    {
+      "type": "tool.action_errored",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "tool.completed",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "tool.errored",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "tool.invoked",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "append-path"
+    },
+    {
+      "type": "turn.completed",
+      "lifecycle": "planned",
+      "tier": "capability"
+    },
+    {
+      "type": "typecheck.result",
+      "lifecycle": "active",
+      "tier": "judgment"
+    },
+    {
+      "type": "vcs.compensated",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "vcs.executed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "vcs.requested",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "workflow.cancel",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "transition-record"
+    },
+    {
+      "type": "workflow.cas-failed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "concurrency-outcome"
+    },
+    {
+      "type": "workflow.checkpoint",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "session-lifecycle"
+    },
+    {
+      "type": "workflow.checkpoint_requested",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "session-lifecycle"
+    },
+    {
+      "type": "workflow.checkpoint_superseded",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "session-lifecycle"
+    },
+    {
+      "type": "workflow.checkpoint_written",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "session-lifecycle"
+    },
+    {
+      "type": "workflow.circuit-open",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "concurrency-outcome"
+    },
+    {
+      "type": "workflow.cleanup",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "session-lifecycle"
+    },
+    {
+      "type": "workflow.compensation",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "compensation-record"
+    },
+    {
+      "type": "workflow.compound-entry",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "transition-record"
+    },
+    {
+      "type": "workflow.compound-exit",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "transition-record"
+    },
+    {
+      "type": "workflow.fix-cycle",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "workflow.guard-failed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "transition-record"
+    },
+    {
+      "type": "workflow.handoff_summarized",
+      "lifecycle": "active",
+      "tier": "workflow-local"
+    },
+    {
+      "type": "workflow.plan-review-dispatched",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "transition-record"
+    },
+    {
+      "type": "workflow.plan-revision",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "transition-record"
+    },
+    {
+      "type": "workflow.projection_degraded",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "session-lifecycle"
+    },
+    {
+      "type": "workflow.pruned",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "session-lifecycle"
+    },
+    {
+      "type": "workflow.rehydrated",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "session-lifecycle"
+    },
+    {
+      "type": "workflow.snapshot_taken",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "session-lifecycle"
+    },
+    {
+      "type": "workflow.started",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "transition-record"
+    },
+    {
+      "type": "workflow.transition",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "transition-record"
+    },
+    {
+      "type": "workspace.resolved",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "append-path"
+    },
+    {
+      "type": "worktree.adopted",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "worktree.baseline",
+      "lifecycle": "active",
+      "tier": "workflow-local"
+    },
+    {
+      "type": "worktree.create.executed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "worktree.create.requested",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "worktree.created",
+      "lifecycle": "active",
+      "tier": "workflow-local"
+    },
+    {
+      "type": "worktree.merge_executed",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "worktree.merge_requested",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "worktree.orphan_detected",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "worktree.released",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "worktree.remove.executed",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "worktree.remove.requested",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "worktree.reserved",
+      "lifecycle": "active",
+      "tier": "capability"
+    }
+  ]
+}

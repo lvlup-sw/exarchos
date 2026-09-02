@@ -1,0 +1,105 @@
+{
+  // The root tsconfig excludes `**/*.test.ts` outright, so until now no test
+  // file in the repository was type-checked at all — a test could reference a
+  // deleted export and only the runner would notice, and only if it ran.
+  //
+  // This config is the DR-5 "tests/ is typechecked by a real tsconfig include"
+  // clause. It covers the consolidated tree as it fills up: cheap today at a
+  // few dozen files, and each move task in 030-033 keeps it green rather than
+  // discovering the debt at the end.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    // Tests import the subject tree, so the program has to span both roots.
+    "rootDir": "..",
+    // Task 031 brought the script suites in, and their subjects are `.mjs`
+    // gates with no declarations. Without this every one of those imports is
+    // an implicit `any`, which also erases the contextual type of each callback
+    // passed to them — one untyped module was producing errors in both classes.
+    // `checkJs` stays off: the gates are not in this program to be checked,
+    // only to be read for inference, which is the same posture the scripts
+    // tsconfig takes toward them.
+    "allowJs": true,
+    "checkJs": false
+  },
+  // Deliberately no `**/*.test.ts` exclusion — checking the tests is the point.
+  //
+  // The ambient declarations come along explicitly: `bun:sqlite` is a virtual
+  // module that only resolves under Bun, and the subject tree reaches it
+  // transitively. An ambient `.d.ts` outside this `include` is not picked up by
+  // being imported, so without this the whole storage layer fails to resolve.
+  //
+  // `../tools/test-helpers/**` is here because it was typechecked by NOTHING.
+  // The root config includes only `src/**`, so when these helpers moved out of
+  // the source tree they left every program at once — and the move was silent,
+  // because the one thing they export to `src/` is a PORT: the census imports
+  // the type, the helper implements it, and a type-only import is erased before
+  // any runner could notice it no longer resolved. Its own header still claimed
+  // the file was "typechecked under the package's strict settings" while its
+  // import pointed at a directory that does not exist. A port implementation is
+  // exactly the wrong module to leave unchecked: it is trusted by the gate that
+  // reads it, and it cannot be trusted by the compiler if no compiler reads it.
+  "include": ["**/*.ts", "../src/**/*.d.ts", "../tools/test-helpers/**/*.ts"],
+  // `unit/` and `integration/` arrived wholesale in task 030 and are NOT yet
+  // checked. The 925 files it moved had never been type-checked anywhere — the
+  // root config excludes `**/*.test.ts` — and putting them under this program
+  // surfaces 2,801 errors across 482 files (789 of them once
+  // `noUncheckedIndexedAccess` is discounted): partial `DispatchContext` test
+  // doubles, `Envelope<unknown>` passed where `ToolResult` is wanted, and
+  // `exactOptionalPropertyTypes` mismatches. That is latent debt the move
+  // EXPOSED rather than caused, and paying it means semantic edits to over half
+  // the test tree — its own task, not a rider on a mechanical relocation.
+  //
+  // Excluding them holds the line exactly where it was before the move (those
+  // files were unchecked then too) instead of relaxing the shared strictness
+  // for the tiers that ARE green. `TestsTsconfig_ExcludedTiers_OnlyShrink`
+  // keeps this list from quietly growing, and it is the whole of the debt:
+  // delete an entry once that tier compiles.
+  // Two kinds of entry live here and they are not the same concession.
+  //
+  // `unit/` and `integration/` are DEBT. They arrived wholesale in task 030 and
+  // are NOT yet checked. The 925 files it moved had never been type-checked
+  // anywhere — the root config excludes `**/*.test.ts` — and putting them under
+  // this program surfaces 2,801 errors across 482 files (789 of them once
+  // `noUncheckedIndexedAccess` is discounted): partial `DispatchContext` test
+  // doubles, `Envelope<unknown>` passed where `ToolResult` is wanted, and
+  // `exactOptionalPropertyTypes` mismatches. That is latent debt the move
+  // EXPOSED rather than caused, and paying it means semantic edits to over half
+  // the test tree — its own task, not a rider on a mechanical relocation.
+  // Excluding them holds the line exactly where it was before the move instead
+  // of relaxing the shared strictness for the tiers that ARE green.
+  //
+  // The other two entries are NOT code — nothing here is debt to pay off. Both
+  // only resolve inside a materialized run directory, under `tsx`, which is a
+  // different module resolution from this program's.
+  //
+  // `evals/**/runs/**` are captured eval artifacts: verbatim records of what a
+  // model wrote, scored as-is by the grader beside them. They are evidence, so
+  // editing one to satisfy a compiler would falsify the measurement they exist
+  // to support, and they carry a `process.exit` module-load harness rather than
+  // describe/it. Vitest excludes them for that second reason; this excludes them
+  // for the first.
+  //
+  // `evals/**/tasks/*/oracle.ts` are the hidden graders. Each imports
+  // `./impl.ts` — the candidate implementation, which is materialized beside it
+  // per run and is deliberately absent from the tree — and each is run as
+  // `tsx oracle.ts` from that directory. Committing an `impl.ts` to satisfy the
+  // import would hand the graded agent the answer.
+  //
+  // Task 033 moved all of it under `tests/`, which is the only reason a
+  // typechecker can see any of it at all.
+  //
+  // `TestsTsconfig_ExcludedTiers_OnlyShrink` holds both lists, separately: the
+  // debt list may only shrink, and the not-code list is fixed.
+  "exclude": [
+    "../node_modules",
+    "../dist",
+    "unit/**",
+    "integration/**",
+    "evals/**/runs/**",
+    "evals/**/tasks/*/oracle.ts"
+  ]
+}

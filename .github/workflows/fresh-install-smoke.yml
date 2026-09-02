@@ -3,7 +3,7 @@ name: Fresh Install Smoke
 # End-to-end bootstrap smoke — task 2.9 of the v2.9 install rewrite.
 #
 # Spawns minimal Ubuntu + Alpine docker containers that have nothing
-# beyond curl/ca-certificates, runs the real `scripts/get-exarchos.sh`
+# beyond curl/ca-certificates, runs the real `tools/release/get-exarchos.sh`
 # against a pinned release tag, and verifies `exarchos --version` and
 # `exarchos mcp` both work from zero-state.
 #
@@ -15,7 +15,7 @@ name: Fresh Install Smoke
 # bootstrap script's download step will 404 against a non-existent
 # release asset. The test treats that case as an INFO-logged skip, not
 # a failure — see the discriminated-union handling in
-# `test/e2e/fresh-install-bootstrap.test.ts`. Once v2.9.0 ships, the
+# `tests/e2e/fresh-install-bootstrap.test.ts`. Once v2.9.0 ships, the
 # 404 branch goes dormant and the `pass` branch asserts.
 #
 # To re-target the smoke at a specific release (e.g. an rc tag), dispatch
@@ -71,4 +71,4 @@ jobs:
           ENABLE_E2E_SMOKE: '1'
           EXARCHOS_SMOKE_VERSION: ${{ github.event.inputs.version || 'v2.9.0' }}
           DOCKER_IMAGE: ${{ matrix.image }}
-        run: npx vitest run test/e2e/fresh-install-bootstrap.test.ts
+        run: npx vitest run tests/e2e/fresh-install-bootstrap.test.ts

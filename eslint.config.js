@@ -8,7 +8,7 @@ import tseslint from 'typescript-eslint';
  * and the custom `scripts/check-*` / `lint:*` scanners). This config exists for
  * ONE purpose: give in-editor + autofix-adjacent feedback on the two
  * single-AST-node Windows anti-patterns, as the shift-left complement to the CI
- * grep-gate (`scripts/check-windows-portability.mjs`, which also owns the
+ * grep-gate (`tools/audit/gates/check-windows-portability.mjs`, which also owns the
  * cross-file handle-leak heuristic that a single-node rule can't express).
  *
  * Deliberately rule-only — NO recommended ruleset — so it never flags
@@ -21,10 +21,22 @@ export default [
     // disposable worktrees at gate-run time, NEVER compiled/linted here. Ignore
     // the whole tree so a deliberately malformed fixture cannot fail repo CI.
     // (The tsconfig `exclude` keeps tsc off it too.)
-    ignores: ['servers/exarchos-mcp/src/evals/benchmarks/seeded-defects/fixtures/**'],
+    ignores: ['tools/evals/evals/benchmarks/seeded-defects/fixtures/**'],
   },
   {
-    files: ['servers/exarchos-mcp/src/**/*.ts'],
+    // Widened by task 042 from `tools/conformance/src` to the whole `tools/`
+    // tree, following task 036's consolidation. Widening reach takes BOTH this
+    // key and the `lint` script's CLI glob — the glob bounds the run regardless
+    // of what the config admits, and this key decides which of those files get
+    // a configuration at all. Change one alone and the other is silently in
+    // charge: before this, `eslint tools/audit/**` reported 38 files "ignored
+    // because no matching configuration was supplied" and exited 0.
+    //
+    // Findings over the newly-linted directories were MEASURED before the
+    // widening rather than assumed: zero. That is a property of this ruleset
+    // being narrow (one `no-restricted-syntax` rule), not a general licence to
+    // widen without looking.
+    files: ['src/**/*.ts', 'tools/**/*.ts'],
     languageOptions: {
       parser: tseslint.parser,
     },

@@ -1,0 +1,110 @@
+{
+  "capturedAt": "2026-08-11",
+  "tree": "b88df6f47",
+  "runner": "cd servers/exarchos-mcp && npx vitest bench --run",
+  "environment": {
+    "platform": "linux",
+    "release": "7.0.11-76070011-generic",
+    "arch": "x64",
+    "cpuModel": "13th Gen Intel(R) Core(TM) i9-13900K",
+    "cpuCount": 32,
+    "totalMemoryGB": 63,
+    "node": "v24.12.0",
+    "note": "A developer workstation, not a CI runner. Comparisons are only meaningful against a run on comparable hardware; a cross-machine delta says nothing."
+  },
+  "withinNoiseRule": {
+    "definition": "A later run is within noise for a benchmark when its mean is at or below regressionThresholdMs. The band is that benchmark's own measured relative margin of error, doubled to account for both runs being noisy, floored at 5%.",
+    "whyPerBenchmark": "Measured RME spans 0.52% to 14.89% across these nine. A single global percentage would either wave through a real regression in the stable benchmarks or cry wolf on every run of the volatile ones. Append_100Events_Sequential at ±14.89% genuinely cannot resolve a 10% change; Materialize_1000MixedEvents_PipelineView at ±0.52% can.",
+    "singleRunCaveat": "One run on one machine. The bands describe within-run variance, not run-to-run variance, which is typically larger. Treat a single breach as a prompt to re-measure rather than as proof of regression."
+  },
+  "supersedes": {
+    "file": "tests/benchmarks/baselines.json",
+    "generated": "2026-02-16",
+    "commit": "858a1b4",
+    "entries": 2,
+    "note": "A baseline did exist, contrary to an earlier framing that said none was ever recorded. It was six months stale, covered two benchmarks rather than nine, and carried no environment metadata or noise definition — so it could not support the \"unchanged within noise\" claim it was cited for. It is left in place; retiring or repointing it belongs with the audit-config retargeting task."
+  },
+  "benchmarks": {
+    "Append_100Events_Sequential": {
+      "mean_ms": 9.1043,
+      "p99_ms": 30.9306,
+      "hz": 109.84,
+      "measuredRmePct": 14.89,
+      "samples": 55,
+      "noiseBandPct": 29.78,
+      "regressionThresholdMs": 11.8156
+    },
+    "Append_1000Events_Sequential": {
+      "mean_ms": 84.2296,
+      "p99_ms": 99.5557,
+      "hz": 11.8723,
+      "measuredRmePct": 10.64,
+      "samples": 6,
+      "noiseBandPct": 21.28,
+      "regressionThresholdMs": 102.1537
+    },
+    "Query_1000Events_WithTypeFilter": {
+      "mean_ms": 1.662,
+      "p99_ms": 2.5039,
+      "hz": 601.68,
+      "measuredRmePct": 6.8,
+      "samples": 301,
+      "noiseBandPct": 13.6,
+      "regressionThresholdMs": 1.888
+    },
+    "Query_1000Events_NoFilter": {
+      "mean_ms": 1.5302,
+      "p99_ms": 1.9809,
+      "hz": 653.51,
+      "measuredRmePct": 0.81,
+      "samples": 327,
+      "noiseBandPct": 5,
+      "regressionThresholdMs": 1.6067
+    },
+    "workflow-fold-cold-10k-events": {
+      "mean_ms": 0.2273,
+      "p99_ms": 0.4257,
+      "hz": 4399.43,
+      "measuredRmePct": 0.82,
+      "samples": 2200,
+      "noiseBandPct": 5,
+      "regressionThresholdMs": 0.2387
+    },
+    "workflow-fold-cold-10k-events-type-filtered": {
+      "mean_ms": 0.1088,
+      "p99_ms": 0.2067,
+      "hz": 9191.87,
+      "measuredRmePct": 0.74,
+      "samples": 4597,
+      "noiseBandPct": 5,
+      "regressionThresholdMs": 0.1142
+    },
+    "Materialize_100GateEvents_PipelineView": {
+      "mean_ms": 0.001,
+      "p99_ms": 0.0019,
+      "hz": 953225.36,
+      "measuredRmePct": 0.75,
+      "samples": 476613,
+      "noiseBandPct": 5,
+      "regressionThresholdMs": 0.0011
+    },
+    "Materialize_100GateEvents_CodeQualityView": {
+      "mean_ms": 0.084,
+      "p99_ms": 0.1577,
+      "hz": 11899.24,
+      "measuredRmePct": 0.86,
+      "samples": 5951,
+      "noiseBandPct": 5,
+      "regressionThresholdMs": 0.0882
+    },
+    "Materialize_1000MixedEvents_PipelineView": {
+      "mean_ms": 2.6378,
+      "p99_ms": 3.0315,
+      "hz": 379.11,
+      "measuredRmePct": 0.52,
+      "samples": 190,
+      "noiseBandPct": 5,
+      "regressionThresholdMs": 2.7697
+    }
+  }
+}

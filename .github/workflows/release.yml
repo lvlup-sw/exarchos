@@ -9,7 +9,7 @@ name: Release
 #                            + SHA-512 checksum sidecars + an Ed25519-signed
 #                            release manifest (DR-20) attached to the
 #                            GitHub Release so the bootstrap scripts
-#                            (`scripts/get-exarchos.sh` / `.ps1`) can
+#                            (`tools/release/get-exarchos.sh` / `.ps1`) can
 #                            fetch them by predictable URL.
 #
 # The broader `v*` trigger remains alongside `v*.*.*` so historical
@@ -36,7 +36,7 @@ jobs:
     name: Publish Release
     # ubuntu-latest matches binary-matrix below — the self-hosted Azure Container
     # Apps Job runner (caj-github-runner-dev, 4 GiB / 8 GiB ephemeral) reproducibly
-    # hangs on `cd servers/exarchos-mcp && npm ci` for this workload (net RX dies
+    # hangs on a plain `npm ci` for this workload (net RX dies
     # after ~1 GB, CPU drops to near-zero until 1-hour replicaTimeout fires). The
     # same step completes in 30-45s on ubuntu-latest. See memory note
     # feedback_self_hosted_runner_npm_ci_stall.
@@ -65,8 +65,7 @@ jobs:
 
       # Route through the shared wrapper for the Playwright browser-download
       # skip + retry/timeout (see docs/rca/2026-05-31-npm-ci-playwright-browser-wedge.md).
-      - run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
-      - run: cd servers/exarchos-mcp && bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+      - run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
       - run: npm run typecheck
       - run: npm run test:run
       - run: npm run build
@@ -99,14 +98,14 @@ jobs:
   # binary-matrix (release)
   # ─────────────────────────────────────────────────────────────────────
   # Cross-compiles the Exarchos CLI + MCP server into a native single-file
-  # executable for every TARGET in `scripts/build-binary.ts`, generates a
+  # executable for every TARGET in `tools/release/build-binary.ts`, generates a
   # SHA-512 sidecar per binary, and uploads the pair as a workflow
   # artifact that `publish-release` then attaches to the GitHub Release.
   #
   # DRIFT CONTRACT (single source of truth: `TARGETS` in
-  # `scripts/build-binary.ts`). Three lists must stay in lock-step:
+  # `tools/release/build-binary.ts`). Three lists must stay in lock-step:
   #
-  #   1. `TARGETS` tuple         — scripts/build-binary.ts (canonical)
+  #   1. `TARGETS` tuple         — tools/release/build-binary.ts (canonical)
   #   2. `matrix.target` here    — release.yml binary-matrix (this job)
   #   3. `matrix.target`         — ci.yml binary-matrix (task 1.5 PR gate)
   #   4. `files:` list           — publish-release step below
@@ -116,14 +115,14 @@ jobs:
   #      DERIVED from list 1's length, not transcribed)
   #
   # Enforcement gates:
-  #   - `scripts/release-workflow.test.ts` — this file (list 2 + 4)
-  #   - `scripts/ci-binary-matrix.test.ts` — ci.yml + package.json (list 3)
-  #   - `scripts/build-binary.test.ts`     — TARGETS shape (list 1)
+  #   - `tests/scripts/release-workflow.test.ts` — this file (list 2 + 4)
+  #   - `tests/scripts/ci-binary-matrix.test.ts` — ci.yml + package.json (list 3)
+  #   - `tests/scripts/build-binary.test.ts`     — TARGETS shape (list 1)
   # Editing any one without the others will fail `npm run test:run`.
   #
   # The `.sha512` sidecar filename convention — `<binary>.sha512` — is
-  # consumed directly by `scripts/get-exarchos.sh` (CHECKSUM_URL) and
-  # `scripts/get-exarchos.ps1`. Do not rename without updating both.
+  # consumed directly by `tools/release/get-exarchos.sh` (CHECKSUM_URL) and
+  # `tools/release/get-exarchos.ps1`. Do not rename without updating both.
   #
   # `fail-fast: false` on the matrix is intentional: a per-target failure
   # should not cancel the other four builds, so you can inspect which
@@ -140,7 +139,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Keep in sync with TARGETS in scripts/build-binary.ts.
+        # Keep in sync with TARGETS in tools/release/build-binary.ts.
         target:
           - linux-x64
           - linux-arm64
@@ -160,26 +159,22 @@ jobs:
           cache: npm
           # Both lockfiles must be cache keys — root deps (js-yaml,
           # @inquirer/prompts) are reachable from the MCP build entry via
-          # `servers/exarchos-mcp/src/cli-commands/install-skills-bridge.js`
+          # `src/cli-commands/install-skills-bridge.js`
           # → `../../../../src/runtimes/load.js` (added in #1213).
           cache-dependency-path: |
             package-lock.json
-            servers/exarchos-mcp/package-lock.json
+            package-lock.json
 
       - name: Install root dependencies
-        # The MCP build entry transitively imports `src/runtimes/load.ts`
+        # The MCP build entry transitively imports `src/install/runtimes/load.ts`
         # which requires `js-yaml`; without root deps the bun --compile step
         # fails with "Could not resolve: js-yaml". Route through the shared
         # wrapper for the Playwright browser-download skip + retry/timeout
         # (see docs/rca/2026-05-31-npm-ci-playwright-browser-wedge.md).
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
-
-      - name: Install MCP server dependencies
-        working-directory: servers/exarchos-mcp
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
       - name: Build binary for ${{ matrix.target }}
-        run: bun run scripts/build-binary.ts --target ${{ matrix.target }}
+        run: bun run tools/release/build-binary.ts --target ${{ matrix.target }}
 
       - name: Generate SHA-512 checksum
         shell: bash
@@ -231,7 +226,7 @@ jobs:
   # `exarchos-release-manifest.json` is an Ed25519-signed record that also
   # pins WHAT was built — the git commit + source-tree digest and the
   # P03-01 frozen contract-authority digest — which are the same values
-  # `scripts/build-binary.ts` stamps into the binaries themselves. That is
+  # `tools/release/build-binary.ts` stamps into the binaries themselves. That is
   # what lets an installer reject a source, contract, manifest or asset
   # mismatch rather than merely a truncated download.
   #
@@ -251,7 +246,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # The manifest builder is a TypeScript module that imports the
-      # `servers/exarchos-mcp/src/release/**` primitives, so it needs bun
+      # `src/install/release/**` primitives, so it needs bun
       # plus that workspace's dependencies (zod) resolvable on disk.
       #
       # SHA-pinned (supply-chain hardening): this job receives
@@ -268,17 +263,13 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
-            servers/exarchos-mcp/package-lock.json
+            package-lock.json
 
-      - name: Install root dependencies
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
-
-      - name: Install MCP server dependencies
-        working-directory: servers/exarchos-mcp
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+      - name: Install dependencies
+        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
       # DR-8: the matrix-asset counts below are DERIVED from `TARGETS`
-      # (`scripts/build-binary-targets.ts`) rather than hard-coded literals.
+      # (`tools/release/build-binary-targets.ts`) rather than hard-coded literals.
       # Previously both this workflow's `expected=` values AND
       # `scripts/release-workflow.test.ts`'s asset-set assertion were
       # transcribed from the same population by hand, so editing `TARGETS`
@@ -289,7 +280,7 @@ jobs:
         id: target-count
         run: |
           set -euo pipefail
-          count=$(bun -e "import('./scripts/build-binary-targets.ts').then(m => console.log(String(m.TARGETS.length)))")
+          count=$(bun -e "import('./tools/release/build-binary-targets.ts').then(m => console.log(String(m.TARGETS.length)))")
           echo "Derived TARGETS length: ${count}"
           echo "count=${count}" >> "$GITHUB_OUTPUT"
 
@@ -305,7 +296,7 @@ jobs:
         run: |
           set -euo pipefail
           names=$(bun -e "
-            import('./scripts/build-binary-targets.ts').then((m) => {
+            import('./tools/release/build-binary-targets.ts').then((m) => {
               const files = m.TARGETS.flatMap((t) => {
                 const base = \`exarchos-\${t.os}-\${t.arch}\${t.os === 'windows' ? '.exe' : ''}\`;
                 return [base, \`\${base}.sha512\`];
@@ -377,7 +368,7 @@ jobs:
         env:
           EXARCHOS_RELEASE_SIGNING_KEY: ${{ secrets.EXARCHOS_RELEASE_SIGNING_KEY }}
         run: |
-          bun run scripts/build-release-manifest.ts \
+          bun run tools/release/build-release-manifest.ts \
             --assets-dir dist/release \
             --out dist/release/exarchos-release-manifest.json \
             --key-id ${{ vars.EXARCHOS_RELEASE_KEY_ID || 'exarchos.release.v1' }} \
@@ -408,7 +399,7 @@ jobs:
         with:
           fail_on_unmatched_files: true
           # Release body template — advertises the two bootstrap scripts
-          # (`scripts/get-exarchos.sh` / `.ps1`). The trailing auto-
+          # (`tools/release/get-exarchos.sh` / `.ps1`). The trailing auto-
           # generated asset list is produced by GitHub from the `files:`
           # attachments below.
           body: |
@@ -435,7 +426,7 @@ jobs:
           # `TARGETS` entry, plus the signed release manifest.
           #
           # Order is {binary, .sha512} per target, targets ordered to
-          # match `TARGETS` in `scripts/build-binary.ts`. Windows uses
+          # match `TARGETS` in `tools/release/build-binary.ts`. Windows uses
           # the `.exe` + `.exe.sha512` convention (the extension is
           # preserved in the sidecar name so the bootstrap scripts can
           # derive it by appending `.sha512` to the binary URL).

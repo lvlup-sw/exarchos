@@ -5,8 +5,8 @@
     "",
     "Why this file exists. Before task 064 the policy lived in two places that",
     "had no way to notice each other: the hand-written expectations inside",
-    "scripts/validate-plugin.sh, and the assertions in src/plugin-validation.test.ts",
-    "/ src/hooks-validation.test.ts. They diverged, and the divergence was total —",
+    "tools/audit/gates/validate-plugin.sh, and the assertions in src/install/plugin-validation.test.ts",
+    "/ src/hooks-validation.test.ts. They diverged, and the divergence was total \u2014",
     "on 2026-08-07 the shell gate demanded `.mcp.json` (deleted on purpose in",
     "2b62e1bf3), demanded a `hooks` field in plugin.json (removed on purpose in",
     "e334a392b), demanded a `SessionEnd` hook (dropped on purpose by DR-7 task 016)",
@@ -15,8 +15,8 @@
     "right; the gate was measuring a package that stopped existing months earlier.",
     "",
     "So the rule is: a change to the shipped package shape is a change to THIS",
-    "file. Both the gate (scripts/validate-plugin.mjs) and the test suite read it,",
-    "so they cannot disagree about the contract again — at worst they disagree",
+    "file. Both the gate (tools/audit/gates/validate-plugin.mjs) and the test suite read it,",
+    "so they cannot disagree about the contract again \u2014 at worst they disagree",
     "with the tree, which is what a gate is for.",
     "",
     "Every entry carries `because` (why the rule holds) and, where a dated",
@@ -32,7 +32,7 @@
       },
       {
         "field": "version",
-        "because": "Marketplace pin + `metadata.compat.minBinaryVersion` reconciliation both read it; src/plugin-validation.test.ts pins it equal to package.json's version."
+        "because": "Marketplace pin + `metadata.compat.minBinaryVersion` reconciliation both read it; src/install/plugin-validation.test.ts pins it equal to package.json's version."
       },
       {
         "field": "commands",
@@ -44,14 +44,14 @@
       },
       {
         "field": "mcpServers",
-        "because": "Inlined here rather than in a standalone .mcp.json — see forbiddenFiles/.mcp.json. This field IS the MCP registration."
+        "because": "Inlined here rather than in a standalone .mcp.json \u2014 see forbiddenFiles/.mcp.json. This field IS the MCP registration."
       }
     ],
     "forbiddenFields": [
       {
         "field": "hooks",
         "because": "hooks/hooks.json sits at the well-known plugin path and Claude Code auto-loads it. Declaring it here ALSO registers it, so every hook fires twice.",
-        "decidedIn": "e334a392b (`chore: fix hooks test`); pinned by src/plugin-validation.test.ts `expect(plugin.hooks).toBeUndefined()`"
+        "decidedIn": "e334a392b (`chore: fix hooks test`); pinned by src/install/plugin-validation.test.ts `expect(plugin.hooks).toBeUndefined()`"
       }
     ],
     "mcpServers": {
@@ -63,17 +63,17 @@
         }
       ],
       "exact": true,
-      "exactBecause": "A second bundled server would be registered on every consumer's machine without them asking for it. src/plugin-validation.test.ts pins the key list to exactly ['exarchos']."
+      "exactBecause": "A second bundled server would be registered on every consumer's machine without them asking for it. src/install/plugin-validation.test.ts pins the key list to exactly ['exarchos']."
     }
   },
   "requiredDirs": [
     {
-      "path": "commands",
+      "path": "rendered/commands",
       "because": "The target of plugin.json's `commands` field. A dangling pointer registers zero commands and reports no error."
     },
     {
-      "path": "skills",
-      "because": "The target of plugin.json's `skills` field — the RENDERED tree, not skills-src/."
+      "path": "rendered/skills",
+      "because": "The target of plugin.json's `skills` field \u2014 the RENDERED tree, not content/."
     }
   ],
   "requiredFiles": [
@@ -85,7 +85,7 @@
   "forbiddenFiles": [
     {
       "path": ".mcp.json",
-      "because": "A standalone .mcp.json at the repo root is auto-detected as PROJECT config by Claude Code, so anyone working in this repo got the exarchos MCP server twice — once from the project file and once from the plugin. The config was inlined into plugin.json's `mcpServers` to remove the project-level auto-discovery path entirely.",
+      "because": "A standalone .mcp.json at the repo root is auto-detected as PROJECT config by Claude Code, so anyone working in this repo got the exarchos MCP server twice \u2014 once from the project file and once from the plugin. The config was inlined into plugin.json's `mcpServers` to remove the project-level auto-discovery path entirely.",
       "decidedIn": "2b62e1bf3 (`fix: inline MCP config into plugin.json, remove standalone .mcp.json`, 2026-02-20)"
     }
   ],
@@ -99,7 +99,7 @@
       },
       {
         "type": "SubagentStop",
-        "because": "The token-attribution seam (#1525/#1561) — the only place per-subagent token usage can be observed. Feeds `subagent.tokens_used`.",
+        "because": "The token-attribution seam (#1525/#1561) \u2014 the only place per-subagent token usage can be observed. Feeds `subagent.tokens_used`.",
         "decidedIn": "#1525"
       }
     ],
@@ -108,22 +108,22 @@
     "retired": [
       {
         "type": "PreToolUse",
-        "because": "Retired enforcement hook — the `exarchos guard` gate. Enforcement moved into the MCP tools.",
+        "because": "Retired enforcement hook \u2014 the `exarchos guard` gate. Enforcement moved into the MCP tools.",
         "decidedIn": "#1476"
       },
       {
         "type": "TaskCompleted",
-        "because": "Retired enforcement hook — the `exarchos task-gate` control point.",
+        "because": "Retired enforcement hook \u2014 the `exarchos task-gate` control point.",
         "decidedIn": "#1476"
       },
       {
         "type": "TeammateIdle",
-        "because": "Retired enforcement hook — the `exarchos teammate-gate` control point.",
+        "because": "Retired enforcement hook \u2014 the `exarchos teammate-gate` control point.",
         "decidedIn": "#1476"
       },
       {
         "type": "SubagentStart",
-        "because": "Retired enforcement hook — the `exarchos subagent-context` injection point.",
+        "because": "Retired enforcement hook \u2014 the `exarchos subagent-context` injection point.",
         "decidedIn": "#1476"
       },
       {
@@ -133,8 +133,8 @@
       },
       {
         "type": "SessionEnd",
-        "because": "The launcher is the lifecycle authority — session lifecycle is sourced from `launch.*` events, so the SessionEnd provenance observer was dropped everywhere.",
-        "decidedIn": "DR-7 / task 016 hook-surface shrink; pinned by src/plugin-validation.test.ts `expect(hookTypes).not.toContain('SessionEnd')`"
+        "because": "The launcher is the lifecycle authority \u2014 session lifecycle is sourced from `launch.*` events, so the SessionEnd provenance observer was dropped everywhere.",
+        "decidedIn": "DR-7 / task 016 hook-surface shrink; pinned by src/install/plugin-validation.test.ts `expect(hookTypes).not.toContain('SessionEnd')`"
       }
     ],
     "forbiddenTokens": [

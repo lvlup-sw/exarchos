@@ -41,9 +41,9 @@ invariants:
       - "Vaughn Vernon, *Implementing Domain-Driven Design* (Addison-Wesley
         2013) — chapter on Event Sourcing"
     references:
-      - docs/architecture/invariants/references/INV-1-event-sourcing.md
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
-      - docs/architecture/projections.md
+      - lvlup-sw/docs:exarchos/docs/architecture/invariants/references/INV-1-event-sourcing.md
+      - src/verbs/gates/check-invariant-conformance.ts
+      - lvlup-sw/docs:exarchos/docs/architecture/projections.md
 
   - id: INV-7
     dimension: substrate-serialization
@@ -83,10 +83,10 @@ invariants:
         https://dl.acm.org/doi/10.1145/356842.356846"
       - "SQLite WAL documentation: https://sqlite.org/wal.html"
     references:
-      - servers/exarchos-mcp/src/event-store/atomic-appender.ts
-      - servers/exarchos-mcp/src/storage/sqlite-backend.ts
-      - servers/exarchos-mcp/test/process/multi-process-append.test.ts
-      - docs/architecture/runtime.md#§4
+      - src/events/atomic-appender.ts
+      - src/storage/sqlite-backend.ts
+      - tests/core/process/multi-process-append.test.ts
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§4
 
   - id: INV-8
     dimension: idempotency-at-the-boundary
@@ -131,8 +131,8 @@ invariants:
       - "Greg Young, *Versioning in an Event Sourced System* (Leanpub):
         https://leanpub.com/esversioning"
     references:
-      - servers/exarchos-mcp/src/event-store/atomic-appender.ts
-      - docs/architecture/runtime.md#§4
+      - src/events/atomic-appender.ts
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§4
 
   - id: INV-9
     dimension: hsm-as-state-machine
@@ -157,9 +157,9 @@ invariants:
         https://jeremydmiller.com/2023/12/06/building-a-critter-stack-applicati\
         on-wolverines-aggregate-handler-workflow-ftw/"
     references:
-      - servers/exarchos-mcp/src/topology/phase-contract.ts
-      - servers/exarchos-mcp/src/workflow/hsm-definitions.ts
-      - docs/architecture/runtime.md#§3-L4
+      - src/workflow/topology/phase-contract.ts
+      - src/workflow/hsm-definitions.ts
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§3-L4
 
   - id: INV-10
     dimension: liveness-event-protocol
@@ -187,8 +187,8 @@ invariants:
         https://learn.microsoft.com/en-us/azure/architecture/patterns/scheduler\
         -agent-supervisor"
     references:
-      - servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts
-      - docs/architecture/runtime.md#§6
+      - src/verbs/merge/merge-orchestrate.ts
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§6
 
   - id: INV-11
     dimension: posture-declared-capabilities
@@ -245,10 +245,10 @@ invariants:
       - "anip-protocol SPEC — posture and handshake (convergent design):
         https://github.com/anip-protocol/anip/blob/main/SPEC.md"
     references:
-      - servers/exarchos-mcp/src/capabilities/resolver.ts
-      - servers/exarchos-mcp/src/agents/generate-agents.ts
-      - servers/exarchos-mcp/src/launcher/create-worktree.ts
-      - docs/architecture/runtime.md#§7
+      - src/workflow/capabilities/resolver.ts
+      - src/runtime/agents/generate-agents.ts
+      - src/runtime/launcher/create-worktree.ts
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§7
 
   - id: INV-12
     dimension: next-actions-as-affordance
@@ -279,9 +279,9 @@ invariants:
         https://interaction-design.org/literature/book/the-glossary-of-human-co\
         mputer-interaction/affordances"
     references:
-      - servers/exarchos-mcp/src/next-actions-computer.ts
-      - servers/exarchos-mcp/src/format.ts
-      - docs/architecture/runtime.md#§7
+      - src/next-actions-computer.ts
+      - src/format.ts
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§7
 
   - id: INV-13
     dimension: process-manager-two-event-split
@@ -294,7 +294,7 @@ invariants:
       # `*.requested` intent. Encoded as any-of[ no-added-executed OR
       # added-requested ] — it fires only when an added `(merge|onboard).executed`
       # emission appears with no added matching `.requested`. Added-line-anchored
-      # (`\n\+`) so a REMOVAL never false-fires; scoped to the orchestrate handler
+      # (`\n\+`) so a REMOVAL never false-fires; scoped to the verb handler
       # tree so unrelated `.executed` events (gate/diagnostic) are out of range.
       # The `(merge|onboard)` alternation names the known two-event mutator
       # families — extend it when a new external-mutator family is introduced.
@@ -306,7 +306,7 @@ invariants:
       mode: check
       check:
         scope:
-          fileGlob: "servers/exarchos-mcp/src/orchestrate/**"
+          fileGlob: "src/verbs/**"
         node:
           any-of:
             - kind: grep
@@ -340,9 +340,9 @@ invariants:
       - "Greg Young, *Why Event Sourced Systems Fail*:
         https://www.youtube.com/watch?v=FKFu78ZEIi8"
     references:
-      - servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts
-      - servers/exarchos-mcp/src/event-store/atomic-appender.ts
-      - docs/architecture/runtime.md#§4-process-manager-handlers
+      - src/verbs/merge/merge-orchestrate.ts
+      - src/events/atomic-appender.ts
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§4-process-manager-handlers
 
   - id: INV-14
     dimension: native-primitive-first-recovery
@@ -367,7 +367,7 @@ invariants:
       check:
         kind: grep
         pattern: "\\n\\+[^\\n]*'reset', *'--hard'"
-        fileGlob: "servers/exarchos-mcp/src/**"
+        fileGlob: "src/**"
     axis: substrate
     cost-of-load: reference-only
     applies-to:
@@ -393,8 +393,8 @@ invariants:
       - "git documentation — `git merge --abort`, `git reset --keep`:
         https://git-scm.com/docs/git-reset"
     references:
-      - servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts
-      - docs/architecture/runtime.md#§5
+      - src/verbs/merge/merge-orchestrate.ts
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§5
 
   - id: INV-15
     dimension: single-machine-frame
@@ -426,8 +426,8 @@ invariants:
         https://learn.microsoft.com/en-us/archive/blogs/clemensv/cloud-architec\
         ture-the-scheduler-agent-supervisor-pattern"
     references:
-      - docs/architecture/runtime.md#§1
-      - docs/architecture/runtime.md#§8
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§1
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§8
 
   - id: INV-2
     dimension: contract-client-equivalence
@@ -453,7 +453,7 @@ invariants:
         must be covered by a governed, unexpired row in CLI_CONTRACT_DEVIATIONS
         carrying an owner, a rationale, a retirement condition and an expiry.
         Flag a new direct-dispatch path with no ledger row, behavior added to
-        adapters/cli.ts or adapters/mcp.ts beyond presentation, and any verb
+        adapters/cli/cli.ts or adapters/mcp/mcp.ts beyond presentation, and any verb
         lacking a registered outputSchema. Do NOT accept a passing parity
         fixture as evidence that two hand-written surfaces are equal by
         construction.
@@ -475,7 +475,7 @@ invariants:
       carriers (the parity harnesses plus each action's registered Zod
       outputSchema) is the WITNESS of that construction, never the invariant
       itself: a suite of green parity fixtures does not make two hand-written
-      surfaces equal. The shipped `adapters/cli.ts` meets this framing for
+      surfaces equal. The shipped `adapters/cli/cli.ts` meets this framing for
       dispatch ADDRESSING: every api-action call site addresses its action by
       contract ActionId through the generated client
       (`contract/cli/generated-client.ts`, a contract projection) which verifies
@@ -496,11 +496,11 @@ invariants:
       - "Anthropic, *Model Context Protocol — Tools* (2024):
         https://modelcontextprotocol.io/specification/2025-06-18/server/tools"
     references:
-      - docs/architecture/invariants/references/INV-2-facade-equivalence.md
-      - servers/exarchos-mcp/src/contract/cli/cli-contract-seam.ts
-      - servers/exarchos-mcp/src/contract/cli/generated-client.ts
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
-      - docs/designs/archive/2026-05-07-milestone-16-mcp-alignment.md
+      - lvlup-sw/docs:exarchos/docs/architecture/invariants/references/INV-2-facade-equivalence.md
+      - src/contract/cli/cli-contract-seam.ts
+      - src/contract/cli/generated-client.ts
+      - src/verbs/gates/check-invariant-conformance.ts
+      - lvlup-sw/docs:exarchos/docs/designs/archive/2026-05-07-milestone-16-mcp-alignment.md
 
   - id: INV-3
     dimension: basileus-forward
@@ -539,16 +539,17 @@ invariants:
         Remote Facade (Addison-Wesley 2002):
         https://martinfowler.com/eaaCatalog/remoteFacade.html"
     references:
-      - docs/architecture/invariants/references/INV-3-basileus-forward.md
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
-      - servers/exarchos-mcp/src/capabilities/resolver.ts
-      - servers/exarchos-mcp/src/adapters/remote-mcp.ts
+      - lvlup-sw/docs:exarchos/docs/architecture/invariants/references/INV-3-basileus-forward.md
+      - src/verbs/gates/check-invariant-conformance.ts
+      - src/workflow/capabilities/resolver.ts
+      - src/adapters/mcp/remote-mcp.ts
+
   - id: INV-4
     dimension: platform-agnosticity
     axis: substrate
     cost-of-load: reference-only
     applies-to:
-      - skills-src
+      - content
       - runtimes
       - skills-renderer
       - commands
@@ -563,16 +564,12 @@ invariants:
       exists, and a retirement condition. Conformance plus shim minimization —
       not render-parity across N runtime variants — is the metric, because a
       byte-perfect per-harness render proves the artifacts match, not that the
-      guarantee holds. Source-of-truth edits go to skills-src/; everything under
-      skills/** is generated build output and is never edited directly.
+      guarantee holds. Source-of-truth edits go to content/; everything under
+      rendered/** is generated build output and is never edited directly.
       Runtime-specific text is tokenized via {{TOKEN}} placeholders or guarded
       via <!-- requires:* --> blocks. INV-4 owns the *harness* axis; INV-6 owns
       the orthogonal *workload* axis (workflow types) and INV-16 the orthogonal
       *OS* axis — substrate guarantees hold across all three.
-    references:
-      - docs/architecture/invariants/references/INV-4-platform-agnosticity.md
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
-      - skills-src/SKILL_AUTHORING.md
     citations:
       - "Andrew Hunt & David Thomas, *The Pragmatic Programmer* — DRY / Single
         Source of Truth (Addison-Wesley 1999):
@@ -583,6 +580,10 @@ invariants:
         ew"
       - "Anthropic, *Model Context Protocol — Architecture* (2025):
         https://modelcontextprotocol.io/specification/2025-06-18/architecture"
+    references:
+      - lvlup-sw/docs:exarchos/docs/architecture/invariants/references/INV-4-platform-agnosticity.md
+      - src/verbs/gates/check-invariant-conformance.ts
+      - content/_shared/SKILL_AUTHORING.md
     phase-affinity:
       - review
     workflow-affinity:
@@ -591,32 +592,28 @@ invariants:
       - refactor
       - oneshot
     enforcement:
-      # mode:audit, not check (task 086): the prior diff-precise check
-      # (issue #1466) fired a grep on the hunk header of ANY diff touching
-      # skills/**, so it could not distinguish a REGENERATED tree — which
-      # CLAUDE.md mandates committing alongside a skills-src/ change — from a
-      # HAND edit skills-src/ does not reproduce. That made it a blocking
-      # invariant a conforming commit could not satisfy (73 files on one
-      # branch alone), training reviewers to ignore it. Whether a skills/**
-      # diff is generated output is a whole-tree render-equivalence question
-      # the diff-grep DSL cannot see (no exec leaf kind, diff-only visibility)
-      # — the same reasoning that keeps INV-2 and INV-6 in audit mode.
-      # `npm run skills:guard` (dist/skills-guard.js) already answers it
-      # precisely: it re-renders skills-src/ via `npm run build:skills` and
-      # diffs the result against the committed tree, so it distinguishes the
-      # two cases the grep leaf could not. That render-equivalence probe is
-      # the mechanical backstop this audit defers to.
+      # mode:audit, not check: the prior diff-precise check fired a grep on the
+      # hunk header of ANY diff touching the generated tree, so it could not
+      # distinguish a regenerated tree — which must be committed alongside a
+      # content/ change — from a hand edit content/ does not reproduce. That
+      # made it a blocking invariant a conforming commit could not satisfy,
+      # training reviewers to ignore it. Whether a rendered/** diff is generated
+      # output is a whole-tree render-equivalence question the diff-grep DSL
+      # cannot see. `npm run render:guard` already answers it: it re-renders
+      # content/ via `npm run build:skills` and diffs the result against the
+      # committed tree. That probe is the mechanical backstop this audit
+      # defers to.
       mode: audit
-      audit-prompt: "Does this diff touch any file under skills/**? A touched
+      audit-prompt: "Does this diff touch any file under rendered/**? A touched
         generated file is ONLY a violation when it diverges from a fresh render
-        of skills-src/ -- the render-equivalence probe npm run skills:guard
-        (dist/skills-guard.js) answers this precisely: it re-renders skills-src/
-        via npm run build:skills and diffs the result against the committed
-        skills/** tree. A REGENERATED tree (skills:guard passes) is conformant
-        and CLAUDE.md-mandated -- committing skills/** alongside its skills-src/
-        source is the convention, not a violation. Flag a skills/** diff only
-        when skills:guard fails for it (or was not run before commit), never
-        merely because skills/** was touched."
+        of content/ -- the render-equivalence probe npm run render:guard
+        answers this precisely: it re-renders content/ via npm run build:skills
+        and diffs the result against the committed rendered/** tree. A
+        REGENERATED tree (render:guard passes) is conformant -- committing
+        rendered/** alongside its content/ source is the convention, not a
+        violation. Flag a rendered/** diff only when render:guard fails for it
+        (or was not run before commit), never merely because rendered/** was
+        touched."
     severity:
       default: blocking
       by-workflow:
@@ -655,10 +652,10 @@ invariants:
       - "JSON Schema, *Validation* (draft 2020-12):
         https://json-schema.org/draft/2020-12/json-schema-validation"
     references:
-      - docs/architecture/invariants/references/INV-5a-input-ergonomics.md
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
-      - servers/exarchos-mcp/src/registry.ts
-      - servers/exarchos-mcp/src/adapters/schema-to-flags.ts
+      - lvlup-sw/docs:exarchos/docs/architecture/invariants/references/INV-5a-input-ergonomics.md
+      - src/verbs/gates/check-invariant-conformance.ts
+      - src/registry/actions
+      - src/adapters/cli/schema-to-flags.ts
 
   - id: INV-5b
     dimension: output-contract
@@ -686,11 +683,11 @@ invariants:
       - "JSON Schema, *Validation* (draft 2020-12):
         https://json-schema.org/draft/2020-12/json-schema-validation"
     references:
-      - docs/architecture/invariants/references/INV-5b-output-contract.md
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
-      - servers/exarchos-mcp/src/format.ts
-      - servers/exarchos-mcp/src/next-actions-computer.ts
-      - servers/exarchos-mcp/src/mcp/tasks-methods.ts
+      - lvlup-sw/docs:exarchos/docs/architecture/invariants/references/INV-5b-output-contract.md
+      - src/verbs/gates/check-invariant-conformance.ts
+      - src/format.ts
+      - src/next-actions-computer.ts
+      - src/mcp/tasks-methods.ts
 
   - id: INV-5c
     dimension: aspire-verbs
@@ -714,10 +711,10 @@ invariants:
       - "Adam Wiggins, *The Twelve-Factor App — Admin processes* (2017):
         https://12factor.net/admin-processes"
     references:
-      - docs/architecture/invariants/references/INV-5c-aspire-verbs.md
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
-      - servers/exarchos-mcp/src/describe/handler.ts
-      - servers/exarchos-mcp/src/adapters/cli.ts
+      - lvlup-sw/docs:exarchos/docs/architecture/invariants/references/INV-5c-aspire-verbs.md
+      - src/verbs/gates/check-invariant-conformance.ts
+      - src/describe/handler.ts
+      - src/adapters/cli/cli.ts
 
   - id: INV-5d
     dimension: action-discriminator
@@ -745,19 +742,19 @@ invariants:
       annotations (destructiveHint / readOnlyHint / idempotentHint /
       openWorldHint) live on CompositeAction post-#1268.
     references:
-      - docs/architecture/invariants/references/INV-5d-action-discriminator.md
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
-      - servers/exarchos-mcp/src/registry.ts
-      - servers/exarchos-mcp/src/adapters/mcp.ts
+      - lvlup-sw/docs:exarchos/docs/architecture/invariants/references/INV-5d-action-discriminator.md
+      - src/verbs/gates/check-invariant-conformance.ts
+      - src/registry/tools.ts
+      - src/adapters/mcp/mcp.ts
 
   - id: INV-6
     dimension: workload-agnosticism
     integrity-class: substrate
     phase-affinity: [ review ]
     enforcement:
-      # mode:audit, not check: scripts/lint-inv6.mjs is a deliberately-advisory
+      # mode:audit, not check: tools/audit/gates/lint-inv6.mjs is a deliberately-advisory
       # literal scan with a frontmatter-declaration escape hatch a diff-grep
-      # cannot replicate (legitimate prose in skills-src references workflow
+      # cannot replicate (legitimate prose in content references workflow
       # types). The judgment stays with the reviewer; the script remains the
       # out-of-band advisory lint.
       mode: audit
@@ -771,15 +768,15 @@ invariants:
     applies-to:
       - runtime-substrate
       - topology
-      - skills-src
+      - content
       - playbooks
     summary: >
       The runtime makes no assumption about which workload is executing.
       Substrate guarantees (RT-1..RT-6) hold identically for every workflow
       type. Workflow-type-specific concerns belong in topology.yaml, not the
       catalog. Skills describe behaviors; playbooks/commands describe workflows.
-      Operational projection: scripts/lint-inv6.mjs grep for workflow-typed
-      literals in skills-src/.
+      Operational projection: tools/audit/gates/lint-inv6.mjs grep for workflow-typed
+      literals in content/.
     citations:
       - "AWP runtime-agnostic protocol:
         https://github.com/veegee82/agent-workflow-protocol/blob/main/docs/runt\
@@ -789,9 +786,9 @@ invariants:
       - "Novita framework-agnostic runtime:
         https://blogs.novita.ai/novita-agent-runtime-agentcore-compatible/"
     references:
-      - docs/architecture/invariants/references/INV-6-workflow-agnosticism.md
-      - scripts/lint-inv6.mjs
-      - docs/architecture/runtime.md#§1
+      - lvlup-sw/docs:exarchos/docs/architecture/invariants/references/INV-6-workflow-agnosticism.md
+      - tools/audit/gates/lint-inv6.mjs
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§1
 
   - id: INV-16
     dimension: os-portability
@@ -812,13 +809,13 @@ invariants:
       # REMOVAL (a fix) never false-fires. The broader portability surface
       # (path.join, SQLite-handle release before rm, .cmd-shim spawns) stays
       # covered by the blocking windows-latest CI job and
-      # scripts/check-windows-portability.mjs — this check is the diff-precise,
+      # tools/audit/gates/check-windows-portability.mjs — this check is the diff-precise,
       # front-of-pipeline slice of that backstop. Blocking severity (unchanged).
       mode: check
       check:
         kind: grep
         pattern: "\\n\\+[^\\n]*new +URL *\\( *import\\.meta\\.url *\\) *\\.pathname"
-        fileGlob: "servers/exarchos-mcp/src/**"
+        fileGlob: "src/**"
     axis: substrate
     cost-of-load: reference-only
     applies-to:
@@ -846,10 +843,10 @@ invariants:
       - "Node.js, *fs.rm* (maxRetries/retryDelay for EBUSY/EPERM on Windows):
         https://nodejs.org/api/fs.html#fspromisesrmpath-options"
     references:
-      - servers/exarchos-mcp/src/utils/paths.ts
-      - servers/exarchos-mcp/src/utils/process.ts
-      - servers/exarchos-mcp/src/test-helpers/temp-dir.ts
-      - scripts/check-windows-portability.mjs
+      - src/utils/paths.ts
+      - src/utils/process.ts
+      - tools/test-helpers/temp-dir.ts
+      - tools/audit/gates/check-windows-portability.mjs
       - .github/workflows/ci.yml
 
   - id: basileus-boundary
@@ -866,9 +863,9 @@ invariants:
       coordination uses the Ontology MCP Server (intent_register) rather than
       bespoke RPC. Strategos.Contracts via TypeSpec governs schema.
     references:
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
-      - docs/research/2026-05-14-semantic-merge-queue-audit.md
-      - servers/exarchos-mcp/src/sync
+      - src/verbs/gates/check-invariant-conformance.ts
+      - lvlup-sw/docs:exarchos/docs/research/2026-05-14-semantic-merge-queue-audit.md
+      - src/sync
   - id: INV-17
     dimension: response-economy
     axis: substrate
@@ -894,11 +891,11 @@ invariants:
       INV-17 is the response-economy specialization of that output-contract
       totality obligation."
     references:
-      - servers/exarchos-mcp/src/registry.ts
-      - servers/exarchos-mcp/src/core/dispatch.ts
-      - servers/exarchos-mcp/src/core/dispatch.economy-seam.ts
-      - servers/exarchos-mcp/src/core/economy.ts
-      - docs/specs/2026-07-12-tool-token-economy-remediation.md
+      - src/registry/hints.ts
+      - src/dispatch/core/dispatch.ts
+      - src/dispatch/core/dispatch.economy-seam.ts
+      - src/dispatch/core/economy.ts
+      - lvlup-sw/docs:exarchos/docs/specs/2026-07-12-tool-token-economy-remediation.md
     citations:
       - "Anthropic, *Writing effective tools for AI agents / tool-use best
         practices* (2024):
@@ -963,11 +960,11 @@ invariants:
 
         Report each vacuous declaration by action + file:line. The live baseline
         is enumerated by
-        `servers/exarchos-mcp/src/architecture/output-schema-census.ts` — read
+        `tools/conformance/src/output-schema-census.ts` — read
         it rather than quoting a count — and pinned shrink-only by the allowlist
-        in `servers/exarchos-mcp/src/output-schema-vacuity-allowlist.ts`, whose
+        in `src/output-schema-vacuity-allowlist.ts`, whose
         key set is frozen in
-        `servers/exarchos-mcp/src/output-schema-seed-pin.ts`. A diff adding a
+        `tools/conformance/src/output-schema-seed-pin.ts`. A diff adding a
         vacuous declaration, or moving an allowlist entry sideways rather than
         off, is a violation.
     severity:
@@ -1000,12 +997,12 @@ The catalog gates behind the `.exarchos.yml: invariants.devCatalog: enabled` fla
 
 ## Vocabulary
 
-The vocabulary-lint scanner (`servers/exarchos-mcp/src/architecture/vocabulary-lint.ts`, exposed via `npm run lint:invariants`) walks the live normative surfaces — `docs/architecture/`, `docs/guides/`, `skills-src/`, and `commands/` — for tokens matching `/\b(INV-\d+[a-d]?|DIM-\d+)\b/` and cross-checks against the IDs declared here. Dated record trees under `docs/` (designs, plans, research, rca, contexts, followups, proposals) are intentionally out of scope so retired vocabulary (e.g. the `DIM-*` dimensions removed in #1477) does not fail the lint forever; the `DIM-\d+` shape is retained in the regex so a stray reference in a live surface still surfaces. Unknown references are findings; the vocabulary lint is enforcing (exits non-zero on findings).
+The vocabulary-lint scanner (`src/architecture/vocabulary-lint.ts`, exposed via `npm run lint:invariants`) walks the live normative surfaces — `docs/architecture/`, `docs/guides/`, `content/`, and `commands/` — for tokens matching `/\b(INV-\d+[a-d]?|DIM-\d+)\b/` and cross-checks against the IDs declared here. Dated record trees under `docs/` (designs, plans, research, rca, contexts, followups, proposals) are intentionally out of scope so retired vocabulary (e.g. the `DIM-*` dimensions removed in #1477) does not fail the lint forever; the `DIM-\d+` shape is retained in the regex so a stray reference in a live surface still surfaces. Unknown references are findings; the vocabulary lint is enforcing (exits non-zero on findings).
 
 ## Consumers
 
 - `/exarchos:ideate` — surfaces relevant invariants as Constraints during Phase 0 (before Phase 1), before the clarifying questions.
-- `check_invariant_conformance` gate (`servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts`) — audits design proposals against INV-1..INV-15 (substrate runtime invariants). The audit prompt is catalog-generated (`servers/exarchos-mcp/src/architecture/audit-prompt.ts`). This gate replaced the retired `design-invariants` skill (T-23).
+- `check_invariant_conformance` gate (`src/verbs/gates/check-invariant-conformance.ts`) — audits design proposals against INV-1..INV-15 (substrate runtime invariants). The audit prompt is catalog-generated (`src/architecture/audit-prompt.ts`). This gate replaced the retired `design-invariants` skill (T-23).
 - `vocabulary-lint` — flags references to invariant IDs not registered here.
 - Future: `#1275` MCP Resources — expose this catalog as `resources/exarchos-invariants` once Resources land.
 
@@ -1013,4 +1010,4 @@ The vocabulary-lint scanner (`servers/exarchos-mcp/src/architecture/vocabulary-l
 
 - [`docs/architecture/projections.md`](projections.md) — projection layer specifics.
 - [`docs/architecture/runtime.md`](runtime.md) — runtime / capability resolution.
-- [`check-invariant-conformance.ts`](../../servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts) — the conformance gate that consumes this catalog (replaced the retired `design-invariants` skill in T-23).
+- [`check-invariant-conformance.ts`](../../src/verbs/gates/check-invariant-conformance.ts) — the conformance gate that consumes this catalog (replaced the retired `design-invariants` skill in T-23).
