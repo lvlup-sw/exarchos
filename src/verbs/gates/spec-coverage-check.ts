@@ -10,6 +10,9 @@ import { runCommandSync } from '../../utils/process.js';
 import { join } from 'node:path';
 import { toPosix } from '../../utils/paths.js';
 import type { ToolResult } from '../../format.js';
+import type { EventStore } from '../../events/store.js';
+import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
+import { runPhaseGateWithEvidence } from './gate-runner.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -24,6 +27,8 @@ import type { ToolResult } from '../../format.js';
 export type SpecCoveragePhase = 'plan' | 'post-implementation';
 
 export interface SpecCoverageCheckArgs {
+  /** The stream the gate's durable evidence is recorded against. */
+  readonly featureId: string;
   readonly planFile: string;
   readonly repoRoot: string;
   readonly skipRun?: boolean;
@@ -221,7 +226,41 @@ function generateReport(
 
 // ─── Handler ────────────────────────────────────────────────────────────────
 
-export function handleSpecCoverageCheck(args: SpecCoverageCheckArgs): ToolResult {
+export async function handleSpecCoverageCheck(
+  args: SpecCoverageCheckArgs,
+  stateDir: string,
+  eventStore: EventStore,
+): Promise<ToolResult> {
+  if (!args.featureId) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'featureId is required' },
+    };
+  }
+
+  // The gate declares durable gate evidence as a postcondition and used to
+  // append nothing at all, so every caller that observes postconditions read a
+  // success carrier that had broken its own contract. Routing through the
+  // shared phase-gate runner records the evidence before any success carrier
+  // escapes. The runner is the only append here: this action declares no
+  // catalog emissions, so it still mints no `gate.executed` row of its own.
+  return runPhaseGateWithEvidence({
+    streamId: args.featureId,
+    gateClass: 'spec-coverage',
+    requirementId: 'requirement:spec-coverage',
+    stateDir,
+    eventStore,
+    subject: (phaseAttemptId) =>
+      createEvidenceSubject(
+        { kind: 'phase-attempt', phaseAttemptId },
+        { gate: 'spec-coverage', phase: 'planning' },
+      ),
+    providerInput: args,
+    executeProvider: async () => executeSpecCoverageCheck(args),
+  });
+}
+
+function executeSpecCoverageCheck(args: SpecCoverageCheckArgs): ToolResult {
   const { planFile, repoRoot, skipRun = false, coveragePhase: phase = 'post-implementation' } = args;
 
   // Validate inputs

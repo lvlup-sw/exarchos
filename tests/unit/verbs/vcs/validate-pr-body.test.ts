@@ -61,6 +61,33 @@ describe('handleValidatePrBody', () => {
     expect(data.missingSections).toContain('Test Plan');
   });
 
+  it('MissingSectionUnderEnforce_ReturnsRefusalNamingTheSections', async () => {
+    // The same body as the case above, asked for as a verdict a composition can
+    // act on. A step's failure policy reads the envelope, never the payload, so
+    // this is the only shape in which a missing section can stop a later step.
+    const body = '## Summary\nSome summary\n';
+    const result = await handleValidatePrBody({ body, enforce: true });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('PR_BODY_INCOMPLETE');
+    expect(result.error?.message).toContain('Changes');
+    expect(result.error?.message).toContain('Test Plan');
+    // The report the success carrier would have held is in the message rather
+    // than dropped.
+    expect(result.error?.message).toContain('PR body validation failed.');
+  });
+
+  it('AllSectionsPresentUnderEnforce_StillReturnsThePassingCarrier', async () => {
+    // Enforcement changes the failing path only — a passing verdict answers
+    // exactly as it does without it.
+    const result = await handleValidatePrBody({ body: VALID_BODY, enforce: true });
+
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean; missingSections: readonly string[] };
+    expect(data.passed).toBe(true);
+    expect(data.missingSections).toEqual([]);
+  });
+
   it('ReadsFromPrNumber', async () => {
     mockedExecFileSync.mockReturnValue(
       JSON.stringify({ body: VALID_BODY, author: { login: 'human' }, headRefName: 'feat/cool' }),

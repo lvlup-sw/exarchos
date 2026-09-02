@@ -2,7 +2,7 @@
 
 import type { ValidTransitionTarget } from './workflow/state-machine.js';
 import type { Correction } from './projections/telemetry/auto-correction.js';
-import type { NextAction } from './next-action.js';
+import type { NextAction, RegistryAdvertisement } from './next-action.js';
 import type { ProjectionDegradedDetail } from './projections/degraded-result.js';
 import {
   ANTHROPIC_NATIVE_CACHING,
@@ -64,6 +64,27 @@ export const ECONOMY_META_TRUNCATED = 'truncated' as const;
 /** `_meta` key stamped on a fail-open (uncapped, degraded) response. */
 export const ECONOMY_META_DEGRADED = 'economyDegraded' as const;
 
+/**
+ * The compact receipt a bounded-segment refusal carries on its error.
+ *
+ * A segment that halted still executed: leaves ran, events landed, and the
+ * operation record committed. `leaves[].events` is the COUNT rather than the
+ * events themselves — the refusal is a pointer back into the log, not a copy
+ * of it, and the derived per-leaf operation id is what retrieves the rest.
+ */
+export interface IntentFailureDetail {
+  readonly operationId: string;
+  readonly outcome: 'committed' | 'failed';
+  readonly failedLeaf?: string;
+  readonly tailSequence: number;
+  readonly leaves: readonly {
+    readonly action: string;
+    readonly status: string;
+    readonly events: number;
+    /** An advisory-mode emission finding survives the refusal, not just the receipt. */
+    readonly emissionViolation?: string;
+  }[];
+}
 
 export interface ToolResult {
   readonly success: boolean;
@@ -95,6 +116,19 @@ export interface ToolResult {
     // refused. Type-only import — erased at runtime, so `format.ts` picks up
     // no dependency on the projections graph.
     projectionDegraded?: ProjectionDegradedDetail;
+    // The compact receipt a bounded-segment refusal carries. `data` is kept
+    // only on the success path at the envelope boundary, so a failed segment's
+    // receipt has to ride inside the error or the caller never sees that the
+    // operation ran at all — which id to replay, how far it got, where the log
+    // now ends. Structural rather than imported so this module picks up no
+    // dependency on the executor's graph.
+    intentReceipt?: IntentFailureDetail;
+    // The merge result a PR_MERGED_EVENT_UNRECORDED refusal preserves. Same
+    // rule as `intentReceipt`: the remote merge already landed, so the caller
+    // must be able to read what happened off the failure — and the failed
+    // envelope variant admits no top-level `data`, so the result rides inside
+    // the error. Structural for the same no-new-dependency reason.
+    mergeResult?: { readonly merged: boolean; readonly sha?: string; readonly error?: string };
   };
   readonly warnings?: readonly string[];
   readonly _meta?: unknown;
@@ -135,6 +169,12 @@ export interface Envelope<T> {
    * actions, view/event-store/orchestrate composites).
    */
   readonly next_actions: readonly NextAction[];
+  /**
+   * Allow-decided registry ActionIds. Distinct from `next_actions`: these are
+   * ActionIds plus the workflow subject they were decided against, never phase
+   * names or control verbs. Absent when nothing was advertised.
+   */
+  readonly advertised_actions?: readonly RegistryAdvertisement[];
   readonly _eventHints?: unknown;
   /**
    * Runtime-specific prompt-cache hint (T051, DR-14).
@@ -547,6 +587,10 @@ export function toEnvelope(result: ToolResult): Envelope<unknown> | ErrorEnvelop
     ...(sourceError.tool !== undefined ? { tool: sourceError.tool } : {}),
     ...(sourceError.action !== undefined ? { action: sourceError.action } : {}),
     ...(sourceError.validActions !== undefined ? { validActions: sourceError.validActions } : {}),
+    // The bounded executor's compact receipt. Threaded explicitly, like every
+    // other field above: this builder copies a named set rather than spreading,
+    // so a detail that is not named here is a detail the caller never receives.
+    ...(sourceError.intentReceipt !== undefined ? { intentReceipt: sourceError.intentReceipt } : {}),
   };
   const failure: ErrorEnvelope = {
     success: false,

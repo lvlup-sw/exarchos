@@ -41,7 +41,7 @@ import {
   type EffectOwnershipRule,
 } from '../../../src/architecture/effect-ledger.js';
 import { EVENT_ANNOTATIONS } from '../../../src/events/event-annotations.js';
-import { TOOL_REGISTRY } from '../../../src/registry.js';
+import { TOOL_REGISTRY, contractEmissionsOf } from '../../../src/registry.js';
 import {
   EVENT_LIFECYCLES,
   EVENT_TIERS,
@@ -53,6 +53,7 @@ import {
   DIAGNOSTIC_SEVERITY_POLICY,
   EMISSION_DENOMINATOR_FLOOR,
   EMISSION_PROVIDER_MISMATCH_CODE,
+  MULTI_PRIMARY_OWNER_CODE,
   PROVIDER_DISAGREEMENT_DISPOSITIONS,
   PROVIDER_REGISTRY_DRIFT_CODE,
   RegistrationWeldError,
@@ -61,6 +62,7 @@ import {
   STALE_COVER_LIFECYCLE_POLICY,
   UNRESOLVABLE_PROVIDER_CODE,
   WELD_RESOLUTION_POLICY,
+  ZERO_PRIMARY_OWNER_CODE,
   assertRegistrationWeldsAtStartup,
   auditDisagreementDispositions,
   auditStaleCoverDispositions,
@@ -188,6 +190,8 @@ function conformingEmissionEdgesFor(
     event: eventType,
     action: `${eventType}-emitter`,
     declaringTool: provider,
+    role: 'primary' as const,
+    owner: provider.startsWith('exarchos_') ? provider.slice('exarchos_'.length) : provider,
   }));
 }
 
@@ -235,6 +239,7 @@ interface DiagnosticSeed {
   readonly providers: readonly EffectProvider[];
   readonly rules: readonly EffectOwnershipRule[];
   readonly emissions: readonly EmissionEdge[];
+  readonly primaryOwnerEmissions?: readonly EmissionEdge[];
 }
 
 /**
@@ -368,6 +373,63 @@ const DIAGNOSTIC_SEEDS: readonly DiagnosticSeed[] = [
     providers: EFFECT_PROVIDERS,
     rules: EFFECT_OWNERSHIP,
     emissions: CONFORMING_EMISSIONS,
+  },
+  {
+    code: 'EMPTY_PRIMARY_OWNER_DENOMINATOR',
+    annotations: EVENT_ANNOTATIONS,
+    providers: EFFECT_PROVIDERS,
+    rules: EFFECT_OWNERSHIP,
+    emissions: CONFORMING_EMISSIONS,
+    primaryOwnerEmissions: [],
+  },
+  {
+    code: 'NARROWED_PRIMARY_OWNER_DENOMINATOR',
+    annotations: EVENT_ANNOTATIONS,
+    providers: EFFECT_PROVIDERS,
+    rules: EFFECT_OWNERSHIP,
+    emissions: CONFORMING_EMISSIONS,
+    primaryOwnerEmissions: declaredEmissionEdges().slice(0, 1),
+  },
+  {
+    code: ZERO_PRIMARY_OWNER_CODE,
+    annotations: EVENT_ANNOTATIONS,
+    providers: EFFECT_PROVIDERS,
+    rules: EFFECT_OWNERSHIP,
+    emissions: CONFORMING_EMISSIONS,
+    primaryOwnerEmissions: [
+      ...declaredEmissionEdges(),
+      {
+        event: 'seeded.zero-primary',
+        action: 'recovery-only',
+        declaringTool: 'exarchos_orchestrate',
+        role: 'recovery',
+        owner: 'orchestrate',
+      },
+    ],
+  },
+  {
+    code: MULTI_PRIMARY_OWNER_CODE,
+    annotations: EVENT_ANNOTATIONS,
+    providers: EFFECT_PROVIDERS,
+    rules: EFFECT_OWNERSHIP,
+    emissions: CONFORMING_EMISSIONS,
+    primaryOwnerEmissions: [
+      ...declaredEmissionEdges(),
+      {
+        event: 'seeded.multi-primary',
+        action: 'orchestrate-claims',
+        declaringTool: 'exarchos_orchestrate',
+        role: 'primary',
+        owner: 'orchestrate',
+      },
+      {
+        event: 'seeded.multi-primary',
+        action: 'workflow-claims',
+        declaringTool: 'exarchos_workflow',
+        role: 'primary',
+        owner: 'workflow',
+      },
+    ],
   },
 ];
 
@@ -677,6 +739,8 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
         'EMPTY_PROVIDER_REGISTRY',
         EMISSION_PROVIDER_MISMATCH_CODE,
         STALE_CAPABILITY_COVER_CODE,
+        ZERO_PRIMARY_OWNER_CODE,
+        MULTI_PRIMARY_OWNER_CODE,
       ].sort(),
     );
     expect(codesAt('observe')).toEqual(
@@ -684,6 +748,8 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
         'EMPTY_EMISSION_DENOMINATOR',
         'NARROWED_EMISSION_DENOMINATOR',
         'EMPTY_STALE_COVER_DENOMINATOR',
+        'EMPTY_PRIMARY_OWNER_DENOMINATOR',
+        'NARROWED_PRIMARY_OWNER_DENOMINATOR',
       ].sort(),
     );
 
@@ -711,6 +777,7 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
         // shipped table would let an unrelated `MODULE_EMISSIONS` row cover the stale-cover seed,
         // which is exactly how this loop would silently stop exercising the code it names.
         [],
+        seed.primaryOwnerEmissions ?? declaredEmissionEdges(),
       );
       const matching = verdict.diagnostics.filter((d) => d.code === seed.code);
       expect(matching.length).toBeGreaterThan(0);
@@ -738,10 +805,43 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
           seed.emissions,
           STALE_COVER_LIFECYCLE_POLICY,
           [],
+          seed.primaryOwnerEmissions ?? declaredEmissionEdges(),
         ),
       ).toThrow(RegistrationWeldError);
       expect(reported).toEqual([]);
     }
+  });
+
+  it('PrimaryOwnerBijection_SameOwnerDuplicateEdges_DoesNotReportMultiPrimary', () => {
+    const verdict = validateRegistrationWelds(
+      EVENT_ANNOTATIONS,
+      EFFECT_PROVIDERS,
+      EFFECT_OWNERSHIP,
+      WELD_RESOLUTION_POLICY,
+      DIAGNOSTIC_SEVERITY_POLICY,
+      CONFORMING_EMISSIONS,
+      STALE_COVER_LIFECYCLE_POLICY,
+      [],
+      [
+        ...declaredEmissionEdges(),
+        {
+          event: 'seeded.same-owner-dup',
+          action: 'first-claim',
+          declaringTool: 'exarchos_orchestrate',
+          role: 'primary',
+          owner: 'orchestrate',
+        },
+        {
+          event: 'seeded.same-owner-dup',
+          action: 'second-claim',
+          declaringTool: 'exarchos_workflow',
+          role: 'primary',
+          owner: 'orchestrate',
+        },
+      ],
+    );
+
+    expect(verdict.diagnostics.filter((d) => d.code === MULTI_PRIMARY_OWNER_CODE)).toEqual([]);
   });
 
   it('StartupAssertion_ObserveSeverity_ReportsWithoutThrowing', () => {
@@ -767,6 +867,7 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
         // Seeded world: no non-action emitters. Inheriting the shipped table
         // would let an unrelated row cover a seed and silently empty this arm.
         [],
+        seed.primaryOwnerEmissions ?? declaredEmissionEdges(),
       );
 
       // Found something, and said so — but did not stop the process.
@@ -1024,6 +1125,7 @@ describe('ProviderComparison — the declaring tool against the declared provide
       // surface is emptied too — otherwise the premise the assertion rests on
       // is false and the counts below measure a different scenario.
       [],
+      [],
     );
     expect(verdict.comparedEmissionEdgeCount).toBe(0);
     expect(verdict.ok).toBe(false);
@@ -1038,9 +1140,13 @@ describe('ProviderComparison — the declaring tool against the declared provide
     const emptyCodes = verdict.diagnostics
       .map((d) => d.code)
       .filter((code) => code.startsWith('EMPTY_') || code === 'NARROWED_EMISSION_DENOMINATOR');
-    expect(emptyCodes).toEqual(['EMPTY_EMISSION_DENOMINATOR']);
+    expect(emptyCodes).toEqual(['EMPTY_EMISSION_DENOMINATOR', 'EMPTY_PRIMARY_OWNER_DENOMINATOR']);
     expect(new Set(verdict.diagnostics.map((d) => d.code))).toEqual(
-      new Set(['EMPTY_EMISSION_DENOMINATOR', STALE_CAPABILITY_COVER_CODE]),
+      new Set([
+        'EMPTY_EMISSION_DENOMINATOR',
+        'EMPTY_PRIMARY_OWNER_DENOMINATOR',
+        STALE_CAPABILITY_COVER_CODE,
+      ]),
     );
     expect(
       verdict.diagnostics.filter((d) => d.code === STALE_CAPABILITY_COVER_CODE),
@@ -1090,7 +1196,13 @@ describe('ProviderComparison — the declaring tool against the declared provide
     for (const tool of TOOL_REGISTRY) {
       for (const action of tool.actions) {
         toolByAction.set(`${tool.name}|${action.name}`, tool.name);
-        declaredEmissionCount += action.autoEmits?.length ?? 0;
+        const raw = Reflect.get(action, 'actionContract');
+        if (raw === undefined || raw === null || typeof raw !== 'object') continue;
+        const emissions = Reflect.get(raw, 'emissions');
+        if (emissions === undefined || emissions === null || typeof emissions !== 'object') continue;
+        if (Reflect.get(emissions, 'kind') !== 'declared') continue;
+        const values = Reflect.get(emissions, 'values');
+        if (Array.isArray(values)) declaredEmissionCount += values.length;
       }
     }
     expect(edges.length).toBe(declaredEmissionCount);
@@ -1123,8 +1235,23 @@ describe('ComparisonDenominator — the size of the set the provider comparison 
     let size = 0;
     for (const tool of TOOL_REGISTRY) {
       for (const action of tool.actions) {
-        for (const emission of action.autoEmits ?? []) {
-          if (welded.has(emission.event)) size += 1;
+        const raw = Reflect.get(action, 'actionContract');
+        if (raw === undefined || raw === null || typeof raw !== 'object') continue;
+        const emissions = Reflect.get(raw, 'emissions');
+        if (emissions === undefined || emissions === null || typeof emissions !== 'object') continue;
+        if (Reflect.get(emissions, 'kind') !== 'declared') continue;
+        const values = Reflect.get(emissions, 'values');
+        if (!Array.isArray(values)) continue;
+        for (const emission of values) {
+          if (
+            emission !== null &&
+            typeof emission === 'object' &&
+            'event' in emission &&
+            typeof emission.event === 'string' &&
+            welded.has(emission.event)
+          ) {
+            size += 1;
+          }
         }
       }
     }
@@ -1931,7 +2058,7 @@ describe('StaleCover — a capability weld that nothing declares it emits', () =
     const namedByAnEdge = new Set<string>();
     for (const tool of TOOL_REGISTRY) {
       for (const action of tool.actions) {
-        for (const emission of action.autoEmits ?? []) namedByAnEdge.add(emission.event);
+        for (const emission of contractEmissionsOf(action)) namedByAnEdge.add(emission.event);
       }
     }
     for (const row of MODULE_EMISSIONS) namedByAnEdge.add(row.event);

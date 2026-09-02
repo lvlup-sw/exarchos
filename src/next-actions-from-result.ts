@@ -16,8 +16,15 @@
 import { z } from 'zod';
 import type { ToolResult } from './format.js';
 import { logger } from './logger.js';
-import type { NextAction } from './next-action.js';
-import { computeNextActions, type AdmissionFacts } from './next-actions-computer.js';
+import type { NextAction, RegistryAdvertisement } from './next-action.js';
+import {
+  computeNextActionEnvelopes,
+  computeNextActions,
+  type ActionAdmissionFacts,
+  type AdmissionFacts,
+  type NextActionEnvelopes,
+  type NextActionsState,
+} from './next-actions-computer.js';
 import {
   RehydrationMergeOrchestratorSchema,
   WorkflowStateSchema,
@@ -67,6 +74,12 @@ export const ShapeOneSchema = z
     artifacts: z.unknown().optional(),
     tasks: z.unknown().optional(),
     reviews: z.unknown().optional(),
+    // Workflow-scoped ActionId advertisement inputs. Declared as unknown so
+    // this parse does not fork the admission snapshot vocabulary.
+    evidence: z.unknown().optional(),
+    authorization: z.unknown().optional(),
+    stream: z.unknown().optional(),
+    phaseAttemptId: z.unknown().optional(),
   })
   .passthrough();
 
@@ -160,6 +173,36 @@ function admissionFactsFrom(
 }
 
 /**
+ * Lift ActionId-advertisement facts from a shape-1 payload. Requires a
+ * feature/stream subject and an evidence array; authorization may be
+ * absent so capability-gated ActionIds can be omitted rather than
+ * fail-open. Shape-2 rehydrate documents stay topology-only.
+ */
+function actionAdmissionFrom(
+  data: z.infer<typeof ShapeOneSchema>,
+  phase: string,
+  featureId: string | undefined,
+): ActionAdmissionFacts | undefined {
+  if (featureId === undefined || featureId.trim().length === 0) return undefined;
+  if (!Array.isArray(data.evidence)) return undefined;
+  const stream =
+    typeof data.stream === 'string' && data.stream.trim().length > 0
+      ? data.stream
+      : featureId;
+  const phaseAttemptId =
+    typeof data.phaseAttemptId === 'string' && data.phaseAttemptId.trim().length > 0
+      ? data.phaseAttemptId
+      : undefined;
+  return {
+    subject: { featureId, stream },
+    evidence: data.evidence,
+    ...(data.authorization === undefined ? {} : { authorization: data.authorization }),
+    hsmFacts:
+      phaseAttemptId === undefined ? { phase } : { phase, phaseAttemptId },
+  };
+}
+
+/**
  * Extract workflow state from a successful `ToolResult` and compute the
  * outbound `NextAction[]` for the current HSM phase. Returns `[]` whenever
  * the response lacks workflow context (describe/list/status actions,
@@ -243,6 +286,7 @@ export function nextActionsFromResult(result: ToolResult): readonly NextAction[]
   let featureId: string | undefined;
   let mergeOrchestrator: { taskId?: string; phase?: string } | undefined;
   let admission: AdmissionFacts | undefined;
+  let actionAdmission: ActionAdmissionFacts | undefined;
 
   if (shapeOne?.success) {
     phase = shapeOne.data.phase;
@@ -250,6 +294,7 @@ export function nextActionsFromResult(result: ToolResult): readonly NextAction[]
     featureId = shapeOne.data.featureId;
     mergeOrchestrator = shapeOne.data.mergeOrchestrator;
     admission = admissionFactsFrom(shapeOne.data);
+    actionAdmission = actionAdmissionFrom(shapeOne.data, shapeOne.data.phase, featureId);
   }
 
   if (shapeTwo?.success) {
@@ -281,7 +326,87 @@ export function nextActionsFromResult(result: ToolResult): readonly NextAction[]
   }
 
   return computeNextActions(
-    { phase, workflowType, featureId, mergeOrchestrator, admission },
+    { phase, workflowType, featureId, mergeOrchestrator, admission, actionAdmission },
     hsm,
   );
+}
+
+function nextActionsStateFromResult(result: ToolResult): {
+  readonly state: NextActionsState;
+  readonly hsm: ReturnType<typeof getHSMDefinition>;
+} | undefined {
+  if (!result.success) return undefined;
+  const data = result.data;
+  if (data === null || data === undefined || typeof data !== 'object') return undefined;
+
+  const shapeOneAdvertised = SHAPE_ONE_DISCRIMINATOR_KEYS.every((k) =>
+    Reflect.has(data, k),
+  );
+  const shapeTwoAdvertised = SHAPE_TWO_DISCRIMINATOR_KEYS.every((k) =>
+    Reflect.has(data, k),
+  );
+  if (!shapeOneAdvertised && !shapeTwoAdvertised) return undefined;
+
+  const shapeOne = shapeOneAdvertised ? ShapeOneSchema.safeParse(data) : null;
+  const shapeTwo = shapeTwoAdvertised ? ShapeTwoSchema.safeParse(data) : null;
+  if ((shapeOne && !shapeOne.success) || (shapeTwo && !shapeTwo.success)) {
+    return undefined;
+  }
+
+  let phase: string | undefined;
+  let workflowType: string | undefined;
+  let featureId: string | undefined;
+  let mergeOrchestrator: { taskId?: string; phase?: string } | undefined;
+  let admission: AdmissionFacts | undefined;
+  let actionAdmission: ActionAdmissionFacts | undefined;
+
+  if (shapeOne?.success) {
+    phase = shapeOne.data.phase;
+    workflowType = shapeOne.data.workflowType;
+    featureId = shapeOne.data.featureId;
+    mergeOrchestrator = shapeOne.data.mergeOrchestrator;
+    admission = admissionFactsFrom(shapeOne.data);
+    actionAdmission = actionAdmissionFrom(shapeOne.data, shapeOne.data.phase, featureId);
+  }
+
+  if (shapeTwo?.success) {
+    const ws = shapeTwo.data.workflowState;
+    if (!phase) phase = ws.phase;
+    if (!workflowType) workflowType = ws.workflowType;
+    if (!featureId) featureId = ws.featureId;
+    if (mergeOrchestrator === undefined && ws.mergeOrchestrator !== undefined) {
+      mergeOrchestrator = ws.mergeOrchestrator;
+    }
+  }
+
+  if (!phase || !workflowType) return undefined;
+
+  let hsm;
+  try {
+    hsm = getHSMDefinition(workflowType);
+  } catch {
+    return undefined;
+  }
+
+  return {
+    state: { phase, workflowType, featureId, mergeOrchestrator, admission, actionAdmission },
+    hsm,
+  };
+}
+
+/**
+ * Both next-action envelopes from a successful tool result. Control verbs
+ * follow HSM topology; registry ActionIds publish only on allow.
+ */
+export function nextActionEnvelopesFromResult(result: ToolResult): NextActionEnvelopes {
+  const parsed = nextActionsStateFromResult(result);
+  if (parsed === undefined) return { control: [], registry: [] };
+  return computeNextActionEnvelopes(parsed.state, parsed.hsm);
+}
+
+/** Allow-only registry ActionIds from a successful tool result. */
+export function registryAdvertisementsFromResult(
+  result: ToolResult,
+): readonly RegistryAdvertisement[] {
+  return nextActionEnvelopesFromResult(result).registry;
 }

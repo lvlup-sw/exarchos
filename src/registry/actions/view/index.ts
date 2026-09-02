@@ -4,6 +4,7 @@
 // order clients see, so it is stated once here rather than implied by import
 // order. The shared `describe` action is appended last.
 
+import { normalizeActionContract } from '../../action-contract.js';
 import { makeDescribeAction } from '../../describe-actions.js';
 import type { BuiltinToolAction } from '../../types.js';
 import { coreViewActions } from './core.js';
@@ -16,3 +17,7 @@ export const viewActions: readonly BuiltinToolAction[] = [
   ...lifecycleViewActions,
   makeDescribeAction('exarchos_view.describe'),
 ];
+
+for (const action of viewActions) {
+  normalizeActionContract(action.actionContract, { annotations: action.annotations });
+}

@@ -57,7 +57,14 @@ export async function compile(solutionPath: string, language?: string): Promise<
       execFile(
         'g++',
         ['-O2', '-std=c++17', '-o', outputPath, solutionPath],
-        { timeout: 30000 },
+        // A cold g++ on a loaded win32 runner exceeds 30s, and exceeding it here
+        // does NOT surface as a timeout: `execFile` reports an error, this
+        // resolves `success: false`, and the caller's assertion fails as though
+        // the compile were rejected. Windows gets the same headroom the test
+        // tiers grant spawn-bound work; Linux and the eval runners keep the
+        // budget they already had. Kept under the caller's own 90s envelope so
+        // the compile budget stays the binding one on both platforms.
+        { timeout: process.platform === 'win32' ? 60_000 : 30_000 },
         (error, _stdout, stderr) => {
           if (error) {
             resolve({ success: false, error: stderr || error.message });

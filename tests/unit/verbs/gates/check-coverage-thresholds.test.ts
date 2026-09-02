@@ -3,8 +3,45 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'node:fs';
 import { handleCheckCoverageThresholds } from '../../../../src/verbs/gates/check-coverage-thresholds.js';
+import type { EventStore } from '../../../../src/events/store.js';
 
 vi.mock('node:fs');
+// The gate now records durable evidence through the shared phase-gate runner
+// before any success carrier escapes. These cases are about the PROVIDER's
+// verdict, so the runner is stubbed down to its provider call — the same seam
+// every other migrated gate's unit test stubs. The evidence a caller actually
+// gets is proven over real dispatch in
+// `unrunbooked-gate-evidence-dispatch.test.ts`.
+vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
+  runPhaseGateWithEvidence: vi.fn(async (request) => {
+    try {
+      return await request.executeProvider(
+        {
+          gateClass: request.gateClass,
+          providerRef: 'test-provider',
+          actionName: 'test-provider',
+        },
+        request.providerInput,
+      );
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: 'GATE_PROVIDER_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }),
+}));
+
+const STATE_DIR = '/tmp/test-check-coverage-thresholds';
+const FEATURE_ID = 'coverage-feature';
+const eventStore = {
+  append: vi.fn().mockResolvedValue(undefined),
+  query: vi.fn().mockResolvedValue([]),
+} as unknown as EventStore;
+
 
 const mockedFs = vi.mocked(fs);
 
@@ -27,11 +64,11 @@ describe('handleCheckCoverageThresholds', () => {
     vi.resetAllMocks();
   });
 
-  it('handleCheckCoverageThresholds_AllAbove_ReturnsPassed', () => {
+  it('handleCheckCoverageThresholds_AllAbove_ReturnsPassed', async () => {
     mockedFs.existsSync.mockReturnValue(true);
     mockedFs.readFileSync.mockReturnValue(makeCoverageSummary(95, 85, 100));
 
-    const result = handleCheckCoverageThresholds({ coverageFile: '/tmp/coverage.json' });
+    const result = await handleCheckCoverageThresholds({ featureId: FEATURE_ID, coverageFile: '/tmp/coverage.json' }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; coverage: { lines: number; branches: number; functions: number } };
@@ -41,52 +78,52 @@ describe('handleCheckCoverageThresholds', () => {
     expect(data.coverage.functions).toBe(100);
   });
 
-  it('handleCheckCoverageThresholds_LineBelowThreshold_ReturnsFailed', () => {
+  it('handleCheckCoverageThresholds_LineBelowThreshold_ReturnsFailed', async () => {
     mockedFs.existsSync.mockReturnValue(true);
     mockedFs.readFileSync.mockReturnValue(makeCoverageSummary(50, 85, 100));
 
-    const result = handleCheckCoverageThresholds({ coverageFile: '/tmp/coverage.json' });
+    const result = await handleCheckCoverageThresholds({ featureId: FEATURE_ID, coverageFile: '/tmp/coverage.json' }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean };
     expect(data.passed).toBe(false);
   });
 
-  it('handleCheckCoverageThresholds_BranchBelowThreshold_ReturnsFailed', () => {
+  it('handleCheckCoverageThresholds_BranchBelowThreshold_ReturnsFailed', async () => {
     mockedFs.existsSync.mockReturnValue(true);
     mockedFs.readFileSync.mockReturnValue(makeCoverageSummary(95, 50, 100));
 
-    const result = handleCheckCoverageThresholds({ coverageFile: '/tmp/coverage.json' });
+    const result = await handleCheckCoverageThresholds({ featureId: FEATURE_ID, coverageFile: '/tmp/coverage.json' }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean };
     expect(data.passed).toBe(false);
   });
 
-  it('handleCheckCoverageThresholds_MissingCoverageFile_ReturnsError', () => {
+  it('handleCheckCoverageThresholds_MissingCoverageFile_ReturnsError', async () => {
     mockedFs.existsSync.mockReturnValue(false);
 
-    const result = handleCheckCoverageThresholds({ coverageFile: '/tmp/missing.json' });
+    const result = await handleCheckCoverageThresholds({ featureId: FEATURE_ID, coverageFile: '/tmp/missing.json' }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('FILE_NOT_FOUND');
   });
 
-  it('handleCheckCoverageThresholds_InvalidJson_ReturnsError', () => {
+  it('handleCheckCoverageThresholds_InvalidJson_ReturnsError', async () => {
     mockedFs.existsSync.mockReturnValue(true);
     mockedFs.readFileSync.mockReturnValue('not valid json {{{');
 
-    const result = handleCheckCoverageThresholds({ coverageFile: '/tmp/bad.json' });
+    const result = await handleCheckCoverageThresholds({ featureId: FEATURE_ID, coverageFile: '/tmp/bad.json' }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_JSON');
   });
 
-  it('handleCheckCoverageThresholds_ReportContainsMarkdownTable', () => {
+  it('handleCheckCoverageThresholds_ReportContainsMarkdownTable', async () => {
     mockedFs.existsSync.mockReturnValue(true);
     mockedFs.readFileSync.mockReturnValue(makeCoverageSummary(95, 85, 100));
 
-    const result = handleCheckCoverageThresholds({ coverageFile: '/tmp/coverage.json' });
+    const result = await handleCheckCoverageThresholds({ featureId: FEATURE_ID, coverageFile: '/tmp/coverage.json' }, STATE_DIR, eventStore);
 
     const data = result.data as { report: string };
     expect(data.report).toContain('| Metric');
@@ -96,12 +133,12 @@ describe('handleCheckCoverageThresholds', () => {
     expect(data.report).toContain('PASS');
   });
 
-  it('handleCheckCoverageThresholds_DefaultThresholds', () => {
+  it('handleCheckCoverageThresholds_DefaultThresholds', async () => {
     mockedFs.existsSync.mockReturnValue(true);
     // lines=80 (exactly at default threshold), branches=70 (exactly), functions=100 (exactly)
     mockedFs.readFileSync.mockReturnValue(makeCoverageSummary(80, 70, 100));
 
-    const result = handleCheckCoverageThresholds({ coverageFile: '/tmp/coverage.json' });
+    const result = await handleCheckCoverageThresholds({ featureId: FEATURE_ID, coverageFile: '/tmp/coverage.json' }, STATE_DIR, eventStore);
 
     const data = result.data as { passed: boolean };
     expect(data.passed).toBe(true);

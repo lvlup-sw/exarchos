@@ -213,7 +213,7 @@ export const AuthorizationSnapshotV1Schema = z
   .object({
     authorizationId: AuthorizationIdSchema,
     posture: z.enum(['read-only', 'task-isolated', 'shared-mutating']),
-    capabilityIds: z.array(CapabilityIdSchema).min(1).readonly(),
+    capabilityIds: z.array(CapabilityIdSchema).readonly(),
     resolverVersion: VersionTextSchema,
     resolvedAt: TimestampSchema,
   })
@@ -728,3 +728,70 @@ export const ADMISSION_EVENT_TYPE_VALUES: readonly AdmissionEventType[] =
   Object.freeze(
     Object.values(ADMISSION_EVENT_TYPES),
   ) as readonly AdmissionEventType[];
+
+// ─── Action-admission snapshots ─────────────────────────────────────────────
+
+/**
+ * Registry ActionId token captured on an admission snapshot. This identifies
+ * the declared action; it is not a freeze-time requirement token.
+ */
+export const ActionAdmissionActionIdSchema =
+  StableIdValueSchema.brand<'AdmissionActionId'>();
+
+/**
+ * Workflow-scoped subject shared by advertise and dispatch. Feature stream
+ * identity only — not a request payload and not a transition target.
+ */
+export const ActionAdmissionSubjectV1Schema = z
+  .object({
+    featureId: NonEmptyTextSchema.max(256),
+    stream: NonEmptyTextSchema.max(256),
+  })
+  .strict()
+  .readonly();
+export type ActionAdmissionSubjectV1 = z.infer<
+  typeof ActionAdmissionSubjectV1Schema
+>;
+
+/**
+ * Persisted HSM facts that admission may read. Current phase and the optional
+ * phase-attempt identity belong here; request `target` does not.
+ */
+export const ActionAdmissionHsmFactsV1Schema = z
+  .object({
+    phase: StableIdValueSchema,
+    phaseAttemptId: PhaseAttemptIdSchema.optional(),
+  })
+  .strict()
+  .readonly();
+export type ActionAdmissionHsmFactsV1 = z.infer<
+  typeof ActionAdmissionHsmFactsV1Schema
+>;
+
+/**
+ * Immutable ActionId admission snapshot. Trusted fields are ActionId, the
+ * workflow-scoped subject, persisted evidence, authorization, and HSM facts.
+ * Wall-clock and request payload are not snapshot members.
+ */
+export const ActionAdmissionSnapshotV1Schema = z
+  .object({
+    contractVersion: AdmissionRuntimeContractVersionSchema,
+    actionId: ActionAdmissionActionIdSchema,
+    subject: ActionAdmissionSubjectV1Schema,
+    evidence: z.array(AdmissionEvidenceV1Schema).readonly(),
+    authorization: AuthorizationSnapshotV1Schema,
+    hsmFacts: ActionAdmissionHsmFactsV1Schema,
+    digest: ContentDigestV1Schema,
+  })
+  .strict()
+  .readonly();
+export type ActionAdmissionSnapshotV1 = z.infer<
+  typeof ActionAdmissionSnapshotV1Schema
+>;
+
+/** Non-throwing guard for folds that read a persisted snapshot record. */
+export function isActionAdmissionSnapshotV1(
+  input: unknown,
+): input is ActionAdmissionSnapshotV1 {
+  return ActionAdmissionSnapshotV1Schema.safeParse(input).success;
+}

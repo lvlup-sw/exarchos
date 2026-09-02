@@ -11,7 +11,7 @@ import type { CapabilityResolver } from '../../workflow/capabilities/resolver.js
 import type { StorageBackend } from '../../storage/backend.js';
 import type { RootsClient } from '../../runtime/workspace/discovery.js';
 import type { ElicitationClient } from '../elicitation-dispatch.js';
-import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry, findActionInRegistry } from '../../registry.js';
+import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry, findActionInRegistry, type ToolAction } from '../../registry.js';
 // The response-economy seam lives in its own leaf (`./response-economy.js`) so
 // the telemetry middleware can import `enforceResponseEconomy` without the
 // dispatch ↔ middleware runtime import cycle (DR-4, task 009). Re-exported below
@@ -28,9 +28,14 @@ import {
 } from '../../adapters/cli/schema-to-flags.js';
 import { runSessionMachineryConsumedInterceptor } from './interceptors/session-machinery.js';
 import {
-  dispatchStreamId,
+  describeEmissionIndeterminacy,
+  emissionIndeterminacyBlocks,
+  emissionIndeterminacyWarning,
   emissionViolationBlocks,
+  EMISSION_INDETERMINATE_ERROR_CODE,
+  observationStreamId,
   runEmissionVerifierInterceptor,
+  verifierDeclaredEmissions,
 } from './interceptors/emission-verifier.js';
 import { evaluateInstallFreshness } from '../../install/freshness-gate.js';
 import {
@@ -51,7 +56,25 @@ import {
   findIgnoredParameters,
   buildIgnoredParameterError,
 } from '../undeclared-parameters.js';
+import { applyInferredValues } from './inferred-values.js';
+import path from 'node:path';
+import {
+  detectActiveStoreDivergence,
+  describeStoreDivergence,
+  resolveStateDir,
+  toPosix,
+  ALLOW_STORE_DIVERGENCE_ENV,
+} from '../../utils/paths.js';
 import type { EventSourcedTaskStore } from '../../projections/task-store/event-sourced-task-store.js';
+import type { ActionContract } from '../../registry/action-contract.js';
+// ActionId admission lives in its own leaf so the bounded action executor can
+// reach the same evaluator without importing this module for a value.
+import { evaluateDispatchAdmission, readActionContract } from './dispatch-admission.js';
+import {
+  applicableEnsures,
+  observeActionPostconditions,
+  type ActionPostconditionObservation,
+} from './action-postconditions.js';
 
 // NOTE: `../telemetry/middleware.js` is intentionally NOT imported at module
 // top-level. The middleware instantiates a singleton TraceWriter at import,
@@ -227,6 +250,45 @@ export function extractSingleMissingRequiredField(
   return key;
 }
 
+function actionIsReadOnly(tool: string, actionName: string, action: ToolAction | undefined): boolean {
+  return action?.annotations?.readOnly === true || isReadOnlyAction(tool, actionName);
+}
+
+function isReadOnlyReasonedAbstention(
+  tool: string,
+  actionName: string,
+  action: ToolAction | undefined,
+): boolean {
+  if (action === undefined) return false;
+  if (!actionIsReadOnly(tool, actionName, action)) return false;
+  const contract = readActionContract(action);
+  if (contract === undefined) return false;
+  return contract.ensures.kind === 'none';
+}
+
+function formatMissingEnsures(missing: readonly { readonly source: string }[]): string {
+  return missing.map((item) => item.source).join(', ');
+}
+
+function ensureContractViolatedResult(
+  tool: string,
+  actionName: string,
+  result: ToolResult,
+  missing: readonly { readonly source: string }[],
+): ToolResult {
+  return {
+    success: false,
+    data: result.data,
+    error: {
+      code: 'ENSURE_CONTRACT_VIOLATED',
+      message:
+        `${tool}.${actionName} declared an ensure that was not observed after dispatch ` +
+        `(${formatMissingEnsures(missing)}). A branded witness or a declaration is not ` +
+        'observation — the store or the persisted-evidence reader must show the fact.',
+    },
+  };
+}
+
 // ─── T04: Server-side Read-only Action Allowlist (Issue #1192) ─────────────
 //
 // Composite-tool actions that are safe to invoke under the
@@ -352,29 +414,25 @@ const FRESHNESS_GATE_DIAGNOSTIC_EXEMPT: ReadonlySet<string> = new Set([
  * read-only classification has a single source of truth.
  */
 function isFreshnessGateExempt(tool: string, action: string): boolean {
-  const allowed = (READ_ONLY_ACTIONS as Record<string, readonly string[] | '*'>)[tool];
-  if (allowed === '*') return true;
-  if (allowed !== undefined && allowed.includes(action)) return true;
-  return FRESHNESS_GATE_DIAGNOSTIC_EXEMPT.has(action);
+  // Exactly what the doc above says in prose: read-only, PLUS the diagnostic
+  // carve-out. Expressed as a composition so the read-only classification is
+  // read from one place instead of being spelled out twice.
+  return isReadOnlyAction(tool, action) || FRESHNESS_GATE_DIAGNOSTIC_EXEMPT.has(action);
 }
 
 /**
- * Actions that never consume a `featureId` (Sentry MEDIUM #1423).
+ * True when `action` on `tool` only reads.
  *
- * The roots-based workspace-discovery branch in `dispatch()` skips its
- * synchronous filesystem walk for actions in this set so high-frequency
- * introspection calls (catalog reads, runbook fetches, agent-spec
- * lookups) don't pay the discovery cost. Adding an action here is a
- * "this surface MUST NOT ever take a featureId" assertion — pair the
- * addition with a registry-side check that the action's schema does not
- * declare a `featureId` field.
+ * The primitive both gates share. The store-divergence check uses it directly
+ * rather than through {@link isFreshnessGateExempt}, because the diagnostic
+ * carve-out points the other way here: a divergence warning is precisely what
+ * `doctor` should carry, so `doctor` must not be exempt from it.
  */
-const NO_WORKSPACE_RESOLUTION_ACTIONS: ReadonlySet<string> = new Set([
-  'describe',
-  'runbook',
-  'agent_spec',
-]);
-
+function isReadOnlyAction(tool: string, action: string): boolean {
+  const allowed = (READ_ONLY_ACTIONS as Record<string, readonly string[] | '*'>)[tool];
+  if (allowed === '*') return true;
+  return allowed !== undefined && allowed.includes(action);
+}
 /**
  * Apply the readonly capability gate. Returns a structured CAPABILITY_DENIED
  * ToolResult when the effective capability set forbids `action` on `tool`,
@@ -711,6 +769,23 @@ export async function dispatch(
     ? undefined
     : snapshotCallerAuthorization(ctx.callerIdentity, ctx.capabilityResolver);
   const dispatchCtx = mintDispatchContextFromRequest(args, authorization);
+
+  // Computed once per dispatch and reused by both the read-side warning and
+  // the write-side refusal below, so the existence probe runs at most once on
+  // the hot path.
+  //
+  // Scoped to a context whose store came from the AMBIENT cascade. When a
+  // caller supplied an explicit state dir — `--state-dir`, an embedding host,
+  // every in-process test — there is no ambiguity about which store was meant,
+  // so there is nothing to warn about and nothing to refuse. Without this the
+  // verdict would depend on which stores happen to exist under the invoking
+  // user's home, making dispatch behave differently on a developer machine
+  // than in CI.
+  const storeCameFromAmbientCascade = toPosix(path.resolve(ctx.stateDir)) === resolveStateDir();
+  const storeDivergence = storeCameFromAmbientCascade
+    ? detectActiveStoreDivergence()
+    : undefined;
+
   const attachMeta = (result: ToolResult): ToolResult => {
     const existingMeta =
       typeof (result as { _meta?: unknown })._meta === 'object' &&
@@ -728,7 +803,22 @@ export async function dispatch(
     const mergedMeta = existingMeta
       ? { ...correlationMeta, ...existingMeta }
       : correlationMeta;
-    return { ...result, _meta: mergedMeta } as ToolResult;
+    // A read answered from a store the other surface never sees carries the
+    // caveat INLINE. The `prepare_delegation` envelope that made this issue
+    // expensive was internally consistent and wrong, with nothing in it
+    // hinting that two stores existed; a separate `doctor` run was the only
+    // way to learn that, and by then the reader trusted the verdict.
+    // The refusal already states the divergence in `error.message`; repeating
+    // it as a warning on the same envelope tells the caller nothing twice.
+    const alreadyStated = result.error?.code === 'STORE_PATH_DIVERGENCE';
+    const warnings = storeDivergence?.shouldWarn === true && !alreadyStated
+      ? [...(result.warnings ?? []), describeStoreDivergence(storeDivergence)]
+      : result.warnings;
+    return {
+      ...result,
+      ...(warnings !== undefined ? { warnings } : {}),
+      _meta: mergedMeta,
+    } as ToolResult;
   };
 
   return runWithDispatchContext(dispatchCtx, async () => {
@@ -759,105 +849,37 @@ export async function dispatch(
 
     let { action: _action, ...rest } = args;
 
-    // ─── #1290 — Roots-based featureId inference ─────────────────────────
-    // Resolution priority (load-bearing for missing-required-param paths):
-    //   explicit > roots > cwd > elicitation > INVALID_INPUT.
-    // Elicitation is the LAST resort before INVALID_INPUT because it
-    // requires a transport round-trip; roots + cwd inference are
-    // round-trip-free and so take precedence (#1274). If the caller
-    // already supplied a `featureId`, we leave it alone. Otherwise, if
-    // the client declared the MCP roots capability (snapshotted on the
-    // resolver via the initialize handshake), call `resolveWorkspace`
-    // to attempt inference from the cached roots list or a cwd-walk
-    // fallback.
+    // ─── Inferred values ─────────────────────────────────────────────────
     //
-    // Multi-match returns a structured INVALID_INPUT here so the caller
-    // can disambiguate; zero-match falls through to the existing per-
-    // action Zod validation, which surfaces the legacy "featureId is
-    // required" envelope unchanged.
+    // Resolution priority for a parameter the caller omitted:
     //
-    // Sentry MEDIUM #1423: actions that never consume workspace context
-    // (`describe`/`runbook`/`agent_spec` — pure introspection on the
-    // registry / catalogs) skip the discovery call entirely. Pre-fix
-    // these high-frequency informational calls each triggered a
-    // synchronous cwd-walk on miss, adding measurable latency to the
-    // dispatch hot path. The skip list is conservative: anything that
-    // *might* take a featureId stays in the discovery branch.
-    // Sentry MEDIUM #1424: skip workspace resolution entirely when
-    // `rootsClient` is undefined — that's the CLI dispatch path which has
-    // no MCP roots channel and therefore no useful inference target. The
-    // sync `cwdWalk` fallback would still fire and add filesystem latency
-    // to every CLI hot-path dispatch (telemetry view, doctor checks, etc.)
-    // that happens to omit a featureId. Roots+cwd inference is purely an
-    // MCP-client convenience for callers that DID declare roots.
-    if (
-      rest.featureId === undefined
-      && ctx.capabilityResolver !== undefined
-      && ctx.rootsClient !== undefined
-      && !NO_WORKSPACE_RESOLUTION_ACTIONS.has(actionName)
-    ) {
-      try {
-        const { resolveWorkspace } = await import('../../runtime/workspace/discovery.js');
-        const resolution = await resolveWorkspace({
-          resolver: ctx.capabilityResolver,
-          rootsClient: ctx.rootsClient,
-          cwd: ctx.cwd ?? process.cwd(),
-          eventStore: ctx.eventStore,
-          // #1504 — authoritative workflow enumeration via the projected
-          // `workflow_state` table when probing this server's own workspace.
-          storage: ctx.storage,
-        });
-        if (resolution !== undefined) {
-          if (resolution.success) {
-            rest = { ...rest, featureId: resolution.featureId };
-          } else {
-            // Multi-match. Surface the structured INVALID_INPUT so the
-            // caller can pick the intended target. CodeRabbit CRITICAL
-            // #1428: map `validTargets` from `{featureId,path}` records
-            // to plain `featureId` strings — that's the disambiguator the
-            // caller actually supplies in the retry. The published error
-            // contract expects `readonly (string | ValidTransitionTarget)[]`.
-            // CodeRabbit CRITICAL + Sentry #1428: also attach _meta so
-            // the multi-match envelope carries correlation IDs (parity
-            // with success + thrown-error paths). Pre-fix this was the
-            // ONE early-return path that diverged from the published
-            // error contract.
-            return attachMeta({
-              success: false,
-              error: {
-                code: resolution.code,
-                message:
-                  `${tool}/${actionName}: multiple workspaces matched MCP roots; ` +
-                  'supply an explicit featureId to disambiguate.',
-                // CodeRabbit CRITICAL #1423: `ToolResult.error.validTargets`
-                // expects `readonly (string | ValidTransitionTarget)[]`, but
-                // workspace resolution returns
-                // `readonly { featureId, path }[]`. Surface the featureIds
-                // (the disambiguator the caller actually supplies) so the
-                // envelope satisfies the contract.
-                validTargets: resolution.validTargets?.map((t) => t.featureId),
-              },
-            });
-          }
-        }
-      } catch (err) {
-        // Discovery is a best-effort inference hook — a failure must not
-        // mask the legacy validation contract. Fall through to the
-        // existing schema check; callers see the standard "featureId
-        // is required" envelope. CodeRabbit MINOR #1423: silent catches
-        // violate the project's observability standard. Surface via the
-        // workspace-discovery logger child so the failure is auditable
-        // without changing the user-facing fallback.
-        logger.child({ subsystem: 'workspace-discovery' }).warn(
-          {
-            tool,
-            action: actionName,
-            error: err instanceof Error ? err.message : String(err),
-          },
-          'workspace inference failed; falling back to legacy featureId validation',
-        );
-      }
+    //     explicit > inferred (roots, then a cwd walk) > elicitation > INVALID_INPUT
+    //
+    // Elicitation is LAST because it costs a transport round-trip; inference is
+    // round-trip-free and so takes precedence. It is also the only one of the
+    // three that needs no gate here: it splices a field named by this action's
+    // OWN parse error, so it can only ever supply something the action
+    // declares.
+    //
+    // The table in `inferred-values.ts` owns which values may be inferred and
+    // the single gate they share — most importantly that a value is merged only
+    // into an action whose schema declares it. Dispatch keeps no per-field
+    // logic, so a future inference cannot reopen #1838 by forgetting a check.
+    const inference = await applyInferredValues(rest, matchingAction, tool, actionName, ctx);
+    if (inference.kind === 'refused') {
+      // Multi-match. A structured INVALID_INPUT so the caller can pick the
+      // intended target. `attachMeta` is applied like every other early return
+      // — this path used to be the one that diverged from the error contract.
+      return attachMeta({
+        success: false,
+        error: {
+          code: inference.code,
+          message: inference.message,
+          ...(inference.validTargets !== undefined ? { validTargets: inference.validTargets } : {}),
+        },
+      });
     }
+    rest = inference.args;
 
     // ─── DR-7 — honoured, or refused (never accepted-and-dropped) ────────
     //
@@ -992,6 +1014,58 @@ export async function dispatch(
     // everything, and the confinement it claimed to enforce is not ours to
     // enforce. The readonly gate above still covers state authority.
 
+    // ─── Store-path divergence — refuse a write into a ghost store ───────
+    // The detector already existed (`computeStorePathDivergence`) but its only
+    // consumer was the doctor check, so mutations landed in the
+    // non-plugin store and reported SUCCESS while the orchestrator read a
+    // different one. The tell surfaced steps later as STATE_NOT_FOUND, and
+    // gates like `prepare_delegation` answered from the ghost store with a
+    // self-consistent, entirely wrong verdict. Every symptom pointed away
+    // from the cause.
+    //
+    // It runs FIRST among the pre-execution gates. The session-machinery
+    // interceptor below APPENDS an event, so refusing after it would write
+    // into the very ghost store this refusal exists to keep out — a refusal
+    // that already mutated is not a refusal.
+    //
+    // Refusal is scoped to an ACTIVE divergence — the other store must exist —
+    // because bare divergence is true for every standalone CLI invocation and
+    // refusing on it would break users who never installed the plugin.
+    if (!isReadOnlyAction(tool, actionName) && storeDivergence !== undefined) {
+      const divergence = storeDivergence;
+      if (divergence.active) {
+        logger.child({ subsystem: 'store-divergence' }).warn(
+          { tool, action: actionName, activePath: divergence.activePath, otherPath: divergence.otherPath },
+          'refusing mutating action: the resolved event store diverges from the other surface',
+        );
+        return attachMeta({
+          success: false,
+          error: {
+            code: 'STORE_PATH_DIVERGENCE',
+            message: describeStoreDivergence(divergence),
+            tool,
+            action: actionName,
+            expectedShape: {
+              activePath: divergence.activePath,
+              otherPath: divergence.otherPath,
+              remedy: `WORKFLOW_STATE_DIR=${path.dirname(divergence.otherPath)}`,
+              override: `${ALLOW_STORE_DIVERGENCE_ENV}=1`,
+            },
+          },
+        });
+      }
+    }
+
+    const admission = await evaluateDispatchAdmission({
+      tool,
+      actionName,
+      action: matchingAction,
+      args,
+      ctx,
+      authorization,
+    });
+    if (admission !== null) return attachMeta(admission);
+
     // T-12 (P4 of rehydration-machinery-refactor): emit
     // `session.machinery_consumed` on the first non-rehydrate L5 handler
     // invocation that follows a `workflow.rehydrated` event landing on the
@@ -1019,7 +1093,7 @@ export async function dispatch(
     // is a no-op for source-run / in-process tests and adds a single one-time
     // filesystem read on the first mutating action of a real install.
     if (!isFreshnessGateExempt(tool, actionName)) {
-      const freshness = evaluateInstallFreshness({ stateDir: ctx.stateDir });
+      const freshness = evaluateInstallFreshness({});
       if (freshness.status === 'blocked') {
         logger.child({ subsystem: 'install-freshness' }).warn(
           {
@@ -1179,9 +1253,16 @@ export async function dispatch(
   // The fault is still ours rather than the caller's, which is what the mode is
   // for: an operator who wants the old behavior sets `advisory` and gets the
   // finding without the failure.
+  const dispatchedActionName = typeof args.action === 'string' ? args.action : '';
+  const dispatchedAction =
+    dispatchedActionName === '' ? undefined : findActionInRegistry(tool, dispatchedActionName);
+  const dispatchedContract = dispatchedAction === undefined ? undefined : readActionContract(dispatchedAction);
+  const observedStreamId = observationStreamId(args, dispatchedContract);
+  const readOnlyAbstention = isReadOnlyReasonedAbstention(tool, dispatchedActionName, dispatchedAction);
+
   const emissionVerdict = await runEmissionVerifierInterceptor(ctx.eventStore, {
     tool,
-    action: typeof args.action === 'string' ? args.action : '',
+    action: dispatchedActionName,
     operationId: dispatchCtx.operationId,
     // Both spellings of the same thing. A stream is named `featureId` on most
     // actions and `streamId` on those re-parented onto a stream they did not
@@ -1190,13 +1271,12 @@ export async function dispatch(
     // `not-applicable`, so an action with an unconditional contract was exempt
     // from the check by the NAME of its parameter. The residue is declared, not
     // silent: an action carrying neither still resolves `no-stream`.
-    streamId: dispatchStreamId(args),
-    declared:
-      typeof args.action === 'string'
-        ? findActionInRegistry(tool, args.action)?.autoEmits
-        : undefined,
+    streamId: observedStreamId,
+    // Nested contract emissions are the only subject. Sibling autoEmits is leftover.
+    declared: verifierDeclaredEmissions(dispatchedContract),
     handlerStubbed: STUBBED_COMPOSITES.has(tool),
     handlerSucceeded: result.success,
+    readOnlyAbstention,
     // The interceptor resolves the mode again for its own log level. Without
     // this the record read `enforcement: block` on a run that was configured
     // advisory and did not fail — the log and the outcome disagreeing about
@@ -1224,7 +1304,7 @@ export async function dispatch(
       error: {
         code: 'EMISSION_CONTRACT_VIOLATED',
         message:
-          `${tool}.${typeof args.action === 'string' ? args.action : ''} declares an ` +
+          `${tool}.${dispatchedActionName} declares an ` +
           `unconditional emission that did not land: ${undelivered.join(', ')}. ` +
           'THE OPERATION COMPLETED AND ITS EFFECTS ARE PERFORMED — do NOT retry this ' +
           'call; retrying repeats a mutation that already succeeded. Its result is ' +
@@ -1235,6 +1315,102 @@ export async function dispatch(
           '`events.emission-enforcement: advisory` in `.exarchos.yml`.',
       },
     });
+  }
+
+  // Advisory (or any non-blocking) miss: the store does not hold the
+  // declared events. Ensure observation would fail for the same missing
+  // facts. The mode already chose not to fail the dispatch; do not
+  // re-fail it under a different code.
+  if (emissionVerdict.status === 'violated') {
+    return attachMeta(result);
+  }
+
+  // Unassessed is not exempt. The action had an unconditional contract and
+  // nobody could read whether it was kept, so under `block` the dispatch does
+  // not report a success it has no evidence for. The ensures axis a few lines
+  // below already fails closed the same way on a store that will not answer;
+  // the two are separate mechanisms over separate declarations and are left
+  // that way deliberately here rather than unified in passing.
+  if (emissionVerdict.status === 'indeterminate') {
+    if (emissionIndeterminacyBlocks(emissionVerdict, ctx.projectConfig)) {
+      return attachMeta({
+        success: false,
+        data: result.data,
+        error: {
+          code: EMISSION_INDETERMINATE_ERROR_CODE,
+          message:
+            `${tool}.${dispatchedActionName} declares unconditional emissions ` +
+            `(${emissionVerdict.required.join(', ')}) that could not be verified: ` +
+            `${describeEmissionIndeterminacy(emissionVerdict)}. THE OPERATION COMPLETED ` +
+            'AND ITS EFFECTS ARE PERFORMED — do NOT retry this call; retrying repeats a ' +
+            'mutation that already succeeded. Its result is preserved on `data`. What ' +
+            'failed is the verification, not the work: no evidence was read either way, ' +
+            'so the run refuses to assert the contract held. Restore the event store and ' +
+            'inspect the operation; to surface this without failing the run, set ' +
+            '`events.emission-enforcement: advisory` in `.exarchos.yml`.',
+        },
+      });
+    }
+    // Advisory: the finding rides on the envelope the caller already reads.
+    result = {
+      ...result,
+      warnings: [
+        ...(result.warnings ?? []),
+        emissionIndeterminacyWarning(tool, dispatchedActionName, emissionVerdict),
+      ],
+    };
+  }
+
+  // Host-owned actions never reach here: they returned the obligation before
+  // the handler ran, and they do not owe execute-path ensures. Stubbed
+  // composites are the same kind of non-execution as the emission verifier
+  // already exempts. Read-only reasoned abstention has no append to observe.
+  // A successful return after this point implies every applicable ensure was
+  // observed from the store or the persisted-evidence reader.
+  if (
+    dispatchedContract !== undefined &&
+    dispatchedContract.ensures.kind === 'declared' &&
+    !STUBBED_COMPOSITES.has(tool) &&
+    !readOnlyAbstention
+  ) {
+    const applicable = applicableEnsures(
+      dispatchedContract.ensures,
+      result.success ? 'success' : 'failure',
+    );
+    if (applicable.length === 0) {
+      return attachMeta(result);
+    }
+    if (observedStreamId === undefined || observedStreamId.length === 0) {
+      return attachMeta(
+        ensureContractViolatedResult(
+          tool,
+          dispatchedActionName,
+          result,
+          applicable,
+        ),
+      );
+    }
+    let observation: ActionPostconditionObservation;
+    try {
+      observation = await observeActionPostconditions({
+        ensures: dispatchedContract.ensures,
+        store: ctx.eventStore,
+        evidence: ctx.eventStore,
+        streamId: observedStreamId,
+        operationId: dispatchCtx.operationId,
+        outcome: result.success ? 'success' : 'failure',
+      });
+    } catch {
+      // Report the ensures that APPLY to this outcome, not every declared one:
+      // the failure path's message otherwise names postconditions the run was
+      // never going to observe.
+      observation = { status: 'violated' as const, missing: applicable };
+    }
+    if (observation.status === 'violated') {
+      return attachMeta(
+        ensureContractViolatedResult(tool, dispatchedActionName, result, observation.missing),
+      );
+    }
   }
 
   return attachMeta(result);

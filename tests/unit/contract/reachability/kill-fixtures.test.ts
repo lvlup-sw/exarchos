@@ -22,7 +22,7 @@ import { COMPOSITE_HANDLER_LOADERS } from '../../../../src/dispatch/core/dispatc
 import { compile, type CompiledContract } from '../../../../src/contract/compiler/compile.js';
 import { deriveMetaModel } from '../../../../src/contract/compiler/meta-model.js';
 import { EVENT_ANNOTATIONS } from '../../../../src/events/event-annotations.js';
-import { TOOL_REGISTRY } from '../../../../src/registry.js';
+import { TOOL_REGISTRY, contractEmissionsOf } from '../../../../src/registry.js';
 import { PROOF_FIXTURES_FILE } from '../../../../src/contract/compiler/generate.js';
 import { CLI_SURFACE_FILE } from '../../../../src/contract/cli/cli-contract-seam.js';
 
@@ -346,9 +346,9 @@ describe('KILL: event — an emission the catalog never registered drops the cen
 
     // The seed is real: this action really does declare this event today, so the
     // kill below is a removal rather than an assertion about a fixture.
-    const declaredHere = (TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate')?.actions ?? [])
-      .find((a) => a.name === 'task_claim')
-      ?.autoEmits?.some((e) => e.event === declared);
+    const taskClaim = (TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate')?.actions ?? [])
+      .find((a) => a.name === 'task_claim');
+    const declaredHere = contractEmissionsOf(taskClaim ?? {}).some((e) => e.event === declared);
     expect(declaredHere, `${target} no longer declares ${declared}`).toBe(true);
     expect(EVENT_ANNOTATIONS[declared], `${declared} is not in the catalog`).toBeDefined();
 

@@ -2,9 +2,15 @@
 //
 // Pre-delegation guards: branch ancestry validation and worktree assertions.
 // Pure functions with injected dependencies — no side-effects (the guard
-// primitives themselves remain side-effect-free; the orchestration helpers
-// `runPreflightGuards` and `probeStashAndEmit` (#1261) emit a single event
-// each and have their EventStore + DispatchContext threaded via arguments).
+// primitives themselves remain side-effect-free; the orchestration helper
+// `probeStashAndEmit` emits a single event and has its EventStore +
+// DispatchContext threaded via arguments).
+//
+// `dispatch.preflight` is NOT emitted here. The delegation handler runs the
+// guards itself so it can record the outcome of each one regardless of which
+// short-circuits, and emits the single summary from there; the aggregating
+// helper that used to live beside these primitives duplicated that emission
+// and no shipped caller invoked it.
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { EventStore } from '../../events/store.js';
@@ -172,107 +178,6 @@ export function assertMainWorktree(cwd?: string): WorktreeAssertionResult {
     isMain: !isSubagent,
     actual,
     expected: 'main worktree (no .claude/worktrees/ in path)',
-  };
-}
-
-// ─── Preflight Outcome Emission (#1261) ──────────────────────────────────────
-
-/**
- * Aggregate outcome of `runPreflightGuards`. Mirrors the per-guard shape
- * stamped into the emitted `dispatch.preflight` event so callers can
- * branch on the same data without re-querying the event store.
- */
-export interface PreflightOutcome {
-  readonly guards: {
-    readonly ancestry: { readonly passed: boolean };
-    readonly worktree: { readonly passed: boolean };
-    readonly protectedBranch: { readonly passed: boolean };
-    readonly mainWorktree: { readonly passed: boolean };
-  };
-  readonly passed: boolean;
-  readonly durationMs: number;
-}
-
-export interface RunPreflightGuardsArgs {
-  readonly store: EventStore;
-  readonly streamId: string;
-  readonly integrationBranch: string;
-  readonly requiredUpstream: readonly string[];
-  readonly gitExec: GitExec;
-  /** Worktree path used for `assertMainWorktree`. Defaults to `process.cwd()`. */
-  readonly cwd?: string;
-}
-
-/**
- * Runs the four dispatch preflight guards and emits a single
- * `dispatch.preflight` event capturing the per-guard pass/fail outcome,
- * the aggregate `passed` flag, and the total runtime in ms.
- *
- * The `mainWorktree` slot is currently an alias for `worktree.passed` —
- * both surface the "we are not in a subagent worktree" assertion. The
- * split exists in the event schema so that a future cross-cutting "we
- * are in the canonical main worktree of the configured repo" check can
- * be added without bumping the schema version.
- *
- * `operationId` is inherited from the active `DispatchContext` (B1 /
- * #1291) by the `stampWithDispatchContext` helper inside
- * `EventStore.append`. No manual correlation threading is required here.
- *
- * Emission failures are logged-and-swallowed via the caller-provided
- * `EventStore.append` (which itself raises on schema-validation errors —
- * those *should* surface, so we deliberately do not catch here).
- */
-export async function runPreflightGuards(
-  args: RunPreflightGuardsArgs,
-): Promise<PreflightOutcome> {
-  const start = Date.now();
-
-  const ancestry = await validateBranchAncestry(
-    args.integrationBranch,
-    [...args.requiredUpstream],
-    args.gitExec,
-  );
-
-  const worktreeAssertion = assertMainWorktree(args.cwd);
-  const worktreePassed = worktreeAssertion.isMain;
-
-  const currentBranch = getCurrentBranch(args.gitExec);
-  const protectionResult = assertCurrentBranchNotProtected(currentBranch);
-  const protectedBranchPassed = !protectionResult.blocked;
-
-  // `mainWorktree` is reserved for a future cross-cutting "canonical main
-  // worktree" assertion; today it shadows `worktree.passed` so the schema
-  // shape is stable from day one.
-  const mainWorktreePassed = worktreePassed;
-
-  const passed =
-    ancestry.passed && worktreePassed && protectedBranchPassed && mainWorktreePassed;
-
-  const durationMs = Date.now() - start;
-
-  await args.store.append(args.streamId, {
-    type: 'dispatch.preflight',
-    data: {
-      guards: {
-        ancestry: { passed: ancestry.passed },
-        worktree: { passed: worktreePassed },
-        protectedBranch: { passed: protectedBranchPassed },
-        mainWorktree: { passed: mainWorktreePassed },
-      },
-      passed,
-      durationMs,
-    },
-  });
-
-  return {
-    guards: {
-      ancestry: { passed: ancestry.passed },
-      worktree: { passed: worktreePassed },
-      protectedBranch: { passed: protectedBranchPassed },
-      mainWorktree: { passed: mainWorktreePassed },
-    },
-    passed,
-    durationMs,
   };
 }
 

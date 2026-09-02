@@ -1,0 +1,21 @@
+// KILL FIXTURE — not compiled, not shipped, deliberately defective.
+//
+// `configureWorkflowMaterializer` as it stood in src/workflow/handlers/shared.ts
+// before it was removed. It gated two production paths — the ES v2 read in
+// `handleGet` and the state-snapshot refresh in `handleSet` — on a value that
+// nothing in `src/` ever set. Four test files called it, so the gated branches
+// looked covered while neither could run in the shipped composition.
+//
+// `tests/architecture/reachable-controls.test.ts` runs its real scanner over
+// this file and fails if the enabler is not reported. If a future refactor
+// makes the scanner blind to this shape, the guard goes red here rather than
+// going quiet in production.
+
+import type { ViewMaterializer } from '../../projections/views/materializer.js';
+
+export let moduleViewMaterializer: ViewMaterializer | null = null;
+
+/** Configure the ViewMaterializer instance used by handleGet for ES v2 workflows. */
+export function configureWorkflowMaterializer(materializer: ViewMaterializer | null): void {
+  moduleViewMaterializer = materializer;
+}

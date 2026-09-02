@@ -70,6 +70,7 @@ const ALLOWED_UNTRACKED: Record<string, string> = {
   coverage: 'Coverage output.',
   '.worktrees': 'Legacy worktree root.',
   '.serena': 'Serena MCP project cache.',
+  '.vscode': 'Editor workspace settings. Untracked, so it appears on some machines and not others.',
   '.azurite': 'Azurite emulator state.',
   '.nyc_output': 'Legacy coverage output.',
   '.DS_Store': 'macOS directory metadata.',

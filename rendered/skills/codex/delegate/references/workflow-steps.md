@@ -137,6 +137,7 @@ When tasks complete, run the post-delegation check:
 ```typescript
 exarchos_orchestrate({
   action: "post_delegation_check",
+  featureId: "<feature-id>",
   stateFile: "<path-to-state.json>",
   repoRoot: "<project-root>"
 })

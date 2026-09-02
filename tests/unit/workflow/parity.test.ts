@@ -14,7 +14,7 @@ import {
 } from '../parity-harness.js';
 import type { ToolResult } from '../../../src/format.js';
 import type { RehydrationDocument } from '../../../src/projections/rehydration/schema.js';
-import { configureWorkflowMaterializer, handleInit } from '../../../src/workflow/tools.js';
+import { handleInit } from '../../../src/workflow/tools.js';
 import { resetMaterializerCache } from '../../../src/projections/views/tools.js';
 import { ViewMaterializer } from '../../../src/projections/views/materializer.js';
 import {
@@ -280,13 +280,11 @@ describe('asOf CLI/MCP parity (T8, #1555, INV-2)', () => {
     // stateDir/eventStore, and asOf reads bypass the cache anyway).
     const materializer = new ViewMaterializer();
     materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
-    configureWorkflowMaterializer(materializer);
     await seed(cliCtx);
     await seed(mcpCtx);
   });
 
   afterEach(async () => {
-    configureWorkflowMaterializer(null);
     resetMaterializerCache();
     await rmrfAsync(cliDir);
     await rmrfAsync(mcpDir);

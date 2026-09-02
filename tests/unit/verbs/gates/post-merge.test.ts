@@ -11,6 +11,36 @@ vi.mock('../../../../src/verbs/pure/post-merge.js', () => ({
   checkPostMerge: (...args: unknown[]) => mockCheckPostMerge(...args),
 }));
 
+// The gate now records durable evidence through the shared phase-gate runner
+// before any success carrier escapes. These cases are about the PROVIDER's
+// verdict, so the runner is stubbed down to its provider call — the same seam
+// every other migrated gate's unit test stubs. What the runner itself
+// guarantees is proven against a real store in `gate-runner.test.ts`, and the
+// evidence a caller actually gets is proven over real dispatch in
+// `unrunbooked-gate-evidence-dispatch.test.ts`.
+vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
+  runPhaseGateWithEvidence: vi.fn(async (request) => {
+    try {
+      return await request.executeProvider(
+        {
+          gateClass: request.gateClass,
+          providerRef: 'test-provider',
+          actionName: 'test-provider',
+        },
+        request.providerInput,
+      );
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: 'GATE_PROVIDER_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }),
+}));
+
 // ─── Mock event store ──────────────────────────────────────────────────────
 
 const mockStore = {
@@ -235,5 +265,24 @@ describe('handlePostMerge', () => {
     expect(callArgs.prUrl).toBe('https://github.com/org/repo/pull/42');
     expect(callArgs.mergeSha).toBe('abc1234');
     expect(typeof callArgs.runCommand).toBe('function');
+  });
+
+  // ─── Test 6: gate.executed append failure withholds the success carrier ──
+
+  it('PostMerge_GateEventAppendFails_WithholdsTheSuccessCarrier', async () => {
+    mockCheckPostMerge.mockReturnValue(makePassingResult());
+    mockStore.append.mockRejectedValueOnce(new Error('store unavailable'));
+
+    const result = await handlePostMerge(
+      { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
+      STATE_DIR,
+      mockStore as unknown as EventStore,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_EVENT_UNRECORDED');
+    const data = result.data as { passed: boolean; prUrl: string };
+    expect(data.passed).toBe(true);
+    expect(data.prUrl).toBe('https://github.com/org/repo/pull/42');
   });
 });

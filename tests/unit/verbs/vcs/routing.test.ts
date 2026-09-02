@@ -11,7 +11,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TOOL_REGISTRY } from '../../../../src/registry.js';
+import { TOOL_REGISTRY, contractEmissionsOf } from '../../../../src/registry.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -75,8 +75,8 @@ describe('VCS action routing registration', () => {
       const actionDef = orchestrate!.actions.find((a) => a.name === action);
       expect(actionDef, `VCS action '${action}' not found in registry`).toBeDefined();
       expect(
-        actionDef!.autoEmits && actionDef!.autoEmits.length > 0,
-        `Mutating VCS action '${action}' should have autoEmits`,
+        contractEmissionsOf(actionDef!).length > 0,
+        `Mutating VCS action '${action}' should declare contract emissions`,
       ).toBe(true);
     }
   });
@@ -90,8 +90,8 @@ describe('VCS action routing registration', () => {
       const actionDef = orchestrate!.actions.find((a) => a.name === action);
       expect(actionDef, `VCS action '${action}' not found in registry`).toBeDefined();
       expect(
-        !actionDef!.autoEmits || actionDef!.autoEmits.length === 0,
-        `Read-only VCS action '${action}' should NOT have autoEmits`,
+        contractEmissionsOf(actionDef!).length === 0,
+        `Read-only VCS action '${action}' should not declare catalog emissions`,
       ).toBe(true);
     }
   });

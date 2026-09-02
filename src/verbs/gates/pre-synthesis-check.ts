@@ -20,6 +20,9 @@ import { splitCommand } from '../../config/tokenize-command.js';
 import type { VcsProvider } from '../../vcs/provider.js';
 import { createVcsProvider } from '../../vcs/factory.js';
 import { classifyStateFile, resolveWorkflowState } from '../resolve-state.js';
+import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
+import { runPhaseGateWithEvidence } from './gate-runner.js';
+import { emitGateEvent, sameOperationGateKey } from './gate-utils.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -31,8 +34,10 @@ export interface PreSynthesisCheckArgs {
    * store is the sole source of truth; the file is a derived stamp.
    */
   readonly stateFile?: string;
-  readonly featureId?: string;
+  /** The stream the gate's durable evidence is recorded against. */
+  readonly featureId: string;
   readonly eventStore?: EventStore;
+  readonly stateDir?: string;
   readonly repoRoot?: string;
   readonly skipTests?: boolean;
   readonly skipStack?: boolean;
@@ -472,6 +477,49 @@ export async function handlePreSynthesisCheck(
   args: PreSynthesisCheckArgs,
   provider?: VcsProvider,
 ): Promise<ToolResult> {
+  if (!args.featureId) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'featureId is required' },
+    };
+  }
+  const { eventStore, stateDir } = args;
+  if (eventStore === undefined || stateDir === undefined) {
+    return {
+      success: false,
+      error: {
+        code: 'MISWIRED_CONTEXT',
+        message: 'pre_synthesis_check requires the dispatch event store and state directory',
+      },
+    };
+  }
+
+  // The gate declares BOTH durable gate evidence and an unconditional
+  // `gate.executed` emission, and honored neither. The shared phase-gate runner
+  // records the evidence before any success carrier escapes; the declared
+  // signal is minted by the provider closure, keyed so a same-operation retry
+  // collapses onto one row.
+  return runPhaseGateWithEvidence({
+    streamId: args.featureId,
+    gateClass: 'pre-synthesis',
+    requirementId: 'requirement:pre-synthesis',
+    stateDir,
+    eventStore,
+    subject: (phaseAttemptId) =>
+      createEvidenceSubject(
+        { kind: 'phase-attempt', phaseAttemptId },
+        { gate: 'pre-synthesis', phase: 'synthesize' },
+      ),
+    providerInput: args,
+    executeProvider: async () => executePreSynthesisCheck(args, eventStore, provider),
+  });
+}
+
+async function executePreSynthesisCheck(
+  args: PreSynthesisCheckArgs,
+  store: EventStore,
+  provider?: VcsProvider,
+): Promise<ToolResult> {
   const { stateFile, featureId, eventStore, repoRoot = '.', skipTests = false, skipStack = false, testCommand } = args;
   const vcs = provider ?? await createVcsProvider();
 
@@ -537,7 +585,7 @@ export async function handlePreSynthesisCheck(
   const total = ctx.counters.pass + ctx.counters.fail;
   const passed = ctx.counters.fail === 0;
 
-  const stateSource = stateFile ?? featureId ?? 'event-store';
+  const stateSource = stateFile ?? featureId;
   const reportLines = [
     '## Pre-Synthesis Readiness Report',
     '',
@@ -551,6 +599,25 @@ export async function handlePreSynthesisCheck(
       ? `**Result: PASS** (${ctx.counters.pass}/${total} checks passed)`
       : `**Result: FAIL** (${ctx.counters.fail}/${total} checks failed)`,
   ];
+
+  // The `gate.executed` row the action declares unconditionally. Keyed on the
+  // operation identity a retry deliberately reuses: the runner re-executes this
+  // provider before it can discover the operation already produced evidence,
+  // and an unkeyed append would leave two rows describing one gate run.
+  await emitGateEvent(
+    store,
+    featureId,
+    'pre-synthesis',
+    'synthesize',
+    passed,
+    {
+      phase: 'synthesize',
+      pass: ctx.counters.pass,
+      fail: ctx.counters.fail,
+      skip: ctx.counters.skip,
+    },
+    sameOperationGateKey('pre-synthesis'),
+  );
 
   return {
     success: true,

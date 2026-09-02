@@ -9,7 +9,7 @@ import type { ToolResult } from '../../format.js';
 import type { PluginFinding } from '../../review/check-catalog.js';
 import type { EventStore } from '../../events/store.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
-import { emitGateEvent } from '../gates/gate-utils.js';
+import { emitGateEvent, sameOperationGateKey } from '../gates/gate-utils.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from '../gates/gate-runner.js';
 import {
@@ -387,11 +387,19 @@ async function executeReviewVerdict(
   // persistence failure: the canonical runner converts it to a failure carrier.
   if (args.dimensionResults) {
     for (const [key, entry] of Object.entries(args.dimensionResults)) {
-      await emitGateEvent(eventStore, args.featureId, `review-${key}`, 'review', entry.passed, {
-        dimension: key,
-        phase: 'review',
-        findingCount: entry.findingCount,
-      });
+      await emitGateEvent(
+        eventStore,
+        args.featureId,
+        `review-${key}`,
+        'review',
+        entry.passed,
+        {
+          dimension: key,
+          phase: 'review',
+          findingCount: entry.findingCount,
+        },
+        sameOperationGateKey(`review-${key}`),
+      );
     }
   }
 
@@ -400,14 +408,25 @@ async function executeReviewVerdict(
     ? [...new Set(args.pluginFindings.map(f => f.source))]
     : undefined;
 
-  await emitGateEvent(eventStore, args.featureId, 'review-verdict', 'review', verdict === 'APPROVED', {
-    verdict,
-    phase: 'review',
-    high: mergedHigh,
-    medium: mergedMedium,
-    low: mergedLow,
-    ...(pluginSources ? { pluginSources } : {}),
-  });
+  await emitGateEvent(
+    eventStore,
+    args.featureId,
+    'review-verdict',
+    'review',
+    verdict === 'APPROVED',
+    {
+      verdict,
+      phase: 'review',
+      high: mergedHigh,
+      medium: mergedMedium,
+      low: mergedLow,
+      ...(pluginSources ? { pluginSources } : {}),
+    },
+    // `countPriorFixCycles` counts these rows, so a crash-retry that re-ran the
+    // same operation would otherwise inflate the fix-cycle count that decides
+    // whether the loop escalates.
+    sameOperationGateKey('review-verdict'),
+  );
 
   // Emit a structured escalation gate event (DR-3) so the ask-user escalation is
   // event-sourced and surfaceable — distinct from the `review-verdict` summary
@@ -416,13 +435,21 @@ async function executeReviewVerdict(
   // recorded as FAILED (passed:false) — escalation means the bounded loop could
   // not converge unattended.
   if (escalation?.action === 'escalate') {
-    await emitGateEvent(eventStore, args.featureId, 'review-escalation', 'review', false, {
-      phase: 'review',
-      reason: escalation.reason,
-      findingClass: escalation.findingClass,
-      priorFixCount: escalation.priorFixCount,
-      maxIterations: escalation.maxIterations,
-    });
+    await emitGateEvent(
+      eventStore,
+      args.featureId,
+      'review-escalation',
+      'review',
+      false,
+      {
+        phase: 'review',
+        reason: escalation.reason,
+        findingClass: escalation.findingClass,
+        priorFixCount: escalation.priorFixCount,
+        maxIterations: escalation.maxIterations,
+      },
+      sameOperationGateKey('review-escalation'),
+    );
   }
 
   return { success: true, data: result };

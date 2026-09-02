@@ -3,8 +3,12 @@
 // Adds a comment to a pull/merge request via the VCS provider abstraction.
 //
 // Two-event split (Wave B / B2.4, INV-1 MEDIUM audit requirement):
-//   Phase A — commit `pr.comment.requested` (durable intent) via appendComputed
-//             keyed by operationId BEFORE the gh pr comment side effect fires.
+//   Phase A — commit `pr.comment.requested` (durable intent) via a plain
+//             append keyed by operationId BEFORE the gh pr comment side
+//             effect fires. A plain append picks up the ambient dispatch
+//             operation id, which is how post-dispatch observation finds
+//             this row on the shared stream; the marker embedded in the
+//             comment body is a separate, caller-facing recovery key.
 //             Wrapped in withStateRetry so ConcurrencyError / StorageBusyError
 //             on the append don't abort the handler.
 //
@@ -29,11 +33,39 @@ import {
   ConcurrencyError,
   StorageBusyError,
 } from '../../events/index.js';
+import { SequenceConflictError } from '../../events/store.js';
+import { SqliteBusyExhaustedError } from '../../storage/sqlite/errors.js';
 import {
   withStateRetry,
   MAX_STATE_RETRIES,
 } from '../../workflow/state-retry.js';
-import type { AppendResult } from '../../events/index.js';
+
+/**
+ * `EventStore.append` (the plain-append surface this handler now uses so the
+ * row picks up the ambient dispatch operation id) does not translate a
+ * substrate failure the way the deleted `appendComputed` + local translator
+ * pair used to: it throws `SequenceConflictError` for a sequence conflict
+ * and the RAW `SqliteBusyExhaustedError` cause for storage contention
+ * (`src/events/store.ts` `delegateAppend`) — neither of which `isRetryable`
+ * in `state-retry.ts` recognizes, and neither of which the catch arms below
+ * were written to match. Translate them here, at the one call site that
+ * needs it, into the typed classes both `withStateRetry` and this handler's
+ * own catch arms already know how to handle.
+ */
+function translateStorageError(err: unknown): never {
+  if (err instanceof SqliteBusyExhaustedError) {
+    throw new StorageBusyError({ streamId: 'vcs', attempts: 1, cause: err });
+  }
+  if (err instanceof SequenceConflictError) {
+    throw new ConcurrencyError({
+      streamId: 'vcs',
+      reducerId: 'add-pr-comment',
+      expectedVersion: err.expected,
+      actualVersion: err.actual,
+    });
+  }
+  throw err;
+}
 
 // ─── Args ─────────────────────────────────────────────────────────────────────
 
@@ -63,26 +95,6 @@ export interface HandleAddPrCommentArgs {
 /** Marker embedded into the comment body to enable idempotency detection. */
 function buildMarker(operationId: string): string {
   return `<!-- exarchos-op:${operationId} -->`;
-}
-
-/** Translate an AppendResult failure to a typed error that withStateRetry can retry. */
-function translateAppendFailure(result: AppendResult & { ok: false }, streamId: string): never {
-  if (result.reason === 'sequence-conflict') {
-    throw new ConcurrencyError({
-      streamId,
-      reducerId: 'add-pr-comment',
-      expectedVersion: result.expected ?? -1,
-      actualVersion: result.actual ?? -1,
-    });
-  }
-  if (result.reason === 'storage_busy') {
-    throw new StorageBusyError({
-      streamId,
-      attempts: 1,
-      cause: result.cause ?? new Error('storage_busy'),
-    });
-  }
-  throw result.cause ?? new Error(`Append failed: ${result.reason}`);
 }
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
@@ -142,21 +154,30 @@ export async function handleAddPrComment(
     }
 
     const provider = await createVcsProvider({ config: ctx.projectConfig });
-    const appender = ctx.eventStore.getAppender();
     const phaseAKey = `pr-comment-requested:${operationId}`;
 
     // ─── Phase A — durable INTENT ──────────────────────────────────────────
     //
-    // Commit pr.comment.requested via appendComputed keyed by operationId
-    // BEFORE the side effect fires. withStateRetry catches ConcurrencyError
-    // and StorageBusyError from the append and retries — the addComment call
-    // lives OUTSIDE this retry boundary (canonical two-event split property).
+    // Commit pr.comment.requested via a plain append, keyed by operationId,
+    // BEFORE the side effect fires. This body is a constant literal — there
+    // is no read-then-append here, so the per-stream lock appendComputed
+    // buys nothing. The plain append also stamps the row with the ambient
+    // dispatch operation id for free (appendComputed does not), which is
+    // what lets post-dispatch observation find the row on the shared `vcs`
+    // stream by that operation. `data.operationId` stays the separate,
+    // caller-facing marker the crash-recovery scan matches on.
+    //
+    // `translateStorageError` maps what the plain append actually throws
+    // (`SequenceConflictError`, a raw substrate cause) into the typed
+    // `ConcurrencyError`/`StorageBusyError` pair withStateRetry recognizes,
+    // so a busy-budget exhaustion still retries here instead of surfacing
+    // immediately as an opaque failure — the addComment call lives OUTSIDE
+    // this retry boundary either way (canonical two-event split property).
     try {
       await withStateRetry(async () => {
-        const result = await appender.appendComputed(
-          'vcs',
-          phaseAKey,
-          async () => [
+        try {
+          await ctx.eventStore.append(
+            'vcs',
             {
               type: 'pr.comment.requested',
               data: {
@@ -170,10 +191,10 @@ export async function handleAddPrComment(
                   : {}),
               },
             },
-          ],
-        );
-        if (!result.ok) {
-          translateAppendFailure(result, 'vcs');
+            { idempotencyKey: phaseAKey },
+          );
+        } catch (err) {
+          translateStorageError(err);
         }
       });
     } catch (err) {

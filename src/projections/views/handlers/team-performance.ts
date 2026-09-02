@@ -1,9 +1,10 @@
+import { toViewFailure } from '../../degraded-result.js';
 import { EventStore } from '../../../events/store.js';
 import type { ToolResult } from '../../../format.js';
 import { TEAM_PERFORMANCE_VIEW, type TeamPerformanceViewState } from '../team-performance-view.js';
 import { CompactTeammateMetrics, compactTeammate } from './inventory-contract.js';
 import { getOrCreateMaterializer } from './materializer.js';
-import { queryDeltaEvents } from './query.js';
+import { foldToTail } from '../../fold-at-tail.js';
 
 // ─── View Team Performance Handler ──────────────────────────────────────────
 
@@ -17,12 +18,7 @@ export async function handleViewTeamPerformance(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const events = await queryDeltaEvents(store, materializer, streamId, TEAM_PERFORMANCE_VIEW);
-    const view = materializer.materialize<TeamPerformanceViewState>(
-      streamId,
-      TEAM_PERFORMANCE_VIEW,
-      events,
-    );
+    const { view } = await foldToTail<TeamPerformanceViewState>(store, materializer, streamId, TEAM_PERFORMANCE_VIEW);
 
     // DR-8 — `detail: true` returns the full projection (teammates + modules +
     // sizing). The compact default keeps the per-teammate CORE metrics (the
@@ -38,12 +34,6 @@ export async function handleViewTeamPerformance(
     }
     return { success: true, data: { teammates } };
   } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'VIEW_ERROR',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
+    return toViewFailure(err, { tool: 'exarchos_view', action: 'team_performance' });
   }
 }

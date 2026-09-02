@@ -27,6 +27,7 @@ import { createHash } from 'node:crypto';
 
 import {
   AdmissionDisagreementDispositionData,
+  AdmissionEvidenceRecordedData,
   AdmissionShadowAttemptData,
 } from '../../events/schemas.js';
 import {
@@ -232,4 +233,67 @@ export function contentDigestOf(value: string): ContentDigestV1 {
     algorithm: 'sha256',
     value: createHash('sha256').update(value, 'utf8').digest('hex'),
   });
+}
+
+// ─── Persisted action-evidence observation ───────────────────────────────────
+
+/**
+ * The store slice a postcondition check needs: one stream, optionally narrowed
+ * to an event type and the dispatch that wrote it. `EventStore.query` satisfies
+ * this structurally.
+ */
+export interface PersistedEvidenceSource {
+  query(
+    streamId: string,
+    filters?: { type?: string | undefined; operationId?: string | undefined },
+  ): Promise<
+    readonly {
+      readonly type: string;
+      readonly operationId?: string | undefined;
+      readonly data?: unknown;
+    }[]
+  >;
+}
+
+/** What a durable-evidence ensure asks the reader to find. */
+export interface PersistedEvidenceQuery {
+  readonly streamId: string;
+  readonly operationId: string;
+  readonly evidenceType: string;
+}
+
+/** One persisted evidence row that matched the asked type on this operation. */
+export interface PersistedEvidenceObservation {
+  readonly evidenceType: string;
+  readonly operationId: string;
+}
+
+/**
+ * Read persisted evidence records for one operation-scoped ensure.
+ *
+ * Only committed `admission.evidence-recorded` rows count. The envelope must
+ * carry this operationId, and the payload's evidence kind must match the
+ * asked type. An unreadable payload is dropped — it is not evidence.
+ */
+export async function readPersistedEvidence(
+  source: PersistedEvidenceSource,
+  query: PersistedEvidenceQuery,
+): Promise<readonly PersistedEvidenceObservation[]> {
+  const rows = await source.query(query.streamId, {
+    type: ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED,
+    operationId: query.operationId,
+  });
+  const observed: PersistedEvidenceObservation[] = [];
+  for (const row of rows) {
+    if (row.type !== ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED) continue;
+    if (row.operationId !== query.operationId) continue;
+    const parsed = AdmissionEvidenceRecordedData.safeParse(row.data);
+    if (!parsed.success) continue;
+    if (parsed.data.evidence.kind !== query.evidenceType) continue;
+    observed.push({
+      evidenceType: parsed.data.evidence.kind,
+      operationId: query.operationId,
+    });
+  }
+  return observed;
 }

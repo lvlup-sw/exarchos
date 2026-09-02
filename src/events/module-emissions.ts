@@ -38,6 +38,11 @@
  * constructible for any module and the whole channel would collapse into an
  * escape hatch for "an action could not be found". Claiming a trigger means
  * claiming one of these specific mechanisms.
+ *
+ * The union may still GROW, and that is not a loophole: a new member is a
+ * mechanism argued once, in a comment, for every row that will ever use it.
+ * What the closure buys is that the argument has to be made at the type before
+ * a row can be written, rather than improvised per row in free text.
  */
 
 /**
@@ -56,7 +61,24 @@ export type ModuleEmitterTrigger =
   /** Drains an observer sink installed at process wiring; records what it observed. */
   | 'observer-drain'
   /** Fired by the harness or runtime lifecycle rather than by a dispatch. */
-  | 'process-hook';
+  | 'process-hook'
+  /**
+   * Published from a shared path that every read of its kind traverses. The
+   * append REPORTS what the read observed about state somebody else wrote, so
+   * it is the read path's effect and no reader's.
+   */
+  | 'read-path-publisher'
+  /**
+   * A store keeping its own record, driven by a protocol surface that is not
+   * the registry's action surface — so there is no action to declare it on.
+   */
+  | 'store-internal'
+  /**
+   * A shared resolution library that several unrelated entry points call. The
+   * append records what resolution concluded; picking one caller to own it
+   * would silence the row while asserting a false owner.
+   */
+  | 'shared-resolver';
 
 export interface ModuleEmission {
   /** The event type appended. */
@@ -77,6 +99,29 @@ const TELEMETRY_WRAPPER =
   'handler returns keyed by the tool it was invoked with, and swallows its own failures so a ' +
   'telemetry drop can never fail a workflow. No single action performs it, and declaring it on ' +
   'all of them would assert that each one independently emits the row.';
+
+const ELICITATION_PROTOCOL =
+  'The elicitation round-trip is conducted by the dispatch pipeline on behalf of whichever action ' +
+  'arrived missing a required field. Every action can reach it and none of them chooses it, so ' +
+  'attributing the protocol to actions would make each one a declared emitter of a negotiation the ' +
+  'pipeline runs for it. Same shape as the emission verifier below.';
+
+const WORKTREE_CREATE_PAIR =
+  'Appended from the launcher as a child worktree is provisioned, driven by the runtime lifecycle ' +
+  'rather than by a dispatched call — the same reading the launcher liveness row below carries. ' +
+  'Crash recovery re-appends the terminal half from a LATER process, replaying an intent whose ' +
+  'originating dispatch is gone, so no live action invocation bounds the pair.';
+
+const PROJECTION_HEALTH =
+  'Published from the shared view read path, which every view read traverses: the read clears or ' +
+  'records the projection-health row for the stream it just read, keyed on the cursor/tail pair it ' +
+  'observed. The append reports on a projection somebody else advanced, and it is reached ' +
+  'identically by every view action, so it is the effect of none of them.';
+
+const TASK_STORE =
+  'The event-sourced task store journals its own record. Its callers arrive through the protocol ' +
+  'method surface for long-running tasks, which is not the registry action surface, so there is no ' +
+  'action whose declared effect this could be.';
 
 const SHADOW_OBSERVER =
   'Appended on the observer sink drain, from a target installed when the process is wired. The ' +
@@ -175,5 +220,93 @@ export const MODULE_EMISSIONS: readonly ModuleEmission[] = Object.freeze([
     rationale:
       'Appended by a dispatch interceptor that records machinery consumption for the session, ' +
       'independent of which action was routed. Same shape as the emission verifier beside it.',
+  },
+  {
+    event: 'elicitation.requested',
+    module: 'dispatch/elicitation-dispatch.ts',
+    trigger: 'dispatch-interceptor',
+    rationale: ELICITATION_PROTOCOL,
+  },
+  {
+    event: 'elicitation.fulfilled',
+    module: 'dispatch/elicitation-dispatch.ts',
+    trigger: 'dispatch-interceptor',
+    rationale: ELICITATION_PROTOCOL,
+  },
+  {
+    event: 'elicitation.declined',
+    module: 'dispatch/elicitation-dispatch.ts',
+    trigger: 'dispatch-interceptor',
+    rationale: ELICITATION_PROTOCOL,
+  },
+  {
+    event: 'workspace.resolved',
+    module: 'runtime/workspace/discovery.ts',
+    trigger: 'dispatch-interceptor',
+    rationale:
+      'Appended while resolving the workspace for a call that supplied no featureId. Its sole ' +
+      'caller is the pre-handler inferred-value step, which runs before routing and is told ' +
+      'nothing about which action it is resolving for — the append precedes any action taking ' +
+      'effect, so none of them can carry it.',
+  },
+  {
+    event: 'worktree.create.requested',
+    module: 'runtime/launcher/create-worktree.ts',
+    trigger: 'process-hook',
+    rationale: WORKTREE_CREATE_PAIR,
+  },
+  {
+    event: 'worktree.create.executed',
+    module: 'runtime/launcher/create-worktree.ts',
+    trigger: 'process-hook',
+    rationale: WORKTREE_CREATE_PAIR,
+  },
+  {
+    event: 'projection.degraded',
+    module: 'projections/freshness.ts',
+    trigger: 'read-path-publisher',
+    rationale: PROJECTION_HEALTH,
+  },
+  {
+    event: 'projection.recovered',
+    module: 'projections/freshness.ts',
+    trigger: 'read-path-publisher',
+    rationale: PROJECTION_HEALTH,
+  },
+  {
+    event: 'quality.regression',
+    module: 'projections/quality/regression-detector.ts',
+    trigger: 'read-path-publisher',
+    rationale:
+      'The detector OBSERVES consecutive gate failures while the code-quality view folds its ' +
+      'stream, and the view handler publishes what it saw. A view reports; it does not effect. The ' +
+      'failures being reported were produced by other actions on earlier dispatches, and the ' +
+      'append is fire-and-forget with its own errors swallowed, so no invocation reliably ' +
+      'produces it.',
+  },
+  {
+    event: 'task.created',
+    module: 'projections/task-store/event-sourced-task-store.ts',
+    trigger: 'store-internal',
+    rationale: TASK_STORE,
+  },
+  {
+    event: 'task.polled',
+    module: 'projections/task-store/event-sourced-task-store.ts',
+    trigger: 'store-internal',
+    rationale:
+      `${TASK_STORE} This half is additionally best-effort: it is throttled to at most one row per ` +
+      'interval, its failures are swallowed, and no projection handler folds it. It records that a ' +
+      'poll happened and nothing downstream reads it back.',
+  },
+  {
+    event: 'command.resolved',
+    module: 'config/test-runtime-resolver.ts',
+    trigger: 'shared-resolver',
+    rationale:
+      'The toolchain resolver journals one row per resolved field, and three unrelated entry ' +
+      'points reach it: dispatch onboarding reconciliation, the doctor probes, and init seeding. ' +
+      'No one of them owns the append, and declaring it on the probing action alone would explain ' +
+      'the row while naming an owner the other two callers contradict.',
   },
 ]);

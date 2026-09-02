@@ -9,13 +9,11 @@ import type { EventType } from '../../events/schemas.js';
 import { EVENT_DATA_SCHEMAS, EVENT_EMISSION_REGISTRY } from '../../events/schemas.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
-import {
-  getOrCreateMaterializer,
-  queryDeltaEvents,
-} from '../../projections/views/tools.js';
+import { foldToTail } from '../../projections/fold-at-tail.js';
+import { getOrCreateMaterializer } from '../../projections/views/tools.js';
 import { WORKFLOW_STATE_VIEW } from '../../projections/views/workflow-state-projection.js';
 import type { WorkflowStateView } from '../../projections/views/workflow-state-projection.js';
-import { emitGateEvent } from './gate-utils.js';
+import { requireGateEvent, sameOperationGateKey } from './gate-utils.js';
 import { getRegisteredEventTypes } from '../../projections/rehydration/reducer.js';
 
 // ─── Phase-to-Expected-Events Registry ──────────────────────────────────────
@@ -36,15 +34,42 @@ import { getRegisteredEventTypes } from '../../projections/rehydration/reducer.j
  * so a typo in the reducer's SoT registry can never silently disappear from the
  * derived phase-expected-events list (which would mask drift between SoT and
  * the registry — exactly the DIM-3 contract violation #1180 was filed against).
+ *
+ * A `retired` source also throws rather than filters. Filtering is for events
+ * the runtime emits so the model is not nagged for them; a retired event is
+ * emitted by NOBODY, so an expectation naming one is stale prose, and dropping
+ * it silently is how a demotion empties an expectation list while every check
+ * over that list stays green. Retiring the event and deleting its expectation
+ * belong in the same change, and this throw is what couples them.
+ *
+ * The registry is injectable for the same reason the audits in `src/events`
+ * take theirs as parameters: the throw paths must be provable with a seeded
+ * registry, not just believed about the live one. It is a map because the
+ * registry's key union does not carry a string index signature, and a cast
+ * here would trade the type system away to avoid one `Object.entries`.
  */
-function modelEmittedOnly(types: readonly string[]): readonly EventType[] {
+const LIVE_EMISSION_SOURCES: ReadonlyMap<string, string> = new Map(
+  Object.entries(EVENT_EMISSION_REGISTRY),
+);
+
+export function modelEmittedOnly(
+  types: readonly string[],
+  registry: ReadonlyMap<string, string> = LIVE_EMISSION_SOURCES,
+): readonly EventType[] {
   const out: EventType[] = [];
   for (const t of types) {
-    const source = EVENT_EMISSION_REGISTRY[t as EventType];
+    const source = registry.get(t);
     if (source === undefined) {
       throw new Error(
         `modelEmittedOnly: '${t}' is not registered in EVENT_EMISSION_REGISTRY — ` +
           `register it (or fix the typo at the SoT) so phase-expected-events stays consistent.`,
+      );
+    }
+    if (source === 'retired') {
+      throw new Error(
+        `modelEmittedOnly: '${t}' is retired and still expected — nobody emits a retired event, ` +
+          `so this expectation can never be met. Delete the expectation in the same change that ` +
+          `retires the event.`,
       );
     }
     if (source === 'model') out.push(t as EventType);
@@ -68,16 +93,41 @@ export const PHASE_EXPECTED_EVENTS: Readonly<Record<string, readonly EventType[]
   'overhaul-update-docs': ['team.spawned', 'team.disbanded'],
 };
 
-// Compile-time assertion: every event in the registry must be model-emitted
-for (const [, eventTypes] of Object.entries(PHASE_EXPECTED_EVENTS)) {
-  for (const eventType of eventTypes) {
-    if (EVENT_EMISSION_REGISTRY[eventType] !== 'model') {
+/**
+ * Load-time assertions over an expectation table: every listed event is
+ * model-emitted, and no phase's list is EMPTY. The emptiness arm exists
+ * because the derived rows go through a filter — demote every event a phase
+ * expects and the row silently becomes `[]`, after which the gate reads
+ * "nothing expected" as "nothing missing" and reports complete over a hole.
+ * An empty expectation row is a phase with no oracle, and that is a decision
+ * to record by deleting the row, never a state to drift into.
+ *
+ * Exported with an injectable registry so both throw paths are provable with
+ * seeded fixtures rather than trusted.
+ */
+export function assertExpectationsLive(
+  expectations: Readonly<Record<string, readonly EventType[]>>,
+  registry: ReadonlyMap<string, string> = LIVE_EMISSION_SOURCES,
+): void {
+  for (const [phase, eventTypes] of Object.entries(expectations)) {
+    if (eventTypes.length === 0) {
       throw new Error(
-        `PHASE_EXPECTED_EVENTS contains non-model event '${eventType}' (source: ${EVENT_EMISSION_REGISTRY[eventType]})`,
+        `PHASE_EXPECTED_EVENTS['${phase}'] is empty — a phase with no expected events has no ` +
+          `oracle, and the gate would report it complete unconditionally. Delete the row if the ` +
+          `phase genuinely expects nothing; do not leave an empty list.`,
       );
+    }
+    for (const eventType of eventTypes) {
+      if (registry.get(eventType) !== 'model') {
+        throw new Error(
+          `PHASE_EXPECTED_EVENTS contains non-model event '${eventType}' (source: ${registry.get(eventType)})`,
+        );
+      }
     }
   }
 }
+
+assertExpectationsLive(PHASE_EXPECTED_EVENTS);
 
 // ─── Human-Readable Descriptions for Event Types ────────────────────────────
 
@@ -92,6 +142,34 @@ const EVENT_DESCRIPTIONS: Readonly<Record<string, string>> = {
   'shepherd.iteration': 'Emit shepherd.iteration via exarchos_event after each shepherd loop iteration',
   'task.progressed': 'Emit task.progressed via exarchos_event after each TDD phase transition (red/green/refactor)',
 };
+
+/**
+ * Load-time assertion over the description table: every key names a
+ * registered, model-emitted event. Each description is an instruction to the
+ * model to emit the event, so a key whose event was demoted or retired is a
+ * standing instruction to emit something the catalog says the model does not
+ * emit — stale prose the registry's own checks cannot see, because nothing
+ * else joins this table back to the catalog. Exported with an injectable
+ * registry so the throw path is provable with a seeded fixture.
+ */
+export function assertDescriptionsLive(
+  descriptions: Readonly<Record<string, string>>,
+  registry: ReadonlyMap<string, string> = LIVE_EMISSION_SOURCES,
+): void {
+  for (const eventType of Object.keys(descriptions)) {
+    const source = registry.get(eventType);
+    if (source !== 'model') {
+      throw new Error(
+        `EVENT_DESCRIPTIONS instructs the model to emit '${eventType}', whose emission source ` +
+          `is ${source === undefined ? 'unregistered' : `'${source}'`} — the model does not emit ` +
+          `it, so the instruction is stale. Delete the entry in the same change that moved the ` +
+          `event.`,
+      );
+    }
+  }
+}
+
+assertDescriptionsLive(EVENT_DESCRIPTIONS);
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -164,12 +242,15 @@ export async function handleCheckEventEmissions(
   const materializer = getOrCreateMaterializer(stateDir);
   const streamId = args.workflowId ?? args.featureId;
 
-  // Materialize workflow state view to get the current phase
-  const stateEvents = await queryDeltaEvents(store, materializer, streamId, WORKFLOW_STATE_VIEW);
-  const view = materializer.materialize<WorkflowStateView>(
+  // Fold the workflow-state view to the durable tail to read the current
+  // phase. This is one of the folds #1855 was about: it lands in the shared
+  // view materializer and no `exarchos_view` action refreshes it, so before
+  // the seam it was the entry that went stale and stayed stale.
+  const { view, sequence } = await foldToTail<WorkflowStateView>(
+    store,
+    materializer,
     streamId,
     WORKFLOW_STATE_VIEW,
-    stateEvents,
   );
 
   const phase = view.phase;
@@ -189,8 +270,11 @@ export async function handleCheckEventEmissions(
     };
   }
 
-  // Query all events from the stream
-  const events = await store.query(streamId);
+  // The phase came from a fold covering `sequence`; the evidence for that
+  // phase must stop there too. An unbounded read would let events appended
+  // after the fold answer for a phase that predates them — reporting a phase
+  // complete on emissions belonging to the next one.
+  const events = (await store.query(streamId)).filter((e) => e.sequence <= sequence);
   const presentTypes = new Set(events.map((e) => e.type));
 
   // Check which expected events are missing
@@ -210,17 +294,7 @@ export async function handleCheckEventEmissions(
   const missing = hints.length;
   const complete = missing === 0;
 
-  // Emit gate.executed event (fire-and-forget)
-  try {
-    await emitGateEvent(store, streamId, 'event-emissions', 'observability', complete, {
-      phase,
-      checked,
-      missing,
-      missingTypes: hints.map((h) => h.eventType),
-    });
-  } catch { /* fire-and-forget */ }
-
-  return {
+  const carrier: ToolResult = {
     success: true,
     data: {
       phase,
@@ -230,4 +304,23 @@ export async function handleCheckEventEmissions(
       missing,
     } satisfies CheckEventEmissionsResult,
   };
+
+  const unrecorded = await requireGateEvent(
+    store,
+    streamId,
+    'event-emissions',
+    'observability',
+    complete,
+    carrier,
+    {
+      phase,
+      checked,
+      missing,
+      missingTypes: hints.map((h) => h.eventType),
+    },
+    sameOperationGateKey('event-emissions'),
+  );
+  if (unrecorded !== undefined) return unrecorded;
+
+  return carrier;
 }

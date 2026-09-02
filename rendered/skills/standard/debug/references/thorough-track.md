@@ -92,6 +92,7 @@ Run the debug review gate to verify test coverage for the bug fix:
 ```typescript
 exarchos_orchestrate({
   action: "debug_review_gate",
+  featureId: "<feature-id>",
   repoRoot: "<path>",
   baseBranch: "<branch>"
 })

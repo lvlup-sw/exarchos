@@ -776,22 +776,37 @@ export async function handleEventQuery(
 
   const store = eventStore;
 
-  // Window filters (type/time/sequence) narrow WHICH events match and are
-  // pushed to the store. Pagination (limit/offset) is applied in-handler over a
-  // newest-first ordering: the store orders ascending by sequence, so deriving
-  // both `page.total` and a deterministic newest-first window requires the full
-  // matching set. `limit`/`offset` are therefore NOT forwarded to the store.
+  // Window filters (type/time/sequence/operationId) narrow WHICH events match
+  // and are pushed to the store. Pagination (limit/offset) is applied
+  // in-handler over a newest-first ordering: the store orders ascending by
+  // sequence, so deriving both `page.total` and a deterministic newest-first
+  // window requires the full matching set. `limit`/`offset` are therefore NOT
+  // forwarded to the store.
+  //
+  // `operationId` is validated (non-empty string) rather than blindly cast
+  // like the other window keys: an empty string would otherwise pass the
+  // `!== undefined` presence check and reach the store as a filter that
+  // matches nothing, silently returning zero results instead of the whole
+  // stream a caller would expect from an unfiltered query.
+  const rawOperationId = args.filter?.operationId;
+  const operationId =
+    typeof rawOperationId === 'string' && rawOperationId.length > 0 ? rawOperationId : undefined;
   const hasWindowFilter =
     args.filter?.type !== undefined ||
     args.filter?.sinceSequence !== undefined ||
     args.filter?.since !== undefined ||
-    args.filter?.until !== undefined;
+    args.filter?.until !== undefined ||
+    operationId !== undefined;
   const filters = hasWindowFilter
     ? {
         type: args.filter?.type as string | undefined,
         sinceSequence: args.filter?.sinceSequence as number | undefined,
         since: args.filter?.since as string | undefined,
         until: args.filter?.until as string | undefined,
+        // `QueryFilters.operationId` has no explicit `| undefined` arm, so
+        // under `exactOptionalPropertyTypes` the key must be OMITTED rather
+        // than set to `undefined` when no valid operationId was supplied.
+        ...(operationId !== undefined ? { operationId } : {}),
       }
     : undefined;
 

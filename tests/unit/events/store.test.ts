@@ -3,7 +3,9 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { fc } from '@fast-check/vitest';
 import { EventStore, SequenceConflictError, type QueryFilters } from '../../../src/events/store.js';
+import { runWithAppendObserver } from '../../../src/events/observation/append-observation.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 let tempDir: string;
@@ -1028,5 +1030,404 @@ describe('QueryFilters correlation tuple (Wave 4 / #1437)', () => {
     expect(roundTripped.operationId).toBe('op-1');
     expect(roundTripped.correlationId).toBe('c-1');
     expect(roundTripped.causationId).toBe('ca-1');
+  });
+});
+
+// ─── Scoped append observation ──────────────────────────────────────────────
+
+/**
+ * The observation seam has exactly one job: an observer learns about the
+ * events that genuinely landed, and about nothing else. Three ways it could
+ * be wrong, one test each — it misses a real append, it invents one from a
+ * rejection or an idempotency collapse, or it leaks between two units of work
+ * running at the same time.
+ */
+describe('EventStore append observation', () => {
+  /** Yield to the macrotask queue so two scopes actually interleave. */
+  const yieldTick = (): Promise<void> =>
+    new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
+
+  it('EventStore_SuccessfulNewAppend_NotifiesScopedObserver', async () => {
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    // Absent by default: an append outside every scope notifies nobody and
+    // must not fault the write path.
+    const unobserved = await store.append('quiet-stream', { type: 'workflow.started' });
+    expect(unobserved.sequence).toBe(1);
+
+    const seen: Array<{
+      type: string;
+      streamId: string;
+      sequence: number;
+      durableAtNotify: boolean;
+    }> = [];
+
+    await runWithAppendObserver(
+      (observation) => {
+        // Ordering: the notification must strictly follow persistence, so the
+        // row is already readable from the substrate at the instant the
+        // observer runs. A notify hoisted ahead of the commit records false.
+        const durableAtNotify = store
+          .getReadBackend()
+          .queryEvents(observation.streamId)
+          .some((event) => event.sequence === observation.sequence);
+        seen.push({ ...observation, durableAtNotify });
+      },
+      async () => {
+        await store.append('observed-stream', { type: 'workflow.started' });
+        await store.appendValidated('observed-stream', {
+          type: 'task.assigned' as const,
+          streamId: '',
+          sequence: 0,
+          timestamp: '',
+          schemaVersion: '1.0',
+        });
+        await store.batchAppend('observed-stream', [
+          { type: 'task.claimed' },
+          { type: 'task.progressed' },
+        ]);
+      },
+    );
+
+    // Every write path reports, and each landed event reports exactly once.
+    expect(seen.map((s) => s.type)).toEqual([
+      'workflow.started',
+      'task.assigned',
+      'task.claimed',
+      'task.progressed',
+    ]);
+    expect(seen.map((s) => s.sequence)).toEqual([1, 2, 3, 4]);
+    expect(seen.every((s) => s.streamId === 'observed-stream')).toBe(true);
+    expect(seen.every((s) => s.durableAtNotify)).toBe(true);
+
+    // The unobserved stream stayed unobserved.
+    expect(seen.some((s) => s.streamId === 'quiet-stream')).toBe(false);
+
+    store.close();
+  });
+
+  it('EventStore_NoScopeInstalled_BurstOfAppendsNotifiesNothing', async () => {
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    // A burst across every write path, entirely outside any
+    // `runWithAppendObserver` scope. Absent-by-default means this must both
+    // (a) not fault the write path and (b) leave no observer state behind
+    // for a later scope to inherit.
+    await store.append('unscoped-stream', { type: 'workflow.started' });
+    await store.appendValidated('unscoped-stream', {
+      type: 'task.assigned' as const,
+      streamId: '',
+      sequence: 0,
+      timestamp: '',
+      schemaVersion: '1.0',
+    });
+    await store.batchAppend('unscoped-stream', [
+      { type: 'task.claimed' },
+      { type: 'task.progressed' },
+    ]);
+
+    expect(await store.query('unscoped-stream')).toHaveLength(4);
+
+    // A scope opened afterward sees only its own append, proving the
+    // unscoped burst queued nothing for a later observer to pick up.
+    const seen: string[] = [];
+    await runWithAppendObserver(
+      (observation) => {
+        seen.push(`${observation.streamId}#${observation.sequence}`);
+      },
+      async () => {
+        await store.append('unscoped-stream', { type: 'task.progressed' });
+      },
+    );
+    expect(seen).toEqual(['unscoped-stream#5']);
+
+    store.close();
+  });
+
+  it('EventStore_FailedOrCollapsedAppend_DoesNotNotifyObserver', async () => {
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    const seen: string[] = [];
+
+    await runWithAppendObserver(
+      (observation) => {
+        seen.push(`${observation.streamId}#${observation.sequence}`);
+      },
+      async () => {
+        // One genuine append, so the assertions below have a denominator: a
+        // seam that notified for nothing at all would also satisfy "no
+        // notification for the rejected calls".
+        await store.append('mixed-stream', { type: 'workflow.started' });
+
+        // Rejected before the substrate is touched (schema).
+        await expect(
+          store.append('mixed-stream', { type: 'invalid.type' }),
+        ).rejects.toThrow();
+
+        // Rejected by the substrate (stale expected sequence).
+        await expect(
+          store.append(
+            'mixed-stream',
+            { type: 'task.assigned' },
+            { expectedSequence: 0 },
+          ),
+        ).rejects.toThrow(SequenceConflictError);
+
+        // Collapsed onto a prior write: the first claim lands, the retry
+        // persists nothing and must stay silent even though it resolves.
+        const claimed = await store.append(
+          'mixed-stream',
+          { type: 'task.claimed' },
+          { idempotencyKey: 'claim-1' },
+        );
+        const retried = await store.append(
+          'mixed-stream',
+          { type: 'task.claimed' },
+          { idempotencyKey: 'claim-1' },
+        );
+        expect(retried.sequence).toBe(claimed.sequence);
+
+        // Same collapse through the batch path.
+        const batched = await store.batchAppend('mixed-stream', [
+          { type: 'task.progressed', idempotencyKey: 'batch-1' },
+        ]);
+        const rebatched = await store.batchAppend('mixed-stream', [
+          { type: 'task.progressed', idempotencyKey: 'batch-1' },
+        ]);
+        expect(rebatched[0].sequence).toBe(batched[0].sequence);
+      },
+    );
+
+    // Three events landed (sequences 1..3); the two retries and the two
+    // rejections added nothing.
+    expect(seen).toEqual(['mixed-stream#1', 'mixed-stream#2', 'mixed-stream#3']);
+    expect(await store.query('mixed-stream')).toHaveLength(3);
+
+    store.close();
+  });
+
+  it('EventStore_AtomicTrailAppend_NotifiesOncePerLandedEvent', async () => {
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    const seen: Array<{
+      type: string;
+      streamId: string;
+      sequence: number;
+      durableAtNotify: boolean;
+    }> = [];
+
+    await runWithAppendObserver(
+      (observation) => {
+        const durableAtNotify = store
+          .getReadBackend()
+          .queryEvents(observation.streamId)
+          .some((event) => event.sequence === observation.sequence);
+        seen.push({ ...observation, durableAtNotify });
+      },
+      async () => {
+        // One ordinary append first, so the trail does not start at sequence
+        // 1: a seam that reported positions within the trail instead of the
+        // sequences the store assigned would otherwise pass.
+        await store.append('trail-stream', { type: 'workflow.started' });
+        await store.appendTrailAtomically(
+          'trail-stream',
+          [
+            { type: 'task.assigned' },
+            { type: 'task.claimed' },
+            { type: 'task.progressed' },
+          ],
+          'trail-op-1',
+        );
+      },
+    );
+
+    // The atomic trail path reports like every other durable path: once per
+    // landed event, in trail order, with the assigned sequence.
+    expect(seen.map((s) => s.type)).toEqual([
+      'workflow.started',
+      'task.assigned',
+      'task.claimed',
+      'task.progressed',
+    ]);
+    expect(seen.map((s) => s.sequence)).toEqual([1, 2, 3, 4]);
+    expect(seen.every((s) => s.streamId === 'trail-stream')).toBe(true);
+    expect(seen.every((s) => s.durableAtNotify)).toBe(true);
+
+    store.close();
+  });
+
+  it('EventStore_AtomicTrailRetriedOnSameOperationId_NotifiesNothing', async () => {
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    const seen: string[] = [];
+    const trail = [{ type: 'task.assigned' }, { type: 'task.claimed' }];
+
+    await runWithAppendObserver(
+      (observation) => {
+        seen.push(`${observation.type}#${observation.sequence}`);
+      },
+      async () => {
+        await store.appendTrailAtomically('retry-stream', trail, 'trail-op-2');
+        // Same operationId and same request digest: the recorded claim
+        // short-circuits, nothing new is persisted, and a seam that notified
+        // here would report an emission the retry never made.
+        await store.appendTrailAtomically('retry-stream', trail, 'trail-op-2');
+      },
+    );
+
+    expect(seen).toEqual(['task.assigned#1', 'task.claimed#2']);
+    expect(await store.query('retry-stream')).toHaveLength(2);
+
+    store.close();
+  });
+
+  it('EventStore_ConcurrentScopes_DoNotCrossTalk', async () => {
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    const seenA: string[] = [];
+    const seenB: string[] = [];
+
+    const scope = (
+      sink: string[],
+      streamId: string,
+      types: readonly string[],
+    ): Promise<void> =>
+      runWithAppendObserver(
+        (observation) => {
+          sink.push(observation.streamId);
+        },
+        async () => {
+          for (const type of types) {
+            // Interleave: each scope parks on the macrotask queue between
+            // appends, so both are mid-flight at the same time and a
+            // module-level observer would be visibly shared.
+            await yieldTick();
+            await store.append(streamId, { type });
+          }
+        },
+      );
+
+    await Promise.all([
+      scope(seenA, 'scope-a', ['workflow.started', 'task.assigned', 'task.claimed']),
+      scope(seenB, 'scope-b', ['workflow.started', 'task.assigned']),
+    ]);
+
+    expect(seenA).toEqual(['scope-a', 'scope-a', 'scope-a']);
+    expect(seenB).toEqual(['scope-b', 'scope-b']);
+
+    store.close();
+  });
+
+  it('EventStore_NestedScopes_InnerShadowsOuterThenOuterResumes', async () => {
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    const outer: number[] = [];
+    const inner: number[] = [];
+
+    await runWithAppendObserver(
+      (observation) => {
+        outer.push(observation.sequence);
+      },
+      async () => {
+        await store.append('nested-stream', { type: 'workflow.started' });
+
+        await runWithAppendObserver(
+          (observation) => {
+            inner.push(observation.sequence);
+          },
+          async () => {
+            await store.append('nested-stream', { type: 'task.assigned' });
+          },
+        );
+
+        // Leaving the inner scope restores the outer observer rather than
+        // clearing observation altogether.
+        await store.append('nested-stream', { type: 'task.claimed' });
+      },
+    );
+
+    // A nested scope owns its subtree outright: the outer observer is not
+    // also told about the inner append, so a consumer that nests scopes
+    // cannot double-count one event.
+    expect(inner).toEqual([2]);
+    expect(outer).toEqual([1, 3]);
+
+    store.close();
+  });
+
+  it('EventStore_ThrowingObserver_FaultsTheCallerAndLeavesEventDurable', async () => {
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    await expect(
+      runWithAppendObserver(
+        () => {
+          throw new Error('observer refused');
+        },
+        async () => {
+          await store.append('throwing-stream', { type: 'workflow.started' });
+        },
+      ),
+    ).rejects.toThrow('observer refused');
+
+    // The throw surfaces instead of being swallowed — a consumer built on
+    // this seam must not be able to report success having seen nothing. It
+    // also arrives too late to veto the write: the event is already durable,
+    // which is what makes the seam an observation rather than a hook.
+    const persisted = await store.query('throwing-stream');
+    expect(persisted.map((event) => event.sequence)).toEqual([1]);
+
+    store.close();
+  });
+
+  it('EventStore_ConcurrentScopes_DoNotCrossTalk_Property', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(fc.integer({ min: 1, max: 3 }), { minLength: 2, maxLength: 4 }),
+        async (appendCounts) => {
+          const dir = await mkdtemp(path.join(tmpdir(), 'append-observation-prop-'));
+          const store = new EventStore(dir);
+          try {
+            await store.initialize();
+
+            const sinks = appendCounts.map((): string[] => []);
+            await Promise.all(
+              appendCounts.map((count, index) =>
+                runWithAppendObserver(
+                  (observation) => {
+                    sinks[index].push(observation.streamId);
+                  },
+                  async () => {
+                    for (let i = 0; i < count; i++) {
+                      await new Promise((resolve) => setTimeout(resolve, 0));
+                      await store.append(`prop-${index}`, { type: 'task.progressed' });
+                    }
+                  },
+                ),
+              ),
+            );
+
+            // Each observer saw its own stream, its own count, nothing else.
+            for (const [index, sink] of sinks.entries()) {
+              expect(sink).toHaveLength(appendCounts[index]);
+              expect(sink.every((s) => s === `prop-${index}`)).toBe(true);
+            }
+          } finally {
+            store.close();
+            await rmrfAsync(dir);
+          }
+        },
+      ),
+      { numRuns: 8 },
+    );
   });
 });

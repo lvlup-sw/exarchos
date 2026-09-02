@@ -251,6 +251,11 @@ const ALLOWLIST_CLASSES = [
         rationale:
           'Provider-area consistency audit: checks a registration\u2019s `provider` claim against the area the event is actually appended from, separating a contradiction (the append sits inside a DIFFERENT provider\u2019s area, so exactly one claim is false) from an ungoverned area (no provider owns it, so the vocabulary has no right answer yet). Test-invoked structural gate, same class as emitter-closure-audit \u2014 deliberately not a production import target so the shipped server never depends on the audit.',
       },
+      'events/consumer-closure-audit.ts': {
+        owner: 'exarchos',
+        rationale:
+          'Consumer-closure audit: reconciles every capability/harness `consumedBy` against an injected live consumer population (reducer ids + view names), closing the open `ConsumerId` reference that lets a registration outlive its deleted consumer. The population is injected because enumerating it from the events layer is the layering inversion event-registration.ts refuses; the co-located test assembles it from the projections, where those imports are legal. Test-invoked structural gate, same class as emitter-closure-audit \u2014 deliberately not a production import target so the shipped server never depends on the audit.',
+      },
 
       // ── the five former `/-seam\.ts$/` members, now named ─────────────────
       'architecture/contract-seam.ts': {

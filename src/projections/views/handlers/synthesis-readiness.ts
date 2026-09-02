@@ -1,8 +1,9 @@
+import { toViewFailure } from '../../degraded-result.js';
 import { EventStore } from '../../../events/store.js';
 import type { ToolResult } from '../../../format.js';
 import { SYNTHESIS_READINESS_VIEW, type SynthesisReadinessState } from '../synthesis-readiness-view.js';
 import { getOrCreateMaterializer } from './materializer.js';
-import { queryDeltaEvents } from './query.js';
+import { foldToTail } from '../../fold-at-tail.js';
 import { readWorkflowStateJson } from './streams.js';
 
 // ─── View Synthesis Readiness Handler ────────────────────────────────────────
@@ -22,12 +23,7 @@ export async function handleViewSynthesisReadiness(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const events = await queryDeltaEvents(store, materializer, streamId, SYNTHESIS_READINESS_VIEW);
-    const view = materializer.materialize<SynthesisReadinessState>(
-      streamId,
-      SYNTHESIS_READINESS_VIEW,
-      events,
-    );
+    const { view } = await foldToTail<SynthesisReadinessState>(store, materializer, streamId, SYNTHESIS_READINESS_VIEW);
 
     // Fix 2 (#1184) — review status is plan-state stamped via `workflow set`
     // (state.reviews); the synthesis-readiness projection only watches
@@ -112,12 +108,6 @@ export async function handleViewSynthesisReadiness(
     const { findingsBySeverity: _findingsBySeverity, ...compactReview } = data.review;
     return { success: true, data: { ...data, review: compactReview } };
   } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'VIEW_ERROR',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
+    return toViewFailure(err, { tool: 'exarchos_view', action: 'synthesis_readiness' });
   }
 }

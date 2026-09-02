@@ -7,10 +7,74 @@ import type { EventStore } from '../../../../src/events/store.js';
 
 const mockGetDiff = vi.fn<(repoRoot: string, baseBranch: string) => string | null>();
 const mockEmitGateEvent = vi.fn().mockResolvedValue(undefined);
+// Outside a dispatch scope there is no operation for a retry to collapse onto,
+// so the real helper answers `undefined` — the mock says the same thing.
+const mockSameOperationGateKey = vi.fn<(gateName: string) => string | undefined>(
+  () => undefined,
+);
 
 vi.mock('../../../../src/verbs/gates/gate-utils.js', () => ({
   getDiff: (...args: [string, string]) => mockGetDiff(...args),
   emitGateEvent: (...args: unknown[]) => mockEmitGateEvent(...args),
+  sameOperationGateKey: (gateName: string) => mockSameOperationGateKey(gateName),
+  // The handler now calls `requireGateEvent`, not `emitGateEvent`, directly.
+  // This stub mirrors the real helper's semantics — append via the same
+  // mocked `emitGateEvent`, withhold the carrier when the append throws — so
+  // a test controls the failure through `mockEmitGateEvent` exactly as before.
+  requireGateEvent: async (
+    store: unknown,
+    streamId: string,
+    gateName: string,
+    layer: string,
+    passed: boolean,
+    carrier: { data?: unknown },
+    details?: Record<string, unknown>,
+    idempotencyKey?: string,
+  ) => {
+    try {
+      await mockEmitGateEvent(store, streamId, gateName, layer, passed, details, idempotencyKey);
+      return undefined;
+    } catch (err) {
+      return {
+        success: false,
+        data: carrier.data,
+        error: {
+          code: 'GATE_EVENT_UNRECORDED',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      };
+    }
+  },
+}));
+
+// The gate now records durable evidence through the shared phase-gate runner
+// before any success carrier escapes. These cases are about the PROVIDER's
+// verdict, so the runner is stubbed down to its provider call — the same seam
+// every other migrated gate's unit test stubs. What the runner itself
+// guarantees is proven against a real store in `gate-runner.test.ts`, and the
+// evidence a caller actually gets is proven over real dispatch in
+// `unrunbooked-gate-evidence-dispatch.test.ts`.
+vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
+  runPhaseGateWithEvidence: vi.fn(async (request) => {
+    try {
+      return await request.executeProvider(
+        {
+          gateClass: request.gateClass,
+          providerRef: 'test-provider',
+          actionName: 'test-provider',
+        },
+        request.providerInput,
+      );
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: 'GATE_PROVIDER_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }),
 }));
 
 // ─── Mock pure TS context-economy module ────────────────────────────────────
@@ -43,6 +107,21 @@ const mockMaterializer = {
 vi.mock('../../../../src/projections/views/tools.js', () => ({
   getOrCreateMaterializer: () => mockMaterializer,
   queryDeltaEvents: vi.fn().mockResolvedValue([]),
+}));
+
+// #1855 — the gate folds its view to the stream's durable tail through
+// `foldToTail` rather than pairing `queryDeltaEvents` with a bare
+// `materialize`. The fold is the seam a unit test of the VERDICT should stub:
+// what the fold itself guarantees is covered against a real store in
+// `tests/unit/projections/fold-at-tail.test.ts`.
+// `foldToTail` guarantees the fold covers the stream's durable tail, and
+// callers now bound their own evidence to the sequence it reports. These
+// fixtures ARE the stream, so the stub reports a sequence at or past every
+// fixture event; a lower one would assert a lag this file never sets up.
+const AT_TAIL = Number.MAX_SAFE_INTEGER;
+
+vi.mock('../../../../src/projections/fold-at-tail.js', () => ({
+  foldToTail: vi.fn(async () => ({ view: mockTelemetryState, sequence: AT_TAIL })),
 }));
 
 import { checkContextEconomy } from '../../../../src/verbs/pure/context-economy.js';
@@ -151,6 +230,7 @@ describe('handleContextEconomy', () => {
         'quality',
         true,
         { dimension: 'D3', phase: 'review', findingCount: 0 },
+        undefined,
       );
     });
   });
@@ -291,6 +371,30 @@ describe('handleContextEconomy', () => {
       expect(data.runtimeMetrics.sessionTokens).toBe(0);
       expect(data.runtimeMetrics.toolCount).toBe(0);
       expect(data.runtimeMetrics.totalInvocations).toBe(0);
+    });
+  });
+
+  // ─── Gate Event Append Failure ─────────────────────────────────────────────
+
+  describe('gate event append failure', () => {
+    it('ContextEconomy_GateEventAppendFails_WithholdsTheSuccessCarrier', async () => {
+      mockGetDiff.mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
+      vi.mocked(checkContextEconomy).mockReturnValue({
+        pass: true,
+        checksRun: 4,
+        checksPassed: 4,
+        findings: [],
+      });
+      mockEmitGateEvent.mockRejectedValueOnce(new Error('store unavailable'));
+
+      const args = { featureId: 'feat-1' };
+      const result = await handleContextEconomy(args, STATE_DIR, mockStore as unknown as EventStore);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('GATE_EVENT_UNRECORDED');
+      const data = result.data as { passed: boolean; findingCount: number };
+      expect(data.passed).toBe(true);
+      expect(data.findingCount).toBe(0);
     });
   });
 });

@@ -4,6 +4,8 @@ import {
   readPackagedFixtureActionIds,
   LIVE_CLOSURE_EXCEPTIONS,
 } from '../../../../src/contract/reachability/collect.js';
+import { declared, none } from '../../../../src/registry/action-contract.js';
+import type { BuiltinCompositeTool } from '../../../../src/registry.js';
 import {
   buildReachabilityGraph,
   evaluateClosure,
@@ -182,5 +184,54 @@ describe('ambiguity in the materialized inputs is a closure failure', () => {
       owners: [...LIVE.owners, { tool: pure.tool, owner: 'second-owner' }],
     };
     expect(hopStatus(seeded, pure.actionId, 'owner')).toBe('not-applicable');
+  });
+});
+
+describe('event hop declared-side authority', () => {
+  const contract = {
+    requires: none('probe'),
+    ensures: none('probe'),
+    needs: none('probe'),
+    touches: { frame: 'single-machine' as const, resources: none('probe') },
+    executionAuthority: { kind: 'local' as const },
+    replay: { kind: 'safe-repeat' as const },
+    emissions: declared({
+      event: 'workflow.started',
+      condition: 'always' as const,
+      owner: 'workflow',
+      role: 'primary' as const,
+    }),
+  };
+
+  it('collects nested contract emissions and ignores sibling autoEmits', () => {
+    const registry = [
+      {
+        name: 'exarchos_probe',
+        description: 'emission-authority probe',
+        actions: [
+          {
+            name: 'run',
+            autoEmits: [
+              { event: 'gate.executed', condition: 'always', owner: 'sibling', role: 'primary' },
+            ],
+            actionContract: contract,
+          },
+          {
+            name: 'silent',
+            autoEmits: [
+              { event: 'gate.executed', condition: 'always', owner: 'sibling', role: 'primary' },
+            ],
+            actionContract: { ...contract, emissions: none('reasoned silence') },
+          },
+        ],
+      },
+    ] as unknown as readonly BuiltinCompositeTool[];
+
+    const inputs = collectReachabilityInputs({ registry });
+    const probe = inputs.emissions.filter((row) => row.actionId.startsWith('exarchos_probe.'));
+    expect(probe).toEqual([
+      { actionId: 'exarchos_probe.run', event: 'workflow.started', registered: true },
+    ]);
+    expect(probe.some((row) => row.event === 'gate.executed')).toBe(false);
   });
 });

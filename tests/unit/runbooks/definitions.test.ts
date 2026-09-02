@@ -9,11 +9,13 @@ import {
   QUALITY_EVALUATION,
   AGENT_TEAMS_SAGA,
   SYNTHESIS_FLOW,
+  SYNTHESIS_CLOSEOUT,
   SHEPHERD_ITERATION,
   TASK_FIX,
   TASK_CLASSIFICATION,
   REVIEW_STRATEGY,
   DESIGN_REFINEMENT,
+  PLAN_CLOSEOUT,
   PLAN_COVERAGE_CHECK,
   PHASE_COMPRESSION,
   MERGE_ORCHESTRATION,
@@ -150,7 +152,37 @@ describe('Runbook definitions', () => {
   });
 
   it('AllRunbooks_Count', () => {
-    expect(ALL_RUNBOOKS).toHaveLength(18);
+    // PLAN_CLOSEOUT took the table from 18 to 19: the two blocking plan gates
+    // over the unified spec plus the traceability matrix, made executable so
+    // the bounded intent executor can drive them. SYNTHESIS_CLOSEOUT took it to
+    // 20: the PR-body check and the provider-backed create, the closed part of
+    // the synthesis flow that the executor can run without an agent round-trip.
+    expect(ALL_RUNBOOKS).toHaveLength(20);
+  });
+
+  it('SynthesisCloseout_HasTwoSteps_BodyCheckThenCreate', () => {
+    expect(SYNTHESIS_CLOSEOUT.phase).toBe('synthesize');
+    expect(SYNTHESIS_CLOSEOUT.steps).toHaveLength(2);
+    expect(SYNTHESIS_CLOSEOUT.steps[0].action).toBe('validate_pr_body');
+    expect(SYNTHESIS_CLOSEOUT.steps[1].action).toBe('create_pr');
+    // Both stop. The body check guards the create, and the create is a remote
+    // side effect there is no continuing past.
+    expect(SYNTHESIS_CLOSEOUT.steps.map((step) => step.onFail)).toEqual(['stop', 'stop']);
+  });
+
+  it('PlanCloseout_HasThreeSteps_TwoBlockingGatesFirst', () => {
+    expect(PLAN_CLOSEOUT.phase).toBe('plan');
+    expect(PLAN_CLOSEOUT.steps).toHaveLength(3);
+    expect(PLAN_CLOSEOUT.steps[0].action).toBe('check_plan_coverage');
+    expect(PLAN_CLOSEOUT.steps[1].action).toBe('check_provenance_chain');
+    expect(PLAN_CLOSEOUT.steps[2].action).toBe('generate_traceability');
+    // The two gates block, so they stop the segment; the matrix generator is
+    // not a gate and does not.
+    expect(PLAN_CLOSEOUT.steps.map((step) => step.onFail)).toEqual([
+      'stop',
+      'stop',
+      'continue',
+    ]);
   });
 
   it('Runbook_PhaseMergePending_ReturnsPopulatedSteps', () => {

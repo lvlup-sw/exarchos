@@ -10,7 +10,6 @@ import {
   writeRecordedIdentity,
   installIdentityLockPath,
   CACHE_DESCRIPTOR_FILENAME,
-  INSTALL_IDENTITY_LOCK_FILENAME,
   type IdentityDeps,
 } from '../../../src/install/collect-identity.js';
 import * as atomicWrite from '../../../src/utils/atomic-write.js';
@@ -224,11 +223,16 @@ describe('recorded install-identity lock', () => {
     // re-record can heal it), so a crash mid-write silently converted a
     // would-be BLOCKED freshness verdict into 'bootstrapped'. The DEFAULT
     // write seam must therefore route through `atomicWriteFile`.
-    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'identity-lock-'));
+    const installDir = fs.mkdtempSync(path.join(os.tmpdir(), 'identity-lock-'));
+    // The lock is keyed to the INSTALLATION, so the temp dir is redirected via
+    // the install-state env seam rather than passed as a state dir. Without
+    // this the default path would publish into the real home directory.
+    const env = { EXARCHOS_INSTALL_STATE_DIR: installDir } as const;
+    const pluginRoot = '/opt/exarchos';
     try {
       const id = collectFrom(coherentFiles());
-      writeRecordedIdentity(stateDir, id); // no injected seams — the default path
-      const lockPath = installIdentityLockPath(stateDir);
+      writeRecordedIdentity(pluginRoot, id, { env }); // fs seams left at their defaults
+      const lockPath = installIdentityLockPath(pluginRoot, { env });
 
       // The write went through the atomic publish, targeting the lock path.
       const atomicSpy = vi.mocked(atomicWrite.atomicWriteFile);
@@ -236,12 +240,12 @@ describe('recorded install-identity lock', () => {
       expect(atomicSpy.mock.calls[0]?.[0]).toBe(lockPath);
 
       // Read-side semantics unchanged: the lock round-trips off the real fs…
-      expect(readRecordedIdentity(stateDir)).toEqual(id);
+      expect(readRecordedIdentity(pluginRoot, { env })).toEqual(id);
       // …and the publish left no staged `*.tmp` beside the lock.
-      expect(fs.readdirSync(stateDir)).toEqual([INSTALL_IDENTITY_LOCK_FILENAME]);
+      expect(fs.readdirSync(installDir)).toEqual([path.basename(lockPath)]);
     } finally {
       vi.clearAllMocks();
-      fs.rmSync(stateDir, { recursive: true, force: true });
+      fs.rmSync(installDir, { recursive: true, force: true });
     }
   });
 });

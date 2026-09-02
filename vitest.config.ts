@@ -96,6 +96,7 @@ export default defineConfig({
       {
         test: {
           name: 'unit',
+          setupFiles: ['./tests/helpers/hermetic-install-identity.ts'],
           // Root-package unit tests only. Everything under `src/` now belongs to
           // the `core` project below — task 019 folded the MCP server's tree
           // into `src/`, so the glob that used to mean "the installer toolchain"
@@ -249,7 +250,7 @@ export default defineConfig({
             process.env.EXARCHOS_SMOKE_ONLY === '1'
               ? [...EXCLUDE]
               : [...EXCLUDE, 'tests/unit/verbs/stryker-adapter.smoke.test.ts'],
-          setupFiles: ['./tests/helpers/close-sqlite.ts'],
+          setupFiles: ['./tests/helpers/hermetic-install-identity.ts', './tests/helpers/close-sqlite.ts'],
         },
       },
       {
@@ -260,7 +261,7 @@ export default defineConfig({
           include: ['tests/process/**/*.test.ts'],
           exclude: EXCLUDE,
           testTimeout: tierTimeout(15000),
-          setupFiles: ['./tests/helpers/global.ts'],
+          setupFiles: ['./tests/helpers/hermetic-install-identity.ts', './tests/helpers/global.ts'],
         },
       },
       {
@@ -294,10 +295,24 @@ export default defineConfig({
           // the setting was written to prevent. `poolOptions` is the
           // per-project form and does what the old line said.
           poolOptions: { forks: { singleFork: true } },
-          setupFiles: ['./tests/helpers/close-sqlite.ts'],
+          setupFiles: ['./tests/helpers/hermetic-install-identity.ts', './tests/helpers/close-sqlite.ts'],
         },
       },
       {
+        resolve: {
+          alias: {
+            // Five acceptance suites use `src/storage/sqlite-backend.ts`,
+            // which imports the bun-only `bun:sqlite` virtual module. The
+            // acceptance project runs under plain `node` (this lane cannot
+            // afford the bun-runtime install cost) so the same node-shim
+            // alias the `core`/`outcome`/`conformance` projects use is
+            // applied here too. The compiled binary still imports the real
+            // `bun:sqlite` at runtime — this alias is test-only.
+            'bun:sqlite': fileURLToPath(
+              new URL('./src/storage/__shims__/bun-sqlite-node.ts', import.meta.url),
+            ),
+          },
+        },
         test: {
           // End-to-end install acceptance. Separate from every tier above
           // because it materializes HEAD into a scratch dir and runs the real
@@ -310,6 +325,7 @@ export default defineConfig({
           // that holds.
           name: 'acceptance',
           include: ['tests/acceptance/**/*.test.ts'],
+          setupFiles: ['./tests/helpers/hermetic-install-identity.ts'],
           exclude: EXCLUDE,
           testTimeout: tierTimeout(120000),
           // The install writes into a scratch HOME and the archive step shells
@@ -340,7 +356,7 @@ export default defineConfig({
           include: ['tools/conformance/src/**/*.test.ts'],
           exclude: EXCLUDE,
           testTimeout: tierTimeout(30000),
-          setupFiles: ['./tests/helpers/close-sqlite.ts'],
+          setupFiles: ['./tests/helpers/hermetic-install-identity.ts', './tests/helpers/close-sqlite.ts'],
         },
       },
     ],

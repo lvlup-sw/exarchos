@@ -7,10 +7,24 @@ import { registerEventType, unregisterEventType } from '../events/schemas.js';
 import { ViewRegistry } from '../projections/views/registry.js';
 import { registerCustomTool, unregisterCustomTool, setCustomToolActionHandler, ALL_PHASES } from '../registry.js';
 import type { ExtensionCompositeTool, ExtensionToolAction } from '../registry.js';
+import { withActionContract } from '../registry/action-contract.js';
+import { admitActionContract } from '../registry/annotations.js';
 import { unregisteredActionOutputSchema } from '../output-schema-declaration.js';
 import { logger } from '../logger.js';
 import type { ViewProjection } from '../projections/views/materializer.js';
-import type { ExarchosConfig, WorkflowDefinition } from './define.js';
+import type { ExarchosConfig, ToolActionDefinition, WorkflowDefinition } from './define.js';
+
+const EXTENSION_ACTION_ANNOTATIONS = {
+  safety: 'local-mutation' as const,
+  readOnly: false,
+  destructive: false,
+  idempotent: false,
+  openWorld: false,
+};
+
+type ExtensionActionAdmission = ToolActionDefinition & {
+  readonly actionContract?: unknown;
+};
 
 const configLogger = logger.child({ subsystem: 'config' });
 
@@ -329,6 +343,16 @@ export async function registerCustomTools(
       const pendingHandlers: Array<{ actionName: string; handler: (args: Record<string, unknown>) => Promise<unknown> }> = [];
 
       for (const actionDef of toolDef.actions) {
+        const admission = actionDef as ExtensionActionAdmission;
+        const actionContract = admitActionContract(
+          {
+            name: admission.name,
+            annotations: EXTENSION_ACTION_ANNOTATIONS,
+            actionContract: admission.actionContract,
+          },
+          toolName,
+        );
+
         const handlerPath = path.resolve(projectRoot, actionDef.handler);
         const handlerUrl = pathToFileURL(handlerPath).href;
 
@@ -359,33 +383,31 @@ export async function registerCustomTools(
         // registration-time invariants. Custom-tool authors who want a
         // narrower contract or different safety classification can declare
         // them in config in a future enhancement (out of scope for Wave 0).
-        actions.push({
-          name: actionDef.name,
-          description: actionDef.description,
-          schema: z.object({}).passthrough(),
-          phases: ALL_PHASES,
-          roles: new Set<string>(['any']),
-          // DR-4 (task 055): a custom tool's action names come from
-          // `.exarchos.yml` at runtime, so there is no compile-time literal to
-          // match against the vacuity allowlist. These actions are outside the
-          // built-in registry the DR-4 census enumerates; the bounded escape
-          // records that explicitly instead of letting the vacuous form back
-          // into the type.
-          //
-          // Task 060: the escape now mints the DISTINCT `ExtensionOutputSchema`
-          // brand, so this call is legal here and is a compile error inside
-          // `registry.ts` — the run-time-only bound task 055 shipped (an
-          // UNWAIVED_VACUITY finding from `auditVacuityAllowlist`) is now backed
-          // by the type system for the registry path.
-          outputSchema: unregisteredActionOutputSchema(),
-          annotations: {
-            safety: 'local-mutation',
-            readOnly: false,
-            destructive: false,
-            idempotent: false,
-            openWorld: false,
+        actions.push(withActionContract(
+          {
+            name: actionDef.name,
+            description: actionDef.description,
+            schema: z.object({}).passthrough(),
+            phases: ALL_PHASES,
+            roles: new Set<string>(['any']),
+            // DR-4 (task 055): a custom tool's action names come from
+            // `.exarchos.yml` at runtime, so there is no compile-time literal to
+            // match against the vacuity allowlist. These actions are outside the
+            // built-in registry the DR-4 census enumerates; the bounded escape
+            // records that explicitly instead of letting the vacuous form back
+            // into the type.
+            //
+            // Task 060: the escape now mints the DISTINCT `ExtensionOutputSchema`
+            // brand, so this call is legal here and is a compile error inside
+            // `registry.ts` — the run-time-only bound task 055 shipped (an
+            // UNWAIVED_VACUITY finding from `auditVacuityAllowlist`) is now backed
+            // by the type system for the registry path.
+            outputSchema: unregisteredActionOutputSchema(),
+            annotations: EXTENSION_ACTION_ANNOTATIONS,
           },
-        });
+          actionContract,
+          { annotations: EXTENSION_ACTION_ANNOTATIONS },
+        ));
       }
 
       const compositeTool: ExtensionCompositeTool = {

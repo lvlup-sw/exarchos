@@ -202,6 +202,77 @@ export const SYNTHESIS_FLOW: RunbookDefinition = {
   autoEmits: ['gate.executed'],
 };
 
+export const SYNTHESIS_CLOSEOUT: RunbookDefinition = {
+  id: 'synthesis-closeout',
+  phase: 'synthesize',
+  description:
+    'Validate the PR body and open the pull request through the provider abstraction. ' +
+    'Recording the PR URL in state is left to the caller.',
+  steps: [
+    // The body is validated as TEXT the caller already holds. Passing `pr`
+    // instead would send the handler to the remote to read a body that does not
+    // exist yet, which is the wrong order for a closeout that is about to
+    // create the request.
+    //
+    // `enforce` is what makes `stop` cover the section verdict. Without it the
+    // handler reports a missing section on its SUCCESS carrier, a step's
+    // failure policy reads the envelope rather than the payload, and a body
+    // short of every required section reached the create — the segment would
+    // have opened a pull request its own first leaf judged deficient, and
+    // reported that leaf as passed. With it the verdict leaves as a refusal
+    // naming the missing sections, so the policy acts on it and the caller
+    // reads it off the receipt's failure.
+    { tool: 'exarchos_orchestrate', action: 'validate_pr_body', onFail: 'stop',
+      params: { body: '<prBody>', enforce: true } },
+    { tool: 'exarchos_orchestrate', action: 'create_pr', onFail: 'stop',
+      params: { title: '<title>', body: '<prBody>', base: '<baseBranch>', head: '<headBranch>' } },
+  ],
+  // `prBody` binds onto both leaves' `body` parameter: one variable for one
+  // document, so the two leaves cannot be handed different texts. The create
+  // leaf may still ENRICH what it opens — given a subject whose state carries a
+  // captured intent it appends a grounded `## Intent` section before both its
+  // journal append and the provider call — so the opened body is the validated
+  // body plus that section, never a different document.
+  templateVars: ['featureId', 'title', 'prBody', 'baseBranch', 'headBranch'],
+  // `prepare_synthesis` is left out for what it would cost a request-bounded
+  // segment: all four of its readiness legs shell out, including a full test
+  // run under a two-minute timeout, against a caller-supplied worktree path.
+  // That verdict is owed BEFORE the closeout is asked for, not inside it.
+  //
+  // `validate_pr_stack` now records the durable gate evidence its contract
+  // declares, so the postcondition that used to halt this segment no longer
+  // does. Extending the segment to carry it is a separate decision about what
+  // the closeout should DO, not a repair, and is deliberately not made here.
+  //
+  // The state-patch step the hand-followed synthesis flow ends with is left out
+  // because the executor invokes leaves through the ORCHESTRATE handler table:
+  // a step on another composite tool has no handler there, and the compiler
+  // refuses the whole segment for it rather than letting it fail mid-flight.
+  //
+  // That patch is therefore an obligation this segment LEAVES WITH THE CALLER,
+  // not one it discharges. The pull request's number and URL are on the
+  // `pr.create.executed` record and on the receipt, but the workflow-state
+  // projection folds both `pr.create.*` rows to identity, so neither
+  // `artifacts.pr` nor `synthesis.prUrl` is derived from them. Those two fields
+  // are what the synthesize→completed guard reads, and they are what the
+  // single-PR-owner refusal in `create_pr` reads. Until the caller patches one
+  // of them the workflow cannot leave the synthesize phase, and a second
+  // `create_pr` for the same subject is refused only by the remote-recovery
+  // precheck rather than by that structural guard. Same shape as the
+  // transition this segment's plan-phase sibling leaves to its caller.
+  //
+  // Only the two `create_pr` records: both are declared unconditionally, and
+  // `validate_pr_body` declares no emission at all.
+  //
+  // Any durable evidence a leaf records is deliberately NOT named here.
+  // `autoEmits` mirrors the actions' declared `emissions`, and evidence rides
+  // the separate postcondition axis instead. Naming an evidence row here is not
+  // a more complete declaration but a false one — the bijection derives the
+  // permitted set from those same `emissions`, so it reddens on the addition.
+  // Measured, not argued.
+  autoEmits: ['pr.create.requested', 'pr.create.executed'],
+};
+
 export const SHEPHERD_ITERATION: RunbookDefinition = {
   id: 'shepherd-iteration',
   phase: 'synthesize',
@@ -641,6 +712,61 @@ export const DESIGN_REFINEMENT: RunbookDefinition = {
   autoEmits: [],
 };
 
+export const PLAN_CLOSEOUT: RunbookDefinition = {
+  id: 'plan-closeout',
+  phase: 'plan',
+  description: 'Run the blocking plan gates over the unified spec and emit the traceability matrix.',
+  steps: [
+    // The two blocking plan gates, in the order the plan-depth policy resolves
+    // them. `onFail` mirrors each action's own declared blocking-ness rather
+    // than restating a policy: both gates block, so both stop.
+    { tool: 'exarchos_orchestrate', action: 'check_plan_coverage', onFail: 'stop',
+      params: { designPath: '<specPath>', planPath: '<specPath>' } },
+    { tool: 'exarchos_orchestrate', action: 'check_provenance_chain', onFail: 'stop',
+      params: { designPath: '<specPath>', planPath: '<specPath>' } },
+    // Not a gate — it writes a matrix. A failure here leaves the gates' verdicts
+    // standing, so it does not halt the segment.
+    { tool: 'exarchos_orchestrate', action: 'generate_traceability', onFail: 'continue',
+      params: { designFile: '<specPath>', planFile: '<specPath>' } },
+  ],
+  // One variable for one document: design and plan are two sections of the same
+  // unified artifact, and the four parameter spellings above are four names for
+  // the same path.
+  templateVars: ['featureId', 'specPath'],
+  // The advisory decomposition gate and the spec-coverage declaration check are
+  // left out, and NOT for a broken contract: both now record the durable gate
+  // evidence they declare.
+  //
+  // The coverage check requires a repo root, a wave-level absolute path this
+  // segment's one-document argument deliberately does not carry. That missing
+  // argument is the whole of the obstacle — at plan depth the check shells
+  // nothing and does not require the root to exist on disk, so the cost this
+  // comment once claimed (a test run per referenced test file) is a
+  // post-implementation cost that a plan-phase step would never pay.
+  //
+  // The decomposition gate needs no argument this segment lacks: its schema is
+  // the subject identity the compiler writes plus one plan path, which is the
+  // binding the three shipped steps already use. What keeps it out is a
+  // deliberate scope choice rather than a cost — it is advisory, it would move
+  // a step shape the suite pins, and an advisory verdict that stops nothing is
+  // worth adding on purpose or not at all.
+  //
+  // The move out of planning is left to the caller: the target depends on a
+  // plan-review approval this segment cannot observe, so a transition leaf here
+  // would either guess the target or commit one the approval has not yet earned.
+  //
+  // Only `gate.executed`: both gates declare it unconditionally, and the matrix
+  // generator declares no emission at all.
+  //
+  // The durable evidence each gate also records is deliberately NOT named here.
+  // `autoEmits` mirrors the actions' declared `emissions`, and the two plan
+  // gates carry their evidence obligation on the separate `durable-evidence`
+  // postcondition axis instead. Naming the evidence row here is not a more
+  // complete declaration but a false one — the bijection derives the permitted
+  // set from those same `emissions`, so it reddens on the addition.
+  autoEmits: ['gate.executed'],
+};
+
 export const PLAN_COVERAGE_CHECK: RunbookDefinition = {
   id: 'plan-coverage-check',
   phase: 'plan-review',
@@ -754,6 +880,7 @@ export const ALL_RUNBOOKS: readonly RunbookDefinition[] = [
   QUALITY_EVALUATION,
   AGENT_TEAMS_SAGA,
   SYNTHESIS_FLOW,
+  SYNTHESIS_CLOSEOUT,
   SHEPHERD_ITERATION,
   TASK_FIX,
   TRIAGE_DECISION,
@@ -765,6 +892,7 @@ export const ALL_RUNBOOKS: readonly RunbookDefinition[] = [
   TASK_CLASSIFICATION,
   REVIEW_STRATEGY,
   DESIGN_REFINEMENT,
+  PLAN_CLOSEOUT,
   PLAN_COVERAGE_CHECK,
   PHASE_COMPRESSION,
   MERGE_ORCHESTRATION,

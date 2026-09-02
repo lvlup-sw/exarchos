@@ -5,11 +5,57 @@ import { InspectOutputSchema } from '../../../projections/views/lifecycle/inspec
 import { followField, allField as lifecycleAllField, limitField as lifecycleLimitField, operationField as lifecycleOperationField, outputField as lifecycleOutputField, phaseField as lifecyclePhaseField, scopeField as lifecycleScopeField, statusField as lifecycleStatusField, workflowTypeField as lifecycleWorkflowTypeField } from '../../../projections/views/lifecycle/schema-fields.js';
 import { PsOutputSchema, WaitOutputSchema, WorktreesOutputSchema } from '../../../verbs/worktree/schemas.js';
 import { z } from 'zod';
+import { declared, none, withActionContract, type ActionContract } from '../../action-contract.js';
 import { LOCAL_MUTATION_IDEMPOTENT, LOCAL_MUTATION_OPEN_WORLD, READ_ONLY_LOCAL } from '../../annotations.js';
 import { ALL_PHASES, ROLE_ANY, featureIdSchema } from '../../phases.js';
-import type { BuiltinToolAction } from '../../types.js';
+import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
 
-export const lifecycleViewActions: readonly BuiltinToolAction[] = [
+const READ_ONLY_VIEW_CONTRACT = {
+  requires: none('read-only view has no admission obligations'),
+  ensures: none('read-only view returns an ephemeral projection with no durable postcondition'),
+  needs: none('read-only view folds in-process projections'),
+  touches: {
+    frame: 'single-machine',
+    resources: none('read-only view does not claim exclusive stream, path, worktree, or git-ref ownership'),
+  },
+  executionAuthority: { kind: 'local' },
+  replay: { kind: 'safe-repeat' },
+  emissions: none('read-only view emits no catalog events'),
+} satisfies ActionContract;
+
+const EXPORT_VIEW_CONTRACT = {
+  requires: none('export does not require admission gates or corroboration'),
+  ensures: declared(
+    { source: 'event-append', when: 'success', event: 'export.requested' },
+    { source: 'event-append', when: 'success', event: 'export.executed' },
+  ),
+  needs: declared('fs:read', 'fs:write'),
+  touches: {
+    frame: 'single-machine',
+    resources: declared(
+      { kind: 'stream', selector: 'workflow' },
+      { kind: 'path', selector: 'export-bundle' },
+    ),
+  },
+  executionAuthority: { kind: 'local' },
+  replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+  emissions: declared(
+    {
+      event: 'export.requested',
+      condition: 'conditional',
+      owner: 'view',
+      role: 'primary',
+    },
+    {
+      event: 'export.executed',
+      condition: 'conditional',
+      owner: 'view',
+      role: 'primary',
+    },
+  ),
+} satisfies ActionContract;
+
+const LIFECYCLE_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
   // ─── Worktree-lifecycle view (WLM foundation, task 008) ───────────────────
   // The read leg of the worktree actions: folds the `worktrees` stream through
   // the `worktrees@v1` projection. Pure read — no adopt, no git probe, no
@@ -217,3 +263,11 @@ export const lifecycleViewActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION_OPEN_WORLD,
   },
 ];
+
+export const lifecycleViewActions: readonly BuiltinToolAction[] = LIFECYCLE_VIEW_DECLARATIONS.map((action) =>
+  withActionContract(
+    action,
+    action.name === 'export' ? EXPORT_VIEW_CONTRACT : READ_ONLY_VIEW_CONTRACT,
+    { annotations: action.annotations },
+  ),
+);

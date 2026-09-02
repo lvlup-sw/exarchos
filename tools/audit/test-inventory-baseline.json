@@ -1,14 +1,14 @@
 {
-  "capturedAt": "2026-08-18",
+  "capturedAt": "2026-08-29",
   "discovery": "extension-based over tracked files; not a runner glob",
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
-  "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
+  "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1188,
-    "parsedFiles": 1143,
+    "testFiles": 1253,
+    "parsedFiles": 1208,
     "shellFiles": 45,
-    "cases": 13260,
-    "dynamicTitles": 144,
+    "cases": 13795,
+    "dynamicTitles": 150,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -4551,6 +4551,512 @@
     }
   ],
   "files": {
+    "tests/acceptance/action-admission-parity.test.ts": {
+      "file": "tests/acceptance/action-admission-parity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action admission dispatch parity",
+          "name": "Dispatch_UnchangedWorkflowSubject_IsNotAdmissionDenied",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission dispatch parity",
+          "name": "Dispatch_ChangedEvidence_FailsBeforeHandler",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission dispatch parity",
+          "name": "Dispatch_Denied_FailsBeforeEffects",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission dispatch parity",
+          "name": "Dispatch_Transition_StillUsesHsmGuard",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission dispatch parity",
+          "name": "Dispatch_PhaseVerbThenTransition_IsNotAdmissionDenied",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission dispatch parity",
+          "name": "Dispatch_HostOwned_ReturnsObligationWithoutExecuting",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-admission.test.ts": {
+      "file": "tests/acceptance/action-admission.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_Satisfied_Allows",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_MissingInput_IsIndeterminate",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_MissingCapability_Denies",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_TransitionRequires_IsNone",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_SharedIrAlone_DoesNotBypassRequires",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_DoesNotSelectTransitionTarget",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_Contradiction_DoesNotAllow",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_SnapshotStaleEvidence_DoesNotAllow",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_UnauthorizedEvidence_DoesNotAllow",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_WaiverMissingPhaseAttempt_IsIndeterminate",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-contract-cli.test.ts": {
+      "file": "tests/acceptance/action-contract-cli.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "CLI action-contract projection",
+          "name": "CliSurface_ContractProjection_EqualsDescriptor",
+          "dynamic": false
+        },
+        {
+          "suite": "CLI action-contract projection",
+          "name": "CliSurface_AllActionIds_HaveContracts",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-contract-closure.test.ts": {
+      "file": "tests/acceptance/action-contract-closure.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract advertise / execute / ensure / HSM closure",
+          "name": "ActionContract_Advertised_DispatchesOnUnchangedTrustedState",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract advertise / execute / ensure / HSM closure",
+          "name": "ActionContract_ChangedEvidence_FailsBeforeHandler",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract advertise / execute / ensure / HSM closure",
+          "name": "ActionContract_MissingEnsure_BlocksSuccess",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract advertise / execute / ensure / HSM closure",
+          "name": "ActionContract_Hsm_RemainsAuthoritative",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-contract-compiler.test.ts": {
+      "file": "tests/acceptance/action-contract-compiler.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract compiler admission",
+          "name": "Compiler_UnknownEmissionEvent_FailsCompilation",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract compiler admission",
+          "name": "Compiler_RecoveryExpiry_InvalidFails",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract compiler admission",
+          "name": "Compiler_PrimaryExpiry_PresentFails",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract compiler admission",
+          "name": "valid catalog-accepted contracts compile and round-trip",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-contract-describe.test.ts": {
+      "file": "tests/acceptance/action-contract-describe.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract describe projection",
+          "name": "RuntimeAuthority_DroppedDimension_IsDetected",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract describe projection",
+          "name": "describe and registry normalize identically on a live contracted action",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract describe projection",
+          "name": "four visible tools remain four",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-contract-descriptor.test.ts": {
+      "file": "tests/acceptance/action-contract-descriptor.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract descriptor binding",
+          "name": "Descriptor_ContractChange_ChangesDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract descriptor binding",
+          "name": "ProofFixture_ContainsContractDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract descriptor binding",
+          "name": "ProofFixture_RepeatedBuild_IsByteStable",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract descriptor binding",
+          "name": "does not invent a contract for live actions that omit one",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract descriptor binding",
+          "name": "dispatch does not read compiled descriptors as runtime authority",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-contract-mcp.test.ts": {
+      "file": "tests/acceptance/action-contract-mcp.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "MCP compact action-contract registration",
+          "name": "McpRegistration_ContractSummary_IsRegistryDerived",
+          "dynamic": false
+        },
+        {
+          "suite": "MCP compact action-contract registration",
+          "name": "McpRegistration_VisibleToolCount_RemainsFour",
+          "dynamic": false
+        },
+        {
+          "suite": "MCP compact action-contract registration",
+          "name": "McpRegistration_Compact_RetainsDimensionPresence",
+          "dynamic": false
+        },
+        {
+          "suite": "MCP compact action-contract registration",
+          "name": "every advertised action has one deterministic projection",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-contract-next-actions.test.ts": {
+      "file": "tests/acceptance/action-contract-next-actions.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_Denied_IsNotAdvertised",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_Indeterminate_IsNotAdvertised",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_AdjudicationFault_IsNotAdvertised",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_TopologyFallback_IsNotAdvertised",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_PhaseVerb_IsNotAnActionId",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_RetryWithTask_IsNotAnActionId",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_DivergentLoop_IsNotAnActionId",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_MissingAuth_OmitsCapabilityGatedActionIds",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_HostOwned_AdvertisedWhenLocalChecksPass",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_MergeOrchestrate_RehydrateTopology_StillPublishes",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract next_actions — allow-only registry advertisements",
+          "name": "NextActions_Advertised_UsesWorkflowScopedSubject",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-contract-observation.test.ts": {
+      "file": "tests/acceptance/action-contract-observation.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract emission observation",
+          "name": "EmissionVerifier_UsesNestedEmissions",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-contract-projections.test.ts": {
+      "file": "tests/acceptance/action-contract-projections.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "generated contract projection rebuild",
+          "name": "GeneratedContract_Rebuild_IsIdempotent",
+          "dynamic": false
+        },
+        {
+          "suite": "registered-actions snapshot denominator",
+          "name": "RegisteredActionsSnapshot_EqualsLiveRegistry",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-contract-vcs-observation.test.ts": {
+      "file": "tests/acceptance/action-contract-vcs-observation.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "vcs journal action observation declarations",
+          "name": "VcsJournalActions_DeclareTheSharedStream_ObservationResolvesIt (%s)",
+          "dynamic": false
+        },
+        {
+          "suite": "vcs journal action observation declarations",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "vcs journal action observation declarations",
+          "name": "VcsJournalActions_ForeignFeatureIdArgument_DoesNotOverrideTheDeclaration (%s)",
+          "dynamic": false
+        },
+        {
+          "suite": "vcs journal action observation declarations",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "vcs journal action observation declarations",
+          "name": "VcsJournalActions_CompiledAsLeaves_NeverFallBackToTheSegmentStream (%s)",
+          "dynamic": false
+        },
+        {
+          "suite": "vcs journal action observation declarations",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "vcs journal action observation declarations",
+          "name": "VcsJournalActions_AbstainFromPostconditions_ForAStatedReason (%s)",
+          "dynamic": false
+        },
+        {
+          "suite": "vcs journal action observation declarations",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/acceptance/action-contract-vcs-replay.test.ts": {
+      "file": "tests/acceptance/action-contract-vcs-replay.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "merge VCS worktree action contracts",
+          "name": "Registry_MergeVcsWorktreeActions_HaveCompleteContracts",
+          "dynamic": false
+        },
+        {
+          "suite": "merge VCS worktree action contracts",
+          "name": "Registry_NonIdempotentMutations_RequireClaimsOrRejectReplay",
+          "dynamic": false
+        },
+        {
+          "suite": "merge VCS worktree action contracts",
+          "name": "non-idempotent mutations declare claim-required or reject-replay",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/action-postconditions.test.ts": {
+      "file": "tests/acceptance/action-postconditions.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "durable action postcondition observation",
+          "name": "Postconditions_CommittedEvent_IsSatisfied",
+          "dynamic": false
+        },
+        {
+          "suite": "durable action postcondition observation",
+          "name": "Postconditions_MissingEvent_IsViolation",
+          "dynamic": false
+        },
+        {
+          "suite": "durable action postcondition observation",
+          "name": "Postconditions_PersistedEvidence_IsSatisfied",
+          "dynamic": false
+        },
+        {
+          "suite": "durable action postcondition observation",
+          "name": "Postconditions_ReplayedEvidenceWitness_DoesNotPass",
+          "dynamic": false
+        },
+        {
+          "suite": "durable action postcondition observation",
+          "name": "Postconditions_DeclarationWithoutObservation_DoesNotPass",
+          "dynamic": false
+        },
+        {
+          "suite": "durable action postcondition observation",
+          "name": "Postconditions_FailureOutcome_ChecksFailureAndAlways",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch gates success on applicable ensures",
+          "name": "Dispatch_MissingEnsure_BlocksSuccess",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch gates success on applicable ensures",
+          "name": "Dispatch_Failure_ChecksFailureAndAlways",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch gates success on applicable ensures",
+          "name": "Dispatch_HostOwned_DoesNotExecuteObligation",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch gates success on applicable ensures",
+          "name": "Dispatch_ReadOnlyAbstention_SkipsAppendCheck",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/effect-carrier-compile-gate.test.ts": {
+      "file": "tests/acceptance/effect-carrier-compile-gate.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "omission fails the build, not the run",
+          "name": "CompileFail_EffectWithoutCommittedEvent_FailsTypecheck",
+          "dynamic": false
+        },
+        {
+          "suite": "omission fails the build, not the run",
+          "name": "CompileFail_FixtureCompilesWhenGuardRemoved",
+          "dynamic": false
+        },
+        {
+          "suite": "omission fails the build, not the run",
+          "name": "CompileGate_ProbeLeavesTheLiveTreeUntouched",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/effect-plan-teeth-kill-probes.test.ts": {
+      "file": "tests/acceptance/effect-plan-teeth-kill-probes.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "kill probes: every gate is shown to fail",
+          "name": "KillProbe_RequiredEmissionsRelaxed_TypecheckStopsFailing",
+          "dynamic": false
+        },
+        {
+          "suite": "kill probes: every gate is shown to fail",
+          "name": "KillProbe_SuccessArmDropsEvidence_ValueBecomesReachable",
+          "dynamic": false
+        },
+        {
+          "suite": "kill probes: every gate is shown to fail",
+          "name": "KillProbe_WitnessUnbranded_EvidenceBecomesForgeable",
+          "dynamic": false
+        },
+        {
+          "suite": "kill probes: every gate is shown to fail",
+          "name": "KillProbe_RecorderMadeOptional_LiveRunNeedsNoCapability",
+          "dynamic": false
+        },
+        {
+          "suite": "kill probes: every gate is shown to fail",
+          "name": "KillProbe_RecorderMadeConditional_LiveRunProceeds",
+          "dynamic": false
+        },
+        {
+          "suite": "kill probes: every gate is shown to fail",
+          "name": "KillProbes_LeaveNoResidue_InTheirOwnWriteSet",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/acceptance/fresh-install.test.ts": {
       "file": "tests/acceptance/fresh-install.test.ts",
       "runner": "vitest:root",
@@ -4568,6 +5074,132 @@
         {
           "suite": "FreshInstall",
           "name": "PluginHooks_LoadExactlyOnce",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/host-obligation-execution.test.ts": {
+      "file": "tests/acceptance/host-obligation-execution.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "host-owned actions — execute vs return the obligation",
+          "name": "HostObligations_Population_IsNonEmptyAndCarriesBothKinds",
+          "dynamic": false
+        },
+        {
+          "suite": "host-owned actions — execute vs return the obligation",
+          "name": "HostObligations_AgentSpawn_RunsTheHandler",
+          "dynamic": false
+        },
+        {
+          "suite": "host-owned actions — execute vs return the obligation",
+          "name": "HostObligations_Blocking_ReturnTheObligationWithoutExecuting",
+          "dynamic": false
+        },
+        {
+          "suite": "host-owned actions — execute vs return the obligation",
+          "name": "HostObligations_AgentSpec_ReturnsTheSpecNotTheObligation",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/action-contract-closure-kill-fixtures.test.ts": {
+      "file": "tests/architecture/action-contract-closure-kill-fixtures.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract closure kill fixtures",
+          "name": "Closure_KillDescribe_DropsClosure",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure kill fixtures",
+          "name": "Closure_KillStaleReference_DropsClosure",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure kill fixtures",
+          "name": "Closure_KillAdmissionParity_DropsClosure",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure kill fixtures",
+          "name": "Closure_NarrowedDenominator_Fails",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/action-contract-closure.test.ts": {
+      "file": "tests/architecture/action-contract-closure.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract closure live tree",
+          "name": "Closure_LiveTree_MatchesRegisteredSnapshot",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure live tree",
+          "name": "Closure_LiveTree_Closes",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure live tree",
+          "name": "Closure_LiveTree_SeededProjectionDrift_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure live tree",
+          "name": "Closure_ExecuteClassifier_SeparatesHsmFromAdmission",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/action-contract-process-grant.test.ts": {
+      "file": "tests/architecture/action-contract-process-grant.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action contract process grant",
+          "name": "ProcessGrant_EveryDeclaredNeed_IsHeldByTheLocalProcess",
+          "dynamic": false
+        },
+        {
+          "suite": "action contract process grant",
+          "name": "ProcessGrant_FullMcpTier_SubsumesTheReadonlyNeed",
+          "dynamic": false
+        },
+        {
+          "suite": "action contract process grant",
+          "name": "ProcessGrant_UngrantedCapability_StillDenies",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/action-contract-reachability-separation.test.ts": {
+      "file": "tests/architecture/action-contract-reachability-separation.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract reachability separation",
+          "name": "Reachability_MissingSemanticDimension_DoesNotClaimDetection",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/action-contract-runtime-authority.test.ts": {
+      "file": "tests/architecture/action-contract-runtime-authority.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "dispatch compiled-descriptor authority",
+          "name": "Dispatch_CompiledDescriptors_AreNotRuntimeAuthority",
+          "dynamic": false
+        },
+        {
+          "suite": "nested emission authority",
+          "name": "sibling autoEmits is not the declared-emission authority",
           "dynamic": false
         }
       ]
@@ -5365,6 +5997,16 @@
           "suite": "the 11 targets → 9 published layers relation (what task 044 asserts)",
           "name": "every target a directory maps to is a target the layer table knows",
           "dynamic": false
+        },
+        {
+          "suite": "EventsLayer_NeverImportsOracle",
+          "name": "no module under events/ resolves an import into contract/oracle/",
+          "dynamic": false
+        },
+        {
+          "suite": "EventsLayer_NeverImportsOracle",
+          "name": "the scan is not vacuous: events/ actually has resolvable edges to inspect",
+          "dynamic": false
         }
       ]
     },
@@ -5442,6 +6084,37 @@
         {
           "suite": "Phase2_PersistedIdentifiers_MatchTheTask047Snapshot",
           "name": "the comparison that uses it is still collected",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/projection-fold-seam.test.ts": {
+      "file": "tests/architecture/projection-fold-seam.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "projection fold seam",
+          "name": "ProjectionFoldSeam_NoSourceFile_BypassesTheTailCoveringFold",
+          "dynamic": false
+        },
+        {
+          "suite": "projection fold seam",
+          "name": "ProjectionFoldSeam_EntryPoint_HasRealCallers",
+          "dynamic": false
+        },
+        {
+          "suite": "projection fold seam",
+          "name": "ProjectionFoldSeam_KillFixture_IsReportedByTheSameScanner",
+          "dynamic": false
+        },
+        {
+          "suite": "projection fold seam",
+          "name": "ProjectionFoldSeam_BoundedReadMembers_AreExemptByNameNotByOversight",
+          "dynamic": false
+        },
+        {
+          "suite": "projection fold seam",
+          "name": "ProjectionFoldSeam_AllowlistEntries_CarryARationaleOwnerAndUnexpiredDate",
           "dynamic": false
         }
       ]
@@ -5560,6 +6233,27 @@
         {
           "suite": "published-path facades",
           "name": "PublishedPathFacades_AreClassifiedByShapeNotByName",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/reachable-controls.test.ts": {
+      "file": "tests/architecture/reachable-controls.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "reachable controls",
+          "name": "ReachableControls_NoEnabler_IsCalledOnlyFromTests",
+          "dynamic": false
+        },
+        {
+          "suite": "reachable controls",
+          "name": "ReachableControls_KillFixture_IsReportedByTheSameScanner",
+          "dynamic": false
+        },
+        {
+          "suite": "reachable controls",
+          "name": "ReachableControls_AllowlistEntries_CarryAReasonOwnerAndUnexpiredDate",
           "dynamic": false
         }
       ]
@@ -6438,11 +7132,6 @@
         {
           "suite": "T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)",
           "name": "Governance_Dr3_FrozenRiskTier_ReachesTheGate",
-          "dynamic": false
-        },
-        {
-          "suite": "T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)",
-          "name": "Governance_Dr4_DegradedProjection_IsNeverServedAsSuccess",
           "dynamic": false
         },
         {
@@ -7971,6 +8660,89 @@
         }
       ]
     },
+    "tests/integration/action-contract-emissions.test.ts": {
+      "file": "tests/integration/action-contract-emissions.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract emission authority",
+          "name": "Registry_TopLevelAutoEmits_IsNotAuthoritative",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract emission authority",
+          "name": "EffectPlanEmits_DerivesFromActionContract",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract emission authority",
+          "name": "EffectPlanWhen_StaysPerEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract emission authority",
+          "name": "EmissionOwners_DeriveFromActionContract",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract emission authority",
+          "name": "Reachability_EventHop_UsesNestedEmissions",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract emission authority",
+          "name": "reasoned none is not filled from sibling records on the plan",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/action-contract-registration.test.ts": {
+      "file": "tests/integration/action-contract-registration.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract registration boundary",
+          "name": "RegisterCustomTool_InvalidContract_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract registration boundary",
+          "name": "RegisterExtensionTool_MissingContract_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract registration boundary",
+          "name": "built-in and extension admission accept the same contract language",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/action-replay.test.ts": {
+      "file": "tests/integration/action-replay.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action replay binding",
+          "name": "Replay_ClaimRequired_UsesExistingIdentity",
+          "dynamic": false
+        },
+        {
+          "suite": "action replay binding",
+          "name": "Replay_EffectPlanIdempotent_DerivesFromContract",
+          "dynamic": false
+        },
+        {
+          "suite": "action replay binding",
+          "name": "Replay_RejectPolicy_NeverExecutesTwice",
+          "dynamic": false
+        },
+        {
+          "suite": "action replay binding",
+          "name": "Replay_ExistingInv8Tests_RemainGreen",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/integration/cli-parity.test.ts": {
       "file": "tests/integration/cli-parity.test.ts",
       "runner": "vitest:root",
@@ -8107,7 +8879,62 @@
         },
         {
           "suite": "emission verifier policy",
+          "name": "EmissionVerifier_LifecycleOnlyViolation_PersistsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "emission verifier policy",
+          "name": "EmissionVerifier_CombinedViolation_PersistsBothAxes",
+          "dynamic": false
+        },
+        {
+          "suite": "emission verifier policy",
+          "name": "EmissionViolatedData refuses a report with both axes empty",
+          "dynamic": false
+        },
+        {
+          "suite": "emission verifier policy",
           "name": "a mixed run reports the determinate count it actually earned",
+          "dynamic": false
+        },
+        {
+          "suite": "emission enforcement reaches the dispatch result",
+          "name": "EmissionEnforcement_BlockMode_UndeliveredEmissionFailsTheDispatch",
+          "dynamic": false
+        },
+        {
+          "suite": "emission enforcement reaches the dispatch result",
+          "name": "EmissionEnforcement_AdvisoryMode_SameViolationReturnsTheHandlerResult",
+          "dynamic": false
+        },
+        {
+          "suite": "emission enforcement reaches the dispatch result",
+          "name": "EmissionVerifier_AdvisoryViolation_ReturnsPayloadAndPersistsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "emission enforcement reaches the dispatch result",
+          "name": "EmissionVerifier_StoreUnavailable_IsIndeterminateAndCannotPromote",
+          "dynamic": false
+        },
+        {
+          "suite": "emission enforcement reaches the dispatch result",
+          "name": "EmissionVerifier_StoreUnavailable_AdvisoryModeSurfacesWithoutBlocking",
+          "dynamic": false
+        },
+        {
+          "suite": "emission enforcement reaches the dispatch result",
+          "name": "EmissionVerifier_NoContract_RemainsBenignNotApplicable",
+          "dynamic": false
+        },
+        {
+          "suite": "emission enforcement reaches the dispatch result",
+          "name": "EmissionVerifier_HandlerRefusal_RemainsBenignNotApplicable",
+          "dynamic": false
+        },
+        {
+          "suite": "emission verifier over the safe corpus",
+          "name": "EmissionVerifier_SafeCorpus_HasNonZeroDeterminateCoverage",
           "dynamic": false
         }
       ]
@@ -8597,6 +9424,32 @@
         }
       ]
     },
+    "tests/outcome/roots-injection-schema-guard.test.ts": {
+      "file": "tests/outcome/roots-injection-schema-guard.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "Roots featureId inference is gated on the receiving schema (#1838)",
+          "name": "RootsInference_ActionOmittingFeatureId_IsNeverEligibleForInjection",
+          "dynamic": false
+        },
+        {
+          "suite": "Roots featureId inference is gated on the receiving schema (#1838)",
+          "name": "RootsInference_NamedRegressionVictims_AreIneligible",
+          "dynamic": false
+        },
+        {
+          "suite": "Roots featureId inference is gated on the receiving schema (#1838)",
+          "name": "Dispatch_EveryReadOnlyVictimUnderResolvingRoots_IsNotRefusedForInjectedFeatureId",
+          "dynamic": false
+        },
+        {
+          "suite": "Roots featureId inference is gated on the receiving schema (#1838)",
+          "name": "Dispatch_EventAppendUnderResolvingRoots_IsNotRefusedForInjectedFeatureId",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/outcome/runbook-merge-orchestration.test.ts": {
       "file": "tests/outcome/runbook-merge-orchestration.test.ts",
       "runner": "vitest:root",
@@ -8609,6 +9462,42 @@
         {
           "suite": "MERGE_ORCHESTRATION runbook outcome (#1363)",
           "name": "Runbook_OtherPhases_StillPopulated",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/outcome/store-divergence-dispatch.test.ts": {
+      "file": "tests/outcome/store-divergence-dispatch.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "Store-path divergence surfaces at the point of use (#1839)",
+          "name": "Mutation_UnderActiveDivergence_IsRefusedNotSilentlyWritten",
+          "dynamic": false
+        },
+        {
+          "suite": "Store-path divergence surfaces at the point of use (#1839)",
+          "name": "Mutation_OtherStoreAbsent_ProceedsNormally",
+          "dynamic": false
+        },
+        {
+          "suite": "Store-path divergence surfaces at the point of use (#1839)",
+          "name": "Mutation_Acknowledged_ProceedsWithTheOptIn",
+          "dynamic": false
+        },
+        {
+          "suite": "Store-path divergence surfaces at the point of use (#1839)",
+          "name": "Read_UnderActiveDivergence_CarriesTheCaveatInline",
+          "dynamic": false
+        },
+        {
+          "suite": "Store-path divergence surfaces at the point of use (#1839)",
+          "name": "Mutation_ExplicitStateDir_IsExemptFromTheCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "Store-path divergence surfaces at the point of use (#1839)",
+          "name": "Read_NoDivergence_CarriesNoSpuriousWarning",
           "dynamic": false
         }
       ]
@@ -16440,6 +17329,16 @@
           "suite": "resolveConfig > emission enforcement",
           "name": "EmissionEnforcement_NoProjectConfig_UsesTheStatedFallback",
           "dynamic": false
+        },
+        {
+          "suite": "resolveConfig > emission enforcement",
+          "name": "EmissionEnforcement_IndeterminateVerdict_BlocksOnConfigAloneNotEnvironment",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveConfig > emission enforcement",
+          "name": "EmissionVerifier_EnvironmentDoesNotOverrideExplicitPolicy",
+          "dynamic": false
         }
       ]
     },
@@ -17525,6 +18424,67 @@
         }
       ]
     },
+    "tests/unit/contract/action-contract-closure.test.ts": {
+      "file": "tests/unit/contract/action-contract-closure.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract closure",
+          "name": "Closure_OmittedDimension_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure",
+          "name": "Closure_BlankAbstention_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure",
+          "name": "Closure_StaleReference_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure",
+          "name": "Closure_RoleExpiryConflict_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure",
+          "name": "Closure_OrphanProjection_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure",
+          "name": "Closure_ProjectionDrift_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure",
+          "name": "Closure_EmptyDenominator_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure",
+          "name": "Closure_ParityDisagreement_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure",
+          "name": "a well-formed subject closes",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure properties",
+          "name": "input ordering does not change findings",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract closure properties",
+          "name": "zero subjects never close",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/contract/authority-collector.test.ts": {
       "file": "tests/unit/contract/authority-collector.test.ts",
       "runner": "vitest:root",
@@ -18262,6 +19222,21 @@
           "dynamic": false
         },
         {
+          "suite": "compileDescriptor",
+          "name": "Descriptor_ContractChange_ChangesDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "compileDescriptor",
+          "name": "canonical serialization is deterministic across key insertion order",
+          "dynamic": false
+        },
+        {
+          "suite": "compileDescriptor",
+          "name": "does not invent an action contract from annotations or autoEmits",
+          "dynamic": false
+        },
+        {
           "suite": "buildSchemaBundle / buildTypeManifest",
           "name": "HoistsTheSharedCarrierSchemasAndKeysActionsByActionId",
           "dynamic": false
@@ -18372,6 +19347,26 @@
         {
           "suite": "DR-11 — the meta-model is audited against the shipped runtime surface",
           "name": "ContractCompiler_StaleBaselineOnly_RemainsDistinguishable",
+          "dynamic": false
+        },
+        {
+          "suite": "deriveMetaModel — action-contract projection",
+          "name": "DeriveMetaModel_DoesNotReconstructFromAnnotations",
+          "dynamic": false
+        },
+        {
+          "suite": "deriveMetaModel — action-contract projection",
+          "name": "DeriveMetaModel_ReorderedSets_IsByteStable",
+          "dynamic": false
+        },
+        {
+          "suite": "deriveMetaModel — emission source binding",
+          "name": "CompileContract_NonAutoEmissionSource_RejectsActionAndEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "deriveMetaModel — emission source binding",
+          "name": "CompileContract_AutoEmissionSource_RemainsByteStable",
           "dynamic": false
         }
       ]
@@ -19022,6 +20017,21 @@
           "dynamic": false
         },
         {
+          "suite": "the emission vocabulary is shared by the registry, compiler, verifier and oracle",
+          "name": "EmissionProjection_RegistryCompilerVerifierOracle_Agree",
+          "dynamic": false
+        },
+        {
+          "suite": "the emission vocabulary is shared by the registry, compiler, verifier and oracle",
+          "name": "EnvelopeObservationSubjects_WithholdTheEmissionSet",
+          "dynamic": false
+        },
+        {
+          "suite": "the emission vocabulary is shared by the registry, compiler, verifier and oracle",
+          "name": "EmissionAxis_RealHandlerProbes_HaveNoUnconditionalEdgeToObserve",
+          "dynamic": false
+        },
+        {
           "suite": "DR-24 — real handlers are invoked through the real binding table",
           "name": "RealRegistryActionsAreObservedThroughTheShippedBindings",
           "dynamic": false
@@ -19078,12 +20088,42 @@
         },
         {
           "suite": "the emission axis reaches a verdict on a live subject",
-          "name": "OracleEmission_LiveSubject_ProducesADeterminateVerdict",
+          "name": "OracleEmission_ShippedAppender_ProducesPassFromObservedStoreAppend",
+          "dynamic": false
+        },
+        {
+          "suite": "the emission axis reaches a verdict on a live subject",
+          "name": "OracleEmission_SilentTwinWithSameDeclaration_ProducesFail",
           "dynamic": false
         },
         {
           "suite": "the emission axis reaches a verdict on a live subject",
           "name": "OracleEmission_ZeroObservedSubjects_FailsForThisAxisOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "the emission axis reaches a verdict on a live subject",
+          "name": "RunEmissionOracleSuite_ZeroObserved_FailsDistinctly",
+          "dynamic": false
+        },
+        {
+          "suite": "the emission axis reaches a verdict on a live subject",
+          "name": "CheckEmissionAxisObserved_ZeroSelectedSubjects_FailsDistinctly",
+          "dynamic": false
+        },
+        {
+          "suite": "the shipped-emitter probe corpus",
+          "name": "EmissionProbeCorpus_EveryEntryIsSchemaValidLocalAndIsolated",
+          "dynamic": false
+        },
+        {
+          "suite": "the shipped-emitter probe corpus",
+          "name": "EmissionProbeCorpus_ZeroEntries_FailsTheFloor",
+          "dynamic": false
+        },
+        {
+          "suite": "the shipped-emitter probe corpus",
+          "name": "EmissionProbeCorpus_ExcludedActions_ReportReasons",
           "dynamic": false
         }
       ]
@@ -19164,7 +20204,32 @@
         },
         {
           "suite": "P03-09 oracle — emission axis observes the append, not the declaration",
-          "name": "OracleEmission_DeclaredButNotPerformed_IsCaught",
+          "name": "Oracle_DeclaredButUnappended_FailsWhenGeneratedFilesAgree",
+          "dynamic": false
+        },
+        {
+          "suite": "P03-09 oracle — emission axis observes the append, not the declaration",
+          "name": "Oracle_Unobserved_IsNotPass",
+          "dynamic": false
+        },
+        {
+          "suite": "P03-09 oracle — emission axis observes the append, not the declaration",
+          "name": "DeclaredEmission_MissingConditionalEdge_DoesNotFail",
+          "dynamic": false
+        },
+        {
+          "suite": "P03-09 oracle — emission axis observes the append, not the declaration",
+          "name": "DeclaredEmission_MissingAlwaysEdge_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "P03-09 oracle — axis selection",
+          "name": "RunOracle_EmptyAxisSelection_RejectsCall",
+          "dynamic": false
+        },
+        {
+          "suite": "P03-09 oracle — axis selection",
+          "name": "RunOracle_StandardOnly_DoesNotEnterEmissionCensus",
           "dynamic": false
         }
       ]
@@ -19226,6 +20291,11 @@
         {
           "suite": "ambiguity in the materialized inputs is a closure failure",
           "name": "a pure action is unaffected by an owner ambiguity on its tool",
+          "dynamic": false
+        },
+        {
+          "suite": "event hop declared-side authority",
+          "name": "collects nested contract emissions and ignores sibling autoEmits",
           "dynamic": false
         }
       ]
@@ -20001,6 +21071,32 @@
         }
       ]
     },
+    "tests/unit/describe/action-contract.test.ts": {
+      "file": "tests/unit/describe/action-contract.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "describe action-contract projection",
+          "name": "HandleDescribe_ProjectsNormalizedActionContract",
+          "dynamic": false
+        },
+        {
+          "suite": "describe action-contract projection",
+          "name": "does not reconstruct a contract from annotations or autoEmits",
+          "dynamic": false
+        },
+        {
+          "suite": "describe action-contract projection",
+          "name": "compact views omit prose but keep every dimension and digest",
+          "dynamic": false
+        },
+        {
+          "suite": "describe and registry normalize identically",
+          "name": "describe projection matches registry normalization",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/describe/handler-config.test.ts": {
       "file": "tests/unit/describe/handler-config.test.ts",
       "runner": "vitest:root",
@@ -20310,7 +21406,7 @@
         },
         {
           "suite": "initializeContext",
-          "name": "InitializeContext_DisableCacheHintsEnv_ResolverReportsNothing",
+          "name": "InitializeContext_DisableCacheHintsEnv_DropsCacheHintKeepsProcessGrant",
           "dynamic": false
         },
         {
@@ -20578,6 +21674,21 @@
           "dynamic": false
         },
         {
+          "suite": "dispatch > doctor action wiring",
+          "name": "Dispatch_Doctor_AnonymousCaller_RequiresTrustedCaller",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > doctor action wiring",
+          "name": "Dispatch_DeclaredRequires_MissingStoreFacts_IsAdmissionDenied",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > execute_intent action wiring",
+          "name": "Dispatch_ExecuteIntent_ColdDispatch_ClearsAdmissionAndReachesTheHandler",
+          "dynamic": false
+        },
+        {
           "suite": "dispatch > T-12 session.machinery_consumed interceptor",
           "name": "T12_FirstNonRehydrateInvocationAfterRehydrated_EmitsSessionMachineryConsumed",
           "dynamic": false
@@ -20719,7 +21830,12 @@
         },
         {
           "suite": "emission verifier — contract evaluation",
-          "name": "EmissionVerifier_UnreadableStore_IsNotApplicableAndNeverThrows",
+          "name": "EmissionVerifier_UnreadableStore_IsIndeterminateAndNeverThrows",
+          "dynamic": false
+        },
+        {
+          "suite": "emission verifier — contract evaluation",
+          "name": "EmissionVerifier_UnrecordableFinding_IsIndeterminateRatherThanSilentlyDropped",
           "dynamic": false
         },
         {
@@ -20912,7 +22028,12 @@
         },
         {
           "suite": "runEffect — the record is on the way to a committed value",
-          "name": "leaves a plan that declares no emissions inert — no capability required",
+          "name": "RunEffect_RecordsNothingPlanWithNoRecorder_RefusesInLiveMode",
+          "dynamic": false
+        },
+        {
+          "suite": "runEffect — the record is on the way to a committed value",
+          "name": "RunEffect_RecordsNothingPlanWithRecorder_CommitsAndRecordsNothing",
           "dynamic": false
         },
         {
@@ -20934,6 +22055,56 @@
           "suite": "toEffectError",
           "name": "derives a class-scoped code and preserves the cause",
           "dynamic": false
+        },
+        {
+          "suite": "the edges that universal declaration puts pressure on",
+          "name": "DryRun_EveryPlanDeclares_StillRecordsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "the edges that universal declaration puts pressure on",
+          "name": "DryRun_RecordsNothingPlan_IsAlsoSilent",
+          "dynamic": false
+        },
+        {
+          "suite": "the edges that universal declaration puts pressure on",
+          "name": "RecordEmissions_NonReceiptMidSet_FailsWholeEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "the edges that universal declaration puts pressure on",
+          "name": "UnrecordedEmissionError_NamesPlanDeclarationAndCount",
+          "dynamic": false
+        },
+        {
+          "suite": "the edges that universal declaration puts pressure on",
+          "name": "SuccessArm_CarriesAReceiptPerDeclaredEmission",
+          "dynamic": false
+        },
+        {
+          "suite": "the edges that universal declaration puts pressure on",
+          "name": "SuccessArm_RecordsNothingPlan_CarriesEmptyRecordedEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "effect plan replay binding",
+          "name": "Replay_EffectPlanIdempotent_DerivesFromContract",
+          "dynamic": false
+        },
+        {
+          "suite": "effect plan emission binding",
+          "name": "derives emit identity and owner/role from the nested contract",
+          "dynamic": false
+        },
+        {
+          "suite": "effect plan emission binding",
+          "name": "keeps per-effect when independent of the contract condition",
+          "dynamic": false
+        },
+        {
+          "suite": "effect plan emission binding",
+          "name": "a reasoned none wins over sibling records",
+          "dynamic": false
         }
       ]
     },
@@ -20943,7 +22114,12 @@
       "cases": [
         {
           "suite": "EmissionVerifier lifecycle axis",
-          "name": "EmissionVerifier_PlannedOrRetiredEmittedAtRuntime_Fails",
+          "name": "LifecycleVerifier_DeclaredRetiredEvent_FailsAction",
+          "dynamic": false
+        },
+        {
+          "suite": "EmissionVerifier lifecycle axis",
+          "name": "LifecycleVerifier_UnrelatedOperationEvent_DoesNotFailAction",
           "dynamic": false
         },
         {
@@ -20964,6 +22140,62 @@
         {
           "suite": "EmissionVerifier lifecycle axis",
           "name": "reports a missing emission and a lifecycle violation together",
+          "dynamic": false
+        },
+        {
+          "suite": "EmissionVerifier run summary",
+          "name": "counts a store-failure run and a conditional-only run apart, not together",
+          "dynamic": false
+        },
+        {
+          "suite": "EmissionVerifier declared-subject authority",
+          "name": "reads nested emissions and ignores a sibling fallback argument",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/dispatch/core/inferred-values.test.ts": {
+      "file": "tests/unit/dispatch/core/inferred-values.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "Every inferrable field inherits one gate",
+          "name": "InferredValue_ActionDeclaringTheField_ReceivesIt",
+          "dynamic": false
+        },
+        {
+          "suite": "Every inferrable field inherits one gate",
+          "name": "InferredValue_ActionOmittingTheField_NeverReceivesIt",
+          "dynamic": false
+        },
+        {
+          "suite": "Every inferrable field inherits one gate",
+          "name": "InferredValue_ExplicitCallerValue_IsNeverOverwritten",
+          "dynamic": false
+        },
+        {
+          "suite": "Every inferrable field inherits one gate",
+          "name": "InferredValue_LatencySkipList_SuppressesResolution",
+          "dynamic": false
+        },
+        {
+          "suite": "Every inferrable field inherits one gate",
+          "name": "InferredValue_AmbiguousOutcome_RefusesWithTheCallersOptions",
+          "dynamic": false
+        },
+        {
+          "suite": "Every inferrable field inherits one gate",
+          "name": "InferredValue_UnavailableOutcome_FallsThroughToValidation",
+          "dynamic": false
+        },
+        {
+          "suite": "The shipped table is well-formed",
+          "name": "InferrableFields_EveryEntry_DeclaresADistinctField",
+          "dynamic": false
+        },
+        {
+          "suite": "The shipped table is well-formed",
+          "name": "InferrableFields_TheGate_IsAFunctionOfTheSchemaAlone",
           "dynamic": false
         }
       ]
@@ -22200,6 +23432,32 @@
         }
       ]
     },
+    "tests/unit/events/consumer-closure.test.ts": {
+      "file": "tests/unit/events/consumer-closure.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "consumer closure",
+          "name": "ConsumerClosure_LiveTree_EveryConsumedByResolves",
+          "dynamic": false
+        },
+        {
+          "suite": "consumer closure",
+          "name": "ConsumerClosure_DeletedConsumer_IsNamed",
+          "dynamic": false
+        },
+        {
+          "suite": "consumer closure",
+          "name": "ConsumerClosure_SeededGhostConsumer_IsNamedWithItsEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "consumer closure",
+          "name": "ConsumerClosure_EmptyPopulation_FailsClosed",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/events/cross-stream-handler.test.ts": {
       "file": "tests/unit/events/cross-stream-handler.test.ts",
       "runner": "vitest:root",
@@ -22337,12 +23595,62 @@
       "cases": [
         {
           "suite": "emitter closure",
-          "name": "EmitterClosure_LiveTree_MatchesTheUndeclaredBaseline",
+          "name": "EmitterClosure_LiveTree_HasNoUndeclaredAppends",
           "dynamic": false
         },
         {
           "suite": "emitter closure",
           "name": "EmitterClosure_EveryModuleEmission_IsLiveInTheTree",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_EveryActionEmission_IsLiveOrOnTheAllowance",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_ActionEmissionWithNoAppend_IsAPhantom",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_AllowanceCoveredEvent_IsUnverifiableNotPhantom",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_AllowanceRowWhoseAppendResolved_IsStale",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_AllowanceRowWithNoEdge_IsStale",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_ActionOwnedAppends_HaveRegistryEdges",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_FalseReasonedAbstention_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_OwnershipRowWithNoAppend_IsStale",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_LiveAbstentions_QuoteTheirReason",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_SameNamedActionsOnDifferentTools_StayDistinct",
           "dynamic": false
         },
         {
@@ -22353,6 +23661,16 @@
         {
           "suite": "emitter closure",
           "name": "EmitterClosure_ModuleEmissionWithNoAppend_IsAPhantom",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_DuplicatedModuleEmission_BreaksTheRowToSiteCount",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_ModuleRowShadowingAnActionEdge_ExplainsNothing",
           "dynamic": false
         },
         {
@@ -22384,6 +23702,11 @@
         {
           "suite": "EventAnnotations — the DR-2 tier and lifecycle assignment for the event catalog",
           "name": "EmissionViolation_SubstrateTier_CarriesOperationRecordRationale",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAnnotations — the DR-2 tier and lifecycle assignment for the event catalog",
+          "name": "IntentExecuted_SubstrateTier_DerivesAutoSource",
           "dynamic": false
         },
         {
@@ -23268,6 +24591,11 @@
         {
           "suite": "StartupAssertion — the severity axis on the boot refusal",
           "name": "StartupAssertion_BlockingSeverity_ThrowsOnAnyViolation",
+          "dynamic": false
+        },
+        {
+          "suite": "StartupAssertion — the severity axis on the boot refusal",
+          "name": "PrimaryOwnerBijection_SameOwnerDuplicateEdges_DoesNotReportMultiPrimary",
           "dynamic": false
         },
         {
@@ -25945,6 +27273,51 @@
           "suite": "QueryFilters correlation tuple (Wave 4 / #1437)",
           "name": "QueryFilters_AcceptsCorrelationTuple_TypeAndShape",
           "dynamic": false
+        },
+        {
+          "suite": "EventStore append observation",
+          "name": "EventStore_SuccessfulNewAppend_NotifiesScopedObserver",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore append observation",
+          "name": "EventStore_NoScopeInstalled_BurstOfAppendsNotifiesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore append observation",
+          "name": "EventStore_FailedOrCollapsedAppend_DoesNotNotifyObserver",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore append observation",
+          "name": "EventStore_AtomicTrailAppend_NotifiesOncePerLandedEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore append observation",
+          "name": "EventStore_AtomicTrailRetriedOnSameOperationId_NotifiesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore append observation",
+          "name": "EventStore_ConcurrentScopes_DoNotCrossTalk",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore append observation",
+          "name": "EventStore_NestedScopes_InnerShadowsOuterThenOuterResumes",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore append observation",
+          "name": "EventStore_ThrowingObserver_FaultsTheCallerAndLeavesEventDurable",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore append observation",
+          "name": "EventStore_ConcurrentScopes_DoNotCrossTalk_Property",
+          "dynamic": false
         }
       ]
     },
@@ -26516,6 +27889,16 @@
         {
           "suite": "tenant field passthrough",
           "name": "handleBatchAppend_WithTenantFields_PassesThroughToStore",
+          "dynamic": false
+        },
+        {
+          "suite": "handleEventQuery operationId filter passthrough",
+          "name": "handleEventQuery_WithOperationIdFilter_ReturnsOnlyMatchingEvents",
+          "dynamic": false
+        },
+        {
+          "suite": "handleEventQuery operationId filter passthrough",
+          "name": "handleEventQuery_WithEmptyOperationIdFilter_IsIgnoredNotTreatedAsAFilter",
           "dynamic": false
         },
         {
@@ -28856,6 +30239,47 @@
         {
           "suite": "evaluateInstallFreshness — robustness",
           "name": "DEGRADES (does not block) when recording the lock fails under installed posture",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/install/freshness-store-invariance.test.ts": {
+      "file": "tests/unit/install/freshness-store-invariance.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "Install freshness is invariant under WORKFLOW_STATE_DIR (#1840)",
+          "name": "Freshness_SameInstallTwoStores_ReportsTheSameVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "Install freshness is invariant under WORKFLOW_STATE_DIR (#1840)",
+          "name": "Freshness_PinningTheStore_DoesNotBlockMutations",
+          "dynamic": false
+        },
+        {
+          "suite": "Install freshness is invariant under WORKFLOW_STATE_DIR (#1840)",
+          "name": "LockPath_IsKeyedToTheInstall_NotTheStateDir",
+          "dynamic": false
+        },
+        {
+          "suite": "An undetermined dimension cannot report as matching (#1840)",
+          "name": "Verify_BothVersionsUnknown_IsIndeterminateNotFresh",
+          "dynamic": false
+        },
+        {
+          "suite": "An undetermined dimension cannot report as matching (#1840)",
+          "name": "Verify_MissingPackageJson_IsIndeterminate",
+          "dynamic": false
+        },
+        {
+          "suite": "An undetermined dimension cannot report as matching (#1840)",
+          "name": "Verify_KnownMatchingVersions_StillFresh",
+          "dynamic": false
+        },
+        {
+          "suite": "An undetermined dimension cannot report as matching (#1840)",
+          "name": "Gate_IndeterminateInstall_DegradesRatherThanBlocking",
           "dynamic": false
         }
       ]
@@ -32379,6 +33803,66 @@
           "suite": "computeNextActions — admission-derived affordances (DR-9, T-13)",
           "name": "NextActions_UnknownWorkflowType_NoAdmissionOpinion_PublishesTopology",
           "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_Denied_IsNotAdvertised",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_Indeterminate_IsNotAdvertised",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_AdjudicationFault_IsNotAdvertised",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_TopologyFallback_IsNotAdvertised",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_PhaseVerb_IsNotAnActionId",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_RetryWithTask_IsNotAnActionId",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_DivergentLoop_IsNotAnActionId",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_MissingAuth_OmitsCapabilityGatedActionIds",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_HostOwned_AdvertisedWhenLocalChecksPass",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_MergeOrchestrate_RehydrateTopology_StillPublishes",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_Advertised_UsesWorkflowScopedSubject",
+          "dynamic": false
+        },
+        {
+          "suite": "computeRegistryAdvertisements — allow-only ActionIds",
+          "name": "NextActions_PublishedField_WithholdsRegistryActionIdsOnControlEnvelope",
+          "dynamic": false
         }
       ]
     },
@@ -32770,47 +34254,37 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "CHARACTERIZATION (superseded) — consumers served stale folds as success:true",
-          "name": "ViewComposite_DegradedProjection_ReturnsTypedDegradedResult",
-          "dynamic": false
-        },
-        {
-          "suite": "CHARACTERIZATION (superseded) — consumers served stale folds as success:true",
-          "name": "WorkflowComposite_DegradedProjection_DoesNotReturnStalePayload",
-          "dynamic": false
-        },
-        {
-          "suite": "CHARACTERIZATION (superseded) — consumers served stale folds as success:true",
-          "name": "OrchestrateComposite_DegradedProjection_ReturnsTypedDegradedResult",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-4 — every readiness/workflow/reliability consumer refuses",
+          "suite": "#1855 — every readiness/workflow/reliability consumer answers",
           "name": "<dynamic-case-1>",
           "dynamic": true
         },
         {
-          "suite": "DR-4 — a degraded result is distinguishable from its neighbours",
+          "suite": "#1855 — every readiness/workflow/reliability consumer answers",
+          "name": "Consumer_RewoundFold_AnswersFromTheTail",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — the reserved code still separates its neighbours",
           "name": "DegradedResult_IsNotConfusableWithNoData",
           "dynamic": false
         },
         {
-          "suite": "DR-4 — a degraded result is distinguishable from its neighbours",
+          "suite": "#1855 — the reserved code still separates its neighbours",
           "name": "DegradedResult_IsNotConfusableWithGenuineFailure",
           "dynamic": false
         },
         {
-          "suite": "DR-4 — a degraded result is distinguishable from its neighbours",
-          "name": "HealthyStream_NoDurableRow_ConsumersAnswerNormally",
+          "suite": "#1855 — the reserved code still separates its neighbours",
+          "name": "SuggestedFix_NeverNamesTheCallThatFailed",
           "dynamic": false
         },
         {
-          "suite": "DR-4 — recovery clears the refusal",
-          "name": "DegradedStream_RefoldViaViewChokepoint_PublishesRecoveryAndUnblocksConsumers",
+          "suite": "#1855 — a spent observation clears",
+          "name": "DegradedRow_SurvivingRead_IsClearedByTheViewChokepoint",
           "dynamic": false
         },
         {
-          "suite": "DR-4 — recovery clears the refusal",
+          "suite": "#1855 — a spent observation clears",
           "name": "WorkflowMutationsAndRecoveryActions_StayUnguarded",
           "dynamic": false
         }
@@ -32912,6 +34386,72 @@
         }
       ]
     },
+    "tests/unit/projections/fold-at-tail.test.ts": {
+      "file": "tests/unit/projections/fold-at-tail.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "#1855 — the wedge",
+          "name": "FoldAtTail_StaleSiblingFold_DoesNotRefuseAnUnrelatedViewRead",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — the wedge",
+          "name": "FoldAtTail_RepeatedReadsOnAnAppendingStream_AllSucceed",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — the wedge",
+          "name": "FoldAtTail_WorkflowGet_IsNotWedgedByASiblingFold",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — the wedge",
+          "name": "FoldAtTail_FabricatedDegradedMarker_DoesNotWedgeAHealthyStream",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — a read never answers from a fold behind the tail",
+          "name": "FoldAtTail_RewoundFold_AnswersFromTheTailNotFromTheStaleFold",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — a read never answers from a fold behind the tail",
+          "name": "FoldAtTail_ContradictoryFold_IsDiscardedAndReplayedFromTheLog",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — a read never answers from a fold behind the tail",
+          "name": "FoldAtTail_ColdStream_CoversTheTailWithNoWarmFold",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — a read never answers from a fold behind the tail",
+          "name": "FoldAtTail_AppendLandsMidFold_SequenceStaysOnThePinnedTail",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — a read never answers from a fold behind the tail",
+          "name": "FoldPairToTail_TwoViews_ShareOneSequence",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — a read never answers from a fold behind the tail",
+          "name": "FoldAtTail_EmptyStream_IsCoveredAtSequenceZero",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — a committed mutation is never reported as a failure",
+          "name": "WorkflowUpdate_CoverageUnprovable_StillReportsTheCommittedWrite",
+          "dynamic": false
+        },
+        {
+          "suite": "#1855 — a committed mutation is never reported as a failure",
+          "name": "FoldAtTail_UnprovableCoverage_ThrowsRatherThanAnswering",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/projections/freshness.test.ts": {
       "file": "tests/unit/projections/freshness.test.ts",
       "runner": "vitest:root",
@@ -32933,17 +34473,7 @@
         },
         {
           "suite": "projection freshness comparison (EFF-002)",
-          "name": "Freshness_MultipleCursors_ReportsWorstOffenderFirst",
-          "dynamic": false
-        },
-        {
-          "suite": "projection freshness comparison (EFF-002)",
-          "name": "Freshness_AllCursorsAtTail_NotDegraded",
-          "dynamic": false
-        },
-        {
-          "suite": "projection freshness comparison (EFF-002)",
-          "name": "Freshness_NoMaterializedFolds_NotDegraded",
+          "name": "Freshness_IsPerFold_NotPerStream",
           "dynamic": false
         },
         {
@@ -32953,12 +34483,12 @@
         },
         {
           "suite": "view chokepoint marks degraded reads (EFF-002)",
-          "name": "HandleView_ProjectionAheadOfPrunedLog_ReturnsTypedDegradedMarker",
+          "name": "HandleView_ProjectionAheadOfPrunedLog_IsRepairedAndAnswered",
           "dynamic": false
         },
         {
           "suite": "view chokepoint marks degraded reads (EFF-002)",
-          "name": "HandleView_StaleSiblingFold_DegradesTheWholeStreamAnswer",
+          "name": "HandleView_StaleSiblingFold_DoesNotDegradeAnUnrelatedAnswer",
           "dynamic": false
         },
         {
@@ -40244,6 +41774,16 @@
           "dynamic": true
         },
         {
+          "suite": "#1499 state-source migration schema (regression guard)",
+          "name": "%s requires featureId — the stream its declared evidence records against",
+          "dynamic": false
+        },
+        {
+          "suite": "#1499 state-source migration schema (regression guard)",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
           "suite": "Registry_OutputSchema (T40, DR-11)",
           "name": "Registry_OutputSchema_RegistersMetaDeprecationOnAffectedActions",
           "dynamic": false
@@ -40344,6 +41884,26 @@
           "dynamic": false
         },
         {
+          "suite": "validateAction",
+          "name": "ValidateAction_MissingContract_FailsAtLoad",
+          "dynamic": false
+        },
+        {
+          "suite": "validateAction",
+          "name": "ValidateAction_MissingContract_FailsAtRegistration",
+          "dynamic": false
+        },
+        {
+          "suite": "validateAction",
+          "name": "ReplayPolicy_AnnotationDisagreement_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "validateAction",
+          "name": "DescribeFactory_EmitsCompleteContract",
+          "dynamic": false
+        },
+        {
           "suite": "ToolAction.dispatch - DispatchHints shape",
           "name": "ToolAction_DispatchHintsShape_OptionalTaskSuitableField",
           "dynamic": false
@@ -40415,6 +41975,11 @@
         },
         {
           "suite": "registry economy budgets (DR-1)",
+          "name": "registryEconomy_ExecuteIntent_DeclaresAMeasuredBudgetAndARealSummarizer",
+          "dynamic": false
+        },
+        {
+          "suite": "registry economy budgets (DR-1)",
           "name": "describeAction_WithBudget_SurfacesBudgetTokens",
           "dynamic": false
         },
@@ -40471,6 +42036,171 @@
         {
           "suite": "Task 022 — registry schema batch (DR-1/DR-3/DR-8) > AutoEmission role, owner, and recovery expiry",
           "name": "EmissionRoles_MultiDeclarerEvent_IsConforming",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/registry/action-contract-coordination.test.ts": {
+      "file": "tests/unit/registry/action-contract-coordination.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "coordination, gate, and verification action contracts",
+          "name": "Registry_CoordinationGateActions_HaveCompleteContracts",
+          "dynamic": false
+        },
+        {
+          "suite": "coordination, gate, and verification action contracts",
+          "name": "Registry_GateEnsures_NameDurableEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "coordination and gate contract properties",
+          "name": "gate ensures resolve to durable evidence",
+          "dynamic": false
+        },
+        {
+          "suite": "coordination and gate contract properties",
+          "name": "capabilities are canonical",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/registry/action-contract-event-workflow.test.ts": {
+      "file": "tests/unit/registry/action-contract-event-workflow.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "event, workflow, and sync action contracts",
+          "name": "Registry_EventWorkflowSyncActions_HaveCompleteContracts",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/registry/action-contract-lifecycle.test.ts": {
+      "file": "tests/unit/registry/action-contract-lifecycle.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "lifecycle and review action contracts",
+          "name": "Registry_LifecycleReviewActions_HaveCompleteContracts",
+          "dynamic": false
+        },
+        {
+          "suite": "lifecycle and review action contracts",
+          "name": "Registry_HostObligations_AreExplicit",
+          "dynamic": false
+        },
+        {
+          "suite": "lifecycle and review action contracts",
+          "name": "host obligations and local authority are mutually exclusive",
+          "dynamic": false
+        },
+        {
+          "suite": "lifecycle and review action contracts",
+          "name": "normalized host-local mix is rejected",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/registry/action-contract-view.test.ts": {
+      "file": "tests/unit/registry/action-contract-view.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "view action contracts",
+          "name": "Registry_ViewActions_HaveCompleteContracts",
+          "dynamic": false
+        },
+        {
+          "suite": "view action contracts",
+          "name": "Registry_ReadOnlyViews_DeclareReasonedNoEmissions",
+          "dynamic": false
+        },
+        {
+          "suite": "view action contract properties",
+          "name": "read-only abstentions are explicit and non-blank",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/registry/action-contract.test.ts": {
+      "file": "tests/unit/registry/action-contract.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action-contract algebra",
+          "name": "DeclaredSet_EmptyValues_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract algebra",
+          "name": "ActionContract_BlankAbstention_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract algebra",
+          "name": "NormalizeEmission_NonAutoEventSource_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract algebra",
+          "name": "ActionContract_Normalization_IsByteStable",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract algebra",
+          "name": "ActionRequirement_FreezeTimeId_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract algebra",
+          "name": "ActionResource_UnknownKind_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract algebra",
+          "name": "Needs_UnknownCapability_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract algebra",
+          "name": "AgentSpawn_RequiresSubagentSpawn",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract algebra",
+          "name": "LocalAndHost_AreMutuallyExclusive",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract algebra",
+          "name": "withActionContract demands a complete normalized block",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract properties",
+          "name": "normalization is idempotent",
+          "dynamic": false
+        },
+        {
+          "suite": "action-contract properties",
+          "name": "ordering does not change canonical output",
+          "dynamic": false
+        },
+        {
+          "suite": "contract emission authority",
+          "name": "reads nested emissions and ignores a populated sibling list",
+          "dynamic": false
+        },
+        {
+          "suite": "contract emission authority",
+          "name": "does not treat a missing contract as the sibling list",
+          "dynamic": false
+        },
+        {
+          "suite": "contract emission authority",
+          "name": "rejects a sibling emission list that disagrees with the nested contract",
           "dynamic": false
         }
       ]
@@ -41265,6 +42995,16 @@
         {
           "suite": "Runbook definitions",
           "name": "AllRunbooks_Count",
+          "dynamic": false
+        },
+        {
+          "suite": "Runbook definitions",
+          "name": "SynthesisCloseout_HasTwoSteps_BodyCheckThenCreate",
+          "dynamic": false
+        },
+        {
+          "suite": "Runbook definitions",
+          "name": "PlanCloseout_HasThreeSteps_TwoBlockingGatesFirst",
           "dynamic": false
         },
         {
@@ -46761,6 +48501,62 @@
         }
       ]
     },
+    "tests/unit/utils/store-divergence.test.ts": {
+      "file": "tests/unit/utils/store-divergence.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "The ambient-cascade comparison holds on the real dispatch path",
+          "name": "AmbientCascade_NormalizationOfTheResolverOutput_IsIdempotent",
+          "dynamic": false
+        },
+        {
+          "suite": "The ambient-cascade comparison holds on the real dispatch path",
+          "name": "AmbientCascade_WindowsShapedPath_SurvivesTheSameNormalization",
+          "dynamic": false
+        },
+        {
+          "suite": "Active store divergence (#1839)",
+          "name": "Divergence_IsTrueByDefault_ForAnyNonPluginCli",
+          "dynamic": false
+        },
+        {
+          "suite": "Active store divergence (#1839)",
+          "name": "Divergence_OtherStoreAbsent_IsNotActive",
+          "dynamic": false
+        },
+        {
+          "suite": "Active store divergence (#1839)",
+          "name": "Divergence_OtherStoreExists_IsActive",
+          "dynamic": false
+        },
+        {
+          "suite": "Active store divergence (#1839)",
+          "name": "Divergence_WorkflowStateDirPinned_CollapsesEntirely",
+          "dynamic": false
+        },
+        {
+          "suite": "Active store divergence (#1839)",
+          "name": "Divergence_Acknowledged_SuppressesBothTheRefusalAndTheWarning",
+          "dynamic": false
+        },
+        {
+          "suite": "Active store divergence (#1839)",
+          "name": "Divergence_ExplicitFalsySpelling_StaysArmed",
+          "dynamic": false
+        },
+        {
+          "suite": "Active store divergence (#1839)",
+          "name": "Divergence_FromThePluginSide_NamesTheCliStoreAsOther",
+          "dynamic": false
+        },
+        {
+          "suite": "Active store divergence (#1839)",
+          "name": "Description_NamesBothPathsAndTheRemedy",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/vcs/azure-devops.test.ts": {
       "file": "tests/unit/vcs/azure-devops.test.ts",
       "runner": "vitest:root",
@@ -48167,6 +49963,37 @@
         }
       ]
     },
+    "tests/unit/verbs/doctor/action-contract-closure.check.test.ts": {
+      "file": "tests/unit/verbs/doctor/action-contract-closure.check.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "doctor check — action-contract closure",
+          "name": "ClosureCheck_ClosedTree_PassesAndNamesTheDenominator",
+          "dynamic": false
+        },
+        {
+          "suite": "doctor check — action-contract closure",
+          "name": "ClosureCheck_OpenTree_WarnsAndNamesTheOffendingActions",
+          "dynamic": false
+        },
+        {
+          "suite": "doctor check — action-contract closure",
+          "name": "ClosureCheck_ManyFindings_NamesSomeAndCountsTheRest",
+          "dynamic": false
+        },
+        {
+          "suite": "doctor check — action-contract closure",
+          "name": "ClosureCheck_EmptyDenominator_WarnsRatherThanPassing",
+          "dynamic": false
+        },
+        {
+          "suite": "doctor check — action-contract closure",
+          "name": "ClosureCheck_EvaluatorThrows_WarnsInsteadOfFailingDoctor",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/doctor/checks/__shared__/make-stub-probes.test.ts": {
       "file": "tests/unit/verbs/doctor/checks/__shared__/make-stub-probes.test.ts",
       "runner": "vitest:root",
@@ -48237,6 +50064,16 @@
         {
           "suite": "env-variables",
           "name": "EnvVariables_AllExarchosEnvValid_ReturnsPass",
+          "dynamic": false
+        },
+        {
+          "suite": "env-variables",
+          "name": "EnvVariables_EveryNameTheSourceMentions_IsRecognized",
+          "dynamic": false
+        },
+        {
+          "suite": "env-variables",
+          "name": "EnvVariables_EveryRecognizedName_IsStillMentionedBySource",
           "dynamic": false
         },
         {
@@ -48571,7 +50408,7 @@
       "cases": [
         {
           "suite": "doctor roster characterization (T0 baseline)",
-          "name": "DoctorRoster_CurrentBuild_ExactlyEighteenChecksWithStableNames",
+          "name": "DoctorRoster_CurrentBuild_ExactlyNineteenChecksWithStableNames",
           "dynamic": false
         },
         {
@@ -48765,6 +50602,832 @@
         }
       ]
     },
+    "tests/unit/verbs/execute/compile.test.ts": {
+      "file": "tests/unit/verbs/execute/compile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "compileIntent refusals",
+          "name": "UnknownIntent_NoRunbookDeclaresIt_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "RunbookWithoutArgSchema_IsNotCompilable",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "IntentArgs_MissingRequiredField_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "IntentArgs_BooleanSpelledAsString_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "IntentArgs_UnknownKey_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "NativeStep_IsNotClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "StepWithNoHandlerInTheTable_IsNotClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "EveryStepHasAHandler_Compiles",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "NoHandlerTableSupplied_CompilesForInspection",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals > the handler table owner fence",
+          "name": "CrossToolActionNameCollision_IsRefusedBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals > the handler table owner fence",
+          "name": "HandlerTableWithoutAnOwner_RefusesRatherThanTrustingTheName",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "DecideStep_IsAHostObligation",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "RetryOnFail_IsRefusedAtCompileTime",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "UnregisteredAction_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "HostAuthorityAction_IsNotLocallyExecutable",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "LeafArgs_RejectedByTheLeafSchema_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent refusals",
+          "name": "LeafArgs_UnknownRunbookParam_IsRejectedByTheStrictLeafSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent argument construction",
+          "name": "SubstitutesTypedPlaceholders_AndPreservesLiterals",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent argument construction",
+          "name": "UnboundPlaceholder_RefusesRatherThanDroppingOut",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent argument construction",
+          "name": "BoundPlaceholder_IsTheControl_SameStepCompilesWithTheBinding",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent argument construction",
+          "name": "StepParamNamedStreamId_CannotDisplaceTheSubject",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent over the live registry",
+          "name": "TaskCompletion_CompilesToFiveLocalLeaves",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent over the live registry",
+          "name": "TaskCompletion_MissingWorktreePath_RefusesBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent over the live registry",
+          "name": "TaskCompletion_WithoutRiskTier_RefusesBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent over the live registry",
+          "name": "TaskCompletion_WithoutBoundaryTouching_RefusesToo",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent over the live registry",
+          "name": "EveryOtherRunbook_IsNotCompilable_FourIntentsShip",
+          "dynamic": false
+        },
+        {
+          "suite": "fixture leaf declarations are the real thing",
+          "name": "FixtureAction_CarriesANormalizedContract",
+          "dynamic": false
+        },
+        {
+          "suite": "fixture leaf declarations are the real thing",
+          "name": "FixtureTool_IsTheOnlyToolTheFixtureLookupAnswersFor",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/dispatch-replay.test.ts": {
+      "file": "tests/unit/verbs/execute/dispatch-replay.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "execute_intent replayed through dispatch()",
+          "name": "SecondDispatchOfTheSameOperationId_ReturnsTheReceiptWithNoViolation",
+          "dynamic": false
+        },
+        {
+          "suite": "execute_intent replayed through dispatch()",
+          "name": "ThirdAndFourthReplays_StayClean",
+          "dynamic": false
+        },
+        {
+          "suite": "execute_intent replayed through dispatch()",
+          "name": "SameOperationIdDifferentRequest_IsTheTypedRefusalThroughDispatchToo",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/executor.test.ts": {
+      "file": "tests/unit/verbs/execute/executor.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "handleExecuteIntent request validation",
+          "name": "MissingIntent_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent request validation",
+          "name": "MissingSubject_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent request validation",
+          "name": "FeatureIdIsAcceptedAsTheStreamAlias",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent request validation",
+          "name": "OperationIdOutsideTheAdmissionGrammar_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent request validation",
+          "name": "AbsentOperationId_IsCoreMintedAndReturned",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent request validation",
+          "name": "CompileRefusal_ReachesTheCallerAndCommitsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent commit",
+          "name": "EveryLeafPasses_CommitsTheOperationEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent commit",
+          "name": "CallerSteering_IsRecordedWithItsProvenance",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent commit",
+          "name": "LeafEvents_CarryTheDerivedPerLeafOperationId",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent commit",
+          "name": "TailSequence_IsTheHighestSequenceTheLeavesReached",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent onFail",
+          "name": "StopFailure_HaltsTheSegmentAndCommitsFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent onFail",
+          "name": "BlockingFailure_CannotProduceACommittedOutcome",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent onFail",
+          "name": "ContinueFailure_IsAdvisoryAndTheSegmentProceeds",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent per-leaf emission verification",
+          "name": "SilentLeafThatDeclaredAnEmission_FailsItsOwnContract",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent per-leaf emission verification",
+          "name": "SameLeafDeclarationAppendingTheEvent_Passes",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent per-leaf emission verification",
+          "name": "LeafEmissionCheckIsScopedToItsOwnOperationId",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent replay",
+          "name": "ReplayOfACommittedOperation_ExecutesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent replay",
+          "name": "ReplayOfAFailedOperation_ReproducesTheSameRefusal",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent replay",
+          "name": "SameOperationIdDifferentRequest_IsRejectedWithoutExecuting",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent crash distinguishability",
+          "name": "ThrowMidSegment_LeavesNoClaimAndNoOperationEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent crash distinguishability",
+          "name": "RetryAfterCrash_RunsFromTheTopAndReusesTheDerivedLeafIds",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent operationId bound",
+          "name": "OperationIdAtTheBound_IsAccepted",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent operationId bound",
+          "name": "TheBound_LeavesRoomForTheLongestDerivedLeafIdTheRegistryCanProduce",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent operationId bound",
+          "name": "OperationIdOneOverTheBound_IsRefusedBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent subject resolution",
+          "name": "BothSpellingsPresentAndAgreeing_ResolvesToThatStream",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent subject resolution",
+          "name": "BothSpellingsPresentAndDisagreeing_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent subject resolution",
+          "name": "ReservedInfraStreamAsStreamId_IsRefusedBeforeCompilation",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent subject resolution",
+          "name": "ReservedInfraStreamAsFeatureIdAlias_IsRefusedTheSameWay",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent subject resolution",
+          "name": "FeatureIdWins_MatchingTheDispatchLayerStreamResolver",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent commit races",
+          "name": "SameDigest_TheCallerGetsThePersistedReceiptNotTheLocalOne",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent commit races",
+          "name": "DifferentDigest_IsTheTypedReplayRefusalNotAnInternalError",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent commit races",
+          "name": "ConcurrentSameRequest_RunsTheSegmentOnceAndBothCallersGetTheReceipt",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent commit races",
+          "name": "ConcurrentDifferentRequest_SecondIsRefusedWithoutRunningItsLeaves",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent without an ambient dispatch context",
+          "name": "OperationRecordAndLeafEvents_ShareTheMintedOuterCorrelationId",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent per-leaf ensures",
+          "name": "SilentLeafWithAnEnsuresEventOutsideItsEmissions_FailsItsContract",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent per-leaf ensures",
+          "name": "SilentLeafWithADurableEvidenceEnsures_FailsItsContract",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent per-leaf ensures",
+          "name": "SameLeafRecordingTheEvidence_Passes",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent per-leaf ensures",
+          "name": "SameLeafAppendingTheEnsuredEvent_Passes",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent emission enforcement on a continue leaf",
+          "name": "BlockMode_HaltsTheSegmentEvenThoughTheLeafIsAdvisory",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent emission enforcement on a continue leaf",
+          "name": "AdvisoryMode_CommitsAndRecordsTheViolationOnTheLeaf",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent emission enforcement on a continue leaf",
+          "name": "APriorAttemptsViolationRow_IsNotFoldedIntoTheRetriedReceipt",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent emission enforcement on a continue leaf",
+          "name": "AnAdvisoryFindingOnAFailedSegment_SurvivesIntoTheErrorEnvelope",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent failure envelope",
+          "name": "SegmentFailure_CarriesTheCompactReceiptInsideTheError",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent failure envelope",
+          "name": "ReplayOfAFailedOperation_CarriesItTheSecondTimeToo",
+          "dynamic": false
+        },
+        {
+          "suite": "the registered output schema accepts a real receipt",
+          "name": "CommittedAndFailedReceipts_BothParse",
+          "dynamic": false
+        },
+        {
+          "suite": "the registered output schema accepts a real receipt",
+          "name": "AnAdvisoryEmissionViolationOnALeaf_ParsesToo",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/fixture-intent.test.ts": {
+      "file": "tests/unit/verbs/execute/fixture-intent.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "a three-leaf fixture chain",
+          "name": "RunsInRunbookOrder_StampsEachLeafWithItsOwnDerivedIdentity",
+          "dynamic": false
+        },
+        {
+          "suite": "a three-leaf fixture chain",
+          "name": "ReceiptDescribesEveryLeafAndTheTailItReached",
+          "dynamic": false
+        },
+        {
+          "suite": "a terminal leaf whose requirement an earlier leaf satisfies",
+          "name": "InOrder_TheSegmentCommits",
+          "dynamic": false
+        },
+        {
+          "suite": "a terminal leaf whose requirement an earlier leaf satisfies",
+          "name": "SameLeafAdmittedBeforeItsPredecessorRan_IsDenied",
+          "dynamic": false
+        },
+        {
+          "suite": "a terminal leaf whose requirement an earlier leaf satisfies",
+          "name": "DeniedLeaf_HaltsTheSegmentAndCommitsFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "retry after a crash mid-segment",
+          "name": "SameOperationId_AppendsNoDuplicateRowsForTheLeavesThatAlreadyRan",
+          "dynamic": false
+        },
+        {
+          "suite": "retry after a crash mid-segment",
+          "name": "AnUnkeyedLeafDuplicatesInstead_TheKeyIsWhatDedupes",
+          "dynamic": false
+        },
+        {
+          "suite": "an oversized receipt through the registered economy path",
+          "name": "CommittedAndOverBudget_KeepsOperationIdOutcomeAndTailSequence",
+          "dynamic": false
+        },
+        {
+          "suite": "an oversized receipt through the registered economy path",
+          "name": "FailedAndOverBudget_IsReturnedVerbatimAndTheReducerStillPinsFailedLeaf",
+          "dynamic": false
+        },
+        {
+          "suite": "retrieving the trace a receipt describes",
+          "name": "LeafEventsByDerivedId_OperationRecordByTheOuterDispatchId",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/leaf-replay-policy.test.ts": {
+      "file": "tests/unit/verbs/execute/leaf-replay-policy.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "a reject-replay leaf that already completed",
+          "name": "RejectReplayLeaf_CompletedBeforeALaterLeafCrashed_IsNotReInvokedOnRetry",
+          "dynamic": false
+        },
+        {
+          "suite": "a reject-replay leaf that already completed",
+          "name": "SafeRepeatLeaf_InTheSamePosition_IsReInvokedOnRetry",
+          "dynamic": false
+        },
+        {
+          "suite": "a reject-replay leaf that already completed",
+          "name": "RejectReplayLeaf_CrashedMidHandler_StillRunsOnRetry",
+          "dynamic": false
+        },
+        {
+          "suite": "a reject-replay leaf that already completed",
+          "name": "RejectReplayLeaf_DeclaringNoUnconditionalEmission_IsAlwaysInvoked",
+          "dynamic": false
+        },
+        {
+          "suite": "a reject-replay leaf that already completed",
+          "name": "RejectReplayLeaf_DeclaringEnsures_IsNeverElidedOnRetry",
+          "dynamic": false
+        },
+        {
+          "suite": "a reject-replay leaf that already completed",
+          "name": "RejectReplayLeaf_ElidedOnRetry_DoesNotFoldAPriorEmissionViolationRowIntoItsCaptures",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/plan-closeout-compile.test.ts": {
+      "file": "tests/unit/verbs/execute/plan-closeout-compile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "plan-closeout compiles against the live registry",
+          "name": "PlanCloseout_CompilesToTheThreeShippedLeaves_InRunbookOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "plan-closeout compiles against the live registry",
+          "name": "PlanCloseout_OneSpecPath_BindsOntoBothLeafSpellings",
+          "dynamic": false
+        },
+        {
+          "suite": "plan-closeout compiles against the live registry",
+          "name": "PlanCloseout_WithoutSpecPath_RefusedByTheIntentSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "plan-closeout compiles against the live registry",
+          "name": "PlanCloseout_UnknownKey_Refused",
+          "dynamic": false
+        },
+        {
+          "suite": "plan-closeout compiles against the live registry",
+          "name": "PlanCloseout_ValidatedArgsWithoutTheVariable_HitTheUnboundFence",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/plan-closeout-executor.test.ts": {
+      "file": "tests/unit/verbs/execute/plan-closeout-executor.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "plan-closeout over the live handler table",
+          "name": "PlanCloseout_CoherentSpec_CommitsOneOperationRecord",
+          "dynamic": false
+        },
+        {
+          "suite": "plan-closeout over the live handler table",
+          "name": "PlanCloseout_EachGateLeaf_HoldsItsOwnEvidenceAndSignal",
+          "dynamic": false
+        },
+        {
+          "suite": "plan-closeout over the live handler table",
+          "name": "PlanCloseout_SameOperationIdSameRequest_ReplaysWithoutReExecuting",
+          "dynamic": false
+        },
+        {
+          "suite": "plan-closeout over the live handler table",
+          "name": "PlanCloseout_CrashedMidSegmentThenRetried_LeavesOneRowPerGateLeaf",
+          "dynamic": false
+        },
+        {
+          "suite": "plan-closeout over the live handler table",
+          "name": "PlanCloseout_SameOperationIdDifferentRequest_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "plan-closeout over the live handler table",
+          "name": "PlanCloseout_BlockingLeafFails_HaltsAndStillCommits",
+          "dynamic": false
+        },
+        {
+          "suite": "plan-closeout over the live handler table",
+          "name": "PlanCloseout_FailedSegment_ReplaysToTheSameFailedReceipt",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/quality-evaluation-compile.test.ts": {
+      "file": "tests/unit/verbs/execute/quality-evaluation-compile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "quality-evaluation compiles against the live registry",
+          "name": "QualityEvaluation_CompilesToTheFiveShippedLeaves_InRunbookOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation compiles against the live registry",
+          "name": "QualityEvaluation_SubjectIdentity_ReachesEveryLeafThatDeclaresIt",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation compiles against the live registry",
+          "name": "QualityEvaluation_FindingCounts_ReachTheVerdictLeafAsNumbers",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation compiles against the live registry",
+          "name": "QualityEvaluation_Without%s_RefusesNamingTheField",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation compiles against the live registry",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "quality-evaluation compiles against the live registry",
+          "name": "QualityEvaluation_WithoutDiffContent_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation compiles against the live registry",
+          "name": "QualityEvaluation_UnknownKey_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation compiles against the live registry",
+          "name": "QualityEvaluation_FeatureIdArgument_Refused_SubjectIsNotACallerArgument",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/quality-evaluation-executor.test.ts": {
+      "file": "tests/unit/verbs/execute/quality-evaluation-executor.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "quality-evaluation over the deterministic leaf subset",
+          "name": "QualityEvaluation_WithoutTheReviewFloor_HaltsAtInvariantConformance",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation over the deterministic leaf subset",
+          "name": "QualityEvaluation_WithTheReviewFloorSeeded_Commits",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation over the deterministic leaf subset",
+          "name": "QualityEvaluation_EveryLeaf_HoldsItsEvidenceAndSignal",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation over the deterministic leaf subset",
+          "name": "QualityEvaluation_Replay_ReturnsThePersistedReceiptAndRunsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation over the deterministic leaf subset",
+          "name": "QualityEvaluation_CrashedMidSegmentThenRetried_LeavesOneRowPerLeaf",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation over the deterministic leaf subset",
+          "name": "QualityEvaluation_GateRevertedToABareAppend_IsRefusedByTheExecutor",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation over the deterministic leaf subset",
+          "name": "QualityEvaluation_RepairedGates_AllThreeDeclareDurableEvidence",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/quality-evaluation-parity.test.ts": {
+      "file": "tests/unit/verbs/execute/quality-evaluation-parity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "quality-evaluation over the no-shell leaf subset",
+          "name": "ExecutorAndPrimitiveBaseline_ProduceTheSameFacts",
+          "dynamic": false
+        },
+        {
+          "suite": "quality-evaluation over the no-shell leaf subset",
+          "name": "BothPathsLeaveTheSameWorkflowProjection",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/registration.test.ts": {
+      "file": "tests/unit/verbs/execute/registration.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "exarchos_orchestrate routes execute_intent (registration boundary)",
+          "name": "ExecuteIntent_RoutedToHandler_AndEnvelopeWrapped",
+          "dynamic": false
+        },
+        {
+          "suite": "execute_intent registered economy declaration",
+          "name": "the action is registered with a declared budget",
+          "dynamic": false
+        },
+        {
+          "suite": "execute_intent registered economy declaration",
+          "name": "ExecuteIntentEconomy_OverBudgetPlusOne_SummarizesAndKeepsPinnedFields",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/synthesis-closeout-compile.test.ts": {
+      "file": "tests/unit/verbs/execute/synthesis-closeout-compile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "synthesis-closeout compiles against the live registry",
+          "name": "SynthesisCloseout_CompilesToTheTwoShippedLeaves_InRunbookOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout compiles against the live registry",
+          "name": "SynthesisCloseout_OnePrBody_BindsOntoBothLeafSpellings",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout compiles against the live registry",
+          "name": "SynthesisCloseout_CreatePrLeaf_IsObservedOnTheSharedVcsStream",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout compiles against the live registry",
+          "name": "SynthesisCloseout_WithoutHeadBranch_RefusedByTheIntentSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout compiles against the live registry",
+          "name": "SynthesisCloseout_DraftKnob_Refused",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout compiles against the live registry",
+          "name": "SynthesisCloseout_ValidatedArgsWithoutTheVariable_HitTheUnboundFence",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/synthesis-closeout-emission-scope.test.ts": {
+      "file": "tests/unit/verbs/execute/synthesis-closeout-emission-scope.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the declared observation stream is load-bearing",
+          "name": "SynthesisCloseout_WithoutTheDeclaredStream_LeafIsRefusedForItsOwnEmissions",
+          "dynamic": false
+        },
+        {
+          "suite": "the declared observation stream is load-bearing",
+          "name": "SynthesisCloseout_WithTheShippedDeclaration_TheSameSegmentPasses",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/synthesis-closeout-executor.test.ts": {
+      "file": "tests/unit/verbs/execute/synthesis-closeout-executor.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "synthesis-closeout over the live handler table",
+          "name": "SynthesisCloseout_CoherentInput_CommitsOneOperationRecord",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout over the live handler table",
+          "name": "SynthesisCloseout_CreatePrLeaf_HoldsBothJournalRowsOnTheVcsStream",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout over the live handler table",
+          "name": "SynthesisCloseout_VcsLeaf_DoesNotMoveTheSegmentTail",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout over the live handler table",
+          "name": "SynthesisCloseout_ReceiptEvents_CarryTheStreamTheirSequencesNumber",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout over the live handler table",
+          "name": "SynthesisCloseout_SameOperationIdSameRequest_ReplaysWithoutReExecuting",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout over the live handler table",
+          "name": "SynthesisCloseout_SameOperationIdDifferentRequest_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout over the live handler table",
+          "name": "SynthesisCloseout_CrashedMidSegmentThenRetried_LeavesOneRowPerJournalPhase",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout over the live handler table",
+          "name": "SynthesisCloseout_BodyMissingRequiredSections_HaltsBeforeTheRemoteCall",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout over the live handler table",
+          "name": "SynthesisCloseout_FailedSegment_ReplaysToTheSameFailedReceipt",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/synthesis-closeout-parity.test.ts": {
+      "file": "tests/unit/verbs/execute/synthesis-closeout-parity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "synthesis-closeout driven by hand and by the executor",
+          "name": "ExecutorAndPrimitiveBaseline_ProduceTheSameJournalFacts",
+          "dynamic": false
+        },
+        {
+          "suite": "synthesis-closeout driven by hand and by the executor",
+          "name": "BothPathsHaltAtTheBodyCheck_WhenTheBodyIsDeficient",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/task-completion-parity.test.ts": {
+      "file": "tests/unit/verbs/execute/task-completion-parity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "task-completion over the no-shell leaf subset",
+          "name": "ExecutorAndPrimitiveBaseline_ProduceTheSameFacts",
+          "dynamic": false
+        },
+        {
+          "suite": "task-completion over the no-shell leaf subset",
+          "name": "BothPathsLeaveTheSameWorkflowProjection",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/gates/assess-refactor-scope.test.ts": {
       "file": "tests/unit/verbs/gates/assess-refactor-scope.test.ts",
       "runner": "vitest:root",
@@ -48842,7 +51505,7 @@
         },
         {
           "suite": "handleCheckConvergence",
-          "name": "CheckConvergence_GateEmissionFailure_DoesNotBreakHandler",
+          "name": "CheckConvergence_GateEventAppendFails_WithholdsTheSuccessCarrier",
           "dynamic": false
         },
         {
@@ -48994,7 +51657,7 @@
         },
         {
           "suite": "handleCheckEventEmissions",
-          "name": "CheckEventEmissions_GateEmissionFailure_DoesNotBreakHandler",
+          "name": "CheckEventEmissions_GateEventAppendFails_WithholdsTheSuccessCarrier",
           "dynamic": false
         },
         {
@@ -49005,6 +51668,46 @@
         {
           "suite": "handleOrchestrate integration",
           "name": "HandleOrchestrate_CheckEventEmissions_HandlerExists",
+          "dynamic": false
+        },
+        {
+          "suite": "expectation-surface liveness",
+          "name": "ModelEmittedOnly_RetiredType_ThrowsInsteadOfFiltering",
+          "dynamic": false
+        },
+        {
+          "suite": "expectation-surface liveness",
+          "name": "ModelEmittedOnly_AutoType_IsFilteredSilently",
+          "dynamic": false
+        },
+        {
+          "suite": "expectation-surface liveness",
+          "name": "ModelEmittedOnly_UnregisteredType_Throws",
+          "dynamic": false
+        },
+        {
+          "suite": "expectation-surface liveness",
+          "name": "AssertExpectationsLive_EmptyPhaseRow_Throws",
+          "dynamic": false
+        },
+        {
+          "suite": "expectation-surface liveness",
+          "name": "AssertExpectationsLive_NonModelEntry_Throws",
+          "dynamic": false
+        },
+        {
+          "suite": "expectation-surface liveness",
+          "name": "AssertExpectationsLive_ModelEntries_Pass",
+          "dynamic": false
+        },
+        {
+          "suite": "expectation-surface liveness",
+          "name": "AssertDescriptionsLive_DemotedKey_Throws",
+          "dynamic": false
+        },
+        {
+          "suite": "expectation-surface liveness",
+          "name": "PhaseExpectedEvents_DerivedRows_AreNonEmpty",
           "dynamic": false
         }
       ]
@@ -49041,6 +51744,16 @@
         {
           "suite": "check_exploration_depth gate (DR-4)",
           "name": "reports INVALID_INPUT when featureId is missing",
+          "dynamic": false
+        },
+        {
+          "suite": "check_exploration_depth gate (DR-4)",
+          "name": "ExplorationDepth_GateEventAppendFails_WithholdsTheSuccessCarrier (self-skip path)",
+          "dynamic": false
+        },
+        {
+          "suite": "check_exploration_depth gate (DR-4)",
+          "name": "ExplorationDepth_GateEventAppendFails_WithholdsTheSuccessCarrier (deep path)",
           "dynamic": false
         },
         {
@@ -49270,6 +51983,11 @@
           "suite": "handleCheckInvariantConformance (DR-3, DR-4)",
           "name": "CheckInvariantConformance_EnforcementAdvisory_DoesNotBlockVerdict",
           "dynamic": false
+        },
+        {
+          "suite": "handleCheckInvariantConformance (DR-3, DR-4)",
+          "name": "CheckInvariantConformance_GateEventAppendFails_WithholdsTheSuccessCarrier",
+          "dynamic": false
         }
       ]
     },
@@ -49366,6 +52084,11 @@
         {
           "suite": "handleContextEconomy > telemetry integration",
           "name": "handleContextEconomy_WithoutTelemetryData_ReturnsZeroMetrics",
+          "dynamic": false
+        },
+        {
+          "suite": "handleContextEconomy > gate event append failure",
+          "name": "ContextEconomy_GateEventAppendFails_WithholdsTheSuccessCarrier",
           "dynamic": false
         }
       ]
@@ -49548,6 +52271,27 @@
         {
           "suite": "runDurableGateProducer — pre-v2.12 legacy-state backfill",
           "name": "StampedState_PersistedAttemptWins_OverLegacyDerivation",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/gate-event-honesty.test.ts": {
+      "file": "tests/unit/verbs/gates/gate-event-honesty.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "gate.executed append failure — durable evidence honesty",
+          "name": "GateEventUnrecorded_UnderTheSharedRunner_RecordsAnIndeterminateVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "gate.executed append failure — durable evidence honesty",
+          "name": "RequireGateEvent_AppendSucceeds_ReturnsNothingAndLeavesOneRow",
+          "dynamic": false
+        },
+        {
+          "suite": "gate.executed append failure — durable evidence honesty",
+          "name": "RequireGateEvent_SameOperationRetry_CollapsesOntoTheFirstRow",
           "dynamic": false
         }
       ]
@@ -50294,7 +53038,7 @@
         },
         {
           "suite": "mutation-adequacy roster characterization (PIN) > OrchestrateActionRoster_CurrentBuild_PinnedActionSet",
-          "name": "exposes exactly 82 actions (WLM operational-core #1578 added serialize_merge; DR-4 (#1630) added check_exploration_depth; WLM foundation task 008 added acquire_worktree, release_worktree, prune_worktrees; #1587 retired check_tdd_compliance; #1581 task 018 added discover_bridge; #1739 added cutover_readiness + cutover_decide; task 068 added invariants_amend; the effect-ledger remedy added reconcile_worktrees and moved stack_place here from exarchos_view)",
+          "name": "exposes exactly 83 actions (WLM operational-core #1578 added serialize_merge; DR-4 (#1630) added check_exploration_depth; WLM foundation task 008 added acquire_worktree, release_worktree, prune_worktrees; #1587 retired check_tdd_compliance; #1581 task 018 added discover_bridge; #1739 added cutover_readiness + cutover_decide; task 068 added invariants_amend; the effect-ledger remedy added reconcile_worktrees and moved stack_place here from exarchos_view; the bounded action executor added execute_intent)",
           "dynamic": false
         },
         {
@@ -50517,6 +53261,21 @@
         {
           "suite": "mutation-adequacy liveness + gate emission",
           "name": "MutationAdequacy_Retry_IdempotentNoCasPin",
+          "dynamic": false
+        },
+        {
+          "suite": "mutation-adequacy liveness + gate emission",
+          "name": "MutationAdequacy_GateEventAppendFails_WithholdsTheSuccessCarrier_SkipNoToolchain",
+          "dynamic": false
+        },
+        {
+          "suite": "mutation-adequacy liveness + gate emission",
+          "name": "MutationAdequacy_GateEventAppendFails_WithholdsTheSuccessCarrier_Degraded",
+          "dynamic": false
+        },
+        {
+          "suite": "mutation-adequacy liveness + gate emission",
+          "name": "MutationAdequacy_GateEventAppendFails_WithholdsTheSuccessCarrier_Scored",
           "dynamic": false
         },
         {
@@ -50779,6 +53538,11 @@
         {
           "suite": "handleOperationalResilience > git diff failure",
           "name": "handleOperationalResilience_GitDiffFails_ReturnsError",
+          "dynamic": false
+        },
+        {
+          "suite": "handleOperationalResilience > gate event append failure",
+          "name": "OperationalResilience_GateEventAppendFails_WithholdsTheSuccessCarrier",
           "dynamic": false
         }
       ]
@@ -51163,6 +53927,11 @@
           "suite": "handlePostMerge",
           "name": "handlePostMerge_PassesRunCommandAdapter",
           "dynamic": false
+        },
+        {
+          "suite": "handlePostMerge",
+          "name": "PostMerge_GateEventAppendFails_WithholdsTheSuccessCarrier",
+          "dynamic": false
         }
       ]
     },
@@ -51333,6 +54102,52 @@
         }
       ]
     },
+    "tests/unit/verbs/gates/review-gate-evidence-dispatch.test.ts": {
+      "file": "tests/unit/verbs/gates/review-gate-evidence-dispatch.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "review gates that declare durable evidence pay it on dispatch",
+          "name": "CheckSecurityScan_Dispatched_SucceedsAndRecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "review gates that declare durable evidence pay it on dispatch",
+          "name": "CheckConvergence_Dispatched_SucceedsAndRecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "review gates that declare durable evidence pay it on dispatch",
+          "name": "CheckInvariantConformance_Dispatched_SucceedsAndRecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "review gates that declare durable evidence pay it on dispatch",
+          "name": "CheckConvergence_WorkflowIdNamingAnotherStream_StillRecordsOnTheSubject",
+          "dynamic": false
+        },
+        {
+          "suite": "review gates that declare durable evidence pay it on dispatch",
+          "name": "CheckTaskDecomposition_Dispatched_SucceedsAndRecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "review gates that declare durable evidence pay it on dispatch",
+          "name": "SpecCoverageCheck_Dispatched_SucceedsAndRecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "review gates that declare durable evidence pay it on dispatch",
+          "name": "CheckTaskDecomposition_SameOperationRetried_LeavesOneGateExecutedRow",
+          "dynamic": false
+        },
+        {
+          "suite": "review gates that declare durable evidence pay it on dispatch",
+          "name": "EachGate_AttachesTheEvidenceItRecorded_ToItsOwnCarrier",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/gates/security-scan.parity.test.ts": {
       "file": "tests/unit/verbs/gates/security-scan.parity.test.ts",
       "runner": "vitest:root",
@@ -51482,6 +54297,11 @@
           "suite": "handleSecurityScan > report format",
           "name": "handleSecurityScan_FindingsReport_ContainsMarkdownHeading",
           "dynamic": false
+        },
+        {
+          "suite": "handleSecurityScan > gate event append failure",
+          "name": "SecurityScan_GateEventAppendFails_WithholdsTheSuccessCarrier",
+          "dynamic": false
         }
       ]
     },
@@ -51507,6 +54327,11 @@
         {
           "suite": "spec_coverage_check — the dispatch boundary (WFQ-010)",
           "name": "registrySchema_BuildsWithoutAFieldCollision",
+          "dynamic": false
+        },
+        {
+          "suite": "spec_coverage_check — the dispatch boundary (WFQ-010)",
+          "name": "registrySchema_FeatureIdOmitted_IsRejected",
           "dynamic": false
         },
         {
@@ -52111,6 +54936,67 @@
         }
       ]
     },
+    "tests/unit/verbs/gates/unrunbooked-gate-evidence-dispatch.test.ts": {
+      "file": "tests/unit/verbs/gates/unrunbooked-gate-evidence-dispatch.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "CheckCoverageThresholds_Dispatched_RecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "ValidatePrStack_Dispatched_RecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "DebugReviewGate_Dispatched_RecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "PostDelegationCheck_Dispatched_RecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "PreSynthesisCheck_Dispatched_RecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "CheckContextEconomy_Dispatched_RecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "CheckOperationalResilience_Dispatched_RecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "CheckWorkflowDeterminism_Dispatched_RecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "CheckPostMerge_Dispatched_RecordsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "CheckExplorationDepth_Dispatched_RecordsEvidenceOnTheSkipPath",
+          "dynamic": false
+        },
+        {
+          "suite": "gates that declare durable evidence pay it on dispatch",
+          "name": "EachGate_AttachesTheEvidenceItRecorded_ToItsOwnCarrier",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/gates/verify-doc-links.test.ts": {
       "file": "tests/unit/verbs/gates/verify-doc-links.test.ts",
       "runner": "vitest:root",
@@ -52306,6 +55192,11 @@
         {
           "suite": "handleWorkflowDeterminism > git diff failure",
           "name": "handleWorkflowDeterminism_GitDiffFails_ReturnsError",
+          "dynamic": false
+        },
+        {
+          "suite": "handleWorkflowDeterminism > gate event append failure",
+          "name": "WorkflowDeterminism_GateEventAppendFails_WithholdsTheSuccessCarrier",
           "dynamic": false
         }
       ]
@@ -57601,6 +60492,11 @@
           "dynamic": false
         },
         {
+          "suite": "handleTaskDecomposition",
+          "name": "TaskDecomposition_GateEventAppendFails_WithholdsTheSuccessCarrier",
+          "dynamic": false
+        },
+        {
           "suite": "handleTaskDecomposition — plausibility (P02-06)",
           "name": "HandleTaskDecomposition_48TasksUniformLowNoBoundary_ChallengesButPasses",
           "dynamic": false
@@ -57712,16 +60608,6 @@
           "dynamic": false
         },
         {
-          "suite": "runPreflightGuards",
-          "name": "DispatchGuard_AncestryFail_EmitsPreflightWithPassedFalse",
-          "dynamic": false
-        },
-        {
-          "suite": "runPreflightGuards",
-          "name": "DispatchGuard_AllGuardsPass_EmitsPreflightWithPassedTrue",
-          "dynamic": false
-        },
-        {
           "suite": "probeStashAndEmit",
           "name": "DispatchGuard_StashObservedInWorktree_EmitsStashDetected",
           "dynamic": false
@@ -57744,12 +60630,12 @@
         },
         {
           "suite": "handlePostDelegationCheck",
-          "name": "stateFileNotFound_returnsError",
+          "name": "stateSourceUnreadable_returnsError",
           "dynamic": false
         },
         {
           "suite": "handlePostDelegationCheck",
-          "name": "invalidJson_returnsError",
+          "name": "noStateSource_returnsNoStateSource",
           "dynamic": false
         },
         {
@@ -59629,6 +62515,11 @@
           "dynamic": false
         },
         {
+          "suite": "handleAddPrComment — B2.2 Phase-A retry non-refire",
+          "name": "AddPrComment_PhaseABusyBudgetExhausted_ReturnsStorageBusyNotGenericVcsError",
+          "dynamic": false
+        },
+        {
           "suite": "handleAddPrComment — B2.3 Idempotent operationId marker check",
           "name": "AddPrComment_RequestedEventCommittedButExecutionInterrupted_RecoversWithoutDuplicate",
           "dynamic": false
@@ -60374,6 +63265,11 @@
           "suite": "handleMergePr",
           "name": "handleMergePr_ProviderError_ReturnsFailure",
           "dynamic": false
+        },
+        {
+          "suite": "handleMergePr",
+          "name": "handleMergePr_MergedButAppendFails_ReturnsFailureNotSilentSuccess",
+          "dynamic": false
         }
       ]
     },
@@ -60525,6 +63421,16 @@
         },
         {
           "suite": "handleValidatePrBody",
+          "name": "MissingSectionUnderEnforce_ReturnsRefusalNamingTheSections",
+          "dynamic": false
+        },
+        {
+          "suite": "handleValidatePrBody",
+          "name": "AllSectionsPresentUnderEnforce_StillReturnsThePassingCarrier",
+          "dynamic": false
+        },
+        {
+          "suite": "handleValidatePrBody",
           "name": "ReadsFromPrNumber",
           "dynamic": false
         },
@@ -60647,6 +63553,37 @@
         {
           "suite": "handleValidatePrStack",
           "name": "UsesProviderListPrs_WithStateOpenFilter",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/vcs/vcs-observation.dispatch.test.ts": {
+      "file": "tests/unit/verbs/vcs/vcs-observation.dispatch.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "vcs journal actions — dispatch-level observation",
+          "name": "MergePr_MergedSuccessfully_DispatchReturnsSuccess",
+          "dynamic": false
+        },
+        {
+          "suite": "vcs journal actions — dispatch-level observation",
+          "name": "MergePr_ProviderDeclinedTheMerge_DispatchStillReturnsSuccess",
+          "dynamic": false
+        },
+        {
+          "suite": "vcs journal actions — dispatch-level observation",
+          "name": "AddPrComment_Dispatched_BothJournalRowsAreFindableByTheDispatchOperation",
+          "dynamic": false
+        },
+        {
+          "suite": "vcs journal actions — dispatch-level observation",
+          "name": "CreateIssue_Dispatched_BothJournalRowsLandOnTheSharedStream",
+          "dynamic": false
+        },
+        {
+          "suite": "create_issue — crash recovery keys the retry under its own operation",
+          "name": "CreateIssue_RetryAfterPriorCrash_DispatchReturnsSuccessNotEmissionViolation",
           "dynamic": false
         }
       ]
@@ -61858,6 +64795,77 @@
         {
           "suite": "WorkflowStatusView > workflowStatus_tasksCompletedExceedsTotal_invariantHolds",
           "name": "keeps tasksCompleted <= tasksTotal under any duplicate-event sequence (#1226)",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/admission/action-admission.test.ts": {
+      "file": "tests/unit/workflow/admission/action-admission.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "action admission snapshots",
+          "name": "AdmissionSnapshot_CallerMeta_CannotOverrideAuthority",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission snapshots",
+          "name": "AdmissionSnapshot_EquivalentTrustedInputs_HaveSameDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission snapshots",
+          "name": "AdmissionSnapshot_EvidenceChange_ChangesDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_Satisfied_Allows",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_MissingInput_IsIndeterminate",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_MissingCapability_Denies",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_TransitionRequires_IsNone",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_SharedIrAlone_DoesNotBypassRequires",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_DoesNotSelectTransitionTarget",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_Contradiction_DoesNotAllow",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_SnapshotStaleEvidence_DoesNotAllow",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_UnauthorizedEvidence_DoesNotAllow",
+          "dynamic": false
+        },
+        {
+          "suite": "action admission evaluation",
+          "name": "EvaluateActionAdmission_WaiverMissingPhaseAttempt_IsIndeterminate",
           "dynamic": false
         }
       ]
@@ -70489,6 +73497,37 @@
         }
       ]
     },
+    "tests/unit/workflow/state-fold-merge.test.ts": {
+      "file": "tests/unit/workflow/state-fold-merge.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "ES v2 get — the fold merged with the file",
+          "name": "WorkflowGet_EventDerivedRead_KeepsEveryFileOwnedField",
+          "dynamic": false
+        },
+        {
+          "suite": "ES v2 get — the fold merged with the file",
+          "name": "WorkflowGet_EventDerivedRead_AddsWhatOnlyTheFoldKnows",
+          "dynamic": false
+        },
+        {
+          "suite": "ES v2 get — the fold merged with the file",
+          "name": "WorkflowGet_AsOf_AnswersHistoricallyRatherThanWithTipState",
+          "dynamic": false
+        },
+        {
+          "suite": "ES v2 get — the fold merged with the file",
+          "name": "WorkflowGet_AsOfPastTheTip_IsIdenticalToTheLiveRead",
+          "dynamic": false
+        },
+        {
+          "suite": "why the state file is not re-materialized from the fold",
+          "name": "WorkflowStateFold_PatchedTask_ViolatesStateSchema",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/workflow/state-machine.legacy.test.ts": {
       "file": "tests/unit/workflow/state-machine.legacy.test.ts",
       "runner": "vitest:root",
@@ -73760,7 +76799,7 @@
         },
         {
           "suite": "authority census — the live topology",
-          "name": "AuthorityCensus_ActionContractRow_ClaimsAnInstrumentThatDoesNotDischargeG5",
+          "name": "AuthorityCensus_ActionContract_UsesClosureInstrument",
           "dynamic": false
         },
         {
@@ -75317,6 +78356,11 @@
         {
           "suite": "Wave 1 exit — the five guards (task 027, DR-6 / DR-24)",
           "name": "Wave1Exit_AllFiveGuards_BlockOnSeededViolation",
+          "dynamic": false
+        },
+        {
+          "suite": "Wave 1 exit — the five guards (task 027, DR-6 / DR-24)",
+          "name": "Wave1Exit_NoActionContractStaleException",
           "dynamic": false
         },
         {
@@ -77699,6 +80743,27 @@
         {
           "suite": "tracked-population — the second authority is itself checked",
           "name": "TrackedPopulation_MissedFiles_CapsTheReportSoAFailureStaysLegible",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/test-helpers/trusted-context.test.ts": {
+      "file": "tools/test-helpers/trusted-context.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "seedGateEvidence keys its evidence the way the gate runner keys its own",
+          "name": "SeedGateEvidence_TwoPhaseAttempts_LeaveTwoRowsCarryingTheirOwnAttempt",
+          "dynamic": false
+        },
+        {
+          "suite": "seedGateEvidence keys its evidence the way the gate runner keys its own",
+          "name": "SeedGateEvidence_SameAttemptSeededTwice_ReusesTheExistingRow",
+          "dynamic": false
+        },
+        {
+          "suite": "seedGateEvidence keys its evidence the way the gate runner keys its own",
+          "name": "SeedGateEvidence_DifferentRequirements_StayDistinctWithinOneAttempt",
           "dynamic": false
         }
       ]

@@ -14,15 +14,77 @@ vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
 }));
 
+// The gate now records durable evidence through the shared phase-gate runner
+// before any success carrier escapes. These cases are about the PROVIDER's
+// verdict, so the runner is stubbed down to its provider call — the same seam
+// every other migrated gate's unit test stubs. The evidence a caller actually
+// gets is proven over real dispatch in
+// `unrunbooked-gate-evidence-dispatch.test.ts`.
+vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
+  runPhaseGateWithEvidence: vi.fn(async (request) => {
+    try {
+      return await request.executeProvider(
+        {
+          gateClass: request.gateClass,
+          providerRef: 'test-provider',
+          actionName: 'test-provider',
+        },
+        request.providerInput,
+      );
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: 'GATE_PROVIDER_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }),
+}));
+
 // ─── Import after mocks ────────────────────────────────────────────────────
 
 import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { handlePostDelegationCheck } from '../../../../src/verbs/team/post-delegation-check.js';
+import type { EventStore } from '../../../../src/events/store.js';
 
 const mockExistsSync = vi.mocked(existsSync);
 const mockReadFileSync = vi.mocked(readFileSync);
 const mockExecFileSync = vi.mocked(execFileSync);
+
+// ─── Dispatch wiring the gate needs to record its declared evidence ─────────
+//
+// The gate now names the stream its durable evidence records against, and takes
+// the event store and state directory from the dispatch context rather than the
+// caller. The event store is also the authoritative state source (`.state.json`
+// is a derived stamp), so each case feeds its tasks through a store the
+// projection can fold rather than through the file mock alone.
+const STATE_DIR = '/tmp/test-post-delegation-check';
+const FEATURE_ID = 'post-delegation-feature';
+
+let currentStore: EventStore;
+
+function storeFrom(stateJson: string): EventStore {
+  const patch = JSON.parse(stateJson) as Record<string, unknown>;
+  return {
+    append: vi.fn().mockResolvedValue(undefined),
+    query: vi.fn().mockResolvedValue([{ type: 'state.patched', data: { patch } }]),
+  } as unknown as EventStore;
+}
+
+/** A store with nothing usable to say — the no-state-source case. */
+function unavailableStore(): EventStore {
+  return {
+    append: vi.fn().mockResolvedValue(undefined),
+    query: vi.fn().mockRejectedValue(new Error('store unavailable')),
+  } as unknown as EventStore;
+}
+
+function gateWiring(): { featureId: string; stateDir: string; eventStore: EventStore } {
+  return { featureId: FEATURE_ID, stateDir: STATE_DIR, eventStore: currentStore };
+}
 
 // ─── Test Helpers ───────────────────────────────────────────────────────────
 
@@ -43,6 +105,7 @@ function makeIncompleteTask(id: string, status = 'in-progress') {
 describe('handlePostDelegationCheck', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    currentStore = unavailableStore();
   });
 
   // ─── Test 1: All tasks complete, tests pass → passed: true ────────────
@@ -66,10 +129,12 @@ describe('handlePostDelegationCheck', () => {
       return false;
     });
     mockReadFileSync.mockReturnValue(stateJson);
+    currentStore = storeFrom(stateJson);
     mockExecFileSync.mockReturnValue(Buffer.from(''));
 
     // Act
     const result = await handlePostDelegationCheck({
+      ...gateWiring(),
       stateFile: '/tmp/state.json',
       repoRoot: '/repo',
     });
@@ -82,39 +147,49 @@ describe('handlePostDelegationCheck', () => {
     expect(data.report).toContain('PASS');
   });
 
-  // ─── Test 2: State file not found → error ────────────────────────────
+  // ─── Test 2: no usable state source → error ──────────────────────────
+  //
+  // The event store is the authoritative state source and the `.state.json` a
+  // derived stamp, so an absent or corrupt file no longer decides the answer on
+  // its own — a store that cannot answer does. Both cases are refusals, and the
+  // refusal names which source failed.
 
-  it('stateFileNotFound_returnsError', async () => {
-    // Arrange
+  it('stateSourceUnreadable_returnsError', async () => {
+    // Arrange — the file is gone AND the store cannot answer.
     mockExistsSync.mockReturnValue(false);
+    currentStore = unavailableStore();
 
     // Act
     const result = await handlePostDelegationCheck({
+      ...gateWiring(),
       stateFile: '/tmp/missing.json',
       repoRoot: '/repo',
     });
 
-    // Assert — with no featureId/eventStore fallback, returns NO_STATE_SOURCE
+    // Assert
     expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('NO_STATE_SOURCE');
+    expect(result.error?.code).toBe('EVENT_STORE_ERROR');
   });
 
-  // ─── Test 3: Invalid JSON → error ────────────────────────────────────
+  // ─── Test 3: no state source at all → error ──────────────────────────
 
-  it('invalidJson_returnsError', async () => {
-    // Arrange
+  it('noStateSource_returnsNoStateSource', async () => {
+    // Arrange — neither a readable file nor an event store.
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue('not valid json {{{');
 
-    // Act
+    // Act — the wiring's store is bypassed for the resolution leg only, which
+    // is the shape a legacy file-only caller had.
     const result = await handlePostDelegationCheck({
+      ...gateWiring(),
+      eventStore: undefined as unknown as EventStore,
       stateFile: '/tmp/bad.json',
       repoRoot: '/repo',
     });
 
-    // Assert — invalid JSON falls through to NO_STATE_SOURCE with no event store fallback
+    // Assert — the gate refuses rather than running against nothing.
     expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('NO_STATE_SOURCE');
+    expect(result.error?.code).toBe('MISWIRED_CONTEXT');
   });
 
   // ─── Test 4: No tasks → passed: false ─────────────────────────────────
@@ -123,9 +198,11 @@ describe('handlePostDelegationCheck', () => {
     // Arrange
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(makeState([]));
+    currentStore = storeFrom(makeState([]));
 
     // Act
     const result = await handlePostDelegationCheck({
+      ...gateWiring(),
       stateFile: '/tmp/state.json',
       repoRoot: '/repo',
     });
@@ -148,9 +225,11 @@ describe('handlePostDelegationCheck', () => {
     ]);
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(stateJson);
+    currentStore = storeFrom(stateJson);
 
     // Act
     const result = await handlePostDelegationCheck({
+      ...gateWiring(),
       stateFile: '/tmp/state.json',
       repoRoot: '/repo',
     });
@@ -172,9 +251,11 @@ describe('handlePostDelegationCheck', () => {
     ]);
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(stateJson);
+    currentStore = storeFrom(stateJson);
 
     // Act
     const result = await handlePostDelegationCheck({
+      ...gateWiring(),
       stateFile: '/tmp/state.json',
       repoRoot: '/repo',
       skipTests: true,
@@ -205,9 +286,11 @@ describe('handlePostDelegationCheck', () => {
       return false;
     });
     mockReadFileSync.mockReturnValue(stateJson);
+    currentStore = storeFrom(stateJson);
 
     // Act
     const result = await handlePostDelegationCheck({
+      ...gateWiring(),
       stateFile: '/tmp/state.json',
       repoRoot: '/repo',
     });
@@ -230,9 +313,11 @@ describe('handlePostDelegationCheck', () => {
     ]);
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(stateJson);
+    currentStore = storeFrom(stateJson);
 
     // Act
     const result = await handlePostDelegationCheck({
+      ...gateWiring(),
       stateFile: '/tmp/state.json',
       repoRoot: '/repo',
     });
@@ -254,9 +339,11 @@ describe('handlePostDelegationCheck', () => {
     ]);
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(stateJson);
+    currentStore = storeFrom(stateJson);
 
     // Act
     const result = await handlePostDelegationCheck({
+      ...gateWiring(),
       stateFile: '/tmp/state.json',
       repoRoot: '/repo',
     });

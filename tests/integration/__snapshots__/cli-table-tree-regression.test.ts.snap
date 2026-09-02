@@ -48,8 +48,8 @@ exports[`F.7 — CLI table/tree pretty-print regression (Wave 0 §7) > CliRender
   autoEmits:
     event: workflow.started
     condition: always
-    role: primary
     owner: workflow
+    role: primary
   economyBudgetTokens: 2000
   outputSchema:
     $schema: https://json-schema.org/draft/2020-12/schema
@@ -151,6 +151,68 @@ exports[`F.7 — CLI table/tree pretty-print regression (Wave 0 §7) > CliRender
         - _meta
         - _perf
       additionalProperties: false
+  actionContract:
+    requires:
+      kind: none
+      because: init creates a workflow and does not wait on a prior gate
+    ensures:
+      kind: declared
+      values:
+        source: event-append
+        when: success
+        event: workflow.started
+    needs:
+      kind: none
+      because: init writes through the in-process event store
+    touches:
+      frame: single-machine
+      resources:
+        kind: declared
+        values:
+          [...]
+    executionAuthority:
+      kind: local
+    replay:
+      kind: claim-required
+      scope: stream-subject-request
+    emissions:
+      kind: declared
+      values:
+        event: workflow.started
+        condition: always
+        owner: workflow
+        role: primary
+  actionContractDigest: {"requires":{"kind":"none","because":"init creates a workflow and does not wait on a prior gate"},"ensures":{"kind":"declared","values":[{"source":"event-append","when":"success","event":"workflow.started"}]},"needs":{"kind":"none","because":"init writes through the in-process event store"},"touches":{"frame":"single-machine","resources":{"kind":"declared","values":[{"kind":"stream","selector":"featureId"}]}},"executionAuthority":{"kind":"local"},"replay":{"kind":"claim-required","scope":"stream-subject-request"},"emissions":{"kind":"declared","values":[{"event":"workflow.started","condition":"always","owner":"workflow","role":"primary"}]}}
+  actionContractCompact:
+    requires:
+      kind: none
+    ensures:
+      kind: declared
+      values:
+        source: event-append
+        when: success
+        event: workflow.started
+    needs:
+      kind: none
+    touches:
+      frame: single-machine
+      resources:
+        kind: declared
+        values:
+          [...]
+    executionAuthority:
+      kind: local
+    replay:
+      kind: claim-required
+      scope: stream-subject-request
+    emissions:
+      kind: declared
+      values:
+        event: workflow.started
+        condition: always
+        owner: workflow
+        role: primary
+    digest: {"requires":{"kind":"none","because":"init creates a workflow and does not wait on a prior gate"},"ensures":{"kind":"declared","values":[{"source":"event-append","when":"success","event":"workflow.started"}]},"needs":{"kind":"none","because":"init writes through the in-process event store"},"touches":{"frame":"single-machine","resources":{"kind":"declared","values":[{"kind":"stream","selector":"featureId"}]}},"executionAuthority":{"kind":"local"},"replay":{"kind":"claim-required","scope":"stream-subject-request"},"emissions":{"kind":"declared","values":[{"event":"workflow.started","condition":"always","owner":"workflow","role":"primary"}]}}
 ",
 }
 `;
