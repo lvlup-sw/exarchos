@@ -9,10 +9,10 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { isMainThread } from 'node:worker_threads';
 import {
   INSTALL_IDENTITY_SCRATCH_PREFIX,
+  isProcessAlive,
   sweepOrphanInstallIdentityDirs,
 } from './hermetic-install-identity.js';
 
@@ -26,15 +26,24 @@ describe('hermetic install identity scratch directory', () => {
     expect(fs.existsSync(dir ?? '')).toBe(true);
   });
 
+  it('InstallIdentityLiveness_ThisProcessIsAlive', () => {
+    // The real predicate, on the one pid guaranteed to exist for the duration
+    // of the assertion.
+    expect(isProcessAlive(process.pid)).toBe(true);
+  });
+
   it('InstallIdentitySweep_RemovesADeadRunsDirectoryAndKeepsLiveOnes', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'install-identity-sweep-'));
     try {
-      // A pid that provably existed and provably no longer does: a child that
-      // has already exited. This is the shape of a finished run's directory.
-      const exited = spawnSync(process.execPath, ['-e', '0']);
-      expect(exited.status).toBe(0);
-      const dead = `${INSTALL_IDENTITY_SCRATCH_PREFIX}${exited.pid}`;
-      const live = `${INSTALL_IDENTITY_SCRATCH_PREFIX}${process.pid}`;
+      // Liveness is injected rather than measured: a reaped pid can be recycled
+      // by the OS, so a test that spawned-and-exited a child to obtain a dead
+      // pid would be betting on the interval before reuse. The decision under
+      // test is the sweep's, not the kernel's.
+      const deadPid = 4_000_001;
+      const livePid = 4_000_002;
+      const alive = (pid: number) => pid === livePid;
+      const dead = `${INSTALL_IDENTITY_SCRATCH_PREFIX}${deadPid}`;
+      const live = `${INSTALL_IDENTITY_SCRATCH_PREFIX}${livePid}`;
       const ours = `${INSTALL_IDENTITY_SCRATCH_PREFIX}999999999`;
       const unrelated = 'exarchos-test-install-identity';
       const randomSuffix = `${INSTALL_IDENTITY_SCRATCH_PREFIX}3TLy7g`;
@@ -43,7 +52,7 @@ describe('hermetic install identity scratch directory', () => {
         fs.writeFileSync(path.join(tmp, name, 'lock.json'), '{}');
       }
 
-      const removed = sweepOrphanInstallIdentityDirs(tmp, ours);
+      const removed = sweepOrphanInstallIdentityDirs(tmp, ours, alive);
 
       expect(removed).toEqual([dead]);
       expect(fs.existsSync(path.join(tmp, dead))).toBe(false);

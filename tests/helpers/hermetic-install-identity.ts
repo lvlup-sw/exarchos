@@ -48,7 +48,7 @@ function runHostPid(): number {
   return isMainThread ? process.ppid : process.pid;
 }
 
-function isProcessAlive(pid: number): boolean {
+export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
@@ -64,8 +64,15 @@ function isProcessAlive(pid: number): boolean {
  * Returns the names it removed. Failures are swallowed: a sibling worker's
  * sweep may have won the race, and a directory that cannot be removed now is
  * simply left for the next run.
+ *
+ * `isAlive` is injectable so the sweep's decision can be pinned without a
+ * test depending on a real pid staying dead — a reaped pid can be recycled.
  */
-export function sweepOrphanInstallIdentityDirs(tmp: string, keep: string): string[] {
+export function sweepOrphanInstallIdentityDirs(
+  tmp: string,
+  keep: string,
+  isAlive: (pid: number) => boolean = isProcessAlive,
+): string[] {
   let entries: string[];
   try {
     entries = fs.readdirSync(tmp);
@@ -80,7 +87,7 @@ export function sweepOrphanInstallIdentityDirs(tmp: string, keep: string): strin
     const suffix = entry.slice(INSTALL_IDENTITY_SCRATCH_PREFIX.length);
     if (!/^[1-9]\d*$/.test(suffix)) continue;
     const pid = Number.parseInt(suffix, 10);
-    if (isProcessAlive(pid)) continue;
+    if (isAlive(pid)) continue;
     try {
       fs.rmSync(path.join(tmp, entry), { recursive: true, force: true });
       removed.push(entry);

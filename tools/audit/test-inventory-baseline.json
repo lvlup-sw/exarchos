@@ -7,7 +7,7 @@
     "testFiles": 1254,
     "parsedFiles": 1209,
     "shellFiles": 45,
-    "cases": 13797,
+    "cases": 13798,
     "dynamicTitles": 150,
     "unparseableFiles": 0
   },
@@ -81000,6 +81000,11 @@
         {
           "suite": "hermetic install identity scratch directory",
           "name": "InstallIdentityScratch_IsKeyedOnThisRunsHostProcess",
+          "dynamic": false
+        },
+        {
+          "suite": "hermetic install identity scratch directory",
+          "name": "InstallIdentityLiveness_ThisProcessIsAlive",
           "dynamic": false
         },
         {
