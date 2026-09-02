@@ -7,6 +7,8 @@
  * failing arm here starts from a passing configuration and breaks exactly one
  * thing: one blob deleted, one blob corrupted, one settled stream stripped of
  * its references, one reference made unparseable.
+ *
+ * @oracle-sources: ../../../../src/events/bundle/integrity.ts, the violation kinds written out as literals in each case from the declared taxonomy — never read back off the result the case is judging
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';

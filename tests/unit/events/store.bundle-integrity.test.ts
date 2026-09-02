@@ -10,6 +10,8 @@
  *
  * These cases open a real SQLite store on a temp directory, so they carry an
  * explicit per-test timeout rather than the tier default.
+ *
+ * @oracle-sources: ../../../src/events/store.ts, the blob files themselves on disk under the temp state dir — deleted and rewritten directly so custody is judged against the filesystem rather than against the ledger that named it
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
