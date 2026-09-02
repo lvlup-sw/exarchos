@@ -66,6 +66,14 @@ export const RETAINED: ReadonlyArray<{ readonly path: string; readonly because: 
         'system that is kept rather than relocated.',
     },
     {
+      path: 'docs/phase-gate-taxonomy.html',
+      because:
+        'The canonical statement of the phase-gate architecture, measured from the live registry, ' +
+        'HSM factories, policy tables and effect ledger rather than transcribed. It is READ when a ' +
+        'gate is added, retyped or re-bound: it names the four resolver families, the three ' +
+        'execution tracks, and which obligations record nothing. Sibling to system-design.html.',
+    },
+    {
       path: 'docs/.vitepress/',
       because:
         'The published site is built from this directory: `npm run docs:build` reads the config, ' +
