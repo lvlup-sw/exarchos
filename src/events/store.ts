@@ -159,8 +159,8 @@ const DEFAULT_BUNDLE_INTEGRITY_TIMEOUT_MS = 10_000;
  * caller must `dispose()` in a `finally`.
  */
 function abortRejection(signal: AbortSignal): {
-  promise: Promise<never>;
-  dispose: () => void;
+  readonly promise: Promise<never>;
+  readonly dispose: () => void;
 } {
   let onAbort: (() => void) | undefined;
   const promise = new Promise<never>((_, reject) => {

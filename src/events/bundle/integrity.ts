@@ -85,14 +85,16 @@ function abortIfRequested(signal: AbortSignal | undefined): void {
  * Sweep every stream the source enumerates and verify each declared bundle
  * reference resolves.
  *
- * The abort signal is re-checked before each stream is fetched AND before each
- * of that stream's events is examined, so a caller's timeout actually stops the
- * sweep rather than merely discarding its result — this walks the whole ledger,
- * so an unbounded sweep would outlive the bound its caller advertised. Both
- * checks are load-bearing on their own: the per-stream one is the only guard
- * for a source with many streams and few events, and the per-event one is the
- * only guard once a single long stream is already being walked. Each is pinned
- * by a case that aborts mid-sweep and asserts how much work was left undone.
+ * The abort signal is re-checked before each stream is fetched, before each
+ * of that stream's events is examined, AND around each reference probe, so a
+ * caller's timeout actually stops the sweep rather than merely discarding its
+ * result — this walks the whole ledger, so an unbounded sweep would outlive
+ * the bound its caller advertised. All three checks are load-bearing on their
+ * own: the per-stream one is the only guard for a source with many streams and
+ * few events, the per-event one is the only guard once a single long stream is
+ * already being walked, and the per-reference one is the only guard inside a
+ * single event that declares many distinct digests. Each is pinned by a case
+ * that aborts mid-sweep and asserts how much work was left undone.
  */
 export async function checkRunBundleIntegrity(
   source: BundleEventSource,
@@ -134,6 +136,11 @@ export async function checkRunBundleIntegrity(
       }
 
       for (const ref of refs) {
+        // The per-event check above cannot stop a walk that is already inside
+        // one event: a single event may declare many distinct digests, and
+        // each probe yields to the event loop, so the signal is re-checked
+        // before every reference and again after its probe resolves.
+        abortIfRequested(signal);
         // A reference the oracle cannot parse was already counted as a
         // violation above; only parsed references enter the denominator, so
         // the count always means "references actually probed".
@@ -143,6 +150,7 @@ export async function checkRunBundleIntegrity(
         let verdict = probed.get(key);
         if (verdict === undefined) {
           verdict = await store.has(ref.digest);
+          abortIfRequested(signal);
           probed.set(key, verdict);
         }
         if (verdict === 'missing') {

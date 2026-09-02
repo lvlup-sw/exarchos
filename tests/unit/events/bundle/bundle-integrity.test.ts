@@ -392,6 +392,49 @@ describe('checkRunBundleIntegrity', () => {
     FS_TIMEOUT_MS,
   );
 
+  it(
+    'BundleIntegrity_AbortMidEvent_LeavesTheRemainingReferencesUnprobed',
+    async () => {
+      // The third bound. ONE stream holding ONE event, so neither the
+      // between-streams nor the per-event check can fire once the walk is
+      // inside it: only the per-reference check can stop the probes.
+      const controller = new AbortController();
+      const one = await seedRef('run-bundle:one', 'payload one');
+      const two = await seedRef('run-bundle:two', 'payload two');
+      const three = await seedRef('run-bundle:three', 'payload three');
+
+      let probes = 0;
+      const probing = new RunBundleStore(store.root, {
+        mkdir: async () => undefined,
+        writeFile: async () => undefined,
+        readFile: async (file: string) => {
+          probes += 1;
+          controller.abort();
+          return readFile(file);
+        },
+        publish: async () => undefined,
+        unlink: async () => undefined,
+      });
+
+      const source = fakeSource({
+        'feat-a': [
+          event('feat-a', 1, 'workflow.started', {
+            [BUNDLE_REF_FIELD]: [one, two, three],
+          }),
+        ],
+      });
+
+      await expect(
+        checkRunBundleIntegrity(source, probing, controller.signal),
+      ).rejects.toThrow(/aborted/);
+      expect(
+        probes,
+        'the sweep kept probing references after the signal aborted mid-event',
+      ).toBe(1);
+    },
+    FS_TIMEOUT_MS,
+  );
+
   it('BundleIntegrity_AbortBetweenStreams_LeavesTheRemainingStreamsUnqueried', async () => {
     // The sibling bound. Every stream here is empty, so no per-event check can
     // fire and only the between-streams check can stop the walk.
