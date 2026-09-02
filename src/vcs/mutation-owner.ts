@@ -53,11 +53,14 @@ import {
   succeeded,
   failed,
   toEffectError,
+  records,
+  replayedEvidence,
   type EffectMode,
   type EffectOutcome,
   type EffectPlan,
   type EmissionCondition,
   type EffectEmission,
+  type RecordsEmissions,
 } from '../dispatch/core/effect-carrier.js';
 import type { EventStore } from '../events/store.js';
 import type { EventType, WorkflowEvent } from '../events/schemas.js';
@@ -105,11 +108,11 @@ export const VCS_COMPENSATED = 'vcs.compensated';
  * and the two terminals are mutually exclusive because one execution either
  * returns or throws.
  */
-export const VCS_LEDGER_EMISSIONS: readonly EffectEmission[] = [
+export const VCS_LEDGER_EMISSIONS: RecordsEmissions = records(
   { event: VCS_REQUESTED, when: 'before' },
   { event: VCS_EXECUTED, when: 'on-success' },
   { event: VCS_COMPENSATED, when: 'on-failure' },
-];
+);
 
 // ─── Typed fencing error (mirrors P04-02 cancel-saga StaleEpochError) ─────────
 
@@ -536,7 +539,15 @@ export class VcsMutationOwner {
     if (recorded !== undefined) {
       if (recorded.kind === 'executed') {
         if (request.verifyReplay === undefined || request.verifyReplay()) {
-          return succeeded<T>((recorded.result ?? {}) as T);
+          // The committed value carries evidence, and on this path the evidence
+          // is a WITNESS rather than a receipt: no effect ran, so nothing was
+          // minted, but `vcs.executed` is already in the fold — reading it is
+          // how this branch knows to replay at all. A receipt here would claim
+          // this run wrote the fact, which is exactly the wrong claim.
+          return succeeded<T>(
+            (recorded.result ?? {}) as T,
+            replayedEvidence(VCS_EXECUTED, `ledger fold terminal for ${request.idempotencyKey}`),
+          );
         }
       } else {
         return failed<T>({

@@ -18,8 +18,7 @@ import * as os from 'node:os';
 import {
   handleInit,
   handleSet,
-  configureWorkflowMaterializer,
-} from '../../../src/workflow/tools.js';
+  } from '../../../src/workflow/tools.js';
 import { handleEventAppend } from '../../../src/events/tools.js';
 import { EventStore } from '../../../src/events/store.js';
 import { InMemoryBackend } from '../../../src/storage/memory-backend.js';
@@ -63,7 +62,6 @@ describe('EventStoreSplit_Regression_GH1009', () => {
   });
 
   afterEach(async () => {
-    configureWorkflowMaterializer(null);
     configureStateStoreBackend(undefined);
     await rmrfAsync(stateDir);
   });

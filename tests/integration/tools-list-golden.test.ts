@@ -71,6 +71,134 @@
 // ASK the operator for a value they already held: the workflow stream id IS the
 // bare featureId, which is the name every workflow surface uses.
 //
+// ── Two more compilable intents on `execute_intent` ────────────────────────
+//
+// MEASURED, not eyeballed: normalising both goldens and diffing yields exactly
+// ONE changed line — the `exarchos_orchestrate` tool description — and within
+// it, one changed action signature line plus the schema digest that line feeds.
+// The whole delta is `execute_intent`'s description, which now names the three
+// compilable intents instead of one:
+//
+//     'task-completion'                → + 'quality-evaluation', 'plan-closeout'
+//
+// This is a WIDENING and therefore not a compatibility break: the request
+// schema is unchanged (`intent`, `args`, subject identity, `operationId`), no
+// action or tool was added or removed, no order changed, and no other action's
+// schema moved. `intent` was always a free-form runbook id; two more ids now
+// compile instead of being refused as not-compilable.
+//
+// The description also SHRANK to fit the per-action description budget, which
+// is why sentences moved rather than only accumulated. The reasons that left
+// the description live on the intents' argument schemas, where a caller reading
+// the refusal message meets them.
+//
+// ── `spec_coverage_check` gains the stream it records evidence against ─────
+//
+// MEASURED, not eyeballed: normalising both goldens and diffing yields exactly
+// ONE changed line — the `exarchos_orchestrate` tool description — and within
+// it, one action's signature line gaining one leading field plus the schema
+// digest that line feeds:
+//
+//     spec_coverage_check(planFile, repoRoot, …) → (featureId, planFile, …)
+//
+// This is a NARROWING and deliberately so: the field is required, because the
+// gate declares durable gate evidence `when: 'always'` and evidence is keyed to
+// a stream. A caller that omits it is now refused at the parse rather than
+// reaching a handler with no subject to pay its own postcondition with. No tool
+// or action was added or removed, no order changed, and no other action's
+// schema moved.
+//
+// ── A fourth compilable intent, and the stream `create_pr` declares ────────
+//
+// MEASURED, not eyeballed: normalising both goldens and diffing yields exactly
+// ONE changed line — the `exarchos_orchestrate` tool description — and within
+// it, one changed action signature line plus exactly TWO changed contract
+// digests out of the 83 the line carries:
+//
+//     execute_intent  — description names a fourth intent; two git-ref
+//                       resources join its `touches`
+//     create_pr       — the shared `vcs` stream joins its `touches`, so
+//                       post-dispatch observation resolves the stream its two
+//                       journal records land on from the declaration
+//
+// Both goldens carry 82 action signatures in the same order. No tool or action
+// was added or removed, and no other action's schema or digest moved.
+//
+// The `execute_intent` half is a WIDENING: the request schema is unchanged
+// (`intent`, `args`, subject identity, `operationId`), and `intent` was always
+// a free-form runbook id — one more id now compiles instead of being refused as
+// not-compilable. The `create_pr` half changes no schema at all; it states on
+// the contract where records the handler has always written go.
+//
+// The description also shrank again to fit the per-action budget, which is why
+// a sentence moved rather than only accumulating. The reason that left it —
+// which gate evidence the review intent needs — lives on that intent's argument
+// schema, where a caller reading the refusal message meets it.
+//
+// ── The body check gains an enforcement switch ────────────────────────────
+//
+// MEASURED, not eyeballed: normalising both goldens and diffing yields ONE
+// changed tool description (`exarchos_orchestrate`) with exactly THREE changed
+// lines inside it, plus one JSON-schema property:
+//
+//     validate_pr_body(…, featureId?) → (…, featureId?, enforce?)
+//     execute_intent  — one clause shortened, one clause added: the closeout
+//                       intent leaves recording the PR URL to the caller
+//     create_pr       — digest only; its `ensures` abstention now states the
+//                       reason that survives the stream it declares
+//
+// The `enforce` half is a WIDENING and back-compatible: absent, the handler
+// answers exactly as before. Present, a failing section verdict leaves as a
+// refusal — which is the only form a composition can act on, since a step's
+// failure policy reads the envelope and not the payload. No tool or action was
+// added or removed, no order changed, and no other action's schema or digest
+// moved.
+//
+// ── The vcs family's postcondition and observation declarations settle ─────
+//
+// MEASURED, not eyeballed: normalising both goldens and diffing yields ONE
+// changed tool description (`exarchos_orchestrate`) with exactly THREE
+// changed action signature lines:
+//
+//     merge_pr        — ensures=declared → ensures=none; digest moves
+//     add_pr_comment   — flags unchanged; digest moves (abstention reason text)
+//     create_issue     — touches=none → touches=declared; digest moves
+//
+// `add_pr_comment` and `create_issue` join `create_pr` in declaring the
+// shared `vcs` stream on the RESOURCE axis, so post-dispatch observation
+// resolves the stream their journal records land on from the declaration
+// itself. `add_pr_comment` already declared a `git-ref` resource, so its
+// `touches` flag stays `declared`; `create_issue` declared none before, so
+// its flag moves. Both actions' abstention reason text changes to match —
+// they keep `ensures: none` for the same reason `create_pr` does: the two
+// journal records are declared and checked on the emission axis against
+// that same resolved stream, and the postcondition axis carries durable
+// evidence, which these handlers record none of.
+//
+// `merge_pr` drops its `event-append` ensures for a different reason: that
+// postcondition was never sound. The verifier's required set is built from
+// unconditional emissions only, so a conditional `pr.merged` declaration was
+// never actually checked there, and the removed ensures reported false
+// assurance. It is replaced with the same style of abstention.
+//
+// No tool or action was added or removed, no order changed, and no other
+// action's schema or digest moved.
+//
+// ── `merge_pr`'s abstention reason gains the handler-side enforcement it names ─
+//
+// MEASURED, not eyeballed: normalising both goldens and diffing yields ONE
+// changed tool description (`exarchos_orchestrate`) with exactly ONE changed
+// action signature line — `merge_pr`, digest-only, no flag moves. The append
+// this action makes on a successful merge is no longer swallowed on failure:
+// the handler now withholds its success carrier (preserving the merge result
+// on `data`) when the durable `pr.merged` record fails to land, rather than
+// reporting success with the record silently missing. The postcondition
+// vocabulary still cannot express "required only when the merge landed", so
+// the abstention itself is unchanged in kind — only its reason text now
+// states that the handler enforces the obligation directly since the axis
+// cannot. No tool or action was added or removed, no order changed, and no
+// other action's schema or digest moved.
+//
 // Regenerate deliberately (and review the diff) with:
 //   UPDATE_TOOLS_LIST_GOLDEN=1 npx vitest run src/__tests__/integration/tools-list-golden.test.ts
 

@@ -17,6 +17,42 @@ vi.mock('node:fs', () => ({
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { handleDebugReviewGate } from '../../../../src/verbs/review/debug-review-gate.js';
+import type { EventStore } from '../../../../src/events/store.js';
+// The gate now records durable evidence through the shared phase-gate runner
+// before any success carrier escapes. These cases are about the PROVIDER's
+// verdict, so the runner is stubbed down to its provider call — the same seam
+// every other migrated gate's unit test stubs. The evidence a caller actually
+// gets is proven over real dispatch in
+// `unrunbooked-gate-evidence-dispatch.test.ts`.
+vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
+  runPhaseGateWithEvidence: vi.fn(async (request) => {
+    try {
+      return await request.executeProvider(
+        {
+          gateClass: request.gateClass,
+          providerRef: 'test-provider',
+          actionName: 'test-provider',
+        },
+        request.providerInput,
+      );
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: 'GATE_PROVIDER_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }),
+}));
+
+const STATE_DIR = '/tmp/test-debug-review-gate';
+const FEATURE_ID = 'debug-review-feature';
+const eventStore = {
+  append: vi.fn().mockResolvedValue(undefined),
+  query: vi.fn().mockResolvedValue([]),
+} as unknown as EventStore;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -34,17 +70,18 @@ describe('handleDebugReviewGate', () => {
 
   // ─── Test 1: Test files found + tests pass → passed: true ───────────────
 
-  it('returns passed when test files exist and tests pass', () => {
+  it('returns passed when test files exist and tests pass', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
 
     vi.mocked(execFileSync)
       .mockReturnValueOnce(mockOutput('src/widget.ts\nsrc/widget.test.ts\nsrc/utils.ts\n'))
       .mockReturnValueOnce(mockOutput('Tests passed'));
 
-    const result = handleDebugReviewGate({
+    const result = await handleDebugReviewGate({
+      featureId: FEATURE_ID,
       repoRoot: '/repo',
       baseBranch: 'main',
-    });
+    }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -61,17 +98,18 @@ describe('handleDebugReviewGate', () => {
 
   // ─── Test 2: No test files in diff → passed: false ─────────────────────
 
-  it('returns failed when no test files in diff', () => {
+  it('returns failed when no test files in diff', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
 
     vi.mocked(execFileSync)
       .mockReturnValueOnce(mockOutput('src/widget.ts\nsrc/utils.ts\n'))
       .mockReturnValueOnce(mockOutput('Tests passed'));
 
-    const result = handleDebugReviewGate({
+    const result = await handleDebugReviewGate({
+      featureId: FEATURE_ID,
       repoRoot: '/repo',
       baseBranch: 'main',
-    });
+    }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -86,15 +124,16 @@ describe('handleDebugReviewGate', () => {
 
   // ─── Test 3: No changed files → passed: false ──────────────────────────
 
-  it('returns failed when no changed files found', () => {
+  it('returns failed when no changed files found', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
 
     vi.mocked(execFileSync).mockReturnValueOnce(mockOutput(''));
 
-    const result = handleDebugReviewGate({
+    const result = await handleDebugReviewGate({
+      featureId: FEATURE_ID,
       repoRoot: '/repo',
       baseBranch: 'main',
-    });
+    }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -109,7 +148,7 @@ describe('handleDebugReviewGate', () => {
 
   // ─── Test 4: Tests fail → passed: false ─────────────────────────────────
 
-  it('returns failed when npm test:run fails', () => {
+  it('returns failed when npm test:run fails', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
 
     vi.mocked(execFileSync)
@@ -118,10 +157,11 @@ describe('handleDebugReviewGate', () => {
         throw new Error('npm run test:run failed');
       });
 
-    const result = handleDebugReviewGate({
+    const result = await handleDebugReviewGate({
+      featureId: FEATURE_ID,
       repoRoot: '/repo',
       baseBranch: 'main',
-    });
+    }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -136,18 +176,19 @@ describe('handleDebugReviewGate', () => {
 
   // ─── Test 5: skipRun=true → skip test execution check ──────────────────
 
-  it('skips test execution when skipRun is true', () => {
+  it('skips test execution when skipRun is true', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
 
     vi.mocked(execFileSync).mockReturnValueOnce(
       mockOutput('src/widget.ts\nsrc/widget.test.ts\n'),
     );
 
-    const result = handleDebugReviewGate({
+    const result = await handleDebugReviewGate({
+      featureId: FEATURE_ID,
       repoRoot: '/repo',
       baseBranch: 'main',
       skipRun: true,
-    });
+    }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -163,13 +204,14 @@ describe('handleDebugReviewGate', () => {
 
   // ─── Test 6: repoRoot not found → error result ─────────────────────────
 
-  it('returns error when repoRoot does not exist', () => {
+  it('returns error when repoRoot does not exist', async () => {
     vi.mocked(existsSync).mockReturnValue(false);
 
-    const result = handleDebugReviewGate({
+    const result = await handleDebugReviewGate({
+      featureId: FEATURE_ID,
       repoRoot: '/nonexistent',
       baseBranch: 'main',
-    });
+    }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
@@ -178,7 +220,7 @@ describe('handleDebugReviewGate', () => {
 
   // ─── Test 7: Various test file extensions are detected ──────────────────
 
-  it('detects all supported test file extensions', () => {
+  it('detects all supported test file extensions', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
 
     vi.mocked(execFileSync)
@@ -187,10 +229,11 @@ describe('handleDebugReviewGate', () => {
       ))
       .mockReturnValueOnce(mockOutput('Tests passed'));
 
-    const result = handleDebugReviewGate({
+    const result = await handleDebugReviewGate({
+      featureId: FEATURE_ID,
       repoRoot: '/repo',
       baseBranch: 'main',
-    });
+    }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -204,11 +247,12 @@ describe('handleDebugReviewGate', () => {
 
   // ─── Test 8: Missing baseBranch → error ─────────────────────────────────
 
-  it('returns error when baseBranch is empty', () => {
-    const result = handleDebugReviewGate({
+  it('returns error when baseBranch is empty', async () => {
+    const result = await handleDebugReviewGate({
+      featureId: FEATURE_ID,
       repoRoot: '/repo',
       baseBranch: '',
-    });
+    }, STATE_DIR, eventStore);
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');

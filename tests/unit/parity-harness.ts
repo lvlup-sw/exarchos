@@ -21,6 +21,7 @@ import { CommanderError } from 'commander';
 
 import type { DispatchContext } from '../../src/dispatch/core/dispatch.js';
 import { dispatch } from '../../src/dispatch/core/dispatch.js';
+import { deriveLocalOperatorIdentity } from '../../src/dispatch/caller-identity.js';
 import type { ToolResult, Envelope, ErrorEnvelope } from '../../src/format.js';
 import { toEnvelope } from '../../src/format.js';
 import {
@@ -181,6 +182,13 @@ export async function callCli(
  * shape). Suites that prefer a separate `action` parameter should wrap
  * this helper themselves — the canonical shape keeps the harness honest
  * about what the MCP dispatch contract actually accepts.
+ *
+ * When the suite did not stamp a caller, bind the same local-operator
+ * identity `buildCli` already stamps on the CLI arm. Production MCP uses
+ * `createMcpDispatchContext` (session subject + the process resolver);
+ * in-process parity fixtures historically omitted both, so admission
+ * fail-closed the MCP arm while the CLI arm received the identity-layer
+ * grant. Suites that want an untrusted session must set `callerIdentity`.
  */
 export async function callMcp(
   ctx: DispatchContext,
@@ -193,7 +201,11 @@ export async function callMcp(
   // same carrier shape as the CLI arm. This is the inverse of the CLI
   // adapter's `toCliResult(toEnvelope(result), 'json')` route — both arms
   // surface envelopes so deep-equal comparisons are well-defined.
-  const result = await dispatch(tool, args, ctx);
+  const trusted =
+    ctx.callerIdentity === undefined
+      ? { ...ctx, callerIdentity: deriveLocalOperatorIdentity(ctx.stateDir) }
+      : ctx;
+  const result = await dispatch(tool, args, trusted);
   return toEnvelope(result);
 }
 

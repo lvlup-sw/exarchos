@@ -7,7 +7,9 @@
 
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
-import { emitGateEvent, getDiff } from './gate-utils.js';
+import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
+import { runPhaseGateWithEvidence } from './gate-runner.js';
+import { getDiff, requireGateEvent, sameOperationGateKey } from './gate-utils.js';
 import { checkOperationalResilience } from '../pure/operational-resilience.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -28,7 +30,7 @@ interface OperationalResilienceResult {
 
 export async function handleOperationalResilience(
   args: OperationalResilienceArgs,
-  _stateDir: string,
+  stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
   // Guard clause: validate required inputs
@@ -39,6 +41,31 @@ export async function handleOperationalResilience(
     };
   }
 
+  // Durable gate evidence is a declared postcondition here, and a bare
+  // `gate.executed` append does not pay it — the observer reads
+  // `admission.evidence-recorded`. The shared phase-gate runner records that
+  // before any success carrier escapes; the declared signal is still minted by
+  // the provider closure below.
+  return runPhaseGateWithEvidence({
+    streamId: args.featureId,
+    gateClass: 'operational-resilience',
+    requirementId: 'requirement:operational-resilience',
+    stateDir,
+    eventStore,
+    subject: (phaseAttemptId) =>
+      createEvidenceSubject(
+        { kind: 'phase-attempt', phaseAttemptId },
+        { gate: 'operational-resilience', phase: 'review' },
+      ),
+    providerInput: args,
+    executeProvider: async () => executeOperationalResilience(args, eventStore),
+  });
+}
+
+async function executeOperationalResilience(
+  args: OperationalResilienceArgs,
+  eventStore: EventStore,
+): Promise<ToolResult> {
   const repoRoot = args.repoRoot || process.cwd();
   const baseBranch = args.baseBranch || 'main';
 
@@ -68,21 +95,29 @@ export async function handleOperationalResilience(
   }
   const report = reportLines.join('\n');
 
-  // Emit gate.executed event (fire-and-forget)
-  try {
-    await emitGateEvent(eventStore, args.featureId, 'operational-resilience', 'quality', passed, {
-      dimension: 'D4',
-      phase: 'review',
-      findingCount,
-    });
-  } catch { /* fire-and-forget */ }
-
   // Return structured result
   const result: OperationalResilienceResult = {
     passed,
     findingCount,
     report,
   };
+  const carrier: ToolResult = { success: true, data: result };
 
-  return { success: true, data: result };
+  const unrecorded = await requireGateEvent(
+    eventStore,
+    args.featureId,
+    'operational-resilience',
+    'quality',
+    passed,
+    carrier,
+    {
+      dimension: 'D4',
+      phase: 'review',
+      findingCount,
+    },
+    sameOperationGateKey('operational-resilience'),
+  );
+  if (unrecorded !== undefined) return unrecorded;
+
+  return carrier;
 }

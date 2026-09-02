@@ -188,6 +188,17 @@ export async function handleCancel(
         },
       };
     }
+    const granted = parsedRequest.data.authorization?.capabilityIds ?? [];
+    if (parsedRequest.data.authorization !== undefined && granted.length === 0) {
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.EVENT_APPEND_FAILED,
+          message:
+            'Cancellation request evidence was malformed: capabilityIds must contain at least one capability',
+        },
+      };
+    }
     try {
       // ── Acquire ownership + fencing epoch (P04-02) ───────────────────────
       // The process manager takes the cancellation under a monotonic fencing

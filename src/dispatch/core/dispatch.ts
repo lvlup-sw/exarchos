@@ -11,7 +11,7 @@ import type { CapabilityResolver } from '../../workflow/capabilities/resolver.js
 import type { StorageBackend } from '../../storage/backend.js';
 import type { RootsClient } from '../../runtime/workspace/discovery.js';
 import type { ElicitationClient } from '../elicitation-dispatch.js';
-import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry, findActionInRegistry } from '../../registry.js';
+import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry, findActionInRegistry, type ToolAction } from '../../registry.js';
 // The response-economy seam lives in its own leaf (`./response-economy.js`) so
 // the telemetry middleware can import `enforceResponseEconomy` without the
 // dispatch ↔ middleware runtime import cycle (DR-4, task 009). Re-exported below
@@ -28,9 +28,14 @@ import {
 } from '../../adapters/cli/schema-to-flags.js';
 import { runSessionMachineryConsumedInterceptor } from './interceptors/session-machinery.js';
 import {
-  dispatchStreamId,
+  describeEmissionIndeterminacy,
+  emissionIndeterminacyBlocks,
+  emissionIndeterminacyWarning,
   emissionViolationBlocks,
+  EMISSION_INDETERMINATE_ERROR_CODE,
+  observationStreamId,
   runEmissionVerifierInterceptor,
+  verifierDeclaredEmissions,
 } from './interceptors/emission-verifier.js';
 import { evaluateInstallFreshness } from '../../install/freshness-gate.js';
 import {
@@ -51,7 +56,7 @@ import {
   findIgnoredParameters,
   buildIgnoredParameterError,
 } from '../undeclared-parameters.js';
-import type { ToolAction } from '../../registry.js';
+import { applyInferredValues } from './inferred-values.js';
 import path from 'node:path';
 import {
   detectActiveStoreDivergence,
@@ -61,6 +66,15 @@ import {
   ALLOW_STORE_DIVERGENCE_ENV,
 } from '../../utils/paths.js';
 import type { EventSourcedTaskStore } from '../../projections/task-store/event-sourced-task-store.js';
+import type { ActionContract } from '../../registry/action-contract.js';
+// ActionId admission lives in its own leaf so the bounded action executor can
+// reach the same evaluator without importing this module for a value.
+import { evaluateDispatchAdmission, readActionContract } from './dispatch-admission.js';
+import {
+  applicableEnsures,
+  observeActionPostconditions,
+  type ActionPostconditionObservation,
+} from './action-postconditions.js';
 
 // NOTE: `../telemetry/middleware.js` is intentionally NOT imported at module
 // top-level. The middleware instantiates a singleton TraceWriter at import,
@@ -236,6 +250,45 @@ export function extractSingleMissingRequiredField(
   return key;
 }
 
+function actionIsReadOnly(tool: string, actionName: string, action: ToolAction | undefined): boolean {
+  return action?.annotations?.readOnly === true || isReadOnlyAction(tool, actionName);
+}
+
+function isReadOnlyReasonedAbstention(
+  tool: string,
+  actionName: string,
+  action: ToolAction | undefined,
+): boolean {
+  if (action === undefined) return false;
+  if (!actionIsReadOnly(tool, actionName, action)) return false;
+  const contract = readActionContract(action);
+  if (contract === undefined) return false;
+  return contract.ensures.kind === 'none';
+}
+
+function formatMissingEnsures(missing: readonly { readonly source: string }[]): string {
+  return missing.map((item) => item.source).join(', ');
+}
+
+function ensureContractViolatedResult(
+  tool: string,
+  actionName: string,
+  result: ToolResult,
+  missing: readonly { readonly source: string }[],
+): ToolResult {
+  return {
+    success: false,
+    data: result.data,
+    error: {
+      code: 'ENSURE_CONTRACT_VIOLATED',
+      message:
+        `${tool}.${actionName} declared an ensure that was not observed after dispatch ` +
+        `(${formatMissingEnsures(missing)}). A branded witness or a declaration is not ` +
+        'observation — the store or the persisted-evidence reader must show the fact.',
+    },
+  };
+}
+
 // ─── T04: Server-side Read-only Action Allowlist (Issue #1192) ─────────────
 //
 // Composite-tool actions that are safe to invoke under the
@@ -380,49 +433,6 @@ function isReadOnlyAction(tool: string, action: string): boolean {
   if (allowed === '*') return true;
   return allowed !== undefined && allowed.includes(action);
 }
-
-/**
- * Actions that never consume a `featureId` (Sentry MEDIUM #1423).
- *
- * The roots-based workspace-discovery branch in `dispatch()` skips its
- * synchronous filesystem walk for actions in this set so high-frequency
- * introspection calls (catalog reads, runbook fetches, agent-spec
- * lookups) don't pay the discovery cost.
- *
- * This list is a LATENCY shortcut and nothing more. It is deliberately NOT
- * load-bearing for correctness: {@link actionAcceptsInferredFeatureId} decides
- * whether inference may run at all, reading the receiving action's own schema.
- * A name missing from this set costs a filesystem walk; it can no longer cost
- * a rejected call.
- */
-const NO_WORKSPACE_RESOLUTION_ACTIONS: ReadonlySet<string> = new Set([
-  'describe',
-  'runbook',
-  'agent_spec',
-]);
-
-/**
- * May the roots/cwd resolver hand this action an inferred `featureId`?
- *
- * Only when the action's OWN schema declares the field. Every composite tool
- * flattens its actions into one registration schema, so the wire accepts the
- * union of every action's fields — but routing hands the payload to a single
- * strict schema that knows only its own. Injecting into an action that does
- * not declare `featureId` therefore manufactures the exact refusal
- * `undeclared-parameters.ts` exists to raise, naming a parameter the caller
- * never sent and the server itself added.
- *
- * The predicate reads the same `schema.shape` that builds that refusal, so the
- * two can no longer disagree: a newly-added action is classified correctly the
- * moment it is declared, with no list to keep in step.
- *
- * Exported for the regression guard, which asserts this over the whole
- * registry rather than executing 59 handlers to discover it.
- */
-export function actionAcceptsInferredFeatureId(action: ToolAction): boolean {
-  return action.schema.shape['featureId'] !== undefined;
-}
-
 /**
  * Apply the readonly capability gate. Returns a structured CAPABILITY_DENIED
  * ToolResult when the effective capability set forbids `action` on `tool`,
@@ -839,115 +849,37 @@ export async function dispatch(
 
     let { action: _action, ...rest } = args;
 
-    // ─── #1290 — Roots-based featureId inference ─────────────────────────
-    // Resolution priority (load-bearing for missing-required-param paths):
-    //   explicit > roots > cwd > elicitation > INVALID_INPUT.
-    // Elicitation is the LAST resort before INVALID_INPUT because it
-    // requires a transport round-trip; roots + cwd inference are
-    // round-trip-free and so take precedence (#1274). If the caller
-    // already supplied a `featureId`, we leave it alone. Otherwise, if
-    // the client declared the MCP roots capability (snapshotted on the
-    // resolver via the initialize handshake), call `resolveWorkspace`
-    // to attempt inference from the cached roots list or a cwd-walk
-    // fallback.
+    // ─── Inferred values ─────────────────────────────────────────────────
     //
-    // Multi-match returns a structured INVALID_INPUT here so the caller
-    // can disambiguate; zero-match falls through to the existing per-
-    // action Zod validation, which surfaces the legacy "featureId is
-    // required" envelope unchanged.
+    // Resolution priority for a parameter the caller omitted:
     //
-    // Sentry MEDIUM #1423: actions that never consume workspace context
-    // (`describe`/`runbook`/`agent_spec` — pure introspection on the
-    // registry / catalogs) skip the discovery call entirely. Pre-fix
-    // these high-frequency informational calls each triggered a
-    // synchronous cwd-walk on miss, adding measurable latency to the
-    // dispatch hot path. The skip list is conservative: anything that
-    // *might* take a featureId stays in the discovery branch.
-    // Sentry MEDIUM #1424: skip workspace resolution entirely when
-    // `rootsClient` is undefined — that's the CLI dispatch path which has
-    // no MCP roots channel and therefore no useful inference target. The
-    // sync `cwdWalk` fallback would still fire and add filesystem latency
-    // to every CLI hot-path dispatch (telemetry view, doctor checks, etc.)
-    // that happens to omit a featureId. Roots+cwd inference is purely an
-    // MCP-client convenience for callers that DID declare roots.
+    //     explicit > inferred (roots, then a cwd walk) > elicitation > INVALID_INPUT
     //
-    // The receiving action's schema is consulted FIRST. Inference is a
-    // convenience for actions that take a featureId; for an action that does
-    // not declare one there is nothing to infer, and injecting anyway turns a
-    // successful resolution into an INVALID_INPUT naming a field the caller
-    // never sent. That inverted failure hit 59 of the 124 registered actions
-    // — including `doctor`, so the diagnostic of record broke exactly when an
-    // operator reached for it — and it reproduced only where roots resolution
-    // SUCCEEDS, which is why the repo's own suite never saw it.
-    if (
-      rest.featureId === undefined
-      && ctx.capabilityResolver !== undefined
-      && ctx.rootsClient !== undefined
-      && actionAcceptsInferredFeatureId(matchingAction)
-      && !NO_WORKSPACE_RESOLUTION_ACTIONS.has(actionName)
-    ) {
-      try {
-        const { resolveWorkspace } = await import('../../runtime/workspace/discovery.js');
-        const resolution = await resolveWorkspace({
-          resolver: ctx.capabilityResolver,
-          rootsClient: ctx.rootsClient,
-          cwd: ctx.cwd ?? process.cwd(),
-          eventStore: ctx.eventStore,
-          // #1504 — authoritative workflow enumeration via the projected
-          // `workflow_state` table when probing this server's own workspace.
-          storage: ctx.storage,
-        });
-        if (resolution !== undefined) {
-          if (resolution.success) {
-            rest = { ...rest, featureId: resolution.featureId };
-          } else {
-            // Multi-match. Surface the structured INVALID_INPUT so the
-            // caller can pick the intended target. CodeRabbit CRITICAL
-            // #1428: map `validTargets` from `{featureId,path}` records
-            // to plain `featureId` strings — that's the disambiguator the
-            // caller actually supplies in the retry. The published error
-            // contract expects `readonly (string | ValidTransitionTarget)[]`.
-            // CodeRabbit CRITICAL + Sentry #1428: also attach _meta so
-            // the multi-match envelope carries correlation IDs (parity
-            // with success + thrown-error paths). Pre-fix this was the
-            // ONE early-return path that diverged from the published
-            // error contract.
-            return attachMeta({
-              success: false,
-              error: {
-                code: resolution.code,
-                message:
-                  `${tool}/${actionName}: multiple workspaces matched MCP roots; ` +
-                  'supply an explicit featureId to disambiguate.',
-                // CodeRabbit CRITICAL #1423: `ToolResult.error.validTargets`
-                // expects `readonly (string | ValidTransitionTarget)[]`, but
-                // workspace resolution returns
-                // `readonly { featureId, path }[]`. Surface the featureIds
-                // (the disambiguator the caller actually supplies) so the
-                // envelope satisfies the contract.
-                validTargets: resolution.validTargets?.map((t) => t.featureId),
-              },
-            });
-          }
-        }
-      } catch (err) {
-        // Discovery is a best-effort inference hook — a failure must not
-        // mask the legacy validation contract. Fall through to the
-        // existing schema check; callers see the standard "featureId
-        // is required" envelope. CodeRabbit MINOR #1423: silent catches
-        // violate the project's observability standard. Surface via the
-        // workspace-discovery logger child so the failure is auditable
-        // without changing the user-facing fallback.
-        logger.child({ subsystem: 'workspace-discovery' }).warn(
-          {
-            tool,
-            action: actionName,
-            error: err instanceof Error ? err.message : String(err),
-          },
-          'workspace inference failed; falling back to legacy featureId validation',
-        );
-      }
+    // Elicitation is LAST because it costs a transport round-trip; inference is
+    // round-trip-free and so takes precedence. It is also the only one of the
+    // three that needs no gate here: it splices a field named by this action's
+    // OWN parse error, so it can only ever supply something the action
+    // declares.
+    //
+    // The table in `inferred-values.ts` owns which values may be inferred and
+    // the single gate they share — most importantly that a value is merged only
+    // into an action whose schema declares it. Dispatch keeps no per-field
+    // logic, so a future inference cannot reopen #1838 by forgetting a check.
+    const inference = await applyInferredValues(rest, matchingAction, tool, actionName, ctx);
+    if (inference.kind === 'refused') {
+      // Multi-match. A structured INVALID_INPUT so the caller can pick the
+      // intended target. `attachMeta` is applied like every other early return
+      // — this path used to be the one that diverged from the error contract.
+      return attachMeta({
+        success: false,
+        error: {
+          code: inference.code,
+          message: inference.message,
+          ...(inference.validTargets !== undefined ? { validTargets: inference.validTargets } : {}),
+        },
+      });
     }
+    rest = inference.args;
 
     // ─── DR-7 — honoured, or refused (never accepted-and-dropped) ────────
     //
@@ -1123,6 +1055,16 @@ export async function dispatch(
         });
       }
     }
+
+    const admission = await evaluateDispatchAdmission({
+      tool,
+      actionName,
+      action: matchingAction,
+      args,
+      ctx,
+      authorization,
+    });
+    if (admission !== null) return attachMeta(admission);
 
     // T-12 (P4 of rehydration-machinery-refactor): emit
     // `session.machinery_consumed` on the first non-rehydrate L5 handler
@@ -1311,9 +1253,16 @@ export async function dispatch(
   // The fault is still ours rather than the caller's, which is what the mode is
   // for: an operator who wants the old behavior sets `advisory` and gets the
   // finding without the failure.
+  const dispatchedActionName = typeof args.action === 'string' ? args.action : '';
+  const dispatchedAction =
+    dispatchedActionName === '' ? undefined : findActionInRegistry(tool, dispatchedActionName);
+  const dispatchedContract = dispatchedAction === undefined ? undefined : readActionContract(dispatchedAction);
+  const observedStreamId = observationStreamId(args, dispatchedContract);
+  const readOnlyAbstention = isReadOnlyReasonedAbstention(tool, dispatchedActionName, dispatchedAction);
+
   const emissionVerdict = await runEmissionVerifierInterceptor(ctx.eventStore, {
     tool,
-    action: typeof args.action === 'string' ? args.action : '',
+    action: dispatchedActionName,
     operationId: dispatchCtx.operationId,
     // Both spellings of the same thing. A stream is named `featureId` on most
     // actions and `streamId` on those re-parented onto a stream they did not
@@ -1322,13 +1271,12 @@ export async function dispatch(
     // `not-applicable`, so an action with an unconditional contract was exempt
     // from the check by the NAME of its parameter. The residue is declared, not
     // silent: an action carrying neither still resolves `no-stream`.
-    streamId: dispatchStreamId(args),
-    declared:
-      typeof args.action === 'string'
-        ? findActionInRegistry(tool, args.action)?.autoEmits
-        : undefined,
+    streamId: observedStreamId,
+    // Nested contract emissions are the only subject. Sibling autoEmits is leftover.
+    declared: verifierDeclaredEmissions(dispatchedContract),
     handlerStubbed: STUBBED_COMPOSITES.has(tool),
     handlerSucceeded: result.success,
+    readOnlyAbstention,
     // The interceptor resolves the mode again for its own log level. Without
     // this the record read `enforcement: block` on a run that was configured
     // advisory and did not fail — the log and the outcome disagreeing about
@@ -1356,7 +1304,7 @@ export async function dispatch(
       error: {
         code: 'EMISSION_CONTRACT_VIOLATED',
         message:
-          `${tool}.${typeof args.action === 'string' ? args.action : ''} declares an ` +
+          `${tool}.${dispatchedActionName} declares an ` +
           `unconditional emission that did not land: ${undelivered.join(', ')}. ` +
           'THE OPERATION COMPLETED AND ITS EFFECTS ARE PERFORMED — do NOT retry this ' +
           'call; retrying repeats a mutation that already succeeded. Its result is ' +
@@ -1367,6 +1315,102 @@ export async function dispatch(
           '`events.emission-enforcement: advisory` in `.exarchos.yml`.',
       },
     });
+  }
+
+  // Advisory (or any non-blocking) miss: the store does not hold the
+  // declared events. Ensure observation would fail for the same missing
+  // facts. The mode already chose not to fail the dispatch; do not
+  // re-fail it under a different code.
+  if (emissionVerdict.status === 'violated') {
+    return attachMeta(result);
+  }
+
+  // Unassessed is not exempt. The action had an unconditional contract and
+  // nobody could read whether it was kept, so under `block` the dispatch does
+  // not report a success it has no evidence for. The ensures axis a few lines
+  // below already fails closed the same way on a store that will not answer;
+  // the two are separate mechanisms over separate declarations and are left
+  // that way deliberately here rather than unified in passing.
+  if (emissionVerdict.status === 'indeterminate') {
+    if (emissionIndeterminacyBlocks(emissionVerdict, ctx.projectConfig)) {
+      return attachMeta({
+        success: false,
+        data: result.data,
+        error: {
+          code: EMISSION_INDETERMINATE_ERROR_CODE,
+          message:
+            `${tool}.${dispatchedActionName} declares unconditional emissions ` +
+            `(${emissionVerdict.required.join(', ')}) that could not be verified: ` +
+            `${describeEmissionIndeterminacy(emissionVerdict)}. THE OPERATION COMPLETED ` +
+            'AND ITS EFFECTS ARE PERFORMED — do NOT retry this call; retrying repeats a ' +
+            'mutation that already succeeded. Its result is preserved on `data`. What ' +
+            'failed is the verification, not the work: no evidence was read either way, ' +
+            'so the run refuses to assert the contract held. Restore the event store and ' +
+            'inspect the operation; to surface this without failing the run, set ' +
+            '`events.emission-enforcement: advisory` in `.exarchos.yml`.',
+        },
+      });
+    }
+    // Advisory: the finding rides on the envelope the caller already reads.
+    result = {
+      ...result,
+      warnings: [
+        ...(result.warnings ?? []),
+        emissionIndeterminacyWarning(tool, dispatchedActionName, emissionVerdict),
+      ],
+    };
+  }
+
+  // Host-owned actions never reach here: they returned the obligation before
+  // the handler ran, and they do not owe execute-path ensures. Stubbed
+  // composites are the same kind of non-execution as the emission verifier
+  // already exempts. Read-only reasoned abstention has no append to observe.
+  // A successful return after this point implies every applicable ensure was
+  // observed from the store or the persisted-evidence reader.
+  if (
+    dispatchedContract !== undefined &&
+    dispatchedContract.ensures.kind === 'declared' &&
+    !STUBBED_COMPOSITES.has(tool) &&
+    !readOnlyAbstention
+  ) {
+    const applicable = applicableEnsures(
+      dispatchedContract.ensures,
+      result.success ? 'success' : 'failure',
+    );
+    if (applicable.length === 0) {
+      return attachMeta(result);
+    }
+    if (observedStreamId === undefined || observedStreamId.length === 0) {
+      return attachMeta(
+        ensureContractViolatedResult(
+          tool,
+          dispatchedActionName,
+          result,
+          applicable,
+        ),
+      );
+    }
+    let observation: ActionPostconditionObservation;
+    try {
+      observation = await observeActionPostconditions({
+        ensures: dispatchedContract.ensures,
+        store: ctx.eventStore,
+        evidence: ctx.eventStore,
+        streamId: observedStreamId,
+        operationId: dispatchCtx.operationId,
+        outcome: result.success ? 'success' : 'failure',
+      });
+    } catch {
+      // Report the ensures that APPLY to this outcome, not every declared one:
+      // the failure path's message otherwise names postconditions the run was
+      // never going to observe.
+      observation = { status: 'violated' as const, missing: applicable };
+    }
+    if (observation.status === 'violated') {
+      return attachMeta(
+        ensureContractViolatedResult(tool, dispatchedActionName, result, observation.missing),
+      );
+    }
   }
 
   return attachMeta(result);

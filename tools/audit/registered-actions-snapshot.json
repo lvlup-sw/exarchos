@@ -1,11 +1,11 @@
 {
-  "note": "Task 047. Persisted identifiers and registered action names, captured BEFORE the decompositions in tasks 048-051. A decomposition that drops a registration or changes a persisted identifier compiles cleanly and passes every type check — this snapshot is the only thing that sees it. Regenerate ONLY when a registration is deliberately added or removed, and say so in the same commit.",
-  "capturedAt": "2026-08-13",
+  "note": "Live TOOL_REGISTRY and event-annotation denominator. Regenerated from the live registry whenever a registration is deliberately added or removed; the counts are a measurement, not a target.",
+  "capturedAt": "2026-08-27",
   "counts": {
     "tools": 5,
     "visibleTools": 4,
-    "actions": 124,
-    "eventTypes": 176
+    "actions": 125,
+    "eventTypes": 178
   },
   "tools": [
     {
@@ -60,6 +60,7 @@
         "describe",
         "discover_bridge",
         "doctor",
+        "execute_intent",
         "extract_fix_tasks",
         "extract_task",
         "finalize_oneshot",
@@ -557,6 +558,12 @@
       "rationale": "operation-record"
     },
     {
+      "type": "orchestrate.intent_executed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
       "type": "phase.blocked",
       "lifecycle": "active",
       "tier": "substrate",
@@ -660,6 +667,12 @@
     },
     {
       "type": "provider.unknown-tier",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "prune.diagnostics",
       "lifecycle": "active",
       "tier": "substrate",
       "rationale": "operation-record"

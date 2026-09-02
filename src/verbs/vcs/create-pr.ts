@@ -5,11 +5,12 @@
 // Two-event split (Wave B, B1.4 — audit INV-1 MEDIUM):
 //
 //   Phase A — durable INTENT:
-//     Append `pr.create.requested` with an idempotencyKey derived from
-//     `operationId` (UUID) BEFORE invoking the VCS side effect (`gh pr create`).
-//     `withStateRetry` retries OCC / storage-busy losses; the idempotencyKey
-//     deduplicates Phase A on replay so exactly one `pr.create.requested` event
-//     lands per logical invocation even under retry storms.
+//     Append `pr.create.requested` with an idempotencyKey derived from the
+//     AMBIENT operation identity BEFORE invoking the VCS side effect
+//     (`gh pr create`). `withStateRetry` retries OCC / storage-busy losses; the
+//     idempotencyKey deduplicates Phase A so exactly one `pr.create.requested`
+//     event lands per operation, under retry storms and under a caller's own
+//     retry of the same operation alike.
 //
 //   Idempotent check (INV-1 MEDIUM):
 //     Before invoking `gh pr create`, query listPrs for an existing PR matching
@@ -24,14 +25,19 @@
 //     Emit `pr.create.executed` after gh pr create succeeds (or after the
 //     idempotent short-circuit). The operationId correlates the two events.
 //
-// The idempotencyKey pattern (`pr.create.requested:${operationId}` and
-// `pr.create.executed:${operationId}`) satisfies the withSession idempotency
+// The idempotencyKey pattern (`pr.create.requested:<operation>` and
+// `pr.create.executed:<operation>`) satisfies the withSession idempotency
 // contract (audit §F1.1) without requiring a registered projection reducer —
 // Phase A and Phase B are unconditional appends, not decide() closures.
+//
+// Both records land on the shared `vcs` stream, never a feature stream, and the
+// action declares that stream on its resource axis so post-dispatch observation
+// looks for them where they actually are.
 
 import { randomUUID } from 'node:crypto';
 
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
+import { getDispatchContext } from '../../dispatch/dispatch-context.js';
 import type { ToolResult } from '../../format.js';
 import { createVcsProvider } from '../../vcs/factory.js';
 import {
@@ -126,15 +132,36 @@ export async function handleCreatePr(
     // `{ error }` (state unreadable) → degrade to the legacy create path.
   }
 
-  // ─── Generate stable operationId for this invocation ──────────────────────
-  // The operationId is the idempotency anchor for both Phase A and Phase B.
-  // Using randomUUID() at handler entry means each top-level invocation gets a
-  // fresh key. Retries (via withStateRetry) reuse the SAME operationId so the
-  // EventStore's built-in idempotencyKey dedup short-circuits any re-append
-  // of Phase A after the first committed `pr.create.requested` event.
+  // ─── The correlation id, and the key that collapses a retry ───────────────
+  //
+  // Two different jobs, and they used to be one value. `operationId` is the
+  // field on both records that ties the intent to the result; the event schema
+  // types it as a uuid, so it is minted here.
+  //
+  // The idempotency KEY cannot be that uuid. Minted fresh at handler entry, it
+  // is fresh again on the next call, so a caller retrying the SAME operation
+  // after a crash between the two appends keyed its second attempt differently
+  // and left a duplicated pair — the opposite of what the comments below used
+  // to claim. Keyed on the AMBIENT operation identity instead, a retry under
+  // the same operation collapses onto the first write, while two genuinely
+  // distinct calls still leave two pairs.
+  //
+  // How much that buys depends on the caller, and only one caller makes it a
+  // guarantee. A leaf of a bounded segment runs under an id DERIVED from the
+  // caller's operation key, which a retry of that operation reuses verbatim —
+  // so the retry keys onto the first attempt's rows. A fresh MCP dispatch mints
+  // a fresh operation id per request, so a retry that arrives as a new request
+  // is a new operation here and is covered by the remote-recovery precheck
+  // below, not by this key.
+  //
+  // Outside a dispatch scope there is no operation for a second append to be
+  // the same as, so the per-call uuid is the honest fallback: a constant key
+  // there would collapse calls that have nothing to do with each other. Same
+  // semantics, and for the same reason, as the shared gate-key helper.
   const operationId = randomUUID();
-  const phaseAKey = `pr.create.requested:${operationId}`;
-  const phaseBKey = `pr.create.executed:${operationId}`;
+  const keySuffix = getDispatchContext()?.operationId ?? operationId;
+  const phaseAKey = `pr.create.requested:${keySuffix}`;
+  const phaseBKey = `pr.create.executed:${keySuffix}`;
 
   // ─── DR-1 task 006 — ground the PR body in artifacts.intent ───────────────
   //
@@ -155,9 +182,10 @@ export async function handleCreatePr(
   // ─── Phase A — durable INTENT ─────────────────────────────────────────────
   //
   // Commit `pr.create.requested` BEFORE the `gh pr create` side effect.
-  // `withStateRetry` retries OCC / StorageBusy losses. The idempotencyKey
-  // ensures only one `pr.create.requested` lands per operationId: the
-  // EventStore deduplicates on key-match so a retry does NOT re-emit Phase A.
+  // `withStateRetry` retries OCC / StorageBusy losses, and the idempotencyKey
+  // collapses those retries onto the first committed row. It also collapses a
+  // CALLER's retry of the same operation, which is what keying it on the
+  // ambient operation identity rather than a per-call uuid buys.
   //
   // NOTE: `check-withsession-idempotency.sh` does NOT check this file. That
   // gate selects files solely by the presence of a `.withSession(` call site,
@@ -301,9 +329,10 @@ export async function handleCreatePr(
     });
 
     // ─── Phase B — durable RESULT ────────────────────────────────────────────
-    // idempotencyKey ensures retries after a crash between createPr() and this
-    // append do not produce duplicate `pr.create.executed` events for the same
-    // operationId — the EventStore deduplicates on key-match.
+    // The key collapses a re-append under the SAME ambient operation, so a
+    // retry after a crash between createPr() and this append leaves one
+    // `pr.create.executed` rather than two. A second, unrelated call is a
+    // different operation and correctly leaves its own row.
     await ctx.eventStore.append(
       'vcs',
       {

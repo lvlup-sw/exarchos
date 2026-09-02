@@ -10,7 +10,21 @@ import { dispatch, READ_ONLY_ACTIONS } from '../../../../src/dispatch/core/dispa
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
 import { toEnvelope } from '../../../../src/format.js';
 import { EnvelopeSchema } from '../../../../src/contract/schemas/envelope.js';
+import { none, type ActionContract } from '../../../../src/registry/action-contract.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+
+const IDEMPOTENT_FIXTURE_CONTRACT: ActionContract = {
+  requires: none('mcp fixture is a read-only probe'),
+  ensures: none('mcp fixture has no durable postcondition'),
+  needs: none('mcp fixture declares no capabilities'),
+  touches: {
+    frame: 'single-machine',
+    resources: none('mcp fixture touches no durable resources'),
+  },
+  executionAuthority: { kind: 'local' },
+  replay: { kind: 'safe-repeat' },
+  emissions: none('mcp fixture emits no events'),
+};
 
 // Mock the state-store module
 vi.mock('../../../../src/workflow/state-store.js', async (importOriginal) => {
@@ -103,6 +117,7 @@ describe('createMcpServer', () => {
             idempotent: true,
             openWorld: false,
           },
+          actionContract: IDEMPOTENT_FIXTURE_CONTRACT,
         }],
       });
       setCustomToolActionHandler('custom_identity_probe', 'probe', async () => {
@@ -572,6 +587,7 @@ describe('createMcpServer', () => {
         idempotent: true,
         openWorld: false,
       },
+      actionContract: IDEMPOTENT_FIXTURE_CONTRACT,
     };
     try {
       registerCustomTool({

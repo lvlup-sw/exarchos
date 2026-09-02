@@ -32,7 +32,7 @@
       "kind": "registry",
       "version": null,
       "versionSpec": null,
-      "digest": "sha256:a22e320584d931873aab079f4a1b7f51c5d928ff7c11e4189d84e39eec338dbc",
+      "digest": "sha256:230442c5c42a499f9fe7b05e4ca16efe75e9f59875610f7729e06f7110ce72ff",
       "source": "registry.ts TOOL_REGISTRY — flattened, deduped, sorted ActionIds",
       "approved": true
     },

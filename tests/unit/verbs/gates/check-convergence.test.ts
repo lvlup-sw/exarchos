@@ -24,6 +24,49 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
   queryDeltaEvents: vi.fn().mockResolvedValue([]),
 }));
 
+// #1855 — the gate folds its view to the stream's durable tail through
+// `foldToTail` rather than pairing `queryDeltaEvents` with a bare
+// `materialize`. The fold is the seam a unit test of the VERDICT should stub:
+// what the fold itself guarantees is covered against a real store in
+// `tests/unit/projections/fold-at-tail.test.ts`.
+// `foldToTail` guarantees the fold covers the stream's durable tail, and
+// callers now bound their own evidence to the sequence it reports. These
+// fixtures ARE the stream, so the stub reports a sequence at or past every
+// fixture event; a lower one would assert a lag this file never sets up.
+const AT_TAIL = Number.MAX_SAFE_INTEGER;
+
+vi.mock('../../../../src/projections/fold-at-tail.js', () => ({
+  foldToTail: vi.fn(async () => ({ view: mockViewState, sequence: AT_TAIL })),
+}));
+
+// The gate now records durable evidence through the shared phase-gate runner
+// before any success carrier escapes. These cases are about the PROVIDER's
+// verdict, so the runner is stubbed down to its provider call — the same seam
+// every other migrated gate's unit test stubs. What the runner itself
+// guarantees is proven against a real store in `gate-runner.test.ts`.
+vi.mock('../../../../src/verbs/gates/gate-runner.js', () => ({
+  runPhaseGateWithEvidence: vi.fn(async (request) => {
+    try {
+      return await request.executeProvider(
+        {
+          gateClass: request.gateClass,
+          providerRef: 'test-provider',
+          actionName: 'test-provider',
+        },
+        request.providerInput,
+      );
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: 'GATE_PROVIDER_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }),
+}));
+
 import { handleCheckConvergence } from '../../../../src/verbs/gates/check-convergence.js';
 
 const STATE_DIR = '/tmp/test-check-convergence';
@@ -168,7 +211,7 @@ describe('handleCheckConvergence', () => {
     expect(event.data.details.phase).toBe('meta');
   });
 
-  it('CheckConvergence_GateEmissionFailure_DoesNotBreakHandler', async () => {
+  it('CheckConvergence_GateEventAppendFails_WithholdsTheSuccessCarrier', async () => {
     mockViewState = {
       featureId: 'test-feature',
       overallConverged: false,
@@ -185,9 +228,13 @@ describe('handleCheckConvergence', () => {
       mockStore as unknown as EventStore,
     );
 
-    // Handler should still succeed despite emission failure
-    expect(result.success).toBe(true);
-    expect(result.data.passed).toBe(false);
+    // `convergence` declares `gate.executed` unconditionally — a dropped
+    // append withholds the success carrier rather than returning one the log
+    // does not back. The gate's own verdict is still readable on `data`.
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_EVENT_UNRECORDED');
+    const data = result.data as { passed: boolean };
+    expect(data.passed).toBe(false);
   });
 
   it('CheckConvergence_UsesWorkflowIdAsStreamId', async () => {
@@ -198,7 +245,7 @@ describe('handleCheckConvergence', () => {
       dimensions: {},
     };
 
-    const { queryDeltaEvents } = await import('../../../../src/projections/views/tools.js');
+    const { foldToTail } = await import('../../../../src/projections/fold-at-tail.js');
 
     await handleCheckConvergence(
       { featureId: 'test-feature', workflowId: 'custom-stream' },
@@ -207,7 +254,7 @@ describe('handleCheckConvergence', () => {
     );
 
     // Should use workflowId as the stream ID
-    expect(queryDeltaEvents).toHaveBeenCalledWith(
+    expect(foldToTail).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       'custom-stream',

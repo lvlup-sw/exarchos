@@ -4,6 +4,7 @@
 // orchestrate layer from direct telemetry projection internals.
 // ────────────────────────────────────────────────────────────────────────────
 
+import { foldToTail } from '../fold-at-tail.js';
 import { getOrCreateMaterializer, queryDeltaEvents } from '../views/tools.js';
 import { TELEMETRY_VIEW } from './telemetry-projection.js';
 import type { TelemetryViewState } from './telemetry-projection.js';
@@ -37,8 +38,12 @@ export async function queryRuntimeMetrics(
 ): Promise<RuntimeMetrics> {
   try {
     const materializer = getOrCreateMaterializer(stateDir);
-    const telemetryEvents = await queryDeltaEvents(store, materializer, 'telemetry', TELEMETRY_VIEW);
-    const telemetry = materializer.materialize<TelemetryViewState>('telemetry', TELEMETRY_VIEW, telemetryEvents);
+    const { view: telemetry } = await foldToTail<TelemetryViewState>(
+      store,
+      materializer,
+      'telemetry',
+      TELEMETRY_VIEW,
+    );
 
     return {
       sessionTokens: telemetry.totalTokens,
@@ -60,8 +65,7 @@ export async function queryTelemetryState(
 ): Promise<TelemetryViewState | null> {
   try {
     const materializer = getOrCreateMaterializer(stateDir);
-    const telemetryEvents = await queryDeltaEvents(store, materializer, 'telemetry', TELEMETRY_VIEW);
-    return materializer.materialize<TelemetryViewState>('telemetry', TELEMETRY_VIEW, telemetryEvents);
+    return (await foldToTail<TelemetryViewState>(store, materializer, 'telemetry', TELEMETRY_VIEW)).view;
   } catch {
     return null;
   }

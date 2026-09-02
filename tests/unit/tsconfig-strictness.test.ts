@@ -136,7 +136,41 @@ describe('DR-14: escape-hatch census', () => {
   // repo compiles"; that set simply got smaller. The typecheck hole itself is
   // the real finding and is tracked separately — this ledger records only that
   // the two gates still agree with each other.
-  const BASELINE: CastCounts = { nonNull: 72, asCast: 1698, asAny: 0 };
+  // Re-baselined for the action-contract surface. The paydown came first:
+  // decorative `as const` in contract literals became `satisfies` (which this
+  // census exempts by design), each closed vocabulary now declares its union
+  // instead of pinning an array and deriving it back, the validate-then-narrow
+  // sites became type predicates, and `Envelope` gained the field the wrapper
+  // was casting to reach. That took the delta from 77 to 24.
+  //
+  // What remains is boundary narrowing that has no cast-free form — dynamic
+  // `import()` results, parsed JSON snapshots, oracle fixtures — plus the
+  // `as const` this census counts although the module header defines its
+  // subject as assertions that "silence the checker without proving
+  // anything", which `as const` does not do. That mismatch is older than this
+  // change and is left as a separate question.
+  //
+  // PAYDOWN (#1867) — nonNull 73 -> 70, asCast 1722 -> 1719. The action-contract
+  // closure synthesis (§"Re-baselined for the action-contract surface" above)
+  // introduced six bridge assertions at the ES v2 fold sites in
+  // `src/workflow/handlers/get.ts` and `src/workflow/handlers/set.ts` —
+  // three `as WorkflowStateView`-style casts plus three `x!` non-null
+  // assertions — to span the materializer singleton that PR #1858 added.
+  // PR #1867 reverted the singleton (see `src/workflow/handlers/shared.ts`
+  // §"Module-Level ViewMaterializer (removed)") and folded the read path
+  // through `foldToTail<WorkflowStateView>`, which is generic and constrains
+  // the return type at the call site — every bridge assertion became dead
+  // and was removed in the same commit. Three casts and three non-nulls;
+  // no new debt introduced, no sym-floors widened.
+  //
+  // 1719 -> 1718: one `as const`, on the key tuple inside
+  // `resolveProjectionStreamId`. That function and its sibling
+  // `guardProjectionDegraded` were deleted from
+  // `src/projections/degraded-result.ts` once the fold seam left them without
+  // a consumer (see the removal note there). A paydown, not a paydown target —
+  // the site went away with the code that held it, so the floor SLIDES down by
+  // one and the window keeps its width.
+  const BASELINE: CastCounts = { nonNull: 70, asCast: 1718, asAny: 0 };
 
   // Declared budget = MAX escape-hatch sites maintenance work may introduce
   // before the NEXT documented re-baseline. `as any` may never grow.

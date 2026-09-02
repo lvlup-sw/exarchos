@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { handleInit, handleGet, configureWorkflowMaterializer } from '../../../src/workflow/tools.js';
+import { handleInit, handleGet } from '../../../src/workflow/tools.js';
 import { EventStore } from '../../../src/events/store.js';
 import { ViewMaterializer } from '../../../src/projections/views/materializer.js';
 import {
@@ -65,14 +65,12 @@ beforeEach(async () => {
   eventStore = new EventStore(tmpDir);
   const materializer = new ViewMaterializer();
   materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
-  configureWorkflowMaterializer(materializer);
   // Touch TS_STARTED so the constant is referenced and lints clean even if a
   // future test stops using it directly.
   void TS_STARTED;
 });
 
 afterEach(async () => {
-  configureWorkflowMaterializer(null);
   await rmrfAsync(tmpDir);
 });
 

@@ -83,6 +83,7 @@ To validate stack integrity, use the `validate_pr_stack` action via orchestrate:
 ```typescript
 exarchos_orchestrate({
   action: "validate_pr_stack",
+  featureId: "<feature-id>",
   baseBranch: "main"
 })
 ```

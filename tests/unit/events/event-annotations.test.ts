@@ -310,6 +310,36 @@ describe('EventAnnotations — the DR-2 tier and lifecycle assignment for the ev
     expect(eligible.map((w) => w.eventType)).not.toContain(VIOLATION);
   });
 
+  it('IntentExecuted_SubstrateTier_DerivesAutoSource', () => {
+    // The bounded action executor's own operation record is appended by
+    // `execute_intent`'s handler, inside the operation it just ran — no
+    // caller is asked to report on its behalf, and no projection folds it
+    // yet, so `capability` (non-empty `consumedBy`) is unavailable. This is
+    // load-bearing: the action's `emissions`/`ensures` declarations require a
+    // derived source of `auto` (`normalizeActionContract` rejects anything
+    // else), and this test is what keeps that true if the annotation ever
+    // drifts off `substrate`.
+    const EXECUTED = 'orchestrate.intent_executed';
+
+    const registration = ANNOTATED_EVENTS.registrationOf(EXECUTED);
+    expect(registration, `${EXECUTED} carries no annotation`).toBeDefined();
+    expect(registration).toEqual({
+      lifecycle: 'active',
+      tier: 'substrate',
+      rationale: 'operation-record',
+    });
+
+    expect(weldReferenceOf(registration!).ref.trim().length).toBeGreaterThan(0);
+
+    // The consequence the action contract depends on.
+    expect(EVENT_EMISSION_REGISTRY[EXECUTED]).toBe('auto');
+
+    // NOT report-coupled — an executor that could forget to record its own
+    // operation would defeat the reason this event exists.
+    const reportCoupled = reportCoupledEventTypes(EventTypes);
+    expect(reportCoupled).not.toContain(EXECUTED);
+  });
+
   it('EventAnnotations_SeededTierSourceDisagreement_IsReported', () => {
     // THE FALSIFIER. `task.completed` is annotated `capability`, which derives `'auto'`. Declaring
     // it `'model'` is a tier<->source disagreement and must be reported by name — this is what

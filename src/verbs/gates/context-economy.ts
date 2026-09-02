@@ -7,7 +7,9 @@
 
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
-import { emitGateEvent, getDiff } from './gate-utils.js';
+import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
+import { runPhaseGateWithEvidence } from './gate-runner.js';
+import { getDiff, requireGateEvent, sameOperationGateKey } from './gate-utils.js';
 import { checkContextEconomy } from '../pure/context-economy.js';
 import { queryRuntimeMetrics } from '../../projections/telemetry/telemetry-queries.js';
 import type { RuntimeMetrics } from '../../projections/telemetry/telemetry-queries.js';
@@ -42,6 +44,33 @@ export async function handleContextEconomy(
     };
   }
 
+  // The gate declares durable gate evidence as a postcondition and paid it with
+  // a bare `gate.executed` append, which is a different record on a different
+  // axis — the observer reads `admission.evidence-recorded`. Routing the verdict
+  // through the shared phase-gate runner records that evidence before any
+  // success carrier escapes; the provider keeps minting its own declared
+  // `gate.executed` row from inside the closure below.
+  return runPhaseGateWithEvidence({
+    streamId: args.featureId,
+    gateClass: 'context-economy',
+    requirementId: 'requirement:context-economy',
+    stateDir,
+    eventStore,
+    subject: (phaseAttemptId) =>
+      createEvidenceSubject(
+        { kind: 'phase-attempt', phaseAttemptId },
+        { gate: 'context-economy', phase: 'review' },
+      ),
+    providerInput: args,
+    executeProvider: async () => executeContextEconomy(args, stateDir, eventStore),
+  });
+}
+
+async function executeContextEconomy(
+  args: ContextEconomyArgs,
+  stateDir: string,
+  eventStore: EventStore,
+): Promise<ToolResult> {
   const repoRoot = args.repoRoot || process.cwd();
   const baseBranch = args.baseBranch || 'main';
 
@@ -73,15 +102,6 @@ export async function handleContextEconomy(
 
   const store = eventStore;
 
-  // Emit gate.executed event (fire-and-forget)
-  try {
-    await emitGateEvent(store, args.featureId, 'context-economy', 'quality', passed, {
-      dimension: 'D3',
-      phase: 'review',
-      findingCount,
-    });
-  } catch { /* fire-and-forget */ }
-
   // Query runtime metrics via telemetry query abstraction (graceful degradation on failure)
   const runtimeMetrics = await queryRuntimeMetrics(store, stateDir);
 
@@ -92,6 +112,23 @@ export async function handleContextEconomy(
     report,
     runtimeMetrics,
   };
+  const carrier: ToolResult = { success: true, data: result };
 
-  return { success: true, data: result };
+  const unrecorded = await requireGateEvent(
+    store,
+    args.featureId,
+    'context-economy',
+    'quality',
+    passed,
+    carrier,
+    {
+      dimension: 'D3',
+      phase: 'review',
+      findingCount,
+    },
+    sameOperationGateKey('context-economy'),
+  );
+  if (unrecorded !== undefined) return unrecorded;
+
+  return carrier;
 }

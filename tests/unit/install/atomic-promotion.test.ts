@@ -39,6 +39,7 @@ import {
   recoverInterruptedPromotion,
   type PromotionExecutedRecord,
   type PromotionIo,
+  type PromotionRecorder,
 } from '../../../src/install/atomic-promotion.js';
 import { PromotionExecutedData } from '../../../src/events/schemas.js';
 
@@ -512,9 +513,10 @@ describe('promoteTree — effect carrier', () => {
     // The owner on the record is the plan's own, so the two cannot drift.
     expect(record?.owner).toBe(promotionPlan('install/atomic-promotion', target).owner);
     // The site declares exactly this name, on success only.
-    expect(promotionPlan('install/atomic-promotion', target).emits).toEqual([
-      { event: PROMOTION_EXECUTED, when: 'on-success' },
-    ]);
+    expect(promotionPlan('install/atomic-promotion', target).emits).toEqual({
+      kind: 'records',
+      emissions: [{ event: PROMOTION_EXECUTED, when: 'on-success' }],
+    });
     // The tree really did land — the record describes a promotion that happened.
     expect(diskDigest(target)).toBe(NEW_DIGEST);
   });
@@ -528,9 +530,21 @@ describe('promoteTree — effect carrier', () => {
     // record it is refused UP FRONT. The refusal propagates rather than
     // arriving as an error carrier: an unrecordable fact is a wiring fault in
     // the caller, not a failure of the promotion.
-    await expect(promoteTree({ target, entries: NEW_TREE }, LIVE, io)).rejects.toThrow(
-      /EMISSION_NOT_RECORDED|declares 1/,
-    );
+    //
+    // The refusal now comes from this owner's own guard rather than from the
+    // carrier. It has to: the owner WRAPS the caller's recorder in a real
+    // capability, so a wrapper around nothing satisfies the carrier's brand
+    // check and the refusal would otherwise land at the success terminal —
+    // after the tree had moved. The invariant this test exists for is the last
+    // two assertions, and they are unchanged.
+    await expect(
+      promoteTree(
+        { target, entries: NEW_TREE },
+        LIVE,
+        io,
+        undefined as unknown as PromotionRecorder,
+      ),
+    ).rejects.toThrow(/requires a recorder|EMISSION_NOT_RECORDED/);
 
     // The one thing that must be true of a refusal: nothing moved.
     expect(touched).toBe(false);

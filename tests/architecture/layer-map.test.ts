@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { scanLayerEdges } from '../../src/architecture/layer-boundaries-seam.js';
+import { lexModule } from '../../tools/test-helpers/module-lexer.js';
+import { WIN32_SPAWN_HEADROOM } from '../../vitest.config.js';
 
 // ─── The authoritative layer mapping (DR-2, task 010) ────────────────────────
 //
@@ -188,4 +191,45 @@ describe('the 11 targets → 9 published layers relation (what task 044 asserts)
       );
     }
   });
+});
+
+// ─── The event store must not import the oracle ─────────────────────────────
+//
+// `events` is declared on `LAYER_ALLOWED_IMPORTS` with a broad `contract`
+// allowance — store.ts already exercises it for `contract/shared/validation`
+// — so the general layering census cannot express "the event store never
+// reaches the oracle" without narrowing that whole row, which would also
+// break the edges the store genuinely needs. This is the narrower rule the
+// general census cannot state: no module under `events/` may resolve an
+// import into `contract/oracle/`. It reuses the same lexer-backed edge scan
+// the general census runs on, so a specifier hidden in a comment or a
+// template cannot manufacture or hide an edge here either.
+// Both tests below walk the real `src/` tree rather than a fixture, which puts
+// them outside this tier's "fast, in-memory" 5s budget on a loaded runner: the
+// first one to run pays the cold filesystem cache for the whole scan. They were
+// passing at roughly a fifth of the budget locally and timing out in CI, which
+// is the shape of a latent flake rather than a slow test. Given the explicit
+// headroom the tier grants its other filesystem-bound cases — scaled by the
+// same win32 factor the tier uses, because a flat literal would OVERRIDE that
+// scaling and hand Windows a SMALLER budget than it inherits by default.
+describe('EventsLayer_NeverImportsOracle', () => {
+  it('no module under events/ resolves an import into contract/oracle/', async () => {
+    const edges = await scanLayerEdges(SRC, lexModule);
+    const violations = edges.filter(
+      (e) => e.module.startsWith('events/') && e.targetModule.startsWith('contract/oracle/'),
+    );
+    expect(
+      violations.map((v) => `${v.module} -> ${v.targetModule}`),
+      'The oracle judges what the event store produces; an import running the ' +
+        'other way would let the store depend on its own judge.',
+    ).toEqual([]);
+  }, 20_000 * WIN32_SPAWN_HEADROOM);
+
+  it('the scan is not vacuous: events/ actually has resolvable edges to inspect', async () => {
+    // A scan root that resolved to nothing, or a lexer that never returned an
+    // import, would make the assertion above pass by having no denominator.
+    const edges = await scanLayerEdges(SRC, lexModule);
+    const eventsEdges = edges.filter((e) => e.module.startsWith('events/'));
+    expect(eventsEdges.length).toBeGreaterThan(0);
+  }, 20_000 * WIN32_SPAWN_HEADROOM);
 });

@@ -42,6 +42,7 @@ import * as resolverModule from '../../../../src/workflow/capabilities/resolver.
 import { capabilitiesForPosture } from '../../../../src/workflow/capabilities/posture-mapping.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { dispatch, stubCompositeHandler } from '../../../../src/dispatch/core/dispatch.js';
+import { deriveLocalOperatorIdentity } from '../../../../src/dispatch/caller-identity.js';
 import { EventStore } from '../../../../src/events/store.js';
 
 describe('shared-mutating posture gate — removed (INV-11)', () => {
@@ -94,7 +95,15 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
     const resolver = createInMemoryResolver(taskIsolatedCaps);
     expect(resolver.has('isolation:worktree')).toBe(true);
 
-    const taskIsolatedCtx: DispatchContext = { ...ctx, capabilityResolver: resolver };
+    const taskIsolatedCtx: DispatchContext = {
+      ...ctx,
+      capabilityResolver: resolver,
+      // Admission snapshots capabilities from the trusted caller, not from
+      // a bare resolver. Without an identity the need set is empty and
+      // `serialize_merge` is denied before the handler the gate-removal
+      // case is proving still runs.
+      callerIdentity: deriveLocalOperatorIdentity(tmpDir),
+    };
     const compositeSpy = vi.fn(async () => ({ success: true as const, data: {} }));
     const restore = stubCompositeHandler('exarchos_orchestrate', compositeSpy);
     try {

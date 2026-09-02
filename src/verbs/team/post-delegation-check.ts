@@ -13,14 +13,19 @@ import { join, resolve } from 'node:path';
 import { toPosix } from '../../utils/paths.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
+import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
+import { runPhaseGateWithEvidence } from '../gates/gate-runner.js';
+import { emitGateEvent, sameOperationGateKey } from '../gates/gate-utils.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface PostDelegationCheckArgs {
   readonly stateFile?: string;
-  readonly featureId?: string;
+  /** The stream the gate's durable evidence is recorded against. */
+  readonly featureId: string;
   readonly eventStore?: EventStore;
+  readonly stateDir?: string;
   readonly repoRoot: string;
   readonly skipTests?: boolean;
 }
@@ -209,6 +214,48 @@ function buildReport(
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 export async function handlePostDelegationCheck(args: PostDelegationCheckArgs): Promise<ToolResult> {
+  if (!args.featureId) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'featureId is required' },
+    };
+  }
+  const { eventStore, stateDir } = args;
+  if (eventStore === undefined || stateDir === undefined) {
+    return {
+      success: false,
+      error: {
+        code: 'MISWIRED_CONTEXT',
+        message: 'post_delegation_check requires the dispatch event store and state directory',
+      },
+    };
+  }
+
+  // The gate declares BOTH durable gate evidence and an unconditional
+  // `gate.executed` emission, and honored neither. The shared phase-gate runner
+  // records the evidence before any success carrier escapes; the declared
+  // signal is minted by the provider closure, keyed so a same-operation retry
+  // collapses onto one row.
+  return runPhaseGateWithEvidence({
+    streamId: args.featureId,
+    gateClass: 'post-delegation',
+    requirementId: 'requirement:post-delegation',
+    stateDir,
+    eventStore,
+    subject: (phaseAttemptId) =>
+      createEvidenceSubject(
+        { kind: 'phase-attempt', phaseAttemptId },
+        { gate: 'post-delegation', phase: 'delegate', repoRoot: args.repoRoot },
+      ),
+    providerInput: args,
+    executeProvider: async () => executePostDelegationCheck(args, eventStore),
+  });
+}
+
+async function executePostDelegationCheck(
+  args: PostDelegationCheckArgs,
+  store: EventStore,
+): Promise<ToolResult> {
   const { stateFile, featureId, eventStore, repoRoot, skipTests = false } = args;
 
   // Resolve state via file or event store fallback
@@ -236,7 +283,8 @@ export async function handlePostDelegationCheck(args: PostDelegationCheckArgs): 
 
   if (tasksExistResult.outcome === 'FAIL') {
     // Cannot proceed without tasks
-    const report = buildReport(stateFile ?? featureId ?? 'event-store', tasks, checks, counts);
+    const report = buildReport(stateFile ?? featureId, tasks, checks, counts);
+    await emitPostDelegationGateEvent(store, featureId, false, counts);
     return {
       success: true,
       data: { passed: false, report, checks: { ...counts } },
@@ -256,10 +304,36 @@ export async function handlePostDelegationCheck(args: PostDelegationCheckArgs): 
   addCheck(checkStateConsistency(tasks));
 
   const passed = counts.fail === 0;
-  const report = buildReport(stateFile ?? featureId ?? 'event-store', tasks, checks, counts);
+  const report = buildReport(stateFile ?? featureId, tasks, checks, counts);
+  await emitPostDelegationGateEvent(store, featureId, passed, counts);
 
   return {
     success: true,
     data: { passed, report, checks: { ...counts } },
   };
+}
+
+/**
+ * The `gate.executed` row the action declares unconditionally.
+ *
+ * Keyed on the operation identity a retry deliberately reuses: the runner
+ * re-executes this provider before it can discover the operation already
+ * produced evidence, and an unkeyed append would leave two rows describing one
+ * gate run.
+ */
+async function emitPostDelegationGateEvent(
+  store: EventStore,
+  featureId: string,
+  passed: boolean,
+  counts: CheckCounts,
+): Promise<void> {
+  await emitGateEvent(
+    store,
+    featureId,
+    'post-delegation',
+    'delegate',
+    passed,
+    { phase: 'delegate', pass: counts.pass, fail: counts.fail, skip: counts.skip },
+    sameOperationGateKey('post-delegation'),
+  );
 }

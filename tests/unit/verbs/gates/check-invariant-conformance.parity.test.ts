@@ -24,7 +24,7 @@
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -40,6 +40,8 @@ import {
 } from '../../parity-harness.js';
 
 import { handleCheckInvariantConformance } from '../../../../src/verbs/gates/check-invariant-conformance.js';
+import { handleInit } from '../../../../src/workflow/handlers/init.js';
+import { ADMISSION_EVENT_TYPES } from '../../../../src/workflow/admission/types.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -96,6 +98,54 @@ async function createArm(prefix: string): Promise<ArmContext> {
 }
 
 /**
+ * Admission fail-closes declared requires without a store-backed subject
+ * and a passing review-floor record. Seed both so the stubbed handler is
+ * what the parity arms compare, not the deny envelope.
+ */
+async function seedReviewFloor(arm: ArmContext, featureId: string): Promise<void> {
+  const init = await handleInit(
+    { featureId, workflowType: 'feature' },
+    arm.stateDir,
+    arm.ctx.eventStore,
+  );
+  if (!init.success) {
+    throw new Error(init.error?.message ?? 'init failed');
+  }
+  const state = JSON.parse(
+    await readFile(path.join(arm.stateDir, `${featureId}.state.json`), 'utf8'),
+  ) as { phaseAttemptId?: unknown };
+  const phaseAttemptId =
+    typeof state.phaseAttemptId === 'string' ? state.phaseAttemptId : 'phase-attempt-parity';
+  const digest = { algorithm: 'sha256' as const, value: 'a'.repeat(64) };
+  await arm.ctx.eventStore.append(featureId, {
+    type: ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED,
+    source: 'test',
+    data: {
+      eventVersion: '1.0',
+      evidence: {
+        contractVersion: '1.0',
+        evidenceId: `evidence-${featureId}`,
+        requirementId: 'review',
+        phaseAttemptId,
+        subject: { kind: 'task', taskId: 'task-parity-001', digest },
+        producer: {
+          producerId: 'producer.gate-runner',
+          providerRef: 'provider.review',
+          providerVersion: '1.0.0',
+          invocationId: `invocation-${featureId}`,
+        },
+        policyId: 'policy-parity-001',
+        policyDigest: digest,
+        contentDigest: digest,
+        createdAt: new Date().toISOString(),
+        kind: 'gate',
+        verdict: 'pass',
+      },
+    },
+  });
+}
+
+/**
  * Build a composite stub whose `check_invariant_conformance` action calls the
  * real handler with a deterministic injected catalog. Two arms against the
  * same stub project byte-equal output.
@@ -129,7 +179,20 @@ function normalize(value: unknown): unknown {
   return harnessNormalize(value, {
     timestampPlaceholder: '<TS>',
     uuidPlaceholder: '<UUID>',
-    keyPlaceholders: { ms: '<MS>' },
+    // The gate now returns durable evidence references. Their ids and content
+    // digests are derived from the arm's own phase-attempt identity, and the
+    // two arms are two separate workflows — so those values cannot match by
+    // construction and normalizing them is what keeps the comparison about the
+    // payload rather than about which arm minted which id. The reference
+    // STRUCTURE still has to match, so the fields are placeheld, not dropped.
+    keyPlaceholders: {
+      ms: '<MS>',
+      evidenceId: '<EVIDENCE_ID>',
+      artifactId: '<ARTIFACT_ID>',
+      digest: '<DIGEST>',
+      contentDigest: '<DIGEST>',
+      policyDigest: '<DIGEST>',
+    },
     dropKeys: new Set(['_perf', '_meta']),
   });
 }
@@ -160,6 +223,8 @@ describe('exarchos check_invariant_conformance CLI↔MCP parity (DR-3/T-15, INV-
     arms.push(cliArm);
     const mcpArm = await createArm('inv-conformance-parity-mcp-');
     arms.push(mcpArm);
+    await seedReviewFloor(cliArm, PARITY_ARGS.featureId);
+    await seedReviewFloor(mcpArm, PARITY_ARGS.featureId);
 
     const { result: cliResult, exitCode: cliExitCode } = await harnessCallCli(
       cliArm.ctx,

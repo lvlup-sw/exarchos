@@ -594,10 +594,18 @@ export async function runPhaseGateWithEvidence(
         join(request.stateDir, 'admission-evidence'),
       ),
       executeProvider: request.executeProvider,
-      // DR-1: these phase-gate providers still emit their OWN `gate.executed`
-      // row (`emitGateEvent`, from inside the provider body), so the runner must
-      // not emit a second one — exactly one producer per gate class. Delete the
-      // provider-side emission and this line together when they migrate.
+      // Never a SECOND producer. The phase-gate providers that mint a
+      // `gate.executed` row do it themselves (`emitGateEvent`, from inside the
+      // provider body), and the runner emitting one too would put two rows on
+      // the log for one gate run — exactly one producer per gate class.
+      //
+      // Not every provider routed through here mints one: `spec_coverage_check`
+      // declares no catalog emission and appends no `gate.executed` at all, so
+      // its class has zero producers rather than one. That is a declaration
+      // matching a handler, not a hole this flag papers over — flipping the
+      // flag for it would mint a row the action does not declare. Delete the
+      // provider-side emission and this line together when the emitters
+      // migrate.
       emitGateExecuted: false,
     },
   );

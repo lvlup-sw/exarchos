@@ -14,6 +14,14 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
   queryDeltaEvents: vi.fn(),
 }));
 
+// #1855 — the handler folds each view to the stream's durable tail through
+// `foldToTail` rather than pairing `queryDeltaEvents` with a bare `materialize`.
+// `setupMaterializer` below routes the stub by view name exactly as the
+// materializer stub did, so what each test controls is unchanged.
+vi.mock('../../../../src/projections/fold-at-tail.js', () => ({
+  foldToTail: vi.fn(),
+}));
+
 vi.mock('../../../../src/projections/quality/hints.js', () => ({
   generateQualityHints: vi.fn(),
 }));
@@ -64,6 +72,7 @@ import {
   getOrCreateMaterializer,
   queryDeltaEvents,
 } from '../../../../src/projections/views/tools.js';
+import { foldToTail } from '../../../../src/projections/fold-at-tail.js';
 import { generateQualityHints } from '../../../../src/projections/quality/hints.js';
 import { emitGateEvent } from '../../../../src/verbs/gates/gate-utils.js';
 import {
@@ -228,6 +237,14 @@ function setupMaterializer(
   };
   vi.mocked(getOrCreateMaterializer).mockReturnValue(
     mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>,
+  );
+  vi.mocked(foldToTail).mockImplementation(
+    async (_store, _materializer, _streamId, viewName) => {
+      if (viewName === WORKFLOW_STATE_VIEW) return { view: workflowState, sequence: 1 };
+      if (viewName === CODE_QUALITY_VIEW) return { view: cqState, sequence: 1 };
+      if (viewName === DELEGATION_READINESS_VIEW) return { view: drState, sequence: 1 };
+      return { view: {}, sequence: 1 };
+    },
   );
 
   const mockStore = {

@@ -8,10 +8,15 @@ import type { VcsProvider, PrSummary } from '../../vcs/provider.js';
 import { requiresGitHub } from '../../vcs/require-github.js';
 import { createVcsProvider } from '../../vcs/factory.js';
 import type { ToolResult } from '../../format.js';
+import type { EventStore } from '../../events/store.js';
+import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
+import { runPhaseGateWithEvidence } from '../gates/gate-runner.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface ValidatePrStackArgs {
+  /** The stream the gate's durable evidence is recorded against. */
+  readonly featureId: string;
   readonly baseBranch: string;
 }
 
@@ -33,18 +38,57 @@ interface ValidatePrStackResult {
 
 export async function handleValidatePrStack(
   args: ValidatePrStackArgs,
+  stateDir: string,
+  eventStore: EventStore,
   provider?: VcsProvider,
 ): Promise<ToolResult> {
-  const vcsGuard = requiresGitHub(provider, 'validate_pr_stack');
-  if (vcsGuard) return vcsGuard;
-
   // 1. Validate args
+  if (!args.featureId) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'featureId is required' },
+    };
+  }
+
   if (!args.baseBranch) {
     return {
       success: false,
       error: { code: 'INVALID_INPUT', message: 'baseBranch is required' },
     };
   }
+
+  // The gate declares durable gate evidence as a postcondition and appended
+  // nothing, so a caller that observes postconditions read a success carrier
+  // that had broken its own contract — and inside a compiled segment that halts
+  // the segment whatever the step's failure policy says. Routing through the
+  // shared phase-gate runner records the evidence before any success carrier
+  // escapes; the action declares no catalog emission, so no `gate.executed` row
+  // is minted here.
+  return runPhaseGateWithEvidence({
+    streamId: args.featureId,
+    gateClass: 'pr-stack',
+    requirementId: 'requirement:pr-stack',
+    stateDir,
+    eventStore,
+    subject: (phaseAttemptId) =>
+      createEvidenceSubject(
+        { kind: 'phase-attempt', phaseAttemptId },
+        { gate: 'pr-stack', phase: 'synthesize', baseBranch: args.baseBranch },
+      ),
+    providerInput: args,
+    executeProvider: async () => executeValidatePrStack(args, provider),
+  });
+}
+
+async function executeValidatePrStack(
+  args: ValidatePrStackArgs,
+  provider?: VcsProvider,
+): Promise<ToolResult> {
+  // Inside the provider, not ahead of the runner: an early return taken before
+  // the runner runs is a carrier that escapes without the durable evidence this
+  // action declares, which is the defect the wrapping exists to close.
+  const vcsGuard = requiresGitHub(provider, 'validate_pr_stack');
+  if (vcsGuard) return vcsGuard;
 
   const { baseBranch } = args;
   const vcs = provider ?? await createVcsProvider();

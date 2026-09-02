@@ -12,10 +12,6 @@ import { handleRunbook } from '../runbooks/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import { envelopeWrap } from '../envelope-wrap.js';
 import { orchestrateLogger } from '../logger.js';
-import {
-  guardProjectionDegraded,
-  resolveProjectionStreamId,
-} from '../projections/degraded-result.js';
 
 const orchestrateActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_orchestrate')!.actions;
 
@@ -115,6 +111,7 @@ import type { HandleAddArgs } from './invariants/add.js';
 import { realScaffoldDeps } from './invariants/fs-deps.js';
 import { applyLadderGateSeverity, resolvePhaseMode } from './gates/gate-utils.js';
 import { resolveWorkflowState } from './resolve-state.js';
+import { handleExecuteIntent, productionExecuteDeps } from './execute/executor.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -363,25 +360,30 @@ function adaptSetupWorktree(): ActionHandler {
 
     if (featureId && ctx?.eventStore) {
       try {
-        const { getOrCreateMaterializer, queryDeltaEvents } = await import('../projections/views/tools.js');
+        const { getOrCreateMaterializer } = await import('../projections/views/tools.js');
+        const { foldToTail } = await import('../projections/fold-at-tail.js');
         const { WORKFLOW_STATE_VIEW } = await import('../projections/views/workflow-state-projection.js');
         const materializer = getOrCreateMaterializer(stateDir);
-        const events = await queryDeltaEvents(
-          ctx.eventStore,
-          materializer,
-          featureId,
-          WORKFLOW_STATE_VIEW,
-        );
-        const view = materializer.materialize<{
+        const { view } = await foldToTail<{
           tasks: Array<{ id: string; branch?: string }>;
           synthesis?: { integrationBranch?: string };
-        }>(featureId, WORKFLOW_STATE_VIEW, events);
+        }>(ctx.eventStore, materializer, featureId, WORKFLOW_STATE_VIEW);
         // #1509/#1501: project synthesis.integrationBranch so the handler can
         // base managed worktrees on the integration tip, not a stale `main`.
         workflowState = { tasks: view.tasks, synthesis: view.synthesis };
-      } catch {
-        // Best-effort: missing/unreadable state is not a setup_worktree
-        // failure — handler falls back to legacy default branch.
+      } catch (err) {
+        // A coverage failure is NOT best-effort material. Falling back to the
+        // legacy default branch here would base a managed worktree on `main`
+        // while the integration tip was merely unprovable — the silent
+        // degradation this seam exists to remove.
+        const { toCoverageFailure } = await import('../projections/degraded-result.js');
+        const refusal = toCoverageFailure(err, {
+          tool: 'exarchos_orchestrate',
+          action: 'setup_worktree',
+        });
+        if (refusal) return refusal;
+        // Anything else stays best-effort: missing or unreadable state is not a
+        // setup_worktree failure, and the handler falls back as before.
         workflowState = undefined;
       }
     }
@@ -396,7 +398,21 @@ function adaptSetupWorktree(): ActionHandler {
   };
 }
 
-const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
+/**
+ * The tool `ACTION_HANDLERS` belongs to. Named so the executor can refuse a
+ * leaf whose tool disagrees with this table's owner instead of trusting that
+ * every key it finds was minted under `exarchos_orchestrate`.
+ */
+const ACTION_HANDLERS_TOOL = 'exarchos_orchestrate';
+
+/**
+ * The routing table. The bounded action executor invokes a compiled leaf
+ * through the SAME entry this composite would route to — a second copy of the
+ * mapping is a second thing that can drift from the registry — but it receives
+ * the table as an argument from the `execute_intent` entry below rather than
+ * importing it, which is what keeps the two modules off a runtime ring.
+ */
+export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   task_claim: adaptWithEventStore(handleTaskClaim),
   task_complete: adaptWithEventStore(handleTaskComplete),
   task_fail: adaptWithEventStore(handleTaskFail),
@@ -443,20 +459,20 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   verify_worktree: adapt(handleVerifyWorktree),
   select_debug_track: adaptWithOptionalEventStore(handleSelectDebugTrack),
   investigation_timer: adaptWithOptionalEventStore(handleInvestigationTimer),
-  check_coverage_thresholds: adaptArgs(handleCheckCoverageThresholds),
+  check_coverage_thresholds: adaptWithEventStore(handleCheckCoverageThresholds),
   assess_refactor_scope: adaptArgsWithEventStore(handleAssessRefactorScope),
   check_pr_comments: adaptArgs(handleCheckPrComments),
   validate_pr_body: adaptWithOptionalEventStore(handleValidatePrBody),
-  validate_pr_stack: adaptArgs(handleValidatePrStack),
-  debug_review_gate: adaptArgs(handleDebugReviewGate),
+  validate_pr_stack: adaptWithEventStore(handleValidatePrStack),
+  debug_review_gate: adaptWithEventStore(handleDebugReviewGate),
   extract_fix_tasks: adaptArgsWithStateDirAndEventStore(handleExtractFixTasks),
   classify_review_items: adaptArgsWithEventStore(handleClassifyReviewItems),
   generate_traceability: adaptArgs(handleGenerateTraceability),
-  spec_coverage_check: adaptArgs(handleSpecCoverageCheck),
+  spec_coverage_check: adaptWithEventStore(handleSpecCoverageCheck),
   verify_worktree_baseline: adapt(handleVerifyWorktreeBaseline),
   setup_worktree: adaptSetupWorktree(),
   verify_delegation_saga: adaptArgs(handleVerifyDelegationSaga),
-  post_delegation_check: adaptArgsWithEventStore(handlePostDelegationCheck),
+  post_delegation_check: adaptArgsWithStateDirAndEventStore(handlePostDelegationCheck),
   reconcile_state: adaptArgsWithEventStore(handleReconcileState),
   pre_synthesis_check: adaptArgsWithStateDirAndEventStore(handlePreSynthesisCheck),
   check_coderabbit: adaptArgs(handleCheckCoderabbit),
@@ -544,6 +560,20 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   // the 4th (deps) parameter is a test-only seam left at its default here.
   cutover_readiness: adaptWithEventStore(handleCutoverReadiness),
   cutover_decide: adaptWithEventStore(handleCutoverDecide),
+  // The bounded action executor. `handleExecuteIntent` requires a
+  // DispatchContext (it re-enters admission and the store per leaf), unlike
+  // the other `adaptWithCtx` entries above whose handlers treat ctx as
+  // optional — so this is a direct ActionHandler rather than that adapter.
+  //
+  // The table below is handed IN rather than read back by the executor: this
+  // module owns it, and the executor importing it would close a runtime ring
+  // through the dispatch core. Reading `ACTION_HANDLERS` from inside a closure
+  // that only ever runs after this literal is bound is what makes the
+  // self-reference safe.
+  execute_intent: async (args, stateDir, ctx) => {
+    if (!ctx) throw new Error('DispatchContext required for execute_intent');
+    return handleExecuteIntent(args, stateDir, ctx, productionExecuteDeps(ACTION_HANDLERS, ACTION_HANDLERS_TOOL));
+  },
 };
 
 /** Exported for sync test — ensures registry.ts stays in sync with handler keys. */
@@ -710,33 +740,21 @@ function validateInvariantsAmendArgs(
 
 // ─── Composite Handler ──────────────────────────────────────────────────────
 
-/**
- * DR-4 — orchestrate actions whose verdict is derived from a materialized fold.
- *
- * Derived mechanically, not guessed: these are exactly the orchestrate handlers
- * that reach the materializer LRU (`git grep -l materializer -- src/orchestrate`
- * → check-convergence, check-event-emissions, prepare-delegation,
- * prepare-synthesis). Every OTHER orchestrate action either folds the event log
- * directly (authoritative by construction — a gate reading `eventStore.query`
- * cannot be stale) or touches no stream at all (worktree/git/scaffold/runbook
- * actions), so guarding them would refuse reads that are provably trustworthy.
- *
- * These four are precisely the readiness/reliability surfaces CB-8 burned:
- *
- * - `prepare_delegation` / `prepare_synthesis` decide whether to DISPATCH
- *   agents. Answering "ready" from a fold that has not seen the events that
- *   would say otherwise is how work gets dispatched against a cancelled
- *   workflow.
- * - `check_convergence` / `check_event_emissions` are reliability verdicts. A
- *   gate that passes because the fold has not caught up yet is worse than a
- *   gate that refuses to answer.
- */
-const PROJECTION_DERIVED_ORCHESTRATE_ACTIONS: ReadonlySet<string> = new Set([
-  'prepare_delegation',
-  'prepare_synthesis',
-  'check_convergence',
-  'check_event_emissions',
-]);
+// A `PROJECTION_DERIVED_ORCHESTRATE_ACTIONS` set sat here, naming the four
+// readiness/reliability verbs (prepare_delegation, prepare_synthesis,
+// check_convergence, check_event_emissions) whose verdicts derive from a
+// materialized fold, so that `handleOrchestrate` could refuse them outright
+// whenever a durable `projection.degraded` row existed for the stream.
+//
+// The question it answered is real, and the answer moved rather than went away:
+// a lagging fold is folded forward before any read answers it
+// (`projections/fold-at-tail.ts`), so these four verbs derive their verdicts
+// from the tail and there is nothing left for a pre-dispatch refusal to
+// protect. Keeping the refusal on top of that would wedge them on a marker that
+// is a spent point-in-time observation rather than a current fact about the
+// stream — which is the failure the fold seam exists to remove, and what
+// `tests/unit/projections/degraded-consumers.test.ts >
+// Consumer_StaleFoldAndDurableMarker_IsNotWedged` pins for exactly these four.
 
 /**
  * Routes the `action` field from args to the corresponding task handler.
@@ -760,24 +778,6 @@ export async function handleOrchestrate(
   const startedAt = Date.now();
   const { stateDir } = ctx;
   const { action, ...rest } = args;
-
-  // DR-4 consumer chokepoint — see PROJECTION_DERIVED_ORCHESTRATE_ACTIONS.
-  // Placed ahead of every dispatch branch below (including the `describe` /
-  // `doctor` / `onboard` special cases) so no arm can route around it; the set
-  // membership test, not the branch position, decides what is guarded.
-  if (typeof action === 'string' && PROJECTION_DERIVED_ORCHESTRATE_ACTIONS.has(action)) {
-    const refusal = await guardProjectionDegraded(
-      ctx.eventStore,
-      resolveProjectionStreamId(rest),
-      {
-        tool: 'exarchos_orchestrate',
-        action,
-        onError: (err) =>
-          orchestrateLogger.warn({ action, err }, 'durable projection-health read failed'),
-      },
-    );
-    if (refusal) return refusal;
-  }
 
   // Handle describe specially — it needs the action list, not stateDir
   if (action === 'describe') {

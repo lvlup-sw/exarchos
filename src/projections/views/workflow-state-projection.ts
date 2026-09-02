@@ -1153,6 +1153,15 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       // asking about phase or task progress would read it as something the
       // workflow did.
       case 'emission.violated':
+      // The prune evaluation's audit line counts entries across the whole
+      // pipeline. It is not a fact about the workflow whose stream it may land
+      // beside, so no field of this view moves for it.
+      case 'prune.diagnostics':
+      // The bounded action executor's own operation record — which leaves ran,
+      // in what order, and whether the segment committed or failed. It is a
+      // fact about the execute_intent call, not about the workflow's phase or
+      // task progress, so no field of this view moves for it.
+      case 'orchestrate.intent_executed':
         return view;
 
       // ── Exhaustiveness guard (#1554 guard (a)) ─────────────────────────

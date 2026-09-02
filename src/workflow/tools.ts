@@ -9,7 +9,7 @@
 // thing this arrangement exists to prevent, because it is how a 2,062-line
 // module grew the last time.
 
-export { configureWorkflowMaterializer, CURRENT_ES_VERSION, isEventSourced } from './handlers/shared.js';
+export { CURRENT_ES_VERSION, isEventSourced } from './handlers/shared.js';
 
 // Two handlers already lived in their own modules and were re-exported from
 // here. They keep that arrangement — this file is the surface, wherever a

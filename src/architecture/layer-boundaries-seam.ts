@@ -501,12 +501,18 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   ),
   allowance(
     'config',
-    [ROOT_LAYER, 'events', 'projections', 'utils', 'verbs', 'workflow'],
-    'Config resolution reaches the verb surface — the narrowest row that is arguably inverted, and now visible.',
+    [ROOT_LAYER, 'events', 'projections', 'registry', 'utils', 'verbs', 'workflow'],
+    'Config resolution reaches the verb surface — the narrowest row that is arguably inverted, and now visible. ' +
+      'The `registry` edge is the action-contract declaration: `config/register.ts` stamps a contract onto an ' +
+      'action through the declaration helpers, so it reaches the directory that OWNS the declaration rather ' +
+      'than restating its shape.',
   ),
   allowance(
     'contract',
-    [ROOT_LAYER, 'adapters/cli', 'architecture', 'describe', 'dispatch', 'events', 'runtime', 'utils'],
+    [
+      ROOT_LAYER, 'adapters/cli', 'architecture', 'describe', 'dispatch', 'events',
+      'registry', 'runtime', 'utils', 'workflow',
+    ],
     'The contract layer reaches its own generators and the dispatch core, plus the schema-conversion ' +
       'leaf every compiler stage uses. The adapters edge is the CLI presentation client ' +
       '(`cli-contract-seam` loads `adapters/cli`), not the IO facade parent. The `events` edge is ' +
@@ -515,7 +521,12 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
       'the wiring — and the event catalog is one more. It is deliberately NOT resolved from the ' +
       'compiled contract, because a hop re-derived from the pass that supplies the denominator is ' +
       'tautological by construction; reaching the independently-authored table is what gives the ' +
-      'hop teeth, and this row is the cost of that independence.',
+      'hop teeth, and this row is the cost of that independence. `registry` is the same relationship ' +
+      'one level down: an action contract is DECLARED once under `registry/` and the compiler stages ' +
+      'here are projections of that declaration, so the edge points at the authority instead of ' +
+      'copying it. `workflow` is the admission decision — the closure census asks whether an ActionId ' +
+      'would be ADMITTED, and admission is the HSM\'s judgement to make, not a fact the contract layer ' +
+      'may re-derive from its own compiled output.',
   ),
   allowance(
     'sync',
@@ -570,8 +581,10 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   ),
   allowance(
     'adapters/mcp',
-    [ROOT_LAYER, 'contract', 'dispatch', 'mcp', 'projections', 'runtime'],
-    'The MCP wire adapter. Empty of sibling-adapter targets: an edge to `adapters/cli` would make ' +
+    [ROOT_LAYER, 'contract', 'dispatch', 'mcp', 'projections', 'registry', 'runtime'],
+    'The MCP wire adapter. The `registry` edge appends the compact action contracts to the advertised ' +
+      'tool schemas — the wire surface is a PROJECTION of the declarations, so it reads them from the ' +
+      'directory that owns them. Empty of sibling-adapter targets: an edge to `adapters/cli` would make ' +
       'the wire contract depend on a presentation client, and is FORBIDDEN here, not merely unlisted ' +
       'on the parent row.',
   ),
@@ -610,10 +623,11 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
     'dispatch',
     [
       ROOT_LAYER, 'adapters', 'adapters/cli', 'config', 'contract', 'events', 'hooks',
-      'install', 'projections', 'review', 'runtime', 'storage', 'sync',
+      'install', 'projections', 'registry', 'review', 'runtime', 'storage', 'sync',
       'utils', 'vcs', 'verbs', 'workflow',
     ],
-    'The dispatch core — 17 targets after the nested CLI adapter split out of the parent facade. ' +
+    'The dispatch core — 18 targets after the nested CLI adapter split out of the parent facade and the ' +
+      'action contract took up residence under `registry/`, which dispatch reads to decide admission. ' +
       'It is the hub, so breadth is expected; the row exists so the breadth stops growing silently. ' +
       'The `utils` edge is the store-path resolver: the chokepoint refuses a mutation whose resolved ' +
       'event store diverges from the other surface\'s, and the resolution cascade it consults is a ' +

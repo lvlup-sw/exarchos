@@ -1,3 +1,4 @@
+import { admitActionContract } from './annotations.js';
 import { BUILTIN_TOOL_NAMES, TOOL_REGISTRY } from './tools.js';
 import type { CompositeTool, ToolAction } from './types.js';
 
@@ -13,14 +14,9 @@ import type { CompositeTool, ToolAction } from './types.js';
 // milestone for the same DIM-5 hygiene reason — the SDK is the single
 // source of truth.
 //
-// There are no known active consumers of this surface. CodeRabbit MAJOR
-// on PR #1369 flagged that `registerCustomTool` doesn't run actions
-// through `validateAction`, leaving missing `outputSchema`/`annotations`
-// to surface as runtime crashes far from the registration site. Rather
-// than tighten the contract (which would touch test fixtures and ship a
-// pseudo-breaking-change to an API with no consumers), we mark the
-// entire surface `@deprecated` here and schedule its removal alongside
-// #1258 in v3.0.
+// The surface remains `@deprecated` for v3.0 removal, but admission now
+// runs every action through the same action-contract language as built-in
+// registration. A missing or invalid block fails at `registerCustomTool`.
 
 const customTools: CompositeTool[] = [];
 
@@ -49,11 +45,9 @@ export function registerCustomTool(tool: CompositeTool): void {
       `Cannot register custom tool "${tool.name}": already registered as a custom tool`,
     );
   }
-  // Custom tools are intentionally NOT run through `validateAction` here.
-  // The whole surface is `@deprecated` for v3.0 removal per #1258, so
-  // hardening the contract here would ship a pseudo-breaking-change for
-  // an API with no consumers (CodeRabbit PR #1369 MAJOR, resolved by
-  // deprecation rather than tightening).
+  for (const action of tool.actions) {
+    admitActionContract(action, tool.name);
+  }
   customTools.push(tool);
 }
 

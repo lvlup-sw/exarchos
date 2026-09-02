@@ -27,6 +27,18 @@ import {
   RUNBOOK_ECONOMY_BUDGET_TOKENS,
 } from '../../src/registry.js';
 import type { ToolAction, CompositeTool, ActionAnnotations } from '../../src/registry.js';
+import {
+  ActionContractError,
+  contractEmissionsOf,
+  none,
+  normalizeActionContract,
+  type ActionContract,
+} from '../../src/registry/action-contract.js';
+import {
+  makeDescribeAction,
+  makeEventDescribeAction,
+  makeWorkflowDescribeAction,
+} from '../../src/registry/describe-actions.js';
 import { envelopeDataSchemaIsTyped } from '../../src/verbs/worktree/schemas.js';
 import { handleDescribe } from '../../src/describe/handler.js';
 import { wrap, wrapError } from '../../src/format.js';
@@ -739,7 +751,10 @@ describe('TOOL_REGISTRY', () => {
       // reclaim and the launch / merge reconcilers, moved off `exarchos_view.ps
       // probe:true`) and re-parented `stack_place` from `exarchos_view`, so the
       // second is a MOVE and not a new capability: 80 → 82.
-      expect(composite!.actions).toHaveLength(82);
+      // The bounded action executor added `execute_intent` (compiles a named
+      // intent into a segment of already-registered local actions and runs it
+      // leaf by leaf, committing one operation record): 82 → 83.
+      expect(composite!.actions).toHaveLength(83);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -1000,7 +1015,7 @@ describe('TOOL_REGISTRY', () => {
     // Still a review-phase, lead-role gate that auto-emits gate.executed.
     expect(action!.phases.has('review')).toBe(true);
     expect(action!.roles.has('lead')).toBe(true);
-    expect(action!.autoEmits?.some((e) => e.event === 'gate.executed')).toBe(true);
+    expect(contractEmissionsOf(action!).some((e) => e.event === 'gate.executed')).toBe(true);
 
     // Visible (non-hidden) composite tools stay within the 15-tool budget.
     const visibleTools = TOOL_REGISTRY.filter((t) => !t.hidden);
@@ -1052,7 +1067,7 @@ describe('TOOL_REGISTRY', () => {
     expect(action!.description.toLowerCase()).toContain('do not use');
 
     // autoEmits declares both authoring events (INV-1).
-    const events = (action!.autoEmits ?? []).map((e) => e.event);
+    const events = contractEmissionsOf(action!).map((e) => e.event);
     expect(events).toContain('invariant.authored');
     expect(events).toContain('catalog.registered');
 
@@ -1615,6 +1630,19 @@ describe('CLI examples on common actions', () => {
 // ─── Dynamic Tool Registration Tests ─────────────────────────────────────────
 
 describe('Dynamic Tool Registration', () => {
+  const fixtureContract: ActionContract = {
+    requires: none('custom fixture has no additional obligations'),
+    ensures: none('custom fixture has no durable postcondition'),
+    needs: none('custom fixture declares no capabilities'),
+    touches: {
+      frame: 'single-machine',
+      resources: none('custom fixture touches no durable resources'),
+    },
+    executionAuthority: { kind: 'local' },
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: none('custom fixture emits no events'),
+  };
+
   const customTool: CompositeTool = {
     name: 'exarchos_deploy',
     description: 'Custom deployment tool',
@@ -1625,6 +1653,7 @@ describe('Dynamic Tool Registration', () => {
         schema: z.object({ target: z.string() }),
         phases: new Set(['deploy']),
         roles: new Set(['lead']),
+        actionContract: fixtureContract,
       },
       {
         name: 'status',
@@ -1632,6 +1661,7 @@ describe('Dynamic Tool Registration', () => {
         schema: z.object({ deployId: z.string().optional() }),
         phases: new Set(['deploy']),
         roles: new Set(['any']),
+        actionContract: fixtureContract,
       },
     ],
   };
@@ -1909,19 +1939,25 @@ describe('quality_hints view action', () => {
 // ─── AutoEmits Drift Tests ──────────────────────────────────────────────────
 
 describe('AutoEmits Drift Tests', () => {
+  // The same non-auto-source check now runs at admission (normalizeEmission,
+  // src/registry/action-contract.ts) — this census is defense-in-depth,
+  // catching a drift that reaches TOOL_REGISTRY by any path that bypasses it.
   it('RegistryDrift_AutoEmitsMatchEventEmissionRegistry', async () => {
     const { EVENT_EMISSION_REGISTRY } = await import('../../src/events/schemas.js');
 
-    // At least one action must have autoEmits populated
-    let anyPopulated = false;
+    // Measured against the live declared population, not a boolean floor of
+    // one: a single surviving row would pass `anyPopulated` just as happily
+    // as a mass collapse would fail to redden it.
+    let populatedCount = 0;
     const violations: string[] = [];
 
     for (const tool of TOOL_REGISTRY) {
       for (const action of tool.actions) {
-        if (!action.autoEmits || action.autoEmits.length === 0) continue;
-        anyPopulated = true;
+        const emissions = contractEmissionsOf(action);
+        if (emissions.length === 0) continue;
+        populatedCount += 1;
 
-        for (const emission of action.autoEmits) {
+        for (const emission of emissions) {
           const source = (EVENT_EMISSION_REGISTRY as Record<string, string>)[emission.event];
           if (!source) {
             violations.push(
@@ -1936,7 +1972,9 @@ describe('AutoEmits Drift Tests', () => {
       }
     }
 
-    expect(anyPopulated, 'At least one action must have autoEmits populated').toBe(true);
+    expect(populatedCount, 'declared autoEmits population dropped below the floor').toBeGreaterThan(
+      56,
+    );
     expect(violations, `AutoEmits drift:\n${violations.join('\n')}`).toEqual([]);
   });
 
@@ -1948,7 +1986,7 @@ describe('AutoEmits Drift Tests', () => {
       for (const action of tool.actions) {
         const matchesPattern = emitsPatterns.some((p) => p.test(action.description));
         if (matchesPattern) {
-          if (!action.autoEmits || action.autoEmits.length === 0) {
+          if (contractEmissionsOf(action).length === 0) {
             violations.push(
               `${tool.name}.${action.name}: description mentions emissions but autoEmits is empty/undefined. Description: "${action.description}"`,
             );
@@ -1970,9 +2008,10 @@ describe('AutoEmits Drift Tests', () => {
     const violations: string[] = [];
     for (const tool of TOOL_REGISTRY) {
       for (const action of tool.actions) {
-        if (!action.autoEmits || action.autoEmits.length === 0) continue;
+        const emissions = contractEmissionsOf(action);
+        if (emissions.length === 0) continue;
         if (action.annotations?.readOnly === true) {
-          const events = action.autoEmits.map((e) => e.event).join(', ');
+          const events = emissions.map((e) => e.event).join(', ');
           violations.push(
             `${tool.name}.${action.name}: declares autoEmits [${events}] but annotations.readOnly === true`,
           );
@@ -2088,7 +2127,6 @@ describe('Plugin Integration Registry Wiring', () => {
 // handlers (Zod single-field `.min(1)` can't express it).
 describe('#1499 state-source migration schema (regression guard)', () => {
   it.each([
-    'pre_synthesis_check',
     'verify_review_triage',
     'extract_fix_tasks',
   ])('%s accepts a stateFile-only input (featureId optional)', (action) => {
@@ -2100,6 +2138,24 @@ describe('#1499 state-source migration schema (regression guard)', () => {
     ).toBe(true);
     // The canonical event-store path (featureId-only) must also validate.
     expect(found!.schema.safeParse({ featureId: 'wf-x' }).success).toBe(true);
+  });
+
+  it.each([
+    'pre_synthesis_check',
+    'post_delegation_check',
+  ])('%s requires featureId — the stream its declared evidence records against', (action) => {
+    const found = findActionInRegistry('exarchos_orchestrate', action);
+    expect(found, `${action} must be registered`).toBeDefined();
+    // These two declare durable gate evidence, and the postcondition observer
+    // reads that record on the stream the CALL names. A stateFile-only call had
+    // no stream to record against, so the declaration could not be paid — the
+    // gate returned a success carrier that had broken its own contract.
+    // `stateFile` stays available as the state-resolution override.
+    expect(
+      found!.schema.safeParse({ stateFile: '/tmp/wf.state.json', repoRoot: '.' }).success,
+      `${action} must reject stateFile-only`,
+    ).toBe(false);
+    expect(found!.schema.safeParse({ featureId: 'wf-x', repoRoot: '.' }).success).toBe(true);
   });
 });
 
@@ -2559,16 +2615,145 @@ describe('validateAction', () => {
 
   it('ValidateAction_ValidAction_DoesNotThrow', async () => {
     const validateAction = await importValidateAction();
+    const reasonedNone = none('registration fixture has no additional obligations');
     expect(() =>
       validateAction(
         {
           name: 'ok',
           outputSchema: z.object({ success: z.boolean() }),
           annotations: validAnnotations,
+          actionContract: {
+            requires: reasonedNone,
+            ensures: reasonedNone,
+            needs: reasonedNone,
+            touches: { frame: 'single-machine', resources: reasonedNone },
+            executionAuthority: { kind: 'local' },
+            replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+            emissions: reasonedNone,
+          },
         },
         'exarchos_event',
       ),
     ).not.toThrow();
+  });
+
+  const reasonedNone = none('registration fixture has no additional obligations');
+  const completeContract = (overrides: Partial<ActionContract> = {}): ActionContract => ({
+    requires: reasonedNone,
+    ensures: reasonedNone,
+    needs: reasonedNone,
+    touches: { frame: 'single-machine', resources: reasonedNone },
+    executionAuthority: { kind: 'local' },
+    replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+    emissions: reasonedNone,
+    ...overrides,
+  });
+
+  it('ValidateAction_MissingContract_FailsAtLoad', () => {
+    expect(() =>
+      validateAction(
+        {
+          name: 'probe',
+          outputSchema: z.object({ success: z.boolean() }),
+          annotations: validAnnotations,
+        },
+        'exarchos_workflow',
+        'load',
+      ),
+    ).toThrow(ActionContractError);
+  });
+
+  it('ValidateAction_MissingContract_FailsAtRegistration', () => {
+    expect(() =>
+      validateAction(
+        {
+          name: 'probe',
+          outputSchema: z.object({ success: z.boolean() }),
+          annotations: validAnnotations,
+        },
+        'exarchos_custom',
+        'registration',
+      ),
+    ).toThrow(ActionContractError);
+    try {
+      validateAction(
+        {
+          name: 'probe',
+          outputSchema: z.object({ success: z.boolean() }),
+          annotations: validAnnotations,
+        },
+        'exarchos_custom',
+        'registration',
+      );
+      expect.fail('expected missing actionContract to fail registration');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ActionContractError);
+      expect((error as ActionContractError).code).toBe('MISSING_DIMENSION');
+      expect((error as Error).message).toMatch(/exarchos_custom\.probe/);
+      expect((error as Error).message).toMatch(/actionContract/);
+    }
+  });
+
+  it('ReplayPolicy_AnnotationDisagreement_IsRejected', () => {
+    const readOnlyIdempotent: ActionAnnotations = {
+      safety: 'read-only',
+      readOnly: true,
+      destructive: false,
+      idempotent: true,
+      openWorld: false,
+    };
+    expect(() =>
+      validateAction(
+        {
+          name: 'probe',
+          outputSchema: z.object({ success: z.boolean() }),
+          annotations: readOnlyIdempotent,
+          actionContract: completeContract({
+            replay: { kind: 'claim-required', scope: 'stream-subject-request' },
+          }),
+        },
+        'exarchos_custom',
+        'registration',
+      ),
+    ).toThrow(ActionContractError);
+    try {
+      validateAction(
+        {
+          name: 'probe',
+          outputSchema: z.object({ success: z.boolean() }),
+          annotations: validAnnotations,
+          actionContract: completeContract({ replay: { kind: 'safe-repeat' } }),
+        },
+        'exarchos_custom',
+        'registration',
+      );
+      expect.fail('expected safe-repeat without idempotent to fail');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ActionContractError);
+      expect((error as ActionContractError).code).toBe('REPLAY_ANNOTATION_DISAGREEMENT');
+    }
+  });
+
+  it('DescribeFactory_EmitsCompleteContract', () => {
+    const factories = [
+      makeDescribeAction('exarchos_view.describe'),
+      makeDescribeAction('exarchos_orchestrate.describe'),
+      makeWorkflowDescribeAction('exarchos_workflow.describe'),
+      makeEventDescribeAction('exarchos_event.describe'),
+    ];
+    for (const action of factories) {
+      expect('actionContract' in action).toBe(true);
+      const contract = (action as typeof action & { actionContract: ActionContract }).actionContract;
+      expect(normalizeActionContract(contract, { annotations: action.annotations })).toEqual(contract);
+      expect(contract.requires.kind).toBe('none');
+      expect(contract.ensures.kind).toBe('none');
+      expect(contract.needs.kind).toBe('none');
+      expect(contract.touches.frame).toBe('single-machine');
+      expect(contract.touches.resources.kind).toBe('none');
+      expect(contract.executionAuthority).toEqual({ kind: 'local' });
+      expect(contract.replay).toEqual({ kind: 'safe-repeat' });
+      expect(contract.emissions.kind).toBe('none');
+    }
   });
 });
 
@@ -3013,6 +3198,7 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.serialize_merge': 2000,
   'exarchos_orchestrate.cutover_readiness': 2000,
   'exarchos_orchestrate.cutover_decide': 2000,
+  'exarchos_orchestrate.execute_intent': 1000,
   'exarchos_orchestrate.describe': 8000,
   'exarchos_view.pipeline': 2000,
   'exarchos_view.tasks': 2000,
@@ -3112,7 +3298,13 @@ describe('registry economy budgets (DR-1)', () => {
     expect(EVENT_DESCRIBE_ECONOMY_BUDGET_TOKENS).toBeGreaterThan(DESCRIBE_ECONOMY_BUDGET_TOKENS);
 
     // Nothing outside the allowlist declares an economy block — a stray
-    // declaration would silently widen the budget surface.
+    // declaration would silently widen the budget surface. `execute_intent`
+    // is the one action outside this list that declares an economy block, and
+    // it is checked separately below because it is NOT a "verbose by design"
+    // declaration: its budget sits BELOW the default (a measured ceiling on a
+    // real receipt, not a raised one), and it declares a real `summarize`
+    // reducer rather than relying on the generic capped fallback — a distinct
+    // category the widen-only allowlist above does not name.
     const declared = TOOL_REGISTRY.flatMap((t) =>
       t.actions
         .filter((a) => a.economy !== undefined)
@@ -3122,11 +3314,25 @@ describe('registry economy budgets (DR-1)', () => {
       [
         'exarchos_event.describe',
         'exarchos_orchestrate.describe',
+        'exarchos_orchestrate.execute_intent',
         'exarchos_orchestrate.runbook',
         'exarchos_view.describe',
         'exarchos_workflow.describe',
       ].sort(),
     );
+  });
+
+  it('registryEconomy_ExecuteIntent_DeclaresAMeasuredBudgetAndARealSummarizer', () => {
+    const action = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate')?.actions.find(
+      (a) => a.name === 'execute_intent',
+    );
+    expect(action).toBeDefined();
+    // Below the default, not above it — a measured ceiling on the shipped
+    // receipt shape, the opposite of the verbose-by-design allowlist's reason
+    // for declaring one at all.
+    expect(action?.economy?.budgetTokens).toBeLessThan(DEFAULT_ECONOMY_BUDGET_TOKENS);
+    expect(resolveEconomyBudget(action as ToolAction)).toBe(action?.economy?.budgetTokens);
+    expect(typeof action?.economy?.summarize).toBe('function');
   });
 
   it('describeAction_WithBudget_SurfacesBudgetTokens', async () => {
@@ -3326,6 +3532,15 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       report: cutoverGateReport,
       durableEvidence: cutoverDurableEvidence,
     },
+    // `execute_intent` — the bounded action executor's receipt. `leaves` and
+    // `interaction.deferred` are the only arrays with no minimum, so an empty
+    // segment (compiled but nothing run yet is not a shape this schema emits —
+    // this is the smallest REAL receipt: zero leaves executed) is the floor.
+    'exarchos_orchestrate.execute_intent': {
+      operationId: 'op-1', intent: 'task-completion', outcome: 'committed',
+      leaves: [], tailSequence: 0, requestDigest: `sha256:${'a'.repeat(64)}`,
+      interaction: { leavesExecuted: 0, eventsAppended: 0, requests: 1, deferred: [] },
+    },
   };
   function baselineEnvelope(data: Record<string, unknown>): Record<string, unknown> {
     return {
@@ -3495,7 +3710,11 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       // carrying its waiver across would have swapped one seeded key for
       // another — the edit the seed digest exists to redden — so the only legal
       // move was to write the real schema.
-      expect(actions.length).toBe(16);
+      //
+      // The 17th is the bounded action executor's `execute_intent`, NEW like
+      // `reconcile_worktrees` — a shrink-only allowlist has no waiver for a
+      // fresh action to acquire, so it was declared substantively from the start.
+      expect(actions.length).toBe(17);
       for (const { tool, action } of actions) {
         const parsed = action.outputSchema.safeParse(cappedEnvelope());
         expect(
@@ -3640,7 +3859,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       const edges: { tool: string; action: string; emission: AutoEmission }[] = [];
       for (const tool of TOOL_REGISTRY) {
         for (const action of tool.actions) {
-          for (const emission of action.autoEmits ?? []) {
+          for (const emission of contractEmissionsOf(action)) {
             edges.push({ tool: tool.name, action: action.name, emission });
           }
         }
@@ -3688,6 +3907,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       // here alongside the declarations that introduce it.
       expect([...new Set(edges.map((e) => e.emission.owner))].sort()).toEqual([
         'orchestrate',
+        'view',
         'workflow',
       ]);
 

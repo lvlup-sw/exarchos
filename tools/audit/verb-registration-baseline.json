@@ -1,7 +1,7 @@
 {
-  "capturedAt": "2026-08-13",
-  "tree": "03413967a346c78efb548ac3452e382ca681ec7f",
-  "count": 124,
+  "capturedAt": "2026-08-27",
+  "tree": "31d11ac26557491e1b901d3a18048a1f7ca90288",
+  "count": 125,
   "actionIds": [
     "exarchos_event.append",
     "exarchos_event.batch_append",
@@ -45,6 +45,7 @@
     "exarchos_orchestrate.describe",
     "exarchos_orchestrate.discover_bridge",
     "exarchos_orchestrate.doctor",
+    "exarchos_orchestrate.execute_intent",
     "exarchos_orchestrate.extract_fix_tasks",
     "exarchos_orchestrate.extract_task",
     "exarchos_orchestrate.finalize_oneshot",

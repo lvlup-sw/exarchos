@@ -15,7 +15,7 @@
 // run during implementation and the e2e parity test.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,6 +28,34 @@ import { loadInvariants, type InvariantEntry } from '../../../src/architecture/i
 import { evaluateTree } from '../../../src/architecture/check-evaluator.js';
 import { projectCatalog } from '../../../src/architecture/project-catalog.js';
 import { renderAuditPrompt } from '../../../src/architecture/audit-prompt.js';
+
+// The conformance gate now records durable evidence through the shared
+// phase-gate runner before any success carrier escapes, and the runner needs an
+// active workflow phase attempt these content fixtures do not stand up. What is
+// under test here is the AUTHORED CATALOG's verdict, so the runner is stubbed
+// down to its provider call — the same seam the gate's own unit tests stub.
+vi.mock('../../../src/verbs/gates/gate-runner.js', () => ({
+  runPhaseGateWithEvidence: vi.fn(async (request) => {
+    try {
+      return await request.executeProvider(
+        {
+          gateClass: request.gateClass,
+          providerRef: 'test-provider',
+          actionName: 'test-provider',
+        },
+        request.providerInput,
+      );
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: 'GATE_PROVIDER_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }),
+}));
 import { EventStore } from '../../../src/events/store.js';
 import { handleCheckInvariantConformance } from '../../../src/verbs/gates/check-invariant-conformance.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';

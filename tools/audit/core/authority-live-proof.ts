@@ -480,9 +480,10 @@ export function measureStringValuedEntries(
 /**
  * Classify every `<propertyName>: …` assignment in a file, wherever it occurs.
  *
- * Used for `autoEmits`, which is a property of each action descriptor rather
- * than a top-level constant. `autoEmits: [{ event: 'gate.executed', … }]` is a
- * literal site; `autoEmits: emissionsFor(name)` would be a derived one.
+ * The generic form, for a representation carried by a property of some
+ * declaration rather than by a top-level constant. `p: [{ … }]` is a literal
+ * site; `p: computedFrom(x)` is a derived one. Emission rows had this shape
+ * until they moved behind a contract; see `measureActionEmissions`.
  */
 export function measurePropertyAssignments(
   source: string,
@@ -507,6 +508,71 @@ export function measurePropertyAssignments(
   };
   ts.forEachChild(sourceFile, visit);
   return requireSites(sites, `\`${property}:\` assignments in ${file}`);
+}
+
+/**
+ * Every `ActionEmission` row declared on an action contract.
+ *
+ * The population is the ROW, not the `emissions:` assignment carrying it. A row
+ * is what names an event, and the assignments reach them through four shapes —
+ * `declared({ … })` inline, `declared(...NAMED_ROWS)` spreading a file-local
+ * constant, a bare reference to one, and `none('…')` declaring an empty set.
+ * Anchoring on the row measures all four without resolving any of them, and a
+ * fifth shape is counted the moment it declares a row. Anchoring on the
+ * assignment instead would have to resolve each spread back to its constant to
+ * see the event name at all, and would score every one of them `derived` — the
+ * name of the wrapper, not the fact about the name inside it.
+ *
+ * A row is identified structurally: an object literal carrying both `event` and
+ * `condition`, the two members `ActionEmission` requires that no other
+ * declaration in this tree pairs. Matching `event:` alone would also sweep in
+ * the postcondition rows (`ensures: declared({ source: 'event-append', …,
+ * event: '…' })`) and the request schemas (`event: coercedRecord()`), which are
+ * different representations on different boundaries.
+ *
+ * `event: 'workflow.started'` is a literal site; `event: eventFor(name)` would
+ * be a derived one.
+ */
+export function measureActionEmissions(source: string, file: string): readonly MeasuredSite[] {
+  const sourceFile = parseOrThrow(source, file, LABEL);
+  const sites: MeasuredSite[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isObjectLiteralExpression(node)) {
+      const event = emissionRowEvent(node);
+      if (event !== undefined) {
+        sites.push({
+          file,
+          line: lineOf(sourceFile, event),
+          kind: classifyInitializer(event.initializer),
+          subject: ts.isStringLiteralLike(event.initializer)
+            ? event.initializer.text
+            : event.initializer.getText(sourceFile),
+          expression: event.initializer.getText(sourceFile),
+          start: event.initializer.getStart(sourceFile),
+          end: event.initializer.getEnd(),
+        });
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+  return requireSites(sites, '`ActionEmission` rows (an object pairing `event` with `condition`) ' + `in ${file}`);
+}
+
+/**
+ * The `event:` member of an object literal that is an `ActionEmission` row, or
+ * `undefined` when the literal is anything else.
+ */
+function emissionRowEvent(node: ts.ObjectLiteralExpression): ts.PropertyAssignment | undefined {
+  let event: ts.PropertyAssignment | undefined;
+  let hasCondition = false;
+  for (const member of node.properties) {
+    if (!ts.isPropertyAssignment(member)) continue;
+    const name = propertyName(member.name);
+    if (name === 'event') event = member;
+    else if (name === 'condition') hasCondition = true;
+  }
+  return hasCondition ? event : undefined;
 }
 
 // ─── Markdown (the representation with no expressions at all) ────────────────
@@ -586,7 +652,7 @@ export function measureProseEventMentions(
 export const EVENT_CATALOG_SOURCES: {
   readonly authority: string;
   readonly annotations: string;
-  readonly autoEmits: string;
+  readonly emissions: string;
   readonly phaseExpectedEvents: string;
   readonly proseRoot: string;
 } = Object.freeze({
@@ -602,10 +668,18 @@ export const EVENT_CATALOG_SOURCES: {
   // The fix is to measure the structural fact — the tier/lifecycle pair each event declares —
   // and to derive the source through the SHIPPED derivation rather than restating it here.
   annotations: 'src/events/event-annotations.ts',
-  // The action descriptors, which is where `autoEmits` rows live. A DIRECTORY,
+  // The action descriptors, which is where the emission rows live. A DIRECTORY,
   // not a file: the declarations are split into a module per action family, so
   // any single path would measure a fraction of the representation.
-  autoEmits: 'src/registry/actions',
+  //
+  // The rows used to be a sibling `autoEmits:` array on each descriptor and are
+  // now `emissions:` inside the action contract, reached through `declared(…)`
+  // / `none(…)`. Scanning for the old property name found zero sites and the
+  // empty-denominator guard threw — the annotations entry above records the
+  // same failure mode from the same cause. What is measured is therefore the
+  // ROW rather than whichever property currently carries it, so the next move
+  // of the wrapper does not silently re-open this.
+  emissions: 'src/registry/actions',
   phaseExpectedEvents: 'src/verbs/gates/check-event-emissions.ts',
   // The AUTHORED skills tree. `skills/<runtime>/` is generated from it, so
   // measuring both would count one representation several times.
@@ -615,7 +689,7 @@ export const EVENT_CATALOG_SOURCES: {
 export interface EventCatalogSources {
   readonly authority: string;
   readonly annotations: string;
-  readonly autoEmits: string;
+  readonly emissions: string;
   readonly phaseExpectedEvents: string;
   readonly docs: readonly SkillDoc[];
 }
@@ -634,7 +708,7 @@ function readTypeScriptTree(dir: string): string {
 
 /**
  * Read a representation's source. A representation may be one file or a
- * DIRECTORY of them: `autoEmits` rows are declared on action descriptors, and
+ * DIRECTORY of them: emission rows are declared on action descriptors, and
  * those are split across a module per action family. Naming the directory
  * keeps the measurement over the whole representation, where naming one file
  * would silently shrink the denominator every time a family is split out —
@@ -687,7 +761,7 @@ export function readEventCatalogSources(repoRoot: string = REPO_ROOT): EventCata
   return {
     authority: readOrThrow(repoRoot, EVENT_CATALOG_SOURCES.authority),
     annotations: readOrThrow(repoRoot, EVENT_CATALOG_SOURCES.annotations),
-    autoEmits: readOrThrow(repoRoot, EVENT_CATALOG_SOURCES.autoEmits),
+    emissions: readOrThrow(repoRoot, EVENT_CATALOG_SOURCES.emissions),
     phaseExpectedEvents: readOrThrow(repoRoot, EVENT_CATALOG_SOURCES.phaseExpectedEvents),
     docs,
   };
@@ -698,12 +772,12 @@ export function readEventCatalogSources(repoRoot: string = REPO_ROOT): EventCata
 /** The representation ids task 024's committed row uses. Matched exactly. */
 export const EVENT_CATALOG_REPRESENTATION_IDS: {
   readonly authority: string;
-  readonly autoEmits: string;
+  readonly emissions: string;
   readonly phaseExpectedEvents: string;
   readonly prose: string;
 } = Object.freeze({
   authority: 'EVENT_EMISSION_REGISTRY (`events/schemas.ts`)',
-  autoEmits: 'the registry `autoEmits` rows',
+  emissions: 'the registry emission rows',
   phaseExpectedEvents: 'PHASE_EXPECTED_EVENTS (`verbs/gates/check-event-emissions.ts`)',
   prose: 'skill prose naming events to emit',
 });
@@ -742,10 +816,9 @@ export function measureEventCatalog(sources: EventCatalogSources): EventCatalogM
     );
   }
 
-  const autoEmitSites = measurePropertyAssignments(
-    sources.autoEmits,
-    EVENT_CATALOG_SOURCES.autoEmits,
-    'autoEmits',
+  const emissionSites = measureActionEmissions(
+    sources.emissions,
+    EVENT_CATALOG_SOURCES.emissions,
   );
   const phaseSites = measureObjectLiteralEntries(
     sources.phaseExpectedEvents,
@@ -774,15 +847,15 @@ export function measureEventCatalog(sources: EventCatalogSources): EventCatalogM
       ],
     },
     {
-      id: EVENT_CATALOG_REPRESENTATION_IDS.autoEmits,
+      id: EVENT_CATALOG_REPRESENTATION_IDS.emissions,
       binding: bindingFor(
-        autoEmitSites,
+        emissionSites,
         'EVENT_EMISSION_REGISTRY',
-        'every `autoEmits` list is computed from the emission registry',
+        'every emission row is computed from the emission registry',
         'declared alongside the emission registry rather than projected from it — an action whose ' +
-          '`autoEmits` drifts from what it actually emits is invisible to any shipped check.',
+          'emission row drifts from what it actually emits is invisible to any shipped check.',
       ),
-      sites: autoEmitSites,
+      sites: emissionSites,
     },
     {
       id: EVENT_CATALOG_REPRESENTATION_IDS.phaseExpectedEvents,
@@ -825,8 +898,8 @@ export function measureEventCatalog(sources: EventCatalogSources): EventCatalogM
       `Measured LIVE from source by \`scripts/authority-live-proof.ts\`: the authority declares ` +
       `${registeredEvents.size} event types (${modelEvents.size} \`model\`-sourced). ` +
       `${unbound.length} of ${present.length - 1} non-authoritative representations are unbound. ` +
-      `\`autoEmits\`: ${autoEmitSites.filter((s) => s.kind === 'literal').length}/` +
-      `${autoEmitSites.length} sites baked. \`PHASE_EXPECTED_EVENTS\`: ` +
+      `emission rows: ${emissionSites.filter((s) => s.kind === 'literal').length}/` +
+      `${emissionSites.length} sites baked. \`PHASE_EXPECTED_EVENTS\`: ` +
       `${phaseSites.filter((s) => s.kind === 'literal').length}/${phaseSites.length} entries baked ` +
       `(the rest derive) — PARTIALLY bound, which is not bound. Skill prose: ${proseSites.length} ` +
       'event names in Markdown, which has no expressions to derive them with.',
@@ -998,12 +1071,14 @@ export function measureEmissionSinks(source: string, file: string): readonly Mea
 /**
  * The commit gate, measured rather than assumed.
  *
- * `EffectPlan.emits` is only an AUTHORITY because a plan that declares one
- * cannot produce a committed value without a receipt for it — that is what
+ * `EffectPlan.emits` is only an AUTHORITY because a plan cannot produce a
+ * committed value without a receipt for what it declared — that is what
  * `UnrecordedEmissionError` enforces, and without it the field would be a
- * comment. Deleting the gate must therefore take the authority claim with it,
- * so its presence is a fail-closed precondition of the measurement rather than a
- * sentence in the row's prose.
+ * comment. The field is required now, so the claim covers every plan rather
+ * than only the ones that opted in; a plan may still declare that it records
+ * nothing, but it may no longer decline to say. Deleting the gate must take the
+ * authority claim with it, so its presence is a fail-closed precondition of the
+ * measurement rather than a sentence in the row's prose.
  */
 function requireCommitGate(source: string, file: string): number {
   const sourceFile = parseOrThrow(source, file, LABEL);
@@ -1165,7 +1240,7 @@ export function measureCliSurface(scan: DerivationScan): MeasuredBoundary {
       binding: { kind: 'authoritative' },
       sites: [
         {
-          file: GOVERNED_SOURCES[0] ?? EVENT_CATALOG_SOURCES.autoEmits,
+          file: GOVERNED_SOURCES[0] ?? EVENT_CATALOG_SOURCES.emissions,
           line: 1,
           kind: 'derived',
           subject: 'TOOL_REGISTRY',

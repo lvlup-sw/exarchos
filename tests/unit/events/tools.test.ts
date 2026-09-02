@@ -754,6 +754,66 @@ describe('tenant field passthrough', () => {
   });
 });
 
+// ─── `event query` operationId passthrough ───────────────────────────────────
+//
+// `EventStore.query` has always supported `QueryFilters.operationId`, but
+// `handleEventQuery` whitelisted only `type`/`sinceSequence`/`since`/`until`
+// from the caller's filter object and silently dropped `operationId` — a
+// caller holding an operationId (e.g. from a receipt) had no way to retrieve
+// exactly the events stamped with it.
+
+describe('handleEventQuery operationId filter passthrough', () => {
+  it('handleEventQuery_WithOperationIdFilter_ReturnsOnlyMatchingEvents', async () => {
+    const store = new EventStore(tempDir);
+    await store.append('op-filter-test', {
+      type: 'workflow.started',
+      operationId: 'op-a',
+      data: { featureId: 'test', workflowType: 'feature' },
+    });
+    await store.append('op-filter-test', {
+      type: 'task.assigned',
+      operationId: 'op-b',
+      data: { taskId: 't1', title: 'Task t1' },
+    });
+    await store.append('op-filter-test', {
+      type: 'task.assigned',
+      operationId: 'op-a',
+      data: { taskId: 't2', title: 'Task t2' },
+    });
+
+    const result = await handleEventQuery(
+      { stream: 'op-filter-test', filter: { operationId: 'op-a' } },
+      tempDir,
+      store,
+    );
+
+    expect(result.success).toBe(true);
+    const events = queryEvents(result);
+    expect(events).toHaveLength(2);
+    expect(events.every((e) => e.operationId === 'op-a')).toBe(true);
+  });
+
+  it('handleEventQuery_WithEmptyOperationIdFilter_IsIgnoredNotTreatedAsAFilter', async () => {
+    const store = new EventStore(tempDir);
+    await store.append('op-filter-empty-test', {
+      type: 'workflow.started',
+      operationId: 'op-a',
+      data: { featureId: 'test', workflowType: 'feature' },
+    });
+
+    const result = await handleEventQuery(
+      { stream: 'op-filter-empty-test', filter: { operationId: '' } },
+      tempDir,
+      store,
+    );
+
+    expect(result.success).toBe(true);
+    // An empty-string operationId is not a valid filter value; it must be
+    // treated as absent rather than matching nothing.
+    expect(queryEvents(result)).toHaveLength(1);
+  });
+});
+
 // ─── DR-5: `event query` default limit + page metadata ──────────────────────
 //
 // Default queries cap at the 20 NEWEST events plus `page:{total,offset,limit,

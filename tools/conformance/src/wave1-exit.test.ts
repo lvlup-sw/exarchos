@@ -14,10 +14,9 @@
 //     to the handler payload, the runtime payload to `outputSchema`,
 //     `PHASE_EXPECTED_EVENTS` to the phase machine, and Markdown phase playbooks
 //     to something mechanical. Each is a DR in its own right, not a data edit.
-//   - The fifth is `action-contract`'s `stale-exception`: the P05-05 reachability
-//     census walks authority → representation, so it cannot see an orphan
-//     representation and therefore does not discharge G5. The spec is explicit
-//     that this "is real work, not a data edit".
+//   - The action-contract row stays `already-enforced`. It names the
+//     ActionId-scoped closure instrument, so the old enforcement stale-exception
+//     is gone because the claim is true — not because the row was deferred.
 //
 // Option 2 pins the DELTA rather than the absolute: the Wave-1 blocking
 // population must equal its measured baseline exactly, and a seeded violation
@@ -25,11 +24,11 @@
 // today and still falsifiable — a new break reddens it, and so does a
 // remediation that is not also recorded here.
 //
-// **The third path was NOT taken.** The spec forbids moving the
-// `action-contract` row to a later wave to make the count zero, because that
-// erases a measured failure rather than fixing it. `action-contract` still
-// declares `enforceFrom: already-enforced` below, and its finding is still in
-// the baseline where it stays visible.
+// **The third path was NOT taken.** Moving the `action-contract` row to a
+// later wave to hide an enforcement finding erases a measured failure rather
+// than fixing it. The row still declares `enforceFrom: already-enforced`, and
+// the Wave-1 blocking population no longer contains its stale-exception
+// because the named instrument discharges the claim.
 //
 // ── WHAT "FLIP TO ENFORCE" MEANT IN PRACTICE ────────────────────────────────
 // The task title says "flip all five guards from observe to enforce". Measured
@@ -110,13 +109,12 @@ const DR9_PREVIOUSLY_DARK: readonly string[] = [
  * finding's prose, which a full-message key is not, while still distinguishing
  * every real break.
  *
- * Five entries, and each one is a real defect this wave did not close. They are
- * listed so that a SIXTH reddens the build, and so that remediating one of these
+ * Four entries, and each one is a real defect this wave did not close. They are
+ * listed so that a fifth reddens the build, and so that remediating one of these
  * also reddens it — a baseline that only catches growth lets a fix land
  * unrecorded, and this program's whole thesis is that unrecorded state drifts.
  */
 const WAVE1_BLOCKING_BASELINE: readonly string[] = [
-  'action-contract | enforcement | stale-exception',
   'phase-sequencing | binding | missing',
   'phase-sequencing | binding | missing',
   'response-shape | binding | missing',
@@ -163,11 +161,11 @@ describe('Wave 1 exit — the five guards (task 027, DR-6 / DR-24)', () => {
       expect(dueBoundaries.has(f.boundary), `${f.boundary} is due at wave-1`).toBe(true);
     }
 
-    // The `action-contract` row was NOT relabelled to a later wave to make the
-    // count zero — the third path the spec forbids. Task 025 left it at
-    // `already-enforced` precisely so the finding stays visible.
+    // The `action-contract` row was NOT relabelled to a later wave. It stays
+    // `already-enforced`; the stale-exception is gone because the named
+    // instrument discharges the claim.
     expect(AUTHORITY_TOPOLOGY['action-contract'].enforceFrom.kind).toBe('already-enforced');
-    expect(blockingTuples).toContain('action-contract | enforcement | stale-exception');
+    expect(blockingTuples).not.toContain('action-contract | enforcement | stale-exception');
 
     // ── 3. THE SEEDED VIOLATION — the guard still bites ──────────────────────
     // A baseline assertion alone passes on a census that has stopped looking.
@@ -216,6 +214,36 @@ describe('Wave 1 exit — the five guards (task 027, DR-6 / DR-24)', () => {
     const remediated = runAuthorityCensus(boundRows, { atWave: 'wave-1' });
     expect(remediated.blocking.length).toBeLessThan(live.blocking.length);
     expect(remediated.blocking.map((f) => f.boundary)).not.toContain('response-shape');
+  });
+
+  it('Wave1Exit_NoActionContractStaleException', () => {
+    // The first-wave blocking population must not carry the action-contract
+    // enforcement stale-exception. The row stays `already-enforced` — hiding
+    // the finding by deferring the row is the path that is forbidden.
+    const live = runAuthorityCensus(topologyRows(), { atWave: 'wave-1' });
+    expect(AUTHORITY_TOPOLOGY['action-contract'].enforceFrom.kind).toBe('already-enforced');
+    expect(live.blocking.map(tupleOf)).not.toContain('action-contract | enforcement | stale-exception');
+    expect(WAVE1_BLOCKING_BASELINE).not.toContain('action-contract | enforcement | stale-exception');
+
+    // The seeded-violation proof still bites on another first-wave row, so the
+    // guard has not gone silent just because this one finding is gone.
+    const victim = wave1Rows().find((r) => r.boundary === 'response-shape');
+    if (victim === undefined) throw new Error('unreachable: response-shape is a wave-1 row');
+    const seededRepresentation: BoundaryRepresentation = {
+      id: 'a seeded representation that nothing derives (wave-1 action-contract control)',
+      binding: { kind: 'unbound', why: 'seeded to prove the Wave-1 guard still bites' },
+    };
+    const seededRows = topologyRows().map((r) =>
+      r.boundary === victim.boundary
+        ? { ...r, representations: [...r.representations, seededRepresentation] }
+        : r,
+    );
+    const seeded = runAuthorityCensus(seededRows, { atWave: 'wave-1' });
+    expect(seeded.blocking.length).toBe(live.blocking.length + 1);
+    expect(seeded.blocking.some((f) => f.subject === seededRepresentation.id)).toBe(true);
+    expect(seeded.blocking.map(tupleOf)).not.toContain(
+      'action-contract | enforcement | stale-exception',
+    );
   });
 
   it('Wave1Exit_EachGuardSelfTest_RunsInSameCiJob', () => {

@@ -31,6 +31,7 @@ consistent base before opening PRs:
 ```typescript
 mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
   action: "validate_pr_stack",
+  featureId: "<feature-id>",
   baseBranch: "<integration-branch>"
 })
 ```

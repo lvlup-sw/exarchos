@@ -34,7 +34,7 @@ export const TOOL_REGISTRY: readonly BuiltinCompositeTool[] = [
     description: 'Task coordination — claim, complete, and fail tasks',
     actions: orchestrateActions,
     cli: { alias: 'orch' },
-    slimDescription: 'Task coordination, gates, validation, VCS. describe(actions) for schemas.\n\nActions: task_claim, task_complete, task_fail, review_triage, prepare_delegation, prepare_synthesis, assess_stack, check_static_analysis, check_integration_suite, check_security_scan, check_context_economy, check_operational_resilience, check_workflow_determinism, check_review_verdict, check_convergence, check_provenance_chain, check_design_completeness, check_plan_coverage, check_post_merge, check_task_decomposition, check_event_emissions, extract_task, review_diff, verify_worktree, select_debug_track, investigation_timer, check_coverage_thresholds, assess_refactor_scope, check_pr_comments, validate_pr_body, validate_pr_stack, debug_review_gate, extract_fix_tasks, generate_traceability, spec_coverage_check, verify_worktree_baseline, setup_worktree, verify_delegation_saga, post_delegation_check, reconcile_state, pre_synthesis_check, runbook, agent_spec, onboard, doctor, create_pr, merge_pr, check_ci, list_prs, get_pr_comments, add_pr_comment, create_issue, merge_orchestrate, check_invariant_conformance, acquire_worktree, release_worktree, prune_worktrees, reconcile_worktrees, serialize_merge, stack_place',
+    slimDescription: 'Task coordination, gates, VCS. describe(actions).\n\nActions: task_claim, task_complete, task_fail, review_triage, prepare_delegation, prepare_synthesis, assess_stack, check_static_analysis, check_integration_suite, check_security_scan, check_context_economy, check_operational_resilience, check_workflow_determinism, check_review_verdict, check_convergence, check_provenance_chain, check_design_completeness, check_plan_coverage, check_post_merge, check_task_decomposition, check_event_emissions, extract_task, review_diff, verify_worktree, select_debug_track, investigation_timer, check_coverage_thresholds, assess_refactor_scope, check_pr_comments, validate_pr_body, validate_pr_stack, debug_review_gate, extract_fix_tasks, generate_traceability, spec_coverage_check, verify_worktree_baseline, setup_worktree, verify_delegation_saga, post_delegation_check, reconcile_state, pre_synthesis_check, runbook, agent_spec, onboard, doctor, create_pr, merge_pr, check_ci, list_prs, get_pr_comments, add_pr_comment, create_issue, merge_orchestrate, check_invariant_conformance, acquire_worktree, release_worktree, prune_worktrees, reconcile_worktrees, serialize_merge, stack_place, execute_intent',
   },
   {
     name: 'exarchos_view',
@@ -63,7 +63,7 @@ export const TOOL_REGISTRY: readonly BuiltinCompositeTool[] = [
 // validates per-action at call time through `validateAction`.
 for (const tool of TOOL_REGISTRY) {
   for (const action of tool.actions) {
-    validateAction(action, tool.name);
+    validateAction(action, tool.name, 'load');
   }
 }
 

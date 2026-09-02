@@ -1,8 +1,9 @@
 import { EventStore } from '../../../events/store.js';
+import { toViewFailure } from '../../degraded-result.js';
 import type { ToolResult } from '../../../format.js';
 import { CONVERGENCE_VIEW, type ConvergenceViewState } from '../convergence-view.js';
 import { getOrCreateMaterializer } from './materializer.js';
-import { queryDeltaEvents } from './query.js';
+import { foldToTail } from '../../fold-at-tail.js';
 import { readWorkflowStateJson } from './streams.js';
 
 // ─── View Convergence Handler ──────────────────────────────────────────────
@@ -22,12 +23,7 @@ export async function handleViewConvergence(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const events = await queryDeltaEvents(store, materializer, streamId, CONVERGENCE_VIEW);
-    const view = materializer.materialize<ConvergenceViewState>(
-      streamId,
-      CONVERGENCE_VIEW,
-      events,
-    );
+    const { view } = await foldToTail<ConvergenceViewState>(store, materializer, streamId, CONVERGENCE_VIEW);
 
     // Fix 2 (#1184) — when `gate.executed` events don't cover all dimensions,
     // fall back to `state.reviews.findingsByDimension`. The reviewer stamps
@@ -69,12 +65,6 @@ export async function handleViewConvergence(
     }
     return { success: true, data: { ...effectiveView, dimensions } };
   } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'VIEW_ERROR',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
+    return toViewFailure(err, { tool: 'exarchos_view', action: 'convergence' });
   }
 }

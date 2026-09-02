@@ -1,11 +1,25 @@
 import { coercedNonnegativeInt, coercedPositiveInt, coercedStringArray } from '../../../coerce.js';
 import { vacuityWaiver } from '../../../output-schema-declaration.js';
 import { z } from 'zod';
+import { none, withActionContract } from '../../action-contract.js';
 import { CORRELATION_TUPLE_FILTER_SHAPE, READ_ONLY_LOCAL } from '../../annotations.js';
 import { ALL_PHASES, ROLE_ANY } from '../../phases.js';
-import type { BuiltinToolAction } from '../../types.js';
+import type { BuiltinActionDraft, BuiltinToolAction } from '../../types.js';
 
-export const qualityViewActions: readonly BuiltinToolAction[] = [
+const READ_ONLY_VIEW_CONTRACT = {
+  requires: none('read-only view has no admission obligations'),
+  ensures: none('read-only view returns an ephemeral projection with no durable postcondition'),
+  needs: none('read-only view folds in-process projections'),
+  touches: {
+    frame: 'single-machine',
+    resources: none('read-only view does not claim exclusive stream, path, worktree, or git-ref ownership'),
+  },
+  executionAuthority: { kind: 'local' },
+  replay: { kind: 'safe-repeat' },
+  emissions: none('read-only view emits no catalog events'),
+};
+
+const QUALITY_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
   // Wave 5 (#1437) — Group B telemetry view actions. These actions were
   // previously dispatched via `exarchos_view` through composite.ts but had
   // no entry in TOOL_REGISTRY's `viewActions`, so per-action schema
@@ -228,3 +242,7 @@ export const qualityViewActions: readonly BuiltinToolAction[] = [
     annotations: READ_ONLY_LOCAL,
   },
 ];
+
+export const qualityViewActions: readonly BuiltinToolAction[] = QUALITY_VIEW_DECLARATIONS.map((action) =>
+  withActionContract(action, READ_ONLY_VIEW_CONTRACT, { annotations: action.annotations }),
+);

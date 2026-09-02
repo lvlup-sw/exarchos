@@ -7,82 +7,93 @@
  * Emitter closure: every append in the tree is explained, and every explanation
  * is live.
  *
- * The undeclared baseline is a MEASUREMENT, not a suppression list. The audit
- * reports all 31 on every run; this file pins today's shape so the set cannot
- * grow unnoticed and shrinks visibly as emitters are declared.
+ * Two arms measure the tree against two declared populations and pin what
+ * they find:
  *
- * It has now shrunk once, from 33: `launch.executed` and `stack.position-filled`
- * left when the effect-ledger remedy gave each an action that declares it —
- * `reconcile_worktrees` for the first, the re-parented `stack_place` for the
- * second. Both were undeclared because the append sat on a surface that could
- * not honestly name it, which is the shape most of the remaining rows share.
+ * - The undeclared arm holds at zero. Every append site is explained by
+ *   either an action edge (`registration-validate`) or the non-action surface
+ *   (`MODULE_EMISSIONS`) — there is no third bucket. A zero baseline is the
+ *   most fragile assertion this file makes: `toEqual([])` passes just as
+ *   happily over a census that read nothing, so the denominators (measured
+ *   site count, action-explained count, module-explained count) are asserted
+ *   first and are not decoration.
+ * - The unresolved arm holds a pinned, non-empty, shrink-only baseline: sites
+ *   whose `.append()` discriminant is a runtime value the parser cannot
+ *   reduce to a string. These cannot mechanically resolve today, so an empty
+ *   set here would be dishonest rather than clean. It shrinks only when a
+ *   site becomes resolvable, and a new unresolved site fails the comparison
+ *   the moment it appears.
  *
- * The phantom arm carries no baseline at all, deliberately. A stale row in the
- * non-action surface is never acceptable, so there is nothing to grandfather —
- * it fails the moment an append it names stops existing.
+ * The module-emission arm below (`EmitterClosure_EveryModuleEmission_IsLiveInTheTree`)
+ * carries no baseline at all, deliberately. A stale row in the non-action
+ * surface is never acceptable, so there is nothing to grandfather — it fails
+ * the moment an append it names stops existing.
  */
 
 import { describe, it, expect } from 'vitest';
 import { join } from 'node:path';
 
 import { scanAppendSites, type AppendSiteCensus } from '../../../src/events/append-site-census.js';
-import { auditEmitterClosure } from '../../../src/events/emitter-closure-audit.js';
-import { MODULE_EMISSIONS } from '../../../src/events/module-emissions.js';
+import {
+  ACTION_APPEND_OWNERSHIP,
+  UNRESOLVED_ACTION_EVENT_ALLOWANCE,
+  auditActionOwnedAppends,
+  auditEmitterClosure,
+  reasonedAbstentions,
+} from '../../../src/events/emitter-closure-audit.js';
+import {
+  MODULE_EMISSIONS,
+  type ModuleEmission,
+} from '../../../src/events/module-emissions.js';
 import { declaredEmissionEdges } from '../../../src/events/registration-validate.js';
 import { EVIDENCE_DISCRIMINANT_CONSTANTS } from '../../../src/verbs/gates/gate-ownership-census.js';
 import { scanEvidenceEmission } from '../../../tools/test-helpers/evidence-emission-scanner.js';
+import { EnvelopeSchema } from '../../../src/contract/schemas/envelope.js';
+import { none, type ActionContract } from '../../../src/registry/action-contract.js';
+import type { ActionAnnotations, CompositeTool } from '../../../src/registry.js';
+import { z } from 'zod';
 
 const SOURCE_ROOT = join(process.cwd(), 'src');
 
 /**
- * Appends nothing declares yet, `event <- module`.
+ * Append sites whose discriminant does not reduce to a string, keyed by
+ * MODULE with a COUNT of unresolved sites in it — not `module:line`. A line
+ * number is an accident of everything ABOVE the append in the same file;
+ * an edit to unrelated code earlier in a module used to redden this baseline
+ * with nothing to do about the append itself. The count is what the arm
+ * actually needs: how many sites in this module the parser cannot reduce.
  *
- * SHRINK-ONLY. An entry leaves when the append is declared — on an action's
- * `autoEmits` if it is that action's effect, or in `MODULE_EMISSIONS` if a
- * wrapper, hook or interceptor performs it. Adding one is a deliberate act that
- * fails here first.
- *
- * They are not one problem. Most are ordinary handler appends whose action
- * simply never declared them (`verbs/vcs/*`, `verbs/team/*`, `verbs/merge/*`).
- * A few are store-internal or projection-internal (`task-store`, `freshness`,
- * `regression-detector`). Two are the dispatch protocol itself
- * (`elicitation-dispatch`). One — `task.assigned <- events/decide-fixtures.ts` —
- * is worth a second look, because a fixture module appending a product event is
- * either a test seam in the shipped tree or a misfiled helper.
+ * SHRINK-ONLY. A module's count falls only when a site in it is rewritten so
+ * the parser can read the discriminant as a string literal or a known
+ * constant — falling requires editing the baseline down, which stays
+ * visible. A new unresolved site fails immediately, either as a bumped count
+ * on an existing module or a new module key.
  */
-const UNDECLARED_BASELINE: readonly string[] = Object.freeze([
-  'branch.delete.executed <- workflow/compensation.ts',
-  'branch.delete.requested <- workflow/compensation.ts',
-  'command.resolved <- config/test-runtime-resolver.ts',
-  'dispatch.classified <- verbs/review/classify-review-items.ts',
-  'dispatch.preflight <- verbs/team/dispatch-guard.ts',
-  'elicitation.declined <- dispatch/elicitation-dispatch.ts',
-  'elicitation.fulfilled <- dispatch/elicitation-dispatch.ts',
-  'elicitation.requested <- dispatch/elicitation-dispatch.ts',
-  'export.executed <- projections/views/lifecycle/export.ts',
-  'export.requested <- projections/views/lifecycle/export.ts',
-  'issue.create.executed <- verbs/vcs/create-issue.ts',
-  'issue.create.requested <- verbs/vcs/create-issue.ts',
-  'merge.executing_started <- verbs/merge/execute-merge.ts',
-  'merge.retry_attempt <- verbs/merge/execute-merge.ts',
-  'pr.comment.executed <- verbs/vcs/add-pr-comment.ts',
-  'pr.create.executed <- verbs/vcs/create-pr.ts',
-  'pr.create.requested <- verbs/vcs/create-pr.ts',
-  'projection.degraded <- projections/freshness.ts',
-  'projection.recovered <- projections/freshness.ts',
-  'provider.parse-error <- verbs/vcs/assess-stack.ts',
-  'provider.unknown-tier <- verbs/vcs/assess-stack.ts',
-  'prune.diagnostics <- verbs/team/prune-stale-workflows.ts',
-  'quality.regression <- projections/quality/regression-detector.ts',
-  'stash.detected <- verbs/team/dispatch-guard.ts',
-  'task.assigned <- events/decide-fixtures.ts',
-  'task.created <- projections/task-store/event-sourced-task-store.ts',
-  'task.polled <- projections/task-store/event-sourced-task-store.ts',
-  'workflow.plan-review-dispatched <- verbs/team/prepare-review.ts',
-  'workspace.resolved <- runtime/workspace/discovery.ts',
-  'worktree.create.executed <- runtime/launcher/create-worktree.ts',
-  'worktree.create.requested <- runtime/launcher/create-worktree.ts',
-]);
+const UNRESOLVED_BASELINE: Readonly<Record<string, number>> = Object.freeze({
+  'dispatch/core/onboarding/event-ctx.ts': 1,
+  'events/store.ts': 2,
+  'events/tools.ts': 1,
+  'projections/task-store/event-sourced-task-store.ts': 1,
+  'storage/sidecar-merger.ts': 1,
+  'storage/sidecar-scheduler.ts': 1,
+  'vcs/mutation-owner.ts': 2,
+  'verbs/gates/mutation-adequacy.ts': 1,
+  'verbs/team/prepare-delegation.ts': 1,
+  'verbs/worktree/manager.ts': 1,
+  'verbs/worktree/merge-serializer.ts': 1,
+  'workflow/cancel.ts': 1,
+});
+
+/** `module -> count of unresolved append sites in it`, from the live census. */
+function unresolvedCountsByModule(
+  unresolved: readonly { readonly module: string; readonly line: number }[],
+): Readonly<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  for (const site of unresolved) {
+    counts[site.module] = (counts[site.module] ?? 0) + 1;
+  }
+  return Object.freeze(counts);
+}
 
 function censusOf(
   modulesByEvent: Record<string, readonly string[]>,
@@ -96,8 +107,49 @@ function censusOf(
   };
 }
 
+/**
+ * A one-action composite tool whose action reasons a `none` abstention with
+ * `because`. Used to prove `reasonedAbstentions` and `auditActionOwnedAppends`
+ * key on the qualified `tool.action`, not the bare action name — a custom
+ * registry is not required to keep action names unique across tools.
+ */
+function abstainingTool(toolName: string, actionName: string, because: string): CompositeTool {
+  const contract: ActionContract = {
+    requires: none('fixture declares no precondition'),
+    ensures: none('fixture declares no postcondition'),
+    needs: none('fixture declares no capabilities'),
+    touches: { frame: 'single-machine', resources: none('fixture touches no durable resources') },
+    executionAuthority: { kind: 'local' },
+    replay: { kind: 'safe-repeat' },
+    emissions: none(because),
+  };
+  const annotations: ActionAnnotations = {
+    safety: 'read-only',
+    readOnly: true,
+    destructive: false,
+    idempotent: true,
+    openWorld: false,
+  };
+  return {
+    name: toolName,
+    description: `fixture tool ${toolName}`,
+    actions: [
+      {
+        name: actionName,
+        description: `fixture action ${actionName}`,
+        schema: z.object({}),
+        phases: new Set<string>(),
+        roles: new Set<string>(['any']),
+        outputSchema: EnvelopeSchema(z.unknown()),
+        annotations,
+        actionContract: contract,
+      },
+    ],
+  };
+}
+
 describe('emitter closure', () => {
-  it('EmitterClosure_LiveTree_MatchesTheUndeclaredBaseline', async () => {
+  it('EmitterClosure_LiveTree_HasNoUndeclaredAppends', async () => {
     const census = await scanAppendSites(
       SOURCE_ROOT,
       scanEvidenceEmission,
@@ -107,12 +159,24 @@ describe('emitter closure', () => {
 
     // DENOMINATORS FIRST. An empty finding set from a scan that read nothing is
     // indistinguishable from a clean tree.
-    expect(closure.measuredSiteCount, 'no append site was measured').toBeGreaterThan(60);
-    expect(closure.explainedByAction, 'no site was explained by an action edge').toBeGreaterThan(25);
+    expect(closure.measuredSiteCount, 'no append site was measured').toBeGreaterThan(75);
+    expect(closure.explainedByAction, 'no site was explained by an action edge').toBeGreaterThan(50);
+    // The classification arm carries the work now that the undeclared set is
+    // empty. Without this floor an emptied MODULE_EMISSIONS would read as a
+    // clean tree.
+    expect(
+      closure.explainedByModule,
+      'no site was explained by the non-action surface',
+    ).toBeGreaterThan(15);
 
-    expect(closure.undeclared.map((u) => `${u.event} <- ${u.module}`).sort()).toEqual(
-      [...UNDECLARED_BASELINE].sort(),
-    );
+    expect(closure.undeclared, 'an append site is undeclared').toEqual([]);
+
+    // The unresolved arm: its own denominator first, then the pinned set.
+    expect(census.scannedModuleCount, 'no module was scanned').toBeGreaterThan(600);
+    expect(
+      unresolvedCountsByModule(census.unresolved),
+      'the unresolved append census drifted from its pinned, shrink-only per-module baseline',
+    ).toEqual(UNRESOLVED_BASELINE);
   }, 120_000);
 
   it('EmitterClosure_EveryModuleEmission_IsLiveInTheTree', async () => {
@@ -135,11 +199,309 @@ describe('emitter closure', () => {
     expect(closure.explainedByModule).toBe(MODULE_EMISSIONS.length);
   }, 120_000);
 
+  it('EmitterClosure_EveryActionEmission_IsLiveOrOnTheAllowance', async () => {
+    // The action-surface twin of the module phantom arm. A contract emission
+    // naming an event with zero append sites anywhere used to be invisible to
+    // every oracle: the undeclared loop is keyed off MEASURED sites, so an
+    // event nothing appends never enters it, and the declaration sat there
+    // reading as coverage. Now every declared action event must either resolve
+    // to a measured site or sit on the pinned unresolved-append allowance —
+    // and the allowance itself is held to the tree in both directions, so it
+    // cannot rot into a mute list.
+    const census = await scanAppendSites(
+      SOURCE_ROOT,
+      scanEvidenceEmission,
+      EVIDENCE_DISCRIMINANT_CONSTANTS,
+    );
+    const edges = declaredEmissionEdges();
+    const closure = auditEmitterClosure(census, edges);
+
+    // DENOMINATORS FIRST, and the primary one is DERIVED from the registry
+    // rather than hand-pinned: the audit's count must equal the distinct event
+    // set of the edges it was handed, so a shrunken edge flattener cannot read
+    // as a clean tree.
+    const distinctDeclaredEvents = new Set(edges.map((edge) => edge.event)).size;
+    expect(closure.declaredActionEventCount, 'no action event was considered').toBe(
+      distinctDeclaredEvents,
+    );
+    expect(closure.declaredActionEventCount, 'the declared population collapsed').toBeGreaterThan(
+      50,
+    );
+    expect(UNRESOLVED_ACTION_EVENT_ALLOWANCE.length, 'the allowance is empty').toBeGreaterThan(0);
+
+    expect(
+      closure.phantomActionEmissions,
+      'a declared action emission has no measured append site and no allowance cover',
+    ).toEqual([]);
+    expect(closure.staleAllowance, 'an allowance row no longer describes the tree').toEqual([]);
+
+    // The allowance is FULLY consumed: every row covers exactly one declared,
+    // unresolved event. Anything less means a row went stale; anything more is
+    // impossible by construction. This is the bijection that keeps the
+    // allowance shrink-only in practice, not just in prose.
+    expect(closure.unverifiableActionEmissions.map((row) => row.event)).toEqual(
+      [...UNRESOLVED_ACTION_EVENT_ALLOWANCE].sort(),
+    );
+  }, 120_000);
+
+  it('EmitterClosure_ActionEmissionWithNoAppend_IsAPhantom', () => {
+    // The kill probe: a declared edge whose event the census never sees, with
+    // no allowance cover, must be NAMED — with its declaring actions — and
+    // must fail the closure.
+    const closure = auditEmitterClosure(
+      censusOf({}, ['scanned/module.ts']),
+      [{ event: 'seeded.event', action: 'seeded_action', declaringTool: 'exarchos_orchestrate' }],
+      [],
+      [],
+    );
+
+    expect(closure.ok).toBe(false);
+    expect(closure.declaredActionEventCount).toBe(1);
+    expect(closure.phantomActionEmissions).toHaveLength(1);
+    expect(closure.phantomActionEmissions[0]?.event).toBe('seeded.event');
+    expect(closure.phantomActionEmissions[0]?.declaredBy).toEqual([
+      'exarchos_orchestrate.seeded_action',
+    ]);
+    expect(closure.unverifiableActionEmissions).toEqual([]);
+  });
+
+  it('EmitterClosure_AllowanceCoveredEvent_IsUnverifiableNotPhantom', () => {
+    // An event on the allowance is unanswered, not refuted — the census
+    // cannot see through a runtime-valued discriminant, and blaming the
+    // declaration for the parser's boundary would redden every generic append.
+    const closure = auditEmitterClosure(
+      censusOf({}, ['scanned/module.ts']),
+      [{ event: 'seeded.event', action: 'seeded_action', declaringTool: 'exarchos_orchestrate' }],
+      [],
+      ['seeded.event'],
+    );
+
+    expect(closure.ok).toBe(true);
+    expect(closure.phantomActionEmissions).toEqual([]);
+    expect(closure.unverifiableActionEmissions).toEqual([
+      { event: 'seeded.event', reason: 'append-not-resolvable' },
+    ]);
+  });
+
+  it('EmitterClosure_AllowanceRowWhoseAppendResolved_IsStale', () => {
+    // The shrink-only direction with teeth: the moment an allowed event's
+    // append becomes resolvable, keeping the row is dead cover that would
+    // silently absorb the next real phantom, so the row itself is the fault.
+    const closure = auditEmitterClosure(
+      censusOf({ 'seeded.event': ['scanned/module.ts'] }, ['scanned/module.ts']),
+      [{ event: 'seeded.event', action: 'seeded_action', declaringTool: 'exarchos_orchestrate' }],
+      [],
+      ['seeded.event'],
+    );
+
+    expect(closure.ok).toBe(false);
+    expect(closure.staleAllowance).toHaveLength(1);
+    expect(closure.staleAllowance[0]?.reason).toBe('append-now-resolved');
+    expect(closure.phantomActionEmissions).toEqual([]);
+  });
+
+  it('EmitterClosure_AllowanceRowWithNoEdge_IsStale', () => {
+    // The other stale direction: an allowance row covering an event no action
+    // declares protects nothing — the declaration it was written for is gone.
+    const closure = auditEmitterClosure(censusOf({}, ['scanned/module.ts']), [], [], [
+      'seeded.event',
+    ]);
+
+    expect(closure.ok).toBe(false);
+    expect(closure.staleAllowance).toHaveLength(1);
+    expect(closure.staleAllowance[0]?.reason).toBe('no-declaring-edge');
+  });
+
+  it('EmitterClosure_ActionOwnedAppends_HaveRegistryEdges', async () => {
+    // The attribution arm over the LIVE tree. Every append an action answers for
+    // is measured in the module that performs it AND declared by that action.
+    const census = await scanAppendSites(
+      SOURCE_ROOT,
+      scanEvidenceEmission,
+      EVIDENCE_DISCRIMINANT_CONSTANTS,
+    );
+    const audit = auditActionOwnedAppends(census, declaredEmissionEdges());
+
+    // DENOMINATORS FIRST, on both joined populations. An emptied ownership table
+    // and an emptied abstention population each produce a clean verdict over
+    // nothing.
+    expect(ACTION_APPEND_OWNERSHIP.length, 'the ownership table is empty').toBeGreaterThanOrEqual(
+      15,
+    );
+    expect(
+      audit.confirmedOwnedAppends,
+      'no ownership row was confirmed against the census',
+    ).toBe(ACTION_APPEND_OWNERSHIP.length);
+    expect(audit.abstainingActions, 'no action declares a reasoned abstention').toBeGreaterThan(50);
+
+    expect(audit.stale, 'an ownership row outlived the append it names').toEqual([]);
+    expect(
+      audit.unbacked.map((u) => `${u.action} -> ${u.event}`),
+      'an action owns an append it declares no edge for',
+    ).toEqual([]);
+    expect(
+      audit.falseAbstentions.map((f) => `${f.action} -> ${f.event}`),
+      'an action reasons it emits nothing while a module it reaches appends',
+    ).toEqual([]);
+  }, 120_000);
+
+  it('EmitterClosure_FalseReasonedAbstention_IsReported', () => {
+    // The kill probe for the arm the live test above can only ever pass. Put one
+    // of the repaired abstentions back and the arm must NAME the action — an
+    // anonymous undeclared row is exactly what this arm exists to replace.
+    const census = censusOf(
+      { 'dispatch.classified': ['verbs/review/classify-review-items.ts'] },
+      ['verbs/review/classify-review-items.ts'],
+    );
+    const ownership = ACTION_APPEND_OWNERSHIP.filter(
+      (row) => row.action === 'classify_review_items',
+    );
+    expect(ownership, 'the seeded row left the ownership table').toHaveLength(1);
+
+    const audit = auditActionOwnedAppends(
+      census,
+      [],
+      [
+        {
+          action: 'classify_review_items',
+          declaringTool: 'exarchos_orchestrate',
+          because: 'groups ActionItems in memory',
+        },
+      ],
+      ownership,
+    );
+
+    expect(audit.ok).toBe(false);
+    expect(audit.confirmedOwnedAppends).toBe(1);
+    expect(audit.falseAbstentions).toHaveLength(1);
+    expect(audit.falseAbstentions[0]?.action).toBe('classify_review_items');
+    expect(audit.falseAbstentions[0]?.event).toBe('dispatch.classified');
+    expect(audit.falseAbstentions[0]?.because).toBe('groups ActionItems in memory');
+    expect(audit.unbacked, 'a false abstention must not double-report as a bare omission').toEqual(
+      [],
+    );
+
+    // An action that declared no abstention and no edge is the WEAKER finding,
+    // reported under its own code so the two are distinguishable.
+    const omitted = auditActionOwnedAppends(census, [], [], ownership);
+    expect(omitted.falseAbstentions).toEqual([]);
+    expect(omitted.unbacked).toHaveLength(1);
+    expect(omitted.unbacked[0]?.action).toBe('classify_review_items');
+
+    // And declaring the edge clears both.
+    const repaired = auditActionOwnedAppends(
+      census,
+      [
+        {
+          event: 'dispatch.classified',
+          action: 'classify_review_items',
+          declaringTool: 'exarchos_orchestrate',
+        },
+      ],
+      [
+        {
+          action: 'classify_review_items',
+          declaringTool: 'exarchos_orchestrate',
+          because: 'groups ActionItems in memory',
+        },
+      ],
+      ownership,
+    );
+    expect(repaired.ok).toBe(true);
+    expect(repaired.confirmedOwnedAppends).toBe(1);
+  });
+
+  it('EmitterClosure_OwnershipRowWithNoAppend_IsStale', () => {
+    // The no-stale-cover direction for the ownership table itself: the row names
+    // a module the census DID scan and found no such append in.
+    const audit = auditActionOwnedAppends(
+      censusOf({}, ['verbs/review/classify-review-items.ts']),
+      [],
+      [],
+      [
+        {
+          action: 'classify_review_items',
+          declaringTool: 'exarchos_orchestrate',
+          module: 'verbs/review/classify-review-items.ts',
+          event: 'dispatch.classified',
+          wiring: 'seeded',
+        },
+      ],
+    );
+
+    expect(audit.ok).toBe(false);
+    expect(audit.confirmedOwnedAppends).toBe(0);
+    expect(audit.stale).toHaveLength(1);
+    expect(audit.stale[0]?.reason).toBe('append-not-in-module');
+    expect(audit.unbacked).toEqual([]);
+  });
+
+  it('EmitterClosure_LiveAbstentions_QuoteTheirReason', () => {
+    // The abstention population feeds a message that quotes it. A blank reason
+    // would make the finding unreadable while the arm still passed.
+    const abstentions = reasonedAbstentions();
+    expect(abstentions.length).toBeGreaterThan(50);
+    expect(abstentions.filter((row) => row.because.trim().length === 0)).toEqual([]);
+  });
+
+  it('EmitterClosure_SameNamedActionsOnDifferentTools_StayDistinct', () => {
+    // The registry does not enforce cross-tool action-name uniqueness, so a
+    // bare-name key can silently overwrite one tool's abstention reason with
+    // another's, or attribute a false abstention to the wrong tool. Two tools
+    // register an action of the SAME name here, each with its own reason;
+    // both must survive, correctly paired with their own tool and reason.
+    const registry: readonly CompositeTool[] = [
+      abstainingTool('tool_a', 'shared_name', 'tool_a reasons no emission'),
+      abstainingTool('tool_b', 'shared_name', 'tool_b reasons no emission'),
+    ];
+    const abstentions = reasonedAbstentions(registry);
+
+    expect(abstentions).toHaveLength(2);
+    const reasonByTool = new Map(abstentions.map((row) => [row.declaringTool, row.because]));
+    expect(reasonByTool.get('tool_a')).toBe('tool_a reasons no emission');
+    expect(reasonByTool.get('tool_b')).toBe('tool_b reasons no emission');
+
+    // Each tool's action reaches a DIFFERENT module and event. A bare-name
+    // join would let the two ownership rows collide on `shared_name` and
+    // either drop one finding or misattribute its reason to the other tool.
+    const ownership = [
+      {
+        action: 'shared_name',
+        declaringTool: 'tool_a',
+        module: 'fixtures/tool-a.ts',
+        event: 'tool.a.appended',
+        wiring: 'seeded',
+      },
+      {
+        action: 'shared_name',
+        declaringTool: 'tool_b',
+        module: 'fixtures/tool-b.ts',
+        event: 'tool.b.appended',
+        wiring: 'seeded',
+      },
+    ];
+    const census = censusOf(
+      { 'tool.a.appended': ['fixtures/tool-a.ts'], 'tool.b.appended': ['fixtures/tool-b.ts'] },
+      ['fixtures/tool-a.ts', 'fixtures/tool-b.ts'],
+    );
+
+    const audit = auditActionOwnedAppends(census, [], abstentions, ownership);
+
+    expect(audit.confirmedOwnedAppends).toBe(2);
+    expect(audit.falseAbstentions).toHaveLength(2);
+    const findingByTool = new Map(audit.falseAbstentions.map((f) => [f.declaringTool, f]));
+    expect(findingByTool.get('tool_a')?.because).toBe('tool_a reasons no emission');
+    expect(findingByTool.get('tool_a')?.event).toBe('tool.a.appended');
+    expect(findingByTool.get('tool_b')?.because).toBe('tool_b reasons no emission');
+    expect(findingByTool.get('tool_b')?.event).toBe('tool.b.appended');
+  });
+
   it('EmitterClosure_UnclaimedAppend_IsReported', () => {
     // The kill probe for the direction a declaration table can never find on
     // its own: the tree appends something nobody claims.
     const closure = auditEmitterClosure(
       censusOf({ 'seeded.event': ['somewhere/module.ts'] }, ['somewhere/module.ts']),
+      [],
       [],
       [],
     );
@@ -161,6 +523,7 @@ describe('emitter closure', () => {
           rationale: 'seeded',
         },
       ],
+      [],
     );
     expect(declared.ok).toBe(true);
     expect(declared.explainedByModule).toBe(1);
@@ -169,14 +532,19 @@ describe('emitter closure', () => {
   it('EmitterClosure_ModuleEmissionWithNoAppend_IsAPhantom', () => {
     // The other direction: the row names a module the census DID scan and
     // found no such append in.
-    const closure = auditEmitterClosure(censusOf({}, ['scanned/module.ts']), [], [
-      {
-        event: 'seeded.event',
-        module: 'scanned/module.ts',
-        trigger: 'process-hook',
-        rationale: 'seeded',
-      },
-    ]);
+    const closure = auditEmitterClosure(
+      censusOf({}, ['scanned/module.ts']),
+      [],
+      [
+        {
+          event: 'seeded.event',
+          module: 'scanned/module.ts',
+          trigger: 'process-hook',
+          rationale: 'seeded',
+        },
+      ],
+      [],
+    );
 
     expect(closure.ok).toBe(false);
     expect(closure.phantoms).toHaveLength(1);
@@ -184,17 +552,87 @@ describe('emitter closure', () => {
     expect(closure.unverifiable).toEqual([]);
   });
 
-  it('EmitterClosure_ModuleOutsideTheScanRoot_IsUnverifiableNotPhantom', () => {
-    // A row the census never looked at is unanswered, not refuted. Reporting it
-    // as a phantom would blame a declaration for the scan's own boundary.
-    const closure = auditEmitterClosure(censusOf({}, ['scanned/module.ts']), [], [
+  it('EmitterClosure_DuplicatedModuleEmission_BreaksTheRowToSiteCount', () => {
+    // `explainedByModule === MODULE_EMISSIONS.length` is the only thing standing
+    // between the surface and a row that explains nothing. It catches this case
+    // incidentally, which is another way of saying nobody would notice if it
+    // stopped: the arithmetic is one site per row, so two rows for one site
+    // leaves the count one short while every other arm reports clean.
+    const rows: readonly ModuleEmission[] = [
       {
         event: 'seeded.event',
-        module: 'elsewhere/harness.ts',
+        module: 'scanned/module.ts',
         trigger: 'process-hook',
         rationale: 'seeded',
       },
-    ]);
+      {
+        event: 'seeded.event',
+        module: 'scanned/module.ts',
+        trigger: 'store-internal',
+        rationale: 'seeded twice',
+      },
+    ];
+    const closure = auditEmitterClosure(
+      censusOf({ 'seeded.event': ['scanned/module.ts'] }, ['scanned/module.ts']),
+      [],
+      rows,
+      [],
+    );
+
+    // Everything that reports a NAMED fault stays silent — this is the point.
+    expect(closure.ok).toBe(true);
+    expect(closure.undeclared).toEqual([]);
+    expect(closure.phantoms).toEqual([]);
+    expect(closure.unverifiable).toEqual([]);
+
+    // The count is what disagrees.
+    expect(closure.explainedByModule).toBe(1);
+    expect(closure.explainedByModule).not.toBe(rows.length);
+  });
+
+  it('EmitterClosure_ModuleRowShadowingAnActionEdge_ExplainsNothing', () => {
+    // The other way a row can be dead cover: an action already declares the
+    // event, so the action arm claims the site first and the row explains no
+    // site at all. It is not a phantom — the append IS there — so only the
+    // row-to-site count can see it.
+    const rows: readonly ModuleEmission[] = [
+      {
+        event: 'seeded.event',
+        module: 'scanned/module.ts',
+        trigger: 'read-path-publisher',
+        rationale: 'seeded',
+      },
+    ];
+    const closure = auditEmitterClosure(
+      censusOf({ 'seeded.event': ['scanned/module.ts'] }, ['scanned/module.ts']),
+      [{ event: 'seeded.event', action: 'seeded_action', declaringTool: 'exarchos_orchestrate' }],
+      rows,
+      [],
+    );
+
+    expect(closure.ok).toBe(true);
+    expect(closure.phantoms).toEqual([]);
+    expect(closure.explainedByAction).toBe(1);
+    expect(closure.explainedByModule).toBe(0);
+    expect(closure.explainedByModule).not.toBe(rows.length);
+  });
+
+  it('EmitterClosure_ModuleOutsideTheScanRoot_IsUnverifiableNotPhantom', () => {
+    // A row the census never looked at is unanswered, not refuted. Reporting it
+    // as a phantom would blame a declaration for the scan's own boundary.
+    const closure = auditEmitterClosure(
+      censusOf({}, ['scanned/module.ts']),
+      [],
+      [
+        {
+          event: 'seeded.event',
+          module: 'elsewhere/harness.ts',
+          trigger: 'process-hook',
+          rationale: 'seeded',
+        },
+      ],
+      [],
+    );
 
     expect(closure.phantoms).toEqual([]);
     expect(closure.unverifiable).toEqual([
