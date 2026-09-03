@@ -7,7 +7,7 @@
     "testFiles": 1260,
     "parsedFiles": 1215,
     "shellFiles": 45,
-    "cases": 13846,
+    "cases": 13851,
     "dynamicTitles": 150,
     "unparseableFiles": 0
   },
@@ -23947,7 +23947,22 @@
         },
         {
           "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
-          "name": "DifferentialFold_Corpus_CarriesOneEventOfEveryTelemetryType",
+          "name": "DifferentialFold_Corpus_CarriesARealisticPayloadForEveryCatalogType",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "DifferentialFold_CorpusPayloads_ValidateUnderTheirOwnSchemas",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "DifferentialFold_CorpusDiscriminatingPower_IsAssertedNotAssumed",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "DifferentialFold_EveryTelemetryType_FoldsToIdentity",
           "dynamic": false
         },
         {
@@ -23957,12 +23972,22 @@
         },
         {
           "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
-          "name": "DifferentialFold_TelemetryMisclassifyingAFoldedType_DivergesFromTheFullFold",
+          "name": "DifferentialFold_MisclassifyingAnyDiscriminatingType_DivergesFromTheFullFold",
           "dynamic": false
         },
         {
           "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
           "name": "GovernanceWitnesses_ProjectionFoldArm_ChangesTheCanonicalFoldState",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "CharterTension_TelemetryExamplesStillClassifiedGovernance_AreThePinnedBacklog",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "GovernanceWitnesses_CharterPinArm_ClaimsNoEvidenceItActuallyHas",
           "dynamic": false
         }
       ]

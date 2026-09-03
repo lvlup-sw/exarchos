@@ -90,6 +90,19 @@ const UNSCHEMATIZED_PAYLOADS: Readonly<Record<string, Record<string, unknown>>> 
 
 const SCHEMAS: Readonly<Record<string, z.ZodType | undefined>> = EVENT_DATA_SCHEMAS;
 
+/**
+ * Constraints a schema states as a refinement, which JSON Schema cannot carry
+ * and the sampler therefore cannot see: a workflow type must be a registered
+ * name, and a migration source path must be state-dir relative. These are
+ * merged over the sampled payload; the validity assertion below is what keeps
+ * this table honest, because a refinement the sampler can suddenly satisfy
+ * makes its row here dead cover that the next reader should delete.
+ */
+const REFINEMENT_OVERRIDES: Readonly<Record<string, Record<string, unknown>>> = {
+  'workflow.started': { workflowType: 'feature' },
+  'migration.legacy_jsonl_imported': { sourcePath: 'legacy/events.jsonl' },
+};
+
 /** The payload the corpus uses for a type, and where it came from. */
 interface CorpusPayload {
   readonly data: Record<string, unknown>;
@@ -99,7 +112,7 @@ interface CorpusPayload {
 function payloadFor(eventType: string): CorpusPayload {
   const sampled = sampleEventData(SCHEMAS[eventType]);
   if (sampled !== undefined && Object.keys(sampled).length > 0) {
-    return { data: sampled, source: 'schema' };
+    return { data: { ...sampled, ...REFINEMENT_OVERRIDES[eventType] }, source: 'schema' };
   }
   const supplied = UNSCHEMATIZED_PAYLOADS[eventType];
   if (supplied !== undefined) return { data: supplied, source: 'unschematized' };
@@ -249,6 +262,34 @@ describe('EventAuthority — the partition is derived, and telemetry means dropp
     const filtered = CORPUS.filter((event) => !TELEMETRY_EVENTS.has(event.type));
     // The filter must actually remove something, and exactly the telemetry side.
     expect(CORPUS.length - filtered.length).toBe(TELEMETRY_EVENTS.size);
+  });
+
+  it('DifferentialFold_CorpusPayloads_ValidateUnderTheirOwnSchemas', () => {
+    // The fold is fed schema-generated payloads so that every arm has a real
+    // event to run on. A payload the type's own schema rejects — one item
+    // where two are required, a bare string where a timestamp is — is not
+    // that: the arm it was meant to exercise may guard on exactly the
+    // constraint the sample broke, and the corpus would then report the arm
+    // inert while the sampler was the thing at fault. Validity is asserted
+    // here for the whole catalog, so a sampler regression names its types.
+    const rejected: string[] = [];
+    let validated = 0;
+    for (const [type, payload] of PAYLOADS) {
+      if (payload.source !== 'schema') continue;
+      const schema = SCHEMAS[type];
+      if (schema === undefined) continue;
+      const result = schema.safeParse(payload.data);
+      validated += 1;
+      if (!result.success) {
+        const issues = result.error.issues
+          .slice(0, 2)
+          .map((issue) => `${issue.path.map(String).join('.')}: ${issue.message}`)
+          .join('; ');
+        rejected.push(`${type} — ${issues}`);
+      }
+    }
+    expect(validated, 'no schema-sourced payload reached validation').toBeGreaterThan(100);
+    expect(rejected, 'schema-generated payloads the schema itself rejects').toEqual([]);
   });
 
   it('DifferentialFold_CorpusDiscriminatingPower_IsAssertedNotAssumed', () => {

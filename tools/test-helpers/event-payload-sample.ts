@@ -63,6 +63,46 @@ function resolveRef(ref: string, root: Readonly<Record<string, unknown>>): Schem
 }
 
 /**
+ * A string the node's own constraints admit.
+ *
+ * The plain `sample-<name>` string satisfies a bare `type: string`, and nothing
+ * else: a timestamp field rejects it, a digest field rejects it, a URL field
+ * rejects it, and the fold arm behind any of those never runs. Formats come
+ * from the JSON Schema `format` keyword; the digest shape comes from its
+ * `pattern`; an absolute-path requirement is a refinement the JSON Schema
+ * cannot express, so it is read off the property name.
+ */
+function sampleString(node: Readonly<Record<string, unknown>>, propertyName: string): string {
+  const format = node['format'];
+  switch (format) {
+    case 'date-time':
+      return '2026-01-01T00:00:00.000Z';
+    case 'date':
+      return '2026-01-01';
+    case 'time':
+      return '00:00:00';
+    case 'uuid':
+      return '00000000-0000-4000-8000-000000000000';
+    case 'uri':
+    case 'url':
+      return `https://example.test/${propertyName}`;
+    case 'email':
+      return `${propertyName}@example.test`;
+    default:
+      break;
+  }
+  const pattern = node['pattern'];
+  if (typeof pattern === 'string') {
+    const hexRun = /^\^\[a-f0-9\]\{(\d+)\}\$$/.exec(pattern);
+    if (hexRun?.[1] !== undefined) return '0'.repeat(Number(hexRun[1]));
+  }
+  if (/(^|[a-z])(path|dir|directory|cwd|root)$/i.test(propertyName)) {
+    return `/sample/${propertyName}`;
+  }
+  return `sample-${propertyName}`;
+}
+
+/**
  * One deterministic value admitted by `node`.
  *
  * Deterministic on purpose: two runs of the same corpus must fold to the same
@@ -111,7 +151,7 @@ function sampleNode(
 
   switch (type) {
     case 'string':
-      return `sample-${propertyName}`;
+      return sampleString(node, propertyName);
     case 'integer':
     case 'number': {
       const minimum = asNumber(node['minimum']);
@@ -126,12 +166,30 @@ function sampleNode(
     case 'null':
       return null;
     case 'array': {
+      // A tuple names each position's schema; sample every position, because
+      // a two-element `lineRange` with one entry is not a line range.
+      const positions = asArray(node['prefixItems']);
+      if (positions !== undefined && positions.length > 0) {
+        return positions.map((position, index) => {
+          const positionNode = asRecord(position);
+          return positionNode === undefined
+            ? `sample-${propertyName}-${index + 1}`
+            : sampleNode(positionNode, root, `${propertyName}-${index + 1}`, depth + 1);
+        });
+      }
       const items = node['items'];
       if (items === undefined) return [];
       const itemNode = asRecord(items);
-      return itemNode === undefined
-        ? []
-        : [sampleNode(itemNode, root, `${propertyName}-item`, depth + 1)];
+      if (itemNode === undefined) return [];
+      // A schema that demands a floor gets the floor: one item under a
+      // `minItems: 2` is a payload the schema itself rejects, and a fold arm
+      // that only runs on a valid payload would stay inert under it. Each item
+      // carries its own ordinal so a uniqueness constraint is honored too.
+      const floor = asNumber(node['minItems']) ?? 1;
+      const count = Math.max(1, Math.trunc(floor));
+      return Array.from({ length: count }, (_, index) =>
+        sampleNode(itemNode, root, `${propertyName}-item-${index + 1}`, depth + 1),
+      );
     }
     case 'object':
     default:
