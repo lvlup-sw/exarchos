@@ -289,6 +289,23 @@ export function scanEvidenceStoreConstructions(
     };
 
     const visit = (node: ts.Node): void => {
+      // `class X extends <binding>` is a value use — the subclass is a second
+      // constructor for the same store — but the parser files the heritage
+      // expression under the type nodes. Look through it before the type
+      // guard below; an interface's `extends` and a class's `implements` stay
+      // type positions.
+      if (ts.isExpressionWithTypeArguments(node)) {
+        const clause: ts.Node | undefined = node.parent;
+        if (
+          clause !== undefined &&
+          ts.isHeritageClause(clause) &&
+          clause.token === ts.SyntaxKind.ExtendsKeyword &&
+          ts.isClassLike(clause.parent)
+        ) {
+          visit(node.expression);
+        }
+        return;
+      }
       // A type position never constructs anything; the import statements
       // are the bindings themselves, not uses of them.
       if (ts.isTypeNode(node) || ts.isImportDeclaration(node)) return;

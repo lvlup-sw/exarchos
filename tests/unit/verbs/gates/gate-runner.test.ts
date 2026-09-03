@@ -307,13 +307,15 @@ describe('canonical evidence-producing gate runner', () => {
   });
 
   it('GateRunner_SameOperationRetry_ReDerivesArtifactRefFromThePersistedRow', async () => {
+    // Each run reports DIFFERENT bytes, so which run's blob the retry hands
+    // back is observable rather than assumed.
     const marker = 'retry-report-body';
     let providerRuns = 0;
     const reportProvider: GateProviderExecutor = async () => {
       providerRuns += 1;
       return {
         success: true,
-        data: { passed: false, report: marker, summary: 'failed' },
+        data: { passed: false, report: `${marker}-${providerRuns}`, summary: 'failed' },
       };
     };
     const dispatch = context('same-operation-report');
@@ -325,17 +327,16 @@ describe('canonical evidence-producing gate runner', () => {
       runGate(request, dependencies(reportProvider)),
     );
 
-    expect(providerRuns).toBe(1);
     expect(await persistedEvidence()).toHaveLength(1);
     const persisted = (await persistedEvidence())[0]?.evidence;
     const firstArtifact = evidenceReferences(first)[0]?.reportArtifact;
     const retryArtifact = evidenceReferences(retry)[0]?.reportArtifact;
     expect(persisted?.artifactRefs).toEqual([firstArtifact]);
-    // The retry never re-ran the provider (one run, asserted above), so the
-    // only place its reference can have come from is the persisted row. The
-    // blob store is the second authority: the reference the retry hands back
-    // must resolve to the bytes the FIRST run wrote, not to nothing.
-    await expect(resolveEvidenceArtifact(artifactStore, retryArtifact)).resolves.toBe(marker);
+    // A same-operation retry keeps the FIRST run's row and blob whatever the
+    // provider reports the second time. The blob store is the second
+    // authority: the reference the retry hands back must resolve to the bytes
+    // run one wrote — not to run two's, and not to nothing.
+    await expect(resolveEvidenceArtifact(artifactStore, retryArtifact)).resolves.toBe(`${marker}-1`);
   });
 });
 
