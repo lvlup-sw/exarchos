@@ -10,6 +10,7 @@
 // fixture leaf is normalized and validated exactly as a shipped action is.
 
 import { createHash } from 'node:crypto';
+import { join } from 'node:path';
 
 import { z } from 'zod';
 
@@ -36,7 +37,15 @@ import {
 import type { RunbookDefinition, RunbookStep } from '../../../../src/runbooks/types.js';
 import type { LeafHandler } from '../../../../src/verbs/execute/executor.js';
 import type { IntentReceipt } from '../../../../src/verbs/execute/types.js';
-import { ADMISSION_RUNTIME_CONTRACT_VERSION } from '../../../../src/workflow/admission/types.js';
+import { ContentAddressedStore } from '../../../../src/storage/artifacts/content-addressed-store.js';
+import {
+  evidenceArtifactStore,
+  storeEvidenceArtifact,
+} from '../../../../src/workflow/admission/evidence-artifact.js';
+import {
+  ADMISSION_RUNTIME_CONTRACT_VERSION,
+  type EvidenceArtifactReferenceV1,
+} from '../../../../src/workflow/admission/types.js';
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
 
 export const FIXTURE_TOOL = 'exarchos_orchestrate';
@@ -208,12 +217,41 @@ export function gateEvidenceHandler(input: {
   readonly phaseAttemptId: string;
   readonly producerRef: string;
   readonly verdict?: 'pass' | 'fail';
+  /**
+   * When set, the handler persists a real artifact blob and stamps its
+   * reference on the row, the way a shipped gate's report is carried.
+   * `root: 'state-dir'` writes under the executor's own evidence root
+   * (`evidenceArtifactStore(stateDir)`) — the root the executor's resolver
+   * will look under. `root: 'elsewhere'` writes under a sibling directory it
+   * never looks under, the same shape a two-root producer split leaves
+   * behind.
+   */
+  readonly artifact?: {
+    readonly content: unknown;
+    readonly root: 'state-dir' | 'elsewhere';
+  };
 }): LeafHandler {
-  return async (args, _stateDir, ctx) => {
+  return async (args, stateDir, ctx) => {
     if (ctx === undefined) throw new Error('fixture handler requires a dispatch context');
     const streamId = subjectOf(args);
     const evidenceId = derivedEvidenceKey(ambientOperationId(), input.producerRef);
     const createdAt = new Date().toISOString();
+
+    let artifactRefs: readonly EvidenceArtifactReferenceV1[] | undefined;
+    if (input.artifact !== undefined) {
+      const store =
+        input.artifact.root === 'state-dir'
+          ? evidenceArtifactStore(stateDir)
+          : new ContentAddressedStore(join(stateDir, 'fixture-elsewhere-evidence'));
+      const reference = await storeEvidenceArtifact(
+        store,
+        { kind: 'artifact', artifactId: `${evidenceId}.report` },
+        input.artifact.content,
+        { mediaType: 'application/json' },
+      );
+      artifactRefs = [reference];
+    }
+
     const record = AdmissionEvidenceRecordedData.parse({
       eventVersion: '1.0',
       evidence: {
@@ -238,6 +276,7 @@ export function gateEvidenceHandler(input: {
         contentDigest: { algorithm: 'sha256', value: 'c'.repeat(64) },
         createdAt,
         verdict: input.verdict ?? 'pass',
+        ...(artifactRefs === undefined ? {} : { artifactRefs }),
       },
     });
     await ctx.eventStore.append(

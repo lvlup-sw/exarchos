@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { z } from 'zod';
 import {
   applicableEnsures,
@@ -13,6 +14,7 @@ import {
 } from '../../src/dispatch/core/dispatch.js';
 import { getDispatchContext } from '../../src/dispatch/dispatch-context.js';
 import { replayedEvidence } from '../../src/dispatch/core/effect-carrier.js';
+import { ContentAddressedStore } from '../../src/storage/artifacts/content-addressed-store.js';
 import type { EventStore } from '../../src/events/store.js';
 import type { WorkflowEvent } from '../../src/events/schemas.js';
 import {
@@ -29,10 +31,33 @@ import {
   type ActionPostcondition,
 } from '../../src/registry/action-contract.js';
 import { LOCAL_MUTATION, READ_ONLY_LOCAL } from '../../src/registry/annotations.js';
-import { ADMISSION_EVENT_TYPES } from '../../src/workflow/admission/types.js';
+import { EVIDENCE_ARTIFACT_DIRNAME } from '../../src/utils/paths.js';
+import {
+  evidenceArtifactResolver,
+  evidenceArtifactStore,
+  storeEvidenceArtifact,
+} from '../../src/workflow/admission/evidence-artifact.js';
+import { readPersistedEvidence } from '../../src/workflow/admission/evidence-reader.js';
+import {
+  ADMISSION_EVENT_TYPES,
+  ArtifactIdSchema,
+  type EvidenceArtifactReferenceV1,
+} from '../../src/workflow/admission/types.js';
 
 const STREAM = 'feature-postconditions';
 const OPERATION = 'operation.postconditions-1';
+
+/** Where a reference's blob would sit under a given evidence root — derived
+ * from the digest the store itself returned, never re-typed. */
+function blobPathFor(stateDir: string, reference: EvidenceArtifactReferenceV1): string {
+  return path.join(
+    stateDir,
+    EVIDENCE_ARTIFACT_DIRNAME,
+    reference.subject.digest.algorithm,
+    reference.subject.digest.value.slice(0, 2),
+    reference.subject.digest.value.slice(2),
+  );
+}
 const DIGEST = { algorithm: 'sha256' as const, value: 'a'.repeat(64) };
 
 interface StoreRow {
@@ -271,6 +296,116 @@ describe('durable action postcondition observation', () => {
   });
 });
 
+describe('durable action postcondition observation — artifact-backed evidence', () => {
+  let stateDir: string;
+
+  beforeEach(async () => {
+    stateDir = await mkdtemp(path.join(os.tmpdir(), 'ensure-postconditions-artifact-'));
+  });
+
+  afterEach(async () => {
+    await rm(stateDir, { recursive: true, force: true });
+  });
+
+  /** A real reference, persisted through the production store binding. */
+  async function seedArtifactRow(): Promise<EvidenceArtifactReferenceV1> {
+    return storeEvidenceArtifact(
+      evidenceArtifactStore(stateDir),
+      { kind: 'artifact', artifactId: ArtifactIdSchema.parse('gate-report.postconditions') },
+      { verdict: 'pass' },
+      { mediaType: 'application/json' },
+    );
+  }
+
+  it('Postconditions_ArtifactBackedCorpus_IsNotEmpty', async () => {
+    // Denominator for the three seeded violations below: without this, all
+    // three could be passing vacuously because no row this file ever feeds
+    // the resolver arm carries a reference at all.
+    const reference = await seedArtifactRow();
+    const evidence = memorySource([persistedGateEvidence(OPERATION, { artifactRefs: [reference] })]);
+
+    const rowsWithRefs = (
+      await readPersistedEvidence(evidence, {
+        streamId: STREAM,
+        operationId: OPERATION,
+        evidenceType: 'gate',
+      })
+    ).filter((observed) => observed.artifactRefs.length > 0);
+
+    expect(rowsWithRefs.length).toBeGreaterThan(0);
+  });
+
+  it('Postconditions_ArtifactBlobDeleted_IsViolation', async () => {
+    const reference = await seedArtifactRow();
+    await rm(blobPathFor(stateDir, reference));
+
+    const evidence = memorySource([persistedGateEvidence(OPERATION, { artifactRefs: [reference] })]);
+    const observation = await observeActionPostconditions({
+      ensures: declared({ source: 'durable-evidence', when: 'success', evidenceType: 'gate' }),
+      store: memorySource([]),
+      evidence,
+      streamId: STREAM,
+      operationId: OPERATION,
+      artifactResolver: evidenceArtifactResolver(stateDir),
+    });
+
+    expect(observation.status).toBe('violated');
+    expect(observation.missing).toEqual([
+      { source: 'durable-evidence', when: 'success', evidenceType: 'gate' },
+    ]);
+  });
+
+  it('Postconditions_ArtifactBlobTampered_IsViolation', async () => {
+    const reference = await seedArtifactRow();
+    await writeFile(blobPathFor(stateDir, reference), '{"corrupted":true}', 'utf8');
+
+    const evidence = memorySource([persistedGateEvidence(OPERATION, { artifactRefs: [reference] })]);
+    const observation = await observeActionPostconditions({
+      ensures: declared({ source: 'durable-evidence', when: 'success', evidenceType: 'gate' }),
+      store: memorySource([]),
+      evidence,
+      streamId: STREAM,
+      operationId: OPERATION,
+      artifactResolver: evidenceArtifactResolver(stateDir),
+    });
+
+    expect(observation.status).toBe('violated');
+    expect(observation.missing).toEqual([
+      { source: 'durable-evidence', when: 'success', evidenceType: 'gate' },
+    ]);
+  });
+
+  it('Postconditions_ArtifactBlobUnderAnotherRoot_IsViolation', async () => {
+    // The oracle that would have caught the two-root split directly: the
+    // blob is real, intact, and readable — just not under the root this
+    // resolver was bound to.
+    const otherDir = await mkdtemp(path.join(os.tmpdir(), 'ensure-postconditions-otherroot-'));
+    try {
+      const wrongRootStore = new ContentAddressedStore(path.join(otherDir, 'gate-evidence'));
+      const reference = await storeEvidenceArtifact(
+        wrongRootStore,
+        { kind: 'artifact', artifactId: ArtifactIdSchema.parse('gate-report.wrong-root') },
+        { verdict: 'pass' },
+        { mediaType: 'application/json' },
+      );
+
+      const evidence = memorySource([persistedGateEvidence(OPERATION, { artifactRefs: [reference] })]);
+      const observation = await observeActionPostconditions({
+        ensures: declared({ source: 'durable-evidence', when: 'success', evidenceType: 'gate' }),
+        store: memorySource([]),
+        evidence,
+        streamId: STREAM,
+        operationId: OPERATION,
+        artifactResolver: evidenceArtifactResolver(stateDir),
+      });
+
+      expect(observation.status).toBe('violated');
+    } finally {
+      await rm(otherDir, { recursive: true, force: true });
+    }
+  });
+});
+
 const PROBE_TOOL = 'exarchos_ensure_probe';
 
 function probeContract(overrides: Partial<ActionContract> = {}): ActionContract {
@@ -378,10 +513,14 @@ describe('dispatch gates success on applicable ensures', () => {
     clearCustomTools();
   });
 
-  function ctx(): DispatchContext {
+  function ctx(stateDirOverride?: string): DispatchContext {
     eventStore = memoryEventStore();
     return {
-      stateDir: path.join(os.tmpdir(), 'ensure-dispatch-unused'),
+      // Most probes here never touch a state directory, so the placeholder
+      // is deliberately non-existent. The artifact-backed cases below pass a
+      // real `mkdtemp` directory instead — their handler binds an evidence
+      // store to it, and the resolver has to find a real filesystem there.
+      stateDir: stateDirOverride ?? path.join(os.tmpdir(), 'ensure-dispatch-unused'),
       eventStore,
       enableTelemetry: false,
     };
@@ -502,6 +641,85 @@ describe('dispatch gates success on applicable ensures', () => {
       expect(result.error?.code).not.toBe('ENSURE_CONTRACT_VIOLATED');
     } finally {
       restore();
+    }
+  });
+
+  it('Dispatch_UnresolvableArtifactEvidence_BlocksSuccess', async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), 'ensure-dispatch-artifact-'));
+    try {
+      registerProbe({
+        action: 'record-then-lose',
+        contract: probeContract({
+          ensures: declared({ source: 'durable-evidence', when: 'success', evidenceType: 'gate' }),
+        }),
+        handler: async (args) => {
+          const streamId = String(args.featureId);
+          const reference = await storeEvidenceArtifact(
+            evidenceArtifactStore(stateDir),
+            { kind: 'artifact', artifactId: ArtifactIdSchema.parse('probe-report.lost') },
+            { verdict: 'pass' },
+            { mediaType: 'application/json' },
+          );
+          await eventStore.append(streamId, {
+            type: ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED,
+            data: persistedGateEvidence('unused', { artifactRefs: [reference] }).data as Record<string, unknown>,
+          });
+          // The row committed with the reference on it; the blob it names
+          // disappears before observation runs.
+          await rm(blobPathFor(stateDir, reference));
+          return { success: true, data: { recorded: true } };
+        },
+      });
+
+      const result = await dispatch(
+        PROBE_TOOL,
+        { action: 'record-then-lose', featureId: 'feat-artifact-lost' },
+        ctx(stateDir),
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('ENSURE_CONTRACT_VIOLATED');
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Dispatch_ResolvableArtifactEvidence_Succeeds', async () => {
+    // The two-sided pair: the same shape as the case above, with the blob
+    // left in place, so the first case's failure is proved to trace to the
+    // missing blob rather than to something else about the fixture.
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), 'ensure-dispatch-artifact-ok-'));
+    try {
+      registerProbe({
+        action: 'record-and-keep',
+        contract: probeContract({
+          ensures: declared({ source: 'durable-evidence', when: 'success', evidenceType: 'gate' }),
+        }),
+        handler: async (args) => {
+          const streamId = String(args.featureId);
+          const reference = await storeEvidenceArtifact(
+            evidenceArtifactStore(stateDir),
+            { kind: 'artifact', artifactId: ArtifactIdSchema.parse('probe-report.kept') },
+            { verdict: 'pass' },
+            { mediaType: 'application/json' },
+          );
+          await eventStore.append(streamId, {
+            type: ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED,
+            data: persistedGateEvidence('unused', { artifactRefs: [reference] }).data as Record<string, unknown>,
+          });
+          return { success: true, data: { recorded: true } };
+        },
+      });
+
+      const result = await dispatch(
+        PROBE_TOOL,
+        { action: 'record-and-keep', featureId: 'feat-artifact-kept' },
+        ctx(stateDir),
+      );
+
+      expect(result.success, result.error?.message).toBe(true);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
     }
   });
 
