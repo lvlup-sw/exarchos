@@ -296,6 +296,40 @@ describe('canonical evidence-producing gate runner', () => {
       success: true,
       data: { passed: false, report: marker.repeat(10_000), summary: 'failed' },
     });
+
+    // The durable row, not only the ephemeral carrier, must name the blob —
+    // that stamp is the only production write a durable-evidence custody
+    // check ever has to consult.
+    const persisted = (await persistedEvidence())[0]?.evidence;
+    expect(persisted?.artifactRefs).toEqual([reportArtifact]);
+    await expect(resolveEvidenceArtifact(artifactStore, persisted?.artifactRefs?.[0]))
+      .resolves.toBe(marker.repeat(10_000));
+  });
+
+  it('GateRunner_SameOperationRetry_ReDerivesArtifactRefFromThePersistedRow', async () => {
+    const marker = 'retry-report-body';
+    const reportProvider: GateProviderExecutor = async () => ({
+      success: true,
+      data: { passed: false, report: marker, summary: 'failed' },
+    });
+    const dispatch = context('same-operation-report');
+
+    const first = await runWithDispatchContext(dispatch, () =>
+      runGate(request, dependencies(reportProvider)),
+    );
+    const retry = await runWithDispatchContext(dispatch, () =>
+      runGate(request, dependencies(reportProvider)),
+    );
+
+    expect(await persistedEvidence()).toHaveLength(1);
+    const persisted = (await persistedEvidence())[0]?.evidence;
+    const firstArtifact = evidenceReferences(first)[0]?.reportArtifact;
+    const retryArtifact = evidenceReferences(retry)[0]?.reportArtifact;
+    expect(persisted?.artifactRefs).toEqual([firstArtifact]);
+    // The retry never re-runs the provider — it must hand back the SAME
+    // reference the persisted row carries, re-derived from the ledger rather
+    // than from an in-flight variable that no longer exists on a replay.
+    expect(retryArtifact).toEqual(firstArtifact);
   });
 });
 

@@ -420,6 +420,11 @@ export async function runGate(
           readGateSkipDescriptor(providerResult),
         );
       }
+      // Only the first reference: this runner ever writes at most one
+      // (`artifactRefs` is an array on the shared schema, not because this
+      // producer emits more than one blob per row). Correct as long as that
+      // stays true — a second producer stamping more than one reference on
+      // the same row would need this to return the whole array instead.
       return attachGateEvidence(providerResult, [
         evidenceReference(
           sameOperation.record,
