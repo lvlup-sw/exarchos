@@ -3,8 +3,8 @@
 // A `ContentAddressedStore` reference carries a digest and no root. That means
 // a producer and a reader that construct the store over two different roots
 // are, from the reference's point of view, indistinguishable from a producer
-// whose blob was never written at all — the exact split #1888 found between
-// the gate-evidence producers before this pass gave them one shared
+// whose blob was never written at all — exactly the split the gate-evidence
+// producers used to disagree on before this pass gave them one shared
 // constructor (`evidenceArtifactStore`, in `src/workflow/admission/
 // evidence-artifact.ts`).
 //

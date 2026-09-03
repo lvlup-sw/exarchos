@@ -4,10 +4,10 @@
  * A `ContentAddressedStore` reference carries a digest and no root, so a
  * producer and a reader that construct the store two different ways are
  * indistinguishable, from the reference's own point of view, from a blob that
- * was never written — the split #1888 found between the two gate-evidence
- * producers before this pass gave them one shared constructor. This walks the
- * shipped tree for every direct `ContentAddressedStore` construction and
- * requires each one to be a named, reasoned-about owner.
+ * was never written — the two gate-evidence producers used to disagree on
+ * the root this way, and this pass gave them one shared constructor. This
+ * walks the shipped tree for every direct `ContentAddressedStore`
+ * construction and requires each one to be a named, reasoned-about owner.
  *
  * The vacuity guard: a scan that stopped finding construction sites at all
  * would report zero violations and read as a clean tree. The scanned
