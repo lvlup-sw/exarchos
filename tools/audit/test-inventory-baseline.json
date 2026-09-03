@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1257,
-    "parsedFiles": 1212,
+    "testFiles": 1260,
+    "parsedFiles": 1215,
     "shellFiles": 45,
-    "cases": 13827,
+    "cases": 13851,
     "dynamicTitles": 150,
     "unparseableFiles": 0
   },
@@ -5777,6 +5777,63 @@
         {
           "suite": "Documentation_EveryStatedRule_IsOneThatIsEnforced",
           "name": "the enforcement table is not empty",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/event-authority-contracts.test.ts": {
+      "file": "tests/architecture/event-authority-contracts.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "ActionContractConjunct — a declared event is a governance event",
+          "name": "ActionContractConjunct_DeclaredEventPopulation_IsNonEmpty",
+          "dynamic": false
+        },
+        {
+          "suite": "ActionContractConjunct — a declared event is a governance event",
+          "name": "ActionContractConjunct_EveryDeclaredEventName_IsAKnownEventType",
+          "dynamic": false
+        },
+        {
+          "suite": "ActionContractConjunct — a declared event is a governance event",
+          "name": "ActionContractConjunct_EveryDeclaredEventName_ResolvesToAGovernanceEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "ActionContractConjunct — a declared event is a governance event",
+          "name": "ActionContractConjunct_SeededContractNamingATelemetryType_IsNamedInTheFailure",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/event-authority-raw-readers.test.ts": {
+      "file": "tests/architecture/event-authority-raw-readers.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "RawReaderCensus — no fold-external reader depends on a telemetry event",
+          "name": "RawReaderCensus_ScannedPopulation_IsNonEmptyAndCorroboratedByGit",
+          "dynamic": false
+        },
+        {
+          "suite": "RawReaderCensus — no fold-external reader depends on a telemetry event",
+          "name": "RawReaderCensus_EveryFoldExternalReader_NamesNoTelemetryClassifiedEventType",
+          "dynamic": false
+        },
+        {
+          "suite": "RawReaderCensus — no fold-external reader depends on a telemetry event",
+          "name": "RawReaderCensus_SeededReaderNamingATelemetryType_IsNamedInTheFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "RawReaderCensus — no fold-external reader depends on a telemetry event",
+          "name": "RawReaderCensus_DeclaredRawReaderWitness_IsNamedByALiveReader",
+          "dynamic": false
+        },
+        {
+          "suite": "RawReaderCensus — no fold-external reader depends on a telemetry event",
+          "name": "RawReaderCensus_UnscopedFoldsAndUnresolvedDiscriminants_AreReportedNotDropped",
           "dynamic": false
         }
       ]
@@ -23850,6 +23907,87 @@
         {
           "suite": "EventAnnotations — the DR-2 tier and lifecycle assignment for the event catalog",
           "name": "EventAnnotations_ReportCoupledCount_IsDerivedAtIntroduction",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/events/event-authority-partition.test.ts": {
+      "file": "tests/unit/events/event-authority-partition.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "EventAuthority_LiveMap_IsTheDerivationOfEveryAnnotationAndWitness",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "EventAuthority_EmptyPopulation_Throws",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "EventAuthority_UnannotatedType_IsNamedInTheThrow",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "EventAuthority_WitnessForAnUnknownEventType_IsNamedInTheThrow",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "EventAuthority_WitnessOnATypeAlreadyGovernanceByTier_IsNamedAsDeadCover",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "EventAuthority_TelemetrySet_IsNonEmptyAndDerivedFromTheMap",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "DifferentialFold_Corpus_CarriesARealisticPayloadForEveryCatalogType",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "DifferentialFold_CorpusPayloads_ValidateUnderTheirOwnSchemas",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "DifferentialFold_CorpusDiscriminatingPower_IsAssertedNotAssumed",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "DifferentialFold_EveryTelemetryType_FoldsToIdentity",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "DifferentialFold_GovernanceFilteredCorpus_FoldsIdenticallyToTheFullCorpus",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "DifferentialFold_MisclassifyingAnyDiscriminatingType_DivergesFromTheFullFold",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "GovernanceWitnesses_ProjectionFoldArm_ChangesTheCanonicalFoldState",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "CharterTension_TelemetryExamplesStillClassifiedGovernance_AreThePinnedBacklog",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "GovernanceWitnesses_CharterPinArm_ClaimsNoEvidenceItActuallyHas",
           "dynamic": false
         }
       ]

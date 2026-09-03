@@ -719,3 +719,26 @@ export function contractEmissionsOf(action: object): readonly ActionEmission[] {
     return [];
   }
 }
+
+/**
+ * Every event name an action's contract ENSURES by append, or empty when the
+ * block is absent, unreadable, or reasons that it ensures nothing.
+ *
+ * The `durable-evidence` arm of a postcondition names an evidence type, not an
+ * event, so it is filtered out here rather than at each caller — re-deriving
+ * that narrowing at every consumer is how two consumers end up disagreeing
+ * about what an `ensures` entry names.
+ */
+export function contractEnsuredEventsOf(action: object): readonly string[] {
+  const raw = Reflect.get(action, 'actionContract');
+  if (raw === undefined) return [];
+  try {
+    const contract = normalizeActionContract(raw);
+    if (contract.ensures.kind !== 'declared') return [];
+    return contract.ensures.values
+      .filter((postcondition) => postcondition.source === 'event-append')
+      .map((postcondition) => postcondition.event);
+  } catch {
+    return [];
+  }
+}

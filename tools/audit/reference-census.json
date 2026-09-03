@@ -1,7 +1,7 @@
 {
-  "capturedAt": "2026-08-23",
-  "trackedFiles": 3022,
-  "scannedFiles": 2917,
+  "capturedAt": "2026-09-03",
+  "trackedFiles": 3076,
+  "scannedFiles": 2971,
   "namedFilesIncluded": [
     ".github/CODEOWNERS",
     ".gitattributes",
@@ -12,16 +12,16 @@
     "docs/designs": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 111,
+      "externalReferrers": 112,
       "referrersByKind": {
         "code": 82,
         "config": 3,
         "snapshot": 1,
-        "markdownLive": 23,
+        "markdownLive": 24,
         "markdownArchival": 1,
         "other": 1
       },
-      "liveReferrers": 110,
+      "liveReferrers": 111,
       "sampleReferrers": [
         ".exarchos.yml",
         ".exarchos/invariants.md",
@@ -50,16 +50,16 @@
     "docs/plans": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 62,
+      "externalReferrers": 63,
       "referrersByKind": {
         "code": 40,
         "config": 3,
         "snapshot": 1,
-        "markdownLive": 17,
+        "markdownLive": 18,
         "markdownArchival": 0,
         "other": 1
       },
-      "liveReferrers": 62,
+      "liveReferrers": 63,
       "sampleReferrers": [
         ".claude-plugin/packaging-policy.json",
         "content/delivery/skills/delegate/references/worked-example.md",
@@ -418,21 +418,22 @@
     "docs/migrations": {
       "disposition": "delete",
       "ownFiles": 1,
-      "externalReferrers": 6,
+      "externalReferrers": 7,
       "referrersByKind": {
         "code": 5,
         "config": 0,
         "snapshot": 0,
-        "markdownLive": 1,
+        "markdownLive": 2,
         "markdownArchival": 0,
         "other": 0
       },
-      "liveReferrers": 6,
+      "liveReferrers": 7,
       "sampleReferrers": [
         "src/events/event-name.ts",
         "src/events/schemas.ts",
         "tests/scripts/migration-followups.test.ts",
         "tests/unit/events/event-name.test.ts",
+        "tools/audit/comment-quality/audit.md",
         "tools/audit/prose-manifest.ts",
         "tools/audit/test-fixtures/measured-premises/internal-mechanics-overhaul.md"
       ],
