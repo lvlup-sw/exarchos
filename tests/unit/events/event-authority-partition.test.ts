@@ -1,8 +1,6 @@
 // ─── The governance/telemetry partition, and the fold it has to survive ──────
 //
-// @oracle-sources: ../../../src/events/partition/authority.ts,
-// ../../../src/events/partition/witnesses.ts,
-// ../../../src/projections/views/workflow-state-projection.ts
+// @oracle-sources: ../../../src/events/partition/witnesses.ts, ../../../src/projections/views/workflow-state-projection.ts
 //
 // Two claims, and neither is checkable without the other.
 //
