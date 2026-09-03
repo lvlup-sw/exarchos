@@ -324,6 +324,12 @@ const EvidenceFields = {
    * folded into `contentDigest` and lives nowhere a reader can reach.
    * Optional and additive — a row that names no blob is complete evidence,
    * and rows written before this field existed stay valid.
+   *
+   * A presence pointer, not an authenticated binding: nothing cross-checks
+   * a reference here against the `contentDigest` sealed on the same row, so
+   * this field only proves that SOME blob matching the reference's own
+   * digest resolves under the evidence root — not that it is the blob this
+   * particular row's content was computed from.
    */
   artifactRefs: z.array(EvidenceArtifactReferenceV1Schema).readonly().optional(),
 } as const;

@@ -28,7 +28,11 @@ import { createHash, randomUUID } from 'node:crypto';
 
 import { resolveEmissionEnforcement } from '../../config/resolve.js';
 import { snapshotCallerAuthorization } from '../../dispatch/caller-identity.js';
-import { observeActionPostconditions } from '../../dispatch/core/action-postconditions.js';
+import {
+  applicableEnsures,
+  observeActionPostconditions,
+  type ActionPostconditionObservation,
+} from '../../dispatch/core/action-postconditions.js';
 import { evaluateDispatchAdmission } from '../../dispatch/core/dispatch-admission.js';
 import { evidenceArtifactResolver } from '../../workflow/admission/evidence-artifact.js';
 // Type-only, and deliberately so: the dispatch module routes to the composite
@@ -818,15 +822,28 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
     // every shipped gate leaf declares one, and a hand-rolled event-append
     // comparison skipped all of them silently.
     if (leaf.contract.ensures.kind === 'declared') {
-      const observation = await observeActionPostconditions({
-        ensures: leaf.contract.ensures,
-        store: ctx.eventStore,
-        evidence: ctx.eventStore,
-        streamId: leaf.observationStreamId,
-        operationId: derived,
-        outcome: 'success',
-        artifactResolver: evidenceArtifactResolver(stateDir),
-      });
+      let observation: ActionPostconditionObservation;
+      try {
+        observation = await observeActionPostconditions({
+          ensures: leaf.contract.ensures,
+          store: ctx.eventStore,
+          evidence: ctx.eventStore,
+          streamId: leaf.observationStreamId,
+          operationId: derived,
+          outcome: 'success',
+          artifactResolver: evidenceArtifactResolver(stateDir),
+        });
+      } catch {
+        // An observation that cannot even be taken (an unreadable ledger, a
+        // resolver that throws outside its own per-reference guard) must halt
+        // rather than escape: this leaf already ran its effects, and letting
+        // the throw propagate past here would lose the halt-regardless
+        // classification and leave no receipt naming what was checked.
+        observation = {
+          status: 'violated',
+          missing: applicableEnsures(leaf.contract.ensures, 'success'),
+        };
+      }
       if (observation.status === 'violated') {
         const unresolvedDigests = new Set(
           (observation.unresolvedArtifacts ?? []).map(

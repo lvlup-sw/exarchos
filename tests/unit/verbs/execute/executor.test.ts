@@ -934,6 +934,43 @@ describe('handleExecuteIntent per-leaf ensures', () => {
     ).toBe(true);
     expect(receiptOf(result).leaves[0]?.status).toBe('passed');
   });
+
+  it('Executor_PostconditionObservationThrows_HaltsInsteadOfEscaping', async () => {
+    // The observer is offline (an unreadable ledger, a resolver failure
+    // outside its own per-reference guard) rather than merely reporting a
+    // miss. The leaf already ran its effects; the throw must not escape past
+    // this point, because escaping loses the halt-regardless classification
+    // and leaves no receipt naming what could not be checked.
+    const querySpy = vi.spyOn(store, 'query').mockImplementation(async (streamId, filters) => {
+      if (filters?.type === 'admission.evidence-recorded') {
+        throw new Error('simulated ledger read failure');
+      }
+      return EventStore.prototype.query.call(store, streamId, filters);
+    });
+    try {
+      const deps = depsFor([fixtureStep('fixture_evidences', 'stop')], {
+        fixture_evidences: gateEvidenceHandler({
+          requirementId: 'gate:review:review',
+          phaseAttemptId: 'attempt-fixture-observer-throws',
+          producerRef: 'fixture.evidence-gate-observer-throws',
+        }),
+      }, [evidencing]);
+      const result = await execute(
+        {
+          intent: INTENT,
+          streamId: STREAM,
+          args: { taskId: 't1' },
+          operationId: 'op-evidence-observer-throws',
+        },
+        deps,
+      );
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INTENT_EMISSION_CONTRACT_VIOLATED');
+      expect(receiptOf(result).failedLeaf).toBe('fixture_evidences');
+    } finally {
+      querySpy.mockRestore();
+    }
+  });
 });
 
 // ─── Enforcement mode, and what an advisory leaf may not wave through ───────

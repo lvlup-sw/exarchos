@@ -272,7 +272,12 @@ export interface PersistedEvidenceQuery {
 export interface PersistedEvidenceObservation {
   readonly evidenceType: string;
   readonly operationId: string;
-  /** What the row was proof ABOUT. Carried so a caller need not re-read the row. */
+  /**
+   * What the row was proof ABOUT. Carried so a caller need not re-read the
+   * row. Never a substitute for `artifactRefs`: a `kind: 'artifact'` subject
+   * describes the thing the evidence is proof about, not a blob the row
+   * names — custody keys on `artifactRefs` alone, never on `subject.kind`.
+   */
   readonly subject: EvidenceSubjectV1;
   /** Blobs the row names. Empty when it names none; never undefined. */
   readonly artifactRefs: readonly EvidenceArtifactReferenceV1[];

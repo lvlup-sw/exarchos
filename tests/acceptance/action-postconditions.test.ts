@@ -335,6 +335,30 @@ describe('durable action postcondition observation — artifact-backed evidence'
     expect(rowsWithRefs.length).toBeGreaterThan(0);
   });
 
+  it('Postconditions_ArtifactRefsWithoutResolver_IsViolation', async () => {
+    // The two-sided partner of Postconditions_RowWithoutArtifactRefs_
+    // SatisfiesWithNoResolver: a row that names blobs must NOT pay its
+    // ensure just because a caller had no resolver to offer. The blob here
+    // is real and intact — this pins the fail-closed direction on its own,
+    // not as a side effect of the blob being missing.
+    const reference = await seedArtifactRow();
+    const evidence = memorySource([persistedGateEvidence(OPERATION, { artifactRefs: [reference] })]);
+
+    const observation = await observeActionPostconditions({
+      ensures: declared({ source: 'durable-evidence', when: 'success', evidenceType: 'gate' }),
+      store: memorySource([]),
+      evidence,
+      streamId: STREAM,
+      operationId: OPERATION,
+      // No artifactResolver.
+    });
+
+    expect(observation.status).toBe('violated');
+    expect(observation.missing).toEqual([
+      { source: 'durable-evidence', when: 'success', evidenceType: 'gate' },
+    ]);
+  });
+
   it('Postconditions_ArtifactBlobDeleted_IsViolation', async () => {
     const reference = await seedArtifactRow();
     await rm(blobPathFor(stateDir, reference));
