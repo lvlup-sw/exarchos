@@ -58,7 +58,13 @@ function memorySource(rows: readonly StoreRow[]) {
   };
 }
 
-function persistedGateEvidence(operationId: string): StoreRow {
+function persistedGateEvidence(
+  operationId: string,
+  options?: {
+    readonly artifactRefs?: readonly unknown[];
+    readonly subject?: Record<string, unknown>;
+  },
+): StoreRow {
   return {
     type: ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED,
     operationId,
@@ -69,7 +75,7 @@ function persistedGateEvidence(operationId: string): StoreRow {
         evidenceId: 'evidence.gate-1',
         requirementId: 'requirement.typecheck',
         phaseAttemptId: 'phase-attempt.1',
-        subject: { kind: 'task', taskId: 'task.1', digest: DIGEST },
+        subject: options?.subject ?? { kind: 'task', taskId: 'task.1', digest: DIGEST },
         producer: {
           producerId: 'producer.gate-runner',
           providerRef: 'provider.static-analysis',
@@ -82,6 +88,7 @@ function persistedGateEvidence(operationId: string): StoreRow {
         createdAt: '2026-08-22T00:00:00.000Z',
         kind: 'gate',
         verdict: 'pass',
+        ...(options?.artifactRefs === undefined ? {} : { artifactRefs: options.artifactRefs }),
       },
     },
   };
@@ -130,6 +137,55 @@ describe('durable action postcondition observation', () => {
 
   it('Postconditions_PersistedEvidence_IsSatisfied', async () => {
     const evidence = memorySource([persistedGateEvidence(OPERATION)]);
+
+    const observation = await observeActionPostconditions({
+      ensures: declared({
+        source: 'durable-evidence',
+        when: 'success',
+        evidenceType: 'gate',
+      }),
+      store: memorySource([]),
+      evidence,
+      streamId: STREAM,
+      operationId: OPERATION,
+    });
+
+    expect(observation.status).toBe('satisfied');
+    expect(observation.missing).toEqual([]);
+  });
+
+  it('Postconditions_RowWithoutArtifactRefs_SatisfiesWithNoResolver', async () => {
+    // A row that names no blob is complete evidence on its own — omitting
+    // `artifactResolver` entirely (no state directory in scope) must not
+    // turn a reference-free row into a violation.
+    const evidence = memorySource([persistedGateEvidence(OPERATION)]);
+
+    const observation = await observeActionPostconditions({
+      ensures: declared({
+        source: 'durable-evidence',
+        when: 'success',
+        evidenceType: 'gate',
+      }),
+      store: memorySource([]),
+      evidence,
+      streamId: STREAM,
+      operationId: OPERATION,
+    });
+
+    expect(observation.status).toBe('satisfied');
+    expect(observation.missing).toEqual([]);
+  });
+
+  it('Postconditions_ArtifactKindSubjectWithoutReference_IsSatisfied', async () => {
+    // The fallback path that mints a `kind: 'artifact'` SUBJECT with no
+    // persisted bytes at all (no taskId, no git HEAD) is a different fact
+    // from a row that names an artifact REFERENCE. Custody keys on the
+    // reference the row carries, never on the subject's kind.
+    const evidence = memorySource([
+      persistedGateEvidence(OPERATION, {
+        subject: { kind: 'artifact', artifactId: 'gate-target:fallback', digest: DIGEST },
+      }),
+    ]);
 
     const observation = await observeActionPostconditions({
       ensures: declared({
