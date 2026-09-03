@@ -399,6 +399,80 @@ describe('durable action postcondition observation — artifact-backed evidence'
     ]);
   });
 
+  it('Postconditions_AnyIntactRowOfTheKind_Satisfies', async () => {
+    // The ensure names an evidence KIND and is discharged by any intact row of
+    // that kind under the operation. A sibling row whose blob is gone does not
+    // poison the set: it simply is not evidence, and the intact row still is.
+    // Pinned so the contract is a stated one -- a stricter reading, where one
+    // unresolvable row fails the whole operation, is a separate decision and
+    // must arrive as a visible edit here, not as drift.
+    const gone = await seedArtifactRow();
+    await rm(blobPathFor(stateDir, gone));
+    const intact = await storeEvidenceArtifact(
+      evidenceArtifactStore(stateDir),
+      { kind: 'artifact', artifactId: ArtifactIdSchema.parse('gate-report.postconditions-second') },
+      { verdict: 'pass', second: true },
+      { mediaType: 'application/json' },
+    );
+    const besideRefLess = await observeActionPostconditions({
+      ensures: declared({ source: 'durable-evidence', when: 'success', evidenceType: 'gate' }),
+      store: memorySource([]),
+      evidence: memorySource([
+        persistedGateEvidence(OPERATION, { artifactRefs: [gone] }),
+        persistedGateEvidence(OPERATION),
+      ]),
+      streamId: STREAM,
+      operationId: OPERATION,
+      artifactResolver: evidenceArtifactResolver(stateDir),
+    });
+    expect(besideRefLess.status).toBe('satisfied');
+
+    const besideIntact = await observeActionPostconditions({
+      ensures: declared({ source: 'durable-evidence', when: 'success', evidenceType: 'gate' }),
+      store: memorySource([]),
+      evidence: memorySource([
+        persistedGateEvidence(OPERATION, { artifactRefs: [gone] }),
+        persistedGateEvidence(OPERATION, { artifactRefs: [intact] }),
+      ]),
+      streamId: STREAM,
+      operationId: OPERATION,
+      artifactResolver: evidenceArtifactResolver(stateDir),
+    });
+    expect(besideIntact.status).toBe('satisfied');
+  });
+
+  it('Postconditions_EveryRowUnresolved_IsViolationNamingEachBlob', async () => {
+    // The partner of the case above: when no row of the kind is intact, the
+    // ensure is violated and the observation names every blob that failed,
+    // so a caller can report the digests rather than only the ensure.
+    const first = await seedArtifactRow();
+    const second = await storeEvidenceArtifact(
+      evidenceArtifactStore(stateDir),
+      { kind: 'artifact', artifactId: ArtifactIdSchema.parse('gate-report.postconditions-second') },
+      { verdict: 'pass', second: true },
+      { mediaType: 'application/json' },
+    );
+    expect(first.subject.digest.value).not.toBe(second.subject.digest.value);
+    await rm(blobPathFor(stateDir, first));
+    await rm(blobPathFor(stateDir, second));
+
+    const observation = await observeActionPostconditions({
+      ensures: declared({ source: 'durable-evidence', when: 'success', evidenceType: 'gate' }),
+      store: memorySource([]),
+      evidence: memorySource([
+        persistedGateEvidence(OPERATION, { artifactRefs: [first] }),
+        persistedGateEvidence(OPERATION, { artifactRefs: [second] }),
+      ]),
+      streamId: STREAM,
+      operationId: OPERATION,
+      artifactResolver: evidenceArtifactResolver(stateDir),
+    });
+
+    expect(observation.status).toBe('violated');
+    expect(observation.unresolvedArtifacts?.map((reference) => reference.subject.digest.value).sort())
+      .toEqual([first.subject.digest.value, second.subject.digest.value].sort());
+  });
+
   it('Postconditions_ArtifactBlobUnderAnotherRoot_IsViolation', async () => {
     // The oracle that would have caught the two-root split directly: the
     // blob is real, intact, and readable — just not under the root this
