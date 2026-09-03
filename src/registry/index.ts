@@ -103,6 +103,7 @@ export {
   HOST_OBLIGATIONS,
   actionContractCanonicalBytes,
   contractEmissionsOf,
+  contractEnsuredEventsOf,
   declared,
   none,
   normalizeActionContract,
