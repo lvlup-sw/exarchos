@@ -28,7 +28,12 @@ import { z } from 'zod';
 /** A JSON-Schema node, as far as the sampler reads one. */
 type SchemaNode = Readonly<Record<string, unknown>> | boolean;
 
-const MAX_DEPTH = 6;
+// A recursion guard against runaway or cyclic schemas, not a cap on
+// legitimate nesting: an evidence row's artifact reference nests
+// evidence -> artifactRefs -> item -> subject -> digest -> property, seven
+// levels deep, and every one of those levels is real schema shape a sample
+// needs to walk through, not a loop.
+const MAX_DEPTH = 10;
 
 function isObjectNode(node: SchemaNode): node is Readonly<Record<string, unknown>> {
   return typeof node === 'object' && node !== null;

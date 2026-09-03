@@ -75,6 +75,7 @@ import {
   observeActionPostconditions,
   type ActionPostconditionObservation,
 } from './action-postconditions.js';
+import { evidenceArtifactResolver } from '../../workflow/admission/evidence-artifact.js';
 
 // NOTE: `../telemetry/middleware.js` is intentionally NOT imported at module
 // top-level. The middleware instantiates a singleton TraceWriter at import,
@@ -1399,6 +1400,7 @@ export async function dispatch(
         streamId: observedStreamId,
         operationId: dispatchCtx.operationId,
         outcome: result.success ? 'success' : 'failure',
+        artifactResolver: evidenceArtifactResolver(ctx.stateDir),
       });
     } catch {
       // Report the ensures that APPLY to this outcome, not every declared one:

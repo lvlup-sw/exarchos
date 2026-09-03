@@ -1,10 +1,9 @@
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
 
-import { ContentAddressedStore } from '../../storage/artifacts/content-addressed-store.js';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
 import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
+import { evidenceArtifactStore } from '../../workflow/admission/evidence-artifact.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import type { EvidenceSubjectV1 } from '../../workflow/admission/types.js';
 import { resolveActivePhaseAttemptId } from '../tasks/active-phase-attempt.js';
@@ -143,9 +142,7 @@ export async function runDurableGateProducer(
     },
     {
       eventStore: scope.eventStore,
-      artifactStore: new ContentAddressedStore(
-        join(scope.stateDir, 'artifacts', 'gate-evidence'),
-      ),
+      artifactStore: evidenceArtifactStore(scope.stateDir),
       executeProvider: async () => executeProvider(),
     },
   );

@@ -30,6 +30,7 @@ import { resolveEmissionEnforcement } from '../../config/resolve.js';
 import { snapshotCallerAuthorization } from '../../dispatch/caller-identity.js';
 import { observeActionPostconditions } from '../../dispatch/core/action-postconditions.js';
 import { evaluateDispatchAdmission } from '../../dispatch/core/dispatch-admission.js';
+import { evidenceArtifactResolver } from '../../workflow/admission/evidence-artifact.js';
 // Type-only, and deliberately so: the dispatch module routes to the composite
 // that routes here, so a value import of it would close a runtime ring.
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
@@ -824,13 +825,22 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
         streamId: leaf.observationStreamId,
         operationId: derived,
         outcome: 'success',
+        artifactResolver: evidenceArtifactResolver(stateDir),
       });
       if (observation.status === 'violated') {
-        const unobserved = observation.missing.map((postcondition) =>
-          postcondition.source === 'event-append'
-            ? `event ${postcondition.event}`
-            : `evidence ${postcondition.evidenceType}`,
+        const unresolvedDigests = new Set(
+          (observation.unresolvedArtifacts ?? []).map(
+            (reference) => `${reference.subject.digest.algorithm}:${reference.subject.digest.value}`,
+          ),
         );
+        const unobserved = observation.missing.map((postcondition) => {
+          if (postcondition.source === 'event-append') return `event ${postcondition.event}`;
+          const suffix =
+            unresolvedDigests.size === 0
+              ? ''
+              : ` (artifact ${[...unresolvedDigests].join(', ')} did not resolve)`;
+          return `evidence ${postcondition.evidenceType}${suffix}`;
+        });
         return failFor(
           'INTENT_EMISSION_CONTRACT_VIOLATED',
           `leaf '${leaf.action}' returned success without the postconditions it declares: ` +

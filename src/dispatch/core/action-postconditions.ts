@@ -23,10 +23,12 @@
  */
 
 import type { ActionPostcondition, DeclaredSet } from '../../registry/action-contract.js';
+import type { EvidenceArtifactResolver } from '../../workflow/admission/evidence-artifact.js';
 import {
   readPersistedEvidence,
   type PersistedEvidenceSource,
 } from '../../workflow/admission/evidence-reader.js';
+import type { EvidenceArtifactReferenceV1 } from '../../workflow/admission/types.js';
 
 export type PostconditionObservationStatus = 'satisfied' | 'violated';
 export type PostconditionOutcome = 'success' | 'failure';
@@ -61,11 +63,26 @@ export interface ObserveActionPostconditionsInput {
    * `replayedEvidence` value across the seam.
    */
   readonly witnesses?: readonly unknown[];
+  /**
+   * The blob source behind artifact-backed evidence. A row that names blobs
+   * pays an ensure only if every one of them resolves — byte length,
+   * canonical envelope, subject digest. Optional at the type level because a
+   * caller with no state directory has no store to offer; a row naming blobs
+   * when no resolver was supplied does NOT count, which is the fail-closed
+   * direction.
+   */
+  readonly artifactResolver?: EvidenceArtifactResolver;
 }
 
 export interface ActionPostconditionObservation {
   readonly status: PostconditionObservationStatus;
   readonly missing: readonly ActionPostcondition[];
+  /**
+   * Artifact references a durable-evidence row named that did not resolve.
+   * Present only when the violation traces to an unresolved blob, so a
+   * caller can name the blob rather than only the ensure it broke.
+   */
+  readonly unresolvedArtifacts?: readonly EvidenceArtifactReferenceV1[];
 }
 
 /**
@@ -95,14 +112,42 @@ async function eventAppendObserved(
   return rows.some((row) => row.type === event && row.operationId === operationId);
 }
 
+interface DurableEvidenceObservation {
+  readonly satisfied: boolean;
+  /** References from rows that named a blob and did not get one back. */
+  readonly unresolvedArtifacts: readonly EvidenceArtifactReferenceV1[];
+}
+
 async function durableEvidenceObserved(
   evidence: PersistedEvidenceSource,
   streamId: string,
   operationId: string,
   evidenceType: string,
-): Promise<boolean> {
+  resolver: EvidenceArtifactResolver | undefined,
+): Promise<DurableEvidenceObservation> {
   const rows = await readPersistedEvidence(evidence, { streamId, operationId, evidenceType });
-  return rows.length > 0;
+  const unresolvedArtifacts: EvidenceArtifactReferenceV1[] = [];
+  for (const row of rows) {
+    if (row.artifactRefs.length === 0) {
+      return { satisfied: true, unresolvedArtifacts: [] };
+    }
+    if (resolver === undefined) continue;
+    let held = true;
+    for (const reference of row.artifactRefs) {
+      try {
+        await resolver.resolve(reference);
+      } catch {
+        // A blob that will not resolve is a blob that is not there. The row
+        // named it, so the row is not evidence -- a miss, a tampered byte
+        // and a malformed reference are one answer here on purpose.
+        held = false;
+        unresolvedArtifacts.push(reference);
+        break;
+      }
+    }
+    if (held) return { satisfied: true, unresolvedArtifacts: [] };
+  }
+  return { satisfied: false, unresolvedArtifacts };
 }
 
 /**
@@ -122,25 +167,36 @@ export async function observeActionPostconditions(
   }
 
   const missing: ActionPostcondition[] = [];
+  const unresolvedArtifacts: EvidenceArtifactReferenceV1[] = [];
   for (const postcondition of applicableEnsures(input.ensures, input.outcome ?? 'success')) {
-    const observed =
-      postcondition.source === 'event-append'
-        ? await eventAppendObserved(
-            input.store,
-            input.streamId,
-            input.operationId,
-            postcondition.event,
-          )
-        : await durableEvidenceObserved(
-            input.evidence,
-            input.streamId,
-            input.operationId,
-            postcondition.evidenceType,
-          );
-    if (!observed) missing.push(postcondition);
+    if (postcondition.source === 'event-append') {
+      const observed = await eventAppendObserved(
+        input.store,
+        input.streamId,
+        input.operationId,
+        postcondition.event,
+      );
+      if (!observed) missing.push(postcondition);
+      continue;
+    }
+    const observation = await durableEvidenceObserved(
+      input.evidence,
+      input.streamId,
+      input.operationId,
+      postcondition.evidenceType,
+      input.artifactResolver,
+    );
+    if (!observation.satisfied) {
+      missing.push(postcondition);
+      unresolvedArtifacts.push(...observation.unresolvedArtifacts);
+    }
   }
 
   return missing.length === 0
     ? { status: 'satisfied', missing: [] }
-    : { status: 'violated', missing };
+    : {
+        status: 'violated',
+        missing,
+        ...(unresolvedArtifacts.length === 0 ? {} : { unresolvedArtifacts }),
+      };
 }

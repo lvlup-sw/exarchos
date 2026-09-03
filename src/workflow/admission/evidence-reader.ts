@@ -48,7 +48,13 @@ import {
   type DisagreementDisposition,
   type ShadowDispositionView,
 } from './shadow-decision.js';
-import { ADMISSION_EVENT_TYPES, ContentDigestV1Schema, type ContentDigestV1 } from './types.js';
+import {
+  ADMISSION_EVENT_TYPES,
+  ContentDigestV1Schema,
+  type ContentDigestV1,
+  type EvidenceArtifactReferenceV1,
+  type EvidenceSubjectV1,
+} from './types.js';
 
 // ─── Source slice ─────────────────────────────────────────────────────────────
 
@@ -266,6 +272,10 @@ export interface PersistedEvidenceQuery {
 export interface PersistedEvidenceObservation {
   readonly evidenceType: string;
   readonly operationId: string;
+  /** What the row was proof ABOUT. Carried so a caller need not re-read the row. */
+  readonly subject: EvidenceSubjectV1;
+  /** Blobs the row names. Empty when it names none; never undefined. */
+  readonly artifactRefs: readonly EvidenceArtifactReferenceV1[];
 }
 
 /**
@@ -273,7 +283,10 @@ export interface PersistedEvidenceObservation {
  *
  * Only committed `admission.evidence-recorded` rows count. The envelope must
  * carry this operationId, and the payload's evidence kind must match the
- * asked type. An unreadable payload is dropped — it is not evidence.
+ * asked type. An unreadable payload is dropped — it is not evidence. That
+ * drop already covers a row whose artifact reference does not parse: the
+ * reference lives inside the same schema `safeParse` validates here, so
+ * re-checking it a second time inside this loop would test nothing new.
  */
 export async function readPersistedEvidence(
   source: PersistedEvidenceSource,
@@ -293,6 +306,8 @@ export async function readPersistedEvidence(
     observed.push({
       evidenceType: parsed.data.evidence.kind,
       operationId: query.operationId,
+      subject: parsed.data.evidence.subject,
+      artifactRefs: parsed.data.evidence.artifactRefs ?? [],
     });
   }
   return observed;

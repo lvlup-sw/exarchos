@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
 
-import {
+import type {
   ContentAddressedStore,
 } from '../../storage/artifacts/content-addressed-store.js';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
@@ -12,6 +11,7 @@ import {
 } from '../../events/schemas.js';
 import type { ToolResult } from '../../format.js';
 import {
+  evidenceArtifactStore,
   storeEvidenceArtifact,
   type EvidenceArtifactReferenceV1,
 } from '../../workflow/admission/evidence-artifact.js';
@@ -421,7 +421,10 @@ export async function runGate(
         );
       }
       return attachGateEvidence(providerResult, [
-        evidenceReference(sameOperation.record),
+        evidenceReference(
+          sameOperation.record,
+          sameOperation.record.evidence.artifactRefs?.[0],
+        ),
       ]);
     }
 
@@ -481,6 +484,7 @@ export async function runGate(
       contentDigest,
       createdAt,
       verdict: normalizeGateVerdict(providerResult),
+      ...(reportArtifact === undefined ? {} : { artifactRefs: [reportArtifact] }),
     });
     const record = AdmissionEvidenceRecordedData.parse({
       eventVersion: '1.0',
@@ -590,9 +594,7 @@ export async function runPhaseGateWithEvidence(
     },
     {
       eventStore: request.eventStore,
-      artifactStore: new ContentAddressedStore(
-        join(request.stateDir, 'admission-evidence'),
-      ),
+      artifactStore: evidenceArtifactStore(request.stateDir),
       executeProvider: request.executeProvider,
       // Never a SECOND producer. The phase-gate providers that mint a
       // `gate.executed` row do it themselves (`emitGateEvent`, from inside the
