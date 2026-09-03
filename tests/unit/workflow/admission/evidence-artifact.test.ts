@@ -7,13 +7,18 @@ import {
   ContentAddressedStore,
   type ContentAddressedStoreIo,
 } from '../../../../src/storage/artifacts/content-addressed-store.js';
+import { sampleEventData } from '../../../../tools/test-helpers/event-payload-sample.js';
 import { publishTempFile } from '../../../../src/utils/atomic-write.js';
+import { EVIDENCE_ARTIFACT_DIRNAME } from '../../../../src/utils/paths.js';
 import {
   EvidenceArtifactResolutionError,
+  evidenceArtifactResolver,
+  evidenceArtifactStore,
   resolveEvidenceArtifact,
   storeEvidenceArtifact,
 } from '../../../../src/workflow/admission/evidence-artifact.js';
 import { normalizeEvidenceSubjectContent } from '../../../../src/workflow/admission/evidence-subject.js';
+import { EvidenceArtifactReferenceV1Schema } from '../../../../src/workflow/admission/types.js';
 
 /** Real filesystem IO whose publish rename always fails — simulates a crash
  * between staging the temp file and promoting it over the target. */
@@ -310,5 +315,86 @@ describe('content-addressed evidence artifacts', () => {
     await expect(resolveEvidenceArtifact(store, references[0]!)).resolves.toEqual(
       normalizeEvidenceSubjectContent(content),
     );
+  });
+
+  it('EvidenceArtifactReference_SampledFromItsJsonSchema_ParsesUnderItself', () => {
+    // Regression pin for the reference schema's artifact subject being a real
+    // object schema rather than a `.refine` over the general union: a
+    // `.refine` projects to nothing in JSON Schema, so a sampler walking the
+    // union's branches never reaches the artifact shape and a genuine
+    // artifact reference looks unparseable to any tooling that only ever
+    // sees the sampled shape. If this regresses, it fails HERE, naming the
+    // schema, rather than as a mystery failure in a differential-fold corpus.
+    const sample = sampleEventData(EvidenceArtifactReferenceV1Schema);
+    const parsed = EvidenceArtifactReferenceV1Schema.safeParse(sample);
+    expect(parsed.success).toBe(true);
+  });
+
+  it('EvidenceArtifactStore_ForStateDir_RootsUnderTheDirnameConstant', async () => {
+    const stateDir = await mkdtemp(path.join(tmpdir(), 'exarchos-evidence-state-'));
+    try {
+      const boundStore = evidenceArtifactStore(stateDir);
+      const reference = await storeEvidenceArtifact(
+        boundStore,
+        { kind: 'artifact', artifactId: 'gate-report-root-binding' },
+        { probe: true },
+        { mediaType: 'application/json' },
+      );
+      const evidenceRoot = path.join(stateDir, EVIDENCE_ARTIFACT_DIRNAME);
+      const blobPath = await onlyStoredBlob(evidenceRoot);
+      expect(blobPath.startsWith(evidenceRoot + path.sep)).toBe(true);
+      await expect(resolveEvidenceArtifact(boundStore, reference)).resolves.toEqual({
+        probe: true,
+      });
+    } finally {
+      await rm(stateDir, { recursive: true });
+    }
+  });
+
+  it('EvidenceArtifactResolver_Miss_Rejects', async () => {
+    const stateDir = await mkdtemp(path.join(tmpdir(), 'exarchos-evidence-state-'));
+    try {
+      const boundStore = evidenceArtifactStore(stateDir);
+      const reference = await storeEvidenceArtifact(
+        boundStore,
+        { kind: 'artifact', artifactId: 'gate-report-resolver-miss' },
+        { verdict: 'pass' },
+        { mediaType: 'application/json' },
+      );
+      const evidenceRoot = path.join(stateDir, EVIDENCE_ARTIFACT_DIRNAME);
+      await unlink(await onlyStoredBlob(evidenceRoot));
+
+      const resolver = evidenceArtifactResolver(stateDir);
+      await expect(resolver.resolve(reference)).rejects.toMatchObject({
+        name: 'EvidenceArtifactResolutionError',
+        code: 'CONTENT_NOT_FOUND',
+      });
+    } finally {
+      await rm(stateDir, { recursive: true });
+    }
+  });
+
+  it('EvidenceArtifactResolver_Tampered_Rejects', async () => {
+    const stateDir = await mkdtemp(path.join(tmpdir(), 'exarchos-evidence-state-'));
+    try {
+      const boundStore = evidenceArtifactStore(stateDir);
+      const reference = await storeEvidenceArtifact(
+        boundStore,
+        { kind: 'artifact', artifactId: 'gate-report-resolver-tampered' },
+        { verdict: 'pass' },
+        { mediaType: 'application/json' },
+      );
+      const evidenceRoot = path.join(stateDir, EVIDENCE_ARTIFACT_DIRNAME);
+      const blobPath = await onlyStoredBlob(evidenceRoot);
+      await writeFile(blobPath, '{"corrupted":true}', 'utf8');
+
+      const resolver = evidenceArtifactResolver(stateDir);
+      await expect(resolver.resolve(reference)).rejects.toMatchObject({
+        name: 'EvidenceArtifactResolutionError',
+        code: 'DIGEST_MISMATCH',
+      });
+    } finally {
+      await rm(stateDir, { recursive: true });
+    }
   });
 });

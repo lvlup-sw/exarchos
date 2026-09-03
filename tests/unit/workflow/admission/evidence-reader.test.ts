@@ -24,8 +24,11 @@ import {
   assembleCutoverGateEvidence,
   listShadowEvidenceFeatureIds,
   readDurableShadowEvidence,
+  readPersistedEvidence,
+  type PersistedEvidenceSource,
   type ShadowEvidenceSource,
 } from '../../../../src/workflow/admission/evidence-reader.js';
+import { ADMISSION_EVENT_TYPES } from '../../../../src/workflow/admission/types.js';
 import type { LiveShadowHealth } from '../../../../src/workflow/admission/live-shadow-observer.js';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -277,5 +280,125 @@ describe('EvidenceReader — empty store semantics', () => {
     expect(report.satisfied).toBe(false);
     expect(report.unmet).toContain('live-disagreement-class');
     expect(report.durableAttemptCount).toBe(0);
+  });
+});
+
+// ─── readPersistedEvidence — the durable-evidence observation ─────────────────
+
+const GATE_DIGEST = { algorithm: 'sha256' as const, value: 'b'.repeat(64) };
+
+/** A schema-valid `admission.evidence-recorded` row, with an overridable subject. */
+function gateEvidenceRow(
+  operationId: string,
+  options?: {
+    readonly subject?: Record<string, unknown>;
+    readonly artifactRefs?: readonly unknown[];
+  },
+): { type: string; operationId: string; data: Record<string, unknown> } {
+  return {
+    type: ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED,
+    operationId,
+    data: {
+      eventVersion: '1.0',
+      evidence: {
+        contractVersion: '1.0',
+        evidenceId: `evidence.${operationId}`,
+        requirementId: 'requirement.typecheck',
+        phaseAttemptId: 'phase-attempt.1',
+        subject: options?.subject ?? { kind: 'task', taskId: 'task.1', digest: GATE_DIGEST },
+        producer: {
+          producerId: 'producer.gate-runner',
+          providerRef: 'provider.static-analysis',
+          providerVersion: '1.3.0',
+          invocationId: `invocation.${operationId}`,
+        },
+        policyId: 'policy.transition',
+        policyDigest: GATE_DIGEST,
+        contentDigest: GATE_DIGEST,
+        createdAt: '2026-08-22T00:00:00.000Z',
+        kind: 'gate',
+        verdict: 'pass',
+        ...(options?.artifactRefs === undefined ? {} : { artifactRefs: options.artifactRefs }),
+      },
+    },
+  };
+}
+
+/** A single-stream `PersistedEvidenceSource` over a fixed row set. */
+function persistedSource(
+  rows: readonly { type: string; operationId: string; data: Record<string, unknown> }[],
+): PersistedEvidenceSource {
+  return {
+    query: async (_streamId, filters) =>
+      rows.filter(
+        (row) =>
+          (filters?.type === undefined || row.type === filters.type) &&
+          (filters?.operationId === undefined || row.operationId === filters.operationId),
+      ),
+  };
+}
+
+const ARTIFACT_REF = {
+  contractVersion: '1.0' as const,
+  subject: { kind: 'artifact' as const, artifactId: 'artifact.report-1', digest: GATE_DIGEST },
+  mediaType: 'application/json',
+  byteLength: 42,
+};
+
+describe('readPersistedEvidence — the observation the durable-evidence ensure reads', () => {
+  it('EvidenceReader_RowWithNoArtifactRefs_ObservesEmptyList', async () => {
+    const source = persistedSource([gateEvidenceRow('op-1')]);
+
+    const observed = await readPersistedEvidence(source, {
+      streamId: 'feature-x',
+      operationId: 'op-1',
+      evidenceType: 'gate',
+    });
+
+    expect(observed).toHaveLength(1);
+    // Empty, never undefined: a caller that only ever checks `.length` must
+    // see the same "no blobs named" answer whether the field was omitted or
+    // an empty array — the schema treats both identically.
+    expect(observed[0]?.artifactRefs).toEqual([]);
+  });
+
+  it('EvidenceReader_RowWithArtifactRefs_CarriesThemAndTheSubject', async () => {
+    const subject = { kind: 'task' as const, taskId: 'task.report', digest: GATE_DIGEST };
+    const source = persistedSource([
+      gateEvidenceRow('op-2', { subject, artifactRefs: [ARTIFACT_REF] }),
+    ]);
+
+    const observed = await readPersistedEvidence(source, {
+      streamId: 'feature-x',
+      operationId: 'op-2',
+      evidenceType: 'gate',
+    });
+
+    expect(observed).toHaveLength(1);
+    expect(observed[0]?.subject).toEqual(subject);
+    expect(observed[0]?.artifactRefs).toEqual([ARTIFACT_REF]);
+  });
+
+  it('EvidenceReader_RowWhoseReferenceNamesANonArtifactSubject_IsDropped', async () => {
+    // `EvidenceArtifactReferenceV1Schema` requires an artifact-kind subject on
+    // the reference. A row whose reference names a `task` subject fails the
+    // row-level `safeParse` this reader already runs, and is dropped exactly
+    // as any other unreadable payload is — no second, redundant check of the
+    // reference is added here to re-discover what the parse already knows.
+    const malformedRef = {
+      ...ARTIFACT_REF,
+      subject: { kind: 'task', taskId: 'task.wrong-kind', digest: GATE_DIGEST },
+    };
+    const source = persistedSource([
+      gateEvidenceRow('op-3', { artifactRefs: [malformedRef] }),
+    ]);
+
+    const observed = await readPersistedEvidence(source, {
+      streamId: 'feature-x',
+      operationId: 'op-3',
+      evidenceType: 'gate',
+    });
+
+    expect(observed).toEqual([]);
   });
 });

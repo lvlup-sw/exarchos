@@ -296,6 +296,47 @@ describe('canonical evidence-producing gate runner', () => {
       success: true,
       data: { passed: false, report: marker.repeat(10_000), summary: 'failed' },
     });
+
+    // The durable row, not only the ephemeral carrier, must name the blob —
+    // that stamp is the only production write a durable-evidence custody
+    // check ever has to consult.
+    const persisted = (await persistedEvidence())[0]?.evidence;
+    expect(persisted?.artifactRefs).toEqual([reportArtifact]);
+    await expect(resolveEvidenceArtifact(artifactStore, persisted?.artifactRefs?.[0]))
+      .resolves.toBe(marker.repeat(10_000));
+  });
+
+  it('GateRunner_SameOperationRetry_ReDerivesArtifactRefFromThePersistedRow', async () => {
+    // Each run reports DIFFERENT bytes, so which run's blob the retry hands
+    // back is observable rather than assumed.
+    const marker = 'retry-report-body';
+    let providerRuns = 0;
+    const reportProvider: GateProviderExecutor = async () => {
+      providerRuns += 1;
+      return {
+        success: true,
+        data: { passed: false, report: `${marker}-${providerRuns}`, summary: 'failed' },
+      };
+    };
+    const dispatch = context('same-operation-report');
+
+    const first = await runWithDispatchContext(dispatch, () =>
+      runGate(request, dependencies(reportProvider)),
+    );
+    const retry = await runWithDispatchContext(dispatch, () =>
+      runGate(request, dependencies(reportProvider)),
+    );
+
+    expect(await persistedEvidence()).toHaveLength(1);
+    const persisted = (await persistedEvidence())[0]?.evidence;
+    const firstArtifact = evidenceReferences(first)[0]?.reportArtifact;
+    const retryArtifact = evidenceReferences(retry)[0]?.reportArtifact;
+    expect(persisted?.artifactRefs).toEqual([firstArtifact]);
+    // A same-operation retry keeps the FIRST run's row and blob whatever the
+    // provider reports the second time. The blob store is the second
+    // authority: the reference the retry hands back must resolve to the bytes
+    // run one wrote — not to run two's, and not to nothing.
+    await expect(resolveEvidenceArtifact(artifactStore, retryArtifact)).resolves.toBe(`${marker}-1`);
   });
 });
 

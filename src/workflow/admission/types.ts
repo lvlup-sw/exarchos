@@ -162,7 +162,7 @@ const DiffSubjectV1Schema = z
   .strict()
   .readonly();
 
-const ArtifactSubjectV1Schema = z
+export const ArtifactSubjectV1Schema = z
   .object({
     kind: z.literal('artifact'),
     artifactId: ArtifactIdSchema,
@@ -181,6 +181,28 @@ export const EvidenceSubjectV1Schema = z.discriminatedUnion('kind', [
   ArtifactSubjectV1Schema,
 ]);
 export type EvidenceSubjectV1 = z.infer<typeof EvidenceSubjectV1Schema>;
+
+/**
+ * A reference to an evidence artifact blob, carried on an evidence row so a
+ * later reader can find what the row's content digest was computed over. The
+ * subject is typed as the real artifact-subject object (not a `.refine` over
+ * the general union): a `.refine` erases to nothing in JSON Schema, so a
+ * sampler that walks the union's branches would never exercise the artifact
+ * shape and a real artifact reference would look unparseable to any tooling
+ * that only ever sees the sampled shape.
+ */
+export const EvidenceArtifactReferenceV1Schema = z
+  .object({
+    contractVersion: AdmissionRuntimeContractVersionSchema,
+    subject: ArtifactSubjectV1Schema,
+    mediaType: z.string().trim().min(1).max(255),
+    byteLength: z.number().int().nonnegative(),
+  })
+  .strict()
+  .readonly();
+export type EvidenceArtifactReferenceV1 = z.infer<
+  typeof EvidenceArtifactReferenceV1Schema
+>;
 
 // ─── Attributable identity and authorization snapshots ─────────────────────
 
@@ -296,6 +318,20 @@ const EvidenceFields = {
   policyDigest: ContentDigestV1Schema,
   contentDigest: ContentDigestV1Schema,
   createdAt: TimestampSchema,
+  /**
+   * Artifact blobs this evidence's content was digested over. Carried on the
+   * row because the reference is otherwise recoverable from nothing: it is
+   * folded into `contentDigest` and lives nowhere a reader can reach.
+   * Optional and additive — a row that names no blob is complete evidence,
+   * and rows written before this field existed stay valid.
+   *
+   * A presence pointer, not an authenticated binding: nothing cross-checks
+   * a reference here against the `contentDigest` sealed on the same row, so
+   * this field only proves that SOME blob matching the reference's own
+   * digest resolves under the evidence root — not that it is the blob this
+   * particular row's content was computed from.
+   */
+  artifactRefs: z.array(EvidenceArtifactReferenceV1Schema).readonly().optional(),
 } as const;
 
 const GateEvidenceV1Schema = z
