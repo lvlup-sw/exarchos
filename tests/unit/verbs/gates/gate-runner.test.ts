@@ -308,10 +308,14 @@ describe('canonical evidence-producing gate runner', () => {
 
   it('GateRunner_SameOperationRetry_ReDerivesArtifactRefFromThePersistedRow', async () => {
     const marker = 'retry-report-body';
-    const reportProvider: GateProviderExecutor = async () => ({
-      success: true,
-      data: { passed: false, report: marker, summary: 'failed' },
-    });
+    let providerRuns = 0;
+    const reportProvider: GateProviderExecutor = async () => {
+      providerRuns += 1;
+      return {
+        success: true,
+        data: { passed: false, report: marker, summary: 'failed' },
+      };
+    };
     const dispatch = context('same-operation-report');
 
     const first = await runWithDispatchContext(dispatch, () =>
@@ -321,15 +325,17 @@ describe('canonical evidence-producing gate runner', () => {
       runGate(request, dependencies(reportProvider)),
     );
 
+    expect(providerRuns).toBe(1);
     expect(await persistedEvidence()).toHaveLength(1);
     const persisted = (await persistedEvidence())[0]?.evidence;
     const firstArtifact = evidenceReferences(first)[0]?.reportArtifact;
     const retryArtifact = evidenceReferences(retry)[0]?.reportArtifact;
     expect(persisted?.artifactRefs).toEqual([firstArtifact]);
-    // The retry never re-runs the provider — it must hand back the SAME
-    // reference the persisted row carries, re-derived from the ledger rather
-    // than from an in-flight variable that no longer exists on a replay.
-    expect(retryArtifact).toEqual(firstArtifact);
+    // The retry never re-ran the provider (one run, asserted above), so the
+    // only place its reference can have come from is the persisted row. The
+    // blob store is the second authority: the reference the retry hands back
+    // must resolve to the bytes the FIRST run wrote, not to nothing.
+    await expect(resolveEvidenceArtifact(artifactStore, retryArtifact)).resolves.toBe(marker);
   });
 });
 

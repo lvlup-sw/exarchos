@@ -139,10 +139,11 @@ async function durableEvidenceObserved(
       } catch {
         // A blob that will not resolve is a blob that is not there. The row
         // named it, so the row is not evidence -- a miss, a tampered byte
-        // and a malformed reference are one answer here on purpose.
+        // and a malformed reference are one answer here on purpose. Every
+        // reference on the row is still probed, so the violation names each
+        // missing blob rather than only the first one met.
         held = false;
         unresolvedArtifacts.push(reference);
-        break;
       }
     }
     if (held) return { satisfied: true, unresolvedArtifacts: [] };

@@ -347,7 +347,7 @@ describe('content-addressed evidence artifacts', () => {
         probe: true,
       });
     } finally {
-      await rm(stateDir, { recursive: true, force: true });
+      await rm(stateDir, { recursive: true });
     }
   });
 
@@ -370,7 +370,7 @@ describe('content-addressed evidence artifacts', () => {
         code: 'CONTENT_NOT_FOUND',
       });
     } finally {
-      await rm(stateDir, { recursive: true, force: true });
+      await rm(stateDir, { recursive: true });
     }
   });
 
@@ -394,7 +394,7 @@ describe('content-addressed evidence artifacts', () => {
         code: 'DIGEST_MISMATCH',
       });
     } finally {
-      await rm(stateDir, { recursive: true, force: true });
+      await rm(stateDir, { recursive: true });
     }
   });
 });

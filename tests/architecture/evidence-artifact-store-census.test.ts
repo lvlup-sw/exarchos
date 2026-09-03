@@ -6,8 +6,10 @@
  * indistinguishable, from the reference's own point of view, from a blob that
  * was never written — the two gate-evidence producers used to disagree on
  * the root this way, and this pass gave them one shared constructor. This
- * walks the shipped tree for every direct `ContentAddressedStore`
- * construction and requires each one to be a named, reasoned-about owner.
+ * walks the shipped tree with the TypeScript parser for every value-level
+ * use of `ContentAddressedStore` — resolved through the import graph, so an
+ * alias or a barrel is the same class — and requires each one to be a named,
+ * reasoned-about owner.
  *
  * The vacuity guard: a scan that stopped finding construction sites at all
  * would report zero violations and read as a clean tree. The scanned
@@ -63,7 +65,7 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
     // report a plausible-looking count on its own. Agreement with `git
     // ls-files` is what rules that out.
     expect(census.scannedModuleCount).toBe(tracked.length);
-  });
+  }, 60_000);
 
   it('Census_EveryProductionConstruction_IsOwned', () => {
     const census = scanEvidenceStoreConstructions(REPO_ROOT, {
@@ -78,7 +80,7 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
       census.unowned,
       'every construction outside the allowlist must bind through evidenceArtifactStore() instead',
     ).toEqual([]);
-  });
+  }, 60_000);
 
   it('Census_BothEvidenceProducers_BindToTheRootConstant', () => {
     // The half a construction-site scan cannot see on its own: a producer
@@ -95,27 +97,141 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
     }
   });
 
-  it('Census_SeededModuleOnDisk_IsWalkedAndNamed', async () => {
+  /**
+   * A throwaway tree shaped like the real one: the class module at the path
+   * the scanner resolves bindings against, a barrel re-exporting it, and one
+   * seeded module per case. Returns the root; the caller removes it.
+   */
+  async function seededTree(modules: Readonly<Record<string, string>>): Promise<string> {
     const root = await mkdtemp(path.join(os.tmpdir(), 'exarchos-evidence-census-'));
+    const artifactsDir = path.join(root, 'src', 'storage', 'artifacts');
+    await mkdir(artifactsDir, { recursive: true });
+    await writeFile(
+      path.join(artifactsDir, 'content-addressed-store.ts'),
+      'export class ContentAddressedStore {\n  constructor(readonly root: string) {}\n}\n',
+      'utf8',
+    );
+    await writeFile(
+      path.join(artifactsDir, 'index.ts'),
+      "export { ContentAddressedStore } from './content-addressed-store.js';\n",
+      'utf8',
+    );
+    for (const [rel, source] of Object.entries(modules)) {
+      await writeFile(path.join(root, 'src', rel), source, 'utf8');
+    }
+    return root;
+  }
+
+  it('Census_SeededModuleOnDisk_IsWalkedAndNamed', async () => {
+    const root = await seededTree({
+      'seeded-evidence-store.ts': [
+        "import { ContentAddressedStore } from './storage/artifacts/content-addressed-store.js';",
+        "export const s = new ContentAddressedStore(join(stateDir, 'admission-evidence'));",
+        '',
+      ].join('\n'),
+    });
     try {
       const sourceDir = path.join(root, 'src');
-      await mkdir(sourceDir, { recursive: true });
-      await writeFile(
-        path.join(sourceDir, 'seeded-evidence-store.ts'),
-        [
-          "export const s = new ContentAddressedStore(join(stateDir, 'admission-evidence'));",
-          '',
-        ].join('\n'),
-        'utf8',
-      );
-
       const seeded = scanEvidenceStoreConstructions(root, { sourceDir, owners: [] });
-      expect(seeded.scannedModuleCount).toBe(1);
-      expect(seeded.unowned.length).toBe(1);
-      expect(seeded.unowned[0]?.file).toBe('src/seeded-evidence-store.ts');
-      expect(seeded.unowned[0]?.text).toContain('new ContentAddressedStore(');
+      // The class module and the barrel are walked too; neither USES the class.
+      expect(seeded.scannedModuleCount).toBe(3);
+      expect(seeded.unowned).toEqual([
+        {
+          file: 'src/seeded-evidence-store.ts',
+          line: 2,
+          text: "export const s = new ContentAddressedStore(join(stateDir, 'admission-evidence'));",
+          kind: 'construct',
+        },
+      ]);
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await rm(root, { recursive: true });
+    }
+  });
+
+  it('Census_AliasedImportThroughTheBarrel_SplitAcrossLines_IsStillAConstruction', async () => {
+    // The three shapes a line pattern cannot see: the class under another
+    // local name, reached through the barrel rather than its own module, and
+    // a `new` whose parts sit on different lines.
+    const root = await seededTree({
+      'seeded-alias.ts': [
+        "import { ContentAddressedStore as Store } from './storage/artifacts/index.js';",
+        'export const s = new',
+        '  Store(',
+        '    root,',
+        '  );',
+        '',
+      ].join('\n'),
+    });
+    try {
+      const seeded = scanEvidenceStoreConstructions(root, {
+        sourceDir: path.join(root, 'src'),
+        owners: [],
+      });
+      expect(seeded.unowned.map((site) => [site.file, site.line, site.kind])).toEqual([
+        ['src/seeded-alias.ts', 2, 'construct'],
+      ]);
+    } finally {
+      await rm(root, { recursive: true });
+    }
+  });
+
+  it('Census_NamespaceImportAndSubclass_AreValueUsesToo', async () => {
+    // A store can be built without ever spelling `new ContentAddressedStore`:
+    // through a namespace member, or by subclassing. Both are doors.
+    const root = await seededTree({
+      'seeded-namespace.ts': [
+        "import * as artifacts from './storage/artifacts/index.js';",
+        'export const s = new artifacts.ContentAddressedStore(root);',
+        '',
+      ].join('\n'),
+      'seeded-subclass.ts': [
+        "import { ContentAddressedStore } from './storage/artifacts/content-addressed-store.js';",
+        'export class EvidenceStore extends ContentAddressedStore {}',
+        '',
+      ].join('\n'),
+    });
+    try {
+      const seeded = scanEvidenceStoreConstructions(root, {
+        sourceDir: path.join(root, 'src'),
+        owners: [],
+      });
+      expect(seeded.unowned.map((site) => [site.file, site.kind]).sort()).toEqual([
+        ['src/seeded-namespace.ts', 'construct'],
+        ['src/seeded-subclass.ts', 'reference'],
+      ]);
+    } finally {
+      await rm(root, { recursive: true });
+    }
+  });
+
+  it('Census_TextInStringsCommentsAndTypePositions_IsNotAUse', async () => {
+    // The false positives a line pattern produces and the compiler does not:
+    // the class name inside a string, inside a comment, and in a type-only
+    // import used purely as an annotation. None of these can construct.
+    const root = await seededTree({
+      'seeded-text.ts': [
+        "export const s = 'new ContentAddressedStore(root)';",
+        '// new ContentAddressedStore(root)',
+        '/* new ContentAddressedStore(root) */',
+        '',
+      ].join('\n'),
+      'seeded-type-only.ts': [
+        "import type { ContentAddressedStore } from './storage/artifacts/content-addressed-store.js';",
+        'export function bind(store: ContentAddressedStore): ContentAddressedStore {',
+        '  return store;',
+        '}',
+        '',
+      ].join('\n'),
+    });
+    try {
+      const seeded = scanEvidenceStoreConstructions(root, {
+        sourceDir: path.join(root, 'src'),
+        owners: [],
+      });
+      expect(seeded.scannedModuleCount).toBe(4);
+      expect(seeded.sites).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true });
     }
   });
 });
