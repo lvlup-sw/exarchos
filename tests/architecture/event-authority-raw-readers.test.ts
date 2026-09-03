@@ -20,7 +20,7 @@
  * ## Why the vacuity assertions carry weight
  *
  * A census fails open. A walk that finds nothing reports no violations and
- * looks clean, which is the defect this repository keeps re-encountering. Four
+ * looks clean, which is the defect this repository keeps re-encountering. Five
  * assertions stand against that:
  *
  *   1. the scanned population is corroborated against `git ls-files`, so a
@@ -30,13 +30,23 @@
  *   3. unscoped folds are non-empty, because this tree has many, and a zero
  *      there means the scan stopped seeing query calls at all;
  *   4. a seeded reader naming a telemetry type must be NAMED in the failure,
- *      by the same auditor that reads the real census.
+ *      and the seed is a MODULE ON DISK walked by the real scanner, not a row
+ *      spliced into the census value. That distinction is the whole point: a
+ *      seed injected into the value exercises the auditor and nothing else, so
+ *      it stayed green through a grammar gap that made four shipped readers
+ *      invisible;
+ *   5. every read SPELLING the grammar claims to cover is proved to resolve, so
+ *      a silently narrowed grammar shows up as a spelling that stopped
+ *      resolving rather than as a clean tree.
  *
  * The reverse direction is checked too: every module a raw-reader witness cites
- * must still be found reading the type it was promoted for. A witness whose
- * reader moved away keeps asserting a promotion nothing supports.
+ * must still be found reading the type it was promoted for, and every
+ * charter-pin witness — whose claim is that NO reader names its type — is held
+ * to that claim against the same census.
  */
 
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -129,25 +139,82 @@ describe('RawReaderCensus — no fold-external reader depends on a telemetry eve
     ).toEqual([]);
   });
 
-  it('RawReaderCensus_SeededReaderNamingATelemetryType_IsNamedInTheFailure', async () => {
-    const census = await censusPromise;
+  it('RawReaderCensus_SeededReaderModuleOnDisk_IsWalkedResolvedAndNamed', async () => {
     const [telemetryType] = [...TELEMETRY_EVENTS].sort();
     expect(telemetryType).toBeDefined();
 
-    const seededModule = 'src/__seeded_reader__.ts';
-    const seeded: EventReaderCensus = {
-      ...census,
-      modulesByEvent: new Map([
-        ...census.modulesByEvent,
-        [telemetryType ?? '', [seededModule]],
-      ]),
-    };
+    // A module on disk, walked by the real scanner — not a row spliced into a
+    // census value. The spelling is the membership test, because that is the
+    // spelling a value-level seed could never have caught.
+    const root = await mkdtemp(path.join(os.tmpdir(), 'exarchos-reader-census-'));
+    try {
+      const sourceDir = path.join(root, 'src');
+      await mkdir(sourceDir, { recursive: true });
+      await writeFile(
+        path.join(sourceDir, 'seeded-reader.ts'),
+        [
+          `const WATCHED: readonly string[] = ['${telemetryType ?? ''}'];`,
+          'export function isWatched(event: { type: string }): boolean {',
+          '  return WATCHED.includes(event.type);',
+          '}',
+          '',
+        ].join('\n'),
+        'utf8',
+      );
 
-    const audit = auditEventReaders(seeded, EVENT_AUTHORITY, GOVERNANCE_WITNESSES);
-    const messages = audit.violations.map((violation) => violation.message).join('\n');
-    expect(audit.violations.length).toBe(1);
-    expect(messages).toContain(seededModule);
-    expect(messages).toContain(telemetryType ?? '');
+      const seeded = await scanEventReaders(
+        root,
+        { sourceDir, excludeDirs: [] },
+        compilerBackedScanner,
+        KNOWN_EVENT_TYPES,
+        KNOWN_CONSTANTS,
+      );
+      expect(seeded.scannedModuleCount).toBe(1);
+      expect(seeded.modulesByEvent.get(telemetryType ?? '')).toEqual(['src/seeded-reader.ts']);
+
+      const audit = auditEventReaders(seeded, EVENT_AUTHORITY, GOVERNANCE_WITNESSES);
+      const messages = audit.violations.map((violation) => violation.message).join('\n');
+      expect(audit.violations.length).toBe(1);
+      expect(messages).toContain('src/seeded-reader.ts');
+      expect(messages).toContain(telemetryType ?? '');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('RawReaderCensus_EverySupportedReadSpelling_ResolvesToItsEventType', () => {
+    // The grammar's own denominator. Each entry is a spelling that is LIVE in
+    // this tree; a scanner that quietly stopped covering one would otherwise
+    // report the modules using it as depending on no event, and the census would
+    // read clean over exactly the readers it had gone blind to.
+    const [governanceType] = [...EventTypes].sort();
+    expect(governanceType).toBeDefined();
+    const target = governanceType ?? '';
+    const family = `${target.split('.')[0] ?? ''}.`;
+
+    const spellings: ReadonlyMap<string, string> = new Map([
+      ['comparison', `export const f = (e: { type: string }) => e.type === '${target}';`],
+      ['switch-case', `export function f(e: { type: string }) { switch (e.type) { case '${target}': return 1; default: return 0; } }`],
+      ['query-filter', `export const f = (s: { query: Function }) => s.query('id', { type: '${target}' });`],
+      ['array-membership', `const T = ['${target}']; export const f = (e: { type: string }) => T.includes(e.type);`],
+      ['set-membership', `const T = new Set(['${target}']); export const f = (e: { type: string }) => T.has(e.type);`],
+      ['prefix-filter', `export const f = (e: { type: string }) => e.type.startsWith('${family}');`],
+    ]);
+
+    const blind: string[] = [];
+    for (const [name, source] of spellings) {
+      const sites = compilerBackedScanner(source, {
+        fileName: `${name}.ts`,
+        knownConstants: KNOWN_CONSTANTS,
+      });
+      const named = sites.some(
+        (site) =>
+          site.discriminant === target ||
+          (site.kind === 'prefix-filter' && site.discriminant === family),
+      );
+      if (!named) blind.push(name);
+    }
+    expect(blind, `the scanner no longer resolves these read spellings`).toEqual([]);
   });
 
   it('RawReaderCensus_DeclaredRawReaderWitness_IsNamedByALiveReader', async () => {
@@ -163,6 +230,31 @@ describe('RawReaderCensus — no fold-external reader depends on a telemetry eve
       audit.staleWitnesses.map((stale) => stale.message),
       describeUnread(census),
     ).toEqual([]);
+  });
+
+  it('RawReaderCensus_CharterPinWitness_IsNamedByNoLiveReader', async () => {
+    const census = await censusPromise;
+    expect(census.modulesByEvent.size).toBeGreaterThan(0);
+
+    // A charter pin says the promotion rests on the ratified family decision
+    // ALONE — no fold, no reader. Left unmeasured, that arm is where a promotion
+    // with real evidence goes to escape every oracle, so the negative half is
+    // held to the census: a pinned type a module actually reads has to move to
+    // the raw-reader arm, which names its module and is re-measured.
+    const pinned = Object.entries(GOVERNANCE_WITNESSES)
+      .filter(([, witness]) => witness.arm === 'charter-pin')
+      .map(([type]) => type);
+    expect(pinned.length).toBeGreaterThan(0);
+
+    const contradicted = pinned
+      .map((type) => ({ type, readers: census.modulesByEvent.get(type) ?? [] }))
+      .filter((row) => row.readers.length > 0)
+      .map(
+        (row) =>
+          `The charter-pin witness for "${row.type}" claims no fold-external reader names it, ` +
+          `but the census finds ${row.readers.join(', ')}. Move it to the raw-reader arm.`,
+      );
+    expect(contradicted, describeUnread(census)).toEqual([]);
   });
 
   it('RawReaderCensus_UnscopedFoldsAndUnresolvedDiscriminants_AreReportedNotDropped', async () => {

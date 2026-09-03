@@ -37,6 +37,17 @@
  * per-module scan. That is the second reason the partition promotes but never
  * demotes: an under-report here can only leave a type classified governance.
  *
+ * ── A read is not always a comparison ───────────────────────────────────────
+ *
+ * Equality and `case` arms are the obvious spellings and they were once the only
+ * ones this census could see. They are not the only ones in the tree: a fence
+ * asks a set whether it holds the type, a saga verifier filters a stream by a
+ * family prefix and decides on what survives. A census blind to those reports
+ * zero violations over modules whose verdict is a function of the event it
+ * cannot see — the failure mode that motivated the grammar rather than a
+ * hypothetical one. So membership tests and family prefixes are first-class read
+ * shapes, and a family prefix expands to every catalog member it covers.
+ *
  * ── Only known event types count ────────────────────────────────────────────
  *
  * A resolved literal is admitted only when it is a member of the catalog the
@@ -58,6 +69,10 @@ export type EventReaderKind =
   | 'type-comparison'
   /** A `case 'x':` arm on a switch whose discriminant is an event type. */
   | 'switch-case'
+  /** A `SET.has(event.type)` / `ARRAY.includes(event.type)` membership test. */
+  | 'membership-test'
+  /** An `event.type.startsWith('family.')` filter over a whole family. */
+  | 'prefix-filter'
   /** A query call carrying no type discriminant at all. */
   | 'unscoped-query';
 
@@ -66,7 +81,13 @@ export interface EventReaderSite {
   /** 1-based line of the read in the scanned source. */
   readonly line: number;
   readonly kind: EventReaderKind;
-  /** The resolved event-type string, or `undefined` when it did not reduce. */
+  /**
+   * The resolved event-type string, or `undefined` when it did not reduce.
+   *
+   * For a `prefix-filter` this is the PREFIX, not a type: the site names a whole
+   * family and only the catalog can say which members that is, so the expansion
+   * happens where the catalog is known rather than in the parser.
+   */
   readonly discriminant: string | undefined;
 }
 
@@ -187,6 +208,11 @@ export async function scanEventReaders(
   const unresolved: EventReaderSiteRef[] = [];
   const unscopedFolds: EventReaderSiteRef[] = [];
   const scannedModules: string[] = [];
+  const record = (eventType: string, module: string): void => {
+    const modules = byEvent.get(eventType) ?? new Set<string>();
+    modules.add(module);
+    byEvent.set(eventType, modules);
+  };
 
   for (const file of files) {
     const source = await readFile(file, 'utf8');
@@ -202,11 +228,21 @@ export async function scanEventReaders(
         unresolved.push(ref);
         continue;
       }
+      if (site.kind === 'prefix-filter') {
+        // A family filter reads every member of the family. Expanding it here,
+        // against the catalog the caller supplied, is what stops a reader
+        // spelled `startsWith('team.')` from looking like a module that names no
+        // event — the under-report that hides a whole family's dependency. A
+        // prefix matching nothing in the catalog is not a read of an event.
+        for (const eventType of knownEventTypes) {
+          if (!eventType.startsWith(site.discriminant)) continue;
+          record(eventType, module);
+        }
+        continue;
+      }
       // A literal that is not a catalog member is not a read of an event.
       if (!knownEventTypes.has(site.discriminant)) continue;
-      const modules = byEvent.get(site.discriminant) ?? new Set<string>();
-      modules.add(module);
-      byEvent.set(site.discriminant, modules);
+      record(site.discriminant, module);
     }
   }
 

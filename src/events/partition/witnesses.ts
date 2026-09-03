@@ -7,17 +7,25 @@
  * list of places where a human judgment overrides a derivation, which is what
  * makes it reviewable.
  *
- * Two of the three arms are re-measured by oracles rather than trusted:
+ * EVERY arm is re-measured by an oracle. The arm is self-declared, so an arm
+ * nothing checks would let a mislabel buy a permanent exemption — and that is
+ * not hypothetical: `task.assigned` was filed here as a charter pin claiming no
+ * fold named it while the canonical projection had a mutating arm for it, and
+ * neither of the two loops that re-measure the table looked at charter-pin rows.
  *
  *   • `projection-fold` — the differential fold proves the promotion is load
  *     bearing: dropping it makes the governance-filtered fold diverge.
  *   • `raw-reader` — the fold-external reader census proves the named module
  *     still reads the named type. A witness whose module stopped reading it is
  *     reported as stale, so this table cannot outlive the code it cites.
+ *   • `gate-expectation` — the emission gate's expectation table still lists the
+ *     type, measured from the table itself.
  *   • `charter-pin` — the ratified authority decision pins a whole family
  *     governance, and these rows are the family members whose tier disagrees.
- *     No reader and no fold names them today; the family pin IS the basis, and
- *     saying so here is what keeps it from looking like measured evidence.
+ *     The claim such a row makes is NEGATIVE — no fold, no reader, no
+ *     expectation row — and that claim is measured too: a charter-pin row that
+ *     acquires real evidence is named and has to move to the arm that now
+ *     carries it.
  *
  * Adding a row for a type whose tier already derives `auto` is refused at load:
  * a witness that changes no answer is cover nothing can check.
@@ -64,6 +72,24 @@ export const GOVERNANCE_WITNESSES: Readonly<Record<string, AuthorityWitness>> = 
       'The delegation saga verifier folds planned against dispatched and assigned to decide ' +
       'whether every planned task was actually handed to a teammate.',
   },
+  'team.task.completed': {
+    arm: 'raw-reader',
+    evidence: ['src/events/schemas.ts', 'src/verbs/team/verify-delegation-saga.ts'],
+    because:
+      'Two live readers, neither of them a comparison. The saga verifier filters the raw stream ' +
+      'by the team family and its catch-all arm turns any member appearing after the team was ' +
+      'disbanded into a violation, so its pass/fail is a function of this type; and the agent- ' +
+      'event validator asks a literal table whether the type is one that must carry an agent id, ' +
+      'refusing the append when it does not.',
+  },
+  'team.task.failed': {
+    arm: 'raw-reader',
+    evidence: ['src/events/schemas.ts', 'src/verbs/team/verify-delegation-saga.ts'],
+    because:
+      'The same two readers as its sibling: the saga verifier decides on it through the family ' +
+      'filter and the post-disband rule, and the agent-event validator requires an agent id on ' +
+      'it before the append is accepted.',
+  },
   'worktree.created': {
     arm: 'raw-reader',
     evidence: ['src/verbs/gates/gate-utils.ts'],
@@ -82,19 +108,32 @@ export const GOVERNANCE_WITNESSES: Readonly<Record<string, AuthorityWitness>> = 
       'an escalation bound from it, so the reader must be retired or re-sourced first.',
   },
 
-  'task.assigned': {
-    arm: 'charter-pin',
-    evidence: [CHARTER],
+  'stack.submitted': {
+    arm: 'gate-expectation',
+    evidence: ['src/verbs/gates/check-event-emissions.ts'],
     because:
-      'The task family is pinned governance as a family. No fold and no fold-external reader ' +
-      'names this member today, so the family pin is the entire basis for the promotion.',
+      'The emission gate lists this type among the events the synthesize phase must have ' +
+      'produced, and its complete/incomplete verdict is exactly whether the raw stream contains ' +
+      'it. The charter names the type among its telemetry examples and requires the expectation ' +
+      'row and its description to be deleted in the same commit as the demotion; neither has ' +
+      'happened, so the type is still depended upon and stays governance until that flip lands.',
+  },
+
+  'task.assigned': {
+    arm: 'projection-fold',
+    evidence: ['src/projections/views/workflow-state-projection.ts'],
+    because:
+      'The canonical workflow-state fold appends a task row for it, so a stream replayed without ' +
+      'it produces a different task list. The task family is pinned governance by charter too, ' +
+      'but that pin is not the basis here — the fold is, and it is measured.',
   },
   'task.progressed': {
-    arm: 'charter-pin',
-    evidence: [CHARTER],
+    arm: 'raw-reader',
+    evidence: ['src/events/schemas.ts'],
     because:
-      'The task family is pinned governance as a family. No fold and no fold-external reader ' +
-      'names this member today, so the family pin is the entire basis for the promotion.',
+      'The agent-event validator names this type in the table of events that must carry an agent ' +
+      'id and a source, and refuses the append when they are missing. The task family is pinned ' +
+      'governance by charter as well, but a live reader is the stronger basis.',
   },
   'merge.requested': {
     arm: 'charter-pin',

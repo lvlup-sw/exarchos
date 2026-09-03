@@ -23,7 +23,16 @@
 //   • `store.query(id, { type: X })` / `store.queryByType(X, …)`;
 //   • `event.type === 'x'`, `e.type !== 'x'`, and the bare `type` / `eventType`
 //     identifiers the same comparison is written with elsewhere;
-//   • `case 'x':` on a switch whose discriminant is one of those shapes.
+//   • `case 'x':` on a switch whose discriminant is one of those shapes;
+//   • `SET.has(event.type)` / `ARRAY.includes(event.type)` — a membership test
+//     against a collection of type literals reads every literal in it;
+//   • `event.type.startsWith('family.')` — a family filter reads the whole
+//     family, and the census expands the prefix against the catalog.
+//
+// The last two are not decoration. Four shipped modules spell their read that
+// way, including a gate whose verdict and a saga verifier whose pass/fail are
+// functions of the types they name; a grammar covering only comparisons reported
+// them as depending on no event at all, which is the fail-open direction.
 //
 // A query call carrying no type filter is reported as an UNSCOPED read rather
 // than as nothing: it depends on the whole type universe, and calling that
@@ -209,6 +218,41 @@ function ownProperty(
   return found;
 }
 
+/**
+ * The list of strings a collection expression denotes, or `undefined` when the
+ * collection is a runtime value.
+ *
+ * `undefined` and `[]` are deliberately different answers: an unresolvable
+ * receiver is reported as an unresolved read, while a receiver that genuinely
+ * holds no literal reads nothing. Handles an array literal, a `new Set([…])`,
+ * and either of those reached through a `const` binding.
+ */
+function resolveStringList(
+  node: ts.Expression,
+  ctx: ResolutionContext,
+  seen: ReadonlySet<string> = new Set(),
+): readonly (string | undefined)[] | undefined {
+  const expr = unwrap(node);
+
+  if (ts.isArrayLiteralExpression(expr)) {
+    return expr.elements.map((element) => resolveString(element, ctx, seen));
+  }
+
+  if (ts.isNewExpression(expr) && ts.isIdentifier(expr.expression) && expr.expression.text === 'Set') {
+    const first = expr.arguments?.[0];
+    return first === undefined ? [] : resolveStringList(first, ctx, seen);
+  }
+
+  if (ts.isIdentifier(expr) && !seen.has(expr.text)) {
+    const bound = ctx.bindings.get(expr.text);
+    if (bound !== undefined) {
+      return resolveStringList(bound, ctx, new Set([...seen, expr.text]));
+    }
+  }
+
+  return undefined;
+}
+
 /** The object literal an argument denotes, inline or hoisted into a `const`. */
 function asObjectLiteral(
   node: ts.Expression,
@@ -305,10 +349,43 @@ export const scanEventReaders: EventReaderScanner = (
     });
   };
 
+  /**
+   * `RECEIVER.has(event.type)` / `RECEIVER.includes(event.type)` — the receiver
+   * is the vocabulary, so every literal in it is read at this site. An
+   * unresolvable receiver yields ONE unresolved site rather than nothing: a
+   * runtime-built set is a read the census could not decode, not an absence.
+   */
+  const visitMembership = (node: ts.CallExpression, receiver: ts.Expression): void => {
+    const argument = node.arguments[0];
+    if (argument === undefined || !isEventTypeReference(argument)) return;
+    const line = lineOf(sourceFile, node);
+    const members = resolveStringList(receiver, ctx);
+    if (members === undefined) {
+      sites.push({ line, kind: 'membership-test', discriminant: undefined });
+      return;
+    }
+    for (const member of members) {
+      sites.push({ line, kind: 'membership-test', discriminant: member });
+    }
+  };
+
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
       const method = node.expression.name.text;
       if (method === 'query' || method === 'queryByType') visitQuery(node, method);
+      if (method === 'has' || method === 'includes') {
+        visitMembership(node, node.expression.expression);
+      }
+      if (method === 'startsWith' && isEventTypeReference(node.expression.expression)) {
+        const argument = node.arguments[0];
+        const prefix = argument === undefined ? undefined : resolveString(argument, ctx);
+        sites.push({
+          line: lineOf(sourceFile, node),
+          kind: 'prefix-filter',
+          // The census owns the expansion — only it knows the catalog.
+          discriminant: prefix === undefined || prefix === '' ? undefined : prefix,
+        });
+      }
     }
 
     if (ts.isBinaryExpression(node) && COMPARISON_TOKENS.has(node.operatorToken.kind)) {

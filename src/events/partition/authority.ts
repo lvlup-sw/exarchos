@@ -36,10 +36,32 @@
  * observed fold or reader is a witness; their completeness is not yet proved,
  * and a static scanner has an acknowledged blind spot (a bare fold whose type
  * comparison happens in another module). So a gap in either instrument can only
- * make this map over-retain, never silently demote. Types that plainly look
- * like telemetry and derive `auto` — the tool and turn families among them —
- * are the demotion backlog, and closing it needs a stronger instrument than
- * this one.
+ * make this map over-retain, never silently demote.
+ *
+ * ── The map disagrees with the charter's telemetry examples, on purpose ──────
+ *
+ * The ratified decision lists example telemetry types — the tool and turn
+ * families, the team family, `shepherd.iteration`, `stack.submitted`,
+ * `subagent.tokens_used`, `launch.executing_started`. Most of them classify
+ * GOVERNANCE here. Two distinct reasons, and neither is an oversight:
+ *
+ *   • several carry a live fold-external reader today, so demoting them would
+ *     be a false statement — the charter itself sequences each flip as its own
+ *     change that retires the reader and deletes the expectation row with it;
+ *   • the rest derive `auto` from a substrate tier, and the promotion-only rule
+ *     refuses to override that with an instrument that cannot prove absence.
+ *
+ * That disagreement is a BACKLOG, not a footnote, so it is counted rather than
+ * described: the partition's own test pins the exact set of charter-named
+ * telemetry examples still classified governance, a list that may only shrink.
+ *
+ * ── One more bound worth stating ────────────────────────────────────────────
+ *
+ * "The projection folds it" means the CANONICAL workflow-state fold. A secondary
+ * view can still derive a decision from a telemetry-classified event — the
+ * synthesis-readiness view computes its blockers from test and typecheck
+ * results — so a consumer that drops telemetry is safe for the canonical state
+ * and not yet proved safe for every view.
  *
  * ── Fail-closed, and by name ────────────────────────────────────────────────
  *
@@ -54,8 +76,21 @@ import type { EmissionSource } from '../event-registration.js';
 /** Whether anything depends on the event being present. */
 export type EventAuthority = 'governance' | 'telemetry';
 
-/** How a promotion is proved. */
-export type AuthorityArm = 'projection-fold' | 'raw-reader' | 'charter-pin';
+/**
+ * How a promotion is proved.
+ *
+ * `gate-expectation` is separate from `raw-reader` because the read it names is
+ * indirect: the gate iterates a DECLARED expectation table and asks a set built
+ * from the stream whether each listed type is present. No comparison against a
+ * literal appears anywhere, so a source scan cannot see it; the table is the
+ * evidence, and the oracle that re-measures this arm reads the table rather than
+ * the tree.
+ */
+export type AuthorityArm =
+  | 'projection-fold'
+  | 'raw-reader'
+  | 'gate-expectation'
+  | 'charter-pin';
 
 /**
  * Why a type whose tier does not make it governance is governance anyway.
