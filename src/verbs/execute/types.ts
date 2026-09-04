@@ -12,6 +12,7 @@
 // `verbs/execute/` should grow a dependency on this shape, because a later
 // lowering would then have to preserve it rather than replace it.
 
+import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
 import type { ActionContract, ToolAction } from '../../registry.js';
 
 /**
@@ -219,6 +220,19 @@ export interface IntentReceipt {
    */
   readonly failure?: { readonly code: ExecuteRefusalCode; readonly message: string };
   readonly interaction: ReceiptInteraction;
+  /**
+   * The run bundle this operation's interior was written to — the per-leaf
+   * trace behind the compact `leaves` above — as (artifact id, digest) pairs
+   * the run-bundle store resolves. Written BEFORE the operation record that
+   * names it, so a receipt that carries a reference carries one whose bytes
+   * were durable when the claim committed.
+   *
+   * Optional on the type for exactly one reason: a receipt persisted in an
+   * operation claim before custody existed has no reference, and a replay of
+   * that operation hands the caller that receipt verbatim. When present it is
+   * non-empty by type — a receipt cannot say "in custody, of nothing".
+   */
+  readonly bundleRefs?: readonly [BundleRefV1, ...BundleRefV1[]];
 }
 
 /** Refusals the executor itself raises, after compilation and before or during execution. */

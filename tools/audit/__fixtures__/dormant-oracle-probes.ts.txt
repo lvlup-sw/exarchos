@@ -1,0 +1,32 @@
+// The doctor probe factory as it stood while `EventStore.runBundleIntegrityCheck`
+// had no production caller: every other store accessor is forwarded, the
+// run-bundle sweep is not. Frozen verbatim as the kill fixture for the oracle
+// roster guard — the first hop of the declared call chain must be reported as
+// broken against this text.
+export function buildProbes(ctx: DispatchContext): DoctorProbes {
+  return {
+    fs: DEFAULT_FS,
+    env: process.env,
+    git: DEFAULT_GIT,
+    // Thin forwarder to the EventStore's narrow integrity accessor.
+    // The EventStore enforces timeout + abort internally (DIM-7) and
+    // reports skipped when no applicable backend is attached, so this
+    // probe never needs to reach for a raw sqlite handle (DIM-6).
+    sqlite: {
+      runIntegrityCheck: (opts) => ctx.eventStore.runIntegrityCheck(opts),
+    },
+    detector: (signal) => detectAgentEnvironments(undefined, signal),
+    eventStore: ctx.eventStore,
+    runtime: { nodeVersion: process.version },
+    stateDir: ctx.stateDir,
+    skills: { guardStatus: defaultSkillsGuardStatus },
+    plugin: {
+      installedVersion: defaultInstalledPluginVersion,
+      runningVersion: defaultRunningVersion,
+    },
+    invariants: { resolve: (signal) => resolveInvariantsCatalog(signal) },
+    verificationToolchain: {
+      resolve: (signal) => resolveVerificationToolchain(signal),
+    },
+  };
+}

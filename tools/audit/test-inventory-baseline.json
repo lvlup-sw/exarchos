@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1260,
-    "parsedFiles": 1215,
+    "testFiles": 1262,
+    "parsedFiles": 1217,
     "shellFiles": 45,
-    "cases": 13851,
+    "cases": 13901,
     "dynamicTitles": 150,
     "unparseableFiles": 0
   },
@@ -5787,7 +5787,12 @@
       "cases": [
         {
           "suite": "ActionContractConjunct — a declared event is a governance event",
-          "name": "ActionContractConjunct_DeclaredEventPopulation_IsNonEmpty",
+          "name": "ActionContractConjunct_DeclaredEventPopulation_IsNonEmptyOnEveryArm",
+          "dynamic": false
+        },
+        {
+          "suite": "ActionContractConjunct — a declared event is a governance event",
+          "name": "ActionContractConjunct_GateExpectationWitness_IsNamedByTheLiveExpectationTable",
           "dynamic": false
         },
         {
@@ -5823,12 +5828,22 @@
         },
         {
           "suite": "RawReaderCensus — no fold-external reader depends on a telemetry event",
-          "name": "RawReaderCensus_SeededReaderNamingATelemetryType_IsNamedInTheFailure",
+          "name": "RawReaderCensus_SeededReaderModuleOnDisk_IsWalkedResolvedAndNamed",
+          "dynamic": false
+        },
+        {
+          "suite": "RawReaderCensus — no fold-external reader depends on a telemetry event",
+          "name": "RawReaderCensus_EverySupportedReadSpelling_ResolvesToItsEventType",
           "dynamic": false
         },
         {
           "suite": "RawReaderCensus — no fold-external reader depends on a telemetry event",
           "name": "RawReaderCensus_DeclaredRawReaderWitness_IsNamedByALiveReader",
+          "dynamic": false
+        },
+        {
+          "suite": "RawReaderCensus — no fold-external reader depends on a telemetry event",
+          "name": "RawReaderCensus_CharterPinWitness_IsNamedByNoLiveReader",
           "dynamic": false
         },
         {
@@ -6311,6 +6326,16 @@
         {
           "suite": "reachable controls",
           "name": "ReachableControls_AllowlistEntries_CarryAReasonOwnerAndUnexpiredDate",
+          "dynamic": false
+        },
+        {
+          "suite": "reachable oracles",
+          "name": "ReachableOracles_EveryRosteredOracle_IsCalledThroughItsDeclaredChain",
+          "dynamic": false
+        },
+        {
+          "suite": "reachable oracles",
+          "name": "ReachableOracles_KillFixture_IsReportedAsABrokenChain",
           "dynamic": false
         }
       ]
@@ -22531,6 +22556,16 @@
           "suite": "diff > DR-7 block-write-before-hook-removal ordering",
           "name": "Reconcile_RemovalWithoutBlockWrite_LeavesRemovalStep",
           "dynamic": false
+        },
+        {
+          "suite": "roster placement",
+          "name": "Reconcile_EveryRegisteredCheck_IsClassifiedDeliberately",
+          "dynamic": false
+        },
+        {
+          "suite": "roster placement",
+          "name": "Reconcile_NonRemediableWarning_ProducesNoStep",
+          "dynamic": false
         }
       ]
     },
@@ -22905,6 +22940,11 @@
         {
           "suite": "reserved admission event authorization (DR-3)",
           "name": "AdmissionEventAppend_UntrustedCaller_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "reserved admission event authorization (DR-3)",
+          "name": "ExecutionLedgerAppend_ForgedSettlement_IsRefusedEvenWhenWellFormed",
           "dynamic": false
         },
         {
@@ -23295,12 +23335,32 @@
         },
         {
           "suite": "checkRunBundleIntegrity",
-          "name": "BundleIntegrity_SettledStreamWithZeroReferences_IsAViolationNotEmpty",
+          "name": "BundleIntegrity_CustodialSettlementWithZeroReferences_IsAViolationNotEmpty",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_PreCustodySettlementWithZeroReferences_IsCountedNotCondemned",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_SettlementWithAnUnreadableVersionStamp_IsHeldToTheCustodyRule",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_SecondSettlementWithoutReferences_IsAViolationAfterAReferencedOne",
           "dynamic": false
         },
         {
           "suite": "checkRunBundleIntegrity",
           "name": "BundleIntegrity_SettledStreamWithAResolvableReference_IsClear",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_UnreadableBlob_IsNamedOnItsReferenceAndTheSweepContinues",
           "dynamic": false
         },
         {
@@ -23330,7 +23390,37 @@
         },
         {
           "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_AbortMidEvent_LeavesTheRemainingReferencesUnprobed",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_AbortDuringAPendingProbe_AbandonsTheRead",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
           "name": "BundleIntegrity_AbortBetweenStreams_LeavesTheRemainingStreamsUnqueried",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_ReferenceFreeLedger_StillLetsATimerAbortIt",
+          "dynamic": false
+        },
+        {
+          "suite": "checkRunBundleIntegrity",
+          "name": "BundleIntegrity_SettlementEndpoints_AreTheLiteralTypeAndEpochTheseFixturesUse",
+          "dynamic": false
+        },
+        {
+          "suite": "settlementCustody",
+          "name": "SettlementCustody_ReadableStamps_CompareNumericallyPerComponent",
+          "dynamic": false
+        },
+        {
+          "suite": "settlementCustody",
+          "name": "SettlementCustody_UnreadableStamps_AreCustodialNotExempt",
           "dynamic": false
         }
       ]
@@ -27220,6 +27310,11 @@
         {
           "suite": "EventStore.runBundleIntegrityCheck",
           "name": "BundleIntegrityCheck_ReusedSignalAcrossSweeps_LeavesNoListenersBehind",
+          "dynamic": false
+        },
+        {
+          "suite": "EventStore.runBundleIntegrityCheck",
+          "name": "BundleIntegrityCheck_ExternalAbortMidSweep_RejectsOnceWithNoUnhandledRejection",
           "dynamic": false
         },
         {
@@ -50556,6 +50651,67 @@
         }
       ]
     },
+    "tests/unit/verbs/doctor/checks/run-bundle-integrity.test.ts": {
+      "file": "tests/unit/verbs/doctor/checks/run-bundle-integrity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "run-bundle-integrity",
+          "name": "RunBundleIntegrity_EveryReferenceResolves_ReturnsPassNamingTheDenominator",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle-integrity",
+          "name": "RunBundleIntegrity_SweepBudget_IsDerivedFromTheBudgetInForceNotACopiedDefault",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle-integrity",
+          "name": "RunBundleIntegrity_CarriesItsOwnIdentityForTheComposersTimeoutPath",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle-integrity",
+          "name": "RunBundleIntegrity_EmptyDenominator_PassesButSaysNothingWasChecked",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle-integrity",
+          "name": "RunBundleIntegrity_PreCustodySettlements_AreCountedNotCondemned",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle-integrity",
+          "name": "RunBundleIntegrity_BackendCannotEnumerate_ReturnsSkippedWithTheStoresReason",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle-integrity",
+          "name": "RunBundleIntegrity_LostBytes_ReturnsWarningNamingWhereAndWhatUnderTheBundleRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle-integrity",
+          "name": "RunBundleIntegrity_SettlementWithoutReferences_IsAWriterDefectNotALoss",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle-integrity",
+          "name": "RunBundleIntegrity_ManyViolations_ShowsAFewAndCountsTheRest",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle-integrity",
+          "name": "RunBundleIntegrity_TimedOutSweep_IsItsOwnWarningNamingTheOneKnobThatWidensIt",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle-integrity",
+          "name": "RunBundleIntegrity_ThrownSweep_IsAFaultNotATimeout_AndKeepsWhatWasCollected",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/doctor/checks/runtime-node-version.test.ts": {
       "file": "tests/unit/verbs/doctor/checks/runtime-node-version.test.ts",
       "runner": "vitest:root",
@@ -50730,7 +50886,7 @@
       "cases": [
         {
           "suite": "doctor roster characterization (T0 baseline)",
-          "name": "DoctorRoster_CurrentBuild_ExactlyNineteenChecksWithStableNames",
+          "name": "DoctorRoster_CurrentBuild_ExactlyTwentyChecksWithStableNames",
           "dynamic": false
         },
         {
@@ -50829,6 +50985,16 @@
         {
           "suite": "buildProbes",
           "name": "BuildProbes_SqliteRunIntegrityCheck_DelegatesToEventStore",
+          "dynamic": false
+        },
+        {
+          "suite": "buildProbes",
+          "name": "BuildProbes_BundlesRunIntegrityCheck_DelegatesToTheBundleSweepNotTheSqlitePragma",
+          "dynamic": false
+        },
+        {
+          "suite": "buildProbes",
+          "name": "BuildProbes_CarriesTheComposersDefaultCheckBudget",
           "dynamic": false
         },
         {
@@ -51316,6 +51482,51 @@
           "dynamic": false
         },
         {
+          "suite": "handleExecuteIntent run bundle",
+          "name": "CommittedSegment_WritesItsInteriorToTheBundleStoreAndStampsTheReferenceOnTheRecord",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent run bundle",
+          "name": "ReplayElidedLeaf_IsRecordedAsElidedNotInvoked",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent run bundle",
+          "name": "HandlerReturningAnEmptyErrorCode_StillCommits",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent run bundle",
+          "name": "AClaimPersistedBeforeCustody_ReplaysThroughTheOutputSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent run bundle",
+          "name": "FailedSegment_AlsoWritesItsBundle_AndTheTraceCarriesTheHandlersRefusal",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent run bundle",
+          "name": "Replay_ReturnsThePersistedReferenceAndWritesNoSecondBundle",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent run bundle",
+          "name": "BundleWriteFails_LeavesNoClaimAndNoOperationEvent_LikeAnyOtherCrash",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent run bundle",
+          "name": "TheIntegrityOracle_HoldsANonEmptyDenominatorOnTheProducersOwnStream_AndNamesASeededLoss",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent run bundle",
+          "name": "TheOperationRecord_CannotBeBuiltWithoutAReference",
+          "dynamic": false
+        },
+        {
           "suite": "the registered output schema accepts a real receipt",
           "name": "CommittedAndFailedReceipts_BothParse",
           "dynamic": false
@@ -51611,6 +51822,57 @@
         {
           "suite": "execute_intent registered economy declaration",
           "name": "ExecuteIntentEconomy_OverBudgetPlusOne_SummarizesAndKeepsPinnedFields",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/run-bundle.test.ts": {
+      "file": "tests/unit/verbs/execute/run-bundle.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "run-bundle document",
+          "name": "Encode_ProducesTheHandWrittenCanonicalBytes",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle document",
+          "name": "Decode_OfTheHandWrittenBytes_IsTheDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle document",
+          "name": "Encode_IsCanonical_SoKeyOrderCannotChangeTheDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle document",
+          "name": "Encode_RefusesADocumentTheSchemaRejects_SoNoDigestNamesAnUnreadableBundle",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle document",
+          "name": "Decode_RefusesForeignOrPartialBytes",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle document",
+          "name": "Schema_CannotHoldAContradictoryLeaf",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle document",
+          "name": "Schema_RecordsWhateverCodeAHandlerReturned",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle document",
+          "name": "JsonSafeArgs_MakesEveryLeafArgumentEncodable",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle document",
+          "name": "ArtifactId_IsDerivedFromTheOperationIdAndFitsTheGrammarAtTheBound",
           "dynamic": false
         }
       ]

@@ -1,9 +1,13 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
-import { buildProbes, resolveInvariantsCatalog } from '../../../../src/verbs/doctor/probes.js';
+import {
+  buildProbes,
+  DEFAULT_CHECK_BUDGET_MS,
+  resolveInvariantsCatalog,
+} from '../../../../src/verbs/doctor/probes.js';
 import { ReservedNamespaceError } from '../../../../src/architecture/catalog-merge.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
@@ -72,6 +76,40 @@ describe('buildProbes', () => {
 
     expect(result).toBe(sentinel);
     expect(recorded).toEqual([{ timeoutMs: 777 }]);
+  });
+
+  it('BuildProbes_BundlesRunIntegrityCheck_DelegatesToTheBundleSweepNotTheSqlitePragma', async () => {
+    // Two integrity accessors live on the store, and a probe wired to the
+    // wrong one would report the sqlite pragma's verdict under the bundle
+    // check's name. Each fake accessor returns its own sentinel so the probe
+    // is shown to reach the sweep, not merely "an" integrity method.
+    const bundleSentinel = { ok: 'skipped' as const, reason: 'bundle-sweep-marker' };
+    const sqliteSentinel = { ok: 'skipped' as const, reason: 'sqlite-pragma-marker' };
+    const fakeStore = {
+      append: () => {},
+      runIntegrityCheck: vi.fn(async () => sqliteSentinel),
+      runBundleIntegrityCheck: vi.fn(
+        async (_opts?: { signal?: AbortSignal; timeoutMs?: number }) => bundleSentinel,
+      ),
+    };
+    const ctx = fakeContext({ eventStore: fakeStore as unknown as DispatchContext['eventStore'] });
+
+    const probes = buildProbes(ctx);
+    const result = await probes.bundles.runIntegrityCheck({ timeoutMs: 555 });
+
+    expect(result).toBe(bundleSentinel);
+    expect(fakeStore.runBundleIntegrityCheck).toHaveBeenCalledTimes(1);
+    expect(fakeStore.runBundleIntegrityCheck).toHaveBeenCalledWith({ timeoutMs: 555 });
+    expect(fakeStore.runIntegrityCheck).not.toHaveBeenCalled();
+  });
+
+  it('BuildProbes_CarriesTheComposersDefaultCheckBudget', () => {
+    // The bundle carries the per-check budget so a bounded check can size its
+    // own sweep under the ceiling it is racing. The composer overrides this
+    // per run; the factory's value is the composer's own default.
+    const probes = buildProbes(fakeContext());
+    expect(probes.checkBudgetMs).toBe(DEFAULT_CHECK_BUDGET_MS);
+    expect(DEFAULT_CHECK_BUDGET_MS).toBeGreaterThan(0);
   });
 });
 

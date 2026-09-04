@@ -211,7 +211,7 @@ export const lifecycleOpsActions: readonly BuiltinToolAction[] = [
   contracted(
     {
       name: 'doctor',
-      description: 'Run exarchos environment diagnostics — 12 checks across runtime, storage, VCS, agent config, plugin, env, and remote surfaces. Read-only by default; emits diagnostic.executed on completion. Pass --fix to repair reconcilable drift through the shared onboarding reconciler (the same apply onboard uses) — under --fix it emits onboard.requested then onboard.executed with trigger doctor-fix (NOT diagnostic.executed) and re-runs the checks to report residuals. Do not use --fix for a read-only diagnosis; omit it.',
+      description: 'Run exarchos environment diagnostics — checks across runtime, storage, VCS, agent config, plugin, env, and remote surfaces. Read-only by default; emits diagnostic.executed on completion. Pass --fix to repair reconcilable drift through the shared onboarding reconciler (the same apply onboard uses) — under --fix it emits onboard.requested then onboard.executed with trigger doctor-fix (NOT diagnostic.executed) and re-runs the checks to report residuals. Do not use --fix for a read-only diagnosis; omit it.',
       schema: z.object({
         timeoutMs: z.number().int().positive().optional(),
         format: z.enum(['table', 'json']).optional(),

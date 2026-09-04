@@ -117,7 +117,7 @@ export interface OnboardDeps {
   /**
    * Produces the doctor `actual` check results that `diff` classifies. Called
    * TWICE per non-dry-run pipeline: once for the plan (DETECT) and once for the
-   * VERIFY re-diff. The real composer runs the 12 checks; tests stub it.
+   * VERIFY re-diff. The real composer runs the full roster; tests stub it.
    */
   readonly runDoctorChecks: (repoRoot: string) => Promise<readonly CheckResult[]>;
   /** Config seeder (defaults to the real `seedExarchosConfig` via `apply`). */
@@ -422,9 +422,9 @@ export async function handleOnboard(
 // ─── Production wiring ────────────────────────────────────────────────────────
 
 /**
- * The production `runDoctorChecks` seam — runs the real 12 checks through the
- * shared {@link runChecksOnly} core (one check source, INV-2 / DR-4). The 12th
- * check (`session-start-hook`, DR-8) is what lands the default-on hook step.
+ * The production `runDoctorChecks` seam — runs the real roster through the
+ * shared {@link runChecksOnly} core, so there is one check source. The
+ * `session-start-hook` check is what lands the default-on hook step.
  *
  * It uses the check-execution core directly rather than {@link handleDoctorWithChecks}
  * so onboard does NOT emit a read-only `diagnostic.executed` for each of its

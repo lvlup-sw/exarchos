@@ -102,6 +102,9 @@ describe('execute_intent registered economy declaration', () => {
       status: 'passed' as const,
       events: [{ type: 'gate.executed', sequence: i + 1 }],
     }));
+    const bundleRefs = [
+      { artifactId: 'run-bundle:execute-intent-run:op-over-budget', digest: { algorithm: 'sha256', value: 'c'.repeat(64) } },
+    ];
     const receipt = {
       operationId: 'op-over-budget',
       intent: 'task-completion',
@@ -109,6 +112,7 @@ describe('execute_intent registered economy declaration', () => {
       leaves,
       tailSequence: leaves.length,
       requestDigest: 'sha256:over-budget',
+      bundleRefs,
       interaction: { leavesExecuted: leaves.length, eventsAppended: leaves.length, requests: 1, deferred: [] },
     };
 
@@ -126,6 +130,10 @@ describe('execute_intent registered economy declaration', () => {
     expect(data.outcome).toBe('committed');
     expect(data.tailSequence).toBe(leaves.length);
     expect(data.failedLeaf).toBeUndefined();
+    // The custody reference is the only pointer to the run's interior, so it
+    // survives the cap alongside the four fields a caller follows the
+    // operation by.
+    expect(data.bundleRefs).toEqual(bundleRefs);
     // The generic capped shape's own fields are still present (CappedDataSchema).
     expect(typeof data.summary).toBe('string');
     expect(data.counts).toBeDefined();

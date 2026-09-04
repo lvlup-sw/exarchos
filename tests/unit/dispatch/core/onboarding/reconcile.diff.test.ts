@@ -7,7 +7,7 @@
  *
  * Seam choice: `diff(desired, actual)` accepts `actual: readonly CheckResult[]`
  * — the exact output the doctor composer (`handleDoctorWithChecks`) already
- * produces by running the 11 checks. This keeps `diff` PURE (no fs/process):
+ * produces by running the roster. This keeps `diff` PURE (no fs/process):
  * the caller runs the probes/checks and hands the results in. Both `doctor
  * --fix` (task 013) and `onboard` (task 010) consume this.
  */
@@ -15,7 +15,12 @@
 import { describe, it, expect } from 'vitest';
 import { fc } from '@fast-check/vitest';
 
-import { diff } from '../../../../../src/dispatch/core/onboarding/reconcile.js';
+import {
+  deliberatelyClassifiedCheckNames,
+  diff,
+  NON_REMEDIABLE_CHECKS,
+} from '../../../../../src/dispatch/core/onboarding/reconcile.js';
+import { ALL_CHECKS } from '../../../../../src/verbs/doctor/index.js';
 import type { DesiredState } from '../../../../../src/dispatch/core/onboarding/types.js';
 import { ReconcilePlanSchema } from '../../../../../src/dispatch/core/onboarding/types.js';
 import type { CheckResult } from '../../../../../src/verbs/doctor/schema.js';
@@ -328,5 +333,74 @@ describe('diff', () => {
       const keys = plan.steps.map((s) => s.key);
       expect(keys).toEqual([RETIRED_HOOKS_CHECK_NAME]);
     });
+  });
+});
+
+// ─── Every registered check is placed on purpose ─────────────────────────────
+
+describe('roster placement', () => {
+  it('Reconcile_EveryRegisteredCheck_IsClassifiedDeliberately', () => {
+    // The by-category fallback exists so an UNRECOGNISED check degrades to a
+    // sensible default. A check that ships in the roster is not unrecognised:
+    // it is either a step the reconciler knows how to apply, or a finding no
+    // step can repair. A registered check that reaches the fallback is a
+    // placement nobody made — and for a non-remediable finding the fallback
+    // is a `config` step `apply` would report as applied after seeding a file
+    // the finding never asked for.
+    const registered = ALL_CHECKS.map((check) => {
+      const meta = (check as { meta?: { name?: string } }).meta;
+      return meta?.name ?? check.name;
+    });
+    expect(registered.length).toBeGreaterThan(10);
+    const placed = deliberatelyClassifiedCheckNames();
+    // Checks whose result name differs from their function binding: the
+    // classification table keys on the RESULT name, so map those by hand.
+    const RESULT_NAME_OF_BINDING: Readonly<Record<string, string>> = {
+      runtimeNodeVersion: 'node-version',
+      storageStateDir: 'state-dir',
+      envVariables: 'variables',
+      vcsGitAvailable: 'git-available',
+      remoteMcpStub: 'remote-mcp',
+      storageSqliteHealth: 'storage-sqlite-health',
+      storePathDivergence: 'store-path-divergence',
+      agentConfigValid: 'agent-config-valid',
+      agentMcpRegistered: 'agent-mcp-registered',
+      sessionStartHook: 'session-start-hook',
+      onrampBlockDrift: BLOCK_DRIFT_CHECK_NAME,
+      retiredHooksPresent: RETIRED_HOOKS_CHECK_NAME,
+      staleSkillDirs: 'stale-skill-dirs',
+      pluginSkillHashSync: 'plugin-skill-hash-sync',
+      pluginVersionMatch: 'plugin-version-match',
+      installFreshness: 'install-freshness',
+      invariantsCatalog: 'invariants-catalog',
+      actionContractClosure: 'action-contract-closure',
+      verificationToolchain: 'verification-toolchain',
+    };
+    const unplaced = registered
+      .map((name) => RESULT_NAME_OF_BINDING[name] ?? name)
+      .filter((name) => !placed.has(name));
+    // Placements the roster has always taken from the category fallback, kept
+    // visible here rather than silently accepted: each is a check whose
+    // finding IS a repairable install step of its category's default kind.
+    const ACCEPTED_FALLBACKS = new Set(['stale-skill-dirs', 'install-freshness', 'remote-mcp', 'action-contract-closure', 'verification-toolchain']);
+    expect(unplaced.filter((name) => !ACCEPTED_FALLBACKS.has(name))).toEqual([]);
+  });
+
+  it('Reconcile_NonRemediableWarning_ProducesNoStep', () => {
+    // A custody-loss Warning carries a `fix` (the schema requires one on every
+    // Warning), so by status alone it would become a `config` step and
+    // `apply` would seed `.exarchos.yml` and call the loss applied. The
+    // non-remediable list is what keeps the finding a finding.
+    // Literals, not the set under test: iterating the set would pass with
+    // the set emptied.
+    for (const name of ['run-bundle-integrity', 'store-path-divergence']) {
+      expect(NON_REMEDIABLE_CHECKS.has(name), `${name} is not listed as non-remediable`).toBe(true);
+      const plan = diff(DESIRED, [remediable('storage', name)]);
+      expect(plan.steps, `${name} produced a reconcile step`).toEqual([]);
+    }
+    // The sibling storage check that IS remediable still produces its step,
+    // so the list is doing the discriminating work.
+    const plan = diff(DESIRED, [remediable('storage', 'storage-sqlite-health')]);
+    expect(plan.steps.map((step) => step.key)).toEqual(['storage-sqlite-health']);
   });
 });

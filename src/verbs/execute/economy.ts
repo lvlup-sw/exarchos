@@ -38,13 +38,36 @@ export const EXECUTE_INTENT_ECONOMY_BUDGET_TOKENS = 1000;
  * The page size is the registry-wide one rather than a local number, so this
  * reducer pages the way every generic capped response does.
  */
-export function summarizeIntentReceipt(data: unknown): unknown {
+/**
+ * The capped receipt's shape. Declared rather than inferred so the fields a
+ * caller needs to keep following the operation are a compile-time obligation
+ * of this reducer: a field added to the receipt and forgotten here is a type
+ * error, not a silently narrower response.
+ */
+export interface IntentReceiptSummary {
+  readonly summary: string;
+  readonly counts: { readonly leaves: number; readonly shown: number; readonly total: number };
+  readonly firstPage: ReadonlyArray<{
+    readonly action: unknown;
+    readonly status: unknown;
+    readonly eventCount: number;
+  }>;
+  readonly operationId: unknown;
+  readonly outcome: unknown;
+  readonly failedLeaf: unknown;
+  readonly tailSequence: unknown;
+  /** The custody reference survives the cap: it is the only pointer to the run's interior. */
+  readonly bundleRefs: unknown;
+}
+
+export function summarizeIntentReceipt(data: unknown): IntentReceiptSummary {
   const receipt = data as {
     readonly operationId?: unknown;
     readonly intent?: unknown;
     readonly outcome?: unknown;
     readonly failedLeaf?: unknown;
     readonly tailSequence?: unknown;
+    readonly bundleRefs?: unknown;
     readonly leaves?: ReadonlyArray<{ readonly action?: unknown; readonly status?: unknown; readonly events?: ReadonlyArray<unknown> }>;
   };
   const leaves = Array.isArray(receipt.leaves) ? receipt.leaves : [];
@@ -68,5 +91,6 @@ export function summarizeIntentReceipt(data: unknown): unknown {
     outcome: receipt.outcome,
     failedLeaf: receipt.failedLeaf,
     tailSequence: receipt.tailSequence,
+    bundleRefs: receipt.bundleRefs,
   };
 }

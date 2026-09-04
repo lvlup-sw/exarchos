@@ -28,6 +28,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { EventStore, IntegrityResult } from '../../events/store.js';
+import type { BundleIntegrityResult } from '../../events/bundle/integrity.js';
 import {
   detectAgentEnvironments,
   type AgentEnvironment,
@@ -73,6 +74,21 @@ export interface DoctorSqlite {
     signal?: AbortSignal;
     timeoutMs?: number;
   }): Promise<IntegrityResult>;
+}
+
+export interface DoctorBundles {
+  /**
+   * Run the run-bundle resolvability sweep through the EventStore's own
+   * accessor: every artifact digest a ledger event references must resolve
+   * in the bundle store, and a settled stream must reference something. The
+   * store enforces the timeout and abort contract; this probe is a thin
+   * forwarder. The result is a discriminated union — callers pattern-match
+   * on `ok` without type assertions.
+   */
+  runIntegrityCheck(opts?: {
+    signal?: AbortSignal;
+    timeoutMs?: number;
+  }): Promise<BundleIntegrityResult>;
 }
 
 export interface DoctorRuntime {
@@ -161,11 +177,28 @@ export interface DoctorVerificationToolchain {
   resolve(signal?: AbortSignal): Promise<VerificationToolchainResolution>;
 }
 
+/**
+ * The per-check wall-clock budget the composer will race each check against.
+ * The composer's own default; a caller may widen it (`doctor --timeout-ms`),
+ * and whatever value is in force is what the probe bundle carries, so a check
+ * that runs a bounded sweep can size that bound under the ceiling it is
+ * actually racing rather than under a copy of the default.
+ */
+export const DEFAULT_CHECK_BUDGET_MS = 2000;
+
 export interface DoctorProbes {
+  /**
+   * The composer's per-check budget for THIS run, in milliseconds. A check
+   * whose work is itself time-bounded derives its bound from here so its own
+   * honest "did not finish" verdict wins the composer's race instead of the
+   * composer's generic timeout.
+   */
+  readonly checkBudgetMs: number;
   readonly fs: DoctorFs;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly git: DoctorGit;
   readonly sqlite: DoctorSqlite;
+  readonly bundles: DoctorBundles;
   readonly detector: (signal?: AbortSignal) => Promise<AgentEnvironment[]>;
   readonly eventStore: EventStore;
   readonly runtime: DoctorRuntime;
@@ -570,6 +603,7 @@ export async function resolveVerificationToolchain(
  */
 export function buildProbes(ctx: DispatchContext): DoctorProbes {
   return {
+    checkBudgetMs: DEFAULT_CHECK_BUDGET_MS,
     fs: DEFAULT_FS,
     env: process.env,
     git: DEFAULT_GIT,
@@ -579,6 +613,11 @@ export function buildProbes(ctx: DispatchContext): DoctorProbes {
     // probe never needs to reach for a raw sqlite handle (DIM-6).
     sqlite: {
       runIntegrityCheck: (opts) => ctx.eventStore.runIntegrityCheck(opts),
+    },
+    // The same shape for run-bundle custody: the store owns the sweep, its
+    // timeout and its abort; the probe only forwards.
+    bundles: {
+      runIntegrityCheck: (opts) => ctx.eventStore.runBundleIntegrityCheck(opts),
     },
     detector: (signal) => detectAgentEnvironments(undefined, signal),
     eventStore: ctx.eventStore,
