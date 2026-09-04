@@ -189,15 +189,17 @@ export function executeIntentBundleArtifactId(operationId: string): ArtifactId {
  * The receipt and the ledger are unaffected either way — only the interior is
  * being recorded, and a record that says "unserialisable" is still a record.
  */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 export function jsonSafeArgs(args: Record<string, unknown>): Record<string, unknown> {
   try {
     const text = JSON.stringify(args, (_key, value: unknown) =>
       typeof value === 'bigint' ? `${value.toString()}n` : value,
     );
     const parsed: unknown = JSON.parse(text ?? '{}');
-    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
+    return isRecord(parsed) ? parsed : {};
   } catch (error) {
     return { unserialisable: error instanceof Error ? error.message : String(error) };
   }

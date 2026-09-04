@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -85,14 +85,12 @@ describe('buildProbes', () => {
     // is shown to reach the sweep, not merely "an" integrity method.
     const bundleSentinel = { ok: 'skipped' as const, reason: 'bundle-sweep-marker' };
     const sqliteSentinel = { ok: 'skipped' as const, reason: 'sqlite-pragma-marker' };
-    const recorded: Array<{ signal?: AbortSignal; timeoutMs?: number }> = [];
     const fakeStore = {
       append: () => {},
-      runIntegrityCheck: async () => sqliteSentinel,
-      runBundleIntegrityCheck: async (opts?: { signal?: AbortSignal; timeoutMs?: number }) => {
-        recorded.push(opts ?? {});
-        return bundleSentinel;
-      },
+      runIntegrityCheck: vi.fn(async () => sqliteSentinel),
+      runBundleIntegrityCheck: vi.fn(
+        async (_opts?: { signal?: AbortSignal; timeoutMs?: number }) => bundleSentinel,
+      ),
     };
     const ctx = fakeContext({ eventStore: fakeStore as unknown as DispatchContext['eventStore'] });
 
@@ -100,7 +98,9 @@ describe('buildProbes', () => {
     const result = await probes.bundles.runIntegrityCheck({ timeoutMs: 555 });
 
     expect(result).toBe(bundleSentinel);
-    expect(recorded).toEqual([{ timeoutMs: 555 }]);
+    expect(fakeStore.runBundleIntegrityCheck).toHaveBeenCalledTimes(1);
+    expect(fakeStore.runBundleIntegrityCheck).toHaveBeenCalledWith({ timeoutMs: 555 });
+    expect(fakeStore.runIntegrityCheck).not.toHaveBeenCalled();
   });
 
   it('BuildProbes_CarriesTheComposersDefaultCheckBudget', () => {

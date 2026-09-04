@@ -12,7 +12,7 @@
  * whatever that ceiling is for this run.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import * as path from 'node:path';
 import { makeStubProbes } from '../../../../../src/verbs/doctor/checks/__shared__/make-stub-probes.js';
 import {
@@ -20,7 +20,7 @@ import {
   sweepBudgetMs,
   SWEEP_SHARE_OF_CHECK_BUDGET,
 } from '../../../../../src/verbs/doctor/checks/run-bundle-integrity.js';
-import { DEFAULT_CHECK_BUDGET_MS } from '../../../../../src/verbs/doctor/probes.js';
+import { DEFAULT_CHECK_BUDGET_MS, type DoctorProbes } from '../../../../../src/verbs/doctor/probes.js';
 import { RUN_BUNDLE_DIRNAME } from '../../../../../src/utils/paths.js';
 import type { BundleIntegrityResult } from '../../../../../src/events/bundle/integrity.js';
 
@@ -28,18 +28,13 @@ function probesReturning(
   result: BundleIntegrityResult,
   overrides: { stateDir?: string; checkBudgetMs?: number } = {},
 ) {
-  const recorded: Array<{ signal?: AbortSignal; timeoutMs?: number }> = [];
+  const runIntegrityCheck = vi.fn<DoctorProbes['bundles']['runIntegrityCheck']>(async () => result);
   const probes = makeStubProbes({
     stateDir: overrides.stateDir ?? '/state',
     ...(overrides.checkBudgetMs !== undefined ? { checkBudgetMs: overrides.checkBudgetMs } : {}),
-    bundles: {
-      runIntegrityCheck: async (opts) => {
-        recorded.push(opts ?? {});
-        return result;
-      },
-    },
+    bundles: { runIntegrityCheck },
   });
-  return { probes, recorded };
+  return { probes, runIntegrityCheck };
 }
 
 const CLEAR: BundleIntegrityResult = {
@@ -51,7 +46,7 @@ const CLEAR: BundleIntegrityResult = {
 
 describe('run-bundle-integrity', () => {
   it('RunBundleIntegrity_EveryReferenceResolves_ReturnsPassNamingTheDenominator', async () => {
-    const { probes, recorded } = probesReturning(CLEAR);
+    const { probes, runIntegrityCheck } = probesReturning(CLEAR);
     const signal = new AbortController().signal;
 
     const result = await runBundleIntegrity(probes, signal);
@@ -65,8 +60,8 @@ describe('run-bundle-integrity', () => {
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
     // The sweep is handed the composer's OWN signal — not merely some signal —
     // so cancelling the doctor run stops a ledger walk already in flight.
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0]?.signal).toBe(signal);
+    expect(runIntegrityCheck).toHaveBeenCalledTimes(1);
+    expect(runIntegrityCheck.mock.calls[0]?.[0]?.signal).toBe(signal);
   });
 
   it('RunBundleIntegrity_SweepBudget_IsDerivedFromTheBudgetInForceNotACopiedDefault', async () => {
@@ -75,9 +70,9 @@ describe('run-bundle-integrity', () => {
     // under the ceiling too. The check reads the budget off the probe bundle,
     // which is where the composer puts the value it is actually racing.
     for (const checkBudgetMs of [DEFAULT_CHECK_BUDGET_MS, 10_000, 400]) {
-      const { probes, recorded } = probesReturning(CLEAR, { checkBudgetMs });
+      const { probes, runIntegrityCheck } = probesReturning(CLEAR, { checkBudgetMs });
       await runBundleIntegrity(probes, new AbortController().signal);
-      const asked = recorded[0]?.timeoutMs;
+      const asked = runIntegrityCheck.mock.calls[0]?.[0]?.timeoutMs;
       expect(asked).toBe(sweepBudgetMs(checkBudgetMs));
       expect(asked).toBeLessThan(checkBudgetMs);
     }

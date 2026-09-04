@@ -394,7 +394,7 @@ describe('roster placement', () => {
     // Literals, not the set under test: iterating the set would pass with
     // the set emptied.
     for (const name of ['run-bundle-integrity', 'store-path-divergence']) {
-      expect(NON_REMEDIABLE_CHECKS.has(name), `${name} is no longer listed as non-remediable`).toBe(true);
+      expect(NON_REMEDIABLE_CHECKS.has(name), `${name} is not listed as non-remediable`).toBe(true);
       const plan = diff(DESIRED, [remediable('storage', name)]);
       expect(plan.steps, `${name} produced a reconcile step`).toEqual([]);
     }

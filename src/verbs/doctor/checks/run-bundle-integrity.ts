@@ -75,7 +75,10 @@ function describeViolation(violation: BundleViolation): string {
   return `${violation.kind} at ${where}${digest}${detail}`;
 }
 
-const CHECK_IDENTITY = { category: 'storage' as const, name: 'run-bundle-integrity' };
+const CHECK_IDENTITY = { category: 'storage', name: 'run-bundle-integrity' } satisfies Pick<
+  CheckResult,
+  'category' | 'name'
+>;
 
 async function runBundleIntegrityCheck(
   probes: DoctorProbes,

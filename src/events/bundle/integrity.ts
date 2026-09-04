@@ -29,6 +29,7 @@
  */
 
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
+import { z } from 'zod';
 
 import type { WorkflowEvent } from '../schemas.js';
 import { extractBundleRefs, settlementCustody } from './digest-references.js';
@@ -106,10 +107,11 @@ export type BundleIntegrityResult =
  * it answers about — the content digest — and never with an artifact id,
  * which two different blobs may legitimately share across a crash-retry.
  */
-type DigestKey = string & { readonly __brand: 'BundleDigestKey' };
+const DigestKeySchema = z.string().brand<'BundleDigestKey'>();
+type DigestKey = z.infer<typeof DigestKeySchema>;
 
 function formatDigest(digest: { algorithm: string; value: string }): DigestKey {
-  return `${digest.algorithm}:${digest.value}` as DigestKey;
+  return DigestKeySchema.parse(`${digest.algorithm}:${digest.value}`);
 }
 
 function abortIfRequested(signal: AbortSignal | undefined): void {

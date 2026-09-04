@@ -29,7 +29,7 @@
  * the pin tracks the type, not a transcribed copy.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { DEFAULT_CHECK_BUDGET_MS, type DoctorProbes } from '../../../../src/verbs/doctor/probes.js';
 import type { AgentEnvironment } from '../../../../src/runtime/agent-environment-detector.js';
 import type { IntegrityResult } from '../../../../src/events/store.js';
@@ -127,16 +127,16 @@ function benignProbes(): DoctorProbes {
       version: async () => 'git version 2.40.0',
     },
     sqlite: {
-      runIntegrityCheck: async (): Promise<IntegrityResult> => ({
+      runIntegrityCheck: vi.fn(async (): Promise<IntegrityResult> => ({
         ok: 'skipped',
         reason: 'benign roster probe',
-      }),
+      })),
     },
     bundles: {
-      runIntegrityCheck: async (): Promise<BundleIntegrityResult> => ({
+      runIntegrityCheck: vi.fn(async (): Promise<BundleIntegrityResult> => ({
         ok: 'skipped',
         reason: 'benign roster probe',
-      }),
+      })),
     },
     detector: async () => emptyEnvironments,
     eventStore: {
@@ -184,10 +184,9 @@ async function runRoster(): Promise<readonly CheckResult[]> {
 
 describe('doctor roster characterization (T0 baseline)', () => {
   it('DoctorRoster_CurrentBuild_ExactlyTwentyChecksWithStableNames', async () => {
-    // The static export ships exactly the pinned roster, in pinned order. (13 → 15
-    // by Task 017: onramp-block-drift + retired-hooks-present; 15 → 16 by
-    // Task 011: stale-skill-dirs; 16 → 17 by Task 019: store-path-divergence;
-    // 17 → 18 by P05-04: install-freshness; 18 → 19: action-contract-closure.)
+    // The static export ships exactly the pinned roster, in pinned order. Every
+    // check that joined it did so through a deliberate edit of this count and
+    // of PINNED_ROSTER; the edit is the review signal this guard exists for.
     expect(ALL_CHECKS).toHaveLength(20);
     expect(PINNED_ROSTER).toHaveLength(20);
 

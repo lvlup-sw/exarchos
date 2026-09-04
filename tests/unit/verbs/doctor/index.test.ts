@@ -345,16 +345,16 @@ function benignProbes(): DoctorProbes {
       version: async () => 'git version 2.40.0',
     },
     sqlite: {
-      runIntegrityCheck: async (): Promise<IntegrityResult> => ({
+      runIntegrityCheck: vi.fn(async (): Promise<IntegrityResult> => ({
         ok: 'skipped',
         reason: 'benign dispatch probe',
-      }),
+      })),
     },
     bundles: {
-      runIntegrityCheck: async (): Promise<BundleIntegrityResult> => ({
+      runIntegrityCheck: vi.fn(async (): Promise<BundleIntegrityResult> => ({
         ok: 'skipped',
         reason: 'benign dispatch probe',
-      }),
+      })),
     },
     detector: async () => emptyEnvironments,
     eventStore: { append: async () => ({}) } as unknown as DoctorProbes['eventStore'],

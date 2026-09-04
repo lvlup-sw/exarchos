@@ -50,7 +50,7 @@
 // migration changing the contract, and must be reviewed rather than regenerated
 // reflexively.
 //
-// ── THIRD REVIEWED MOVE: the `doctor` description stops transcribing a count ─
+// ── REVIEWED MOVE: the `doctor` description stops transcribing a count ───────
 //
 // MEASURED, not eyeballed: normalising both goldens and diffing yields exactly
 // ONE changed line — the `exarchos_orchestrate` tool description. The whole
@@ -60,7 +60,7 @@
 // that nothing regenerates and every addition leaves stale — this one was
 // eight additions behind. No schema, annotation or other description moved.
 //
-// ── SECOND REVIEWED MOVE: the `featureId` alias on the three task verbs ─────
+// ── REVIEWED MOVE: the `featureId` alias on the three task verbs ────────────
 //
 // MEASURED, not eyeballed: normalising both goldens and diffing yields exactly
 // TWO changed lines — the `exarchos_orchestrate` tool description, before and

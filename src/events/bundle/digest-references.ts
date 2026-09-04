@@ -64,10 +64,10 @@ export interface SettlementEndpoint {
  * this version on every row it commits, importing them from here, so the
  * writer, the schema and the oracle cannot name three different things.
  */
-export const INTENT_EXECUTED_SETTLEMENT = {
+export const INTENT_EXECUTED_SETTLEMENT = Object.freeze({
   type: 'orchestrate.intent_executed',
   custodyFromSchemaVersion: '1.1',
-} as const satisfies SettlementEndpoint;
+}) satisfies SettlementEndpoint;
 
 /**
  * The settlement endpoints this oracle keys its "a settled operation must
@@ -96,10 +96,11 @@ export const SETTLED_EVENT_TYPES: readonly EventType[] = SETTLEMENT_ENDPOINTS.ma
  *   - `custodial`: an endpoint row written under the custody contract; it
  *     must reference bytes.
  *
- * Versions are `major.minor` strings compared numerically per part, which is
- * the shape every producer in this tree stamps. A version the comparison
- * cannot read is treated as custodial, so an unparseable stamp cannot be a
- * way to opt a settlement out of the rule.
+ * Versions are dot-separated decimal components compared numerically per
+ * component, which is the shape every producer in this tree stamps. A version
+ * with any component that is not a run of decimal digits is treated as
+ * custodial, so an unparseable stamp cannot be a way to opt a settlement out
+ * of the rule.
  */
 export type SettlementCustody = 'not-a-settlement' | 'pre-custody' | 'custodial';
 
@@ -111,12 +112,20 @@ export function settlementCustody(event: WorkflowEvent): SettlementCustody {
     : 'custodial';
 }
 
+/**
+ * A version component is a run of decimal digits and nothing else. The check
+ * is on the text, not on what `Number()` makes of it: an empty component,
+ * a sign, whitespace, a hex or exponent form all convert to a small integer
+ * that would sort before the epoch and exempt the row.
+ */
+const DECIMAL_COMPONENT = /^\d+$/;
+
 /** Negative when `left` sorts before `right`; unreadable input sorts as newest. */
 function compareVersions(left: string, right: string): number {
   const parse = (version: string): readonly number[] | undefined => {
-    const parts = version.split('.').map((part) => Number(part));
-    return parts.length > 0 && parts.every((part) => Number.isInteger(part) && part >= 0)
-      ? parts
+    const parts = version.split('.');
+    return parts.every((part) => DECIMAL_COMPONENT.test(part))
+      ? parts.map((part) => Number(part))
       : undefined;
   };
   const a = parse(left);

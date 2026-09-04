@@ -24,6 +24,7 @@ import {
   BUNDLE_REF_FIELD,
   SETTLED_EVENT_TYPES,
   SETTLEMENT_ENDPOINTS,
+  settlementCustody,
 } from '../../../../src/events/bundle/digest-references.js';
 import { ArtifactIdSchema } from '../../../../src/workflow/admission/types.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
@@ -285,6 +286,30 @@ describe('checkRunBundleIntegrity', () => {
       if (result.ok !== 'empty') return;
       expect(result.preCustodySettlementCount).toBe(1);
       expect(result.referenceCount).toBe(0);
+    },
+    FS_TIMEOUT_MS,
+  );
+
+  it(
+    'BundleIntegrity_SettlementWithAnUnreadableVersionStamp_IsHeldToTheCustodyRule',
+    async () => {
+      // A stamp the comparison cannot read is not a way out of the rule. Each
+      // of these converts through `Number()` to a small integer that sorts
+      // before the epoch, so a parser that trusted the conversion would exempt
+      // every one of them.
+      for (const stamp of ['', '1.', '1..0', '1e0']) {
+        const source = fakeSource({
+          'feat-a': [event('feat-a', 1, SETTLED_TYPE, { leafId: 'some-leaf' }, stamp)],
+        });
+
+        const result = await checkRunBundleIntegrity(source, store);
+
+        expect(result.ok, `stamp ${JSON.stringify(stamp)}`).toBe(false);
+        if (result.ok !== false) continue;
+        expect(result.violations.map((violation) => violation.kind)).toEqual([
+          'settlement-without-references',
+        ]);
+      }
     },
     FS_TIMEOUT_MS,
   );
@@ -660,5 +685,39 @@ describe('checkRunBundleIntegrity', () => {
     expect(SETTLEMENT_ENDPOINTS.find((endpoint) => endpoint.type === SETTLED_TYPE)?.custodyFromSchemaVersion).toBe(
       CUSTODIAL_VERSION,
     );
+  });
+});
+
+describe('settlementCustody', () => {
+  const settled = (schemaVersion: string): WorkflowEvent =>
+    event('feat-a', 1, SETTLED_TYPE, { leafId: 'some-leaf' }, schemaVersion);
+
+  it('SettlementCustody_ReadableStamps_CompareNumericallyPerComponent', () => {
+    for (const stamp of ['1.0', '0.9', '1', '1.0.99']) {
+      expect(settlementCustody(settled(stamp)), stamp).toBe('pre-custody');
+    }
+    for (const stamp of ['1.1', '1.10', '2', '01.1', '1.1.0']) {
+      expect(settlementCustody(settled(stamp)), stamp).toBe('custodial');
+    }
+    expect(settlementCustody(event('feat-a', 1, 'workflow.started', undefined, '0.1'))).toBe(
+      'not-a-settlement',
+    );
+  });
+
+  it('SettlementCustody_UnreadableStamps_AreCustodialNotExempt', () => {
+    // `Number('')` is 0, `Number('1e0')` is 1, `Number(' 1')` is 1 and the
+    // empty component of `1.` or `1..0` is 0: each of these converts to a
+    // small integer that would sort before the epoch if the conversion were
+    // trusted. A component that is not a run of decimal digits fails the read
+    // outright, so the row is held to the rule rather than exempted by a stamp
+    // nobody wrote deliberately.
+    for (const stamp of ['', '1.', '.1', '1..0', '1e0', ' 1', '1 ', '0x1', '+1']) {
+      expect(settlementCustody(settled(stamp)), JSON.stringify(stamp)).toBe('custodial');
+    }
+    // Stamps no numeric reading rescues either: a boundary pin, not a
+    // discriminator between the text check and a numeric one.
+    for (const stamp of ['-1', '1,1', 'latest']) {
+      expect(settlementCustody(settled(stamp)), JSON.stringify(stamp)).toBe('custodial');
+    }
   });
 });

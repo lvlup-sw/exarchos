@@ -63,29 +63,28 @@ import { verificationToolchain } from './checks/verification-toolchain.js';
 
 // ─── Canonical check list ──────────────────────────────────────────────────
 
-/** All 20 checks. Order is preserved in the output — callers can scan
- * top-to-bottom for the first Fail. `run-bundle-integrity` closes the
- * `storage` block: the run-bundle resolvability oracle had no production
- * caller until the executor became its first producer, so a deleted or
- * corrupted bundle blob was visible to nothing an operator could run.
- * DR-11 B-5 (Task 019) added
- * `store-path-divergence` in the `storage` block: the read-only check that
- * fires when the CLI and Claude Code plugin surfaces resolve DIFFERENT event
- * stores (state silently splits); its remediation is the documented
+/** Every check the doctor ships, in output order — callers can scan
+ * top-to-bottom for the first Fail.
+ *
+ * The `storage` block ends with `run-bundle-integrity`, the run-bundle
+ * resolvability oracle's production caller: until the executor became the
+ * first bundle producer, nothing an operator could run would see a deleted or
+ * corrupted bundle blob. `store-path-divergence`, in the same block, fires
+ * when the CLI and Claude Code plugin surfaces resolve DIFFERENT event stores
+ * (state silently splits); its remediation is the documented
  * `WORKFLOW_STATE_DIR` precedence, not a store migration.
- * DR-8 added `session-start-hook` (#1485):
- * the SessionStart binding presence check that lands the default-on hook step.
- * Task 009 (design §4.6) added `verification-toolchain`: the read-only check
- * reporting whether the verification ladder's runtime resolves. DR-5/DR-7 (Task
- * 017) added `onramp-block-drift` (the Task 013 drift finding, previously
- * unregistered) and `retired-hooks-present` (the uninstall-reachability check),
- * placed together in the `agent` block. `onramp-block-drift` precedes
- * `retired-hooks-present` so its `generate` block-write step lands before the
- * `hook` removal step (the reconciler also enforces this ordering explicitly).
- * DR-3/DR-8 (Task 011) added `stale-skill-dirs`: the read-only residue finding
- * for the onboard rename migration, in the `plugin` block so its remediation
- * degrades to the cli-only install step (the migration itself).
- * P05-04 added `install-freshness`: the read-only view of the install-identity
+ *
+ * `session-start-hook` (#1485) reports whether the SessionStart binding the
+ * default-on hook step installs is present. `verification-toolchain` is the
+ * read-only check reporting whether the verification ladder's runtime
+ * resolves. `onramp-block-drift` (the managed-block drift finding) and
+ * `retired-hooks-present` (the uninstall-reachability check) sit together in
+ * the `agent` block; `onramp-block-drift` comes first so its `generate`
+ * block-write step lands before the `hook` removal step (the reconciler also
+ * enforces this ordering explicitly). `stale-skill-dirs` is the read-only
+ * residue finding for the onboard rename migration, in the `plugin` block so
+ * its remediation degrades to the cli-only install step (the migration
+ * itself). `install-freshness` is the read-only view of the install-identity
  * freshness gate (binary/plugin/skill/schema/cache), placed in the `plugin`
  * block after `plugin-version-match`; it diagnoses the "upgraded binary, stale
  * plugin/skill/cache" case the dispatch chokepoint blocks at runtime. */
