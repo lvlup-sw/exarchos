@@ -50,6 +50,16 @@
 // migration changing the contract, and must be reviewed rather than regenerated
 // reflexively.
 //
+// ── THIRD REVIEWED MOVE: the `doctor` description stops transcribing a count ─
+//
+// MEASURED, not eyeballed: normalising both goldens and diffing yields exactly
+// ONE changed line — the `exarchos_orchestrate` tool description. The whole
+// delta is inside the `doctor` action's sentence, which read "12 checks across
+// runtime, storage, …" while the roster shipped twenty; it now names the
+// surfaces without a number. A count in shipped prose is a copy of the roster
+// that nothing regenerates and every addition leaves stale — this one was
+// eight additions behind. No schema, annotation or other description moved.
+//
 // ── SECOND REVIEWED MOVE: the `featureId` alias on the three task verbs ─────
 //
 // MEASURED, not eyeballed: normalising both goldens and diffing yields exactly

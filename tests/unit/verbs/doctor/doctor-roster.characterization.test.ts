@@ -30,7 +30,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import type { DoctorProbes } from '../../../../src/verbs/doctor/probes.js';
+import { DEFAULT_CHECK_BUDGET_MS, type DoctorProbes } from '../../../../src/verbs/doctor/probes.js';
 import type { AgentEnvironment } from '../../../../src/runtime/agent-environment-detector.js';
 import type { IntegrityResult } from '../../../../src/events/store.js';
 import type { BundleIntegrityResult } from '../../../../src/events/bundle/integrity.js';
@@ -111,6 +111,7 @@ const PINNED_ROSTER: ReadonlyArray<{
 function benignProbes(): DoctorProbes {
   const emptyEnvironments: AgentEnvironment[] = [];
   return {
+    checkBudgetMs: DEFAULT_CHECK_BUDGET_MS,
     fs: {
       readFile: async () => '',
       stat: (async () => ({
@@ -183,7 +184,7 @@ async function runRoster(): Promise<readonly CheckResult[]> {
 
 describe('doctor roster characterization (T0 baseline)', () => {
   it('DoctorRoster_CurrentBuild_ExactlyTwentyChecksWithStableNames', async () => {
-    // The static export ships exactly nineteen checks, in pinned order. (13 → 15
+    // The static export ships exactly the pinned roster, in pinned order. (13 → 15
     // by Task 017: onramp-block-drift + retired-hooks-present; 15 → 16 by
     // Task 011: stale-skill-dirs; 16 → 17 by Task 019: store-path-divergence;
     // 17 → 18 by P05-04: install-freshness; 18 → 19: action-contract-closure.)

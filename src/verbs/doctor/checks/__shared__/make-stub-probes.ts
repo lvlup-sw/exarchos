@@ -6,7 +6,7 @@
  * pass-through. No module-global state (DIM-1).
  */
 
-import type { DoctorProbes } from '../../probes.js';
+import { DEFAULT_CHECK_BUDGET_MS, type DoctorProbes } from '../../probes.js';
 import type { CheckResult } from '../../schema.js';
 
 export type CheckFn = (probes: DoctorProbes, signal: AbortSignal) => Promise<CheckResult>;
@@ -17,6 +17,7 @@ const throwing = (field: string) => () => {
 
 export function makeStubProbes(overrides: Partial<DoctorProbes> = {}): DoctorProbes {
   const base: DoctorProbes = {
+    checkBudgetMs: DEFAULT_CHECK_BUDGET_MS,
     fs: { readFile: throwing('fs'), stat: throwing('fs'), access: throwing('fs') },
     env: {},
     git: {

@@ -10,7 +10,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { makeStubProbes } from '../../../../src/verbs/doctor/checks/__shared__/make-stub-probes.js';
 import type { CheckFn } from '../../../../src/verbs/doctor/checks/__shared__/make-stub-probes.js';
-import type { DoctorProbes } from '../../../../src/verbs/doctor/probes.js';
+import { DEFAULT_CHECK_BUDGET_MS, type DoctorProbes } from '../../../../src/verbs/doctor/probes.js';
 import type { AgentEnvironment } from '../../../../src/runtime/agent-environment-detector.js';
 import type { IntegrityResult } from '../../../../src/events/store.js';
 import type { BundleIntegrityResult } from '../../../../src/events/bundle/integrity.js';
@@ -329,6 +329,7 @@ describe('handleDoctor — parallel execution + timeout', () => {
 function benignProbes(): DoctorProbes {
   const emptyEnvironments: AgentEnvironment[] = [];
   return {
+    checkBudgetMs: DEFAULT_CHECK_BUDGET_MS,
     fs: {
       readFile: async () => '',
       stat: (async () => ({
@@ -401,11 +402,11 @@ describe('handleDoctor — verification-toolchain roster (task 009)', () => {
       () => benignProbes(),
     );
 
-    // Assert — the roster ships exactly 19 checks now (Task 017 added
-    // onramp-block-drift + retired-hooks-present; Task 011 added stale-skill-dirs;
-    // Task 019 added store-path-divergence; P05-04 added install-freshness), and
-    // verification-toolchain is present (by category + name) in the dispatched
-    // output, not just the export.
+    // Assert — the roster ships exactly the pinned set (the on-ramp drift and
+    // retired-hooks checks, stale-skill-dirs, store-path-divergence and
+    // install-freshness all joined it deliberately), and verification-toolchain
+    // is present (by category + name) in the dispatched output, not just the
+    // export.
     expect(ALL_CHECKS).toHaveLength(20);
     expect(result.success).toBe(true);
     const data = result.data as { checks: CheckResult[] };

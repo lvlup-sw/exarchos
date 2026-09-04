@@ -233,6 +233,7 @@ export class EventStore {
   /** Lazily-instantiated AtomicAppender — single instance per stateDir so per-stream
    *  locks and sequence counters share state across handler calls. */
   private atomicAppender?: AtomicAppender | undefined;
+  private runBundleStore: RunBundleStore | undefined;
 
   /** Durability posture threaded to the lazily-created appender (DR-4). */
   private synchronous?: 'normal' | 'full' | undefined;
@@ -266,6 +267,18 @@ export class EventStore {
   /** Returns the state directory path used by this event store. */
   get dir(): string {
     return this.stateDir;
+  }
+
+  /**
+   * The run-bundle store bound to THIS ledger's state directory — the one
+   * place production code obtains it. A producer that names bytes by digest
+   * on this ledger writes them here, and the integrity sweep over this ledger
+   * reads them from here, so the two cannot be pointed at different roots by
+   * two independent spellings of the directory.
+   */
+  get bundleStore(): RunBundleStore {
+    this.runBundleStore ??= RunBundleStore.forStateDir(this.stateDir);
+    return this.runBundleStore;
   }
 
   /**
@@ -1104,10 +1117,12 @@ export class EventStore {
    *   - Streams enumerated, no references and no settlement → `{ok: 'empty'}`
    *     (nothing was checked — NOT the same claim as "nothing was wrong")
    *   - Every reference resolved → `{ok: true}` with the denominator it checked
-   *   - Any unresolvable, corrupt, or malformed reference, or a settled stream
-   *     that references nothing → `{ok: false}` with the violations named
-   *   - Sweep exceeds `timeoutMs` → `{ok: false, incomplete: true}` with the
-   *     timeout in `details`; the counts on that verdict are unknown, not zero
+   *   - Any unresolvable, corrupt, unreadable or malformed reference, or a
+   *     custodial settlement that references nothing → `{ok: false}` with the
+   *     violations named
+   *   - Sweep exceeds `timeoutMs`, or throws before finishing → `{ok: false,
+   *     incomplete: true}` with the cause in `details` and no counts at all —
+   *     that arm cannot carry a number, because none was measured
    *   - External abort → rejects with AbortError, since caller-initiated
    *     cancellation is an exception rather than a verdict
    *
@@ -1146,7 +1161,7 @@ export class EventStore {
       throw err;
     }
 
-    const bundleStore = opts?.bundleStore ?? RunBundleStore.forStateDir(this.stateDir);
+    const bundleStore = opts?.bundleStore ?? this.bundleStore;
 
     // Chain the caller's signal into an internal controller so the timeout can
     // also stop the sweep without mutating the caller's signal.
@@ -1160,15 +1175,13 @@ export class EventStore {
     let didTimeout = false;
     const timeoutDetails = `run-bundle integrity check timed out after ${timeoutMs}ms`;
     // `incomplete` is what separates this from a sweep that genuinely finished
-    // with a zero denominator; the zeroes below are placeholders for counts the
-    // aborted sweep never got to report, not measurements.
+    // with a zero denominator: this arm carries no counts at all, because the
+    // aborted sweep measured none.
     const timedOut: BundleIntegrityResult = {
       ok: false,
-      scannedStreamCount: 0,
-      referenceCount: 0,
+      incomplete: true,
       details: timeoutDetails,
       violations: [],
-      incomplete: true,
     };
     const timeoutPromise = new Promise<BundleIntegrityResult>((resolve) => {
       timer = setTimeout(() => {
@@ -1195,11 +1208,9 @@ export class EventStore {
         }
         return {
           ok: false,
-          scannedStreamCount: 0,
-          referenceCount: 0,
-          details: err instanceof Error ? err.message : String(err),
-          violations: [],
           incomplete: true,
+          details: `run-bundle integrity sweep threw before finishing: ${err instanceof Error ? err.message : String(err)}`,
+          violations: [],
         };
       }
     })();

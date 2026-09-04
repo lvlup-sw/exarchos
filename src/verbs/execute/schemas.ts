@@ -14,7 +14,23 @@
 
 import { z } from 'zod';
 import { EnvelopeSchema } from '../../contract/schemas/envelope.js';
-import { BundleRefV1Schema } from '../../events/bundle/digest-references.js';
+
+/**
+ * The receipt's bundle reference, as this surface describes it: a passthrough
+ * mirror of the ledger's strict `BundleRefV1`, for the reason the header
+ * states. The ledger schema refuses an unknown key because an oracle must not
+ * count a reference it does not fully understand; the response schema must
+ * not, because a receipt replayed from a claim written by a later build — one
+ * that added a key to the reference — is still the caller's receipt, and
+ * turning it into an INTERNAL_ERROR at the adapter would be the outage this
+ * file exists to prevent.
+ */
+const ReceiptBundleRefSchema = z
+  .object({
+    artifactId: z.string().min(1),
+    digest: z.object({ algorithm: z.string().min(1), value: z.string().min(1) }).passthrough(),
+  })
+  .passthrough();
 
 const ReceiptEventSchema = z
   .object({
@@ -82,8 +98,9 @@ const IntentReceiptData = z
     // Optional here even though every fresh commit stamps it: a replay returns
     // the receipt persisted in the operation claim, and a claim recorded before
     // run-bundle custody existed carries none. Requiring it would turn that
-    // replay into an INTERNAL_ERROR at the adapter boundary.
-    bundleRefs: z.array(BundleRefV1Schema).optional(),
+    // replay into an INTERNAL_ERROR at the adapter boundary. Non-empty when
+    // present, matching the receipt type.
+    bundleRefs: z.array(ReceiptBundleRefSchema).min(1).optional(),
   })
   .passthrough();
 

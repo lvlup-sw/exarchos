@@ -22,7 +22,7 @@
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
 import { DOCTOR_STREAM_ID } from '../../dispatch/core/infra-streams.js';
-import { buildProbes as defaultBuildProbes } from './probes.js';
+import { buildProbes as defaultBuildProbes, DEFAULT_CHECK_BUDGET_MS } from './probes.js';
 import type { DoctorProbes } from './probes.js';
 import { DoctorOutputSchema, type CheckResult, type DoctorSummary } from './schema.js';
 import type { CheckFn } from './checks/__shared__/make-stub-probes.js';
@@ -176,11 +176,13 @@ export async function runChecksOnly(
   repoRoot: string,
   checks: ReadonlyArray<CheckFn> = ALL_CHECKS,
   buildProbes: BuildProbesFn = defaultBuildProbes,
-  timeoutMs = 2000,
+  timeoutMs = DEFAULT_CHECK_BUDGET_MS,
 ): Promise<readonly CheckResult[]> {
   const checkCtx: DispatchContext =
     ctx.cwd === repoRoot ? ctx : { ...ctx, cwd: repoRoot };
-  const probes = buildProbes(checkCtx);
+  // The budget in force rides on the probe bundle so a bounded check can size
+  // its own sweep under the ceiling it is racing.
+  const probes: DoctorProbes = { ...buildProbes(checkCtx), checkBudgetMs: timeoutMs };
   const controller = new AbortController();
   return Promise.all(
     checks.map((c) => runCheckWithTimeout(c, probes, controller.signal, timeoutMs)),
@@ -227,7 +229,7 @@ export interface DoctorFixDeps {
    * Produces the doctor `actual` check results the reconciler's `diff`
    * classifies. The reconciler calls this for the plan; doctor re-runs the
    * checks itself for the post-fix residual report. The real composer runs the
-   * 13 checks; tests stub it.
+   * full roster; tests stub it.
    */
   readonly runDoctorChecks: (repoRoot: string) => Promise<readonly CheckResult[]>;
   /** Writer deps for GENERATE (real-fs in prod, fixture-redirected in tests). */
@@ -287,9 +289,9 @@ export async function handleDoctorWithChecks(
     fixSummary = await runDoctorFix(ctx, fixDeps ?? defaultDoctorFixDeps(ctx));
   }
 
-  const timeoutMs = args.timeoutMs ?? 2000;
+  const timeoutMs = args.timeoutMs ?? DEFAULT_CHECK_BUDGET_MS;
   const controller = new AbortController();
-  const probes = buildProbes(ctx);
+  const probes: DoctorProbes = { ...buildProbes(ctx), checkBudgetMs: timeoutMs };
   const startedAt = Date.now();
 
   // Wire the external signal so caller-initiated cancellation aborts
@@ -446,12 +448,19 @@ async function emitDiagnosticEvent(
   const failedCheckNames = results
     .filter((r) => r.status === 'Fail')
     .map((r) => r.name);
+  // A Warning never moves the exit code, so the ledger is the only channel
+  // that records WHICH check warned. Without the names a custody violation the
+  // doctor reported would survive as an anonymous count.
+  const warningCheckNames = results
+    .filter((r) => r.status === 'Warning')
+    .map((r) => r.name);
   await ctx.eventStore.append(DOCTOR_STREAM_ID, {
     type: 'diagnostic.executed' as const,
     data: {
       summary,
       checkCount: results.length,
       failedCheckNames,
+      warningCheckNames,
       durationMs,
     },
   });

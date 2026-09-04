@@ -177,7 +177,23 @@ export interface DoctorVerificationToolchain {
   resolve(signal?: AbortSignal): Promise<VerificationToolchainResolution>;
 }
 
+/**
+ * The per-check wall-clock budget the composer will race each check against.
+ * The composer's own default; a caller may widen it (`doctor --timeout-ms`),
+ * and whatever value is in force is what the probe bundle carries, so a check
+ * that runs a bounded sweep can size that bound under the ceiling it is
+ * actually racing rather than under a copy of the default.
+ */
+export const DEFAULT_CHECK_BUDGET_MS = 2000;
+
 export interface DoctorProbes {
+  /**
+   * The composer's per-check budget for THIS run, in milliseconds. A check
+   * whose work is itself time-bounded derives its bound from here so its own
+   * honest "did not finish" verdict wins the composer's race instead of the
+   * composer's generic timeout.
+   */
+  readonly checkBudgetMs: number;
   readonly fs: DoctorFs;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly git: DoctorGit;
@@ -587,6 +603,7 @@ export async function resolveVerificationToolchain(
  */
 export function buildProbes(ctx: DispatchContext): DoctorProbes {
   return {
+    checkBudgetMs: DEFAULT_CHECK_BUDGET_MS,
     fs: DEFAULT_FS,
     env: process.env,
     git: DEFAULT_GIT,

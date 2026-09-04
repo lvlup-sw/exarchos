@@ -11,6 +11,7 @@ import {
 import { STABLE_PREFIX_KEYS } from './projections/rehydration/serialize.js';
 import { UNSPECIFIED_FAILURE_CODE } from './contract/error-families.js';
 import { ConcurrencyError } from './events/concurrency-error.js';
+import type { BundleRefV1 } from './events/bundle/digest-references.js';
 import { StorageBusyError } from './events/storage-busy-error.js';
 
 export interface PerfMetrics {
@@ -81,10 +82,10 @@ export interface IntentFailureDetail {
    * The run bundle the failed segment's interior was written to, as
    * (artifact id, digest) pairs. A failed segment still ran, so its trace is
    * still in custody, and the caller reading the refusal is the one who needs
-   * it. Structural rather than imported for the same no-new-dependency reason
-   * as the rest of this shape.
+   * it. The ledger's own reference type, so this detail cannot describe a
+   * wider shape than the receipt carries.
    */
-  readonly bundleRefs?: readonly { readonly artifactId: string; readonly digest: { readonly algorithm: string; readonly value: string } }[];
+  readonly bundleRefs?: readonly [BundleRefV1, ...BundleRefV1[]];
   readonly leaves: readonly {
     readonly action: string;
     readonly status: string;

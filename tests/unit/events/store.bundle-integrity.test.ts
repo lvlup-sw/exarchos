@@ -226,15 +226,16 @@ describe('EventStore.runBundleIntegrityCheck', () => {
       if (result.ok !== false) return;
       expect(result.details).toContain('timed out after 25ms');
       expect(result.violations).toEqual([]);
-      // The zero counts on a timeout are placeholders for work never done. The
-      // flag is what says so structurally — without it this verdict is
+      // A timed-out sweep measured nothing, so its verdict carries NO counts:
+      // the arm cannot hold a number, which is what keeps it from ever being
       // shape-identical to a completed sweep that found a zero-denominator
-      // failure, and only the prose in `details` tells them apart.
+      // failure.
       expect(
         result.incomplete,
-        'a timed-out sweep must mark its counts as unmeasured',
+        'a timed-out sweep must mark itself incomplete',
       ).toBe(true);
-      expect(result.referenceCount).toBe(0);
+      expect('referenceCount' in result).toBe(false);
+      expect('scannedStreamCount' in result).toBe(false);
     },
     FS_TIMEOUT_MS,
   );

@@ -229,10 +229,10 @@ export interface IntentReceipt {
    *
    * Optional on the type for exactly one reason: a receipt persisted in an
    * operation claim before custody existed has no reference, and a replay of
-   * that operation hands the caller that receipt verbatim. Every receipt the
-   * executor commits today carries at least one.
+   * that operation hands the caller that receipt verbatim. When present it is
+   * non-empty by type — a receipt cannot say "in custody, of nothing".
    */
-  readonly bundleRefs?: readonly BundleRefV1[];
+  readonly bundleRefs?: readonly [BundleRefV1, ...BundleRefV1[]];
 }
 
 /** Refusals the executor itself raises, after compilation and before or during execution. */

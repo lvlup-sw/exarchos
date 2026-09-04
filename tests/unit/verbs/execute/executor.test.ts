@@ -7,6 +7,7 @@
 // value with itself and could never disagree.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import { mkdtemp, readFile, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -14,7 +15,11 @@ import { tmpdir } from 'node:os';
 import { resolveConfig } from '../../../../src/config/resolve.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { runWithDispatchContext } from '../../../../src/dispatch/dispatch-context.js';
-import { BUNDLE_REF_FIELD, type BundleRefV1 } from '../../../../src/events/bundle/digest-references.js';
+import {
+  BUNDLE_REF_FIELD,
+  SETTLED_EVENT_TYPES,
+  type BundleRefV1,
+} from '../../../../src/events/bundle/digest-references.js';
 import { RunBundleStore } from '../../../../src/events/bundle/run-bundle-store.js';
 import { EventStore } from '../../../../src/events/store.js';
 import {
@@ -1134,19 +1139,148 @@ describe('handleExecuteIntent run bundle', () => {
       tailSequence: receipt.tailSequence,
       interaction: receipt.interaction,
     });
-    expect(bundle.leaves.map((leaf) => [leaf.index, leaf.action, leaf.status])).toEqual([
+    expect(bundle.leaves.map((leaf) => [leaf.index, leaf.action, leaf.verdict.status])).toEqual([
       [0, 'fixture_quiet', 'passed'],
       [1, 'fixture_promises', 'passed'],
     ]);
     const [quiet, promises] = bundle.leaves;
     expect(quiet?.args).toMatchObject({ featureId: STREAM, taskId: 't1' });
-    expect(quiet?.handlerInvoked).toBe(true);
-    expect(quiet?.replayElided).toBe(false);
-    expect(quiet?.handler).toEqual({ success: true });
+    expect(quiet?.disposition).toEqual({ kind: 'invoked', handler: { success: true } });
+    expect(quiet?.verdict).toEqual({ status: 'passed' });
     expect(Date.parse(quiet?.endedAt ?? '')).toBeGreaterThanOrEqual(Date.parse(quiet?.startedAt ?? ''));
     expect(promises?.events).toEqual(receipt.leaves[1]?.events);
     // The bundle never carries its own reference — the digest is OF these bytes.
     expect(Object.hasOwn(bundle, 'bundleRefs')).toBe(false);
+
+    // The row is stamped with the custody epoch: the payload version that says
+    // "written under the contract that requires a reference", which is how the
+    // sweep tells it from a row that settled before custody existed. Both the
+    // type and the version are literals here, so the executor's binding to the
+    // oracle's settlement endpoint is checked against a third authority.
+    expect(committed[0]?.type).toBe('orchestrate.intent_executed');
+    expect(committed[0]?.schemaVersion).toBe('1.1');
+    expect(SETTLED_EVENT_TYPES).toContain('orchestrate.intent_executed');
+    expect(INTENT_EXECUTED_EVENT).toBe('orchestrate.intent_executed');
+  });
+
+  it('ReplayElidedLeaf_IsRecordedAsElidedNotInvoked', async () => {
+    // A reject-replay leaf that already landed its declared rows is skipped on
+    // the crash-retry, and the bundle says so. Two facts the trace exists to
+    // carry — "the handler was not reached" and "because a prior attempt
+    // proved the effect" — are one discriminated value, not two booleans that
+    // could disagree.
+    const guarded = fixtureAction({
+      name: 'fixture_guarded',
+      emissions: declared({ event: 'task.completed', condition: 'always', owner: 'orchestrate', role: 'primary' }),
+      replay: {
+        kind: 'reject-replay',
+        because: 'fixture leaf refuses replay so the elision has a leaf to record',
+      },
+    });
+    const counted = countingHandler(appendingHandler('task.completed'));
+    let crash = true;
+    const deps = depsFor(
+      [fixtureStep('fixture_guarded', 'stop'), fixtureStep('fixture_quiet', 'stop')],
+      {
+        fixture_guarded: counted.handler,
+        fixture_quiet: async (args, dir, ctx) => {
+          if (crash) throw new Error('fixture crash');
+          return silentHandler()(args, dir, ctx);
+        },
+      },
+      [guarded, quiet],
+    );
+    const request = { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-bundle-elided' };
+
+    await expect(execute(request, deps)).rejects.toThrow('fixture crash');
+    crash = false;
+    const receipt = receiptOf(await execute(request, deps));
+
+    expect(counted.calls(), 'the guarded leaf ran again on the retry').toBe(1);
+    const [ref] = refsOf(receipt);
+    if (ref === undefined) throw new Error('no reference');
+    const bundle = decodeExecuteIntentBundle(await bundles().resolve(ref.digest));
+    expect(bundle.leaves[0]?.disposition).toEqual({ kind: 'replay-elided' });
+    expect(bundle.leaves[0]?.verdict).toEqual({ status: 'passed' });
+    expect(bundle.leaves[1]?.disposition).toEqual({ kind: 'invoked', handler: { success: true } });
+  });
+
+  it('HandlerReturningAnEmptyErrorCode_StillCommits', async () => {
+    // The executor does not own third-party error codes. A handler that
+    // refuses with an empty code must not turn the commit into a
+    // deterministic post-effect throw that every retry repeats — the
+    // refusal is recorded verbatim in the trace and the segment commits as
+    // failed.
+    const deps = depsFor([fixtureStep('fixture_quiet', 'stop')], {
+      fixture_quiet: async () => ({ success: false, error: { code: '', message: '' } }),
+    });
+    const result = await execute(
+      { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-bundle-empty-code' },
+      deps,
+    );
+
+    expect(result.success).toBe(false);
+    const receipt = receiptOf(result);
+    expect(receipt.outcome).toBe('failed');
+    expect(claimFor('op-bundle-empty-code')).toBeDefined();
+    const [ref] = refsOf(receipt);
+    if (ref === undefined) throw new Error('no reference');
+    const bundle = decodeExecuteIntentBundle(await bundles().resolve(ref.digest));
+    expect(bundle.leaves[0]?.disposition).toEqual({
+      kind: 'invoked',
+      handler: { success: false, error: { code: '', message: '' } },
+    });
+  });
+
+  it('AClaimPersistedBeforeCustody_ReplaysThroughTheOutputSchema', async () => {
+    // The one reason `bundleRefs` is optional on the receipt: a claim recorded
+    // by a build that predates custody carries none, and a replay hands that
+    // receipt back verbatim. Seeded through the same primitive the executor
+    // commits with, under the digest the executor will compute for the same
+    // request, so the executor's own pre-flight answers the replay.
+    const request = { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-pre-custody' };
+    const ordered = Object.keys(request.args)
+      .sort()
+      .map((key) => [key, request.args[key as keyof typeof request.args]] as const);
+    const canonical = JSON.stringify({ intent: INTENT, streamId: STREAM, args: ordered });
+    const requestDigest = `sha256:${createHash('sha256').update(canonical).digest('hex')}`;
+    const legacyReceipt: IntentReceipt = {
+      operationId: 'op-pre-custody',
+      intent: INTENT,
+      outcome: 'committed',
+      leaves: [{ action: 'fixture_quiet', status: 'passed', events: [] }],
+      tailSequence: 0,
+      requestDigest,
+      interaction: { leavesExecuted: 1, eventsAppended: 0, requests: 1, deferred: [] },
+    };
+    await store.getAppender().decideOnce<IntentReceipt>('op-pre-custody', requestDigest, () => ({
+      streamId: STREAM,
+      events: [
+        {
+          type: INTENT_EXECUTED_EVENT,
+          data: {
+            operationId: 'op-pre-custody',
+            intent: INTENT,
+            outcome: 'committed',
+            leaves: [{ action: 'fixture_quiet', status: 'passed', sequences: [] }],
+            requestDigest,
+          },
+          timestamp: new Date().toISOString(),
+          schemaVersion: '1.0',
+        },
+      ],
+      result: legacyReceipt,
+    }));
+
+    const counted = countingHandler(silentHandler());
+    const deps = depsFor([fixtureStep('fixture_quiet', 'stop')], { fixture_quiet: counted.handler });
+    const result = await execute(request, deps);
+
+    expect(counted.calls(), 'a claimed operation must not re-run').toBe(0);
+    expect(receiptOf(result).bundleRefs).toBeUndefined();
+    const envelope = toEnvelope(result);
+    const parsed = IntentExecutedOutputSchema.safeParse(envelope);
+    expect(parsed.success, JSON.stringify(parsed.error?.issues ?? null)).toBe(true);
   });
 
   it('FailedSegment_AlsoWritesItsBundle_AndTheTraceCarriesTheHandlersRefusal', async () => {
@@ -1167,10 +1301,11 @@ describe('handleExecuteIntent run bundle', () => {
     expect(bundle.outcome).toBe('failed');
     expect(bundle.failedLeaf).toBe('fixture_quiet');
     expect(bundle.failure?.code).toBe('INTENT_SEGMENT_FAILED');
-    expect(bundle.leaves[1]?.handler).toEqual({
-      success: false,
-      error: { code: 'FIXTURE_LEAF_REFUSED', message: 'refused' },
+    expect(bundle.leaves[1]?.disposition).toEqual({
+      kind: 'invoked',
+      handler: { success: false, error: { code: 'FIXTURE_LEAF_REFUSED', message: 'refused' } },
     });
+    expect(bundle.leaves[1]?.verdict.status).toBe('failed');
     // The refusal's compact detail points at the same bytes.
     expect(result.error?.intentReceipt?.bundleRefs).toEqual(receipt.bundleRefs);
   });

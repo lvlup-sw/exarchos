@@ -3,7 +3,11 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
-import { buildProbes, resolveInvariantsCatalog } from '../../../../src/verbs/doctor/probes.js';
+import {
+  buildProbes,
+  DEFAULT_CHECK_BUDGET_MS,
+  resolveInvariantsCatalog,
+} from '../../../../src/verbs/doctor/probes.js';
 import { ReservedNamespaceError } from '../../../../src/architecture/catalog-merge.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
@@ -97,6 +101,15 @@ describe('buildProbes', () => {
 
     expect(result).toBe(bundleSentinel);
     expect(recorded).toEqual([{ timeoutMs: 555 }]);
+  });
+
+  it('BuildProbes_CarriesTheComposersDefaultCheckBudget', () => {
+    // The bundle carries the per-check budget so a bounded check can size its
+    // own sweep under the ceiling it is racing. The composer overrides this
+    // per run; the factory's value is the composer's own default.
+    const probes = buildProbes(fakeContext());
+    expect(probes.checkBudgetMs).toBe(DEFAULT_CHECK_BUDGET_MS);
+    expect(DEFAULT_CHECK_BUDGET_MS).toBeGreaterThan(0);
   });
 });
 

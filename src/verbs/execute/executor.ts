@@ -53,8 +53,11 @@ import {
   type DispatchContext as CorrelationContext,
 } from '../../dispatch/dispatch-context.js';
 import { OperationDigestMismatchError, type EventInput } from '../../events/atomic-appender.js';
-import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
-import { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
+import {
+  INTENT_EXECUTED_SETTLEMENT,
+  type BundleRefV1,
+} from '../../events/bundle/digest-references.js';
+import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import { runWithAppendObserver } from '../../events/observation/append-observation.js';
 import { OrchestrateIntentExecutedData } from '../../events/schemas.js';
 import type { IntentFailureDetail, ToolResult } from '../../format.js';
@@ -65,8 +68,11 @@ import {
   executeIntentBundleArtifactId,
   EXECUTE_INTENT_BUNDLE_KIND,
   EXECUTE_INTENT_BUNDLE_VERSION,
+  jsonSafeArgs,
   type ExecuteIntentRunBundleV1,
+  type LeafDisposition,
   type LeafTrace,
+  type LeafVerdict,
 } from './run-bundle.js';
 import type {
   CompiledLeaf,
@@ -78,8 +84,12 @@ import type {
   ReceiptSteering,
 } from './types.js';
 
-/** The event this action commits on both outcomes. */
-export const INTENT_EXECUTED_EVENT = 'orchestrate.intent_executed';
+/**
+ * The event this action commits on both outcomes. Read off the settlement
+ * endpoint the run-bundle oracle keys on, so the producer cannot name a type
+ * the oracle does not treat as a settlement.
+ */
+export const INTENT_EXECUTED_EVENT = INTENT_EXECUTED_SETTLEMENT.type;
 
 /**
  * The economy fields a fuller interaction accounting owes and this one does
@@ -123,10 +133,10 @@ export interface ExecuteIntentDeps extends CompileDeps {
   readonly handlerTool: string;
   /**
    * Where the run's interior is written before the operation record commits.
-   * Absent, the store is bound to the caller's state directory — the only
-   * binding production code uses, so bundle bytes and the ledger naming them
-   * share a root. Present, it is a test seam: the one way to make the write
-   * fail without making the filesystem fail.
+   * Absent, the store is the one the event store itself is bound to — the
+   * ledger that will name the bytes owns the root they live under, so the two
+   * cannot be pointed at different directories. Present, it is a test seam:
+   * the one way to make the write fail without making the filesystem fail.
    */
   readonly bundleStore?: RunBundleStore;
 }
@@ -486,7 +496,7 @@ export async function handleExecuteIntent(
       outer,
       handlers,
       handlerTool: deps.handlerTool,
-      bundles: deps.bundleStore ?? RunBundleStore.forStateDir(stateDir),
+      bundles: deps.bundleStore ?? ctx.eventStore.bundleStore,
     });
     if (committed.kind === 'digest-mismatch') {
       return digestMismatchResult(
@@ -543,19 +553,17 @@ interface RunSegmentInput {
   readonly bundles: RunBundleStore;
 }
 
-/**
- * The interior facts a leaf run leaves behind that the receipt does not
- * carry. They go to the run bundle, not the ledger: when the leaf ran, whether
- * its handler was reached at all, and what that handler said.
- */
-interface LeafRunFacts {
-  startedAt: string;
-  endedAt: string;
-  handlerInvoked: boolean;
-  replayElided: boolean;
-  handler?: { readonly success: boolean; readonly error?: { readonly code: string; readonly message: string } };
+/** The window a leaf ran in — bundle material, not receipt material. */
+interface LeafTiming {
+  readonly startedAt: string;
+  readonly endedAt: string;
 }
 
+/**
+ * A leaf's outcome as the body of the run reports it. `disposition` is named
+ * by every return path explicitly — there is no default, so a path that
+ * forgot to say whether the handler ran does not compile.
+ */
 interface LeafOutcome {
   readonly status: LeafStatus;
   readonly events: readonly ReceiptEvent[];
@@ -563,31 +571,51 @@ interface LeafOutcome {
   /** Set when the leaf's declared emissions did not land and the mode did not halt for it. */
   readonly emissionViolation?: 'INTENT_EMISSION_CONTRACT_VIOLATED';
   readonly failure?: { readonly code: 'INTENT_SEGMENT_FAILED' | 'INTENT_EMISSION_CONTRACT_VIOLATED'; readonly message: string };
-  readonly facts: LeafRunFacts;
+  readonly disposition: LeafDisposition;
+}
+
+/**
+ * The leaf's verdict for the bundle. A failure is present exactly when the
+ * status is not `passed`; the receipt keeps the flat shape it always had, the
+ * bundle records the coupled one so a reader cannot be handed a passed leaf
+ * carrying a failure.
+ */
+function verdictOf(outcome: LeafOutcome): LeafVerdict {
+  if (outcome.status === 'passed') {
+    return {
+      status: 'passed',
+      ...(outcome.emissionViolation !== undefined
+        ? { emissionViolation: outcome.emissionViolation }
+        : {}),
+    };
+  }
+  const failure = outcome.failure ?? {
+    code: 'INTENT_SEGMENT_FAILED',
+    message: 'the leaf did not pass and recorded no failure',
+  };
+  return outcome.status === 'failed'
+    ? { status: 'failed', failure }
+    : { status: 'advisory-failed', failure };
 }
 
 /** The trace entry a leaf contributes to the run bundle. */
-function traceOf(leaf: CompiledLeaf, outcome: LeafOutcome): LeafTrace {
+function traceOf(leaf: CompiledLeaf, outcome: LeafOutcome, timing: LeafTiming): LeafTrace {
   return {
     index: leaf.index,
     action: leaf.action,
     tool: leaf.tool,
     onFail: leaf.onFail,
     observationStreamId: leaf.observationStreamId,
-    args: leaf.args,
-    status: outcome.status,
+    args: jsonSafeArgs(leaf.args),
     events: outcome.events.map((event) => ({
       type: event.type,
       streamId: event.streamId,
       sequence: event.sequence,
     })),
-    ...(outcome.emissionViolation !== undefined ? { emissionViolation: outcome.emissionViolation } : {}),
-    ...(outcome.failure !== undefined ? { failure: outcome.failure } : {}),
-    startedAt: outcome.facts.startedAt,
-    endedAt: outcome.facts.endedAt,
-    handlerInvoked: outcome.facts.handlerInvoked,
-    replayElided: outcome.facts.replayElided,
-    ...(outcome.facts.handler !== undefined ? { handler: outcome.facts.handler } : {}),
+    startedAt: timing.startedAt,
+    endedAt: timing.endedAt,
+    disposition: outcome.disposition,
+    verdict: verdictOf(outcome),
   };
 }
 
@@ -601,7 +629,9 @@ async function runSegment(input: RunSegmentInput): Promise<CommitOutcome> {
   let failure: IntentReceipt['failure'];
 
   for (const leaf of segment.leaves) {
+    const startedAt = new Date().toISOString();
     const outcome = await runLeaf({ leaf, operationId, stateDir, ctx, outer, handlers, handlerTool, segment });
+    const endedAt = new Date().toISOString();
     leaves.push({
       action: leaf.action,
       status: outcome.status,
@@ -610,7 +640,7 @@ async function runSegment(input: RunSegmentInput): Promise<CommitOutcome> {
         ? { emissionViolation: outcome.emissionViolation }
         : {}),
     });
-    traces.push(traceOf(leaf, outcome));
+    traces.push(traceOf(leaf, outcome, { startedAt, endedAt }));
     eventsAppended += outcome.captures.length;
     for (const capture of outcome.captures) {
       if (capture.streamId === segment.streamId && capture.sequence > tailSequence) {
@@ -751,26 +781,7 @@ async function replayElidedRows(input: {
     .map((row) => ({ type: row.type, streamId: leaf.observationStreamId, sequence: row.sequence }));
 }
 
-/**
- * Run one leaf and stamp the interior facts the bundle records: when it
- * started and ended, and whether the handler was reached. The facts object is
- * shared with the body so the body can record what it learns at the point it
- * learns it, and the outcome is completed here so every return path — refusal,
- * elision, success — carries the same fields without each spelling them.
- */
 async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
-  const facts: LeafRunFacts = {
-    startedAt: new Date().toISOString(),
-    endedAt: '',
-    handlerInvoked: false,
-    replayElided: false,
-  };
-  const outcome = await runLeafBody(input, facts);
-  facts.endedAt = new Date().toISOString();
-  return { ...outcome, facts };
-}
-
-async function runLeafBody(input: RunLeafInput, facts: LeafRunFacts): Promise<Omit<LeafOutcome, 'facts'>> {
   const { leaf, operationId, stateDir, ctx, outer, handlers, handlerTool } = input;
   const derived = derivedLeafOperationId(operationId, leaf.index, leaf.action);
   const captures: Capture[] = [];
@@ -796,14 +807,14 @@ async function runLeafBody(input: RunLeafInput, facts: LeafRunFacts): Promise<Om
     // and `onFail: 'continue'` never licensed that — so a halting integrity
     // failure halts whatever the step's failure policy says.
     policy: 'runbook' | 'halt-regardless' = 'runbook',
-  ): Omit<LeafOutcome, 'facts'> => ({
+  ): Omit<LeafOutcome, 'disposition'> => ({
     status: policy === 'runbook' && leaf.onFail === 'continue' ? 'advisory-failed' : 'failed',
     events: receiptEvents(),
     captures,
     failure: { code, message },
   });
 
-  return runWithDispatchContext(leafCorrelation(outer, derived), async (): Promise<Omit<LeafOutcome, 'facts'>> => {
+  return runWithDispatchContext(leafCorrelation(outer, derived), async (): Promise<LeafOutcome> => {
     // The same evaluator the dispatch path runs, called in execution order so a
     // leaf's requirements are read against the state its predecessors left.
     const admission = await evaluateDispatchAdmission({
@@ -815,10 +826,13 @@ async function runLeafBody(input: RunLeafInput, facts: LeafRunFacts): Promise<Om
       ...(outer.authorization !== undefined ? { authorization: outer.authorization } : { authorization: undefined }),
     });
     if (admission !== null) {
-      return failFor(
-        'INTENT_SEGMENT_FAILED',
-        `leaf '${leaf.action}' was not admitted: ${admission.error?.message ?? 'admission denied'}`,
-      );
+      return {
+        ...failFor(
+          'INTENT_SEGMENT_FAILED',
+          `leaf '${leaf.action}' was not admitted: ${admission.error?.message ?? 'admission denied'}`,
+        ),
+        disposition: { kind: 'not-invoked', reason: 'admission-refused' },
+      };
     }
 
     // Compile already refuses a step whose tool disagrees with this table's
@@ -827,31 +841,40 @@ async function runLeafBody(input: RunLeafInput, facts: LeafRunFacts): Promise<Om
     // even for a caller that compiled a segment under one set of deps and
     // executes it under another.
     if (leaf.tool !== handlerTool) {
-      return failFor(
-        'INTENT_SEGMENT_FAILED',
-        `leaf '${leaf.action}' names tool '${leaf.tool}', but the injected handler table belongs ` +
-          `to '${handlerTool}'`,
-      );
+      return {
+        ...failFor(
+          'INTENT_SEGMENT_FAILED',
+          `leaf '${leaf.action}' names tool '${leaf.tool}', but the injected handler table belongs ` +
+            `to '${handlerTool}'`,
+        ),
+        disposition: { kind: 'not-invoked', reason: 'handler-tool-mismatch' },
+      };
     }
 
     const elided = await replayElidedRows({ leaf, derived, ctx });
     if (elided !== undefined) {
-      facts.replayElided = true;
       captures.push(...elided);
-      return { status: 'passed', events: receiptEvents(), captures };
+      return {
+        status: 'passed',
+        events: receiptEvents(),
+        captures,
+        disposition: { kind: 'replay-elided' },
+      };
     }
 
     const handler = handlers[leaf.action];
     if (handler === undefined) {
-      return failFor(
-        'INTENT_SEGMENT_FAILED',
-        `leaf '${leaf.action}' is registered but has no handler in the orchestrate table`,
-      );
+      return {
+        ...failFor(
+          'INTENT_SEGMENT_FAILED',
+          `leaf '${leaf.action}' is registered but has no handler in the orchestrate table`,
+        ),
+        disposition: { kind: 'not-invoked', reason: 'handler-missing' },
+      };
     }
 
     // Awaited inside the observer scope: an append that fires after the scope
     // closes is an append the receipt would not know about.
-    facts.handlerInvoked = true;
     const result = await runWithAppendObserver(
       (observation) => {
         captures.push({
@@ -864,11 +887,14 @@ async function runLeafBody(input: RunLeafInput, facts: LeafRunFacts): Promise<Om
     );
     // The handler's verdict, kept for the bundle: the receipt says the leaf
     // failed, the trace says what the handler said when it did.
-    facts.handler = {
-      success: result.success,
-      ...(result.error !== undefined
-        ? { error: { code: result.error.code, message: result.error.message } }
-        : {}),
+    const invoked: LeafDisposition = {
+      kind: 'invoked',
+      handler: {
+        success: result.success,
+        ...(result.error !== undefined
+          ? { error: { code: result.error.code, message: result.error.message } }
+          : {}),
+      },
     };
 
     // Read what this leaf's identity holds BEFORE the verifier runs. The
@@ -901,10 +927,13 @@ async function runLeafBody(input: RunLeafInput, facts: LeafRunFacts): Promise<Om
     });
 
     if (!result.success) {
-      return failFor(
-        'INTENT_SEGMENT_FAILED',
-        `leaf '${leaf.action}' failed: ${result.error?.message ?? 'no message'}`,
-      );
+      return {
+        ...failFor(
+          'INTENT_SEGMENT_FAILED',
+          `leaf '${leaf.action}' failed: ${result.error?.message ?? 'no message'}`,
+        ),
+        disposition: invoked,
+      };
     }
 
     // The postconditions this leaf declared, observed the way the dispatch
@@ -928,12 +957,15 @@ async function runLeafBody(input: RunLeafInput, facts: LeafRunFacts): Promise<Om
             ? `event ${postcondition.event}`
             : `evidence ${postcondition.evidenceType}`,
         );
-        return failFor(
-          'INTENT_EMISSION_CONTRACT_VIOLATED',
-          `leaf '${leaf.action}' returned success without the postconditions it declares: ` +
-            `${unobserved.join(', ')}`,
-          'halt-regardless',
-        );
+        return {
+          ...failFor(
+            'INTENT_EMISSION_CONTRACT_VIOLATED',
+            `leaf '${leaf.action}' returned success without the postconditions it declares: ` +
+              `${unobserved.join(', ')}`,
+            'halt-regardless',
+          ),
+          disposition: invoked,
+        };
       }
     }
 
@@ -964,17 +996,21 @@ async function runLeafBody(input: RunLeafInput, facts: LeafRunFacts): Promise<Om
       // carried on the receipt leaf rather than dropped: a mode that chose not
       // to fail is not a mode that chose not to report.
       if (resolveEmissionEnforcement(ctx.projectConfig) === 'block') {
-        return failFor('INTENT_EMISSION_CONTRACT_VIOLATED', message, 'halt-regardless');
+        return {
+          ...failFor('INTENT_EMISSION_CONTRACT_VIOLATED', message, 'halt-regardless'),
+          disposition: invoked,
+        };
       }
       return {
         status: 'passed',
         events: receiptEvents(),
         captures,
         emissionViolation: 'INTENT_EMISSION_CONTRACT_VIOLATED',
+        disposition: invoked,
       };
     }
 
-    return { status: 'passed', events: receiptEvents(), captures };
+    return { status: 'passed', events: receiptEvents(), captures, disposition: invoked };
   });
 }
 
@@ -1049,7 +1085,7 @@ async function commitReceipt(
 
 async function commitReferencedReceipt(
   input: RunSegmentInput,
-  receipt: IntentReceipt & { readonly bundleRefs: readonly BundleRefV1[] },
+  receipt: IntentReceipt & { readonly bundleRefs: readonly [BundleRefV1, ...BundleRefV1[]] },
 ): Promise<CommitOutcome> {
   // The schema's own parse output is the event payload. Typing the binding as
   // the record shape the event carries is what makes it one, so nothing has to
@@ -1075,11 +1111,14 @@ async function commitReferencedReceipt(
   // operation record with no correlation id while every leaf event carried
   // one, so the record and the work it describes could not be joined.
   return runWithDispatchContext(input.outer, async (): Promise<CommitOutcome> => {
+    // The payload version is the custody epoch: it says this row was written
+    // under the contract that requires a bundle reference, which is how the
+    // integrity sweep tells it from a row that settled before custody existed.
     const event = stampFromAmbient({
-      type: INTENT_EXECUTED_EVENT,
+      type: INTENT_EXECUTED_SETTLEMENT.type,
       data,
       timestamp: new Date().toISOString(),
-      schemaVersion: '1.0',
+      schemaVersion: INTENT_EXECUTED_SETTLEMENT.custodyFromSchemaVersion,
     });
 
     try {
