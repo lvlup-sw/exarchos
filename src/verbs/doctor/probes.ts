@@ -28,6 +28,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { EventStore, IntegrityResult } from '../../events/store.js';
+import type { BundleIntegrityResult } from '../../events/bundle/integrity.js';
 import {
   detectAgentEnvironments,
   type AgentEnvironment,
@@ -73,6 +74,21 @@ export interface DoctorSqlite {
     signal?: AbortSignal;
     timeoutMs?: number;
   }): Promise<IntegrityResult>;
+}
+
+export interface DoctorBundles {
+  /**
+   * Run the run-bundle resolvability sweep through the EventStore's own
+   * accessor: every artifact digest a ledger event references must resolve
+   * in the bundle store, and a settled stream must reference something. The
+   * store enforces the timeout and abort contract; this probe is a thin
+   * forwarder. The result is a discriminated union — callers pattern-match
+   * on `ok` without type assertions.
+   */
+  runIntegrityCheck(opts?: {
+    signal?: AbortSignal;
+    timeoutMs?: number;
+  }): Promise<BundleIntegrityResult>;
 }
 
 export interface DoctorRuntime {
@@ -166,6 +182,7 @@ export interface DoctorProbes {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly git: DoctorGit;
   readonly sqlite: DoctorSqlite;
+  readonly bundles: DoctorBundles;
   readonly detector: (signal?: AbortSignal) => Promise<AgentEnvironment[]>;
   readonly eventStore: EventStore;
   readonly runtime: DoctorRuntime;
@@ -579,6 +596,11 @@ export function buildProbes(ctx: DispatchContext): DoctorProbes {
     // probe never needs to reach for a raw sqlite handle (DIM-6).
     sqlite: {
       runIntegrityCheck: (opts) => ctx.eventStore.runIntegrityCheck(opts),
+    },
+    // The same shape for run-bundle custody: the store owns the sweep, its
+    // timeout and its abort; the probe only forwards.
+    bundles: {
+      runIntegrityCheck: (opts) => ctx.eventStore.runBundleIntegrityCheck(opts),
     },
     detector: (signal) => detectAgentEnvironments(undefined, signal),
     eventStore: ctx.eventStore,

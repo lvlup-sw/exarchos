@@ -33,6 +33,7 @@ import { describe, it, expect } from 'vitest';
 import type { DoctorProbes } from '../../../../src/verbs/doctor/probes.js';
 import type { AgentEnvironment } from '../../../../src/runtime/agent-environment-detector.js';
 import type { IntegrityResult } from '../../../../src/events/store.js';
+import type { BundleIntegrityResult } from '../../../../src/events/bundle/integrity.js';
 import { CheckStatusSchema, CheckResultSchema, type CheckResult } from '../../../../src/verbs/doctor/schema.js';
 import { ALL_CHECKS } from '../../../../src/verbs/doctor/index.js';
 
@@ -65,6 +66,10 @@ import { ALL_CHECKS } from '../../../../src/verbs/doctor/index.js';
  * 18 → 19. It gives the ActionId closure evaluator a production caller — until
  * then the instrument was reachable only from its own tests, and a build whose
  * contract projections had drifted said nothing about it at runtime.
+ * DELIBERATE PIN UPDATE: `run-bundle-integrity` (category `storage`) was added
+ * after `store-path-divergence` as a CONSCIOUS act, updating the count 19 → 20.
+ * It gives the run-bundle resolvability oracle a production caller, now that
+ * the executor writes bundles the ledger references by digest.
  */
 const PINNED_ROSTER: ReadonlyArray<{
   category: CheckResult['category'];
@@ -74,6 +79,7 @@ const PINNED_ROSTER: ReadonlyArray<{
   { category: 'storage', name: 'state-dir' },
   { category: 'storage', name: 'storage-sqlite-health' },
   { category: 'storage', name: 'store-path-divergence' },
+  { category: 'storage', name: 'run-bundle-integrity' },
   { category: 'env', name: 'variables' },
   { category: 'vcs', name: 'git-available' },
   { category: 'agent', name: 'agent-config-valid' },
@@ -125,6 +131,12 @@ function benignProbes(): DoctorProbes {
         reason: 'benign roster probe',
       }),
     },
+    bundles: {
+      runIntegrityCheck: async (): Promise<BundleIntegrityResult> => ({
+        ok: 'skipped',
+        reason: 'benign roster probe',
+      }),
+    },
     detector: async () => emptyEnvironments,
     eventStore: {
       append: async () => ({}),
@@ -170,16 +182,16 @@ async function runRoster(): Promise<readonly CheckResult[]> {
 // ─── Characterization ────────────────────────────────────────────────────────
 
 describe('doctor roster characterization (T0 baseline)', () => {
-  it('DoctorRoster_CurrentBuild_ExactlyNineteenChecksWithStableNames', async () => {
+  it('DoctorRoster_CurrentBuild_ExactlyTwentyChecksWithStableNames', async () => {
     // The static export ships exactly nineteen checks, in pinned order. (13 → 15
     // by Task 017: onramp-block-drift + retired-hooks-present; 15 → 16 by
     // Task 011: stale-skill-dirs; 16 → 17 by Task 019: store-path-divergence;
     // 17 → 18 by P05-04: install-freshness; 18 → 19: action-contract-closure.)
-    expect(ALL_CHECKS).toHaveLength(19);
-    expect(PINNED_ROSTER).toHaveLength(19);
+    expect(ALL_CHECKS).toHaveLength(20);
+    expect(PINNED_ROSTER).toHaveLength(20);
 
     const results = await runRoster();
-    expect(results).toHaveLength(19);
+    expect(results).toHaveLength(20);
 
     // Each check, run through the REAL ALL_CHECKS, stamps its own identity —
     // we read (category, name) off the returned result rather than transcribing.
@@ -191,7 +203,7 @@ describe('doctor roster characterization (T0 baseline)', () => {
 
     // The name set is exactly the pinned set: no duplicates, no strays.
     const observedNames = new Set(results.map((r) => r.name));
-    expect(observedNames.size).toBe(19);
+    expect(observedNames.size).toBe(20);
     for (const { name } of PINNED_ROSTER) {
       expect(observedNames.has(name)).toBe(true);
     }

@@ -14,6 +14,7 @@
 
 import { z } from 'zod';
 import { EnvelopeSchema } from '../../contract/schemas/envelope.js';
+import { BundleRefV1Schema } from '../../events/bundle/digest-references.js';
 
 const ReceiptEventSchema = z
   .object({
@@ -78,6 +79,11 @@ const IntentReceiptData = z
     steering: ReceiptSteeringSchema.optional(),
     failure: ReceiptFailureSchema.optional(),
     interaction: ReceiptInteractionSchema,
+    // Optional here even though every fresh commit stamps it: a replay returns
+    // the receipt persisted in the operation claim, and a claim recorded before
+    // run-bundle custody existed carries none. Requiring it would turn that
+    // replay into an INTERNAL_ERROR at the adapter boundary.
+    bundleRefs: z.array(BundleRefV1Schema).optional(),
   })
   .passthrough();
 

@@ -77,6 +77,14 @@ export interface IntentFailureDetail {
   readonly outcome: 'committed' | 'failed';
   readonly failedLeaf?: string;
   readonly tailSequence: number;
+  /**
+   * The run bundle the failed segment's interior was written to, as
+   * (artifact id, digest) pairs. A failed segment still ran, so its trace is
+   * still in custody, and the caller reading the refusal is the one who needs
+   * it. Structural rather than imported for the same no-new-dependency reason
+   * as the rest of this shape.
+   */
+  readonly bundleRefs?: readonly { readonly artifactId: string; readonly digest: { readonly algorithm: string; readonly value: string } }[];
   readonly leaves: readonly {
     readonly action: string;
     readonly status: string;

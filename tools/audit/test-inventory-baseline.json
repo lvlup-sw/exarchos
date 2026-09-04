@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1260,
-    "parsedFiles": 1215,
+    "testFiles": 1262,
+    "parsedFiles": 1217,
     "shellFiles": 45,
-    "cases": 13851,
+    "cases": 13863,
     "dynamicTitles": 150,
     "unparseableFiles": 0
   },
@@ -50556,6 +50556,42 @@
         }
       ]
     },
+    "tests/unit/verbs/doctor/checks/run-bundle-integrity.test.ts": {
+      "file": "tests/unit/verbs/doctor/checks/run-bundle-integrity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "run-bundle-integrity",
+          "name": "RunBundleIntegrity_EveryReferenceResolves_ReturnsPassNamingTheDenominator",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle-integrity",
+          "name": "RunBundleIntegrity_EmptyDenominator_PassesButSaysNothingWasChecked",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle-integrity",
+          "name": "RunBundleIntegrity_BackendCannotEnumerate_ReturnsSkippedWithTheStoresReason",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle-integrity",
+          "name": "RunBundleIntegrity_Violations_ReturnsWarningNamingWhereAndWhat",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle-integrity",
+          "name": "RunBundleIntegrity_ManyViolations_ShowsAFewAndCountsTheRest",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle-integrity",
+          "name": "RunBundleIntegrity_IncompleteSweep_IsItsOwnWarningNotAZeroCountVerdict",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/doctor/checks/runtime-node-version.test.ts": {
       "file": "tests/unit/verbs/doctor/checks/runtime-node-version.test.ts",
       "runner": "vitest:root",
@@ -50730,7 +50766,7 @@
       "cases": [
         {
           "suite": "doctor roster characterization (T0 baseline)",
-          "name": "DoctorRoster_CurrentBuild_ExactlyNineteenChecksWithStableNames",
+          "name": "DoctorRoster_CurrentBuild_ExactlyTwentyChecksWithStableNames",
           "dynamic": false
         },
         {
@@ -51611,6 +51647,42 @@
         {
           "suite": "execute_intent registered economy declaration",
           "name": "ExecuteIntentEconomy_OverBudgetPlusOne_SummarizesAndKeepsPinnedFields",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/execute/run-bundle.test.ts": {
+      "file": "tests/unit/verbs/execute/run-bundle.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "run-bundle document",
+          "name": "Encode_ThenDecode_RoundTripsTheDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle document",
+          "name": "Encode_IsCanonical_SoKeyOrderCannotChangeTheDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle document",
+          "name": "Encode_RefusesADocumentTheSchemaRejects_SoNoDigestNamesAnUnreadableBundle",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle document",
+          "name": "Decode_RefusesForeignOrPartialBytes",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle document",
+          "name": "ArtifactId_IsDerivedFromTheOperationIdAndFitsTheGrammarAtTheBound",
+          "dynamic": false
+        },
+        {
+          "suite": "run-bundle document",
+          "name": "Schema_IsStrictAtEveryLevel",
           "dynamic": false
         }
       ]

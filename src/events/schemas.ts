@@ -21,6 +21,7 @@ import {
   WaiverProvenanceV1Schema,
 } from '../workflow/admission/types.js';
 import { ANNOTATED_EVENTS } from './event-annotations.js';
+import { BundleRefV1Schema } from './bundle/digest-references.js';
 import { assertWellFormedEventName } from './event-name.js';
 import { deriveEmissionRegistry } from './event-registration.js';
 import {
@@ -3787,6 +3788,20 @@ export const OrchestrateIntentExecutedData = z
     steering: IntentExecutedSteering.optional().describe(
       'Caller-supplied riskTier/boundaryTouching, when either was passed to execute_intent',
     ),
+    // Required, and at least one: this is a settlement endpoint the run-bundle
+    // integrity oracle keys on, and that oracle reports a settled stream with
+    // no reference as a violation. Requiring the field here means the
+    // executor cannot append a record the oracle would immediately condemn —
+    // the bytes must be in custody before the fact that names them exists.
+    // Per-type data is validated by the producer's own parse, not at the
+    // store, so rows appended before custody existed remain readable.
+    bundleRefs: z
+      .array(BundleRefV1Schema)
+      .min(1)
+      .describe(
+        'Content-addressed run-bundle references (artifact id + sha256) for the receipt and ' +
+          'per-leaf trace this record summarises; the bytes are durable before this row exists',
+      ),
   })
   .strict();
 export type OrchestrateIntentExecuted = z.infer<typeof OrchestrateIntentExecutedData>;

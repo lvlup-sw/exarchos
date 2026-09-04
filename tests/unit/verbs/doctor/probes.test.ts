@@ -73,6 +73,31 @@ describe('buildProbes', () => {
     expect(result).toBe(sentinel);
     expect(recorded).toEqual([{ timeoutMs: 777 }]);
   });
+
+  it('BuildProbes_BundlesRunIntegrityCheck_DelegatesToTheBundleSweepNotTheSqlitePragma', async () => {
+    // Two integrity accessors live on the store, and a probe wired to the
+    // wrong one would report the sqlite pragma's verdict under the bundle
+    // check's name. Each fake accessor returns its own sentinel so the probe
+    // is shown to reach the sweep, not merely "an" integrity method.
+    const bundleSentinel = { ok: 'skipped' as const, reason: 'bundle-sweep-marker' };
+    const sqliteSentinel = { ok: 'skipped' as const, reason: 'sqlite-pragma-marker' };
+    const recorded: Array<{ signal?: AbortSignal; timeoutMs?: number }> = [];
+    const fakeStore = {
+      append: () => {},
+      runIntegrityCheck: async () => sqliteSentinel,
+      runBundleIntegrityCheck: async (opts?: { signal?: AbortSignal; timeoutMs?: number }) => {
+        recorded.push(opts ?? {});
+        return bundleSentinel;
+      },
+    };
+    const ctx = fakeContext({ eventStore: fakeStore as unknown as DispatchContext['eventStore'] });
+
+    const probes = buildProbes(ctx);
+    const result = await probes.bundles.runIntegrityCheck({ timeoutMs: 555 });
+
+    expect(result).toBe(bundleSentinel);
+    expect(recorded).toEqual([{ timeoutMs: 555 }]);
+  });
 });
 
 describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482)', () => {

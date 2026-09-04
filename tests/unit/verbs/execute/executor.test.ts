@@ -8,14 +8,21 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { resolveConfig } from '../../../../src/config/resolve.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { runWithDispatchContext } from '../../../../src/dispatch/dispatch-context.js';
+import { BUNDLE_REF_FIELD, type BundleRefV1 } from '../../../../src/events/bundle/digest-references.js';
+import { RunBundleStore } from '../../../../src/events/bundle/run-bundle-store.js';
 import { EventStore } from '../../../../src/events/store.js';
-import { WorkflowEventBase, type WorkflowEvent } from '../../../../src/events/schemas.js';
+import {
+  OrchestrateIntentExecutedData,
+  WorkflowEventBase,
+  type WorkflowEvent,
+} from '../../../../src/events/schemas.js';
+import { ContentAddressedStoreError } from '../../../../src/storage/artifacts/content-addressed-store.js';
 import { declared, getFullRegistry } from '../../../../src/registry.js';
 import { toEnvelope, type ToolResult } from '../../../../src/format.js';
 import {
@@ -27,6 +34,10 @@ import {
   type LeafHandler,
   type LeafHandlerTable,
 } from '../../../../src/verbs/execute/executor.js';
+import {
+  decodeExecuteIntentBundle,
+  executeIntentBundleArtifactId,
+} from '../../../../src/verbs/execute/run-bundle.js';
 import { IntentExecutedOutputSchema } from '../../../../src/verbs/execute/schemas.js';
 import type { IntentReceipt } from '../../../../src/verbs/execute/types.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
@@ -1035,12 +1046,16 @@ describe('handleExecuteIntent failure envelope', () => {
       outcome: 'failed',
       failedLeaf: 'fixture_quiet',
       tailSequence: receipt.tailSequence,
+      // A failed segment still ran, so its bundle is still in custody, and the
+      // refusal is where the caller reads it from.
+      bundleRefs: receipt.bundleRefs,
       leaves: [
         { action: 'fixture_promises', status: 'passed', events: 1 },
         { action: 'fixture_quiet', status: 'failed', events: 0 },
       ],
     });
     expect(receipt.tailSequence).toBeGreaterThan(0);
+    expect(receipt.bundleRefs).toHaveLength(1);
   });
 
   it('ReplayOfAFailedOperation_CarriesItTheSecondTimeToo', async () => {
@@ -1060,6 +1075,237 @@ describe('handleExecuteIntent failure envelope', () => {
     if (first.success || second.success) return;
     expect(second.error.intentReceipt).toEqual(first.error.intentReceipt);
     expect(second.error.intentReceipt).toBeDefined();
+  });
+});
+
+// ─── Run-bundle custody: the interior is durable before the record names it ─
+
+describe('handleExecuteIntent run bundle', () => {
+  const bundles = () => RunBundleStore.forStateDir(stateDir);
+
+  function blobPath(digest: { algorithm: string; value: string }): string {
+    return path.join(bundles().root, digest.algorithm, digest.value.slice(0, 2), digest.value.slice(2));
+  }
+
+  function refsOf(receipt: IntentReceipt): readonly BundleRefV1[] {
+    if (receipt.bundleRefs === undefined) throw new Error('receipt carries no bundle reference');
+    return receipt.bundleRefs;
+  }
+
+  it('CommittedSegment_WritesItsInteriorToTheBundleStoreAndStampsTheReferenceOnTheRecord', async () => {
+    const deps = depsFor(
+      [fixtureStep('fixture_quiet', 'stop'), fixtureStep('fixture_promises', 'stop')],
+      { fixture_quiet: silentHandler(), fixture_promises: appendingHandler('task.completed') },
+    );
+    const result = await execute(
+      {
+        intent: INTENT,
+        streamId: STREAM,
+        args: { taskId: 't1', riskTier: 'medium' },
+        operationId: 'op-bundle',
+      },
+      deps,
+    );
+    const receipt = receiptOf(result);
+    expect(result.success).toBe(true);
+
+    // One reference, named for the operation, on the receipt AND on the row.
+    const refs = refsOf(receipt);
+    expect(refs).toHaveLength(1);
+    const [ref] = refs;
+    if (ref === undefined) return;
+    expect(ref.artifactId).toBe(executeIntentBundleArtifactId('op-bundle'));
+    const committed = await operationEvents();
+    expect(committed).toHaveLength(1);
+    expect(committed[0]?.data?.[BUNDLE_REF_FIELD]).toEqual(refs);
+
+    // The bytes behind the digest are the run's interior: what each leaf was
+    // invoked with, when, and what its handler said — none of which the row
+    // or the receipt carries.
+    const bundle = decodeExecuteIntentBundle(await bundles().resolve(ref.digest));
+    expect(bundle).toMatchObject({
+      kind: 'execute-intent-run',
+      operationId: 'op-bundle',
+      intent: INTENT,
+      streamId: STREAM,
+      outcome: 'committed',
+      requestDigest: receipt.requestDigest,
+      steering: { riskTier: 'medium', source: 'caller-args' },
+      tailSequence: receipt.tailSequence,
+      interaction: receipt.interaction,
+    });
+    expect(bundle.leaves.map((leaf) => [leaf.index, leaf.action, leaf.status])).toEqual([
+      [0, 'fixture_quiet', 'passed'],
+      [1, 'fixture_promises', 'passed'],
+    ]);
+    const [quiet, promises] = bundle.leaves;
+    expect(quiet?.args).toMatchObject({ featureId: STREAM, taskId: 't1' });
+    expect(quiet?.handlerInvoked).toBe(true);
+    expect(quiet?.replayElided).toBe(false);
+    expect(quiet?.handler).toEqual({ success: true });
+    expect(Date.parse(quiet?.endedAt ?? '')).toBeGreaterThanOrEqual(Date.parse(quiet?.startedAt ?? ''));
+    expect(promises?.events).toEqual(receipt.leaves[1]?.events);
+    // The bundle never carries its own reference — the digest is OF these bytes.
+    expect(Object.hasOwn(bundle, 'bundleRefs')).toBe(false);
+  });
+
+  it('FailedSegment_AlsoWritesItsBundle_AndTheTraceCarriesTheHandlersRefusal', async () => {
+    const deps = depsFor(
+      [fixtureStep('fixture_promises', 'stop'), fixtureStep('fixture_quiet', 'stop')],
+      { fixture_promises: appendingHandler('task.completed'), fixture_quiet: failingHandler('refused') },
+    );
+    const result = await execute(
+      { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-bundle-failed' },
+      deps,
+    );
+    const receipt = receiptOf(result);
+    expect(result.success).toBe(false);
+
+    const [ref] = refsOf(receipt);
+    if (ref === undefined) throw new Error('no reference');
+    const bundle = decodeExecuteIntentBundle(await bundles().resolve(ref.digest));
+    expect(bundle.outcome).toBe('failed');
+    expect(bundle.failedLeaf).toBe('fixture_quiet');
+    expect(bundle.failure?.code).toBe('INTENT_SEGMENT_FAILED');
+    expect(bundle.leaves[1]?.handler).toEqual({
+      success: false,
+      error: { code: 'FIXTURE_LEAF_REFUSED', message: 'refused' },
+    });
+    // The refusal's compact detail points at the same bytes.
+    expect(result.error?.intentReceipt?.bundleRefs).toEqual(receipt.bundleRefs);
+  });
+
+  it('Replay_ReturnsThePersistedReferenceAndWritesNoSecondBundle', async () => {
+    const counted = countingHandler(silentHandler());
+    const deps = depsFor([fixtureStep('fixture_quiet', 'stop')], { fixture_quiet: counted.handler });
+    const request = { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-bundle-replay' };
+
+    const first = receiptOf(await execute(request, deps));
+    const [ref] = refsOf(first);
+    if (ref === undefined) throw new Error('no reference');
+    const bytesBefore = await readFile(blobPath(ref.digest));
+
+    const second = receiptOf(await execute(request, deps));
+
+    expect(counted.calls()).toBe(1);
+    expect(second.bundleRefs).toEqual(first.bundleRefs);
+    // The claim answered the replay; the blob is untouched and still the only one.
+    expect((await readFile(blobPath(ref.digest))).equals(bytesBefore)).toBe(true);
+    expect(claimFor('op-bundle-replay')?.result.bundleRefs).toEqual(first.bundleRefs);
+  });
+
+  it('BundleWriteFails_LeavesNoClaimAndNoOperationEvent_LikeAnyOtherCrash', async () => {
+    // The bytes are made durable BEFORE the record that names them. A store
+    // whose publish step fails therefore fails the commit outright: no claim,
+    // no operation event, the completed leaf's own work still in the log —
+    // the same shape a leaf that threw mid-segment leaves, which the retry
+    // model already knows how to finish. Committing without the reference
+    // would append a record the integrity oracle condemns on sight.
+    const failing = new RunBundleStore(path.join(stateDir, 'failing-bundles'), {
+      mkdir: async () => undefined,
+      writeFile: async () => undefined,
+      readFile: async () => {
+        throw new ContentAddressedStoreError('CONTENT_NOT_FOUND', 'nothing was published');
+      },
+      publish: async () => {
+        throw new Error('bundle publish failed');
+      },
+      unlink: async () => undefined,
+    });
+    const deps = {
+      ...depsFor(
+        [fixtureStep('fixture_quiet', 'stop'), fixtureStep('fixture_promises', 'stop')],
+        { fixture_quiet: appendingHandler('task.completed'), fixture_promises: silentHandler() },
+        [fixtureAction({ name: 'fixture_quiet' }), fixtureAction({ name: 'fixture_promises' })],
+      ),
+      bundleStore: failing,
+    };
+
+    await expect(
+      execute(
+        { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-bundle-crash' },
+        deps,
+      ),
+    ).rejects.toThrow('bundle publish failed');
+
+    expect(claimFor('op-bundle-crash')).toBeUndefined();
+    expect(await operationEvents()).toHaveLength(0);
+    const durable = await store.query(STREAM, {
+      operationId: derivedLeafOperationId('op-bundle-crash', 0, 'fixture_quiet'),
+    });
+    expect(durable.map((event) => event.type)).toEqual(['task.completed']);
+  });
+
+  it('TheIntegrityOracle_HoldsANonEmptyDenominatorOnTheProducersOwnStream_AndNamesASeededLoss', async () => {
+    // The oracle was dormant-red until this producer existed: every settled
+    // stream referenced nothing. This is the two-sided evidence that it is
+    // now live — clear with a real denominator after a real execution, and
+    // red naming the digest once the bytes are gone or altered.
+    const deps = depsFor([fixtureStep('fixture_quiet', 'stop')], { fixture_quiet: silentHandler() });
+    const receipt = receiptOf(
+      await execute(
+        { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-bundle-oracle' },
+        deps,
+      ),
+    );
+    const [ref] = refsOf(receipt);
+    if (ref === undefined) throw new Error('no reference');
+
+    const clear = await store.runBundleIntegrityCheck();
+    expect(clear.ok).toBe(true);
+    if (clear.ok !== true) return;
+    expect(clear.referenceCount).toBe(1);
+    expect(clear.scannedStreamCount).toBeGreaterThanOrEqual(1);
+
+    // Tamper: same path, different bytes. The reference still parses; the
+    // store's re-hash disagrees.
+    const blob = blobPath(ref.digest);
+    const original = await readFile(blob);
+    await writeFile(blob, Buffer.concat([original, Buffer.from('\n// altered', 'utf8')]));
+    const tampered = await store.runBundleIntegrityCheck();
+    expect(tampered.ok).toBe(false);
+    if (tampered.ok !== false) return;
+    expect(tampered.violations).toEqual([
+      { kind: 'digest-mismatch', streamId: STREAM, sequence: expect.any(Number), digest: `sha256:${ref.digest.value}` },
+    ]);
+
+    // Loss: the bytes are gone. Replay is still answered from the claim —
+    // the oracle is what names the deletion.
+    await unlink(blob);
+    const replayed = receiptOf(
+      await execute(
+        { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-bundle-oracle' },
+        deps,
+      ),
+    );
+    expect(replayed.bundleRefs).toEqual(receipt.bundleRefs);
+    const missing = await store.runBundleIntegrityCheck();
+    expect(missing.ok).toBe(false);
+    if (missing.ok !== false) return;
+    expect(missing.violations.map((v) => v.kind)).toEqual(['blob-missing']);
+    expect(missing.violations[0]?.digest).toBe(`sha256:${ref.digest.value}`);
+  });
+
+  it('TheOperationRecord_CannotBeBuiltWithoutAReference', () => {
+    // The schema is the structural half of the guard: the executor's own
+    // parse refuses a record that names no bytes, so a producer that forgot
+    // custody fails at commit rather than appending a row the oracle would
+    // condemn.
+    const withoutRefs = {
+      operationId: 'op-x',
+      intent: INTENT,
+      outcome: 'committed',
+      leaves: [],
+      requestDigest: 'sha256:abc',
+    };
+    expect(OrchestrateIntentExecutedData.safeParse(withoutRefs).success).toBe(false);
+    expect(OrchestrateIntentExecutedData.safeParse({ ...withoutRefs, bundleRefs: [] }).success).toBe(false);
+    expect(
+      OrchestrateIntentExecutedData.safeParse({
+        ...withoutRefs,
+        bundleRefs: [{ artifactId: 'run-bundle:x', digest: { algorithm: 'sha256', value: 'a'.repeat(64) } }],
+      }).success,
+    ).toBe(true);
   });
 });
 

@@ -44,6 +44,7 @@ import { runtimeNodeVersion } from './checks/runtime-node-version.js';
 import { storageStateDir } from './checks/storage-state-dir.js';
 import { storageSqliteHealth } from './checks/storage-sqlite-health.js';
 import { storePathDivergence } from './checks/store-path-divergence.js';
+import { runBundleIntegrity } from './checks/run-bundle-integrity.js';
 import { envVariables } from './checks/env-variables.js';
 import { vcsGitAvailable } from './checks/vcs-git-available.js';
 import { agentConfigValid } from './checks/agent-config-valid.js';
@@ -62,8 +63,12 @@ import { verificationToolchain } from './checks/verification-toolchain.js';
 
 // ─── Canonical check list ──────────────────────────────────────────────────
 
-/** All 18 checks. Order is preserved in the output — callers can scan
- * top-to-bottom for the first Fail. DR-11 B-5 (Task 019) added
+/** All 20 checks. Order is preserved in the output — callers can scan
+ * top-to-bottom for the first Fail. `run-bundle-integrity` closes the
+ * `storage` block: the run-bundle resolvability oracle had no production
+ * caller until the executor became its first producer, so a deleted or
+ * corrupted bundle blob was visible to nothing an operator could run.
+ * DR-11 B-5 (Task 019) added
  * `store-path-divergence` in the `storage` block: the read-only check that
  * fires when the CLI and Claude Code plugin surfaces resolve DIFFERENT event
  * stores (state silently splits); its remediation is the documented
@@ -89,6 +94,7 @@ export const ALL_CHECKS: ReadonlyArray<CheckFn> = [
   storageStateDir,
   storageSqliteHealth,
   storePathDivergence,
+  runBundleIntegrity,
   envVariables,
   vcsGitAvailable,
   agentConfigValid,

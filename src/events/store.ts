@@ -1116,8 +1116,9 @@ export class EventStore {
    * referenced blob, which is orders of magnitude past what a write may pay.
    * That is precisely why the claim fast path can replay a settled operation
    * over a deleted artifact and stay green — the oracle is an audit a caller
-   * (doctor, a custody migration) runs deliberately, never an invariant the
-   * store enforces inline.
+   * runs deliberately, never an invariant the store enforces inline. The
+   * shipped caller is the doctor's `run-bundle-integrity` check; a custody
+   * migration would be another.
    */
   async runBundleIntegrityCheck(opts?: {
     signal?: AbortSignal;

@@ -19,6 +19,12 @@
 //   appends its operation event, so the log distinguishes "ran and failed"
 //   from "crashed mid-segment" — the latter leaves no claim and no event.
 //
+//   The run's interior is in custody BEFORE the record that names it. The
+//   per-leaf trace goes to the run-bundle store first; only once those bytes
+//   are durable does the operation event carrying their digest commit. A
+//   crash between the two leaves an orphan blob nothing references, never a
+//   committed reference to bytes that were never written.
+//
 // The registry is reached through the published root module. The handler table
 // is INJECTED by whoever owns it rather than read back from the composite that
 // routes here: reading it back was a runtime import edge closing a ring
@@ -47,11 +53,21 @@ import {
   type DispatchContext as CorrelationContext,
 } from '../../dispatch/dispatch-context.js';
 import { OperationDigestMismatchError, type EventInput } from '../../events/atomic-appender.js';
+import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
+import { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import { runWithAppendObserver } from '../../events/observation/append-observation.js';
 import { OrchestrateIntentExecutedData } from '../../events/schemas.js';
 import type { IntentFailureDetail, ToolResult } from '../../format.js';
 import { OperationIdSchema } from '../../workflow/admission/types.js';
 import { compileIntent, PRODUCTION_COMPILE_DEPS, type CompileDeps } from './compile.js';
+import {
+  encodeExecuteIntentBundle,
+  executeIntentBundleArtifactId,
+  EXECUTE_INTENT_BUNDLE_KIND,
+  EXECUTE_INTENT_BUNDLE_VERSION,
+  type ExecuteIntentRunBundleV1,
+  type LeafTrace,
+} from './run-bundle.js';
 import type {
   CompiledLeaf,
   CompiledSegment,
@@ -105,6 +121,14 @@ export interface ExecuteIntentDeps extends CompileDeps {
    * defence in depth alongside the compiler's own refusal of the mismatch.
    */
   readonly handlerTool: string;
+  /**
+   * Where the run's interior is written before the operation record commits.
+   * Absent, the store is bound to the caller's state directory — the only
+   * binding production code uses, so bundle bytes and the ledger naming them
+   * share a root. Present, it is a test seam: the one way to make the write
+   * fail without making the filesystem fail.
+   */
+  readonly bundleStore?: RunBundleStore;
 }
 
 /**
@@ -291,6 +315,7 @@ function failureDetail(receipt: IntentReceipt): IntentFailureDetail {
     outcome: receipt.outcome,
     ...(receipt.failedLeaf !== undefined ? { failedLeaf: receipt.failedLeaf } : {}),
     tailSequence: receipt.tailSequence,
+    ...(receipt.bundleRefs !== undefined ? { bundleRefs: receipt.bundleRefs } : {}),
     leaves: receipt.leaves.map((leaf) => ({
       action: leaf.action,
       status: leaf.status,
@@ -461,6 +486,7 @@ export async function handleExecuteIntent(
       outer,
       handlers,
       handlerTool: deps.handlerTool,
+      bundles: deps.bundleStore ?? RunBundleStore.forStateDir(stateDir),
     });
     if (committed.kind === 'digest-mismatch') {
       return digestMismatchResult(
@@ -514,6 +540,20 @@ interface RunSegmentInput {
   readonly outer: CorrelationContext;
   readonly handlers: LeafHandlerTable;
   readonly handlerTool: string;
+  readonly bundles: RunBundleStore;
+}
+
+/**
+ * The interior facts a leaf run leaves behind that the receipt does not
+ * carry. They go to the run bundle, not the ledger: when the leaf ran, whether
+ * its handler was reached at all, and what that handler said.
+ */
+interface LeafRunFacts {
+  startedAt: string;
+  endedAt: string;
+  handlerInvoked: boolean;
+  replayElided: boolean;
+  handler?: { readonly success: boolean; readonly error?: { readonly code: string; readonly message: string } };
 }
 
 interface LeafOutcome {
@@ -523,11 +563,38 @@ interface LeafOutcome {
   /** Set when the leaf's declared emissions did not land and the mode did not halt for it. */
   readonly emissionViolation?: 'INTENT_EMISSION_CONTRACT_VIOLATED';
   readonly failure?: { readonly code: 'INTENT_SEGMENT_FAILED' | 'INTENT_EMISSION_CONTRACT_VIOLATED'; readonly message: string };
+  readonly facts: LeafRunFacts;
+}
+
+/** The trace entry a leaf contributes to the run bundle. */
+function traceOf(leaf: CompiledLeaf, outcome: LeafOutcome): LeafTrace {
+  return {
+    index: leaf.index,
+    action: leaf.action,
+    tool: leaf.tool,
+    onFail: leaf.onFail,
+    observationStreamId: leaf.observationStreamId,
+    args: leaf.args,
+    status: outcome.status,
+    events: outcome.events.map((event) => ({
+      type: event.type,
+      streamId: event.streamId,
+      sequence: event.sequence,
+    })),
+    ...(outcome.emissionViolation !== undefined ? { emissionViolation: outcome.emissionViolation } : {}),
+    ...(outcome.failure !== undefined ? { failure: outcome.failure } : {}),
+    startedAt: outcome.facts.startedAt,
+    endedAt: outcome.facts.endedAt,
+    handlerInvoked: outcome.facts.handlerInvoked,
+    replayElided: outcome.facts.replayElided,
+    ...(outcome.facts.handler !== undefined ? { handler: outcome.facts.handler } : {}),
+  };
 }
 
 async function runSegment(input: RunSegmentInput): Promise<CommitOutcome> {
   const { segment, operationId, stateDir, ctx, outer, handlers, handlerTool } = input;
   const leaves: ReceiptLeaf[] = [];
+  const traces: LeafTrace[] = [];
   let tailSequence = 0;
   let eventsAppended = 0;
   let failedLeaf: string | undefined;
@@ -543,6 +610,7 @@ async function runSegment(input: RunSegmentInput): Promise<CommitOutcome> {
         ? { emissionViolation: outcome.emissionViolation }
         : {}),
     });
+    traces.push(traceOf(leaf, outcome));
     eventsAppended += outcome.captures.length;
     for (const capture of outcome.captures) {
       if (capture.streamId === segment.streamId && capture.sequence > tailSequence) {
@@ -575,10 +643,10 @@ async function runSegment(input: RunSegmentInput): Promise<CommitOutcome> {
     },
   };
 
-  return commitReceipt(input, receipt);
+  return commitReceipt(input, receipt, traces);
 }
 
-interface RunLeafInput extends Omit<RunSegmentInput, 'requestDigest'> {
+interface RunLeafInput extends Omit<RunSegmentInput, 'requestDigest' | 'bundles'> {
   readonly leaf: CompiledLeaf;
 }
 
@@ -683,7 +751,26 @@ async function replayElidedRows(input: {
     .map((row) => ({ type: row.type, streamId: leaf.observationStreamId, sequence: row.sequence }));
 }
 
+/**
+ * Run one leaf and stamp the interior facts the bundle records: when it
+ * started and ended, and whether the handler was reached. The facts object is
+ * shared with the body so the body can record what it learns at the point it
+ * learns it, and the outcome is completed here so every return path — refusal,
+ * elision, success — carries the same fields without each spelling them.
+ */
 async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
+  const facts: LeafRunFacts = {
+    startedAt: new Date().toISOString(),
+    endedAt: '',
+    handlerInvoked: false,
+    replayElided: false,
+  };
+  const outcome = await runLeafBody(input, facts);
+  facts.endedAt = new Date().toISOString();
+  return { ...outcome, facts };
+}
+
+async function runLeafBody(input: RunLeafInput, facts: LeafRunFacts): Promise<Omit<LeafOutcome, 'facts'>> {
   const { leaf, operationId, stateDir, ctx, outer, handlers, handlerTool } = input;
   const derived = derivedLeafOperationId(operationId, leaf.index, leaf.action);
   const captures: Capture[] = [];
@@ -709,14 +796,14 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
     // and `onFail: 'continue'` never licensed that — so a halting integrity
     // failure halts whatever the step's failure policy says.
     policy: 'runbook' | 'halt-regardless' = 'runbook',
-  ): LeafOutcome => ({
+  ): Omit<LeafOutcome, 'facts'> => ({
     status: policy === 'runbook' && leaf.onFail === 'continue' ? 'advisory-failed' : 'failed',
     events: receiptEvents(),
     captures,
     failure: { code, message },
   });
 
-  return runWithDispatchContext(leafCorrelation(outer, derived), async (): Promise<LeafOutcome> => {
+  return runWithDispatchContext(leafCorrelation(outer, derived), async (): Promise<Omit<LeafOutcome, 'facts'>> => {
     // The same evaluator the dispatch path runs, called in execution order so a
     // leaf's requirements are read against the state its predecessors left.
     const admission = await evaluateDispatchAdmission({
@@ -749,6 +836,7 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
 
     const elided = await replayElidedRows({ leaf, derived, ctx });
     if (elided !== undefined) {
+      facts.replayElided = true;
       captures.push(...elided);
       return { status: 'passed', events: receiptEvents(), captures };
     }
@@ -763,6 +851,7 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
 
     // Awaited inside the observer scope: an append that fires after the scope
     // closes is an append the receipt would not know about.
+    facts.handlerInvoked = true;
     const result = await runWithAppendObserver(
       (observation) => {
         captures.push({
@@ -773,6 +862,14 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
       },
       () => handler(leaf.args, stateDir, ctx),
     );
+    // The handler's verdict, kept for the bundle: the receipt says the leaf
+    // failed, the trace says what the handler said when it did.
+    facts.handler = {
+      success: result.success,
+      ...(result.error !== undefined
+        ? { error: { code: result.error.code, message: result.error.message } }
+        : {}),
+    };
 
     // Read what this leaf's identity holds BEFORE the verifier runs. The
     // verifier appends its finding under the same ambient identity, so a read
@@ -892,15 +989,67 @@ type CommitOutcome =
   | { readonly kind: 'persisted'; readonly receipt: IntentReceipt }
   | { readonly kind: 'digest-mismatch' };
 
+/** The bundle document for a run: the receipt's facts plus the per-leaf interior. */
+function bundleDocument(
+  input: RunSegmentInput,
+  receipt: IntentReceipt,
+  traces: readonly LeafTrace[],
+): ExecuteIntentRunBundleV1 {
+  return {
+    bundleVersion: EXECUTE_INTENT_BUNDLE_VERSION,
+    kind: EXECUTE_INTENT_BUNDLE_KIND,
+    operationId: receipt.operationId,
+    intent: receipt.intent,
+    streamId: input.segment.streamId,
+    requestDigest: receipt.requestDigest,
+    outcome: receipt.outcome,
+    ...(receipt.failedLeaf !== undefined ? { failedLeaf: receipt.failedLeaf } : {}),
+    ...(receipt.failure !== undefined ? { failure: receipt.failure } : {}),
+    ...(receipt.steering !== undefined ? { steering: receipt.steering } : {}),
+    tailSequence: receipt.tailSequence,
+    leaves: [...traces],
+    interaction: {
+      leavesExecuted: receipt.interaction.leavesExecuted,
+      eventsAppended: receipt.interaction.eventsAppended,
+      requests: receipt.interaction.requests,
+      deferred: [...receipt.interaction.deferred],
+    },
+  };
+}
+
 /**
- * Append the operation event under the CALLER's operation id as the claim key,
- * carrying the receipt as the claim's canonical result. A later call with the
- * same id reads the receipt straight back; one with the same id and a different
- * request is rejected by the digest recorded alongside it.
+ * Write the run's interior to the bundle store, then append the operation
+ * event under the CALLER's operation id as the claim key, carrying the receipt
+ * as the claim's canonical result. A later call with the same id reads the
+ * receipt straight back; one with the same id and a different request is
+ * rejected by the digest recorded alongside it.
+ *
+ * The order is the point. `putThenReference` makes the bundle bytes durable
+ * and only then runs the commit that names them, so the operation record can
+ * never reference bytes that are not there. A bundle write that fails
+ * therefore fails the whole commit — no claim, no event — and the caller sees
+ * the same "crashed mid-segment" shape a thrown leaf leaves, which the retry
+ * model already handles: run from the top under the same derived leaf ids.
+ * Committing WITHOUT the reference instead would append a record the
+ * integrity oracle condemns on sight, and a known violation is not a
+ * degraded success.
  */
 async function commitReceipt(
   input: RunSegmentInput,
   receipt: IntentReceipt,
+  traces: readonly LeafTrace[],
+): Promise<CommitOutcome> {
+  const bytes = encodeExecuteIntentBundle(bundleDocument(input, receipt, traces));
+  const artifactId = executeIntentBundleArtifactId(input.operationId);
+
+  return input.bundles.putThenReference(artifactId, bytes, (ref) =>
+    commitReferencedReceipt(input, { ...receipt, bundleRefs: [ref] }),
+  );
+}
+
+async function commitReferencedReceipt(
+  input: RunSegmentInput,
+  receipt: IntentReceipt & { readonly bundleRefs: readonly BundleRefV1[] },
 ): Promise<CommitOutcome> {
   // The schema's own parse output is the event payload. Typing the binding as
   // the record shape the event carries is what makes it one, so nothing has to
@@ -917,6 +1066,7 @@ async function commitReceipt(
     })),
     requestDigest: receipt.requestDigest,
     ...(receipt.steering !== undefined ? { steering: receipt.steering } : {}),
+    bundleRefs: receipt.bundleRefs,
   });
 
   // Stamped and committed under the OUTER correlation packet. Off a real

@@ -13,6 +13,7 @@ import type { CheckFn } from '../../../../src/verbs/doctor/checks/__shared__/mak
 import type { DoctorProbes } from '../../../../src/verbs/doctor/probes.js';
 import type { AgentEnvironment } from '../../../../src/runtime/agent-environment-detector.js';
 import type { IntegrityResult } from '../../../../src/events/store.js';
+import type { BundleIntegrityResult } from '../../../../src/events/bundle/integrity.js';
 import type { CheckResult } from '../../../../src/verbs/doctor/schema.js';
 import { handleDoctorWithChecks, ALL_CHECKS } from '../../../../src/verbs/doctor/index.js';
 
@@ -348,6 +349,12 @@ function benignProbes(): DoctorProbes {
         reason: 'benign dispatch probe',
       }),
     },
+    bundles: {
+      runIntegrityCheck: async (): Promise<BundleIntegrityResult> => ({
+        ok: 'skipped',
+        reason: 'benign dispatch probe',
+      }),
+    },
     detector: async () => emptyEnvironments,
     eventStore: { append: async () => ({}) } as unknown as DoctorProbes['eventStore'],
     runtime: { nodeVersion: process.version },
@@ -399,10 +406,10 @@ describe('handleDoctor — verification-toolchain roster (task 009)', () => {
     // Task 019 added store-path-divergence; P05-04 added install-freshness), and
     // verification-toolchain is present (by category + name) in the dispatched
     // output, not just the export.
-    expect(ALL_CHECKS).toHaveLength(19);
+    expect(ALL_CHECKS).toHaveLength(20);
     expect(result.success).toBe(true);
     const data = result.data as { checks: CheckResult[] };
-    expect(data.checks).toHaveLength(19);
+    expect(data.checks).toHaveLength(20);
 
     const vt = data.checks.find((c) => c.name === 'verification-toolchain');
     expect(vt).toBeDefined();
