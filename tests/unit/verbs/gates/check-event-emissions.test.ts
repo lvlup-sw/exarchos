@@ -43,6 +43,7 @@ vi.mock('../../../../src/projections/fold-at-tail.js', () => ({
 }));
 
 import {
+  EVENT_DESCRIPTIONS,
   PHASE_EXPECTED_EVENTS,
   assertDescriptionsLive,
   assertExpectationsLive,
@@ -99,11 +100,18 @@ describe('PHASE_EXPECTED_EVENTS', () => {
     expect(data.hints.map((h) => h.eventType)).not.toContain('review.routed');
   });
 
-  it('PhaseExpectedEvents_SynthesizePhase_ExpectsStackAndShepherd', () => {
-    const synthesizeEvents = PHASE_EXPECTED_EVENTS['synthesize'];
-    expect(synthesizeEvents).toBeDefined();
-    expect(synthesizeEvents).toContain('stack.submitted');
-    expect(synthesizeEvents).toContain('shepherd.iteration');
+  it('PhaseExpectedEvents_SynthesizePhase_ExpectsShepherdAndNoLongerStackSubmitted', () => {
+    // `stack.submitted` was flipped to telemetry by the first event-authority
+    // charter act (#1599, executing #1876): this row was the only dependency
+    // on it, so the flip IS the deletion of the row and of its hint. The
+    // literal pin is deliberate — re-adding the type here is a re-promotion,
+    // and the partition's declaration conjunct would then demand a witness.
+    expect(PHASE_EXPECTED_EVENTS['synthesize']).toEqual([
+      'team.spawned',
+      'team.disbanded',
+      'shepherd.iteration',
+    ]);
+    expect(Object.keys(EVENT_DESCRIPTIONS)).not.toContain('stack.submitted');
   });
 
   it('CheckEventEmissions_DelegatePhase_IncludesTaskProgressed', () => {

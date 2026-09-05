@@ -2,10 +2,11 @@
  * Every promotion of a non-`auto` event type to governance, with its evidence.
  *
  * A row here says: the tier alone would file this event as telemetry, and that
- * is wrong, for THIS reason. Nothing else in the partition is hand-written —
- * the predicate carries the whole `auto` side — so this table is the complete
- * list of places where a human judgment overrides a derivation, which is what
- * makes it reviewable.
+ * is wrong, for THIS reason. The only other hand-written input to the partition
+ * is the demotion table beside this one (`demotions.ts`), which overrides the
+ * tier in the opposite direction and only on a charter act — so the two tables
+ * together are the complete list of places where a human judgment overrides a
+ * derivation, which is what makes them reviewable.
  *
  * EVERY arm is re-measured by an oracle. The arm is self-declared, so an arm
  * nothing checks would let a mislabel buy a permanent exemption — and that is
@@ -19,7 +20,11 @@
  *     still reads the named type. A witness whose module stopped reading it is
  *     reported as stale, so this table cannot outlive the code it cites.
  *   • `gate-expectation` — the emission gate's expectation table still lists the
- *     type, measured from the table itself.
+ *     type, measured from the table itself. No live row uses this arm today:
+ *     `stack.submitted` was its one member until the charter flip deleted the
+ *     expectation and description rows that were its whole basis. The arm
+ *     stays because the read shape it names is real and invisible to a source
+ *     scan, and its oracle is kept non-vacuous from a seeded stale row.
  *   • `charter-pin` — the ratified authority decision pins a whole family
  *     governance, and these rows are the family members whose tier disagrees.
  *     The claim such a row makes is NEGATIVE — no fold, no reader, no
@@ -106,17 +111,6 @@ export const GOVERNANCE_WITNESSES: Readonly<Record<string, AuthorityWitness>> = 
       'stream. This is in direct tension with the ratified charter, which lists the type among ' +
       'its telemetry examples: the demotion cannot land while a live fold-external reader derives ' +
       'an escalation bound from it, so the reader must be retired or re-sourced first.',
-  },
-
-  'stack.submitted': {
-    arm: 'gate-expectation',
-    evidence: ['src/verbs/gates/check-event-emissions.ts'],
-    because:
-      'The emission gate lists this type among the events the synthesize phase must have ' +
-      'produced, and its complete/incomplete verdict is exactly whether the raw stream contains ' +
-      'it. The charter names the type among its telemetry examples and requires the expectation ' +
-      'row and its description to be deleted in the same commit as the demotion; neither has ' +
-      'happened, so the type is still depended upon and stays governance until that flip lands.',
   },
 
   'task.assigned': {

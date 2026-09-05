@@ -7,7 +7,7 @@
     "testFiles": 1262,
     "parsedFiles": 1217,
     "shellFiles": 45,
-    "cases": 13901,
+    "cases": 13909,
     "dynamicTitles": 150,
     "unparseableFiles": 0
   },
@@ -5797,6 +5797,11 @@
         },
         {
           "suite": "ActionContractConjunct — a declared event is a governance event",
+          "name": "ActionContractConjunct_EveryDescriptionRow_IsReachedByAnExpectationRow",
+          "dynamic": false
+        },
+        {
+          "suite": "ActionContractConjunct — a declared event is a governance event",
           "name": "ActionContractConjunct_EveryDeclaredEventName_IsAKnownEventType",
           "dynamic": false
         },
@@ -5808,6 +5813,11 @@
         {
           "suite": "ActionContractConjunct — a declared event is a governance event",
           "name": "ActionContractConjunct_SeededContractNamingATelemetryType_IsNamedInTheFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "ActionContractConjunct — a declared event is a governance event",
+          "name": "ActionContractConjunct_ADemotedLivenessStart_WouldBeNamedBySite",
           "dynamic": false
         }
       ]
@@ -24007,7 +24017,7 @@
       "cases": [
         {
           "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
-          "name": "EventAuthority_LiveMap_IsTheDerivationOfEveryAnnotationAndWitness",
+          "name": "EventAuthority_LiveMap_IsTheDerivationOfEveryAnnotationWitnessAndDemotion",
           "dynamic": false
         },
         {
@@ -24028,6 +24038,36 @@
         {
           "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
           "name": "EventAuthority_WitnessOnATypeAlreadyGovernanceByTier_IsNamedAsDeadCover",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "EventAuthority_DemotionOfAnAutoTierType_ClassifiesItTelemetryAndOnlyIt",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "EventAuthority_DemotionForAnUnknownEventType_IsNamedInTheThrow",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "EventAuthority_DemotionOnATypeAlreadyTelemetryByTier_IsNamedAsDeadCover",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "EventAuthority_WitnessAndDemotionOnOneType_IsNamedAsAContradictionNotResolved",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "CharterDemotions_EveryLiveRow_IsACharterNamedTypeNowClassifiedTelemetryWithBothCitations",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAuthority — the partition is derived, and telemetry means droppable",
+          "name": "CharterDemotions_SeededDemotionOfAFoldDiscriminatingType_IsCaughtByTheDifferentialFold",
           "dynamic": false
         },
         {
@@ -52181,7 +52221,7 @@
         },
         {
           "suite": "PHASE_EXPECTED_EVENTS",
-          "name": "PhaseExpectedEvents_SynthesizePhase_ExpectsStackAndShepherd",
+          "name": "PhaseExpectedEvents_SynthesizePhase_ExpectsShepherdAndNoLongerStackSubmitted",
           "dynamic": false
         },
         {

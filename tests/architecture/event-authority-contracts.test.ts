@@ -2,6 +2,7 @@
  * Every event a live DECLARATION names must be a governance event.
  *
  * @oracle-sources: ../../src/registry/**, ../../src/events/partition/**,
+ * ../../src/events/liveness-registry.ts,
  * ../../src/verbs/gates/check-event-emissions.ts
  *
  * An `emissions` entry and an `event-append` postcondition are both promises
@@ -12,18 +13,27 @@
  * depended upon and the classification is wrong, or the classification is right
  * and the contract is declaring a promise nothing needs.
  *
- * The emission gate's phase-expectation table is the third declaration of the
- * same shape, and it is the one that bites. The gate iterates that table and
- * asks a set built from the raw stream whether each listed type is present, so
- * its complete/incomplete verdict is a function of exactly those types — yet no
- * literal comparison appears anywhere in the module, which means the source-scan
- * census structurally cannot see it. This is where `stack.submitted` was
- * classified telemetry while a shipped gate derived a verdict from its presence.
+ * Two more declaration tables have the same shape, and both are ones the
+ * source-scan census structurally cannot see, because the read they describe is
+ * an iteration of a table rather than a comparison against a literal:
+ *
+ *   • the emission gate's phase-expectation table. The gate iterates it and
+ *     asks a set built from the raw stream whether each listed type is present,
+ *     so its complete/incomplete verdict is a function of exactly those types.
+ *     This is where `stack.submitted` was classified telemetry while a shipped
+ *     gate derived a verdict from its presence — and, later, where its flip
+ *     landed by deleting the row that was its only reader;
+ *   • the liveness registry. Each descriptor names a START type and its
+ *     TERMINAL types, and `ps` and the phantom-launch heal pair them through the
+ *     operations fold to decide what is in flight. The decision record filed
+ *     `launch.executing_started` beside the hook-tier self-reports; this arm is
+ *     what would have named that demotion as false.
  *
  * This is an INDEPENDENT check rather than a restatement of the partition. Most
  * of the declared population is `auto` by tier, so it is green under the tier
  * map alone with no witness involved; what the conjunct rules out is a
- * declaration naming a type the tier does not cover.
+ * declaration naming a type the tier does not cover — or one a charter
+ * demotion has since removed from it.
  *
  * Every arm carries its declaration site, so a failure names where the promise
  * was made rather than only the event — a bare event name would leave a reader
@@ -38,29 +48,35 @@ import {
   contractEnsuredEventsOf,
 } from '../../src/registry.js';
 import { EventTypes } from '../../src/events/schemas.js';
-import { PHASE_EXPECTED_EVENTS } from '../../src/verbs/gates/check-event-emissions.js';
+import { LIVENESS_DESCRIPTORS } from '../../src/events/liveness-registry.js';
+import {
+  EVENT_DESCRIPTIONS,
+  PHASE_EXPECTED_EVENTS,
+} from '../../src/verbs/gates/check-event-emissions.js';
 import {
   EVENT_AUTHORITY,
   TELEMETRY_EVENTS,
   classifyEventAuthority,
 } from '../../src/events/partition/event-authority.js';
 import { GOVERNANCE_WITNESSES } from '../../src/events/partition/witnesses.js';
-import type { EventAuthority } from '../../src/events/partition/authority.js';
+import type { AuthorityWitness, EventAuthority } from '../../src/events/partition/authority.js';
 
 /** One event name a declaration names, with the site that named it. */
 interface DeclaredEventName {
   readonly site: string;
-  readonly arm: 'emissions' | 'ensures' | 'phase-expectation';
+  readonly arm: 'emissions' | 'ensures' | 'phase-expectation' | 'liveness-pair';
   readonly event: string;
 }
 
+const DECLARED_ARMS = ['emissions', 'ensures', 'phase-expectation', 'liveness-pair'] as const;
+
 /**
  * Every event name declared by any live built-in action, in registry order,
- * plus every event the emission gate expects a phase to have produced.
+ * plus every event the emission gate expects a phase to have produced, plus
+ * every START and TERMINAL type a liveness descriptor pairs on.
  *
- * Built by walking `TOOL_REGISTRY` and the live expectation table rather than a
- * snapshot, so a declaration added without a snapshot refresh is still in the
- * population.
+ * Built by walking `TOOL_REGISTRY` and the live tables rather than a snapshot,
+ * so a declaration added without a snapshot refresh is still in the population.
  */
 const DECLARED: readonly DeclaredEventName[] = [
   ...TOOL_REGISTRY.flatMap((tool) =>
@@ -84,6 +100,13 @@ const DECLARED: readonly DeclaredEventName[] = [
       event,
     })),
   ),
+  ...LIVENESS_DESCRIPTORS.flatMap((descriptor) =>
+    [descriptor.startType, ...descriptor.terminalTypes].map((event) => ({
+      site: `liveness-registry.${descriptor.surface}`,
+      arm: 'liveness-pair' as const,
+      event,
+    })),
+  ),
 ];
 
 /**
@@ -104,6 +127,48 @@ function auditDeclaredEventNames(
     );
 }
 
+/**
+ * The reverse of the gate-expectation arm: a witness that cites the expectation
+ * table is evidence only while the table still lists its type. Pure, so the
+ * live table and a seeded stale row go through the same auditor.
+ */
+function staleGateExpectationWitnesses(
+  witnesses: Readonly<Record<string, AuthorityWitness>>,
+  expected: ReadonlySet<string>,
+): readonly string[] {
+  return Object.entries(witnesses)
+    .filter(([type, witness]) => witness.arm === 'gate-expectation' && !expected.has(type))
+    .map(
+      ([type]) =>
+        `The gate-expectation witness for "${type}" promotes a type the expectation table no ` +
+        'longer lists. The declaration outlived the row it cites — retire the promotion, or repoint it.',
+    );
+}
+
+/**
+ * A description row is the hint the gate returns when an expected event is
+ * missing. A key no expectation row reaches is a standing instruction to the
+ * model to emit something the gate never asks about — exactly the stale prose
+ * a flip is required to delete in the same commit as the row. Pure, for the
+ * same reason as its siblings.
+ */
+function unreachableDescriptionRows(
+  descriptions: Readonly<Record<string, string>>,
+  expected: ReadonlySet<string>,
+): readonly string[] {
+  return Object.keys(descriptions)
+    .filter((type) => !expected.has(type))
+    .map(
+      (type) =>
+        `EVENT_DESCRIPTIONS["${type}"] instructs the model to emit an event no phase expects. ` +
+        'The row outlived its expectation — delete it, or restore the expectation it described.',
+    );
+}
+
+const EXPECTED_BY_SOME_PHASE: ReadonlySet<string> = new Set<string>(
+  Object.values(PHASE_EXPECTED_EVENTS).flat(),
+);
+
 describe('ActionContractConjunct — a declared event is a governance event', () => {
   it('ActionContractConjunct_DeclaredEventPopulation_IsNonEmptyOnEveryArm', () => {
     // A floor, never the number: pinning the count would turn every new action
@@ -117,11 +182,18 @@ describe('ActionContractConjunct — a declared event is a governance event', ()
     // swallows every failure and answers `[]`, and its events are a subset of
     // the emissions arm's — so a total collapse of that reader changed no result
     // anywhere until this floor existed.
-    for (const arm of ['emissions', 'ensures', 'phase-expectation'] as const) {
+    for (const arm of DECLARED_ARMS) {
       const rows = DECLARED.filter((row) => row.arm === arm);
       expect(rows.length, `the ${arm} arm resolved no declaration at all`).toBeGreaterThan(0);
       expect(new Set(rows.map((row) => row.event)).size).toBeGreaterThan(0);
     }
+
+    // The liveness arm has a known shape — four surfaces, each with one START
+    // and at least one TERMINAL — so its floor can be stated exactly enough to
+    // catch a descriptor whose terminal list emptied.
+    const liveness = DECLARED.filter((row) => row.arm === 'liveness-pair');
+    expect(liveness.filter((row) => row.event.endsWith('.executing_started')).length).toBe(4);
+    expect(liveness.length).toBeGreaterThanOrEqual(8);
   });
 
   it('ActionContractConjunct_GateExpectationWitness_IsNamedByTheLiveExpectationTable', () => {
@@ -129,20 +201,43 @@ describe('ActionContractConjunct — a declared event is a governance event', ()
     // iteration of a table, not a comparison against a literal. So it is
     // re-measured HERE, against the table itself — a witness whose expectation
     // row was deleted stops being evidence the moment the row goes.
-    const declared = Object.entries(GOVERNANCE_WITNESSES)
-      .filter(([, witness]) => witness.arm === 'gate-expectation')
-      .map(([type]) => type);
-    expect(declared.length).toBeGreaterThan(0);
+    //
+    // The arm may be EMPTY on the live table — it is, since `stack.submitted`
+    // flipped — so the live check alone would be vacuous. The seeded row is
+    // what keeps the auditor honest: a witness citing the arm for a type the
+    // table does not list must be named, through the same function.
+    expect(EXPECTED_BY_SOME_PHASE.size).toBeGreaterThan(0);
+    expect(staleGateExpectationWitnesses(GOVERNANCE_WITNESSES, EXPECTED_BY_SOME_PHASE)).toEqual([]);
 
-    const expected = new Set<string>(Object.values(PHASE_EXPECTED_EVENTS).flat());
-    expect(expected.size).toBeGreaterThan(0);
+    const seededType = 'seeded.never-expected';
+    expect(EXPECTED_BY_SOME_PHASE.has(seededType)).toBe(false);
+    const seeded: Readonly<Record<string, AuthorityWitness>> = {
+      ...GOVERNANCE_WITNESSES,
+      [seededType]: {
+        arm: 'gate-expectation',
+        evidence: ['src/verbs/gates/check-event-emissions.ts'],
+        because: 'A seeded witness whose row is gone.',
+      },
+    };
+    const stale = staleGateExpectationWitnesses(seeded, EXPECTED_BY_SOME_PHASE);
+    expect(stale.length).toBe(1);
+    expect(stale[0]).toContain(seededType);
+  });
 
-    const unsupported = declared.filter((type) => !expected.has(type));
-    expect(
-      unsupported,
-      'A gate-expectation witness promotes a type the expectation table no longer lists. The ' +
-        'declaration outlived the row it cites — retire the promotion, or repoint it.',
-    ).toEqual([]);
+  it('ActionContractConjunct_EveryDescriptionRow_IsReachedByAnExpectationRow', () => {
+    // The denominator: a description table with no rows would make the live
+    // check below true of nothing.
+    expect(Object.keys(EVENT_DESCRIPTIONS).length).toBeGreaterThan(0);
+    expect(unreachableDescriptionRows(EVENT_DESCRIPTIONS, EXPECTED_BY_SOME_PHASE)).toEqual([]);
+
+    const seededType = 'seeded.described-but-unexpected';
+    const seeded: Readonly<Record<string, string>> = {
+      ...EVENT_DESCRIPTIONS,
+      [seededType]: 'Emit seeded.described-but-unexpected via exarchos_event',
+    };
+    const stale = unreachableDescriptionRows(seeded, EXPECTED_BY_SOME_PHASE);
+    expect(stale.length).toBe(1);
+    expect(stale[0]).toContain(seededType);
   });
 
   it('ActionContractConjunct_EveryDeclaredEventName_IsAKnownEventType', () => {
@@ -168,16 +263,37 @@ describe('ActionContractConjunct — a declared event is a governance event', ()
 
     const seededSite = 'exarchos_seeded.seeded_action';
     const seededPhase = 'check-event-emissions.PHASE_EXPECTED_EVENTS.seeded_phase';
+    const seededSurface = 'liveness-registry.seeded';
     const seeded: readonly DeclaredEventName[] = [
       ...DECLARED,
       { site: seededSite, arm: 'emissions', event: telemetryType ?? '' },
       { site: seededPhase, arm: 'phase-expectation', event: telemetryType ?? '' },
+      { site: seededSurface, arm: 'liveness-pair', event: telemetryType ?? '' },
     ];
 
     const findings = auditDeclaredEventNames(seeded, EVENT_AUTHORITY);
-    expect(findings.length).toBe(2);
+    expect(findings.length).toBe(3);
     expect(findings.join('\n')).toContain(seededSite);
     expect(findings.join('\n')).toContain(seededPhase);
+    expect(findings.join('\n')).toContain(seededSurface);
     expect(findings.join('\n')).toContain(telemetryType ?? '');
+  });
+
+  it('ActionContractConjunct_ADemotedLivenessStart_WouldBeNamedBySite', () => {
+    // The specific false demotion the decision record invited: file the launch
+    // START claim as telemetry. It is governance on the live map; the probe
+    // shows that, had it flipped, this arm names the descriptor that pairs on
+    // it — the reader census cannot, because a descriptor is a table entry and
+    // not a comparison.
+    const launchStart = 'launch.executing_started';
+    expect(classifyEventAuthority(launchStart)).toBe('governance');
+
+    const flipped: Readonly<Record<string, EventAuthority>> = {
+      ...EVENT_AUTHORITY,
+      [launchStart]: 'telemetry',
+    };
+    const findings = auditDeclaredEventNames(DECLARED, flipped);
+    expect(findings.some((finding) => finding.includes('liveness-registry.launch'))).toBe(true);
+    expect(findings.every((finding) => finding.includes(launchStart))).toBe(true);
   });
 });
