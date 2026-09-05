@@ -461,6 +461,20 @@ function jobRunsCoreProjectScript(job: WorkflowJob | undefined, scriptName: stri
   );
 }
 
+/**
+ * True iff `scripts[name]` runs `--project unit`, directly or through ONE hop
+ * of `npm run <alias>` — `test:run` is `npm run test:unit`, and CI invokes the
+ * alias. One hop is what the tree has; a deeper chain is a new shape to pin,
+ * not one to resolve silently.
+ */
+function isUnitProjectScript(scripts: Record<string, string>, name: string, hops = 0): boolean {
+  const cmd = scripts[name];
+  if (cmd === undefined) return false;
+  if (/(?:^|\s)--project unit(?:\s|$)/.test(cmd)) return true;
+  const alias = /^npm run (\S+)\s*$/.exec(cmd.trim());
+  return alias !== null && hops < 1 && isUnitProjectScript(scripts, alias[1] ?? '', hops + 1);
+}
+
 describe('CI path-filter & guard coverage (DR-22)', () => {
   it('Filters_RootFilter_IncludesProjectionRootGlobs', () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
@@ -571,6 +585,54 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     expect(isCoreProjectCommand('vitest --project core')).toBe(true);
     expect(isCoreProjectCommand('vitest --project core --run')).toBe(true);
     expect(isCoreProjectCommand('vitest --project core-extra')).toBe(false);
+  });
+
+  it('LayerCensus_UnitProjectHostScripts_AreRunStepsOnBothPlatforms', () => {
+    // The architecture oracles — the event-authority declaration conjunct and
+    // the raw-reader census among them — are collected by the `unit` vitest
+    // project, which CI hosts as `npm run test:run`, an alias of `test:unit`.
+    // The core pin above says nothing about that lane, so a workflow edit that
+    // dropped the step would leave those oracles collected by nothing while
+    // every job stayed green. Same shape as the core pin, with the alias chain
+    // resolved through package.json rather than matched by name.
+    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
+    const pkg: { scripts?: Record<string, string> } = JSON.parse(
+      readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'),
+    );
+    const scripts = pkg.scripts ?? {};
+    const unitScripts = Object.keys(scripts).filter((name) => isUnitProjectScript(scripts, name));
+    expect(unitScripts, 'package.json declares no script expanding to --project unit').not.toEqual(
+      [],
+    );
+
+    const needs = new Set(needsList(workflow.jobs[AGGREGATOR_JOB]));
+    const hosts = Object.entries(workflow.jobs).filter(
+      ([name, job]) => needs.has(name) && unitScripts.some((s) => jobRunsCoreProjectScript(job, s)),
+    );
+    expect(
+      hosts.map(([name]) => name),
+      'no ci-gate dependency runs a script whose expansion is --project unit',
+    ).not.toEqual([]);
+
+    const runners = hosts.map(([, job]) => job['runs-on']);
+    expect(runners, 'Linux does not host the unit project').toContain('ubuntu-latest');
+    expect(runners, 'Windows does not host the unit project').toContain('windows-latest');
+  });
+
+  it('IsUnitProjectScript_ResolvesOneAliasHopAndNoMore', () => {
+    const scripts: Record<string, string> = {
+      'test:unit': 'vitest run --project unit',
+      'test:run': 'npm run test:unit',
+      'test:deep': 'npm run test:run',
+      'test:unit-extra': 'vitest run --project unit-extra',
+      'test:echo': "echo 'npm run test:unit'",
+    };
+    expect(isUnitProjectScript(scripts, 'test:unit')).toBe(true);
+    expect(isUnitProjectScript(scripts, 'test:run')).toBe(true);
+    expect(isUnitProjectScript(scripts, 'test:deep'), 'two hops is a new shape').toBe(false);
+    expect(isUnitProjectScript(scripts, 'test:unit-extra')).toBe(false);
+    expect(isUnitProjectScript(scripts, 'test:echo')).toBe(false);
+    expect(isUnitProjectScript(scripts, 'test:absent')).toBe(false);
   });
 
   it('Guards_HooksGuardRunsInCI_AndIsRootFiltered', () => {

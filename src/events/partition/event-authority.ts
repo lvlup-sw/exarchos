@@ -8,6 +8,17 @@
 // deliberately NOT claimed as test infrastructure: this is the shipped
 // classification, not gate machinery, and misfiling it would buy a permanent
 // exemption for a module that is supposed to become load-bearing.
+//
+// Two facts the first consumer has to carry, recorded here because no other
+// module holds them. (1) Telemetry is a FOLD fact, not a stream placement:
+// `subagent.tokens_used` and `stack.submitted` ride feature streams beside
+// governance rows, and the SubagentStop append keys its idempotency per stream,
+// so a retention policy that drops telemetry is a row filter, never a stream
+// drop. (2) The one in-tree reader that would become correctness-bearing with
+// no partition change is the telemetry middleware's argument-rewriting path
+// (`projections/telemetry/middleware.ts`, `autoCorrectionOptions`), dormant
+// today because every dispatcher call passes three arguments; the view-level
+// differential the tracker's item 9 asks for should name it.
 
 /**
  * The live governance/telemetry partition over the shipped event catalog.

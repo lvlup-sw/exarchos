@@ -49,10 +49,17 @@
  * over-retains; it never demotes anything by itself.
  *
  * The judgment has to be made against the tree, not the charter text. The
- * decision record listed `launch.executing_started` beside the hook-tier
- * self-reports; on the tree it is the START claim of the launch liveness pair,
- * which `ps` and the phantom-launch heal pair against through the operations
- * fold — a dependency the reader census cannot see. It stays governance.
+ * decision record listed `launch.executing_started` beside
+ * `subagent.tokens_used` as `hook`-tier self-reports. On the tree neither is
+ * `hook` tier — the one tier that derives `hook` has no members, and both are
+ * `capability`, so `auto` — which is the only reason the token self-report's
+ * demotion row is admissible at all. And the launch START claim is not a
+ * self-report: the launch liveness descriptor pairs it with its terminal, and
+ * the `worktrees@v1` reducer reads it raw for `ps` and the phantom-launch heal.
+ * The reader census names that reducer and the declaration conjunct's liveness
+ * arm names the descriptor, so a demotion row for it would be red twice. It
+ * stays governance; the token self-report, which neither instrument names, is
+ * demoted.
  *
  * ── The map still disagrees with the charter's telemetry examples ───────────
  *
@@ -125,17 +132,33 @@ export interface AuthorityWitness {
 }
 
 /**
+ * A comment on the roadmap issue — the only place a charter act is made. The
+ * issue number is part of the type: a comment anywhere else is not an act, and
+ * an anchor that is not a comment id is not a citation.
+ */
+export type CharterActUrl =
+  `https://github.com/lvlup-sw/exarchos/issues/1599#issuecomment-${number}`;
+
+/** A comment on the event-authority decision issue, where the record was ratified. */
+export type DecisionRecordCitation =
+  `https://github.com/lvlup-sw/exarchos/issues/1876#issuecomment-${number}`;
+
+/**
  * Why a type whose tier makes it governance is telemetry anyway.
  *
  * There is no arm to choose: a demotion has exactly one basis, the charter act
- * that ordered the flip, executing the ratified decision. The evidence names
- * both. The `because` states what was read on the tree to make the judgment —
- * which views fold the type, and that nothing outside them does — so a reviewer
- * can re-read the same places rather than trust the row.
+ * that ordered the flip, executing the ratified decision. Both citations are
+ * typed rather than free strings, so a row cannot point at a placeholder or at
+ * the wrong issue and still compile. The `because` states what was read on the
+ * tree to make the judgment — which views fold the type, and that nothing
+ * outside them does — so a reviewer can re-read the same places rather than
+ * trust the row.
  */
 export interface CharterDemotion {
-  /** The charter act on the roadmap, then the decision record it executes. */
-  readonly evidence: readonly [string, ...string[]];
+  /** The charter act on the roadmap that ordered THIS flip. */
+  readonly act: CharterActUrl;
+  /** The ratified decision the act executes. */
+  readonly record: DecisionRecordCitation;
   readonly because: string;
 }
 
@@ -154,9 +177,10 @@ export interface CharterDemotion {
  *     produces.
  *   • **Unannotated type.** No tier, no derivable authority. Defaulting it
  *     would be the guess this derivation exists to remove.
- *   • **Witness or demotion for a type outside the population.** A renamed or
- *     deleted event leaves its row behind, still asserting an override for
- *     nothing.
+ *   • **Witness for a type outside the population.** A renamed or deleted
+ *     event leaves its row behind, still asserting a promotion of nothing.
+ *   • **Demotion for a type outside the population.** The same stale row in
+ *     the other table, still citing a charter act for a type that is gone.
  *   • **Witness AND demotion on one type.** The two tables contradict each
  *     other, and picking either silently would hide a flip that a new reader
  *     has since overtaken — or a reader that a flip has since orphaned.

@@ -5,8 +5,9 @@
 // Two claims, and neither is checkable without the other.
 //
 // The first is that the partition is DERIVED: rebuild it from the catalog, the
-// annotations and the witness table and you get exactly the shipped map, and a
-// population it cannot partition fails by name rather than defaulting.
+// annotations and the two override tables — witnesses and charter demotions —
+// and you get exactly the shipped map, and a population it cannot partition
+// fails by name rather than defaulting.
 //
 // The second is what the partition MEANS. "Telemetry" is only a real claim if
 // dropping every telemetry event leaves the canonical fold's answer unchanged.
@@ -54,7 +55,10 @@ import {
   type CharterDemotion,
   type EventAuthority,
 } from '../../../src/events/partition/authority.js';
-import { CHARTER_DEMOTIONS } from '../../../src/events/partition/demotions.js';
+import {
+  CHARTER_DEMOTIONS,
+  assertCharterCitations,
+} from '../../../src/events/partition/demotions.js';
 import { GOVERNANCE_WITNESSES } from '../../../src/events/partition/witnesses.js';
 import {
   EVENT_AUTHORITY,
@@ -174,27 +178,41 @@ const A_GOVERNANCE_WITNESS: AuthorityWitness = {
 };
 
 const A_CHARTER_DEMOTION: CharterDemotion = {
-  evidence: [
-    'lvlup-sw/exarchos#1599 seeded charter act',
-    'lvlup-sw/exarchos#1876 ratified event-authority decision record',
-  ],
+  act: 'https://github.com/lvlup-sw/exarchos/issues/1599#issuecomment-1',
+  record: 'https://github.com/lvlup-sw/exarchos/issues/1876#issuecomment-1',
   because: 'A seeded demotion, standing in for a real charter act.',
 };
 
 /**
- * The bucket the ratified charter names as telemetry EXAMPLES — the per-tool
- * and turn records, the team family, and four named types. A demotion outside
- * this bucket would be a new decision wearing a flip's clothes, and a member of
- * it still classified governance is the backlog the charter schedules.
+ * The bucket the ratified charter names as telemetry EXAMPLES, enumerated as
+ * the catalog stood when the first act was made — the per-tool and turn
+ * records, the team family's seven members, and four named types. A demotion
+ * outside this bucket would be a new decision wearing a flip's clothes, and a
+ * member of it still classified governance is the backlog the charter
+ * schedules.
+ *
+ * A LITERAL set, not a family predicate: a member added to the tool or team
+ * family later was not named by the record, so its flip is a new decision too,
+ * and a `startsWith` would have admitted it as if the act had covered it.
  */
-const NAMED_BY_CHARTER = (type: string): boolean =>
-  type.startsWith('tool.') ||
-  type.startsWith('team.') ||
-  type === 'turn.completed' ||
-  type === 'subagent.tokens_used' ||
-  type === 'launch.executing_started' ||
-  type === 'shepherd.iteration' ||
-  type === 'stack.submitted';
+const CHARTER_TELEMETRY_EXAMPLES: ReadonlySet<string> = new Set([
+  'tool.invoked',
+  'tool.completed',
+  'tool.errored',
+  'tool.action_errored',
+  'turn.completed',
+  'subagent.tokens_used',
+  'launch.executing_started',
+  'team.spawned',
+  'team.disbanded',
+  'team.task.planned',
+  'team.task.assigned',
+  'team.teammate.dispatched',
+  'team.task.completed',
+  'team.task.failed',
+  'shepherd.iteration',
+  'stack.submitted',
+]);
 
 describe('EventAuthority — the partition is derived, and telemetry means droppable', () => {
   it('EventAuthority_LiveMap_IsTheDerivationOfEveryAnnotationWitnessAndDemotion', () => {
@@ -296,26 +314,42 @@ describe('EventAuthority — the partition is derived, and telemetry means dropp
     // this slice is the one that put the first rows in.
     expect(demoted.length).toBeGreaterThan(0);
 
-    const outsideTheCharter = demoted.filter((type) => !NAMED_BY_CHARTER(type));
+    const outsideTheCharter = demoted.filter((type) => !CHARTER_TELEMETRY_EXAMPLES.has(type));
     expect(
       outsideTheCharter,
       'A demotion of a type the ratified charter never called telemetry is a new decision, not ' +
-        'a flip. Take it to the roadmap first, then widen NAMED_BY_CHARTER with the citation.',
+        'a flip. Take it to the roadmap first, then add the type to CHARTER_TELEMETRY_EXAMPLES ' +
+        'with the new act as its citation.',
     ).toEqual([]);
 
     const notTelemetry = demoted.filter((type) => classifyEventAuthority(type) !== 'telemetry');
     expect(notTelemetry).toEqual([]);
 
     // The act on the roadmap made the flip land; the decision record is what
-    // it executes. A row missing either is a judgment with no paper trail.
-    const uncited = demoted.filter((type) => {
-      const evidence = CHARTER_DEMOTIONS[type]?.evidence ?? [];
-      return (
-        !evidence.some((citation) => citation.includes('lvlup-sw/exarchos#1599')) ||
-        !evidence.some((citation) => citation.includes('lvlup-sw/exarchos#1876'))
-      );
-    });
-    expect(uncited).toEqual([]);
+    // it executes. Both citations are TYPED, so a literal that is not a comment
+    // on #1599 or #1876 does not compile (the self-tests in demotions.ts pin the
+    // placeholder shape the first draft carried). The load-time check is what a
+    // cast cannot get past; it is exercised here on the live table and, through
+    // the same function, on a seeded row that still carries the placeholder.
+    expect(() => assertCharterCitations(CHARTER_DEMOTIONS)).not.toThrow();
+    expect(() =>
+      assertCharterCitations({
+        'seeded.record': {
+          act: 'https://github.com/lvlup-sw/exarchos/issues/1599#issuecomment-CHARTER_ACT_COMMENT_ID',
+          record: 'https://github.com/lvlup-sw/exarchos/issues/1876#issuecomment-5465417502',
+          because: 'A row that never had its placeholder filled in.',
+        },
+      }),
+    ).toThrow(/seeded\.record \(act: .*CHARTER_ACT_COMMENT_ID/);
+    expect(() =>
+      assertCharterCitations({
+        'seeded.record': {
+          act: 'https://github.com/lvlup-sw/exarchos/issues/1599#issuecomment-5555387087',
+          record: 'https://github.com/lvlup-sw/exarchos/issues/1876',
+          because: 'A row citing the issue rather than the comment that ratified the record.',
+        },
+      }),
+    ).toThrow(/seeded\.record/);
   });
 
   it('CharterDemotions_SeededDemotionOfAFoldDiscriminatingType_IsCaughtByTheDifferentialFold', () => {
@@ -520,10 +554,19 @@ describe('EventAuthority — the partition is derived, and telemetry means dropp
     // the agent-event validator; `shepherd.iteration` is the escalation bound's
     // event-sourced count; and `launch.executing_started`, which the decision
     // record filed beside the hook-tier self-reports, is on the tree the START
-    // claim of the launch liveness pair that `ps` and the phantom-launch heal
-    // pair against. That last one is why a demotion is a judgment made against
-    // the tree and never against the charter's text.
-    const charterExamples = EventTypes.filter(NAMED_BY_CHARTER);
+    // claim of the launch liveness pair — read raw by the `worktrees@v1`
+    // reducer that `ps` and the phantom-launch heal fold, so the reader census
+    // names it, and paired by the descriptor the declaration conjunct's
+    // liveness arm names. That last one is why a demotion is a judgment made
+    // against the tree and never against the charter's text.
+    const catalog = new Set<string>(EventTypes);
+    const renamedAway = [...CHARTER_TELEMETRY_EXAMPLES].filter((type) => !catalog.has(type));
+    expect(
+      renamedAway,
+      'A charter example is no longer a catalog type — the list outlived a rename or a retirement.',
+    ).toEqual([]);
+    const charterExamples = EventTypes.filter((type) => CHARTER_TELEMETRY_EXAMPLES.has(type));
+    expect(charterExamples.length).toBe(CHARTER_TELEMETRY_EXAMPLES.size);
     expect(charterExamples.length).toBeGreaterThan(10);
 
     const stillGovernance = charterExamples

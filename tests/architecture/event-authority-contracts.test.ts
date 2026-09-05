@@ -25,9 +25,12 @@
  *     landed by deleting the row that was its only reader;
  *   • the liveness registry. Each descriptor names a START type and its
  *     TERMINAL types, and `ps` and the phantom-launch heal pair them through the
- *     operations fold to decide what is in flight. The decision record filed
- *     `launch.executing_started` beside the hook-tier self-reports; this arm is
- *     what would have named that demotion as false.
+ *     `worktrees@v1` fold to decide what is in flight. The decision record filed
+ *     `launch.executing_started` beside the hook-tier self-reports; the reader
+ *     census names that fold's reducer, and this arm names the descriptor, so a
+ *     demotion row for it would be red in both. For the merge and mutation START
+ *     claims the census finds no reader at all, and there this arm is the only
+ *     oracle.
  *
  * This is an INDEPENDENT check rather than a restatement of the partition. Most
  * of the declared population is `auto` by tier, so it is green under the tier
@@ -49,10 +52,7 @@ import {
 } from '../../src/registry.js';
 import { EventTypes } from '../../src/events/schemas.js';
 import { LIVENESS_DESCRIPTORS } from '../../src/events/liveness-registry.js';
-import {
-  EVENT_DESCRIPTIONS,
-  PHASE_EXPECTED_EVENTS,
-} from '../../src/verbs/gates/check-event-emissions.js';
+import { PHASE_EXPECTED_EVENTS } from '../../src/verbs/gates/check-event-emissions.js';
 import {
   EVENT_AUTHORITY,
   TELEMETRY_EVENTS,
@@ -145,26 +145,6 @@ function staleGateExpectationWitnesses(
     );
 }
 
-/**
- * A description row is the hint the gate returns when an expected event is
- * missing. A key no expectation row reaches is a standing instruction to the
- * model to emit something the gate never asks about — exactly the stale prose
- * a flip is required to delete in the same commit as the row. Pure, for the
- * same reason as its siblings.
- */
-function unreachableDescriptionRows(
-  descriptions: Readonly<Record<string, string>>,
-  expected: ReadonlySet<string>,
-): readonly string[] {
-  return Object.keys(descriptions)
-    .filter((type) => !expected.has(type))
-    .map(
-      (type) =>
-        `EVENT_DESCRIPTIONS["${type}"] instructs the model to emit an event no phase expects. ` +
-        'The row outlived its expectation — delete it, or restore the expectation it described.',
-    );
-}
-
 const EXPECTED_BY_SOME_PHASE: ReadonlySet<string> = new Set<string>(
   Object.values(PHASE_EXPECTED_EVENTS).flat(),
 );
@@ -188,12 +168,18 @@ describe('ActionContractConjunct — a declared event is a governance event', ()
       expect(new Set(rows.map((row) => row.event)).size).toBeGreaterThan(0);
     }
 
-    // The liveness arm has a known shape — four surfaces, each with one START
-    // and at least one TERMINAL — so its floor can be stated exactly enough to
-    // catch a descriptor whose terminal list emptied.
+    // The liveness arm's population is the registry's by construction — one
+    // START plus every TERMINAL per descriptor — so it is pinned to that sum
+    // rather than to a literal floor, which a descriptor whose terminal list
+    // emptied could have passed (the registry's own suite is what refuses an
+    // empty terminal list; this only holds the arm to reading all of it).
     const liveness = DECLARED.filter((row) => row.arm === 'liveness-pair');
-    expect(liveness.filter((row) => row.event.endsWith('.executing_started')).length).toBe(4);
-    expect(liveness.length).toBeGreaterThanOrEqual(8);
+    expect(liveness.filter((row) => row.event.endsWith('.executing_started')).length).toBe(
+      LIVENESS_DESCRIPTORS.length,
+    );
+    expect(liveness.length).toBe(
+      LIVENESS_DESCRIPTORS.reduce((rows, descriptor) => rows + 1 + descriptor.terminalTypes.length, 0),
+    );
   });
 
   it('ActionContractConjunct_GateExpectationWitness_IsNamedByTheLiveExpectationTable', () => {
@@ -220,22 +206,6 @@ describe('ActionContractConjunct — a declared event is a governance event', ()
       },
     };
     const stale = staleGateExpectationWitnesses(seeded, EXPECTED_BY_SOME_PHASE);
-    expect(stale.length).toBe(1);
-    expect(stale[0]).toContain(seededType);
-  });
-
-  it('ActionContractConjunct_EveryDescriptionRow_IsReachedByAnExpectationRow', () => {
-    // The denominator: a description table with no rows would make the live
-    // check below true of nothing.
-    expect(Object.keys(EVENT_DESCRIPTIONS).length).toBeGreaterThan(0);
-    expect(unreachableDescriptionRows(EVENT_DESCRIPTIONS, EXPECTED_BY_SOME_PHASE)).toEqual([]);
-
-    const seededType = 'seeded.described-but-unexpected';
-    const seeded: Readonly<Record<string, string>> = {
-      ...EVENT_DESCRIPTIONS,
-      [seededType]: 'Emit seeded.described-but-unexpected via exarchos_event',
-    };
-    const stale = unreachableDescriptionRows(seeded, EXPECTED_BY_SOME_PHASE);
     expect(stale.length).toBe(1);
     expect(stale[0]).toContain(seededType);
   });
@@ -283,8 +253,9 @@ describe('ActionContractConjunct — a declared event is a governance event', ()
     // The specific false demotion the decision record invited: file the launch
     // START claim as telemetry. It is governance on the live map; the probe
     // shows that, had it flipped, this arm names the descriptor that pairs on
-    // it — the reader census cannot, because a descriptor is a table entry and
-    // not a comparison.
+    // it. The reader census would name the `worktrees@v1` reducer as well; this
+    // arm is the one that also covers the merge and mutation START claims,
+    // which no module reads raw.
     const launchStart = 'launch.executing_started';
     expect(classifyEventAuthority(launchStart)).toBe('governance');
 

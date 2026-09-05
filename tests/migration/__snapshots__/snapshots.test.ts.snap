@@ -9788,7 +9788,9 @@ exarchos:exarchos_event({ action: "append", stream: "<featureId>", event: {
 }})
 \`\`\`
 
-\`shepherd.iteration\`, together with \`team.spawned\` and \`team.disbanded\`, is checked by \`check-event-emissions\` during workflow validation. A missing one triggers a warning; \`stack.submitted\` is not checked.
+Checked by \`check-event-emissions\` in this phase: \`team.spawned\`, \`team.disbanded\`, \`shepherd.iteration\`.
+
+A missing one comes back as a hint with \`complete: false\` — on the explicit gate call, and on the \`_eventHints\` field the telemetry middleware adds to tool results while hints are outstanding. \`stack.submitted\` is not checked.
 
 ### Post-Merge Cleanup
 

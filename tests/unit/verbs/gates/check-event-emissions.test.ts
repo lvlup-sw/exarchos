@@ -45,6 +45,7 @@ vi.mock('../../../../src/projections/fold-at-tail.js', () => ({
 import {
   EVENT_DESCRIPTIONS,
   PHASE_EXPECTED_EVENTS,
+  assertDescriptionsCoverExpectations,
   assertDescriptionsLive,
   assertExpectationsLive,
   handleCheckEventEmissions,
@@ -112,6 +113,42 @@ describe('PHASE_EXPECTED_EVENTS', () => {
       'shepherd.iteration',
     ]);
     expect(Object.keys(EVENT_DESCRIPTIONS)).not.toContain('stack.submitted');
+  });
+
+  it('EventDescriptions_LiveTables_DescribeExactlyTheExpectedPopulation', () => {
+    // The denominator first: a pair of empty tables would agree about nothing.
+    expect(Object.keys(EVENT_DESCRIPTIONS).length).toBeGreaterThan(0);
+    expect(Object.values(PHASE_EXPECTED_EVENTS).flat().length).toBeGreaterThan(0);
+    expect(() =>
+      assertDescriptionsCoverExpectations(PHASE_EXPECTED_EVENTS, EVENT_DESCRIPTIONS),
+    ).not.toThrow();
+  });
+
+  it('EventDescriptions_RowNoPhaseExpects_IsNamedAtLoad', () => {
+    // The stale-prose direction: a description that outlived its expectation
+    // row — what a flip is required to delete in the same commit.
+    const seededType = 'seeded.described-but-unexpected';
+    expect(() =>
+      assertDescriptionsCoverExpectations(PHASE_EXPECTED_EVENTS, {
+        ...EVENT_DESCRIPTIONS,
+        [seededType]: 'Emit seeded.described-but-unexpected via exarchos_event',
+      }),
+    ).toThrow(new RegExp(`no phase expects: ${seededType.replace('.', '\\.')}`));
+  });
+
+  it('EventDescriptions_ExpectationWithoutARow_IsNamedAtLoad', () => {
+    // The generic-hint direction: an expected event nobody described. The
+    // fixture drops a LIVE expected type from the description table, so it
+    // stays valid whatever the rows say tomorrow.
+    const [dropped] = Object.values(PHASE_EXPECTED_EVENTS).flat();
+    expect(dropped).toBeDefined();
+    if (dropped === undefined) return;
+    const withoutOne = Object.fromEntries(
+      Object.entries(EVENT_DESCRIPTIONS).filter(([eventType]) => eventType !== dropped),
+    );
+    expect(() => assertDescriptionsCoverExpectations(PHASE_EXPECTED_EVENTS, withoutOne)).toThrow(
+      new RegExp(`does not describe: ${dropped.replace('.', '\\.')}`),
+    );
   });
 
   it('CheckEventEmissions_DelegatePhase_IncludesTaskProgressed', () => {

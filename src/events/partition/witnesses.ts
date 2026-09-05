@@ -36,10 +36,18 @@
  * a witness that changes no answer is cover nothing can check.
  */
 
+import type { EventType } from '../schemas.js';
 import type { AuthorityWitness } from './authority.js';
 
 const CHARTER = 'lvlup-sw/exarchos#1876 ratified event-authority decision record';
 
+/**
+ * Keyed by `EventType` at the literal (`satisfies`) so a row for a renamed or
+ * misspelled type fails to compile, while the exported type stays the string
+ * map the derivation and its oracles iterate. The `satisfies` is load-bearing:
+ * a plain freeze assigned to the annotation skips the excess-key check once
+ * one key overlaps.
+ */
 export const GOVERNANCE_WITNESSES: Readonly<Record<string, AuthorityWitness>> = Object.freeze({
   'team.spawned': {
     arm: 'projection-fold',
@@ -143,4 +151,4 @@ export const GOVERNANCE_WITNESSES: Readonly<Record<string, AuthorityWitness>> = 
       'The workflow family is pinned governance as a family. No fold and no fold-external reader ' +
       'names this member today, so the family pin is the entire basis for the promotion.',
   },
-});
+} satisfies Partial<Record<EventType, AuthorityWitness>>);

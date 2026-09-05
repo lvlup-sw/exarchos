@@ -142,12 +142,12 @@ assertExpectationsLive(PHASE_EXPECTED_EVENTS);
 
 /**
  * The hint the gate returns for a missing expected event. Every key is an
- * instruction to the model to emit the event, so a key no expectation row
- * reaches is a standing instruction for something the gate never asks about —
- * exported so the declaration conjunct can hold the table to that, alongside
- * the expectation rows it is keyed against.
+ * instruction to the model to emit the event, so the table and the expectation
+ * rows describe ONE population — asserted in both directions at load, below.
+ * Exported so the gate's tests can seed the assertion.
  */
 export const EVENT_DESCRIPTIONS: Readonly<Record<string, string>> = {
+  'task.assigned': 'Emit task.assigned via exarchos_event for each planned task, before prepare_delegation',
   'team.spawned': 'Emit team.spawned via exarchos_event after creating the team',
   'team.task.planned': 'Emit team.task.planned via exarchos_event for each planned task',
   'team.teammate.dispatched': 'Emit team.teammate.dispatched via exarchos_event after dispatching subagents',
@@ -187,6 +187,60 @@ export function assertDescriptionsLive(
 }
 
 assertDescriptionsLive(EVENT_DESCRIPTIONS);
+
+/**
+ * Load-time assertion that the two tables describe the SAME population, in
+ * both directions. A description no expectation row reaches is a standing
+ * instruction to emit something the gate never asks about — the stale prose a
+ * flip is required to delete in the same commit as the row. An expectation no
+ * description covers would have fallen through to a generic hint that reads as
+ * complete while telling the model nothing; the delegate rows derive from the
+ * reducer, so a type added there arrives here with no row unless this throws.
+ * Exported with both tables injectable so each direction is provable from a
+ * seeded pair rather than trusted.
+ */
+export function assertDescriptionsCoverExpectations(
+  expectations: Readonly<Record<string, readonly EventType[]>>,
+  descriptions: Readonly<Record<string, string>>,
+): void {
+  const expected = new Set<string>(Object.values(expectations).flat());
+  const unreachable = Object.keys(descriptions)
+    .filter((eventType) => !expected.has(eventType))
+    .sort();
+  if (unreachable.length > 0) {
+    throw new Error(
+      `EVENT_DESCRIPTIONS instructs the model to emit ${unreachable.length} event(s) no phase ` +
+        `expects: ${unreachable.join(', ')}. The row outlived its expectation — delete it, or ` +
+        'restore the expectation it described.',
+    );
+  }
+  const undescribed = [...expected].filter((eventType) => descriptions[eventType] === undefined).sort();
+  if (undescribed.length > 0) {
+    throw new Error(
+      `PHASE_EXPECTED_EVENTS expects ${undescribed.length} event(s) EVENT_DESCRIPTIONS does not ` +
+        `describe: ${undescribed.join(', ')}. The gate would have nothing to say about a missing ` +
+        'one — add the row in the same change that added the expectation.',
+    );
+  }
+}
+
+assertDescriptionsCoverExpectations(PHASE_EXPECTED_EVENTS, EVENT_DESCRIPTIONS);
+
+/**
+ * Total over every expected event, by the load-time assertion above. A miss
+ * here means the tables changed after load; it is a bug, and it throws rather
+ * than substituting a generic hint that would read as a complete answer.
+ */
+function descriptionOf(eventType: EventType): string {
+  const description = EVENT_DESCRIPTIONS[eventType];
+  if (description === undefined) {
+    throw new Error(
+      `EVENT_DESCRIPTIONS has no row for expected event '${eventType}' — a state ` +
+        'assertDescriptionsCoverExpectations refuses at load.',
+    );
+  }
+  return description;
+}
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -301,7 +355,7 @@ export async function handleCheckEventEmissions(
       const requiredFields = extractRequiredFields(eventType);
       hints.push({
         eventType,
-        description: EVENT_DESCRIPTIONS[eventType] ?? `Missing expected event: ${eventType}`,
+        description: descriptionOf(eventType),
         ...(requiredFields && requiredFields.length > 0 ? { requiredFields } : {}),
       });
     }

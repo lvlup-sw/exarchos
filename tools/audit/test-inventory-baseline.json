@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1262,
-    "parsedFiles": 1217,
+    "testFiles": 1264,
+    "parsedFiles": 1219,
     "shellFiles": 45,
-    "cases": 13909,
+    "cases": 13918,
     "dynamicTitles": 150,
     "unparseableFiles": 0
   },
@@ -5797,11 +5797,6 @@
         },
         {
           "suite": "ActionContractConjunct — a declared event is a governance event",
-          "name": "ActionContractConjunct_EveryDescriptionRow_IsReachedByAnExpectationRow",
-          "dynamic": false
-        },
-        {
-          "suite": "ActionContractConjunct — a declared event is a governance event",
           "name": "ActionContractConjunct_EveryDeclaredEventName_IsAKnownEventType",
           "dynamic": false
         },
@@ -5859,6 +5854,22 @@
         {
           "suite": "RawReaderCensus — no fold-external reader depends on a telemetry event",
           "name": "RawReaderCensus_UnscopedFoldsAndUnresolvedDiscriminants_AreReportedNotDropped",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/event-emissions-gate-consumers.test.ts": {
+      "file": "tests/architecture/event-emissions-gate-consumers.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "EventEmissionsGate — nothing shipped decides on its verdict",
+          "name": "EventEmissionsGate_GateNameLiteral_AppearsOnlyInTheGateModule",
+          "dynamic": false
+        },
+        {
+          "suite": "EventEmissionsGate — nothing shipped decides on its verdict",
+          "name": "EventEmissionsGate_SeededReaderDiscriminatingOnTheName_IsNamedAndAnImportIsNot",
           "dynamic": false
         }
       ]
@@ -6464,6 +6475,27 @@
         {
           "suite": "ArtifactKind",
           "name": "NoRenderedFile_IsHandEdited",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/skill-prose-gate-row-agreement.test.ts": {
+      "file": "tests/architecture/skill-prose-gate-row-agreement.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "SkillProse — the checked-by sentence names the gate row",
+          "name": "SkillProse_EverySite_HasAnExpectationRowAndAContentFile",
+          "dynamic": false
+        },
+        {
+          "suite": "SkillProse — the checked-by sentence names the gate row",
+          "name": "SkillProse_CheckedLine_NamesExactlyTheGateRow",
+          "dynamic": false
+        },
+        {
+          "suite": "SkillProse — the checked-by sentence names the gate row",
+          "name": "SkillProse_SeededDisagreement_IsNamedInBothDirectionsAndOnAMissingLine",
           "dynamic": false
         }
       ]
@@ -11352,6 +11384,16 @@
         {
           "suite": "CI path-filter & guard coverage (DR-22)",
           "name": "LayerCensus_HostScripts_AreRunStepsOnBothPlatforms",
+          "dynamic": false
+        },
+        {
+          "suite": "CI path-filter & guard coverage (DR-22)",
+          "name": "LayerCensus_UnitProjectHostScripts_AreRunStepsOnBothPlatforms",
+          "dynamic": false
+        },
+        {
+          "suite": "CI path-filter & guard coverage (DR-22)",
+          "name": "IsUnitProjectScript_ResolvesOneAliasHopAndNoMore",
           "dynamic": false
         },
         {
@@ -52222,6 +52264,21 @@
         {
           "suite": "PHASE_EXPECTED_EVENTS",
           "name": "PhaseExpectedEvents_SynthesizePhase_ExpectsShepherdAndNoLongerStackSubmitted",
+          "dynamic": false
+        },
+        {
+          "suite": "PHASE_EXPECTED_EVENTS",
+          "name": "EventDescriptions_LiveTables_DescribeExactlyTheExpectedPopulation",
+          "dynamic": false
+        },
+        {
+          "suite": "PHASE_EXPECTED_EVENTS",
+          "name": "EventDescriptions_RowNoPhaseExpects_IsNamedAtLoad",
+          "dynamic": false
+        },
+        {
+          "suite": "PHASE_EXPECTED_EVENTS",
+          "name": "EventDescriptions_ExpectationWithoutARow_IsNamedAtLoad",
           "dynamic": false
         },
         {
