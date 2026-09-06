@@ -145,14 +145,16 @@ const CORPUS: readonly WorkflowEvent[] = EventTypes.map((type, index) =>
   }),
 );
 
-function fold(events: readonly WorkflowEvent[]): unknown {
+type FoldedState = ReturnType<typeof workflowStateProjection.init>;
+
+function fold(events: readonly WorkflowEvent[]): FoldedState {
   return events.reduce(
     (state, event) => workflowStateProjection.apply(state, event),
     workflowStateProjection.init(),
   );
 }
 
-function foldExcluding(excluded: ReadonlySet<string>): unknown {
+function foldExcluding(excluded: ReadonlySet<string>): FoldedState {
   return fold(CORPUS.filter((event) => !excluded.has(event.type)));
 }
 
@@ -370,8 +372,15 @@ describe('EventAuthority — the partition is derived, and telemetry means dropp
     });
     expect(seeded[candidate]).toBe('telemetry');
 
-    const seededTelemetry = new Set(EventTypes.filter((type) => seeded[type] === 'telemetry'));
-    expect(seededTelemetry.has(candidate)).toBe(true);
+    // Control: the LIVE telemetry set folds back to the full state, and the
+    // seeded set is that set plus exactly the candidate — so the divergence
+    // below is the seeded row's, not some already-telemetry type's.
+    const liveTelemetry: ReadonlySet<string> = TELEMETRY_EVENTS;
+    expect(JSON.stringify(foldExcluding(liveTelemetry))).toBe(FULL_FOLD);
+    const seededTelemetry = new Set<string>(
+      EventTypes.filter((type) => seeded[type] === 'telemetry'),
+    );
+    expect([...seededTelemetry].filter((type) => !liveTelemetry.has(type))).toEqual([candidate]);
     expect(JSON.stringify(foldExcluding(seededTelemetry))).not.toBe(FULL_FOLD);
   });
 

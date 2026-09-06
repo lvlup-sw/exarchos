@@ -192,12 +192,20 @@ function verifyPackedAgainstSource(packageDir: string): ContainmentResult {
   return verifyContainment({ required: sourceProjections, layers: [packed.layer] });
 }
 
+/**
+ * The hook below shells out to `npm pack` over the whole package and walks the
+ * ~1k-file projection tree: ~31s on ubuntu-latest, 47s to over 60s on
+ * windows-latest, which is the core tier's entire hook budget. The budget here
+ * is this hook's own, not the tier's; a genuine hang still fails, just later.
+ */
+const PACK_HOOK_TIMEOUT_MS = 180_000;
+
 beforeAll(() => {
   workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-t29-packed-'));
   const tarball = runNpmPack(REPO_ROOT, path.join(workDir, 'tgz'));
   pristinePackageDir = extractTarball(tarball, path.join(workDir, 'pristine'));
   sourceProjections = enumerateProjections(REPO_ROOT, npmFilesSpecs()).projections;
-});
+}, PACK_HOOK_TIMEOUT_MS);
 
 afterAll(() => {
   if (workDir !== '') fs.rmSync(workDir, { recursive: true, force: true });

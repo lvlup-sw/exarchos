@@ -95,7 +95,9 @@ const DECISION_RECORD_SHAPE =
  * seeded row carrying the placeholder can reach it from a test.
  */
 export function assertCharterCitations(
-  demotions: Readonly<Record<string, { readonly act: string; readonly record: string }>>,
+  demotions: Readonly<
+    Record<string, { readonly act: string; readonly record: string; readonly because?: string }>
+  >,
 ): void {
   const malformed = Object.entries(demotions)
     .filter(([, row]) => !CHARTER_ACT_SHAPE.test(row.act) || !DECISION_RECORD_SHAPE.test(row.record))

@@ -18,7 +18,7 @@
 // no partition change is the telemetry middleware's argument-rewriting path
 // (`projections/telemetry/middleware.ts`, `autoCorrectionOptions`), dormant
 // today because every dispatcher call passes three arguments; the view-level
-// differential the tracker's item 9 asks for should name it.
+// differential still owed over that middleware should name it.
 
 /**
  * The live governance/telemetry partition over the shipped event catalog.

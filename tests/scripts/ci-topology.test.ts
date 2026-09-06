@@ -426,11 +426,23 @@ function npmRunInvocation(scriptName: string): RegExp {
 }
 
 /**
- * True iff `cmd` names the `core` vitest project. `--project core-extra`
- * must not count — `\b` after `core` still matches a hyphen.
+ * True iff `cmd` is a vitest invocation selecting exactly `project`. The
+ * option has to follow vitest's own invocation: `echo --project unit` names
+ * the option without running anything, and would otherwise satisfy a topology
+ * pin while the project it names is collected by nobody. `--project
+ * core-extra` must not count for `core` — `\b` after `core` still matches a
+ * hyphen.
  */
+function isVitestProjectCommand(cmd: string, project: string): boolean {
+  const invocation = /^(?:npx\s+)?vitest(?:\s+|$)/.exec(cmd.trim());
+  if (invocation === null) return false;
+  const args = cmd.trim().slice(invocation[0].length);
+  return new RegExp(`(?:^|\\s)--project ${escapeRegExp(project)}(?:\\s|$)`).test(args);
+}
+
+/** True iff `cmd` runs the `core` vitest project. */
 function isCoreProjectCommand(cmd: string): boolean {
-  return /(?:^|\s)--project core(?:\s|$)/.test(cmd);
+  return isVitestProjectCommand(cmd, 'core');
 }
 
 /**
@@ -470,7 +482,7 @@ function jobRunsCoreProjectScript(job: WorkflowJob | undefined, scriptName: stri
 function isUnitProjectScript(scripts: Record<string, string>, name: string, hops = 0): boolean {
   const cmd = scripts[name];
   if (cmd === undefined) return false;
-  if (/(?:^|\s)--project unit(?:\s|$)/.test(cmd)) return true;
+  if (isVitestProjectCommand(cmd, 'unit')) return true;
   const alias = /^npm run (\S+)\s*$/.exec(cmd.trim());
   return alias !== null && hops < 1 && isUnitProjectScript(scripts, alias[1] ?? '', hops + 1);
 }
@@ -585,6 +597,9 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     expect(isCoreProjectCommand('vitest --project core')).toBe(true);
     expect(isCoreProjectCommand('vitest --project core --run')).toBe(true);
     expect(isCoreProjectCommand('vitest --project core-extra')).toBe(false);
+    expect(isCoreProjectCommand('npx vitest run --project core')).toBe(true);
+    expect(isCoreProjectCommand('echo --project core')).toBe(false);
+    expect(isCoreProjectCommand("echo 'vitest run --project core'")).toBe(false);
   });
 
   it('LayerCensus_UnitProjectHostScripts_AreRunStepsOnBothPlatforms', () => {
@@ -626,12 +641,18 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
       'test:deep': 'npm run test:run',
       'test:unit-extra': 'vitest run --project unit-extra',
       'test:echo': "echo 'npm run test:unit'",
+      'test:option-echo': 'echo --project unit',
+      'test:npx': 'npx vitest run --project unit',
     };
     expect(isUnitProjectScript(scripts, 'test:unit')).toBe(true);
     expect(isUnitProjectScript(scripts, 'test:run')).toBe(true);
     expect(isUnitProjectScript(scripts, 'test:deep'), 'two hops is a new shape').toBe(false);
     expect(isUnitProjectScript(scripts, 'test:unit-extra')).toBe(false);
     expect(isUnitProjectScript(scripts, 'test:echo')).toBe(false);
+    expect(isUnitProjectScript(scripts, 'test:option-echo'), 'the option alone runs nothing').toBe(
+      false,
+    );
+    expect(isUnitProjectScript(scripts, 'test:npx')).toBe(true);
     expect(isUnitProjectScript(scripts, 'test:absent')).toBe(false);
   });
 
