@@ -427,16 +427,17 @@ function npmRunInvocation(scriptName: string): RegExp {
 
 /**
  * True iff `cmd` is a vitest invocation selecting exactly `project`. The
- * option has to follow vitest's own invocation: `echo --project unit` names
- * the option without running anything, and would otherwise satisfy a topology
- * pin while the project it names is collected by nobody. `--project
- * core-extra` must not count for `core` — `\b` after `core` still matches a
- * hyphen.
+ * option has to be one of vitest's own arguments: `echo --project unit` names
+ * the option without running anything, and `vitest && echo --project unit`
+ * hands it to a later command — either would otherwise satisfy a topology pin
+ * while the project it names is collected by nobody. `--project core-extra`
+ * must not count for `core` — `\b` after `core` still matches a hyphen.
  */
 function isVitestProjectCommand(cmd: string, project: string): boolean {
   const invocation = /^(?:npx\s+)?vitest(?:\s+|$)/.exec(cmd.trim());
   if (invocation === null) return false;
-  const args = cmd.trim().slice(invocation[0].length);
+  // Only up to the first shell separator is vitest's argument list.
+  const args = cmd.trim().slice(invocation[0].length).split(/\s*(?:&&|\|\||;|\|)\s*/, 1)[0] ?? '';
   return new RegExp(`(?:^|\\s)--project ${escapeRegExp(project)}(?:\\s|$)`).test(args);
 }
 
@@ -600,6 +601,9 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     expect(isCoreProjectCommand('npx vitest run --project core')).toBe(true);
     expect(isCoreProjectCommand('echo --project core')).toBe(false);
     expect(isCoreProjectCommand("echo 'vitest run --project core'")).toBe(false);
+    expect(isCoreProjectCommand('vitest && echo --project core')).toBe(false);
+    expect(isCoreProjectCommand('vitest --project unit && echo --project core')).toBe(false);
+    expect(isCoreProjectCommand('vitest --project core && echo done')).toBe(true);
   });
 
   it('LayerCensus_UnitProjectHostScripts_AreRunStepsOnBothPlatforms', () => {
@@ -643,6 +647,7 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
       'test:echo': "echo 'npm run test:unit'",
       'test:option-echo': 'echo --project unit',
       'test:npx': 'npx vitest run --project unit',
+      'test:chained': 'vitest run && echo --project unit',
     };
     expect(isUnitProjectScript(scripts, 'test:unit')).toBe(true);
     expect(isUnitProjectScript(scripts, 'test:run')).toBe(true);
@@ -653,6 +658,9 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
       false,
     );
     expect(isUnitProjectScript(scripts, 'test:npx')).toBe(true);
+    expect(isUnitProjectScript(scripts, 'test:chained'), 'a later command is not vitest').toBe(
+      false,
+    );
     expect(isUnitProjectScript(scripts, 'test:absent')).toBe(false);
   });
 

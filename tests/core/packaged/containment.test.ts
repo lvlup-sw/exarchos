@@ -96,6 +96,18 @@ const REPO_ROOT = findRepoRoot(HERE);
  * `dist/**`, none of which is a projection, and running it would make this
  * suite depend on a compile rather than on the packaging manifest.
  */
+/**
+ * The setup hook shells out to `npm pack` over the whole package and walks the
+ * ~1k-file projection tree: ~31s on ubuntu-latest, 47s to over 60s on
+ * windows-latest, which is the core tier's entire hook budget. The budget here
+ * is this hook's own, not the tier's. Vitest's hook timer cannot interrupt a
+ * synchronous spawn, so each child carries its own bound and is killed when it
+ * exceeds it: a hung `npm pack` fails the hook instead of holding it.
+ */
+const PACK_CHILD_TIMEOUT_MS = 150_000;
+const EXTRACT_CHILD_TIMEOUT_MS = 20_000;
+const PACK_HOOK_TIMEOUT_MS = 180_000;
+
 function runNpmPack(repoRoot: string, destDir: string): string {
   fs.mkdirSync(destDir, { recursive: true });
   const useShell = needsWindowsShell('npm');
@@ -103,6 +115,8 @@ function runNpmPack(repoRoot: string, destDir: string): string {
     cwd: repoRoot,
     encoding: 'utf8',
     stdio: 'pipe',
+    timeout: PACK_CHILD_TIMEOUT_MS,
+    killSignal: 'SIGKILL',
     ...(useShell ? { shell: true } : {}),
   });
   if (res.error !== undefined || res.status !== 0) {
@@ -136,6 +150,8 @@ function extractTarball(tarball: string, intoDir: string): string {
     cwd: intoDir,
     encoding: 'utf8',
     stdio: 'pipe',
+    timeout: EXTRACT_CHILD_TIMEOUT_MS,
+    killSignal: 'SIGKILL',
   });
   if (res.error !== undefined || res.status !== 0) {
     throw new Error(
@@ -191,14 +207,6 @@ function verifyPackedAgainstSource(packageDir: string): ContainmentResult {
   const packed = readPackedProjectionLayer(packageDir);
   return verifyContainment({ required: sourceProjections, layers: [packed.layer] });
 }
-
-/**
- * The hook below shells out to `npm pack` over the whole package and walks the
- * ~1k-file projection tree: ~31s on ubuntu-latest, 47s to over 60s on
- * windows-latest, which is the core tier's entire hook budget. The budget here
- * is this hook's own, not the tier's; a genuine hang still fails, just later.
- */
-const PACK_HOOK_TIMEOUT_MS = 180_000;
 
 beforeAll(() => {
   workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-t29-packed-'));
