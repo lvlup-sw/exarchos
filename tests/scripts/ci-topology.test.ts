@@ -426,11 +426,27 @@ function npmRunInvocation(scriptName: string): RegExp {
 }
 
 /**
- * True iff `cmd` names the `core` vitest project. `--project core-extra`
- * must not count — `\b` after `core` still matches a hyphen.
+ * True iff `cmd` is a vitest invocation selecting exactly `project`. The
+ * option has to be one of vitest's own arguments: `echo --project unit` names
+ * the option without running anything, and `vitest && echo --project unit`
+ * hands it to a later command — either would otherwise satisfy a topology pin
+ * while the project it names is collected by nobody. `--project core-extra`
+ * must not count for `core` — `\b` after `core` still matches a hyphen.
  */
+function isVitestProjectCommand(cmd: string, project: string): boolean {
+  // Only the first shell command is vitest's: cut at `;`, either `|` form,
+  // either `&` form (a backgrounded vitest included), or a newline BEFORE
+  // matching the invocation, so `\s+` cannot swallow a newline boundary.
+  const head = cmd.trim().split(/[;|&\r\n]/, 1)[0] ?? '';
+  const invocation = /^(?:npx\s+)?vitest(?:\s+|$)/.exec(head);
+  if (invocation === null) return false;
+  const args = head.slice(invocation[0].length);
+  return new RegExp(`(?:^|\\s)--project ${escapeRegExp(project)}(?:\\s|$)`).test(args);
+}
+
+/** True iff `cmd` runs the `core` vitest project. */
 function isCoreProjectCommand(cmd: string): boolean {
-  return /(?:^|\s)--project core(?:\s|$)/.test(cmd);
+  return isVitestProjectCommand(cmd, 'core');
 }
 
 /**
@@ -459,6 +475,20 @@ function jobRunsCoreProjectScript(job: WorkflowJob | undefined, scriptName: stri
   return steps.some(
     (s) => typeof s.run === 'string' && re.test(s.run.trim()) && isRequiredHostStep(s),
   );
+}
+
+/**
+ * True iff `scripts[name]` runs `--project unit`, directly or through ONE hop
+ * of `npm run <alias>` — `test:run` is `npm run test:unit`, and CI invokes the
+ * alias. One hop is what the tree has; a deeper chain is a new shape to pin,
+ * not one to resolve silently.
+ */
+function isUnitProjectScript(scripts: Record<string, string>, name: string, hops = 0): boolean {
+  const cmd = scripts[name];
+  if (cmd === undefined) return false;
+  if (isVitestProjectCommand(cmd, 'unit')) return true;
+  const alias = /^npm run (\S+)\s*$/.exec(cmd.trim());
+  return alias !== null && hops < 1 && isUnitProjectScript(scripts, alias[1] ?? '', hops + 1);
 }
 
 describe('CI path-filter & guard coverage (DR-22)', () => {
@@ -571,6 +601,72 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     expect(isCoreProjectCommand('vitest --project core')).toBe(true);
     expect(isCoreProjectCommand('vitest --project core --run')).toBe(true);
     expect(isCoreProjectCommand('vitest --project core-extra')).toBe(false);
+    expect(isCoreProjectCommand('npx vitest run --project core')).toBe(true);
+    expect(isCoreProjectCommand('echo --project core')).toBe(false);
+    expect(isCoreProjectCommand("echo 'vitest run --project core'")).toBe(false);
+    expect(isCoreProjectCommand('vitest && echo --project core')).toBe(false);
+    expect(isCoreProjectCommand('vitest --project unit && echo --project core')).toBe(false);
+    expect(isCoreProjectCommand('vitest --project core && echo done')).toBe(true);
+    expect(isCoreProjectCommand('vitest & echo --project core')).toBe(false);
+    expect(isCoreProjectCommand('vitest\necho --project core')).toBe(false);
+  });
+
+  it('LayerCensus_UnitProjectHostScripts_AreRunStepsOnBothPlatforms', () => {
+    // The architecture oracles — the event-authority declaration conjunct and
+    // the raw-reader census among them — are collected by the `unit` vitest
+    // project, which CI hosts as `npm run test:run`, an alias of `test:unit`.
+    // The core pin above says nothing about that lane, so a workflow edit that
+    // dropped the step would leave those oracles collected by nothing while
+    // every job stayed green. Same shape as the core pin, with the alias chain
+    // resolved through package.json rather than matched by name.
+    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
+    const pkg: { scripts?: Record<string, string> } = JSON.parse(
+      readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'),
+    );
+    const scripts = pkg.scripts ?? {};
+    const unitScripts = Object.keys(scripts).filter((name) => isUnitProjectScript(scripts, name));
+    expect(unitScripts, 'package.json declares no script expanding to --project unit').not.toEqual(
+      [],
+    );
+
+    const needs = new Set(needsList(workflow.jobs[AGGREGATOR_JOB]));
+    const hosts = Object.entries(workflow.jobs).filter(
+      ([name, job]) => needs.has(name) && unitScripts.some((s) => jobRunsCoreProjectScript(job, s)),
+    );
+    expect(
+      hosts.map(([name]) => name),
+      'no ci-gate dependency runs a script whose expansion is --project unit',
+    ).not.toEqual([]);
+
+    const runners = hosts.map(([, job]) => job['runs-on']);
+    expect(runners, 'Linux does not host the unit project').toContain('ubuntu-latest');
+    expect(runners, 'Windows does not host the unit project').toContain('windows-latest');
+  });
+
+  it('IsUnitProjectScript_ResolvesOneAliasHopAndNoMore', () => {
+    const scripts: Record<string, string> = {
+      'test:unit': 'vitest run --project unit',
+      'test:run': 'npm run test:unit',
+      'test:deep': 'npm run test:run',
+      'test:unit-extra': 'vitest run --project unit-extra',
+      'test:echo': "echo 'npm run test:unit'",
+      'test:option-echo': 'echo --project unit',
+      'test:npx': 'npx vitest run --project unit',
+      'test:chained': 'vitest run && echo --project unit',
+    };
+    expect(isUnitProjectScript(scripts, 'test:unit')).toBe(true);
+    expect(isUnitProjectScript(scripts, 'test:run')).toBe(true);
+    expect(isUnitProjectScript(scripts, 'test:deep'), 'two hops is a new shape').toBe(false);
+    expect(isUnitProjectScript(scripts, 'test:unit-extra')).toBe(false);
+    expect(isUnitProjectScript(scripts, 'test:echo')).toBe(false);
+    expect(isUnitProjectScript(scripts, 'test:option-echo'), 'the option alone runs nothing').toBe(
+      false,
+    );
+    expect(isUnitProjectScript(scripts, 'test:npx')).toBe(true);
+    expect(isUnitProjectScript(scripts, 'test:chained'), 'a later command is not vitest').toBe(
+      false,
+    );
+    expect(isUnitProjectScript(scripts, 'test:absent')).toBe(false);
   });
 
   it('Guards_HooksGuardRunsInCI_AndIsRootFiltered', () => {

@@ -79,17 +79,26 @@ export function modelEmittedOnly(
 
 // RC2 (#1395): `review.routed` was removed from every phase entry below — it is
 // now auto-emitted by handleReviewTriage (review/tools.ts), so the model is no
-// longer nagged for it. The surviving team.* / stack.submitted / shepherd.*
-// entries stay model-emitted (Category C): their transition is a model-walked
-// runbook step bracketing a `native:` harness tool, so auto-emission needs a
+// longer nagged for it. The surviving team.* / shepherd.* entries stay
+// model-emitted (Category C): their transition is a model-walked runbook step
+// bracketing a `native:` harness tool, so auto-emission needs a
 // runbook-executor seam (deferred to v2.11 / #1258). Re-adding an `'auto'`
 // event here will trip the compile-time assertion immediately below.
+//
+// `stack.submitted` left the synthesize row with the first event-authority
+// flip (the charter act on #1599, executing the #1876 decision): this table
+// was the ONLY thing that depended on it — the gate's complete/incomplete
+// verdict was a function of its presence — and the charter files the type as
+// telemetry. The model may still emit it as a record of the submission; the
+// gate no longer demands it, and nothing else decides anything from it. A row
+// here is a dependency, so re-adding one is a re-promotion and needs a
+// gate-expectation witness in the partition to say so.
 export const PHASE_EXPECTED_EVENTS: Readonly<Record<string, readonly EventType[]>> = {
   'delegate': modelEmittedOnly(getRegisteredEventTypes('delegate')),
   'overhaul-delegate': modelEmittedOnly(getRegisteredEventTypes('overhaul-delegate')),
   'review': ['team.spawned', 'team.task.planned', 'team.teammate.dispatched', 'team.disbanded'],
   'overhaul-review': ['team.spawned', 'team.task.planned', 'team.teammate.dispatched', 'team.disbanded'],
-  'synthesize': ['team.spawned', 'team.disbanded', 'stack.submitted', 'shepherd.iteration'],
+  'synthesize': ['team.spawned', 'team.disbanded', 'shepherd.iteration'],
   'overhaul-update-docs': ['team.spawned', 'team.disbanded'],
 };
 
@@ -131,14 +140,22 @@ assertExpectationsLive(PHASE_EXPECTED_EVENTS);
 
 // ─── Human-Readable Descriptions for Event Types ────────────────────────────
 
-const EVENT_DESCRIPTIONS: Readonly<Record<string, string>> = {
+/**
+ * The hint the gate returns for a missing expected event. Every key is an
+ * instruction to the model to emit the event, so the table and the expectation
+ * rows describe ONE population — asserted in both directions at load, below.
+ * Exported so the gate's tests can seed the assertion.
+ */
+export const EVENT_DESCRIPTIONS: Readonly<Record<string, string>> = {
+  'task.assigned': 'Emit task.assigned via exarchos_event for each planned task, before prepare_delegation',
   'team.spawned': 'Emit team.spawned via exarchos_event after creating the team',
   'team.task.planned': 'Emit team.task.planned via exarchos_event for each planned task',
   'team.teammate.dispatched': 'Emit team.teammate.dispatched via exarchos_event after dispatching subagents',
   'team.disbanded': 'Emit team.disbanded via exarchos_event after all teammates complete',
   // review.routed description removed in RC2 (#1395): now auto-emitted, never a
   // model-emitted hint, so its description is dead. DIM-5 hygiene.
-  'stack.submitted': 'Emit stack.submitted via exarchos_event after submitting the PR stack',
+  // stack.submitted description removed with the first event-authority flip:
+  // its expectation row went, so the hint had nothing left to describe.
   'shepherd.iteration': 'Emit shepherd.iteration via exarchos_event after each shepherd loop iteration',
   'task.progressed': 'Emit task.progressed via exarchos_event after each TDD phase transition (red/green/refactor)',
 };
@@ -170,6 +187,60 @@ export function assertDescriptionsLive(
 }
 
 assertDescriptionsLive(EVENT_DESCRIPTIONS);
+
+/**
+ * Load-time assertion that the two tables describe the SAME population, in
+ * both directions. A description no expectation row reaches is a standing
+ * instruction to emit something the gate never asks about — the stale prose a
+ * flip is required to delete in the same commit as the row. An expectation no
+ * description covers would have fallen through to a generic hint that reads as
+ * complete while telling the model nothing; the delegate rows derive from the
+ * reducer, so a type added there arrives here with no row unless this throws.
+ * Exported with both tables injectable so each direction is provable from a
+ * seeded pair rather than trusted.
+ */
+export function assertDescriptionsCoverExpectations(
+  expectations: Readonly<Record<string, readonly EventType[]>>,
+  descriptions: Readonly<Record<string, string>>,
+): void {
+  const expected = new Set<string>(Object.values(expectations).flat());
+  const unreachable = Object.keys(descriptions)
+    .filter((eventType) => !expected.has(eventType))
+    .sort();
+  if (unreachable.length > 0) {
+    throw new Error(
+      `EVENT_DESCRIPTIONS instructs the model to emit ${unreachable.length} event(s) no phase ` +
+        `expects: ${unreachable.join(', ')}. The row outlived its expectation — delete it, or ` +
+        'restore the expectation it described.',
+    );
+  }
+  const undescribed = [...expected].filter((eventType) => descriptions[eventType] === undefined).sort();
+  if (undescribed.length > 0) {
+    throw new Error(
+      `PHASE_EXPECTED_EVENTS expects ${undescribed.length} event(s) EVENT_DESCRIPTIONS does not ` +
+        `describe: ${undescribed.join(', ')}. The gate would have nothing to say about a missing ` +
+        'one — add the row in the same change that added the expectation.',
+    );
+  }
+}
+
+assertDescriptionsCoverExpectations(PHASE_EXPECTED_EVENTS, EVENT_DESCRIPTIONS);
+
+/**
+ * Total over every expected event, by the load-time assertion above. A miss
+ * here means the tables changed after load; it is a bug, and it throws rather
+ * than substituting a generic hint that would read as a complete answer.
+ */
+function descriptionOf(eventType: EventType): string {
+  const description = EVENT_DESCRIPTIONS[eventType];
+  if (description === undefined) {
+    throw new Error(
+      `EVENT_DESCRIPTIONS has no row for expected event '${eventType}' — a state ` +
+        'assertDescriptionsCoverExpectations refuses at load.',
+    );
+  }
+  return description;
+}
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -284,7 +355,7 @@ export async function handleCheckEventEmissions(
       const requiredFields = extractRequiredFields(eventType);
       hints.push({
         eventType,
-        description: EVENT_DESCRIPTIONS[eventType] ?? `Missing expected event: ${eventType}`,
+        description: descriptionOf(eventType),
         ...(requiredFields && requiredFields.length > 0 ? { requiredFields } : {}),
       });
     }
