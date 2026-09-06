@@ -434,10 +434,13 @@ function npmRunInvocation(scriptName: string): RegExp {
  * must not count for `core` — `\b` after `core` still matches a hyphen.
  */
 function isVitestProjectCommand(cmd: string, project: string): boolean {
-  const invocation = /^(?:npx\s+)?vitest(?:\s+|$)/.exec(cmd.trim());
+  // Only the first shell command is vitest's: cut at `;`, either `|` form,
+  // either `&` form (a backgrounded vitest included), or a newline BEFORE
+  // matching the invocation, so `\s+` cannot swallow a newline boundary.
+  const head = cmd.trim().split(/[;|&\r\n]/, 1)[0] ?? '';
+  const invocation = /^(?:npx\s+)?vitest(?:\s+|$)/.exec(head);
   if (invocation === null) return false;
-  // Only up to the first shell separator is vitest's argument list.
-  const args = cmd.trim().slice(invocation[0].length).split(/\s*(?:&&|\|\||;|\|)\s*/, 1)[0] ?? '';
+  const args = head.slice(invocation[0].length);
   return new RegExp(`(?:^|\\s)--project ${escapeRegExp(project)}(?:\\s|$)`).test(args);
 }
 
@@ -604,6 +607,8 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     expect(isCoreProjectCommand('vitest && echo --project core')).toBe(false);
     expect(isCoreProjectCommand('vitest --project unit && echo --project core')).toBe(false);
     expect(isCoreProjectCommand('vitest --project core && echo done')).toBe(true);
+    expect(isCoreProjectCommand('vitest & echo --project core')).toBe(false);
+    expect(isCoreProjectCommand('vitest\necho --project core')).toBe(false);
   });
 
   it('LayerCensus_UnitProjectHostScripts_AreRunStepsOnBothPlatforms', () => {
