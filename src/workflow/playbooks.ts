@@ -332,9 +332,9 @@ register({
       purpose: 'Record review results and transition',
     },
     {
-      tool: 'exarchos_event',
-      action: 'append',
-      purpose: 'Emit gate.executed for review gates',
+      tool: 'exarchos_orchestrate',
+      action: 'check_review_verdict',
+      purpose: 'Run the review gates',
     },
   ],
   events: phaseEventInstructions('review'),
@@ -345,7 +345,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are running two-stage code review (spec + quality). Use exarchos_event to emit gate.executed for each review gate. Use exarchos_workflow update to record review results. Transition to synthesize when all reviews pass, or back to delegate if fixes needed. Before first-time emission of any event type, call exarchos_event describe(eventTypes: [...]) to discover required fields. Key decision: pass vs fix-cycle vs block — assess severity of each finding. Anti-pattern: trusting passing tests as proof of completeness — check what the tests actually verify and look for missing coverage. Escalate: same finding appears in 2+ review cycles. Two-pass evaluation: first pass is high-recall (flag everything suspicious), second pass is high-precision (filter to actionable findings only). Follow the review-strategy runbook for structured evaluation criteria.',
+    'You are running two-stage code review (spec + quality). Run each review gate through exarchos_orchestrate; the runtime records gate.executed, never emit it via exarchos_event. Use exarchos_workflow update to record review results. Transition to synthesize when all reviews pass, or back to delegate if fixes needed. Before first-time emission of any event type, call exarchos_event describe(eventTypes: [...]) to discover required fields. Key decision: pass vs fix-cycle vs block — assess severity of each finding. Anti-pattern: trusting passing tests as proof of completeness — check what the tests actually verify and look for missing coverage. Escalate: same finding appears in 2+ review cycles. Two-pass evaluation: first pass is high-recall (flag everything suspicious), second pass is high-precision (filter to actionable findings only). Follow the review-strategy runbook for structured evaluation criteria.',
 });
 
 register({
@@ -365,9 +365,9 @@ register({
       purpose: 'Record PR URLs and synthesis metadata',
     },
     {
-      tool: 'exarchos_event',
-      action: 'append',
-      purpose: 'Emit gate.executed for pre-synthesis checks',
+      tool: 'exarchos_orchestrate',
+      action: 'pre_synthesis_check',
+      purpose: 'Run the pre-synthesis checks',
     },
   ],
   events: phaseEventInstructions('synthesize'),
@@ -380,7 +380,7 @@ register({
   ],
   humanCheckpoint: true,
   compactGuidance:
-    'You are creating PRs via GitHub CLI. Run pre-synthesis-check.sh first. Use exarchos_event to emit gate.executed results. Wait for user confirmation to merge. This is a human checkpoint — pause and confirm before proceeding. Key decision: single PR vs stacked PRs based on change scope. Anti-pattern: merging without CI green on all checks. Escalate: CI fails 3+ times on the same issue.',
+    'You are creating PRs via GitHub CLI. Run pre-synthesis-check.sh first (exarchos_orchestrate pre_synthesis_check); the runtime records gate.executed, never emit it via exarchos_event. Wait for user confirmation to merge. This is a human checkpoint — pause and confirm before proceeding. Key decision: single PR vs stacked PRs based on change scope. Anti-pattern: merging without CI green on all checks. Escalate: CI fails 3+ times on the same issue.',
 });
 
 register(
@@ -643,9 +643,9 @@ register({
       purpose: 'Record PR URLs and synthesis metadata',
     },
     {
-      tool: 'exarchos_event',
-      action: 'append',
-      purpose: 'Emit gate.executed for synthesis checks',
+      tool: 'exarchos_orchestrate',
+      action: 'pre_synthesis_check',
+      purpose: 'Run the pre-synthesis checks',
     },
   ],
   events: phaseEventInstructions('synthesize'),
@@ -909,9 +909,9 @@ register({
       purpose: 'Record review results and transition',
     },
     {
-      tool: 'exarchos_event',
-      action: 'append',
-      purpose: 'Emit gate.executed for review gates',
+      tool: 'exarchos_orchestrate',
+      action: 'check_review_verdict',
+      purpose: 'Run the review gates',
     },
   ],
   events: phaseEventInstructions('overhaul-review'),
@@ -922,7 +922,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are reviewing the overhaul refactoring. Use exarchos_event to emit gate.executed for review gates. Use exarchos_workflow update to record review results. Transition to overhaul-update-docs when all reviews pass, or back to overhaul-delegate if fixes needed. Key decision: review depth proportional to change scope. Anti-pattern: trusting subagent self-assessment — independently verify test output and coverage. Escalate: regression findings appear in modules unrelated to the refactoring.',
+    'You are reviewing the overhaul refactoring. Run each review gate through exarchos_orchestrate; the runtime records gate.executed, never emit it via exarchos_event. Use exarchos_workflow update to record review results. Transition to overhaul-update-docs when all reviews pass, or back to overhaul-delegate if fixes needed. Key decision: review depth proportional to change scope. Anti-pattern: trusting subagent self-assessment — independently verify test output and coverage. Escalate: regression findings appear in modules unrelated to the refactoring.',
 });
 
 register({
@@ -964,9 +964,9 @@ register({
       purpose: 'Record PR URLs and synthesis metadata',
     },
     {
-      tool: 'exarchos_event',
-      action: 'append',
-      purpose: 'Emit gate.executed for synthesis checks',
+      tool: 'exarchos_orchestrate',
+      action: 'pre_synthesis_check',
+      purpose: 'Run the pre-synthesis checks',
     },
   ],
   events: phaseEventInstructions('synthesize'),
@@ -1110,9 +1110,9 @@ export const oneshotPlaybook: readonly PhasePlaybook[] = [
         purpose: 'Record PR URLs and synthesis metadata',
       },
       {
-        tool: 'exarchos_event',
-        action: 'append',
-        purpose: 'Emit gate.executed for pre-synthesis checks',
+        tool: 'exarchos_orchestrate',
+        action: 'pre_synthesis_check',
+        purpose: 'Run the pre-synthesis checks',
       },
     ],
     events: phaseEventInstructions('synthesize'),
@@ -1123,7 +1123,7 @@ export const oneshotPlaybook: readonly PhasePlaybook[] = [
     validationScripts: ['pre_synthesis_check'],
     humanCheckpoint: true,
     compactGuidance:
-      'Oneshot synthesis reuses the existing synthesize pipeline. Create the PR via GitHub CLI (gh pr create), run pre-synthesis-check.sh, emit gate.executed via exarchos_event. Wait for merge verification before transitioning to completed. This is a human checkpoint — pause and confirm before merge. Anti-pattern: merging without CI green.',
+      'Oneshot synthesis reuses the existing synthesize pipeline. Create the PR via GitHub CLI (gh pr create), run pre-synthesis-check.sh via exarchos_orchestrate pre_synthesis_check (the runtime records gate.executed; never emit it via exarchos_event). Wait for merge verification before transitioning to completed. This is a human checkpoint — pause and confirm before merge. Anti-pattern: merging without CI green.',
   },
   terminalPlaybook(
     'oneshot',
