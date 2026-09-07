@@ -67,7 +67,7 @@ export type PhaseEventContracts<T extends string> = Readonly<Record<string, Phas
 
 const TEAM_SPAWNED: PhaseEventRow = {
   type: 'team.spawned',
-  when: 'After team creation, before dispatch',
+  when: 'After team creation',
   fields: ['teamSize', 'teammateNames', 'taskCount', 'dispatchMode'],
 };
 const TEAM_TASK_PLANNED: PhaseEventRow = {
@@ -80,19 +80,19 @@ const TEAM_TEAMMATE_DISPATCHED: PhaseEventRow = {
 };
 const TEAM_DISBANDED: PhaseEventRow = {
   type: 'team.disbanded',
-  when: 'After all tasks are collected',
+  when: 'After all tasks collected',
   fields: ['totalDurationMs', 'tasksCompleted', 'tasksFailed'],
 };
 
 const TASK_COMPLETED_BY_RUNTIME: PhaseRuntimeEmissionRow = {
   type: 'task.completed',
-  when: 'After the task_complete orchestrate action succeeds',
+  when: 'After task_complete orchestrate action succeeds',
   emittedBy: 'exarchos_orchestrate task_complete',
   fields: ['taskId', 'evidence', 'verified', 'files', 'implements'],
 };
 const TASK_FAILED_BY_RUNTIME: PhaseRuntimeEmissionRow = {
   type: 'task.failed',
-  when: 'After the task_fail orchestrate action',
+  when: 'After task_fail orchestrate action',
   emittedBy: 'exarchos_orchestrate task_fail',
   fields: ['taskId', 'error', 'diagnostics'],
 };
@@ -106,7 +106,7 @@ const REVIEW_GATE_EXECUTED: PhaseRuntimeEmissionRow = {
 const DELEGATE_EXPECTS: readonly PhaseEventRow[] = [
   {
     type: 'task.assigned',
-    when: 'On dispatch of each task, before prepare_delegation',
+    when: 'On dispatch of each task',
     fields: ['taskId', 'title', 'worktree'],
   },
   TEAM_SPAWNED,
@@ -158,25 +158,28 @@ export const PHASE_EVENT_CONTRACTS: Readonly<Record<string, PhaseEventContract>>
       },
     ],
     runtimeEmits: [
+      // One row per phase, so the four synthesize playbooks share this wording;
+      // the debug/refactor/oneshot ones used to say "After synthesis validation
+      // scripts" and "After pre-synthesis-check.sh runs" for the same gate.
       {
         type: 'gate.executed',
-        when: 'After the pre-synthesis checks and stack validation',
+        when: 'After pre-synthesis-check.sh and validate-pr-stack.sh',
         emittedBy: 'the synthesis gates',
         fields: ['gateName', 'layer', 'passed'],
       },
       {
         type: 'shepherd.started',
-        when: 'On the first assess_stack invocation',
+        when: 'On first assess-stack invocation',
         emittedBy: 'exarchos_orchestrate assess_stack',
       },
       {
         type: 'shepherd.approval_requested',
-        when: 'When every check passes and approval is needed',
+        when: 'When all checks pass and approval is needed',
         emittedBy: 'exarchos_orchestrate assess_stack',
       },
       {
         type: 'shepherd.completed',
-        when: 'When the PR is merged or the shepherd resolves',
+        when: 'When PR is merged or shepherd resolves',
         emittedBy: 'exarchos_orchestrate assess_stack',
       },
     ],
@@ -190,18 +193,39 @@ export const PHASE_EVENT_CONTRACTS: Readonly<Record<string, PhaseEventContract>>
     runtimeEmits: [
       {
         type: 'merge.preflight',
-        when: 'Before the autonomous merge executes',
+        when: 'After dispatch-guard suite runs (before merge attempt or abort)',
         emittedBy: 'exarchos_orchestrate merge_orchestrate',
+        fields: [
+          'taskId',
+          'sourceBranch',
+          'targetBranch',
+          'passed',
+          'ancestry',
+          'worktree',
+          'currentBranchProtection',
+          'drift',
+          'failureReasons',
+        ],
       },
       {
         type: 'merge.executed',
-        when: 'When the merge succeeds',
+        when: 'After merge commit lands successfully on the target branch',
         emittedBy: 'exarchos_orchestrate merge_orchestrate',
+        fields: ['taskId', 'sourceBranch', 'targetBranch', 'mergeSha', 'rollbackSha', 'strategy'],
       },
       {
         type: 'merge.recovered',
-        when: 'When a failed merge is rolled back',
+        when: 'When merge fails post-commit and the INV-14 recovery path runs',
         emittedBy: 'exarchos_orchestrate merge_orchestrate',
+        fields: [
+          'taskId',
+          'sourceBranch',
+          'targetBranch',
+          'recoveryPointSha',
+          'reason',
+          'recoveryError',
+          'recoveryErrorDetail',
+        ],
       },
     ],
   },
@@ -210,7 +234,7 @@ export const PHASE_EVENT_CONTRACTS: Readonly<Record<string, PhaseEventContract>>
     runtimeEmits: [
       {
         type: 'synthesize.requested',
-        when: 'When the oneshot asks for a synthesis pass',
+        when: 'On opt-in to the synthesize path at the end of implementation',
         emittedBy: 'the oneshot lifecycle guard',
       },
     ],
