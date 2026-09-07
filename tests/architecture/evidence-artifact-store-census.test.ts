@@ -204,6 +204,86 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
     }
   });
 
+  it('Census_ImportThenExportBarrel_AliasedOrNot_IsADoorToo', async () => {
+    // The barrel shape `export { X } from` does not cover: bind the class
+    // locally, then export the local name — plain, or under an alias. The
+    // aliased caller spells neither the class name nor its directory, so a
+    // text prefilter on either would have skipped the one file that matters.
+    const root = await seededTree({
+      'barrel-local.ts': [
+        "import { ContentAddressedStore } from './storage/artifacts/content-addressed-store.js';",
+        'export { ContentAddressedStore };',
+        '',
+      ].join('\n'),
+      'barrel-alias.ts': [
+        "import { ContentAddressedStore } from './storage/artifacts/index.js';",
+        'export { ContentAddressedStore as Store };',
+        '',
+      ].join('\n'),
+      'seeded-through-local.ts': [
+        "import { ContentAddressedStore } from './barrel-local.js';",
+        'export const s = new ContentAddressedStore(root);',
+        '',
+      ].join('\n'),
+      'seeded-through-alias.ts': [
+        "import { Store } from './barrel-alias.js';",
+        'export const t = new Store(root);',
+        '',
+      ].join('\n'),
+    });
+    try {
+      const seeded = scanEvidenceStoreConstructions(root, {
+        sourceDir: path.join(root, 'src'),
+        owners: [],
+      });
+      expect(seeded.unowned.map((site) => [site.file, site.kind]).sort()).toEqual([
+        ['src/seeded-through-alias.ts', 'construct'],
+        ['src/seeded-through-local.ts', 'construct'],
+      ]);
+    } finally {
+      await rm(root, { recursive: true });
+    }
+  });
+
+  it('Census_LongBarrelChainThroughACycle_IsFollowedToTheClass', async () => {
+    // Six hops, two of them a cycle. A hop budget answered "no class" past
+    // its bound, and memoised that answer under whichever module reached the
+    // node first — so the verdict depended on walk order. The visited set is
+    // per query: the cycle terminates and every hop is followed.
+    const root = await seededTree({
+      'b1.ts': "export * from './b2.js';\n",
+      'b2.ts': "export * from './b1.js';\nexport * from './b3.js';\n",
+      'b3.ts': "export * from './b4.js';\n",
+      'b4.ts': "export { ContentAddressedStore } from './b5.js';\n",
+      'b5.ts': "export { ContentAddressedStore } from './b6.js';\n",
+      'b6.ts': "export { ContentAddressedStore } from './storage/artifacts/content-addressed-store.js';\n",
+      'seeded-far.ts': [
+        "import { ContentAddressedStore } from './b1.js';",
+        'export const s = new ContentAddressedStore(root);',
+        '',
+      ].join('\n'),
+      // Walked AFTER `seeded-far.ts` reached the class through b3: the
+      // answer for b3 must not have been settled as a negative on the way.
+      'seeded-near.ts': [
+        "import { ContentAddressedStore } from './b3.js';",
+        'export const s = new ContentAddressedStore(root);',
+        '',
+      ].join('\n'),
+    });
+    try {
+      const seeded = scanEvidenceStoreConstructions(root, {
+        sourceDir: path.join(root, 'src'),
+        owners: [],
+      });
+      expect(seeded.unowned.map((site) => [site.file, site.kind]).sort()).toEqual([
+        ['src/seeded-far.ts', 'construct'],
+        ['src/seeded-near.ts', 'construct'],
+      ]);
+    } finally {
+      await rm(root, { recursive: true });
+    }
+  });
+
   it('Census_TextInStringsCommentsAndTypePositions_IsNotAUse', async () => {
     // The false positives a line pattern produces and the compiler does not:
     // the class name inside a string, inside a comment, and in a type-only

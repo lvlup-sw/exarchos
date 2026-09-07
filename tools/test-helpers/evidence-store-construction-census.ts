@@ -32,8 +32,6 @@ import ts from 'typescript';
 /** The module that declares the class, `sourceDir`-relative, forward-slashed. */
 const CLASS_MODULE = 'storage/artifacts/content-addressed-store.ts';
 const CLASS_NAME = 'ContentAddressedStore';
-/** How many re-export hops a binding may be followed through before giving up. */
-const MAX_REEXPORT_DEPTH = 4;
 
 export type EvidenceStoreUseKind =
   /** `new <binding>(...)` — a direct construction. */
@@ -114,58 +112,120 @@ function resolveSpecifier(fromFile: string, specifier: string): string | undefin
   return candidates.find((candidate) => existsSync(candidate));
 }
 
+/** One census's resolution state: parsed modules and settled answers. */
+interface Resolution {
+  /** Every module parsed so far, by path: a barrel is read once however many callers import through it. */
+  readonly parsed: Map<string, ts.SourceFile>;
+  /** Settled answers, keyed `<module>::<name>`. Only a COMPLETE search is recorded here. */
+  readonly memo: Map<string, boolean>;
+}
+
+function parsedModule(modulePath: string, resolution: Resolution): ts.SourceFile {
+  const known = resolution.parsed.get(modulePath);
+  if (known !== undefined) return known;
+  const sourceFile = parseOrThrow(readFileSync(modulePath, 'utf8'), modulePath);
+  resolution.parsed.set(modulePath, sourceFile);
+  return sourceFile;
+}
+
 /**
  * Whether importing `importedName` from `modulePath` binds the store class.
- * Follows `export { X } from '...'` and `export * from '...'` re-exports so a
- * barrel is a door to the same class, not a different name. Bounded and
- * memoised: the import graph is finite, but a cycle of barrels is not.
+ * Follows every re-export shape a barrel can take — `export { X } from`,
+ * `export * from`, and `import { X }` followed by a local `export { X }` — so
+ * a barrel is a door to the same class, not a different name.
+ *
+ * The search is exhaustive over the re-export graph and cut only by a
+ * per-query visited set, so a `false` has walked every node reachable from
+ * its start and is a true negative — which is what makes it safe to memoise.
+ * A depth bound was the previous cycle guard; its answer depended on how much
+ * depth was left when a node was first reached, and memoised, on which module
+ * the walk happened to visit first.
  */
 function bindsClass(
   sourceDir: string,
   modulePath: string,
   importedName: string,
-  memo: Map<string, boolean>,
-  depth: number,
+  resolution: Resolution,
 ): boolean {
   const key = `${modulePath}::${importedName}`;
-  const known = memo.get(key);
+  const known = resolution.memo.get(key);
   if (known !== undefined) return known;
-  memo.set(key, false);
+  const answer = reachesClass(sourceDir, modulePath, importedName, resolution, new Set());
+  resolution.memo.set(key, answer);
+  return answer;
+}
+
+function reachesClass(
+  sourceDir: string,
+  modulePath: string,
+  name: string,
+  resolution: Resolution,
+  visited: Set<string>,
+): boolean {
+  const key = `${modulePath}::${name}`;
+  const known = resolution.memo.get(key);
+  if (known !== undefined) return known;
+  if (visited.has(key)) return false;
+  visited.add(key);
 
   const relative = path.relative(sourceDir, modulePath).split(path.sep).join('/');
-  if (relative === CLASS_MODULE) {
-    const answer = importedName === CLASS_NAME;
-    memo.set(key, answer);
-    return answer;
-  }
-  if (depth <= 0) return false;
+  if (relative === CLASS_MODULE) return name === CLASS_NAME;
 
-  const sourceFile = parseOrThrow(readFileSync(modulePath, 'utf8'), modulePath);
+  const sourceFile = parsedModule(modulePath, resolution);
+  const follow = (target: string, upstream: string): boolean =>
+    reachesClass(sourceDir, target, upstream, resolution, visited);
   for (const statement of sourceFile.statements) {
     if (!ts.isExportDeclaration(statement) || statement.isTypeOnly) continue;
     const specifier = statement.moduleSpecifier;
-    if (specifier === undefined || !ts.isStringLiteral(specifier)) continue;
+    if (specifier === undefined) {
+      // `export { X }` / `export { X as Y }` with no source: X is bound in
+      // this module, and the binding this census follows is an import.
+      if (statement.exportClause === undefined || !ts.isNamedExports(statement.exportClause)) continue;
+      for (const element of statement.exportClause.elements) {
+        if (element.isTypeOnly || element.name.text !== name) continue;
+        const local = (element.propertyName ?? element.name).text;
+        const imported = importBindingOf(sourceFile, modulePath, local);
+        if (imported !== undefined && follow(imported.target, imported.name)) return true;
+      }
+      continue;
+    }
+    if (!ts.isStringLiteral(specifier)) continue;
     const target = resolveSpecifier(modulePath, specifier.text);
     if (target === undefined) continue;
     if (statement.exportClause === undefined) {
       // `export * from '...'` — the name passes through unchanged.
-      if (bindsClass(sourceDir, target, importedName, memo, depth - 1)) {
-        memo.set(key, true);
-        return true;
-      }
+      if (follow(target, name)) return true;
       continue;
     }
     if (!ts.isNamedExports(statement.exportClause)) continue;
     for (const element of statement.exportClause.elements) {
-      if (element.isTypeOnly || element.name.text !== importedName) continue;
-      const upstream = (element.propertyName ?? element.name).text;
-      if (bindsClass(sourceDir, target, upstream, memo, depth - 1)) {
-        memo.set(key, true);
-        return true;
-      }
+      if (element.isTypeOnly || element.name.text !== name) continue;
+      if (follow(target, (element.propertyName ?? element.name).text)) return true;
     }
   }
   return false;
+}
+
+/** The value import that binds `local` in `sourceFile`: its resolved module and the name taken from it. */
+function importBindingOf(
+  sourceFile: ts.SourceFile,
+  modulePath: string,
+  local: string,
+): { readonly target: string; readonly name: string } | undefined {
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement)) continue;
+    const clause = statement.importClause;
+    if (clause === undefined || clause.isTypeOnly) continue;
+    if (!ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    const bindings = clause.namedBindings;
+    if (bindings === undefined || !ts.isNamedImports(bindings)) continue;
+    for (const element of bindings.elements) {
+      if (element.isTypeOnly || element.name.text !== local) continue;
+      const target = resolveSpecifier(modulePath, statement.moduleSpecifier.text);
+      return target === undefined ? undefined : { target, name: (element.propertyName ?? element.name).text };
+    }
+  }
+  return undefined;
 }
 
 interface ClassBindings {
@@ -179,7 +239,7 @@ function collectClassBindings(
   sourceDir: string,
   filePath: string,
   sourceFile: ts.SourceFile,
-  memo: Map<string, boolean>,
+  resolution: Resolution,
 ): ClassBindings {
   const direct = new Set<string>();
   const namespaces = new Set<string>();
@@ -193,7 +253,7 @@ function collectClassBindings(
     const bindings = clause.namedBindings;
     if (bindings === undefined) continue;
     if (ts.isNamespaceImport(bindings)) {
-      if (bindsClass(sourceDir, target, CLASS_NAME, memo, MAX_REEXPORT_DEPTH)) {
+      if (bindsClass(sourceDir, target, CLASS_NAME, resolution)) {
         namespaces.add(bindings.name.text);
       }
       continue;
@@ -201,7 +261,7 @@ function collectClassBindings(
     for (const element of bindings.elements) {
       if (element.isTypeOnly) continue;
       const imported = (element.propertyName ?? element.name).text;
-      if (bindsClass(sourceDir, target, imported, memo, MAX_REEXPORT_DEPTH)) {
+      if (bindsClass(sourceDir, target, imported, resolution)) {
         direct.add(element.name.text);
       }
     }
@@ -264,21 +324,18 @@ export function scanEvidenceStoreConstructions(
   const modules: string[] = [];
   walk(options.sourceDir, modules);
 
-  const memo = new Map<string, boolean>();
+  const resolution: Resolution = { parsed: new Map(), memo: new Map() };
   const owners = new Set(options.owners);
   const sites: EvidenceStoreConstructionSite[] = [];
 
+  // Every module is parsed. A text test on the class name or its directory
+  // was tried as a prefilter and is unsound: a barrel that re-exports the
+  // class under an alias leaves a caller spelling neither, and the census
+  // would have skipped exactly the door it exists to find.
   for (const modulePath of modules) {
-    const source = readFileSync(modulePath, 'utf8');
-    // A module that never spells the class name or the class module's
-    // directory cannot bind the class through any import chain this census
-    // follows: a direct import names the class, and a namespace import names
-    // a path whose chain ends in `storage/artifacts`. Skipping the rest keeps
-    // a whole-tree parse off the test budget without changing the answer.
-    if (!source.includes(CLASS_NAME) && !source.includes('storage/artifacts')) continue;
-
-    const sourceFile = parseOrThrow(source, modulePath);
-    const bindings = collectClassBindings(options.sourceDir, modulePath, sourceFile, memo);
+    const sourceFile = parsedModule(modulePath, resolution);
+    const source = sourceFile.text;
+    const bindings = collectClassBindings(options.sourceDir, modulePath, sourceFile, resolution);
     if (bindings.direct.size === 0 && bindings.namespaces.size === 0) continue;
 
     const relFile = path.relative(root, modulePath).split(path.sep).join('/');
