@@ -170,7 +170,7 @@ describe('DR-14: escape-hatch census', () => {
   // a consumer (see the removal note there). A paydown, not a paydown target —
   // the site went away with the code that held it, so the floor SLIDES down by
   // one and the window keeps its width.
-  const BASELINE: CastCounts = { nonNull: 70, asCast: 1718, asAny: 0 };
+  const BASELINE: CastCounts = { nonNull: 70, asCast: 1715, asAny: 0 };
 
   // Declared budget = MAX escape-hatch sites maintenance work may introduce
   // before the NEXT documented re-baseline. `as any` may never grow.

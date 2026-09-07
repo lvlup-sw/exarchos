@@ -170,7 +170,8 @@ const DISPOSITIONS = Object.freeze([
   { file: 'src/verbs/review/review-verdict.ts', kind: 'manual-gate-event', count: 1, owner: 'orchestrate/review-verdict', rationale: 'Read-only query of compatibility observations; durable review evidence is produced by the merged runner seam.', category: 'diagnostic-observation' },
   { file: 'src/verbs/tasks/tools.ts', kind: 'manual-gate-event', count: 1, owner: 'tasks/tools', rationale: 'Read-only task status query; this path cannot emit or enforce gate evidence.', category: 'diagnostic-observation' },
   { file: 'src/projections/telemetry/middleware.ts', kind: 'manual-gate-event', count: 1, owner: 'telemetry/middleware', rationale: 'Fire-and-forget token-budget telemetry; append failure is explicitly non-fatal and cannot affect a transition.', category: 'telemetry-observation' },
-  { file: 'src/workflow/playbooks.ts', kind: 'playbook-gate-observation', count: 17, owner: 'workflow/playbooks', rationale: 'Legacy model guidance describes compatibility observations only; it is not a provider or durable evidence path.', category: 'diagnostic-observation' },
+  { file: 'src/workflow/playbooks.ts', kind: 'playbook-gate-observation', count: 4, owner: 'workflow/playbooks', rationale: 'Four compact-guidance sentences tell the model the runtime records gate.executed and never to emit it; the per-phase disclosure rows derive from the phase event contract, and the six tool rows that once said "Emit gate.executed" are gone.', category: 'diagnostic-observation' },
+  { file: 'src/workflow/topology/phase-events.ts', kind: 'playbook-gate-observation', count: 3, owner: 'workflow/topology/phase-events', rationale: 'The two `runtimeEmits` disclosure rows (review, synthesize) from which every playbook autoEmittedEvents row is derived, plus the module header naming the instruction defect the contract ended; a disclosure names the runtime surface that emits and instructs nothing, and the contract refuses gate.executed on the expects side because it is auto-sourced.', category: 'diagnostic-observation' },
 ]);
 
 const DETECTORS = Object.freeze([
@@ -220,13 +221,23 @@ function lineNumber(content, offset) {
   return line;
 }
 
+/**
+ * Files whose `gate.executed` mentions are model guidance, not production:
+ * the playbooks tell the model the runtime records it, and the phase event
+ * contract's `runtimeEmits` rows are where those disclosures are declared.
+ */
+const PLAYBOOK_OBSERVATION_FILES = new Set([
+  'src/workflow/playbooks.ts',
+  'src/workflow/topology/phase-events.ts',
+]);
+
 function collectFindings(relativePath, content) {
   const file = normalize(relativePath);
   const findings = [];
   for (const detector of DETECTORS) {
     if (
       detector.kind === 'manual-gate-event' &&
-      file === 'src/workflow/playbooks.ts'
+      PLAYBOOK_OBSERVATION_FILES.has(file)
     ) continue;
     detector.regex.lastIndex = 0;
     for (const match of content.matchAll(detector.regex)) {
@@ -238,7 +249,7 @@ function collectFindings(relativePath, content) {
       });
     }
   }
-  if (file === 'src/workflow/playbooks.ts') {
+  if (PLAYBOOK_OBSERVATION_FILES.has(file)) {
     for (const match of content.matchAll(/gate\.executed/g)) {
       findings.push({
         file,

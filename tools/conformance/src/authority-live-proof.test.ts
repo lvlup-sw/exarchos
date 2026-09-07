@@ -77,6 +77,12 @@ import {
   type MeasuredBoundary,
   type MeasuredRepresentation,
   type MeasuredSite,
+  GATE_TABLES,
+  PHASE_EVENTS_REPRESENTATION_IDS,
+  PHASE_EVENTS_SOURCES,
+  measurePhaseEvents,
+  measurePhaseEventsLive,
+  readPhaseEventsSources,
 } from '../../audit/core/authority-live-proof.js';
 
 /** The live composition root task 020's guard governs. */
@@ -308,26 +314,22 @@ describe('authority census — the event-catalog row, live', () => {
     // `model`-sourced, and can never see an event that should be listed and is
     // not. Partial derivation is therefore not a binding, and the measurement
     // records the split rather than collapsing it to a verdict.
+    // ── 2. `PHASE_EVENT_CONTRACTS` — declared rows, MEASURED ─────────────────
+    // The contract declares which phase expects which event. Every row names its
+    // event as a literal: the fact is authored here and validated against the
+    // registry at load, never computed from it — so the representation is
+    // unbound by the census's rule, and honestly so. The old half-derived gate
+    // table this section used to measure is now a projection of these rows and
+    // is measured by the `phase-events` row below.
     const phase = representation(catalog, EVENT_CATALOG_REPRESENTATION_IDS.phaseExpectedEvents);
-    expect(phase.sites).toHaveLength(6);
-    expect(derivedSites(phase).map((s) => s.subject)).toEqual(['delegate', 'overhaul-delegate']);
-    expect(literalSites(phase).map((s) => s.subject)).toEqual([
-      'review',
-      'overhaul-review',
-      'synthesize',
-      'overhaul-update-docs',
-    ]);
+    expect(phase.sites.length).toBeGreaterThan(10);
+    expect(derivedSites(phase)).toHaveLength(0);
+    expect(literalSites(phase)).toHaveLength(phase.sites.length);
     expect(phase.binding.kind).toBe('unbound');
-    // The two entries that DO derive name the derivation, so "2 of 6" is a
-    // measured fact about the expression and not about the array's contents.
-    for (const site of derivedSites(phase)) {
-      expect(site.expression).toContain('modelEmittedOnly(getRegisteredEventTypes(');
+    const declared = new Set(phase.sites.map((s) => s.subject));
+    for (const expected of Object.values(PHASE_EXPECTED_EVENTS).flat()) {
+      expect(declared.has(expected), `${expected} is a declared row`).toBe(true);
     }
-    // …and the source keys are exactly the runtime object's keys, so the parse
-    // is measuring the constant the program actually uses.
-    expect(phase.sites.map((s) => s.subject)).toEqual(Object.keys(PHASE_EXPECTED_EVENTS));
-
-    // ── 3. Emission rows — every site baked ─────────────────────────────────
     const emissionRows = representation(catalog, EVENT_CATALOG_REPRESENTATION_IDS.emissions);
     expect(emissionRows.sites.length).toBeGreaterThan(0);
     expect(derivedSites(emissionRows)).toHaveLength(0);
@@ -353,8 +355,8 @@ describe('authority census — the event-catalog row, live', () => {
     // returns.
     expect(live.evaluatedRows).toBe(topologyRows().length);
     expect(tuplesFor(live, 'event-catalog')).toEqual([
-      `event-catalog | binding | missing | ${EVENT_CATALOG_REPRESENTATION_IDS.phaseExpectedEvents}`,
       `event-catalog | binding | missing | ${EVENT_CATALOG_REPRESENTATION_IDS.prose}`,
+      `event-catalog | binding | missing | ${EVENT_CATALOG_REPRESENTATION_IDS.phaseExpectedEvents}`,
       `event-catalog | binding | missing | ${EVENT_CATALOG_REPRESENTATION_IDS.emissions}`,
     ]);
     expect(live.ok).toBe(false);
@@ -365,8 +367,8 @@ describe('authority census — the event-catalog row, live', () => {
     // it, because relabelling it here and not there would launder the finding
     // out of half the table while every per-row count stayed put — which task
     // 025 added the cross-row `ambiguous` arm to catch.
-    const carriers = live.findings.filter((f) =>
-      f.subject.startsWith('PHASE_EXPECTED_EVENTS'),
+    const carriers = live.findings.filter(
+      (f) => f.subject === EVENT_CATALOG_REPRESENTATION_IDS.phaseExpectedEvents,
     );
     expect(carriers.map((f) => f.boundary).sort()).toEqual(['event-catalog', 'phase-sequencing']);
     expect(carriers.map((f) => f.kind)).toEqual(['missing', 'missing']);
@@ -377,34 +379,30 @@ describe('authority census — the event-catalog row, live', () => {
     // measured "a derivation exists" it would go green here; it must not,
     // because G5 is a claim about the population. This is the control that
     // separates measuring the fact from measuring the presence of a check.
+    // All but one row computed must NOT close the row — partial derivation is
+    // not a binding over the population.
     const onlyOneLeft = spliceSites(
       sources.phaseExpectedEvents,
-      literalSites(phase).slice(0, 3),
-      (site) => `modelEmittedOnly(getRegisteredEventTypes('${site.subject}'))`,
+      literalSites(phase).slice(0, -1),
+      (site) => `eventFor('${site.subject}')`,
     );
-    const fiveOfSix = measureEventCatalog({ ...sources, phaseExpectedEvents: onlyOneLeft });
+    const allButOne = measureEventCatalog({ ...sources, phaseExpectedEvents: onlyOneLeft });
     const stillOpen = representation(
-      fiveOfSix,
+      allButOne,
       EVENT_CATALOG_REPRESENTATION_IDS.phaseExpectedEvents,
     );
-    expect(derivedSites(stillOpen)).toHaveLength(5);
+    expect(derivedSites(stillOpen)).toHaveLength(phase.sites.length - 1);
     expect(literalSites(stillOpen)).toHaveLength(1);
     expect(stillOpen.binding.kind).toBe('unbound');
     expect(
-      tuplesFor(runAuthorityCensus(liveTopology([fiveOfSix])), 'event-catalog'),
+      tuplesFor(runAuthorityCensus(liveTopology([allButOne])), 'event-catalog'),
     ).toContain(
       `event-catalog | binding | missing | ${EVENT_CATALOG_REPRESENTATION_IDS.phaseExpectedEvents}`,
     );
-
-    // ── 8. SENSITIVITY CONTROL B — the row closes when the tree changes ──────
-    // All six entries derived, every emission row's event computed, and the prose
-    // no longer naming any registered event. The measurement then reports a
-    // closed boundary, which is what makes the red above a fact about the tree
-    // rather than a hard-coded verdict.
     const allDerived = spliceSites(
       sources.phaseExpectedEvents,
       literalSites(phase),
-      (site) => `modelEmittedOnly(getRegisteredEventTypes('${site.subject}'))`,
+      (site) => `eventFor('${site.subject}')`,
     );
     const emissionsDerived = spliceSites(
       sources.emissions,
@@ -608,7 +606,7 @@ describe('authority census — the live proof fails closed', () => {
     // wholesale would claim live evidence for all eight rows when only the
     // measured ones have any. These rows, and only these, have a measurement
     // that reads the tree.
-    const LIVE = ['cli-surface', 'effect-event', 'event-catalog'];
+    const LIVE = ['cli-surface', 'effect-event', 'event-catalog', 'phase-events'];
     expect([...liveMeasuredBoundaries()].sort()).toEqual(LIVE);
     for (const boundary of topologyRows().map((r) => r.boundary)) {
       if (!LIVE.includes(boundary)) continue;
@@ -656,6 +654,7 @@ describe('authority census — the live proof fails closed', () => {
           ...GOVERNED_SOURCES,
           ...Object.values(EVENT_CATALOG_SOURCES),
           ...Object.values(EFFECT_EVENT_SOURCES),
+          ...Object.values(PHASE_EVENTS_SOURCES).flat(),
         ]),
       ].sort(),
     );
@@ -664,11 +663,13 @@ describe('authority census — the live proof fails closed', () => {
       measureCliSurfaceLive(),
       measureEventCatalog(readEventCatalogSources()),
       measureEffectEvent(readEffectEventSources()),
+      measurePhaseEventsLive(),
     ];
     expect(measured.map((m) => m.boundary).sort()).toEqual([
       'cli-surface',
       'effect-event',
       'event-catalog',
+      'phase-events',
     ]);
 
     // The live report and the committed report agree, finding for finding, over
@@ -773,5 +774,92 @@ describe('authority census — the live proof fails closed', () => {
     expect(() => measureEffectEvent({ ...sources, carrier: gutted })).toThrow(
       /ZERO .*UnrecordedEmissionError/,
     );
+  });
+});
+
+describe('authority census — the phase-events row, live', () => {
+  it('AuthorityCensus_PhaseEventsRow_DerivedSurfacesAreBoundAndProseIsNot', () => {
+    const sources = readPhaseEventsSources();
+    const measured = measurePhaseEvents(sources);
+
+    // The authority: every declared row names its event as a literal.
+    const authority = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.authority);
+    expect(authority.sites.length).toBeGreaterThan(10);
+    expect(derivedSites(authority)).toHaveLength(0);
+
+    // The gate tables: both computed from the contract.
+    const gate = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.gate);
+    expect(gate.sites.map((s) => s.subject).sort()).toEqual([...GATE_TABLES].sort());
+    expect(literalSites(gate)).toHaveLength(0);
+    expect(gate.binding.kind).toBe('bound');
+
+    // The playbooks: every `events` / `autoEmittedEvents` row computed.
+    const playbooks = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.playbooks);
+    expect(playbooks.sites.length).toBeGreaterThan(30);
+    expect(literalSites(playbooks)).toHaveLength(0);
+    expect(playbooks.binding.kind).toBe('bound');
+
+    // The prose: authored, counted, unbound.
+    const prose = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.prose);
+    expect(prose.sites.length).toBeGreaterThan(0);
+    expect(prose.binding.kind).toBe('unbound');
+
+    // The census over the live row: open on the prose alone. The row enforces
+    // from wave-5, so at the default wave the finding is reported, not blocking.
+    const live = runAuthorityCensus(liveTopology([measured]));
+    expect(live.totality.ok).toBe(true);
+    expect(tuplesFor(live, 'phase-events')).toEqual([
+      `phase-events | binding | missing | ${PHASE_EVENTS_REPRESENTATION_IDS.prose}`,
+    ]);
+    expect(live.blocking.filter((f) => f.boundary === 'phase-events')).toHaveLength(0);
+    const atWave5 = runAuthorityCensus(liveTopology([measured]), { atWave: 'wave-5' });
+    expect(atWave5.blocking.filter((f) => f.boundary === 'phase-events')).toHaveLength(1);
+    expect(
+      live.findings.filter((f) => f.boundary === 'phase-events' && f.hop === 'enforcement'),
+    ).toEqual([]);
+  });
+
+  it('AuthorityCensus_PhaseEventsRow_ASeededBakedRowIsNamed', () => {
+    const sources = readPhaseEventsSources();
+    const measured = measurePhaseEvents(sources);
+    const playbooks = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.playbooks);
+    const gate = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.gate);
+
+    // One playbook row written back as a literal array reopens the binding.
+    const [firstRow] = playbooks.sites;
+    expect(firstRow).toBeDefined();
+    if (firstRow === undefined) return;
+    const bakedPlaybooks = spliceSites(
+      sources.playbooks,
+      [firstRow],
+      () => "[{ type: 'team.spawned', when: 'seeded' }]",
+    );
+    const seeded = measurePhaseEvents({ ...sources, playbooks: bakedPlaybooks });
+    expect(representation(seeded, PHASE_EVENTS_REPRESENTATION_IDS.playbooks).binding.kind).toBe(
+      'unbound',
+    );
+    expect(tuplesFor(runAuthorityCensus(liveTopology([seeded])), 'phase-events')).toContain(
+      `phase-events | binding | missing | ${PHASE_EVENTS_REPRESENTATION_IDS.playbooks}`,
+    );
+
+    // A gate table written back as a literal reopens the binding.
+    const [gateSite] = gate.sites;
+    expect(gateSite).toBeDefined();
+    if (gateSite === undefined) return;
+    const bakedGate = spliceSites(sources.gate, [gateSite], () => '{}');
+    expect(
+      representation(
+        measurePhaseEvents({ ...sources, gate: bakedGate }),
+        PHASE_EVENTS_REPRESENTATION_IDS.gate,
+      ).binding.kind,
+    ).toBe('unbound');
+
+    // A renamed gate table fails closed rather than measuring nothing.
+    expect(() =>
+      measurePhaseEvents({
+        ...sources,
+        gate: sources.gate.split('PHASE_EXPECTED_EVENTS').join('PHASE_EXPECTED_EVENTS_RENAMED'),
+      }),
+    ).toThrow(/exports no constant named PHASE_EXPECTED_EVENTS/);
   });
 });

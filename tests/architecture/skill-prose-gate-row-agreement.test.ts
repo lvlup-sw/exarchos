@@ -23,25 +23,27 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { PHASE_EXPECTED_EVENTS } from '../../src/verbs/gates/check-event-emissions.js';
+import { PHASE_EVENT_CONTRACTS } from '../../src/workflow/topology/phase-events.js';
 
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 
 interface ProseSite {
   /** Content-source path of the skill, repo-relative. */
   readonly skill: string;
-  /** The `PHASE_EXPECTED_EVENTS` key the sentence speaks for. */
+  /** The `PHASE_EXPECTED_EVENTS` key the prose speaks for. */
   readonly phase: string;
+  /**
+   * `line`: one "Checked by …" sentence naming the types. `table`: the
+   * delegate skill's event-contract table, one `| \`type\` | when | emitter |`
+   * row per expected type, whose emitter column is compared too.
+   */
+  readonly shape: 'line' | 'table';
 }
 
-/**
- * Every skill sentence that claims to name what the gate checks. One row
- * today. The delegate skill's "checked by" table has the same claim in a
- * different shape and does not agree with its derived row (it omits
- * `team.disbanded` and `task.progressed`); it is recorded as residue rather
- * than pinned here to a shape it does not yet have.
- */
+/** Every skill passage that claims to name what the gate checks. */
 const SITES: readonly ProseSite[] = [
-  { skill: 'content/synthesis/skills/synthesize/SKILL.md', phase: 'synthesize' },
+  { skill: 'content/synthesis/skills/synthesize/SKILL.md', phase: 'synthesize', shape: 'line' },
+  { skill: 'content/delivery/skills/delegate/SKILL.md', phase: 'delegate', shape: 'table' },
 ];
 
 /** The one shape the sentence may take — the whole line, so the list ends where the line does. */
@@ -49,10 +51,16 @@ const CHECKED_LINE = /^Checked by `check-event-emissions` in this phase: (.*)$/;
 
 const BACKTICKED_EVENT = /`([a-z][a-z0-9_.]*)`/g;
 
+/** A type the prose names, and (for the table shape) who it says emits it. */
+interface NamedType {
+  readonly type: string;
+  readonly emitter?: 'orchestrator' | 'subagent';
+}
+
 /** What the skill's checked line names, or why there is no answer. */
-function checkedTypesIn(
+function checkedTypesInLine(
   markdown: string,
-): { readonly types: readonly string[] } | { readonly problem: string } {
+): { readonly types: readonly NamedType[] } | { readonly problem: string } {
   const lines = markdown
     .split('\n')
     .map((line) => CHECKED_LINE.exec(line))
@@ -64,9 +72,41 @@ function checkedTypesIn(
         `found ${lines.length}`,
     };
   }
-  const types = [...(lines[0]?.[1] ?? '').matchAll(BACKTICKED_EVENT)].map((match) => match[1] ?? '');
+  const types = [...(lines[0]?.[1] ?? '').matchAll(BACKTICKED_EVENT)].map((match) => ({
+    type: match[1] ?? '',
+  }));
   if (types.length === 0) return { problem: 'the checked line names no backticked event type' };
   return { types };
+}
+
+/** One row of the delegate skill's contract table: the type, its when, its emitter. */
+const TABLE_ROW = /^\| `([a-z][a-z0-9_.]*)` \| .+ \| (Orchestrator|Subagent) \|$/;
+
+/** What the skill's contract table names, or why there is no answer. */
+function checkedTypesInTable(
+  markdown: string,
+): { readonly types: readonly NamedType[] } | { readonly problem: string } {
+  const heading = markdown.indexOf('(checked by `check-event-emissions`)');
+  if (heading < 0) return { problem: 'no passage says it is checked by `check-event-emissions`' };
+  const rows = markdown
+    .slice(heading)
+    .split('\n')
+    .map((line) => TABLE_ROW.exec(line))
+    .filter((match): match is RegExpExecArray => match !== null);
+  if (rows.length === 0) return { problem: 'the checked passage has no `| \`type\` | … | emitter |` rows' };
+  return {
+    types: rows.map((match) => ({
+      type: match[1] ?? '',
+      emitter: match[2] === 'Subagent' ? ('subagent' as const) : ('orchestrator' as const),
+    })),
+  };
+}
+
+function checkedTypesIn(
+  markdown: string,
+  shape: ProseSite['shape'],
+): { readonly types: readonly NamedType[] } | { readonly problem: string } {
+  return shape === 'line' ? checkedTypesInLine(markdown) : checkedTypesInTable(markdown);
 }
 
 /**
@@ -74,18 +114,27 @@ function checkedTypesIn(
  * same judge. Both directions are named: prose that over-claims and prose that
  * under-claims are different defects.
  */
-function disagreements(markdown: string, expected: readonly string[]): readonly string[] {
-  const read = checkedTypesIn(markdown);
+function disagreements(
+  markdown: string,
+  phase: string,
+  shape: ProseSite['shape'],
+): readonly string[] {
+  const read = checkedTypesIn(markdown, shape);
   if ('problem' in read) return [read.problem];
-  const named = new Set(read.types);
-  const row = new Set(expected);
+  const rows = PHASE_EVENT_CONTRACTS[phase]?.expects ?? [];
+  const named = new Map(read.types.map((named) => [named.type, named]));
+  const row = new Map(rows.map((r) => [r.type as string, r]));
   return [
-    ...[...named]
+    ...[...named.keys()]
       .filter((type) => !row.has(type))
       .map((type) => `prose names ${type}, which the gate row does not expect`),
-    ...[...row]
+    ...[...row.keys()]
       .filter((type) => !named.has(type))
       .map((type) => `gate row expects ${type}, which the prose does not name`),
+    ...[...named.values()]
+      .filter((n) => n.emitter !== undefined && row.has(n.type))
+      .filter((n) => n.emitter !== (row.get(n.type)?.emitter ?? 'orchestrator'))
+      .map((n) => `prose says ${n.type} is emitted by the ${n.emitter}, the contract says otherwise`),
   ].sort();
 }
 
@@ -101,9 +150,8 @@ describe('SkillProse — the checked-by sentence names the gate row', () => {
   it('SkillProse_CheckedLine_NamesExactlyTheGateRow', () => {
     for (const site of SITES) {
       const markdown = readFileSync(join(REPO_ROOT, site.skill), 'utf8');
-      const expected = PHASE_EXPECTED_EVENTS[site.phase] ?? [];
-      expect(expected.length, `${site.phase} expects nothing`).toBeGreaterThan(0);
-      expect(disagreements(markdown, expected), site.skill).toEqual([]);
+      expect(PHASE_EXPECTED_EVENTS[site.phase]?.length, `${site.phase} expects nothing`).toBeGreaterThan(0);
+      expect(disagreements(markdown, site.phase, site.shape), site.skill).toEqual([]);
     }
   });
 
@@ -112,7 +160,6 @@ describe('SkillProse — the checked-by sentence names the gate row', () => {
     expect(site).toBeDefined();
     if (site === undefined) return;
     const markdown = readFileSync(join(REPO_ROOT, site.skill), 'utf8');
-    const expected = PHASE_EXPECTED_EVENTS[site.phase] ?? [];
 
     // Prose names a type the row does not expect — the shape the flip removed.
     const overClaiming = markdown.replace(
@@ -120,13 +167,18 @@ describe('SkillProse — the checked-by sentence names the gate row', () => {
       '$1, `stack.submitted`.',
     );
     expect(overClaiming).not.toBe(markdown);
-    expect(disagreements(overClaiming, expected)).toEqual([
+    expect(disagreements(overClaiming, site.phase, site.shape)).toEqual([
       'prose names stack.submitted, which the gate row does not expect',
     ]);
 
     // The row expects a type the prose does not name.
-    expect(disagreements(markdown, [...expected, 'seeded.expected'])).toEqual([
-      'gate row expects seeded.expected, which the prose does not name',
+    const underClaiming = markdown.replace(
+      /^(Checked by `check-event-emissions` in this phase: .*), `shepherd\.iteration`\.$/m,
+      '$1.',
+    );
+    expect(underClaiming).not.toBe(markdown);
+    expect(disagreements(underClaiming, site.phase, site.shape)).toEqual([
+      'gate row expects shepherd.iteration, which the prose does not name',
     ]);
 
     // No checked line at all is a named problem, never a pass over an empty set.
@@ -134,8 +186,33 @@ describe('SkillProse — the checked-by sentence names the gate row', () => {
       .split('\n')
       .filter((line) => !CHECKED_LINE.test(line))
       .join('\n');
-    const findings = disagreements(silent, expected);
+    const findings = disagreements(silent, site.phase, site.shape);
     expect(findings.length).toBe(1);
     expect(findings[0]).toContain('found 0');
+  });
+
+  it('SkillProse_SeededTableDisagreement_NamesTheRowAndTheEmitter', () => {
+    const site = SITES.find((s) => s.shape === 'table');
+    expect(site).toBeDefined();
+    if (site === undefined) return;
+    const markdown = readFileSync(join(REPO_ROOT, site.skill), 'utf8');
+    expect(disagreements(markdown, site.phase, site.shape)).toEqual([]);
+    // The table says the orchestrator emits a row the contract gives the subagent.
+    const wrongEmitter = markdown.replace(/^(\| `task\.progressed` \| .+ \|) Subagent \|$/m, '$1 Orchestrator |');
+    expect(wrongEmitter).not.toBe(markdown);
+    expect(disagreements(wrongEmitter, site.phase, site.shape)).toEqual([
+      'prose says task.progressed is emitted by the orchestrator, the contract says otherwise',
+    ]);
+    // A row the table drops is named, not silently absent.
+    const dropped = markdown.replace(/^\| `team\.disbanded` \| .+ \|\n/m, '');
+    expect(dropped).not.toBe(markdown);
+    expect(disagreements(dropped, site.phase, site.shape)).toEqual([
+      'gate row expects team.disbanded, which the prose does not name',
+    ]);
+    // No table at all is a named problem, never a pass over an empty set.
+    const silent = markdown.replace('(checked by `check-event-emissions`)', '');
+    expect(disagreements(silent, site.phase, site.shape)).toEqual([
+      'no passage says it is checked by `check-event-emissions`',
+    ]);
   });
 });
