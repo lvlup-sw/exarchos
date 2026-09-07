@@ -329,6 +329,23 @@ export function classifyInitializer(node: ts.Expression): SiteBinding {
   return 'derived';
 }
 
+/**
+ * How a `derived` initializer is re-read against the shapes that actually reach
+ * an authority. Receives the initializer with its parent pointers set, so a
+ * binder can walk up to the scope that declared a receiver, and the subject the
+ * site measures (the table name, or the property).
+ */
+export type DerivedSiteBinder = (initializer: ts.Expression, subject: string) => SiteBinding;
+
+function bindDerived(
+  initializer: ts.Expression,
+  subject: string,
+  bind: DerivedSiteBinder | undefined,
+): SiteBinding {
+  const kind = classifyInitializer(initializer);
+  return kind === 'derived' && bind !== undefined ? bind(initializer, subject) : kind;
+}
+
 /** Find `export const <name> … = { … }` and return the object literal. */
 /** `Object.freeze(<expr>)` -> `<expr>`; anything else unchanged. */
 function unwrapObjectFreeze(node: ts.Expression | undefined): ts.Expression | undefined {
@@ -444,8 +461,9 @@ export function measureExportedInitializers(
   source: string,
   file: string,
   names: readonly string[],
+  bind?: DerivedSiteBinder,
 ): readonly MeasuredSite[] {
-  const sourceFile = parseOrThrow(source, file, LABEL);
+  const sourceFile = parseOrThrow(source, file, LABEL, true);
   const sites: MeasuredSite[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && names.includes(node.name.text)) {
@@ -454,7 +472,7 @@ export function measureExportedInitializers(
         sites.push({
           file,
           line: lineOf(sourceFile, node),
-          kind: classifyInitializer(init),
+          kind: bindDerived(init, node.name.text, bind),
           subject: node.name.text,
           expression: init.getText(sourceFile),
           start: init.getStart(sourceFile),
@@ -584,15 +602,16 @@ export function measurePropertyAssignments(
   source: string,
   file: string,
   property: string,
+  bind?: DerivedSiteBinder,
 ): readonly MeasuredSite[] {
-  const sourceFile = parseOrThrow(source, file, LABEL);
+  const sourceFile = parseOrThrow(source, file, LABEL, true);
   const sites: MeasuredSite[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isPropertyAssignment(node) && propertyName(node.name) === property) {
       sites.push({
         file,
         line: lineOf(sourceFile, node),
-        kind: classifyInitializer(node.initializer),
+        kind: bindDerived(node.initializer, property, bind),
         subject: property,
         expression: node.initializer.getText(sourceFile),
         start: node.initializer.getStart(sourceFile),
@@ -1085,44 +1104,118 @@ export function namedImportsFrom(source: string, file: string, moduleSuffix: str
   return names;
 }
 
+/** The type of the measured playbook population; the serializer copies rows off a value of this type. */
+export const PLAYBOOK_TYPE = 'PhasePlaybook';
+
+/** A copy of a measured row: `<receiver>.<property>` with `<receiver>` declared as `receiverType`. */
+export interface RowCopyShape {
+  readonly property: string;
+  readonly receiverType: string;
+}
+
 /** What a derived site must look like to count as computed from the authority. */
 export interface ProjectionShape {
   /** Callees that are projections of the authority, as imported by the file under measurement. */
   readonly projections: ReadonlySet<string>;
-  /** When set, the projection call's whole argument must be exactly this name. */
+  /** When set, the projection call's one argument must be exactly this name. */
   readonly argument?: string;
   /**
-   * When set, an expression that reads this same-named property off some
-   * other value (`playbook.events.map(…)`) is a copy of a row already in the
-   * population, not a declaration, and binds with it.
+   * When set, `<receiver>.<property>` — optionally mapped through a named clone,
+   * `<receiver>.<property>.map(clone)` — is a copy of a row already in the
+   * population, provided `<receiver>` is declared in an enclosing scope with the
+   * population's type. Read off anything else, the same property name is a
+   * second table.
    */
-  readonly copiesProperty?: string;
+  readonly copies?: RowCopyShape;
 }
 
 /**
- * Re-read a `derived` site against the shapes that actually reach the
+ * Re-read a `derived` initializer against the shapes that actually reach the
  * authority. `classifyInitializer` can only say "not a literal"; a conditional
- * that carries a baked name, an unrelated helper, or a projection imported from
- * anywhere but the authority's module is not a literal either, and would read as
- * bound. Such a site becomes `opaque`, which `bindingFor` counts as unbound.
+ * that carries a baked name, an unrelated helper, a projection imported from
+ * anywhere but the authority's module, or a projection call wrapped in a chain,
+ * a spread or a fallback that adds rows of its own is not a literal either, and
+ * would read as bound. The WHOLE initializer is read: it is exactly one call of
+ * an imported projection, or exactly one copy of a measured row. Anything else
+ * is `opaque`, which `bindingFor` counts as unbound.
  */
-export function bindThroughProjection(site: MeasuredSite, shape: ProjectionShape): MeasuredSite {
-  if (site.kind !== 'derived') return site;
-  const expression = site.expression.trim();
-  if (
-    shape.copiesProperty !== undefined &&
-    new RegExp(`^[A-Za-z_$][\\w$]*\\.${shape.copiesProperty}(?![\\w$])`).test(expression)
-  ) {
-    return site;
+export function bindThroughProjection(initializer: ts.Expression, shape: ProjectionShape): SiteBinding {
+  const node = unwrapParentheses(initializer);
+  if (shape.copies !== undefined && copiesMeasuredRow(node, shape.copies)) return 'derived';
+  if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression)) return 'opaque';
+  if (!shape.projections.has(node.expression.text) || node.arguments.length !== 1) return 'opaque';
+  const [argument] = node.arguments;
+  if (argument === undefined) return 'opaque';
+  if (shape.argument !== undefined) {
+    return ts.isIdentifier(argument) && argument.text === shape.argument ? 'derived' : 'opaque';
   }
-  const call = /^([A-Za-z_$][\w$]*)\(([\s\S]*)\)$/.exec(expression);
-  const callee = call?.[1];
-  const argument = call?.[2]?.trim();
-  const bound =
-    callee !== undefined &&
-    shape.projections.has(callee) &&
-    (shape.argument === undefined || argument === shape.argument);
-  return bound ? site : { ...site, kind: 'opaque' };
+  // A playbook projection takes the phase — a name or a string, never an
+  // expression that could carry an event.
+  return ts.isIdentifier(argument) || ts.isStringLiteralLike(argument) ? 'derived' : 'opaque';
+}
+
+function unwrapParentheses(node: ts.Expression): ts.Expression {
+  let inner = node;
+  while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
+  return inner;
+}
+
+/** `<receiver>.<property>` or `<receiver>.<property>.map(<clone>)`, with `<receiver>` declared as the population's type. */
+function copiesMeasuredRow(node: ts.Expression, copies: RowCopyShape): boolean {
+  let read: ts.Expression = node;
+  if (
+    ts.isCallExpression(read) &&
+    ts.isPropertyAccessExpression(read.expression) &&
+    read.expression.name.text === 'map'
+  ) {
+    const [clone] = read.arguments;
+    if (read.arguments.length !== 1 || clone === undefined || !ts.isIdentifier(clone)) return false;
+    read = read.expression.expression;
+  }
+  if (!ts.isPropertyAccessExpression(read) || read.name.text !== copies.property) return false;
+  if (!ts.isIdentifier(read.expression)) return false;
+  return declaredTypeOf(read.expression) === copies.receiverType;
+}
+
+/**
+ * The annotated type name on the nearest enclosing declaration of
+ * `identifier`: a parameter of an enclosing function, or a variable declared
+ * in an enclosing block. Undefined when no enclosing scope declares it, or
+ * declares it without a type reference — either way, not the population's
+ * type. Needs a parse with parent pointers, and refuses one without them
+ * rather than reading "no enclosing scope" off a tree that has no parents.
+ */
+function declaredTypeOf(identifier: ts.Identifier): string | undefined {
+  if (identifier.parent === undefined) {
+    throw new Error(
+      `${LABEL}: declaredTypeOf needs a source parsed with parent pointers; the measurer that ` +
+        'produced this site parsed without them, so no receiver could ever resolve.',
+    );
+  }
+  for (let scope: ts.Node | undefined = identifier.parent; scope !== undefined; scope = scope.parent) {
+    if (ts.isFunctionLike(scope)) {
+      const parameter = scope.parameters.find(
+        (p) => ts.isIdentifier(p.name) && p.name.text === identifier.text,
+      );
+      if (parameter !== undefined) return typeNameOf(parameter.type);
+    }
+    if (ts.isBlock(scope) || ts.isSourceFile(scope)) {
+      for (const statement of scope.statements) {
+        if (!ts.isVariableStatement(statement)) continue;
+        const declaration = statement.declarationList.declarations.find(
+          (d) => ts.isIdentifier(d.name) && d.name.text === identifier.text,
+        );
+        if (declaration !== undefined) return typeNameOf(declaration.type);
+      }
+    }
+  }
+  return undefined;
+}
+
+function typeNameOf(type: ts.TypeNode | undefined): string | undefined {
+  return type !== undefined && ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName)
+    ? type.typeName.text
+    : undefined;
 }
 
 /** Measure the phase-events boundary from source. */
@@ -1141,11 +1234,14 @@ export function measurePhaseEvents(sources: PhaseEventsSources): MeasuredBoundar
   // A derived site binds only through a projection the file imports from the
   // contract module; the gate's projection must take the contract table itself.
   const gateImports = namedImportsFrom(sources.gate, PHASE_EVENTS_SOURCES.gate, CONTRACT_MODULE_SUFFIX);
-  const gateSites = measureExportedInitializers(sources.gate, PHASE_EVENTS_SOURCES.gate, GATE_TABLES).map(
-    (site) =>
-      bindThroughProjection(site, {
+  const gateSites = measureExportedInitializers(
+    sources.gate,
+    PHASE_EVENTS_SOURCES.gate,
+    GATE_TABLES,
+    (initializer, table) =>
+      bindThroughProjection(initializer, {
         projections: new Set(
-          [GATE_TABLE_PROJECTIONS[site.subject]].filter(
+          [GATE_TABLE_PROJECTIONS[table]].filter(
             (name): name is string => name !== undefined && gateImports.has(name),
           ),
         ),
@@ -1161,8 +1257,11 @@ export function measurePhaseEvents(sources: PhaseEventsSources): MeasuredBoundar
     PLAYBOOK_PROJECTIONS.filter((name) => playbookImports.has(name)),
   );
   const playbookSites = ['events', 'autoEmittedEvents'].flatMap((property) =>
-    measurePropertyAssignments(sources.playbooks, PHASE_EVENTS_SOURCES.playbooks, property).map(
-      (site) => bindThroughProjection(site, { projections: playbookProjections, copiesProperty: property }),
+    measurePropertyAssignments(sources.playbooks, PHASE_EVENTS_SOURCES.playbooks, property, (initializer) =>
+      bindThroughProjection(initializer, {
+        projections: playbookProjections,
+        copies: { property, receiverType: PLAYBOOK_TYPE },
+      }),
     ),
   );
   const proseSites = measureProseEventMentions(sources.docs, contractEvents);
@@ -1191,7 +1290,7 @@ export function measurePhaseEvents(sources: PhaseEventsSources): MeasuredBoundar
         playbookSites,
         PHASE_EVENTS_REPRESENTATION_IDS.authority,
         'every playbook row is `phaseEventInstructions(phase)` or `phaseRuntimeEmissions(phase)`, ' +
-          'imported from the contract module (or the serializer copying such a row); the per-phase ' +
+          'imported from the contract module (or the serializer copying such a row off a `PhasePlaybook`); the per-phase ' +
           'arrays and the delegate metadata maps are gone',
         'a playbook row written as a literal instructs the model from a copy the gate does not ' +
           'check — four phases instructed runtime-owned events that way before the contract.',

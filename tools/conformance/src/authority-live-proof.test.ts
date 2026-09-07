@@ -918,4 +918,74 @@ describe('authority census — the phase-events row, live', () => {
     expect(importedElsewhere.sites.filter((s) => s.kind === 'opaque').length).toBeGreaterThan(60);
     expect(importedElsewhere.binding.kind).toBe('unbound');
   });
+
+  it('AuthorityCensus_PhaseEventsRow_AWrappedProjectionOrAForeignCopyIsOpaque', () => {
+    // The binder reads the WHOLE initializer, not its two ends. A projection
+    // call wrapped in a chain, a spread or a fallback carries whatever the
+    // wrapper adds; a same-named property read off anything but a playbook is
+    // a second table. Each such site reads `opaque` and reopens the binding,
+    // while the serializer's live copies — read off a `PhasePlaybook`
+    // parameter — stay `derived`.
+    const sources = readPhaseEventsSources();
+    const measured = measurePhaseEvents(sources);
+    const playbooks = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.playbooks);
+    const [projectionSite] = playbooks.sites.filter((s) => s.expression.startsWith('phaseEventInstructions('));
+    const copySites = playbooks.sites.filter((s) => s.expression.startsWith('playbook.'));
+    const [copySite] = copySites;
+    const [gateSite] = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.gate).sites;
+    expect(copySites.map((s) => s.kind)).toEqual(['derived', 'derived']);
+    expect(projectionSite).toBeDefined();
+    expect(copySite).toBeDefined();
+    expect(gateSite).toBeDefined();
+    if (projectionSite === undefined || copySite === undefined || gateSite === undefined) return;
+
+    const playbookRowsOf = (playbooksSource: string): MeasuredRepresentation =>
+      representation(
+        measurePhaseEvents({ ...sources, playbooks: playbooksSource }),
+        PHASE_EVENTS_REPRESENTATION_IDS.playbooks,
+      );
+    const opaqueLines = (rows: MeasuredRepresentation): readonly number[] =>
+      rows.sites.filter((s) => s.kind === 'opaque').map((s) => s.line);
+
+    for (const wrapped of [
+      "phaseEventInstructions('delegate').concat([{ type: 'team.spawned', when: 'seeded' }])",
+      "phaseEventInstructions(SEEDED) ?? phaseEventInstructions('delegate')",
+      "[...phaseEventInstructions('delegate'), { type: 'team.spawned', when: 'seeded' }]",
+      "phaseEventInstructions(seededPhaseFor('delegate'))",
+    ]) {
+      const rows = playbookRowsOf(spliceSites(sources.playbooks, [projectionSite], () => wrapped));
+      expect(opaqueLines(rows), wrapped).toEqual([projectionSite.line]);
+      expect(rows.binding.kind, wrapped).toBe('unbound');
+    }
+
+    for (const foreign of [
+      'LEGACY_ROWS.events.map(cloneEvent)',
+      'LEGACY_ROWS.events',
+      "playbook.events.map((e) => ({ ...e, type: 'team.spawned' }))",
+    ]) {
+      const rows = playbookRowsOf(spliceSites(sources.playbooks, [copySite], () => foreign));
+      expect(opaqueLines(rows), foreign).toEqual([copySite.line]);
+      expect(rows.binding.kind, foreign).toBe('unbound');
+    }
+
+    // The receiver IS a parameter, declared with another type: still not a measured row.
+    const retyped = sources.playbooks.replace(
+      '  playbook: PhasePlaybook,\n): SerializedPhasePlaybook {',
+      '  playbook: SerializedPhasePlaybook,\n): SerializedPhasePlaybook {',
+    );
+    expect(retyped).not.toBe(sources.playbooks);
+    expect([...opaqueLines(playbookRowsOf(retyped))].sort()).toEqual(copySites.map((s) => s.line).sort());
+
+    const spread = spliceSites(
+      sources.gate,
+      [gateSite],
+      () => "{ ...expectedEventsByPhase(PHASE_EVENT_CONTRACTS), delegate: ['team.spawned'] }",
+    );
+    const gateRows = representation(
+      measurePhaseEvents({ ...sources, gate: spread }),
+      PHASE_EVENTS_REPRESENTATION_IDS.gate,
+    );
+    expect(gateRows.sites.filter((s) => s.kind === 'opaque').map((s) => s.subject)).toEqual([gateSite.subject]);
+    expect(gateRows.binding.kind).toBe('unbound');
+  });
 });
