@@ -21,6 +21,7 @@ import {
   WaiverProvenanceV1Schema,
 } from '../workflow/admission/types.js';
 import { ANNOTATED_EVENTS } from './event-annotations.js';
+import { BUNDLE_REF_FIELD, BundleRefV1Schema } from './bundle/digest-references.js';
 import { assertWellFormedEventName } from './event-name.js';
 import { deriveEmissionRegistry } from './event-registration.js';
 import {
@@ -88,6 +89,23 @@ export const INTERNAL_VCS_LEDGER_EVENT_TYPES: readonly [
   'vcs.executed',
   'vcs.compensated',
 ] = ['vcs.requested', 'vcs.executed', 'vcs.compensated'];
+
+/**
+ * Server-owned execution-ledger facts.
+ *
+ * The bounded executor's operation record is committed by its own handler as
+ * the claim-carrying row of a `decideOnce` transaction, with the run's bundle
+ * bytes already in custody and named by digest. Appendable through the
+ * generic `exarchos_event.append` surface, any caller could mint a settlement
+ * for an operation that never ran, or fabricate a well-formed reference to
+ * bytes nobody wrote — and the run-bundle integrity oracle would then be
+ * reporting on input its producer does not own. Reserving the type is what
+ * makes the record's custody claim true: the only writer is the one that put
+ * the bytes first.
+ */
+export const INTERNAL_EXECUTION_LEDGER_EVENT_TYPES: readonly ['orchestrate.intent_executed'] = [
+  'orchestrate.intent_executed',
+];
 
 /** Server-owned cancellation process-manager facts (v2.12, DR-7). */
 export const INTERNAL_CANCELLATION_EVENT_TYPES = [
@@ -1548,6 +1566,11 @@ export const DiagnosticExecutedDataSchema = z.object({
   summary: DoctorOutputSchema.shape.summary,
   checkCount: z.number().int().nonnegative(),
   failedCheckNames: z.array(z.string()),
+  // Additive: rows appended before the field existed carry only the failed
+  // names. A Warning is a finding the operator is told about and the exit code
+  // does not carry, so without its name on the ledger a custody violation the
+  // doctor reported would leave no record of WHICH check reported it.
+  warningCheckNames: z.array(z.string()).optional(),
   durationMs: z.number().int().nonnegative(),
 });
 
@@ -3787,6 +3810,24 @@ export const OrchestrateIntentExecutedData = z
     steering: IntentExecutedSteering.optional().describe(
       'Caller-supplied riskTier/boundaryTouching, when either was passed to execute_intent',
     ),
+    // Required, and at least one: this is a settlement endpoint the run-bundle
+    // integrity oracle keys on, and that oracle reports a custodial settlement
+    // with no reference as a violation. Requiring the field here means the
+    // executor cannot append a record the oracle would immediately condemn —
+    // the bytes must be in custody before the fact that names them exists.
+    // Per-type data is validated by the producer's own parse and by the
+    // generic append tool (where this type is reserved), never at the store,
+    // so rows appended before custody existed remain readable; the oracle
+    // tells them apart by the payload version the producer stamped.
+    // The key is the same constant the oracle reads under, so the writer and
+    // the reader cannot drift to two field names.
+    [BUNDLE_REF_FIELD]: z
+      .array(BundleRefV1Schema)
+      .min(1)
+      .describe(
+        'Content-addressed run-bundle references (artifact id + sha256) for the receipt and ' +
+          'per-leaf trace this record summarises; the bytes are durable before this row exists',
+      ),
   })
   .strict();
 export type OrchestrateIntentExecuted = z.infer<typeof OrchestrateIntentExecutedData>;

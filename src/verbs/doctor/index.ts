@@ -22,7 +22,7 @@
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
 import { DOCTOR_STREAM_ID } from '../../dispatch/core/infra-streams.js';
-import { buildProbes as defaultBuildProbes } from './probes.js';
+import { buildProbes as defaultBuildProbes, DEFAULT_CHECK_BUDGET_MS } from './probes.js';
 import type { DoctorProbes } from './probes.js';
 import { DoctorOutputSchema, type CheckResult, type DoctorSummary } from './schema.js';
 import type { CheckFn } from './checks/__shared__/make-stub-probes.js';
@@ -44,6 +44,7 @@ import { runtimeNodeVersion } from './checks/runtime-node-version.js';
 import { storageStateDir } from './checks/storage-state-dir.js';
 import { storageSqliteHealth } from './checks/storage-sqlite-health.js';
 import { storePathDivergence } from './checks/store-path-divergence.js';
+import { runBundleIntegrity } from './checks/run-bundle-integrity.js';
 import { envVariables } from './checks/env-variables.js';
 import { vcsGitAvailable } from './checks/vcs-git-available.js';
 import { agentConfigValid } from './checks/agent-config-valid.js';
@@ -62,25 +63,28 @@ import { verificationToolchain } from './checks/verification-toolchain.js';
 
 // ─── Canonical check list ──────────────────────────────────────────────────
 
-/** All 18 checks. Order is preserved in the output — callers can scan
- * top-to-bottom for the first Fail. DR-11 B-5 (Task 019) added
- * `store-path-divergence` in the `storage` block: the read-only check that
- * fires when the CLI and Claude Code plugin surfaces resolve DIFFERENT event
- * stores (state silently splits); its remediation is the documented
+/** Every check the doctor ships, in output order — callers can scan
+ * top-to-bottom for the first Fail.
+ *
+ * The `storage` block ends with `run-bundle-integrity`, the run-bundle
+ * resolvability oracle's production caller: until the executor became the
+ * first bundle producer, nothing an operator could run would see a deleted or
+ * corrupted bundle blob. `store-path-divergence`, in the same block, fires
+ * when the CLI and Claude Code plugin surfaces resolve DIFFERENT event stores
+ * (state silently splits); its remediation is the documented
  * `WORKFLOW_STATE_DIR` precedence, not a store migration.
- * DR-8 added `session-start-hook` (#1485):
- * the SessionStart binding presence check that lands the default-on hook step.
- * Task 009 (design §4.6) added `verification-toolchain`: the read-only check
- * reporting whether the verification ladder's runtime resolves. DR-5/DR-7 (Task
- * 017) added `onramp-block-drift` (the Task 013 drift finding, previously
- * unregistered) and `retired-hooks-present` (the uninstall-reachability check),
- * placed together in the `agent` block. `onramp-block-drift` precedes
- * `retired-hooks-present` so its `generate` block-write step lands before the
- * `hook` removal step (the reconciler also enforces this ordering explicitly).
- * DR-3/DR-8 (Task 011) added `stale-skill-dirs`: the read-only residue finding
- * for the onboard rename migration, in the `plugin` block so its remediation
- * degrades to the cli-only install step (the migration itself).
- * P05-04 added `install-freshness`: the read-only view of the install-identity
+ *
+ * `session-start-hook` (#1485) reports whether the SessionStart binding the
+ * default-on hook step installs is present. `verification-toolchain` is the
+ * read-only check reporting whether the verification ladder's runtime
+ * resolves. `onramp-block-drift` (the managed-block drift finding) and
+ * `retired-hooks-present` (the uninstall-reachability check) sit together in
+ * the `agent` block; `onramp-block-drift` comes first so its `generate`
+ * block-write step lands before the `hook` removal step (the reconciler also
+ * enforces this ordering explicitly). `stale-skill-dirs` is the read-only
+ * residue finding for the onboard rename migration, in the `plugin` block so
+ * its remediation degrades to the cli-only install step (the migration
+ * itself). `install-freshness` is the read-only view of the install-identity
  * freshness gate (binary/plugin/skill/schema/cache), placed in the `plugin`
  * block after `plugin-version-match`; it diagnoses the "upgraded binary, stale
  * plugin/skill/cache" case the dispatch chokepoint blocks at runtime. */
@@ -89,6 +93,7 @@ export const ALL_CHECKS: ReadonlyArray<CheckFn> = [
   storageStateDir,
   storageSqliteHealth,
   storePathDivergence,
+  runBundleIntegrity,
   envVariables,
   vcsGitAvailable,
   agentConfigValid,
@@ -170,11 +175,13 @@ export async function runChecksOnly(
   repoRoot: string,
   checks: ReadonlyArray<CheckFn> = ALL_CHECKS,
   buildProbes: BuildProbesFn = defaultBuildProbes,
-  timeoutMs = 2000,
+  timeoutMs = DEFAULT_CHECK_BUDGET_MS,
 ): Promise<readonly CheckResult[]> {
   const checkCtx: DispatchContext =
     ctx.cwd === repoRoot ? ctx : { ...ctx, cwd: repoRoot };
-  const probes = buildProbes(checkCtx);
+  // The budget in force rides on the probe bundle so a bounded check can size
+  // its own sweep under the ceiling it is racing.
+  const probes: DoctorProbes = { ...buildProbes(checkCtx), checkBudgetMs: timeoutMs };
   const controller = new AbortController();
   return Promise.all(
     checks.map((c) => runCheckWithTimeout(c, probes, controller.signal, timeoutMs)),
@@ -221,7 +228,7 @@ export interface DoctorFixDeps {
    * Produces the doctor `actual` check results the reconciler's `diff`
    * classifies. The reconciler calls this for the plan; doctor re-runs the
    * checks itself for the post-fix residual report. The real composer runs the
-   * 13 checks; tests stub it.
+   * full roster; tests stub it.
    */
   readonly runDoctorChecks: (repoRoot: string) => Promise<readonly CheckResult[]>;
   /** Writer deps for GENERATE (real-fs in prod, fixture-redirected in tests). */
@@ -281,9 +288,9 @@ export async function handleDoctorWithChecks(
     fixSummary = await runDoctorFix(ctx, fixDeps ?? defaultDoctorFixDeps(ctx));
   }
 
-  const timeoutMs = args.timeoutMs ?? 2000;
+  const timeoutMs = args.timeoutMs ?? DEFAULT_CHECK_BUDGET_MS;
   const controller = new AbortController();
-  const probes = buildProbes(ctx);
+  const probes: DoctorProbes = { ...buildProbes(ctx), checkBudgetMs: timeoutMs };
   const startedAt = Date.now();
 
   // Wire the external signal so caller-initiated cancellation aborts
@@ -440,12 +447,19 @@ async function emitDiagnosticEvent(
   const failedCheckNames = results
     .filter((r) => r.status === 'Fail')
     .map((r) => r.name);
+  // A Warning never moves the exit code, so the ledger is the only channel
+  // that records WHICH check warned. Without the names a custody violation the
+  // doctor reported would survive as an anonymous count.
+  const warningCheckNames = results
+    .filter((r) => r.status === 'Warning')
+    .map((r) => r.name);
   await ctx.eventStore.append(DOCTOR_STREAM_ID, {
     type: 'diagnostic.executed' as const,
     data: {
       summary,
       checkCount: results.length,
       failedCheckNames,
+      warningCheckNames,
       durationMs,
     },
   });

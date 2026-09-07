@@ -96,6 +96,44 @@ describe('reserved admission event authorization (DR-3)', () => {
     expect(await eventStore.query(STREAM)).toEqual([]);
   });
 
+  it('ExecutionLedgerAppend_ForgedSettlement_IsRefusedEvenWhenWellFormed', async () => {
+    // The bounded executor's operation record is a settlement the run-bundle
+    // oracle keys on. Mintable through the generic append surface, a caller
+    // could settle an operation that never ran and reference bytes nobody
+    // wrote — a well-formed forgery the schema alone admits. Reserved, the
+    // only writer is the one that put the bytes first.
+    const result = await dispatch(
+      'exarchos_event',
+      {
+        action: 'append',
+        stream: STREAM,
+        event: {
+          type: 'orchestrate.intent_executed',
+          data: {
+            operationId: 'op-forged',
+            intent: 'task-completion',
+            outcome: 'committed',
+            leaves: [],
+            requestDigest: 'sha256:forged',
+            bundleRefs: [
+              {
+                artifactId: 'run-bundle:execute-intent-run:op-forged',
+                digest: { algorithm: 'sha256', value: 'f'.repeat(64) },
+              },
+            ],
+          },
+        },
+      },
+      callerContext(eventStore),
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      error: { code: 'RESERVED_EVENT_TYPE', eventType: 'orchestrate.intent_executed' },
+    });
+    expect(await eventStore.query(STREAM)).toEqual([]);
+  });
+
   it('AdmissionEventAppend_AllReservedTypesRemainServerOwned', async () => {
     await fc.assert(
       fc.asyncProperty(

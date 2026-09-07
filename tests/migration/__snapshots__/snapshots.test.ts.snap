@@ -9760,9 +9760,9 @@ For merge ordering strategy, see \`references/merge-ordering.md\`.
 - **'feedback'** -- Route to \`shepherd [PR_URL]\` to address comments, then return here
 - **'no'** -- Pause workflow; resume later with \`rehydrate\`
 
-### Event Emissions (REQUIRED)
+### Event Emissions
 
-After PRs are created and auto-merge is enabled, emit the \`stack.submitted\` event:
+After PRs are created and auto-merge is enabled, record the submission with a \`stack.submitted\` event. This is a telemetry record of what went up — nothing decides anything from it, and \`check-event-emissions\` does not ask for it:
 
 \`\`\`typescript
 exarchos:exarchos_event({ action: "append", stream: "<featureId>", event: {
@@ -9774,7 +9774,7 @@ exarchos:exarchos_event({ action: "append", stream: "<featureId>", event: {
 }})
 \`\`\`
 
-During shepherd iterations (CI monitoring loop), emit after each assessment:
+During shepherd iterations (CI monitoring loop), emit after each assessment (REQUIRED — the escalation policy counts these events to bound the loop):
 
 \`\`\`typescript
 exarchos:exarchos_event({ action: "append", stream: "<featureId>", event: {
@@ -9788,7 +9788,9 @@ exarchos:exarchos_event({ action: "append", stream: "<featureId>", event: {
 }})
 \`\`\`
 
-These events are checked by \`check-event-emissions\` during workflow validation. Missing emissions will trigger warnings.
+Checked by \`check-event-emissions\` in this phase: \`team.spawned\`, \`team.disbanded\`, \`shepherd.iteration\`.
+
+A missing one comes back as a hint with \`complete: false\` — on the explicit gate call, and on the \`_eventHints\` field the telemetry middleware adds to tool results while hints are outstanding. \`stack.submitted\` is not checked.
 
 ### Post-Merge Cleanup
 

@@ -53,6 +53,15 @@ interface Policy {
   readonly killFixture: { readonly path: string; readonly expectedSymbol: string };
   readonly minimumScannedFiles: number;
   readonly minimumEnablersFound: number;
+  readonly oracleRoster: {
+    readonly entries: readonly {
+      readonly symbol: string;
+      readonly declaredIn: string;
+      readonly chain: readonly { readonly file: string; readonly mustReference: string }[];
+      readonly owner: string;
+    }[];
+    readonly killFixture: { readonly path: string; readonly standsInFor: string };
+  };
 }
 
 const POLICY: Policy = JSON.parse(
@@ -119,10 +128,11 @@ const CALLER_BODIES: ReadonlyMap<string, string> = new Map(
  * guard exists for.
  */
 function executableSource(relativePath: string): string {
-  const { maskedSource } = lexModule(
-    readFileSync(path.join(REPO_ROOT, relativePath), 'utf8'),
-    path.basename(relativePath),
-  );
+  return executableSourceOf(readFileSync(path.join(REPO_ROOT, relativePath), 'utf8'), relativePath);
+}
+
+function executableSourceOf(source: string, relativePath: string): string {
+  const { maskedSource } = lexModule(source, path.basename(relativePath));
   return maskedSource
     .replace(/import\s[\s\S]*?from\s*['"][^'"]*['"]\s*;?/g, '')
     .replace(/export\s*\{[^}]*\}\s*(?:from\s*['"][^'"]*['"])?\s*;?/g, '');
@@ -221,5 +231,72 @@ describe('reachable controls', () => {
         `the allowlist entry for ${entry.symbol} expired on ${entry.expiry}`,
       ).toBeGreaterThan(Date.now());
     }
+  });
+});
+
+// ─── Oracles: a verdict nobody asks for enforces nothing ─────────────────────
+//
+// The enabler rule reads NAMES, and an oracle is not named as an enabler; it
+// is also usually a class method, which the enabler extractor does not read.
+// So a method that walks durable state and returns a verdict can exist for its
+// own tests alone while the property it checks is enforced nowhere in the
+// shipped composition — which is how the run-bundle integrity sweep sat dormant
+// for a week with every settled stream in violation. The roster below is DATA
+// in the same policy file: each oracle declares the call chain from its method
+// to the roster the composition root iterates, and every hop is checked.
+
+/** A method declaration `name(` in a class body, on the lexed source. */
+function declaresMethod(relativePath: string, symbol: string): boolean {
+  const { maskedSource } = lexModule(
+    readFileSync(path.join(REPO_ROOT, relativePath), 'utf8'),
+    path.basename(relativePath),
+  );
+  return new RegExp(`(?:^|\\n)\\s+(?:async\\s+)?${symbol}\\s*(?:<[^>]*>)?\\s*\\(`).test(maskedSource);
+}
+
+/** The hops of a chain whose executable source does NOT reference what it must. */
+function brokenHops(
+  chain: readonly { readonly file: string; readonly mustReference: string }[],
+  sourceOf: (file: string) => string,
+): readonly { readonly file: string; readonly mustReference: string }[] {
+  return chain.filter((hop) => {
+    const escaped = hop.mustReference.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return !new RegExp(`\\b${escaped}\\b`).test(sourceOf(hop.file));
+  });
+}
+
+describe('reachable oracles', () => {
+  it('ReachableOracles_EveryRosteredOracle_IsCalledThroughItsDeclaredChain', () => {
+    expect(POLICY.oracleRoster.entries.length, 'the roster is empty and enforces nothing').toBeGreaterThan(0);
+    for (const entry of POLICY.oracleRoster.entries) {
+      expect(
+        declaresMethod(entry.declaredIn, entry.symbol),
+        `${entry.symbol} is not declared as a method in ${entry.declaredIn} — the roster names something that does not exist`,
+      ).toBe(true);
+      expect(entry.chain.length, `${entry.symbol} declares no chain`).toBeGreaterThan(0);
+      expect(entry.owner, `${entry.symbol} has no owner`).toBeTruthy();
+      expect(
+        brokenHops(entry.chain, executableSource),
+        `${entry.symbol} is not reachable through its declared chain: the listed hop(s) do not ` +
+          'reference what the previous hop provides, so the verdict is computed for nobody',
+      ).toEqual([]);
+    }
+  });
+
+  it('ReachableOracles_KillFixture_IsReportedAsABrokenChain', () => {
+    // The self-test. The probe factory as it stood while the oracle was
+    // dormant stands in for the real first hop; the scanner must report the
+    // chain broken there. A scanner that passes this text has gone blind.
+    const { killFixture, entries } = POLICY.oracleRoster;
+    const fixture = readFileSync(path.join(REPO_ROOT, killFixture.path), 'utf8');
+    const entry = entries.find((candidate) =>
+      candidate.chain.some((hop) => hop.file === killFixture.standsInFor),
+    );
+    expect(entry, 'the kill fixture stands in for a file no rostered chain passes through').toBeDefined();
+    if (entry === undefined) return;
+
+    const sourceOf = (file: string): string =>
+      file === killFixture.standsInFor ? executableSourceOf(fixture, file) : executableSource(file);
+    expect(brokenHops(entry.chain, sourceOf).map((hop) => hop.file)).toEqual([killFixture.standsInFor]);
   });
 });

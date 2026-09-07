@@ -72,5 +72,39 @@
     ".ts",
     ".js"
   ],
-  "sourceExtensionsWhy": "This tree contains AUTHORED `.js` under `src/` (the lifecycle bridges), not just compiled output — and compiled output is gitignored, so a tracked-file walk cannot pick it up by accident. Scanning `.ts` alone reported `installSkills` as dark while `src/lifecycle/install-skills-bridge.js` imports and calls it."
+  "sourceExtensionsWhy": "This tree contains AUTHORED `.js` under `src/` (the lifecycle bridges), not just compiled output — and compiled output is gitignored, so a tracked-file walk cannot pick it up by accident. Scanning `.ts` alone reported `installSkills` as dark while `src/lifecycle/install-skills-bridge.js` imports and calls it.",
+  "oracleRoster": {
+    "class": "an ORACLE — a method that walks durable state and returns a verdict — that exists only for its own tests, so the property it checks is enforced nowhere in the shipped composition. The name rule above cannot see it: an oracle is not named as an enabler, and it is usually a class method rather than an exported function, which the enabler extractor does not read.",
+    "history": "`EventStore.runBundleIntegrityCheck` shipped with the run-bundle store and had no caller under `src/` for a week: every executed intent was a settled stream with no reference, and nothing an operator could run would have said so. The doctor check `run-bundle-integrity` became its caller; this roster is what keeps it one.",
+    "rule": "Each rostered oracle declares its CALL CHAIN from the method that holds the verdict to the roster the composition root iterates. Every hop must reference the previous hop's symbol in its executable source (imports and re-exports stripped, comments and strings masked). A chain is only as reachable as its weakest hop: a probe forwarder wired to nothing is the same defect one level up, so a one-hop reference scan is not enough.",
+    "entries": [
+      {
+        "symbol": "runBundleIntegrityCheck",
+        "declaredIn": "src/events/store.ts",
+        "chain": [
+          {
+            "file": "src/verbs/doctor/probes.ts",
+            "mustReference": "runBundleIntegrityCheck",
+            "why": "the probe bundle forwards the store method"
+          },
+          {
+            "file": "src/verbs/doctor/checks/run-bundle-integrity.ts",
+            "mustReference": "bundles.runIntegrityCheck",
+            "why": "the check calls the probe"
+          },
+          {
+            "file": "src/verbs/doctor/index.ts",
+            "mustReference": "runBundleIntegrity",
+            "why": "the roster the composer iterates names the check"
+          }
+        ],
+        "owner": "@rsalus"
+      }
+    ],
+    "killFixture": {
+      "path": "tools/audit/__fixtures__/dormant-oracle-probes.ts.txt",
+      "standsInFor": "src/verbs/doctor/probes.ts",
+      "why": "the probe factory as it stood while the oracle was dormant, verbatim. Run as hop 1 of the chain above it must be reported as broken — a scanner that passes it has gone blind to the defect this roster exists for."
+    }
+  }
 }

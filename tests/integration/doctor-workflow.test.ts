@@ -134,6 +134,14 @@ describe('doctor end-to-end acceptance (task 022)', () => {
 
     const output: DoctorOutput = parsed.data;
     expect(output.checks.length).toBeGreaterThan(0);
+
+    // The run-bundle custody check reaches the operator through the real
+    // composer against a real (fresh) state dir: nothing has settled under
+    // custody, so it passes while saying it checked nothing.
+    const custody = output.checks.find((check) => check.name === 'run-bundle-integrity');
+    expect(custody?.category).toBe('storage');
+    expect(custody?.status).toBe('Pass');
+    expect(custody?.message).toContain('nothing to check');
     // Tally invariant is enforced inside the schema refinement, but
     // re-assert here so a failure message points at the right field.
     const tally =

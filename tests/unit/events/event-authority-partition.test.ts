@@ -1,12 +1,13 @@
 // ─── The governance/telemetry partition, and the fold it has to survive ──────
 //
-// @oracle-sources: ../../../src/events/partition/witnesses.ts, ../../../src/projections/views/workflow-state-projection.ts
+// @oracle-sources: ../../../src/events/partition/witnesses.ts, ../../../src/events/partition/demotions.ts, ../../../src/projections/views/workflow-state-projection.ts
 //
 // Two claims, and neither is checkable without the other.
 //
 // The first is that the partition is DERIVED: rebuild it from the catalog, the
-// annotations and the witness table and you get exactly the shipped map, and a
-// population it cannot partition fails by name rather than defaulting.
+// annotations and the two override tables — witnesses and charter demotions —
+// and you get exactly the shipped map, and a population it cannot partition
+// fails by name rather than defaulting.
 //
 // The second is what the partition MEANS. "Telemetry" is only a real claim if
 // dropping every telemetry event leaves the canonical fold's answer unchanged.
@@ -51,8 +52,13 @@ import type { z } from 'zod';
 import {
   deriveEventAuthority,
   type AuthorityWitness,
+  type CharterDemotion,
   type EventAuthority,
 } from '../../../src/events/partition/authority.js';
+import {
+  CHARTER_DEMOTIONS,
+  assertCharterCitations,
+} from '../../../src/events/partition/demotions.js';
 import { GOVERNANCE_WITNESSES } from '../../../src/events/partition/witnesses.js';
 import {
   EVENT_AUTHORITY,
@@ -139,14 +145,16 @@ const CORPUS: readonly WorkflowEvent[] = EventTypes.map((type, index) =>
   }),
 );
 
-function fold(events: readonly WorkflowEvent[]): unknown {
+type FoldedState = ReturnType<typeof workflowStateProjection.init>;
+
+function fold(events: readonly WorkflowEvent[]): FoldedState {
   return events.reduce(
     (state, event) => workflowStateProjection.apply(state, event),
     workflowStateProjection.init(),
   );
 }
 
-function foldExcluding(excluded: ReadonlySet<string>): unknown {
+function foldExcluding(excluded: ReadonlySet<string>): FoldedState {
   return fold(CORPUS.filter((event) => !excluded.has(event.type)));
 }
 
@@ -171,12 +179,50 @@ const A_GOVERNANCE_WITNESS: AuthorityWitness = {
   because: 'A seeded witness, standing in for a real promotion.',
 };
 
+const A_CHARTER_DEMOTION: CharterDemotion = {
+  act: 'https://github.com/lvlup-sw/exarchos/issues/1599#issuecomment-1',
+  record: 'https://github.com/lvlup-sw/exarchos/issues/1876#issuecomment-1',
+  because: 'A seeded demotion, standing in for a real charter act.',
+};
+
+/**
+ * The bucket the ratified charter names as telemetry EXAMPLES, enumerated as
+ * the catalog stood when the first act was made — the per-tool and turn
+ * records, the team family's seven members, and four named types. A demotion
+ * outside this bucket would be a new decision wearing a flip's clothes, and a
+ * member of it still classified governance is the backlog the charter
+ * schedules.
+ *
+ * A LITERAL set, not a family predicate: a member added to the tool or team
+ * family later was not named by the record, so its flip is a new decision too,
+ * and a `startsWith` would have admitted it as if the act had covered it.
+ */
+const CHARTER_TELEMETRY_EXAMPLES: ReadonlySet<string> = new Set([
+  'tool.invoked',
+  'tool.completed',
+  'tool.errored',
+  'tool.action_errored',
+  'turn.completed',
+  'subagent.tokens_used',
+  'launch.executing_started',
+  'team.spawned',
+  'team.disbanded',
+  'team.task.planned',
+  'team.task.assigned',
+  'team.teammate.dispatched',
+  'team.task.completed',
+  'team.task.failed',
+  'shepherd.iteration',
+  'stack.submitted',
+]);
+
 describe('EventAuthority — the partition is derived, and telemetry means droppable', () => {
-  it('EventAuthority_LiveMap_IsTheDerivationOfEveryAnnotationAndWitness', () => {
+  it('EventAuthority_LiveMap_IsTheDerivationOfEveryAnnotationWitnessAndDemotion', () => {
     const rebuilt = deriveEventAuthority(
       EventTypes,
       tierEmissionSourceOf,
       GOVERNANCE_WITNESSES,
+      CHARTER_DEMOTIONS,
     );
 
     // The denominator first: an empty rebuild would make every comparison below
@@ -216,6 +262,126 @@ describe('EventAuthority — the partition is derived, and telemetry means dropp
         'already.governance': A_GOVERNANCE_WITNESS,
       }),
     ).toThrow(/already\.governance/);
+  });
+
+  it('EventAuthority_DemotionOfAnAutoTierType_ClassifiesItTelemetryAndOnlyIt', () => {
+    // The one way an `auto` type leaves governance. The sibling with no row
+    // stays where the tier put it, so the row is doing the work and not the
+    // tier.
+    const derived = deriveEventAuthority(
+      ['flipped.record', 'kept.record'],
+      () => 'auto',
+      {},
+      { 'flipped.record': A_CHARTER_DEMOTION },
+    );
+    expect(derived).toEqual({ 'flipped.record': 'telemetry', 'kept.record': 'governance' });
+  });
+
+  it('EventAuthority_DemotionForAnUnknownEventType_IsNamedInTheThrow', () => {
+    expect(() =>
+      deriveEventAuthority(['live.record'], () => 'auto', {}, {
+        'renamed.away': A_CHARTER_DEMOTION,
+      }),
+    ).toThrow(/charter demotion\(s\) name an event type that is not in the population: renamed\.away/);
+  });
+
+  it('EventAuthority_DemotionOnATypeAlreadyTelemetryByTier_IsNamedAsDeadCover', () => {
+    expect(() =>
+      deriveEventAuthority(['already.telemetry'], () => 'model', {}, {
+        'already.telemetry': A_CHARTER_DEMOTION,
+      }),
+    ).toThrow(/whose tier already derives telemetry: already\.telemetry/);
+  });
+
+  it('EventAuthority_WitnessAndDemotionOnOneType_IsNamedAsAContradictionNotResolved', () => {
+    // This is the shape a flip takes when a new reader overtakes it: someone
+    // adds a raw-reader witness for a type the demotion table already holds.
+    // Neither table may win silently, and the message must say which type —
+    // on BOTH tiers, because the dead-cover arms would otherwise claim it.
+    for (const tier of ['auto', 'model'] as const) {
+      expect(() =>
+        deriveEventAuthority(
+          ['contested.record'],
+          () => tier,
+          { 'contested.record': A_GOVERNANCE_WITNESS },
+          { 'contested.record': A_CHARTER_DEMOTION },
+        ),
+      ).toThrow(/BOTH a governance witness and a charter demotion: contested\.record/);
+    }
+  });
+
+  it('CharterDemotions_EveryLiveRow_IsACharterNamedTypeNowClassifiedTelemetryWithBothCitations', () => {
+    const demoted = Object.keys(CHARTER_DEMOTIONS).sort();
+    // The denominator: an empty table makes every filter below vacuous, and
+    // this slice is the one that put the first rows in.
+    expect(demoted.length).toBeGreaterThan(0);
+
+    const outsideTheCharter = demoted.filter((type) => !CHARTER_TELEMETRY_EXAMPLES.has(type));
+    expect(
+      outsideTheCharter,
+      'A demotion of a type the ratified charter never called telemetry is a new decision, not ' +
+        'a flip. Take it to the roadmap first, then add the type to CHARTER_TELEMETRY_EXAMPLES ' +
+        'with the new act as its citation.',
+    ).toEqual([]);
+
+    const notTelemetry = demoted.filter((type) => classifyEventAuthority(type) !== 'telemetry');
+    expect(notTelemetry).toEqual([]);
+
+    // The act on the roadmap made the flip land; the decision record is what
+    // it executes. Both citations are TYPED, so a literal that is not a comment
+    // on #1599 or #1876 does not compile (the self-tests in demotions.ts pin the
+    // placeholder shape the first draft carried). The load-time check is what a
+    // cast cannot get past; it is exercised here on the live table and, through
+    // the same function, on a seeded row that still carries the placeholder.
+    expect(() => assertCharterCitations(CHARTER_DEMOTIONS)).not.toThrow();
+    expect(() =>
+      assertCharterCitations({
+        'seeded.record': {
+          act: 'https://github.com/lvlup-sw/exarchos/issues/1599#issuecomment-CHARTER_ACT_COMMENT_ID',
+          record: 'https://github.com/lvlup-sw/exarchos/issues/1876#issuecomment-5465417502',
+          because: 'A row that never had its placeholder filled in.',
+        },
+      }),
+    ).toThrow(/seeded\.record \(act: .*CHARTER_ACT_COMMENT_ID/);
+    expect(() =>
+      assertCharterCitations({
+        'seeded.record': {
+          act: 'https://github.com/lvlup-sw/exarchos/issues/1599#issuecomment-5555387087',
+          record: 'https://github.com/lvlup-sw/exarchos/issues/1876',
+          because: 'A row citing the issue rather than the comment that ratified the record.',
+        },
+      }),
+    ).toThrow(/seeded\.record/);
+  });
+
+  it('CharterDemotions_SeededDemotionOfAFoldDiscriminatingType_IsCaughtByTheDifferentialFold', () => {
+    // A wrong demotion — a row for a type the canonical fold consumes — must
+    // reach an oracle, or the demotion table is a way to drop governance
+    // events with every check green. Take a discriminating type whose tier is
+    // `auto` and that carries no witness (so the row is admissible at load),
+    // derive with it demoted, and show the governance-filtered fold diverges.
+    const candidate = DISCRIMINATING.find(
+      (type) => tierEmissionSourceOf(type) === 'auto' && GOVERNANCE_WITNESSES[type] === undefined,
+    );
+    expect(candidate).toBeDefined();
+    if (candidate === undefined) return;
+
+    const seeded = deriveEventAuthority(EventTypes, tierEmissionSourceOf, GOVERNANCE_WITNESSES, {
+      ...CHARTER_DEMOTIONS,
+      [candidate]: A_CHARTER_DEMOTION,
+    });
+    expect(seeded[candidate]).toBe('telemetry');
+
+    // Control: the LIVE telemetry set folds back to the full state, and the
+    // seeded set is that set plus exactly the candidate — so the divergence
+    // below is the seeded row's, not some already-telemetry type's.
+    const liveTelemetry: ReadonlySet<string> = TELEMETRY_EVENTS;
+    expect(JSON.stringify(foldExcluding(liveTelemetry))).toBe(FULL_FOLD);
+    const seededTelemetry = new Set<string>(
+      EventTypes.filter((type) => seeded[type] === 'telemetry'),
+    );
+    expect([...seededTelemetry].filter((type) => !liveTelemetry.has(type))).toEqual([candidate]);
+    expect(JSON.stringify(foldExcluding(seededTelemetry))).not.toBe(FULL_FOLD);
   });
 
   it('EventAuthority_TelemetrySet_IsNonEmptyAndDerivedFromTheMap', () => {
@@ -387,16 +553,29 @@ describe('EventAuthority — the partition is derived, and telemetry means dropp
     // gap is a BACKLOG, and a backlog is a thing you count. Pinning the exact
     // set makes every flip a visible shrink and makes a new disagreement
     // impossible to add silently.
-    const namedByCharter = (type: string): boolean =>
-      type.startsWith('tool.') ||
-      type.startsWith('team.') ||
-      type === 'turn.completed' ||
-      type === 'subagent.tokens_used' ||
-      type === 'launch.executing_started' ||
-      type === 'shepherd.iteration' ||
-      type === 'stack.submitted';
-
-    const charterExamples = EventTypes.filter(namedByCharter);
+    //
+    // The first flips landed with the 2026-09-05 charter act: the per-tool and
+    // turn records and the token self-report are demoted by charter row, and
+    // `stack.submitted` left the expectation table that was its only reader.
+    // Nine remain, each for a measured reason — the team family carries the
+    // canonical fold (spawned/disbanded), the stop hook's teammate resolution
+    // (assigned/dispatched), the saga verifier (planned/completed/failed) and
+    // the agent-event validator; `shepherd.iteration` is the escalation bound's
+    // event-sourced count; and `launch.executing_started`, which the decision
+    // record filed beside the hook-tier self-reports, is on the tree the START
+    // claim of the launch liveness pair — read raw by the `worktrees@v1`
+    // reducer that `ps` and the phantom-launch heal fold, so the reader census
+    // names it, and paired by the descriptor the declaration conjunct's
+    // liveness arm names. That last one is why a demotion is a judgment made
+    // against the tree and never against the charter's text.
+    const catalog = new Set<string>(EventTypes);
+    const renamedAway = [...CHARTER_TELEMETRY_EXAMPLES].filter((type) => !catalog.has(type));
+    expect(
+      renamedAway,
+      'A charter example is no longer a catalog type — the list outlived a rename or a retirement.',
+    ).toEqual([]);
+    const charterExamples = EventTypes.filter((type) => CHARTER_TELEMETRY_EXAMPLES.has(type));
+    expect(charterExamples.length).toBe(CHARTER_TELEMETRY_EXAMPLES.size);
     expect(charterExamples.length).toBeGreaterThan(10);
 
     const stillGovernance = charterExamples
@@ -412,8 +591,6 @@ describe('EventAuthority — the partition is derived, and telemetry means dropp
     ).toEqual([
       'launch.executing_started',
       'shepherd.iteration',
-      'stack.submitted',
-      'subagent.tokens_used',
       'team.disbanded',
       'team.spawned',
       'team.task.assigned',
@@ -421,11 +598,6 @@ describe('EventAuthority — the partition is derived, and telemetry means dropp
       'team.task.failed',
       'team.task.planned',
       'team.teammate.dispatched',
-      'tool.action_errored',
-      'tool.completed',
-      'tool.errored',
-      'tool.invoked',
-      'turn.completed',
     ]);
   });
 

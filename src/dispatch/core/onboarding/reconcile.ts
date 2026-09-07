@@ -281,13 +281,41 @@ function classifyByCategory(category: CheckResult['category']): StepClassificati
 }
 
 /**
+ * Checks whose findings no reconcile step can repair. Their `fix` text is
+ * guidance for a person — where to look, what not to touch — not an action
+ * `apply` owns: run-bundle custody loss cannot be undone by seeding a config
+ * file, and a store-path divergence is a documented precedence between two
+ * surfaces, not drift in the repository. Classified by category they would
+ * become `config` steps that `apply` reports as applied after writing a
+ * `.exarchos.yml` the finding never asked for. Listed here as data so the
+ * closure over the roster can see every registered check is placed on
+ * purpose.
+ */
+export const NON_REMEDIABLE_CHECKS: ReadonlySet<string> = new Set([
+  'run-bundle-integrity',
+  'store-path-divergence',
+]);
+
+/**
+ * Every check name the reconciler places deliberately — either as a step
+ * classification or as a non-remediable finding. A registered check absent
+ * from both falls to the category default, which is the placement the roster
+ * closure exists to make visible.
+ */
+export function deliberatelyClassifiedCheckNames(): ReadonlySet<string> {
+  return new Set([...Object.keys(CHECK_CLASSIFICATION), ...NON_REMEDIABLE_CHECKS]);
+}
+
+/**
  * Is this check result a *remediable* finding — i.e. does it warrant a reconcile
  * step? Only `Fail`/`Warning` results that carry a `fix` hint qualify; a `Pass`
  * or a non-remediable `Skipped` (no `fix`) contributes no step. The schema
  * guarantees every `Fail`/`Warning` has a non-empty `fix`, so this also screens
- * out a `Skipped` that happens to carry one.
+ * out a `Skipped` that happens to carry one. A check on the non-remediable
+ * list contributes no step whatever its status: its fix text is not a step.
  */
 function isRemediable(check: CheckResult): boolean {
+  if (NON_REMEDIABLE_CHECKS.has(check.name)) return false;
   return (check.status === 'Fail' || check.status === 'Warning') && check.fix !== undefined;
 }
 
@@ -450,7 +478,7 @@ function orderBlockWriteBeforeHookRemoval(steps: readonly PlanStep[]): PlanStep[
  * two-arg call — the doctor-check path — keeps working unchanged.
  *
  * Seam: `actual` is the doctor composer's own output — `readonly CheckResult[]`,
- * exactly what `handleDoctorWithChecks` produces by running the 11 checks. The
+ * exactly what `handleDoctorWithChecks` produces by running the roster. The
  * caller (doctor `--fix` / `onboard`) runs the probes; `diff` stays PURE (no fs,
  * no process) and only classifies. `declared` is likewise supplied by the caller
  * (read from `.exarchos.yml`), keeping `diff` free of I/O.

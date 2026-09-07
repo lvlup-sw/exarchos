@@ -24,32 +24,56 @@
  * answer before its first append is ever written. Authority is a property of
  * what the event is welded to, and lifecycle does not change that.
  *
- * ── Promotion only, never demotion ──────────────────────────────────────────
+ * ── Promotion by witness; demotion by charter act only ──────────────────────
  *
- * A type whose tier derives `auto` is governance and stays governance, even
- * when nothing here is known to fold or read it. Only the other direction is
- * open: a witness may promote a non-`auto` type.
+ * The tier gives a starting answer — `auto` is governance, anything else is
+ * telemetry — and two hand-written tables override it in opposite directions.
+ * Neither direction is open to an instrument on its own.
  *
- * The reason is about what the instruments can prove. A demotion asserts
- * "nothing depends on this event" — a universal claim. The fold measurement and
- * the raw-reader census are sufficient to justify a PROMOTION, because a single
- * observed fold or reader is a witness; their completeness is not yet proved,
- * and a static scanner has an acknowledged blind spot (a bare fold whose type
- * comparison happens in another module). So a gap in either instrument can only
- * make this map over-retain, never silently demote.
+ * A WITNESS promotes a non-`auto` type. A single observed fold arm or raw
+ * reader is sufficient evidence for that, so a witness carries the module it
+ * cites and an oracle re-measures it against the tree.
  *
- * ── The map disagrees with the charter's telemetry examples, on purpose ──────
+ * A DEMOTION files an `auto` type as telemetry. That asserts "nothing depends
+ * on this event" — a universal claim no instrument here can prove: the fold
+ * measurement covers one projection, and the reader census has an acknowledged
+ * blind spot (a table entry such as a liveness descriptor, or a bare fold whose
+ * type comparison happens in another module). So a demotion is never derived
+ * from a measurement. It is a JUDGMENT made by reading the tree, ordered by the
+ * ratified charter and recorded as a charter act on the roadmap, and every row
+ * carries that citation. What the instruments CAN do is re-measure the judgment
+ * in the direction they are good at: once a type is telemetry, a fold arm that
+ * mutates, a raw reader the census sees, a contract that promises it, an
+ * expectation or description row that names it, or a liveness descriptor that
+ * pairs on it is a named failure. A gap in an instrument therefore still only
+ * over-retains; it never demotes anything by itself.
+ *
+ * The judgment has to be made against the tree, not the charter text. The
+ * decision record listed `launch.executing_started` beside
+ * `subagent.tokens_used` as `hook`-tier self-reports. On the tree neither is
+ * `hook` tier — the one tier that derives `hook` has no members, and both are
+ * `capability`, so `auto` — which is the only reason the token self-report's
+ * demotion row is admissible at all. And the launch START claim is not a
+ * self-report: the launch liveness descriptor pairs it with its terminal, and
+ * the `worktrees@v1` reducer reads it raw for `ps` and the phantom-launch heal.
+ * The reader census names that reducer and the declaration conjunct's liveness
+ * arm names the descriptor, so a demotion row for it would be red twice. It
+ * stays governance; the token self-report, which neither instrument names, is
+ * demoted.
+ *
+ * ── The map still disagrees with the charter's telemetry examples ───────────
  *
  * The ratified decision lists example telemetry types — the tool and turn
  * families, the team family, `shepherd.iteration`, `stack.submitted`,
- * `subagent.tokens_used`, `launch.executing_started`. Most of them classify
- * GOVERNANCE here. Two distinct reasons, and neither is an oversight:
+ * `subagent.tokens_used`, `launch.executing_started`. The per-tool and turn
+ * records and the token self-report are demoted; `stack.submitted` left the
+ * emission gate's expectation table and is telemetry by tier. The rest still
+ * classify GOVERNANCE here, each for a measured reason:
  *
- *   • several carry a live fold-external reader today, so demoting them would
- *     be a false statement — the charter itself sequences each flip as its own
- *     change that retires the reader and deletes the expectation row with it;
- *   • the rest derive `auto` from a substrate tier, and the promotion-only rule
- *     refuses to override that with an instrument that cannot prove absence.
+ *   • the team family, `shepherd.iteration` and `launch.executing_started`
+ *     carry a live fold arm, raw reader or liveness pairing today, so demoting
+ *     them would be a false statement — the charter sequences each flip as its
+ *     own change that retires the reader first.
  *
  * That disagreement is a BACKLOG, not a footnote, so it is counted rather than
  * described: the partition's own test pins the exact set of charter-named
@@ -66,9 +90,9 @@
  * ── Fail-closed, and by name ────────────────────────────────────────────────
  *
  * Built like `deriveEmissionRegistry`: a pure function over an injected
- * population and an injected lookup, so a probe can derive over a seeded
- * catalog without touching the live tables, and every refusal NAMES its
- * offenders rather than reporting a count.
+ * population and injected tables, so a probe can derive over a seeded catalog
+ * without touching the live tables, and every refusal NAMES its offenders
+ * rather than reporting a count.
  */
 
 import type { EmissionSource } from '../event-registration.js';
@@ -108,12 +132,44 @@ export interface AuthorityWitness {
 }
 
 /**
+ * A comment on the roadmap issue — the only place a charter act is made. The
+ * issue number is part of the type: a comment anywhere else is not an act, and
+ * an anchor that is not a comment id is not a citation.
+ */
+export type CharterActUrl =
+  `https://github.com/lvlup-sw/exarchos/issues/1599#issuecomment-${number}`;
+
+/** A comment on the event-authority decision issue, where the record was ratified. */
+export type DecisionRecordCitation =
+  `https://github.com/lvlup-sw/exarchos/issues/1876#issuecomment-${number}`;
+
+/**
+ * Why a type whose tier makes it governance is telemetry anyway.
+ *
+ * There is no arm to choose: a demotion has exactly one basis, the charter act
+ * that ordered the flip, executing the ratified decision. Both citations are
+ * typed rather than free strings, so a row cannot point at a placeholder or at
+ * the wrong issue and still compile. The `because` states what was read on the
+ * tree to make the judgment — which views fold the type, and that nothing
+ * outside them does — so a reviewer can re-read the same places rather than
+ * trust the row.
+ */
+export interface CharterDemotion {
+  /** The charter act on the roadmap that ordered THIS flip. */
+  readonly act: CharterActUrl;
+  /** The ratified decision the act executes. */
+  readonly record: DecisionRecordCitation;
+  readonly because: string;
+}
+
+/**
  * Partition a population of event types into governance and telemetry.
  *
- * The rule is one line and total: a type is `governance` iff its tier derives
- * `auto` OR it carries a witness; otherwise it is `telemetry`.
+ * The rule is one line and total: a type is `governance` iff it carries a
+ * witness, OR its tier derives `auto` and it carries no demotion; otherwise it
+ * is `telemetry`.
  *
- * Four refusals, each because the alternative is a map that reads clean while
+ * Seven refusals, each because the alternative is a map that reads clean while
  * saying nothing:
  *
  *   • **Empty population.** An empty map reads to every consumer as "no event
@@ -121,20 +177,31 @@ export interface AuthorityWitness {
  *     produces.
  *   • **Unannotated type.** No tier, no derivable authority. Defaulting it
  *     would be the guess this derivation exists to remove.
- *   • **Witness for a type outside the population.** A renamed or deleted event
- *     leaves its witness behind, still asserting a promotion for nothing.
+ *   • **Witness for a type outside the population.** A renamed or deleted
+ *     event leaves its row behind, still asserting a promotion of nothing.
+ *   • **Demotion for a type outside the population.** The same stale row in
+ *     the other table, still citing a charter act for a type that is gone.
+ *   • **Witness AND demotion on one type.** The two tables contradict each
+ *     other, and picking either silently would hide a flip that a new reader
+ *     has since overtaken — or a reader that a flip has since orphaned.
  *   • **Witness on a type the tier already makes governance.** Dead cover: the
  *     declaration changes no answer, so it cannot be checked by anything, and a
  *     later re-tiering would silently start relying on it.
+ *   • **Demotion on a type the tier already makes telemetry.** The same dead
+ *     cover in the other direction — the tier answers telemetry with or without
+ *     the row, so the row is a charter citation nothing exercises.
  */
 export function deriveEventAuthority(
   eventTypes: Iterable<string>,
   tierSourceOf: (eventType: string) => EmissionSource | undefined,
   witnesses: Readonly<Record<string, AuthorityWitness>>,
+  demotions: Readonly<Record<string, CharterDemotion>> = {},
 ): Record<string, EventAuthority> {
   const derived: Record<string, EventAuthority> = {};
   const unannotated: string[] = [];
-  const deadCover: string[] = [];
+  const contradicted: string[] = [];
+  const deadCoverWitnesses: string[] = [];
+  const deadCoverDemotions: string[] = [];
   let population = 0;
 
   for (const eventType of eventTypes) {
@@ -145,11 +212,17 @@ export function deriveEventAuthority(
       continue;
     }
     const witness = witnesses[eventType];
-    if (tierSource === 'auto') {
-      if (witness !== undefined) deadCover.push(eventType);
-      derived[eventType] = 'governance';
+    const demotion = demotions[eventType];
+    if (witness !== undefined && demotion !== undefined) {
+      contradicted.push(eventType);
       continue;
     }
+    if (tierSource === 'auto') {
+      if (witness !== undefined) deadCoverWitnesses.push(eventType);
+      derived[eventType] = demotion === undefined ? 'governance' : 'telemetry';
+      continue;
+    }
+    if (demotion !== undefined) deadCoverDemotions.push(eventType);
     derived[eventType] = witness === undefined ? 'telemetry' : 'governance';
   }
 
@@ -168,19 +241,47 @@ export function deriveEventAuthority(
     );
   }
 
-  const stale = Object.keys(witnesses).filter((eventType) => derived[eventType] === undefined);
-  if (stale.length > 0) {
+  const inPopulation = (eventType: string): boolean =>
+    derived[eventType] !== undefined || contradicted.includes(eventType);
+  const staleWitnesses = Object.keys(witnesses).filter((eventType) => !inPopulation(eventType));
+  if (staleWitnesses.length > 0) {
     throw new Error(
-      `deriveEventAuthority: ${stale.length} governance witness(es) name an event type that is ` +
-        `not in the population: ${stale.sort().join(', ')}. A witness for a renamed or deleted ` +
-        'type promotes nothing and must be removed with the type.',
+      `deriveEventAuthority: ${staleWitnesses.length} governance witness(es) name an event type ` +
+        `that is not in the population: ${staleWitnesses.sort().join(', ')}. A witness for a ` +
+        'renamed or deleted type promotes nothing and must be removed with the type.',
     );
   }
-  if (deadCover.length > 0) {
+  const staleDemotions = Object.keys(demotions).filter((eventType) => !inPopulation(eventType));
+  if (staleDemotions.length > 0) {
     throw new Error(
-      `deriveEventAuthority: ${deadCover.length} governance witness(es) cover a type whose tier ` +
-        `already derives governance: ${deadCover.sort().join(', ')}. The declaration changes no ` +
-        'answer, so nothing can check it — delete it, or re-tier the event if the tier is wrong.',
+      `deriveEventAuthority: ${staleDemotions.length} charter demotion(s) name an event type ` +
+        `that is not in the population: ${staleDemotions.sort().join(', ')}. A demotion for a ` +
+        'renamed or deleted type demotes nothing and must be removed with the type.',
+    );
+  }
+  if (contradicted.length > 0) {
+    throw new Error(
+      `deriveEventAuthority: ${contradicted.length} event type(s) carry BOTH a governance ` +
+        `witness and a charter demotion: ${contradicted.sort().join(', ')}. The tables ` +
+        'contradict each other — either the flip was overtaken by a new reader, in which case ' +
+        'the demotion is false and must go, or the reader the witness cites was retired for the ' +
+        'flip, in which case the witness must go. Neither is decided here.',
+    );
+  }
+  if (deadCoverWitnesses.length > 0) {
+    throw new Error(
+      `deriveEventAuthority: ${deadCoverWitnesses.length} governance witness(es) cover a type ` +
+        `whose tier already derives governance: ${deadCoverWitnesses.sort().join(', ')}. The ` +
+        'declaration changes no answer, so nothing can check it — delete it, or re-tier the ' +
+        'event if the tier is wrong.',
+    );
+  }
+  if (deadCoverDemotions.length > 0) {
+    throw new Error(
+      `deriveEventAuthority: ${deadCoverDemotions.length} charter demotion(s) cover a type ` +
+        `whose tier already derives telemetry: ${deadCoverDemotions.sort().join(', ')}. The ` +
+        'row changes no answer, so nothing can check it — delete it; a type that is telemetry ' +
+        'by tier needs no charter act to stay so.',
     );
   }
 

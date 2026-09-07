@@ -56,6 +56,12 @@
 // Entries are never ADDED to either map — an addition changes the seed key set, and the pinned
 // digest is what makes that a red build rather than a line a reviewer has to notice.
 //
+// One entry is NOT paid down that way. A type the event-authority charter has flipped to
+// telemetry (`src/events/partition/demotions.ts`; `stack.submitted`, by deleting its expectation
+// row) must not be re-tiered to an `auto` tier: the partition would file it governance again
+// with no witness, and its pinned charter backlog names that as a promotion against the charter.
+// The flip is that entry's paydown — nothing has to remember the append, because nothing checks.
+//
 // DR-20 records the Wave-5 exit condition — a floor of 2, `team.spawned` and `team.disbanded`,
 // which cannot be re-coupled until #1473 lands. That floor is an EXIT CONDITION, not this guard's
 // seed; the two were conflated in an earlier revision of the spec. The two entries carry

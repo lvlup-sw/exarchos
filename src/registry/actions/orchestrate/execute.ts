@@ -123,7 +123,11 @@ export const executeActions: readonly BuiltinToolAction[] = [
         'returns the persisted receipt without appending, so a per-dispatch ' +
         'append observation would refuse the replay path by construction',
     ),
-    needs: declared('fs:read', 'mcp:exarchos', 'shell:exec'),
+    // `fs:write` is the executor's OWN write, not a leaf's: the run's interior
+    // is put in the run-bundle store under the state directory before the
+    // operation record commits. A posture that denies filesystem writes must
+    // deny this action rather than admit an action that writes.
+    needs: declared('fs:read', 'fs:write', 'mcp:exarchos', 'shell:exec'),
     resources: declared(
       { kind: 'stream', selector: 'featureId' },
       // The compiled leaves address a path/worktree/git-ref triple through

@@ -7,7 +7,7 @@
  * alters the doctor contract, this file is the canary.
  *
  * What is pinned (the stable contract — NOT environment-dependent noise):
- *   1. The exact set of 15 checks returned as `CheckResult[]`, identified by
+ *   1. The exact set of checks returned as `CheckResult[]`, identified by
  *      their `(category, name)` pair and stable order. (DR-8 added
  *      `session-start-hook`; task 009 added `verification-toolchain`; Task 017
  *      added `onramp-block-drift` + `retired-hooks-present`.)
@@ -32,7 +32,7 @@
  * for presence / type / non-negativity.
  *
  * Invocation: production path via `handleDoctor` with the REAL `ALL_CHECKS`
- * and the REAL `buildProbes` factory — i.e. the genuine 11 checks run against
+ * and the REAL `buildProbes` factory — i.e. the genuine roster run against
  * this worktree as the fixture repo. The only injected double is the
  * EventStore (a spy `append` + a deterministic `runIntegrityCheck` so the
  * sqlite-health check has a stable backend to map), mirroring the existing
@@ -42,6 +42,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import type { IntegrityResult } from '../../../../src/events/store.js';
+import type { BundleIntegrityResult } from '../../../../src/events/bundle/integrity.js';
 import {
   DoctorOutputSchema,
   type CheckResult,
@@ -79,6 +80,11 @@ import { handleDoctor, ALL_CHECKS } from '../../../../src/verbs/doctor/index.js'
  * DELIBERATE PIN UPDATE (P05-04): `install-freshness` (category `plugin`) was
  * added in the plugin block, after `plugin-version-match`, as a CONSCIOUS act.
  * The count + `checkCount` invariants are updated 17 → 18.
+ *
+ * DELIBERATE PIN UPDATE: `run-bundle-integrity` (category `storage`) was added
+ * after `store-path-divergence` as a CONSCIOUS act — the run-bundle
+ * resolvability oracle's production caller. The count + `checkCount`
+ * invariants are updated 19 → 20.
  */
 const PINNED_CHECKS: ReadonlyArray<{
   category: CheckResult['category'];
@@ -88,6 +94,7 @@ const PINNED_CHECKS: ReadonlyArray<{
   { category: 'storage', name: 'state-dir' },
   { category: 'storage', name: 'storage-sqlite-health' },
   { category: 'storage', name: 'store-path-divergence' },
+  { category: 'storage', name: 'run-bundle-integrity' },
   { category: 'env', name: 'variables' },
   { category: 'vcs', name: 'git-available' },
   { category: 'agent', name: 'agent-config-valid' },
@@ -130,6 +137,10 @@ function fixtureContext(): {
         ok: 'skipped',
         reason: 'in-memory backend has no integrity pragma',
       }),
+      runBundleIntegrityCheck: async (): Promise<BundleIntegrityResult> => ({
+        ok: 'skipped',
+        reason: 'in-memory backend does not enumerate streams',
+      }),
     } as unknown as DispatchContext['eventStore'],
     enableTelemetry: false,
   };
@@ -163,12 +174,12 @@ describe('doctor characterization (DR-9 baseline)', () => {
     const output: DoctorOutput = DoctorOutputSchema.parse(result.data);
     const { checks, summary } = output;
 
-    // ── 1. The eighteen checks, pinned by (category, name) and order ──────
+    // ── 1. The checks, pinned by (category, name) and order ──────────────
     // (13 → 15 updated by Task 017: onramp-block-drift + retired-hooks-present;
     // 15 → 16 by Task 011: stale-skill-dirs; 16 → 17 by Task 019:
     // store-path-divergence; 17 → 18 by P05-04: install-freshness.)
-    expect(ALL_CHECKS).toHaveLength(19);
-    expect(checks).toHaveLength(19);
+    expect(ALL_CHECKS).toHaveLength(20);
+    expect(checks).toHaveLength(20);
 
     const observedIdentity = checks.map((c) => ({
       category: c.category,
@@ -178,7 +189,7 @@ describe('doctor characterization (DR-9 baseline)', () => {
 
     // The name set is exactly the pinned set (no dupes, no strays).
     const observedNames = new Set(checks.map((c) => c.name));
-    expect(observedNames.size).toBe(19);
+    expect(observedNames.size).toBe(20);
     for (const { name } of PINNED_CHECKS) {
       expect(observedNames.has(name)).toBe(true);
     }
@@ -248,7 +259,7 @@ describe('doctor characterization (DR-9 baseline)', () => {
 
     // Pinned cross-field invariants between the event and the doctor output.
     expect(payload.checkCount).toBe(checks.length);
-    expect(payload.checkCount).toBe(19);
+    expect(payload.checkCount).toBe(20);
     expect(payload.summary).toEqual(summary);
     expect(payload.failedCheckNames).toEqual(
       checks.filter((c) => c.status === 'Fail').map((c) => c.name),

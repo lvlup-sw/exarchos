@@ -1,6 +1,7 @@
 import {
   INTERNAL_ADMISSION_EVENT_TYPES,
   INTERNAL_CANCELLATION_EVENT_TYPES,
+  INTERNAL_EXECUTION_LEDGER_EVENT_TYPES,
   INTERNAL_VCS_LEDGER_EVENT_TYPES,
 } from '../events/schemas.js';
 import type { SupportedGateClass } from '../verbs/gates/gate-provider-registry.js';
@@ -117,6 +118,7 @@ export const RESERVED_EVENT_APPEND_REGISTRY: ReadonlyMap<
     ...INTERNAL_ADMISSION_EVENT_TYPES,
     ...INTERNAL_CANCELLATION_EVENT_TYPES,
     ...INTERNAL_VCS_LEDGER_EVENT_TYPES,
+    ...INTERNAL_EXECUTION_LEDGER_EVENT_TYPES,
   ].map((eventType) => [
     eventType,
     {

@@ -8,13 +8,26 @@
 // deliberately NOT claimed as test infrastructure: this is the shipped
 // classification, not gate machinery, and misfiling it would buy a permanent
 // exemption for a module that is supposed to become load-bearing.
+//
+// Two facts the first consumer has to carry, recorded here because no other
+// module holds them. (1) Telemetry is a FOLD fact, not a stream placement:
+// `subagent.tokens_used` and `stack.submitted` ride feature streams beside
+// governance rows, and the SubagentStop append keys its idempotency per stream,
+// so a retention policy that drops telemetry is a row filter, never a stream
+// drop. (2) The one in-tree reader that would become correctness-bearing with
+// no partition change is the telemetry middleware's argument-rewriting path
+// (`projections/telemetry/middleware.ts`, `autoCorrectionOptions`), dormant
+// today because every dispatcher call passes three arguments; the view-level
+// differential still owed over that middleware should name it.
 
 /**
  * The live governance/telemetry partition over the shipped event catalog.
  *
  * Built EAGERLY at module scope, the way `EVENT_EMISSION_REGISTRY` is, so a
  * population that cannot be partitioned fails at load rather than at whichever
- * consumer happens to ask first. The two sets are derived from the map by
+ * consumer happens to ask first — a witness or demotion that contradicts the
+ * other table, or names a type the catalog no longer has, is a load failure
+ * here, not a quiet winner. The two sets are derived from the map by
  * partition — neither is authored, so neither can drift from it.
  */
 
@@ -22,6 +35,7 @@ import { EventTypes, type EventType } from '../schemas.js';
 import { ANNOTATED_EVENTS } from '../event-annotations.js';
 import { EMISSION_SOURCE_BY_TIER, type EmissionSource } from '../event-registration.js';
 import { deriveEventAuthority, partitionByAuthority, type EventAuthority } from './authority.js';
+import { CHARTER_DEMOTIONS } from './demotions.js';
 import { GOVERNANCE_WITNESSES } from './witnesses.js';
 
 /**
@@ -38,6 +52,7 @@ const DERIVED: Record<string, EventAuthority> = deriveEventAuthority(
   EventTypes,
   tierEmissionSourceOf,
   GOVERNANCE_WITNESSES,
+  CHARTER_DEMOTIONS,
 );
 
 /**
