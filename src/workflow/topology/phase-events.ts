@@ -251,9 +251,11 @@ const LIVE_EMISSION_SOURCES: ReadonlyMap<string, string> = new Map(
  * the expectation could never be met; an `auto` one is emitted by the runtime,
  * so the model would be nagged for what it cannot do. Every `runtimeEmits` row
  * must be `auto`-sourced for the mirror reason. A type may appear once per
- * phase, and a row must declare something. The registry is injectable so each
- * throw path is provable with a seeded map rather than believed about the live
- * one.
+ * phase, a row must declare something, and a type expected by several phases
+ * carries one `when` — the gate's hint is one sentence per event, so two
+ * phrasings would leave one of them silently unused. The registry is
+ * injectable so each throw path is provable with a seeded map rather than
+ * believed about the live one.
  */
 export function assertPhaseEventContracts<T extends string>(
   contracts: PhaseEventContracts<T>,
@@ -310,6 +312,21 @@ export function assertPhaseEventContracts<T extends string>(
       }
     }
   }
+  const phrasing = new Map<string, { readonly phase: string; readonly when: string }>();
+  for (const [phase, contract] of Object.entries(contracts)) {
+    for (const row of contract.expects) {
+      const first = phrasing.get(row.type);
+      if (first === undefined) {
+        phrasing.set(row.type, { phase, when: row.when });
+      } else if (first.when !== row.when) {
+        throw new Error(
+          `PHASE_EVENT_CONTRACTS phrases '${row.type}' two ways — '${first.phase}' says ` +
+            `"${first.when}", '${phase}' says "${row.when}" — and the gate's hint is one sentence ` +
+            'per event. Share the row between the phases.',
+        );
+      }
+    }
+  }
 }
 
 assertPhaseEventContracts(PHASE_EVENT_CONTRACTS);
@@ -350,7 +367,11 @@ export function expectedEventsByPhase<T extends string>(
   );
 }
 
-/** The gate's hint for a missing event: the instruction, phrased from `when`. */
+/**
+ * The gate's hint for a missing event: the instruction, phrased from `when`.
+ * One sentence per event; `assertPhaseEventContracts` refuses a table that
+ * phrases one type two ways, so the first row seen is the only phrasing.
+ */
 export function hintDescriptions<T extends string>(
   contracts: PhaseEventContracts<T>,
 ): Readonly<Record<string, string>> {

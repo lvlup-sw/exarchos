@@ -7,7 +7,7 @@
     "testFiles": 1265,
     "parsedFiles": 1220,
     "shellFiles": 45,
-    "cases": 13928,
+    "cases": 13931,
     "dynamicTitles": 150,
     "unparseableFiles": 0
   },
@@ -77149,6 +77149,11 @@
         },
         {
           "suite": "the gate table projects the contract",
+          "name": "PhaseExpectedEvents_RowsThatPredateTheContract_AreUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "the gate table projects the contract",
           "name": "EventDescriptions_NameExactlyTheExpectedTypes",
           "dynamic": false
         },
@@ -77215,6 +77220,11 @@
         },
         {
           "suite": "assertPhaseEventContracts — seeded refusals",
+          "name": "Refuses_OneTypePhrasedTwoWaysAcrossPhases",
+          "dynamic": false
+        },
+        {
+          "suite": "assertPhaseEventContracts — seeded refusals",
           "name": "Refuses_APhaseNoBuiltInHsmRegisters",
           "dynamic": false
         },
@@ -77241,6 +77251,11 @@
         {
           "suite": "every expected event folds",
           "name": "PhaseEventContracts_EveryExpectedEvent_FoldsThroughTheReducerAndTheCanonicalProjection",
+          "dynamic": false
+        },
+        {
+          "suite": "every expected event folds",
+          "name": "PhaseEventContracts_EventsWhoseReducerArmsWereDeleted_FoldAsTheSameState",
           "dynamic": false
         }
       ]

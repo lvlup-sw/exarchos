@@ -13,7 +13,11 @@ import {
   runtimeEmissionsFor,
   type PhaseEventContractOf,
 } from '../../../../src/workflow/topology/phase-events.js';
-import { EVENT_DATA_SCHEMAS, EVENT_EMISSION_REGISTRY } from '../../../../src/events/schemas.js';
+import {
+  EVENT_DATA_SCHEMAS,
+  EVENT_EMISSION_REGISTRY,
+  type EventType,
+} from '../../../../src/events/schemas.js';
 import { buildEvent } from '../../../../src/events/event-factory.js';
 import { rehydrationReducer } from '../../../../src/projections/rehydration/reducer.js';
 import { workflowStateProjection } from '../../../../src/projections/views/workflow-state-projection.js';
@@ -122,6 +126,23 @@ describe('assertPhaseEventContracts — seeded refusals', () => {
     ).toThrow(/lists 'seeded\.model' twice/);
   });
 
+  it('Refuses_OneTypePhrasedTwoWaysAcrossPhases', () => {
+    // The gate's hint is one sentence per event, so a second phrasing would be
+    // silently dropped by `hintDescriptions` — refused at the authority instead.
+    const phrased = (second: string): Record<string, PhaseEventContractOf<string>> => ({
+      first: contract({ expects: [{ type: 'seeded.model', when: 'After the first thing' }] }),
+      second: contract({ expects: [{ type: 'seeded.model', when: second }] }),
+    });
+    expect(() =>
+      assertPhaseEventContracts(phrased('After the second thing'), SEEDED_REGISTRY),
+    ).toThrow(
+      /phrases 'seeded\.model' two ways — 'first' says "After the first thing", 'second' says "After the second thing"/,
+    );
+    expect(() =>
+      assertPhaseEventContracts(phrased('After the first thing'), SEEDED_REGISTRY),
+    ).not.toThrow();
+  });
+
   it('Refuses_APhaseNoBuiltInHsmRegisters', () => {
     expect(() =>
       assertContractPhasesAreRegistered(
@@ -197,5 +218,33 @@ describe('every expected event folds', () => {
     });
     expect(reducerState).toBeDefined();
     expect(viewState).toBeDefined();
+  });
+
+  it('PhaseEventContracts_EventsWhoseReducerArmsWereDeleted_FoldAsTheSameState', () => {
+    // The rehydration reducer used to carry a no-op `case` per team event and
+    // for `task.progressed`; they were deleted because the `default:` arm
+    // returns `state` unchanged. This pins that: the fold returns the very
+    // same object, not an equal copy — a reducer that starts reading one of
+    // these events changes this list on purpose, never by drift.
+    const FOLDED_BY_THE_DEFAULT_ARM: readonly EventType[] = [
+      'team.spawned',
+      'team.task.planned',
+      'team.teammate.dispatched',
+      'team.disbanded',
+      'task.progressed',
+    ];
+    const expected = new Set(
+      Object.values(PHASE_EVENT_CONTRACTS).flatMap((c) => c.expects.map((row) => row.type)),
+    );
+    expect(FOLDED_BY_THE_DEFAULT_ARM.filter((type) => !expected.has(type))).toEqual([]);
+    FOLDED_BY_THE_DEFAULT_ARM.forEach((type, index) => {
+      const event = buildEvent('feat-phase-events', index + 1, {
+        type,
+        data: sampleEventData(EVENT_DATA_SCHEMAS[type]) ?? {},
+        timestamp: '2026-01-01T00:00:00.000Z',
+      });
+      const before = rehydrationReducer.initial;
+      expect(rehydrationReducer.apply(before, event), type).toBe(before);
+    });
   });
 });
