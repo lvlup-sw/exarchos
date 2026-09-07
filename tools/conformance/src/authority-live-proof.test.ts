@@ -862,4 +862,60 @@ describe('authority census — the phase-events row, live', () => {
       }),
     ).toThrow(/exports no constant named PHASE_EXPECTED_EVENTS/);
   });
+
+  it('AuthorityCensus_PhaseEventsRow_ADerivedSiteNotComputedFromTheContractIsNamed', () => {
+    // "Not a literal" is not "bound": a conditional carrying a baked name, an
+    // unrelated helper, or the right projection imported from the wrong module
+    // each compute a value without reaching the contract. Each reads `opaque`
+    // and reopens the binding.
+    const sources = readPhaseEventsSources();
+    const measured = measurePhaseEvents(sources);
+    const [gateSite] = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.gate).sites;
+    const [playbookSite] = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.playbooks).sites;
+    expect(gateSite).toBeDefined();
+    expect(playbookSite).toBeDefined();
+    if (gateSite === undefined || playbookSite === undefined) return;
+
+    const conditionalGate = spliceSites(
+      sources.gate,
+      [gateSite],
+      () =>
+        "process.env['SEEDED'] === '1' ? { delegate: ['team.spawned'] } : " +
+        'expectedEventsByPhase(PHASE_EVENT_CONTRACTS)',
+    );
+    const seededGate = representation(
+      measurePhaseEvents({ ...sources, gate: conditionalGate }),
+      PHASE_EVENTS_REPRESENTATION_IDS.gate,
+    );
+    expect(seededGate.sites.filter((s) => s.kind === 'opaque').map((s) => s.subject)).toEqual([
+      gateSite.subject,
+    ]);
+    expect(seededGate.binding.kind).toBe('unbound');
+    expect(seededGate.binding.kind === 'unbound' ? seededGate.binding.why : '').toMatch(
+      /1 compute it through something the measurement does not recognise/,
+    );
+
+    const helperPlaybooks = spliceSites(sources.playbooks, [playbookSite], () => "seededRows('delegate')");
+    const seededHelper = measurePhaseEvents({ ...sources, playbooks: helperPlaybooks });
+    const helperRows = representation(seededHelper, PHASE_EVENTS_REPRESENTATION_IDS.playbooks);
+    expect(helperRows.sites.filter((s) => s.kind === 'opaque')).toHaveLength(1);
+    expect(helperRows.binding.kind).toBe('unbound');
+    expect(tuplesFor(runAuthorityCensus(liveTopology([seededHelper])), 'phase-events')).toContain(
+      `phase-events | binding | missing | ${PHASE_EVENTS_REPRESENTATION_IDS.playbooks}`,
+    );
+
+    const elsewhere = sources.playbooks.replace(
+      "from './topology/phase-events.js'",
+      "from './topology/phase-events-copy.js'",
+    );
+    expect(elsewhere).not.toBe(sources.playbooks);
+    const importedElsewhere = representation(
+      measurePhaseEvents({ ...sources, playbooks: elsewhere }),
+      PHASE_EVENTS_REPRESENTATION_IDS.playbooks,
+    );
+    // Every projection call is opaque now; only the serializer's copies of a row still bind.
+    expect(importedElsewhere.sites.filter((s) => s.kind === 'derived').length).toBeLessThan(4);
+    expect(importedElsewhere.sites.filter((s) => s.kind === 'opaque').length).toBeGreaterThan(60);
+    expect(importedElsewhere.binding.kind).toBe('unbound');
+  });
 });

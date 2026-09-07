@@ -136,7 +136,16 @@ export { REPO_ROOT };
  * else. There is no third "validated" value, because validation of the entries
  * present is not a binding over the population.
  */
-export type SiteBinding = 'literal' | 'derived';
+/**
+ * How a site holds its value. `literal` bakes the name. `derived` computes it
+ * through a projection of the authority. `opaque` computes it too, but through
+ * something the measurement does not recognise as a projection of the
+ * authority — a conditional, an unrelated helper, a projection imported from
+ * some other module — so it is neither baked nor bound. Only `derived` binds;
+ * a measurement that cannot tell a projection from any other expression would
+ * report a second declaration as bound the moment it stopped being a literal.
+ */
+export type SiteBinding = 'literal' | 'derived' | 'opaque';
 
 export interface MeasuredSite {
   /** Repo-relative, forward-slashed. */
@@ -247,14 +256,18 @@ export function bindingFor(
   how: string,
   why: string,
 ): MeasuredBinding {
-  const literals = sites.filter((s) => s.kind === 'literal');
-  if (literals.length === 0) return { kind: 'bound', boundTo, how };
+  const unbound = sites.filter((s) => s.kind !== 'derived');
+  if (unbound.length === 0) return { kind: 'bound', boundTo, how };
+  const literals = unbound.filter((s) => s.kind === 'literal').length;
+  const opaque = unbound.length - literals;
   return {
     kind: 'unbound',
     why:
-      `${why} Measured live: ${literals.length} of ${sites.length} site(s) bake the name as a ` +
-      `literal (${literals.map((s) => `${s.file}:${s.line} ${s.subject}`).slice(0, 4).join('; ')}` +
-      `${literals.length > 4 ? '; …' : ''}). A representation is bound only when EVERY site is ` +
+      `${why} Measured live: ${unbound.length} of ${sites.length} site(s) are not computed from ` +
+      `the authority — ${literals} bake the name as a literal, ${opaque} compute it through ` +
+      'something the measurement does not recognise as a projection of the authority ' +
+      `(${unbound.map((s) => `${s.file}:${s.line} ${s.subject} [${s.kind}]`).slice(0, 4).join('; ')}` +
+      `${unbound.length > 4 ? '; …' : ''}). A representation is bound only when EVERY site is ` +
       'computed from the authority — partial derivation is not a binding over the population.',
   };
 }
@@ -1037,8 +1050,80 @@ export const PHASE_EVENTS_REPRESENTATION_IDS: {
   prose: 'the skill passages that say what the gate checks',
 });
 
+/** The module every consumer must import the contract's projections from. */
+export const CONTRACT_MODULE_SUFFIX = 'topology/phase-events.js';
+
+/** The contract table itself: the one argument a gate projection may take. */
+export const CONTRACT_TABLE = 'PHASE_EVENT_CONTRACTS';
+
+/** Each gate table and the one contract projection that may compute it. */
+export const GATE_TABLE_PROJECTIONS: Readonly<Record<string, string>> = Object.freeze({
+  PHASE_EXPECTED_EVENTS: 'expectedEventsByPhase',
+  EVENT_DESCRIPTIONS: 'hintDescriptions',
+});
+
 /** The two gate tables that must be computed from the contract. */
-export const GATE_TABLES: readonly string[] = Object.freeze(['PHASE_EXPECTED_EVENTS', 'EVENT_DESCRIPTIONS']);
+export const GATE_TABLES: readonly string[] = Object.freeze(Object.keys(GATE_TABLE_PROJECTIONS));
+
+/** The contract projections a playbook row may call. */
+export const PLAYBOOK_PROJECTIONS: readonly string[] = Object.freeze([
+  'phaseEventInstructions',
+  'phaseRuntimeEmissions',
+]);
+
+/** The names `file` imports, by name, from a module whose specifier ends with `moduleSuffix`. */
+export function namedImportsFrom(source: string, file: string, moduleSuffix: string): ReadonlySet<string> {
+  const sourceFile = parseOrThrow(source, file, LABEL);
+  const names = new Set<string>();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
+    if (!statement.moduleSpecifier.text.endsWith(moduleSuffix)) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (bindings === undefined || !ts.isNamedImports(bindings)) continue;
+    for (const element of bindings.elements) names.add(element.name.text);
+  }
+  return names;
+}
+
+/** What a derived site must look like to count as computed from the authority. */
+export interface ProjectionShape {
+  /** Callees that are projections of the authority, as imported by the file under measurement. */
+  readonly projections: ReadonlySet<string>;
+  /** When set, the projection call's whole argument must be exactly this name. */
+  readonly argument?: string;
+  /**
+   * When set, an expression that reads this same-named property off some
+   * other value (`playbook.events.map(…)`) is a copy of a row already in the
+   * population, not a declaration, and binds with it.
+   */
+  readonly copiesProperty?: string;
+}
+
+/**
+ * Re-read a `derived` site against the shapes that actually reach the
+ * authority. `classifyInitializer` can only say "not a literal"; a conditional
+ * that carries a baked name, an unrelated helper, or a projection imported from
+ * anywhere but the authority's module is not a literal either, and would read as
+ * bound. Such a site becomes `opaque`, which `bindingFor` counts as unbound.
+ */
+export function bindThroughProjection(site: MeasuredSite, shape: ProjectionShape): MeasuredSite {
+  if (site.kind !== 'derived') return site;
+  const expression = site.expression.trim();
+  if (
+    shape.copiesProperty !== undefined &&
+    new RegExp(`^[A-Za-z_$][\\w$]*\\.${shape.copiesProperty}(?![\\w$])`).test(expression)
+  ) {
+    return site;
+  }
+  const call = /^([A-Za-z_$][\w$]*)\(([\s\S]*)\)$/.exec(expression);
+  const callee = call?.[1];
+  const argument = call?.[2]?.trim();
+  const bound =
+    callee !== undefined &&
+    shape.projections.has(callee) &&
+    (shape.argument === undefined || argument === shape.argument);
+  return bound ? site : { ...site, kind: 'opaque' };
+}
 
 /** Measure the phase-events boundary from source. */
 export function measurePhaseEvents(sources: PhaseEventsSources): MeasuredBoundary {
@@ -1053,15 +1138,33 @@ export function measurePhaseEvents(sources: PhaseEventsSources): MeasuredBoundar
         'names, and an empty set would make it vanish rather than be found unbound.',
     );
   }
-  const gateSites = measureExportedInitializers(sources.gate, PHASE_EVENTS_SOURCES.gate, GATE_TABLES);
-  const playbookSites = [
-    ...measurePropertyAssignments(sources.playbooks, PHASE_EVENTS_SOURCES.playbooks, 'events'),
-    ...measurePropertyAssignments(
-      sources.playbooks,
-      PHASE_EVENTS_SOURCES.playbooks,
-      'autoEmittedEvents',
+  // A derived site binds only through a projection the file imports from the
+  // contract module; the gate's projection must take the contract table itself.
+  const gateImports = namedImportsFrom(sources.gate, PHASE_EVENTS_SOURCES.gate, CONTRACT_MODULE_SUFFIX);
+  const gateSites = measureExportedInitializers(sources.gate, PHASE_EVENTS_SOURCES.gate, GATE_TABLES).map(
+    (site) =>
+      bindThroughProjection(site, {
+        projections: new Set(
+          [GATE_TABLE_PROJECTIONS[site.subject]].filter(
+            (name): name is string => name !== undefined && gateImports.has(name),
+          ),
+        ),
+        argument: gateImports.has(CONTRACT_TABLE) ? CONTRACT_TABLE : `${CONTRACT_TABLE} (not imported)`,
+      }),
+  );
+  const playbookImports = namedImportsFrom(
+    sources.playbooks,
+    PHASE_EVENTS_SOURCES.playbooks,
+    CONTRACT_MODULE_SUFFIX,
+  );
+  const playbookProjections: ReadonlySet<string> = new Set(
+    PLAYBOOK_PROJECTIONS.filter((name) => playbookImports.has(name)),
+  );
+  const playbookSites = ['events', 'autoEmittedEvents'].flatMap((property) =>
+    measurePropertyAssignments(sources.playbooks, PHASE_EVENTS_SOURCES.playbooks, property).map(
+      (site) => bindThroughProjection(site, { projections: playbookProjections, copiesProperty: property }),
     ),
-  ];
+  );
   const proseSites = measureProseEventMentions(sources.docs, contractEvents);
   const representations: MeasuredRepresentation[] = [
     {
@@ -1075,7 +1178,8 @@ export function measurePhaseEvents(sources: PhaseEventsSources): MeasuredBoundar
         gateSites,
         PHASE_EVENTS_REPRESENTATION_IDS.authority,
         'both tables are computed from the contract at load — `expectedEventsByPhase` and ' +
-          '`hintDescriptions` — and the gate module holds no phase or event literal of its own',
+          '`hintDescriptions`, each imported from the contract module and applied to the ' +
+          'contract table — and the gate module holds no phase or event literal of its own',
         'a gate table written as a literal is a second copy of the phase → event facts, which is ' +
           'the drift the contract exists to end.',
       ),
@@ -1086,8 +1190,9 @@ export function measurePhaseEvents(sources: PhaseEventsSources): MeasuredBoundar
       binding: bindingFor(
         playbookSites,
         PHASE_EVENTS_REPRESENTATION_IDS.authority,
-        'every playbook row is `phaseEventInstructions(phase)` or `phaseRuntimeEmissions(phase)` ' +
-          'over the contract; the per-phase arrays and the delegate metadata maps are gone',
+        'every playbook row is `phaseEventInstructions(phase)` or `phaseRuntimeEmissions(phase)`, ' +
+          'imported from the contract module (or the serializer copying such a row); the per-phase ' +
+          'arrays and the delegate metadata maps are gone',
         'a playbook row written as a literal instructs the model from a copy the gate does not ' +
           'check — four phases instructed runtime-owned events that way before the contract.',
       ),
