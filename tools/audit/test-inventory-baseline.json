@@ -1,13 +1,13 @@
 {
-  "capturedAt": "2026-09-02",
+  "capturedAt": "2026-09-07",
   "discovery": "extension-based over tracked files; not a runner glob",
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1264,
-    "parsedFiles": 1219,
+    "testFiles": 1265,
+    "parsedFiles": 1220,
     "shellFiles": 45,
-    "cases": 13918,
+    "cases": 13928,
     "dynamicTitles": 150,
     "unparseableFiles": 0
   },
@@ -4548,6 +4548,10 @@
     {
       "from": "docs/schemas/workflow-state.schema.json.test.sh",
       "to": "tests/scripts/schemas/workflow-state.schema.test.sh"
+    },
+    {
+      "from": "tests/unit/projections/rehydration/reducer.delegate-contract.test.ts",
+      "to": "tests/unit/workflow/topology/phase-events-derivations.test.ts"
     }
   ],
   "files": {
@@ -6496,6 +6500,11 @@
         {
           "suite": "SkillProse — the checked-by sentence names the gate row",
           "name": "SkillProse_SeededDisagreement_IsNamedInBothDirectionsAndOnAMissingLine",
+          "dynamic": false
+        },
+        {
+          "suite": "SkillProse — the checked-by sentence names the gate row",
+          "name": "SkillProse_SeededTableDisagreement_NamesTheRowAndTheEmitter",
           "dynamic": false
         }
       ]
@@ -35977,32 +35986,6 @@
         }
       ]
     },
-    "tests/unit/projections/rehydration/reducer.delegate-contract.test.ts": {
-      "file": "tests/unit/projections/rehydration/reducer.delegate-contract.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "delegate event contract — single source of truth (#1180, DIM-3)",
-          "name": "PHASE_EXPECTED_EVENTS_delegate_EqualsReducerRegisteredSet",
-          "dynamic": false
-        },
-        {
-          "suite": "delegate event contract — single source of truth (#1180, DIM-3)",
-          "name": "PHASE_EXPECTED_EVENTS_overhaulDelegate_EqualsReducerRegisteredSet",
-          "dynamic": false
-        },
-        {
-          "suite": "delegate event contract — single source of truth (#1180, DIM-3)",
-          "name": "Playbook_delegate_EventTypes_EqualReducerRegisteredSet",
-          "dynamic": false
-        },
-        {
-          "suite": "delegate event contract — single source of truth (#1180, DIM-3)",
-          "name": "Playbook_overhaulDelegate_EventTypes_EqualReducerRegisteredSet",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/projections/rehydration/reducer.test.ts": {
       "file": "tests/unit/projections/rehydration/reducer.test.ts",
       "runner": "vitest:root",
@@ -52268,17 +52251,22 @@
         },
         {
           "suite": "PHASE_EXPECTED_EVENTS",
-          "name": "EventDescriptions_LiveTables_DescribeExactlyTheExpectedPopulation",
+          "name": "EventDescriptions_AreTotalOverTheExpectedTypes",
           "dynamic": false
         },
         {
           "suite": "PHASE_EXPECTED_EVENTS",
-          "name": "EventDescriptions_RowNoPhaseExpects_IsNamedAtLoad",
+          "name": "CheckEventEmissions_DelegatePhase_IncludesTaskProgressed",
           "dynamic": false
         },
         {
           "suite": "PHASE_EXPECTED_EVENTS",
-          "name": "EventDescriptions_ExpectationWithoutARow_IsNamedAtLoad",
+          "name": "PhaseExpectedEvents_AllEntries_OnlyModelEmitted",
+          "dynamic": false
+        },
+        {
+          "suite": "PHASE_EXPECTED_EVENTS",
+          "name": "PhaseExpectedEvents_AutoEventListed_IsRefusedWhereTheContractLoads",
           "dynamic": false
         },
         {
@@ -52349,46 +52337,6 @@
         {
           "suite": "handleOrchestrate integration",
           "name": "HandleOrchestrate_CheckEventEmissions_HandlerExists",
-          "dynamic": false
-        },
-        {
-          "suite": "expectation-surface liveness",
-          "name": "ModelEmittedOnly_RetiredType_ThrowsInsteadOfFiltering",
-          "dynamic": false
-        },
-        {
-          "suite": "expectation-surface liveness",
-          "name": "ModelEmittedOnly_AutoType_IsFilteredSilently",
-          "dynamic": false
-        },
-        {
-          "suite": "expectation-surface liveness",
-          "name": "ModelEmittedOnly_UnregisteredType_Throws",
-          "dynamic": false
-        },
-        {
-          "suite": "expectation-surface liveness",
-          "name": "AssertExpectationsLive_EmptyPhaseRow_Throws",
-          "dynamic": false
-        },
-        {
-          "suite": "expectation-surface liveness",
-          "name": "AssertExpectationsLive_NonModelEntry_Throws",
-          "dynamic": false
-        },
-        {
-          "suite": "expectation-surface liveness",
-          "name": "AssertExpectationsLive_ModelEntries_Pass",
-          "dynamic": false
-        },
-        {
-          "suite": "expectation-surface liveness",
-          "name": "AssertDescriptionsLive_DemotedKey_Throws",
-          "dynamic": false
-        },
-        {
-          "suite": "expectation-surface liveness",
-          "name": "PhaseExpectedEvents_DerivedRows_AreNonEmpty",
           "dynamic": false
         }
       ]
@@ -72671,7 +72619,7 @@
         },
         {
           "suite": "EventInstruction fields property",
-          "name": "EventInstruction_GateExecuted_HasRequiredFields",
+          "name": "EventInstruction_GateExecuted_IsDisclosedAsRuntimeEmittedNeverInstructed",
           "dynamic": false
         },
         {
@@ -72701,7 +72649,7 @@
         },
         {
           "suite": "review.completed in review phase",
-          "name": "ReviewPlaybook_Events_IncludesReviewCompleted",
+          "name": "ReviewPlaybook_Events_DoNotInstructReviewCompleted",
           "dynamic": false
         },
         {
@@ -72807,11 +72755,6 @@
         {
           "suite": "T6: autoEmittedEvents sibling field (#1227)",
           "name": "PhaseEvents_NoOverlapWithAutoEmitted_DelegatePhase",
-          "dynamic": false
-        },
-        {
-          "suite": "T6: autoEmittedEvents sibling field (#1227)",
-          "name": "AutoEmittedEvents_SoTConsistency_ThrowsOnMissingMetadata",
           "dynamic": false
         },
         {
@@ -77195,6 +77138,113 @@
         }
       ]
     },
+    "tests/unit/workflow/topology/phase-events-derivations.test.ts": {
+      "file": "tests/unit/workflow/topology/phase-events-derivations.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the gate table projects the contract",
+          "name": "PhaseExpectedEvents_EveryPhase_EqualsTheContractInOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "the gate table projects the contract",
+          "name": "EventDescriptions_NameExactlyTheExpectedTypes",
+          "dynamic": false
+        },
+        {
+          "suite": "the playbooks project the contract",
+          "name": "Playbooks_EveryRegisteredPhase_InstructsExactlyTheContractsExpectations",
+          "dynamic": false
+        },
+        {
+          "suite": "the playbooks project the contract",
+          "name": "Playbooks_EveryRegisteredPhase_DisclosesExactlyTheContractsRuntimeEmissions",
+          "dynamic": false
+        },
+        {
+          "suite": "the playbooks project the contract",
+          "name": "Playbooks_NoPhase_InstructsTheModelToEmitARuntimeOwnedEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "the playbooks project the contract",
+          "name": "SerializedPlaybooks_CarryTheSameRowsAsTheRegisteredOnes",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/topology/phase-events.test.ts": {
+      "file": "tests/unit/workflow/topology/phase-events.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "PHASE_EVENT_CONTRACTS — the live table",
+          "name": "PhaseEventContracts_Live_PassEventAndPhaseRefusals",
+          "dynamic": false
+        },
+        {
+          "suite": "PHASE_EVENT_CONTRACTS — the live table",
+          "name": "PhaseEventContracts_Live_ExpectsOnlyModelEventsAndDisclosesOnlyAutoEvents",
+          "dynamic": false
+        },
+        {
+          "suite": "PHASE_EVENT_CONTRACTS — the live table",
+          "name": "PhaseEventContracts_Live_EveryKeyIsABuiltInHsmState",
+          "dynamic": false
+        },
+        {
+          "suite": "assertPhaseEventContracts — seeded refusals",
+          "name": "Refuses_ARowThatDeclaresNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "assertPhaseEventContracts — seeded refusals",
+          "name": "Refuses_AnExpectationOfAnAutoRetiredOrUnregisteredEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "assertPhaseEventContracts — seeded refusals",
+          "name": "Refuses_ADisclosureOfANonAutoEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "assertPhaseEventContracts — seeded refusals",
+          "name": "Refuses_ATypeListedTwiceInOnePhase",
+          "dynamic": false
+        },
+        {
+          "suite": "assertPhaseEventContracts — seeded refusals",
+          "name": "Refuses_APhaseNoBuiltInHsmRegisters",
+          "dynamic": false
+        },
+        {
+          "suite": "derivations",
+          "name": "ExpectedEventsByPhase_KeepsOrderAndDropsPhasesExpectingNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "derivations",
+          "name": "HintDescriptions_TotalOverExpectedTypesAndPhrasedFromWhen",
+          "dynamic": false
+        },
+        {
+          "suite": "derivations",
+          "name": "EventInstructionsFor_ReturnFreshCopies",
+          "dynamic": false
+        },
+        {
+          "suite": "derivations",
+          "name": "RuntimeEmissionsFor_DiscloseAutoRowsOrNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "every expected event folds",
+          "name": "PhaseEventContracts_EveryExpectedEvent_FoldsThroughTheReducerAndTheCanonicalProjection",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/workflow/transition-dry-run.test.ts": {
       "file": "tests/unit/workflow/transition-dry-run.test.ts",
       "runner": "vitest:root",
@@ -77527,6 +77577,16 @@
         {
           "suite": "authority census — the live proof fails closed",
           "name": "AuthorityLiveProof_EffectEventRow_NamesItsOracleModule",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — the phase-events row, live",
+          "name": "AuthorityCensus_PhaseEventsRow_DerivedSurfacesAreBoundAndProseIsNot",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — the phase-events row, live",
+          "name": "AuthorityCensus_PhaseEventsRow_ASeededBakedRowIsNamed",
           "dynamic": false
         }
       ]

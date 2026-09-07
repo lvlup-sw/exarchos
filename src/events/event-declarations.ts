@@ -104,7 +104,7 @@ export const EVENT_DECLARATION_AUTHORITY: AuthorityId = 'EVENT_EMISSION_REGISTRY
  *
  * Not an oversight and not a stub — it is the measured state of the `event-catalog` row. That row
  * carries one *authoritative* representation (the registry itself) and three *unbound* ones (the
- * `autoEmits` rows, `PHASE_EXPECTED_EVENTS`, and skill prose); it carries no `bound` one, because
+ * `autoEmits` rows, `PHASE_EVENT_CONTRACTS`, and skill prose); it carries no `bound` one, because
  * nothing regenerates any representation from the registry. `boundTo` MEANS mechanically bound,
  * so claiming any of them here would launder the DR-20 finding into a false binding. The census
  * that reports unbound representations reads the difference between the representation universe

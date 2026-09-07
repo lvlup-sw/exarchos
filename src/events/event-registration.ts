@@ -541,9 +541,9 @@ export const EMISSION_SOURCE_BY_TIER: Readonly<Record<EventTier, EmissionSource>
     //
     // `'auto'` was unvalidatable: no built-in event is owned by a user `ExarchosConfig.workflows`
     // definition, so on task 009's reading this tier had zero members and its value was a guess.
-    // The catalog does hold the coupling, one level down. `PHASE_EXPECTED_EVENTS`
-    // (`verbs/gates/check-event-emissions.ts`) is a live, mechanically-checked authority that
-    // maps model-emitted events to the workflow PHASE that owns them, and its own header states
+    // The catalog does hold the coupling, one level down. `PHASE_EVENT_CONTRACTS`
+    // (`workflow/topology/phase-events.ts`) is a live, mechanically-checked authority that
+    // maps model-emitted events to the workflow PHASE that owns them, and the gate's header states
     // why they stay model-emitted: "their transition site is a model-walked runbook step
     // bracketing a `native:` harness tool". A workflow definition's step composing the emission
     // IS what `source: 'model'` records, so `'model'` is the measured value.

@@ -1,5 +1,6 @@
 import type { Guard, GuardResult } from './guards.js';
 import { guards } from './guards.js';
+import { PHASE_EVENT_CONTRACTS, assertContractPhasesAreRegistered } from './topology/phase-events.js';
 import { resolveGateSetFailClosed, KIND_OBLIGATIONS } from './phase-kind.js';
 import type {
   PhaseKind,
@@ -173,6 +174,14 @@ const hsmRegistry: Record<string, HSMDefinition> = {
   oneshot: createOneshotHSM(),
   discovery: createDiscoveryHSM(),
 };
+
+// The phase event contract names phases by string; the names are authoritative
+// here, so a row for a phase no built-in HSM registers throws at this load
+// rather than sitting dead in the table.
+assertContractPhasesAreRegistered(
+  PHASE_EVENT_CONTRACTS,
+  new Set(Object.values(hsmRegistry).flatMap((hsm) => Object.keys(hsm.states))),
+);
 
 const initialPhaseRegistry: Record<string, string> = {
   // DR-4 (#1581): GATHER (`ideate`) collapsed into PLAN — feature workflows now

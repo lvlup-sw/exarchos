@@ -64,19 +64,20 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // PARTIAL BINDING IS NOT BINDING
 //
-// `PHASE_EXPECTED_EVENTS` is the trap this module exists to not fall into. Two
-// of its six entries genuinely derive (`modelEmittedOnly(getRegisteredEventTypes
-// (phase))`); the other four are hand-written literal arrays; and the loop that
-// runs at module load validates only that each event it LISTS is registered and
-// `model`-sourced. That loop can never see an event that should be listed and is
-// not — it is the `authority-to-representation` direction one level down, and
-// treating "a check exists" as a binding would repeat the defect the census
-// exists to report.
+// `PHASE_EXPECTED_EVENTS` was the trap this module exists to not fall into: two
+// of its six entries derived from a two-case switch in the reducer, four were
+// hand-written arrays, and the loop at module load validated only what the table
+// LISTED. It is now computed from `PHASE_EVENT_CONTRACTS`, which is where the
+// phase → event facts are DECLARED. The event-catalog row therefore measures the
+// contract's rows (each names its event as a literal — declared, validated at
+// load, never computed from the registry), and a separate `phase-events` row
+// measures whether the gate tables and the playbooks are computed from the
+// contract. Validation is still not a binding, and "a check exists" still does
+// not close a row.
 //
 // So {@link bindingFor} requires EVERY site to be derived. One literal site in a
-// population of six makes the representation `unbound`, and the co-located test
-// pins the 5-of-6 case specifically: deriving all but one entry must NOT close
-// the row.
+// population makes the representation `unbound`, and the co-located test pins
+// the all-but-one case specifically: deriving all but one row must NOT close it.
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // NON-EMPTY DENOMINATORS
@@ -381,6 +382,87 @@ export function measureObjectLiteralEntries(
 }
 
 /**
+ * Every declared event row in a source file: an object literal carrying both a
+ * `type` and a `when` property. The phase event contract declares its rows that
+ * way — inline under a phase, or as a module-scope constant shared by several
+ * phases — and each is one site, classified by how its `type` is written. A
+ * string literal is a baked name; anything else is computed. Zero rows throws.
+ * An object whose `when` is not a string literal is a projection of a row (the
+ * derivations copy rows that way), not a declared one, and is not counted.
+ */
+export function measureDeclaredEventRows(source: string, file: string): readonly MeasuredSite[] {
+  const sourceFile = parseOrThrow(source, file, LABEL);
+  const sites: MeasuredSite[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isObjectLiteralExpression(node)) {
+      const assignments = node.properties.filter((p): p is ts.PropertyAssignment =>
+        ts.isPropertyAssignment(p),
+      );
+      const type = assignments.find((p) => propertyName(p.name) === 'type');
+      const when = assignments.find((p) => propertyName(p.name) === 'when');
+      // A declared row states its `when` in prose. The derivations copy rows
+      // with `when: row.when`, which is a projection, not a declaration.
+      if (type !== undefined && when !== undefined && ts.isStringLiteralLike(when.initializer)) {
+        const init = type.initializer;
+        sites.push({
+          file,
+          line: lineOf(sourceFile, type),
+          kind: classifyInitializer(init),
+          subject: ts.isStringLiteralLike(init) ? init.text : init.getText(sourceFile),
+          expression: init.getText(sourceFile),
+          start: init.getStart(sourceFile),
+          end: init.getEnd(),
+        });
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+  return requireSites(sites, `declared event rows (\`type\` + \`when\`) in ${file}`);
+}
+
+/**
+ * One site per named exported constant: how its whole initializer is written.
+ * A call expression is a derivation; an object or array literal is a baked
+ * table. A name that is not exported from the file throws — the constant was
+ * renamed, and a measurement over the wrong name is the instrument dying green.
+ */
+export function measureExportedInitializers(
+  source: string,
+  file: string,
+  names: readonly string[],
+): readonly MeasuredSite[] {
+  const sourceFile = parseOrThrow(source, file, LABEL);
+  const sites: MeasuredSite[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && names.includes(node.name.text)) {
+      const init = unwrapObjectFreeze(node.initializer);
+      if (init !== undefined) {
+        sites.push({
+          file,
+          line: lineOf(sourceFile, node),
+          kind: classifyInitializer(init),
+          subject: node.name.text,
+          expression: init.getText(sourceFile),
+          start: init.getStart(sourceFile),
+          end: init.getEnd(),
+        });
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+  const missing = names.filter((name) => !sites.some((site) => site.subject === name));
+  if (missing.length > 0) {
+    throw new Error(
+      `${LABEL}: ${file} exports no constant named ${missing.join(', ')}. The table was renamed ` +
+        'or moved; refusing to report a measurement over a name that is not there.',
+    );
+  }
+  return sites;
+}
+
+/**
  * Keys of a named exported object literal whose value is an object declaring `lifecycle` and
  * `tier`, mapped to the emission source those two axes DERIVE.
  *
@@ -680,7 +762,7 @@ export const EVENT_CATALOG_SOURCES: {
   // ROW rather than whichever property currently carries it, so the next move
   // of the wrapper does not silently re-open this.
   emissions: 'src/registry/actions',
-  phaseExpectedEvents: 'src/verbs/gates/check-event-emissions.ts',
+  phaseExpectedEvents: 'src/workflow/topology/phase-events.ts',
   // The AUTHORED skills tree. `skills/<runtime>/` is generated from it, so
   // measuring both would count one representation several times.
   proseRoot: 'content',
@@ -778,7 +860,7 @@ export const EVENT_CATALOG_REPRESENTATION_IDS: {
 } = Object.freeze({
   authority: 'EVENT_EMISSION_REGISTRY (`events/schemas.ts`)',
   emissions: 'the registry emission rows',
-  phaseExpectedEvents: 'PHASE_EXPECTED_EVENTS (`verbs/gates/check-event-emissions.ts`)',
+  phaseExpectedEvents: 'the PHASE_EVENT_CONTRACTS rows (`workflow/topology/phase-events.ts`)',
   prose: 'skill prose naming events to emit',
 });
 
@@ -820,10 +902,9 @@ export function measureEventCatalog(sources: EventCatalogSources): EventCatalogM
     sources.emissions,
     EVENT_CATALOG_SOURCES.emissions,
   );
-  const phaseSites = measureObjectLiteralEntries(
+  const phaseSites = measureDeclaredEventRows(
     sources.phaseExpectedEvents,
     EVENT_CATALOG_SOURCES.phaseExpectedEvents,
-    'PHASE_EXPECTED_EVENTS',
   );
   const proseSites = measureProseEventMentions(sources.docs, modelEvents);
 
@@ -862,9 +943,12 @@ export function measureEventCatalog(sources: EventCatalogSources): EventCatalogM
       binding: bindingFor(
         phaseSites,
         'EVENT_EMISSION_REGISTRY',
-        'every phase entry is computed via `modelEmittedOnly(getRegisteredEventTypes(phase))`',
-        'the module-load loop VALIDATES that each event the table lists is registered and ' +
-          '`model`-sourced, but it can never see an event that should be listed and is not.',
+        'every contract row names its event through an expression computed from the registry',
+        'the contract DECLARES which phase expects which event — a workflow fact the registry ' +
+          'does not hold — so each row is validated against the registry at load (registered, ' +
+          '`model`-sourced for an expectation, `auto`-sourced for a disclosure), never computed ' +
+          'from it. The gate table and the playbooks are computed from the contract; that binding ' +
+          'is the `phase-events` boundary, measured separately.',
       ),
       sites: phaseSites,
     },
@@ -899,11 +983,161 @@ export function measureEventCatalog(sources: EventCatalogSources): EventCatalogM
       `${registeredEvents.size} event types (${modelEvents.size} \`model\`-sourced). ` +
       `${unbound.length} of ${present.length - 1} non-authoritative representations are unbound. ` +
       `emission rows: ${emissionSites.filter((s) => s.kind === 'literal').length}/` +
-      `${emissionSites.length} sites baked. \`PHASE_EXPECTED_EVENTS\`: ` +
-      `${phaseSites.filter((s) => s.kind === 'literal').length}/${phaseSites.length} entries baked ` +
-      `(the rest derive) — PARTIALLY bound, which is not bound. Skill prose: ${proseSites.length} ` +
+      `${emissionSites.length} sites baked. \`PHASE_EVENT_CONTRACTS\`: ` +
+      `${phaseSites.filter((s) => s.kind === 'literal').length}/${phaseSites.length} rows name ` +
+      `their event as a literal — declared and validated at load, not computed. Skill prose: ${proseSites.length} ` +
       'event names in Markdown, which has no expressions to derive them with.',
   };
+}
+
+// ─── The phase-events boundary, measured ─────────────────────────────────────
+//
+// `PHASE_EVENT_CONTRACTS` declares which model-emitted events a phase expects
+// and which the runtime emits on the model's behalf. Three representations used
+// to hold their own copy — the gate tables, the playbook rows, the skill prose —
+// and disagreed. This row measures whether each is COMPUTED from the contract:
+// the gate's two exported tables by their initializer, every playbook `events:`
+// and `autoEmittedEvents:` row by its initializer, and the prose by the only
+// thing Markdown can offer, which is a count of the contract's event names it
+// carries. The prose is compared to the contract by a test; nothing computes it.
+
+/** Every source the phase-events measurement reads, repo-relative. */
+export const PHASE_EVENTS_SOURCES: {
+  readonly contract: string;
+  readonly gate: string;
+  readonly playbooks: string;
+  readonly prose: readonly string[];
+} = Object.freeze({
+  contract: 'src/workflow/topology/phase-events.ts',
+  gate: 'src/verbs/gates/check-event-emissions.ts',
+  playbooks: 'src/workflow/playbooks.ts',
+  prose: Object.freeze([
+    'content/synthesis/skills/synthesize/SKILL.md',
+    'content/delivery/skills/delegate/SKILL.md',
+  ]),
+});
+
+export interface PhaseEventsSources {
+  readonly contract: string;
+  readonly gate: string;
+  readonly playbooks: string;
+  readonly docs: readonly SkillDoc[];
+}
+
+/** The representation ids the committed `phase-events` row uses. Matched exactly. */
+export const PHASE_EVENTS_REPRESENTATION_IDS: {
+  readonly authority: string;
+  readonly gate: string;
+  readonly playbooks: string;
+  readonly prose: string;
+} = Object.freeze({
+  authority: 'PHASE_EVENT_CONTRACTS (`workflow/topology/phase-events.ts`)',
+  gate: 'the gate tables `PHASE_EXPECTED_EVENTS` and `EVENT_DESCRIPTIONS` (`verbs/gates/check-event-emissions.ts`)',
+  playbooks: 'the playbook `events` and `autoEmittedEvents` rows (`workflow/playbooks.ts`)',
+  prose: 'the skill passages that say what the gate checks',
+});
+
+/** The two gate tables that must be computed from the contract. */
+export const GATE_TABLES: readonly string[] = Object.freeze(['PHASE_EXPECTED_EVENTS', 'EVENT_DESCRIPTIONS']);
+
+/** Measure the phase-events boundary from source. */
+export function measurePhaseEvents(sources: PhaseEventsSources): MeasuredBoundary {
+  const contractRows = measureDeclaredEventRows(sources.contract, PHASE_EVENTS_SOURCES.contract);
+  const contractEvents = new Set(
+    contractRows.filter((site) => site.kind === 'literal').map((site) => site.subject),
+  );
+  if (contractEvents.size === 0) {
+    throw new Error(
+      `${LABEL}: the phase event contract declares ${contractRows.length} row(s) but NONE names ` +
+        'its event as a literal. The prose representation is measured against the declared ' +
+        'names, and an empty set would make it vanish rather than be found unbound.',
+    );
+  }
+  const gateSites = measureExportedInitializers(sources.gate, PHASE_EVENTS_SOURCES.gate, GATE_TABLES);
+  const playbookSites = [
+    ...measurePropertyAssignments(sources.playbooks, PHASE_EVENTS_SOURCES.playbooks, 'events'),
+    ...measurePropertyAssignments(
+      sources.playbooks,
+      PHASE_EVENTS_SOURCES.playbooks,
+      'autoEmittedEvents',
+    ),
+  ];
+  const proseSites = measureProseEventMentions(sources.docs, contractEvents);
+  const representations: MeasuredRepresentation[] = [
+    {
+      id: PHASE_EVENTS_REPRESENTATION_IDS.authority,
+      binding: { kind: 'authoritative' },
+      sites: contractRows,
+    },
+    {
+      id: PHASE_EVENTS_REPRESENTATION_IDS.gate,
+      binding: bindingFor(
+        gateSites,
+        PHASE_EVENTS_REPRESENTATION_IDS.authority,
+        'both tables are computed from the contract at load — `expectedEventsByPhase` and ' +
+          '`hintDescriptions` — and the gate module holds no phase or event literal of its own',
+        'a gate table written as a literal is a second copy of the phase → event facts, which is ' +
+          'the drift the contract exists to end.',
+      ),
+      sites: gateSites,
+    },
+    {
+      id: PHASE_EVENTS_REPRESENTATION_IDS.playbooks,
+      binding: bindingFor(
+        playbookSites,
+        PHASE_EVENTS_REPRESENTATION_IDS.authority,
+        'every playbook row is `phaseEventInstructions(phase)` or `phaseRuntimeEmissions(phase)` ' +
+          'over the contract; the per-phase arrays and the delegate metadata maps are gone',
+        'a playbook row written as a literal instructs the model from a copy the gate does not ' +
+          'check — four phases instructed runtime-owned events that way before the contract.',
+      ),
+      sites: playbookSites,
+    },
+    {
+      id: PHASE_EVENTS_REPRESENTATION_IDS.prose,
+      binding: {
+        kind: 'unbound',
+        why:
+          'Markdown; the checked-by line and the delegate table are compared to the contract by ' +
+          '`tests/architecture/skill-prose-gate-row-agreement.test.ts`, so drift fails, but nothing ' +
+          'computes them — the renderer may not import `workflow/`. Measured live: ' +
+          `${proseSites.length} contract event name(s) written in prose across ` +
+          `${new Set(proseSites.map((s) => s.file)).size} document(s).`,
+      },
+      sites: proseSites,
+    },
+  ];
+  const present = representations.filter((r) => r.sites.length > 0);
+  return {
+    boundary: 'phase-events',
+    authority: { kind: 'single', authority: PHASE_EVENTS_REPRESENTATION_IDS.authority },
+    representations: present,
+    siteCount: present.reduce((total, r) => total + r.sites.length, 0),
+    measured:
+      `Measured LIVE from source by \`authority-live-proof.ts\`: the contract declares ` +
+      `${contractRows.length} event rows. Gate tables: ` +
+      `${gateSites.filter((s) => s.kind === 'derived').length}/${gateSites.length} initializers computed. ` +
+      `Playbook rows: ${playbookSites.filter((s) => s.kind === 'derived').length}/${playbookSites.length} ` +
+      `computed. Skill prose: ${proseSites.length} event names in Markdown, compared by test, not computed.`,
+  };
+}
+
+/** Read every phase-events source off disk. The only IO in the measurement. */
+export function readPhaseEventsSources(repoRoot: string = REPO_ROOT): PhaseEventsSources {
+  return {
+    contract: readOrThrow(repoRoot, PHASE_EVENTS_SOURCES.contract),
+    gate: readOrThrow(repoRoot, PHASE_EVENTS_SOURCES.gate),
+    playbooks: readOrThrow(repoRoot, PHASE_EVENTS_SOURCES.playbooks),
+    docs: PHASE_EVENTS_SOURCES.prose.map((file) => ({
+      file,
+      text: readOrThrow(repoRoot, file),
+    })),
+  };
+}
+
+/** {@link measurePhaseEvents} over the live tree. */
+export function measurePhaseEventsLive(repoRoot: string = REPO_ROOT): MeasuredBoundary {
+  return measurePhaseEvents(readPhaseEventsSources(repoRoot));
 }
 
 // ─── The effect-event boundary, measured ─────────────────────────────────────

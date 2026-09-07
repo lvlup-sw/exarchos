@@ -106,6 +106,7 @@ export const CONTRACT_BOUNDARIES: readonly [
   'cli-surface',
   'effect-event',
   'event-catalog',
+  'phase-events',
   'phase-sequencing',
   'response-shape',
   'sdk-generation',
@@ -115,6 +116,7 @@ export const CONTRACT_BOUNDARIES: readonly [
   'cli-surface',
   'effect-event',
   'event-catalog',
+  'phase-events',
   'phase-sequencing',
   'response-shape',
   'sdk-generation',
@@ -530,14 +532,11 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
             'emission row drifts from what it actually emits is invisible to any shipped check',
         ),
         unbound(
-          'PHASE_EXPECTED_EVENTS (`verbs/gates/check-event-emissions.ts`)',
-          'only PARTIALLY bound, and the partial part is the trap: 2 of its 6 phase entries ' +
-            '(`delegate`, `overhaul-delegate`) really are derived via ' +
-            '`modelEmittedOnly(getRegisteredEventTypes(phase))`, but the other 4 (`review`, ' +
-            '`overhaul-review`, `synthesize`, `overhaul-update-docs`) are hand-written literal arrays. ' +
-            'The module-load loop only VALIDATES that each listed event exists and is `model`-sourced ' +
-            '— it can never see an event that should be listed and is not. Validation of the entries ' +
-            'present is not a binding over the population',
+          'the PHASE_EVENT_CONTRACTS rows (`workflow/topology/phase-events.ts`)',
+          'the contract DECLARES which phase expects which event — a workflow fact the registry ' +
+            'does not hold — so every row is validated against the registry at load (registered, ' +
+            '`model`-sourced for an expectation, `auto`-sourced for a disclosure) and none is ' +
+            'computed from it. Validation of the rows present is not a binding over the population',
         ),
         unbound(
           'skill prose naming events to emit',
@@ -551,9 +550,58 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
       }),
       provenance: Object.freeze({ kind: 'derived', from: 'declaration-kinds' }),
       measured:
-        'Nominally single-authority; NOT bound. Verified 2026-08-07 by reading ' +
-        '`check-event-emissions.ts`: the compile-time loop at module load rejects a non-`model` event ' +
-        'but has no completeness tooth.',
+        'Nominally single-authority; NOT bound. Re-measured 2026-09-07: the gate table that used to ' +
+        'be half-derived is now computed from `PHASE_EVENT_CONTRACTS` (the `phase-events` row), and ' +
+        'the contract itself is where the phase → event facts are declared — validated against the ' +
+        'registry at load, never computed from it.',
+    }),
+
+    'phase-events': Object.freeze({
+      boundary: 'phase-events',
+      authority: Object.freeze({
+        kind: 'single',
+        authority: 'PHASE_EVENT_CONTRACTS (`workflow/topology/phase-events.ts`)',
+      }),
+      representations: Object.freeze([
+        authoritative('PHASE_EVENT_CONTRACTS (`workflow/topology/phase-events.ts`)'),
+        bound(
+          'the gate tables `PHASE_EXPECTED_EVENTS` and `EVENT_DESCRIPTIONS` (`verbs/gates/check-event-emissions.ts`)',
+          'PHASE_EVENT_CONTRACTS (`workflow/topology/phase-events.ts`)',
+          'both tables are computed from the contract at load — `expectedEventsByPhase` and ' +
+            '`hintDescriptions` — and the gate module holds no phase or event literal of its own',
+        ),
+        bound(
+          'the playbook `events` and `autoEmittedEvents` rows (`workflow/playbooks.ts`)',
+          'PHASE_EVENT_CONTRACTS (`workflow/topology/phase-events.ts`)',
+          'every playbook row is `phaseEventInstructions(phase)` or `phaseRuntimeEmissions(phase)` ' +
+            'over the contract; the per-phase arrays and the delegate metadata maps are gone',
+        ),
+        unbound(
+          'the skill passages that say what the gate checks',
+          'Markdown; the checked-by line and the delegate table are compared to the contract by ' +
+            '`tests/architecture/skill-prose-gate-row-agreement.test.ts`, so drift fails, but nothing ' +
+            'computes them — the renderer may not import `workflow/`',
+        ),
+      ]),
+      enforceFrom: Object.freeze({
+        kind: 'wave',
+        wave: 'wave-5',
+        driver:
+          'the prose representation is authored and only compared (the renderer may not import ' +
+          '`workflow/`), so the row cannot claim `already-enforced`; it enforces with the ' +
+          'event-catalog disposition. The derived surfaces are live-measured by `measurePhaseEvents` today',
+      }),
+      provenance: Object.freeze({
+        kind: 'declared',
+        whyNotDerivable:
+          'the representations are two derived tables, per-playbook rows and Markdown; no module ' +
+          'enumerates them as a domain to be total over.',
+      }),
+      measured:
+        'Measured 2026-09-07 at the slice that introduced the contract, replacing four copies that ' +
+        'disagreed (the review playbook instructed `review.completed`, which nothing emitted; four ' +
+        'playbooks instructed runtime-owned events). Gate tables 2/2 initializers computed, every ' +
+        'playbook row computed, prose authored and comparator-pinned. Open on prose only.',
     }),
 
     'effect-event': Object.freeze({
@@ -657,10 +705,11 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
       representations: Object.freeze([
         authoritative('the HSM phase topology / transition guard (INV-9)'),
         unbound(
-          'PHASE_EXPECTED_EVENTS (`verbs/gates/check-event-emissions.ts`)',
-          'typed `Readonly<Record<string, readonly EventType[]>>` — keyed by BARE STRING, with no ' +
-            'relationship to the HSM phase set. A phase renamed or retired in the HSM leaves a dead key ' +
-            'here that nothing reports. See the `measured` field: this contradicts the spec table',
+          'the PHASE_EVENT_CONTRACTS rows (`workflow/topology/phase-events.ts`)',
+          'keyed by BARE STRING. A key that names no built-in HSM state now throws when ' +
+            '`state-machine.ts` loads, so a renamed or retired phase can no longer leave a dead row — ' +
+            'but the keys are authored, not computed from the phase set, and a load-time check is ' +
+            'not a binding. See the `measured` field: this contradicts the spec table',
         ),
         unbound(
           'the phase playbooks',
@@ -676,14 +725,15 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
         kind: 'declared',
         whyNotDerivable:
           'There IS a phase set (`ALL_PHASES` in `registry.ts`), but it is `ReadonlySet<string>` and ' +
-          '`PHASE_EXPECTED_EVENTS` is keyed by bare `string` — no union exists to be total over, so no ' +
+          '`PHASE_EVENT_CONTRACTS` is keyed by bare `string` — no union exists to be total over, so no ' +
           'compile-time bridge can be hung on it. Reading `registry.ts` is additionally forbidden here ' +
           'by the DR-1 declaration-seam census (see the note above this table).',
       }),
       measured:
         'DISAGREES WITH THE SPEC TABLE. The spec records phase-sequencing as "already single-authority ' +
         'on the landing branch". The HSM guard is indeed the single AUTHORITY, but the row is NOT ' +
-        'closed: `PHASE_EXPECTED_EVENTS` is keyed by bare `string` and the playbooks are prose, so two ' +
+        'closed: `PHASE_EVENT_CONTRACTS` is keyed by bare `string` (a dead key throws at load since ' +
+        '2026-09-07, which is a check, not a binding) and the playbooks are prose, so two ' +
         'representations are unbound. Recorded as measured rather than as the spec asserts.',
     }),
 

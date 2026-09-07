@@ -6,7 +6,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { EventType } from '../../events/schemas.js';
-import { EVENT_DATA_SCHEMAS, EVENT_EMISSION_REGISTRY } from '../../events/schemas.js';
+import { EVENT_DATA_SCHEMAS } from '../../events/schemas.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { foldToTail } from '../../projections/fold-at-tail.js';
@@ -14,229 +14,47 @@ import { getOrCreateMaterializer } from '../../projections/views/tools.js';
 import { WORKFLOW_STATE_VIEW } from '../../projections/views/workflow-state-projection.js';
 import type { WorkflowStateView } from '../../projections/views/workflow-state-projection.js';
 import { requireGateEvent, sameOperationGateKey } from './gate-utils.js';
-import { getRegisteredEventTypes } from '../../projections/rehydration/reducer.js';
+import {
+  PHASE_EVENT_CONTRACTS,
+  expectedEventsByPhase,
+  hintDescriptions,
+} from '../../workflow/topology/phase-events.js';
 
-// ─── Phase-to-Expected-Events Registry ──────────────────────────────────────
+// ─── Phase-to-Expected-Events Table ─────────────────────────────────────────
 //
-// Source-of-truth for the delegate / overhaul-delegate phases is the
-// rehydration reducer (Fix 3 / #1180, DIM-3) — `getRegisteredEventTypes`
-// returns the canonical event set the reducer recognises for each phase,
-// and the playbook events list derives from the same accessor. Both
-// surfaces filter the SoT to model-emitted events here (auto-emitted
-// task.completed / task.failed are recognised by the reducer for state
-// folding but never appear in hints/playbook because the model never emits
-// them directly). Other phases continue to declare their expected-events
-// inline because the reducer does not yet model them.
-
-/**
- * Filter a SoT event-type list to only those whose emission source is `model`.
- * Throws on any input event name that isn't registered in EVENT_EMISSION_REGISTRY,
- * so a typo in the reducer's SoT registry can never silently disappear from the
- * derived phase-expected-events list (which would mask drift between SoT and
- * the registry — exactly the DIM-3 contract violation #1180 was filed against).
- *
- * A `retired` source also throws rather than filters. Filtering is for events
- * the runtime emits so the model is not nagged for them; a retired event is
- * emitted by NOBODY, so an expectation naming one is stale prose, and dropping
- * it silently is how a demotion empties an expectation list while every check
- * over that list stays green. Retiring the event and deleting its expectation
- * belong in the same change, and this throw is what couples them.
- *
- * The registry is injectable for the same reason the audits in `src/events`
- * take theirs as parameters: the throw paths must be provable with a seeded
- * registry, not just believed about the live one. It is a map because the
- * registry's key union does not carry a string index signature, and a cast
- * here would trade the type system away to avoid one `Object.entries`.
- */
-const LIVE_EMISSION_SOURCES: ReadonlyMap<string, string> = new Map(
-  Object.entries(EVENT_EMISSION_REGISTRY),
-);
-
-export function modelEmittedOnly(
-  types: readonly string[],
-  registry: ReadonlyMap<string, string> = LIVE_EMISSION_SOURCES,
-): readonly EventType[] {
-  const out: EventType[] = [];
-  for (const t of types) {
-    const source = registry.get(t);
-    if (source === undefined) {
-      throw new Error(
-        `modelEmittedOnly: '${t}' is not registered in EVENT_EMISSION_REGISTRY — ` +
-          `register it (or fix the typo at the SoT) so phase-expected-events stays consistent.`,
-      );
-    }
-    if (source === 'retired') {
-      throw new Error(
-        `modelEmittedOnly: '${t}' is retired and still expected — nobody emits a retired event, ` +
-          `so this expectation can never be met. Delete the expectation in the same change that ` +
-          `retires the event.`,
-      );
-    }
-    if (source === 'model') out.push(t as EventType);
-  }
-  return out;
-}
-
-// RC2 (#1395): `review.routed` was removed from every phase entry below — it is
-// now auto-emitted by handleReviewTriage (review/tools.ts), so the model is no
-// longer nagged for it. The surviving team.* / shepherd.* entries stay
-// model-emitted (Category C): their transition is a model-walked runbook step
-// bracketing a `native:` harness tool, so auto-emission needs a
-// runbook-executor seam (deferred to v2.11 / #1258). Re-adding an `'auto'`
-// event here will trip the compile-time assertion immediately below.
+// Both tables below are PROJECTIONS of the phase event contract
+// (`workflow/topology/phase-events.ts`): the phase → expected-events map and
+// the hint the gate returns for a missing one. Neither is authored here, so
+// neither can drift from the playbooks or from each other. The refusals that
+// used to fire at this load site — a non-model expectation, a retired one, an
+// empty row, a hint no expectation reaches — fire where the contract loads.
 //
-// `stack.submitted` left the synthesize row with the first event-authority
-// flip (the charter act on #1599, executing the #1876 decision): this table
-// was the ONLY thing that depended on it — the gate's complete/incomplete
-// verdict was a function of its presence — and the charter files the type as
-// telemetry. The model may still emit it as a record of the submission; the
-// gate no longer demands it, and nothing else decides anything from it. A row
-// here is a dependency, so re-adding one is a re-promotion and needs a
-// gate-expectation witness in the partition to say so.
-export const PHASE_EXPECTED_EVENTS: Readonly<Record<string, readonly EventType[]>> = {
-  'delegate': modelEmittedOnly(getRegisteredEventTypes('delegate')),
-  'overhaul-delegate': modelEmittedOnly(getRegisteredEventTypes('overhaul-delegate')),
-  'review': ['team.spawned', 'team.task.planned', 'team.teammate.dispatched', 'team.disbanded'],
-  'overhaul-review': ['team.spawned', 'team.task.planned', 'team.teammate.dispatched', 'team.disbanded'],
-  'synthesize': ['team.spawned', 'team.disbanded', 'shepherd.iteration'],
-  'overhaul-update-docs': ['team.spawned', 'team.disbanded'],
-};
+// A row here is a dependency: the gate's complete/incomplete verdict is a
+// function of every listed type's presence. That is why a type leaving
+// governance under the event-authority charter deletes its contract row in the
+// same commit, and why re-adding one is a re-promotion that needs a
+// gate-expectation witness in the partition.
+
+/** Phase → the model-emitted events the gate checks, in emission order. */
+export const PHASE_EXPECTED_EVENTS: Readonly<Record<string, readonly EventType[]>> =
+  expectedEventsByPhase(PHASE_EVENT_CONTRACTS);
+
+/** The hint returned for a missing expected event; total over every listed type. */
+export const EVENT_DESCRIPTIONS: Readonly<Record<string, string>> =
+  hintDescriptions(PHASE_EVENT_CONTRACTS);
 
 /**
- * Load-time assertions over an expectation table: every listed event is
- * model-emitted, and no phase's list is EMPTY. The emptiness arm exists
- * because the derived rows go through a filter — demote every event a phase
- * expects and the row silently becomes `[]`, after which the gate reads
- * "nothing expected" as "nothing missing" and reports complete over a hole.
- * An empty expectation row is a phase with no oracle, and that is a decision
- * to record by deleting the row, never a state to drift into.
- *
- * Exported with an injectable registry so both throw paths are provable with
- * seeded fixtures rather than trusted.
- */
-export function assertExpectationsLive(
-  expectations: Readonly<Record<string, readonly EventType[]>>,
-  registry: ReadonlyMap<string, string> = LIVE_EMISSION_SOURCES,
-): void {
-  for (const [phase, eventTypes] of Object.entries(expectations)) {
-    if (eventTypes.length === 0) {
-      throw new Error(
-        `PHASE_EXPECTED_EVENTS['${phase}'] is empty — a phase with no expected events has no ` +
-          `oracle, and the gate would report it complete unconditionally. Delete the row if the ` +
-          `phase genuinely expects nothing; do not leave an empty list.`,
-      );
-    }
-    for (const eventType of eventTypes) {
-      if (registry.get(eventType) !== 'model') {
-        throw new Error(
-          `PHASE_EXPECTED_EVENTS contains non-model event '${eventType}' (source: ${registry.get(eventType)})`,
-        );
-      }
-    }
-  }
-}
-
-assertExpectationsLive(PHASE_EXPECTED_EVENTS);
-
-// ─── Human-Readable Descriptions for Event Types ────────────────────────────
-
-/**
- * The hint the gate returns for a missing expected event. Every key is an
- * instruction to the model to emit the event, so the table and the expectation
- * rows describe ONE population — asserted in both directions at load, below.
- * Exported so the gate's tests can seed the assertion.
- */
-export const EVENT_DESCRIPTIONS: Readonly<Record<string, string>> = {
-  'task.assigned': 'Emit task.assigned via exarchos_event for each planned task, before prepare_delegation',
-  'team.spawned': 'Emit team.spawned via exarchos_event after creating the team',
-  'team.task.planned': 'Emit team.task.planned via exarchos_event for each planned task',
-  'team.teammate.dispatched': 'Emit team.teammate.dispatched via exarchos_event after dispatching subagents',
-  'team.disbanded': 'Emit team.disbanded via exarchos_event after all teammates complete',
-  // review.routed description removed in RC2 (#1395): now auto-emitted, never a
-  // model-emitted hint, so its description is dead. DIM-5 hygiene.
-  // stack.submitted description removed with the first event-authority flip:
-  // its expectation row went, so the hint had nothing left to describe.
-  'shepherd.iteration': 'Emit shepherd.iteration via exarchos_event after each shepherd loop iteration',
-  'task.progressed': 'Emit task.progressed via exarchos_event after each TDD phase transition (red/green/refactor)',
-};
-
-/**
- * Load-time assertion over the description table: every key names a
- * registered, model-emitted event. Each description is an instruction to the
- * model to emit the event, so a key whose event was demoted or retired is a
- * standing instruction to emit something the catalog says the model does not
- * emit — stale prose the registry's own checks cannot see, because nothing
- * else joins this table back to the catalog. Exported with an injectable
- * registry so the throw path is provable with a seeded fixture.
- */
-export function assertDescriptionsLive(
-  descriptions: Readonly<Record<string, string>>,
-  registry: ReadonlyMap<string, string> = LIVE_EMISSION_SOURCES,
-): void {
-  for (const eventType of Object.keys(descriptions)) {
-    const source = registry.get(eventType);
-    if (source !== 'model') {
-      throw new Error(
-        `EVENT_DESCRIPTIONS instructs the model to emit '${eventType}', whose emission source ` +
-          `is ${source === undefined ? 'unregistered' : `'${source}'`} — the model does not emit ` +
-          `it, so the instruction is stale. Delete the entry in the same change that moved the ` +
-          `event.`,
-      );
-    }
-  }
-}
-
-assertDescriptionsLive(EVENT_DESCRIPTIONS);
-
-/**
- * Load-time assertion that the two tables describe the SAME population, in
- * both directions. A description no expectation row reaches is a standing
- * instruction to emit something the gate never asks about — the stale prose a
- * flip is required to delete in the same commit as the row. An expectation no
- * description covers would have fallen through to a generic hint that reads as
- * complete while telling the model nothing; the delegate rows derive from the
- * reducer, so a type added there arrives here with no row unless this throws.
- * Exported with both tables injectable so each direction is provable from a
- * seeded pair rather than trusted.
- */
-export function assertDescriptionsCoverExpectations(
-  expectations: Readonly<Record<string, readonly EventType[]>>,
-  descriptions: Readonly<Record<string, string>>,
-): void {
-  const expected = new Set<string>(Object.values(expectations).flat());
-  const unreachable = Object.keys(descriptions)
-    .filter((eventType) => !expected.has(eventType))
-    .sort();
-  if (unreachable.length > 0) {
-    throw new Error(
-      `EVENT_DESCRIPTIONS instructs the model to emit ${unreachable.length} event(s) no phase ` +
-        `expects: ${unreachable.join(', ')}. The row outlived its expectation — delete it, or ` +
-        'restore the expectation it described.',
-    );
-  }
-  const undescribed = [...expected].filter((eventType) => descriptions[eventType] === undefined).sort();
-  if (undescribed.length > 0) {
-    throw new Error(
-      `PHASE_EXPECTED_EVENTS expects ${undescribed.length} event(s) EVENT_DESCRIPTIONS does not ` +
-        `describe: ${undescribed.join(', ')}. The gate would have nothing to say about a missing ` +
-        'one — add the row in the same change that added the expectation.',
-    );
-  }
-}
-
-assertDescriptionsCoverExpectations(PHASE_EXPECTED_EVENTS, EVENT_DESCRIPTIONS);
-
-/**
- * Total over every expected event, by the load-time assertion above. A miss
- * here means the tables changed after load; it is a bug, and it throws rather
- * than substituting a generic hint that would read as a complete answer.
+ * Total over every expected event, because both tables project the same
+ * contract rows. A miss here means the tables changed after load; it is a
+ * bug, and it throws rather than substituting a generic hint that would read
+ * as a complete answer.
  */
 function descriptionOf(eventType: EventType): string {
   const description = EVENT_DESCRIPTIONS[eventType];
   if (description === undefined) {
     throw new Error(
-      `EVENT_DESCRIPTIONS has no row for expected event '${eventType}' — a state ` +
-        'assertDescriptionsCoverExpectations refuses at load.',
+      `EVENT_DESCRIPTIONS has no row for expected event '${eventType}' — both tables derive ` +
+        'from PHASE_EVENT_CONTRACTS, so this cannot happen at load.',
     );
   }
   return description;

@@ -1,6 +1,5 @@
 import { getRequiredReviewsPrerequisite } from './review-contract.js';
-import { getRegisteredEventTypes } from '../projections/rehydration/reducer.js';
-import { EVENT_EMISSION_REGISTRY, type EventType } from '../events/schemas.js';
+import { phaseEventInstructions, phaseRuntimeEmissions } from './topology/phase-events.js';
 import { resolveVerificationPolicy } from './verification-policy-resolver.js';
 
 // ─── Verification-Ladder Gate Guidance (vls1-b1, task 008) ──────────────────
@@ -70,7 +69,7 @@ export interface PhasePlaybook {
    * Events the runtime emits on the model's behalf for this phase (#1227).
    * Phases without runtime-emitted events leave this undefined.
    */
-  readonly autoEmittedEvents?: readonly AutoEmittedEventInstruction[];
+  readonly autoEmittedEvents?: readonly AutoEmittedEventInstruction[] | undefined;
   readonly transitionCriteria: string;
   readonly guardPrerequisites: string;
   readonly validationScripts: readonly string[];
@@ -129,7 +128,7 @@ export function renderPlaybook(playbook: PhasePlaybook): string {
   // CodeRabbit major on PR #1297: render the autoEmittedEvents sibling
   // surface so the model knows which events the runtime fires on its
   // behalf. The `events:` line above is intentionally exclusive of these
-  // (delegatePhaseEvents filters source==='model'); rendering them on a
+  // (the contract keeps model-emitted and runtime-emitted rows apart); rendering them on a
   // separate line preserves that contract while making the auto-emit
   // surface visible to consumers reading the rendered guidance.
   if (playbook.autoEmittedEvents && playbook.autoEmittedEvents.length > 0) {
@@ -165,166 +164,14 @@ function terminalPlaybook(
     skill: 'none',
     skillRef: '',
     tools: [],
-    events: [],
+    events: phaseEventInstructions(phase),
+    autoEmittedEvents: phaseRuntimeEmissions(phase),
     transitionCriteria: 'Terminal state',
     guardPrerequisites: '',
     validationScripts: [],
     humanCheckpoint: false,
     compactGuidance: guidance,
   };
-}
-
-// ─── Delegate-Phase Event Contract (SoT, #1180, DIM-3) ───────────────────
-//
-// Per-event prose metadata (`when` + required `fields`) for every event in
-// the delegate-phase contract. The PHASE TYPES themselves come from
-// `getRegisteredEventTypes(...)` in the rehydration reducer — this map is a
-// LOOKUP keyed by event type, not an independent list. Adding an event to
-// the playbook without first adding it to the reducer's registry is caught
-// at module load by the assertion below: a SoT event with no metadata entry
-// throws so the playbook can never silently advertise a bare event type.
-//
-// Conversely, removing an event from the SoT silently drops its playbook
-// entry (the metadata entry simply becomes unused) — that direction is fine
-// because the SoT is the contract; orphaned metadata does no harm.
-
-const DELEGATE_PHASE_EVENT_METADATA: Readonly<
-  Record<string, Pick<EventInstruction, 'when' | 'fields'>>
-> = {
-  'task.assigned': {
-    when: 'On dispatch of each task',
-    fields: ['taskId', 'title', 'worktree'],
-  },
-  'task.completed': {
-    when: 'On task completion (typically via exarchos_orchestrate task_complete)',
-    fields: ['taskId'],
-  },
-  'task.failed': {
-    when: 'On task failure (typically via exarchos_orchestrate task_fail)',
-    fields: ['taskId'],
-  },
-  'team.spawned': {
-    when: 'After team creation',
-    fields: ['teamSize', 'teammateNames', 'taskCount', 'dispatchMode'],
-  },
-  'team.task.planned': {
-    when: 'For each task planned for the team',
-  },
-  'team.teammate.dispatched': {
-    when: 'After each agent spawn',
-  },
-  'team.disbanded': {
-    when: 'After all tasks collected',
-    fields: ['totalDurationMs', 'tasksCompleted', 'tasksFailed'],
-  },
-  'task.progressed': {
-    when: 'After each TDD phase transition (red/green/refactor)',
-  },
-};
-
-/**
- * Derive a phase's `events` list from the SoT — the rehydration reducer's
- * registered event types (#1180, DIM-3) — filtered to model-emitted events.
- *
- * Auto-emitted events (e.g. `task.completed` / `task.failed`, fired by the
- * `task_complete` / `task_fail` orchestrate handlers) are recognised by the
- * reducer for state folding but never appear in the playbook because the
- * model never emits them directly — listing them would mislead the agent
- * into manually appending duplicates of events the runtime already emits.
- *
- * Metadata (`when`, `fields`) is looked up from
- * {@link DELEGATE_PHASE_EVENT_METADATA}; any SoT event missing a metadata
- * entry throws so the playbook cannot ship a bare event with no
- * human-readable guidance.
- */
-function delegatePhaseEvents(phase: 'delegate' | 'overhaul-delegate'): readonly EventInstruction[] {
-  return getRegisteredEventTypes(phase)
-    .filter((type) => {
-      const source = EVENT_EMISSION_REGISTRY[type as EventType];
-      if (source === undefined) {
-        throw new Error(
-          `playbooks: SoT event '${type}' (phase '${phase}') is not registered in EVENT_EMISSION_REGISTRY. ` +
-            `Register it (or fix the typo at the SoT) so phase-expected-events stays consistent.`,
-        );
-      }
-      return source === 'model';
-    })
-    .map((type) => {
-      const meta = DELEGATE_PHASE_EVENT_METADATA[type];
-      if (!meta) {
-        throw new Error(
-          `playbooks: missing DELEGATE_PHASE_EVENT_METADATA entry for SoT event '${type}' (phase '${phase}'). ` +
-            `Add the event to DELEGATE_PHASE_EVENT_METADATA in workflow/playbooks.ts.`,
-        );
-      }
-      return { type, ...meta };
-    });
-}
-
-// ─── Delegate-Phase Auto-Emitted Event Contract (#1227, T6) ──────────────────
-//
-// Sibling to {@link DELEGATE_PHASE_EVENT_METADATA} — surfaces events the
-// runtime emits on the model's behalf (e.g. `task.completed` / `task.failed`
-// fired by the `task_complete` / `task_fail` orchestrate handlers). The
-// `events` array deliberately excludes these to avoid inviting duplicate
-// emissions; this map exists so downstream surfaces (telemetry, docs, agent
-// context) can still discover them as part of the phase contract.
-//
-// Same SoT discipline as the model-event side: any auto-source event in
-// `getRegisteredEventTypes(phase)` without a metadata entry here throws at
-// module load.
-
-const DELEGATE_PHASE_AUTO_EVENT_METADATA: Readonly<
-  Record<string, Pick<AutoEmittedEventInstruction, 'when' | 'fields' | 'emittedBy'>>
-> = {
-  'task.completed': {
-    when: 'After task_complete orchestrate action succeeds',
-    fields: ['taskId', 'evidence', 'verified', 'files', 'implements'],
-    emittedBy: 'exarchos_orchestrate task_complete',
-  },
-  'task.failed': {
-    when: 'After task_fail orchestrate action',
-    fields: ['taskId', 'error', 'diagnostics'],
-    emittedBy: 'exarchos_orchestrate task_fail',
-  },
-};
-
-/**
- * Sibling to {@link delegatePhaseEvents} — derives the auto-emitted event
- * surface for a delegate phase from the SoT registry, filtered to events
- * with `source === 'auto'`. Throws if a SoT auto event has no metadata
- * entry in {@link DELEGATE_PHASE_AUTO_EVENT_METADATA}.
- */
-function delegateAutoEmittedEvents(
-  phase: 'delegate' | 'overhaul-delegate',
-): readonly AutoEmittedEventInstruction[] {
-  return getRegisteredEventTypes(phase)
-    .filter((type) => {
-      // CodeRabbit major on PR #1297 (playbooks.ts:257-264): mirror
-      // the fail-fast behavior of `delegatePhaseEvents`. Treating
-      // `EVENT_EMISSION_REGISTRY[type] === undefined` as a non-match
-      // silently drops misregistered types from the auto-emit surface.
-      // Throwing surfaces the misregistration at module load —
-      // symmetric defense across both event sources.
-      const source = EVENT_EMISSION_REGISTRY[type as EventType];
-      if (source === undefined) {
-        throw new Error(
-          `playbooks: SoT event '${type}' (phase '${phase}') is not registered in EVENT_EMISSION_REGISTRY. ` +
-            `Register it (or fix the typo at the SoT) so phase-auto-emitted-events stays consistent.`,
-        );
-      }
-      return source === 'auto';
-    })
-    .map((type) => {
-      const meta = DELEGATE_PHASE_AUTO_EVENT_METADATA[type];
-      if (!meta) {
-        throw new Error(
-          `playbooks: missing DELEGATE_PHASE_AUTO_EVENT_METADATA entry for SoT auto-emitted event '${type}' (phase '${phase}'). ` +
-            `Add the event to DELEGATE_PHASE_AUTO_EVENT_METADATA in workflow/playbooks.ts.`,
-        );
-      }
-      return { type, source: 'auto' as const, ...meta };
-    });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -347,7 +194,8 @@ register({
       purpose: 'Record plan artifact and task breakdown',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('plan'),
+  autoEmittedEvents: phaseRuntimeEmissions('plan'),
   transitionCriteria: 'Unified spec decomposed → plan-review',
   guardPrerequisites: 'artifacts.plan exists',
   validationScripts: [],
@@ -368,7 +216,8 @@ register({
       purpose: 'Record review decision',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('plan-review'),
+  autoEmittedEvents: phaseRuntimeEmissions('plan-review'),
   transitionCriteria: 'Plan approved → delegate | Gaps found (under cap) → plan | Gaps found (cap reached) → blocked',
   guardPrerequisites: 'Plan review complete',
   validationScripts: [],
@@ -410,17 +259,13 @@ register({
       purpose: 'Mark individual task complete',
     },
   ],
-  // Events derived from the rehydration reducer's SoT registry
-  // (#1180, DIM-3) — see `delegatePhaseEvents`. `gate.executed` was
-  // previously listed here but is auto-emitted by the telemetry
-  // middleware and explicitly excluded from the model-event contract.
-  events: delegatePhaseEvents('delegate'),
+  events: phaseEventInstructions('delegate'),
+  autoEmittedEvents: phaseRuntimeEmissions('delegate'),
   // Auto-emitted events (#1227, T6) — `task.completed` / `task.failed`
   // fired by the `task_complete` / `task_fail` orchestrate handlers.
   // Sibling to `events` so downstream surfaces (telemetry, docs, agent
   // context) can discover them without inviting the model to manually
   // re-emit runtime-owned events.
-  autoEmittedEvents: delegateAutoEmittedEvents('delegate'),
   transitionCriteria: 'All tasks complete → review',
   guardPrerequisites:
     "tasks[].status = 'complete' for every task",
@@ -458,23 +303,8 @@ register({
       purpose: 'Reconstruct merge timeline from merge.preflight/executed/recovered events',
     },
   ],
-  events: [
-    {
-      type: 'merge.preflight',
-      when: 'After dispatch-guard suite runs (before merge attempt or abort)',
-      fields: ['taskId', 'sourceBranch', 'targetBranch', 'passed', 'ancestry', 'worktree', 'currentBranchProtection', 'drift', 'failureReasons'],
-    },
-    {
-      type: 'merge.executed',
-      when: 'After merge commit lands successfully on the target branch',
-      fields: ['taskId', 'sourceBranch', 'targetBranch', 'mergeSha', 'rollbackSha', 'strategy'],
-    },
-    {
-      type: 'merge.recovered',
-      when: 'When merge fails post-commit and the INV-14 recovery path runs (legacy merge.rollback is retired — read-tolerant, not emitted)',
-      fields: ['taskId', 'sourceBranch', 'targetBranch', 'recoveryPointSha', 'reason', 'recoveryError', 'recoveryErrorDetail'],
-    },
-  ],
+  events: phaseEventInstructions('merge-pending'),
+  autoEmittedEvents: phaseRuntimeEmissions('merge-pending'),
   transitionCriteria:
     'merge.executed → delegate (next worktree) | merge.recovered / merge.aborted → delegate (drop back, mergeOrchestrator terminal)',
   guardPrerequisites:
@@ -507,10 +337,8 @@ register({
       purpose: 'Emit gate.executed for review gates',
     },
   ],
-  events: [
-    { type: 'gate.executed', when: 'After each review gate runs', fields: ['gateName', 'layer', 'passed'] },
-    { type: 'review.completed', when: 'After each review stage completes', fields: ['stage', 'verdict', 'findingsCount', 'summary'] },
-  ],
+  events: phaseEventInstructions('review'),
+  autoEmittedEvents: phaseRuntimeEmissions('review'),
   transitionCriteria:
     'All reviews passed → synthesize | Any review failed → delegate',
   guardPrerequisites: getRequiredReviewsPrerequisite('feature'),
@@ -542,16 +370,8 @@ register({
       purpose: 'Emit gate.executed for pre-synthesis checks',
     },
   ],
-  events: [
-    {
-      type: 'gate.executed',
-      when: 'After pre-synthesis-check.sh and validate-pr-stack.sh',
-      fields: ['gateName', 'layer', 'passed'],
-    },
-    { type: 'shepherd.started', when: 'On first assess-stack invocation' },
-    { type: 'shepherd.approval_requested', when: 'When all checks pass and approval is needed' },
-    { type: 'shepherd.completed', when: 'When PR is merged or shepherd resolves' },
-  ],
+  events: phaseEventInstructions('synthesize'),
+  autoEmittedEvents: phaseRuntimeEmissions('synthesize'),
   transitionCriteria: 'PR created and enqueued → completed',
   guardPrerequisites: 'artifacts.pr exists',
   validationScripts: [
@@ -591,7 +411,8 @@ register({
       purpose: 'Record unblock decision',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('blocked'),
+  autoEmittedEvents: phaseRuntimeEmissions('blocked'),
   transitionCriteria: 'Human unblock → delegate',
   guardPrerequisites: 'Human decision',
   validationScripts: [],
@@ -616,7 +437,8 @@ register({
       purpose: 'Record triage findings and severity assessment',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('triage'),
+  autoEmittedEvents: phaseRuntimeEmissions('triage'),
   transitionCriteria: 'Triage complete → investigate',
   guardPrerequisites: 'triageComplete',
   validationScripts: [],
@@ -637,7 +459,8 @@ register({
       purpose: 'Record investigation findings and track selection',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('investigate'),
+  autoEmittedEvents: phaseRuntimeEmissions('investigate'),
   transitionCriteria:
     'Thorough track → rca | Hotfix track → hotfix-implement | Escalation → cancelled',
   guardPrerequisites:
@@ -660,7 +483,8 @@ register({
       purpose: 'Record RCA document and root cause analysis',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('rca'),
+  autoEmittedEvents: phaseRuntimeEmissions('rca'),
   transitionCriteria: 'RCA document complete → design',
   guardPrerequisites: 'rca document exists',
   validationScripts: [],
@@ -681,7 +505,8 @@ register({
       purpose: 'Record fix design decisions',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('design'),
+  autoEmittedEvents: phaseRuntimeEmissions('design'),
   transitionCriteria: 'Fix design complete → debug-implement',
   guardPrerequisites: 'fixDesign document exists',
   validationScripts: [],
@@ -702,7 +527,8 @@ register({
       purpose: 'Record implementation progress and completion',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('debug-implement'),
+  autoEmittedEvents: phaseRuntimeEmissions('debug-implement'),
   transitionCriteria: 'Implementation complete → debug-validate',
   guardPrerequisites: 'implementationComplete',
   validationScripts: [],
@@ -723,7 +549,8 @@ register({
       purpose: 'Record validation results',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('debug-validate'),
+  autoEmittedEvents: phaseRuntimeEmissions('debug-validate'),
   transitionCriteria: 'Validation passed → debug-review',
   guardPrerequisites: 'validationPassed',
   validationScripts: [],
@@ -744,7 +571,8 @@ register({
       purpose: 'Record review results',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('debug-review'),
+  autoEmittedEvents: phaseRuntimeEmissions('debug-review'),
   transitionCriteria: 'Review passed → synthesize',
   guardPrerequisites: 'reviewPassed',
   validationScripts: [],
@@ -765,7 +593,8 @@ register({
       purpose: 'Record hotfix implementation progress',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('hotfix-implement'),
+  autoEmittedEvents: phaseRuntimeEmissions('hotfix-implement'),
   transitionCriteria: 'Implementation complete → hotfix-validate',
   guardPrerequisites: 'implementationComplete',
   validationScripts: [],
@@ -786,7 +615,8 @@ register({
       purpose: 'Record validation results and PR decision',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('hotfix-validate'),
+  autoEmittedEvents: phaseRuntimeEmissions('hotfix-validate'),
   transitionCriteria:
     'Validation passed + PR requested → synthesize | Validation passed → completed',
   guardPrerequisites: 'validationPassed',
@@ -818,13 +648,8 @@ register({
       purpose: 'Emit gate.executed for synthesis checks',
     },
   ],
-  events: [
-    {
-      type: 'gate.executed',
-      when: 'After synthesis validation scripts',
-      fields: ['gateName', 'layer', 'passed'],
-    },
-  ],
+  events: phaseEventInstructions('synthesize'),
+  autoEmittedEvents: phaseRuntimeEmissions('synthesize'),
   transitionCriteria: 'PR URL exists → completed',
   guardPrerequisites: 'artifacts.pr exists',
   validationScripts: [],
@@ -861,7 +686,8 @@ register({
       purpose: 'Record unblock decision',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('blocked'),
+  autoEmittedEvents: phaseRuntimeEmissions('blocked'),
   transitionCriteria: 'Human unblock → previous phase',
   guardPrerequisites: 'Human decision',
   validationScripts: [],
@@ -886,7 +712,8 @@ register({
       purpose: 'Record scope assessment and exploration findings',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('explore'),
+  autoEmittedEvents: phaseRuntimeEmissions('explore'),
   transitionCriteria: 'Scope assessment complete → brief',
   guardPrerequisites: 'scopeAssessmentComplete',
   validationScripts: [],
@@ -907,7 +734,8 @@ register({
       purpose: 'Record refactoring brief and track selection',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('brief'),
+  autoEmittedEvents: phaseRuntimeEmissions('brief'),
   transitionCriteria:
     'Polish track → polish-implement | Overhaul track → overhaul-plan',
   guardPrerequisites: 'polishTrackSelected OR overhaulTrackSelected',
@@ -929,7 +757,8 @@ register({
       purpose: 'Record implementation progress and completion',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('polish-implement'),
+  autoEmittedEvents: phaseRuntimeEmissions('polish-implement'),
   transitionCriteria: 'Implementation complete → polish-validate',
   guardPrerequisites: 'implementationComplete',
   validationScripts: [],
@@ -950,7 +779,8 @@ register({
       purpose: 'Record validation results',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('polish-validate'),
+  autoEmittedEvents: phaseRuntimeEmissions('polish-validate'),
   transitionCriteria: 'Goals verified → polish-update-docs',
   guardPrerequisites: 'goalsVerified',
   validationScripts: [],
@@ -971,7 +801,8 @@ register({
       purpose: 'Record docs update status',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('polish-update-docs'),
+  autoEmittedEvents: phaseRuntimeEmissions('polish-update-docs'),
   transitionCriteria: 'Docs updated → completed',
   guardPrerequisites: 'docsUpdated',
   validationScripts: [],
@@ -992,7 +823,8 @@ register({
       purpose: 'Record plan artifact and task breakdown',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('overhaul-plan'),
+  autoEmittedEvents: phaseRuntimeEmissions('overhaul-plan'),
   transitionCriteria: 'Plan artifact exists → overhaul-plan-review',
   guardPrerequisites: 'planArtifactExists',
   validationScripts: [],
@@ -1013,7 +845,8 @@ register({
       purpose: 'Record review decision',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('overhaul-plan-review'),
+  autoEmittedEvents: phaseRuntimeEmissions('overhaul-plan-review'),
   transitionCriteria: 'Plan approved → overhaul-delegate | Gaps found → overhaul-plan | Revisions exhausted → blocked',
   guardPrerequisites: 'Plan review complete',
   validationScripts: [],
@@ -1049,11 +882,8 @@ register({
       purpose: 'Mark individual task complete',
     },
   ],
-  // Events derived from the rehydration reducer's SoT registry
-  // (#1180, DIM-3) — see `delegatePhaseEvents`.
-  events: delegatePhaseEvents('overhaul-delegate'),
-  // Auto-emitted events (#1227, T6) — see `delegateAutoEmittedEvents`.
-  autoEmittedEvents: delegateAutoEmittedEvents('overhaul-delegate'),
+  events: phaseEventInstructions('overhaul-delegate'),
+  autoEmittedEvents: phaseRuntimeEmissions('overhaul-delegate'),
   transitionCriteria: 'All tasks complete → overhaul-review',
   guardPrerequisites: 'allTasksComplete',
   validationScripts: [],
@@ -1084,9 +914,8 @@ register({
       purpose: 'Emit gate.executed for review gates',
     },
   ],
-  events: [
-    { type: 'gate.executed', when: 'After each review gate runs', fields: ['gateName', 'layer', 'passed'] },
-  ],
+  events: phaseEventInstructions('overhaul-review'),
+  autoEmittedEvents: phaseRuntimeEmissions('overhaul-review'),
   transitionCriteria:
     'All reviews passed → overhaul-update-docs | Any review failed → overhaul-delegate',
   guardPrerequisites: 'allReviewsPassed',
@@ -1108,7 +937,8 @@ register({
       purpose: 'Record docs update status',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('overhaul-update-docs'),
+  autoEmittedEvents: phaseRuntimeEmissions('overhaul-update-docs'),
   transitionCriteria: 'Docs updated → synthesize',
   guardPrerequisites: 'docsUpdated',
   validationScripts: [],
@@ -1139,13 +969,8 @@ register({
       purpose: 'Emit gate.executed for synthesis checks',
     },
   ],
-  events: [
-    {
-      type: 'gate.executed',
-      when: 'After synthesis validation scripts',
-      fields: ['gateName', 'layer', 'passed'],
-    },
-  ],
+  events: phaseEventInstructions('synthesize'),
+  autoEmittedEvents: phaseRuntimeEmissions('synthesize'),
   transitionCriteria: 'PR URL exists → completed',
   guardPrerequisites: 'artifacts.pr exists',
   validationScripts: [
@@ -1185,7 +1010,8 @@ register({
       purpose: 'Record unblock decision',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('blocked'),
+  autoEmittedEvents: phaseRuntimeEmissions('blocked'),
   transitionCriteria: 'Human unblock → previous phase',
   guardPrerequisites: 'Human decision',
   validationScripts: [],
@@ -1228,7 +1054,8 @@ export const oneshotPlaybook: readonly PhasePlaybook[] = [
         purpose: 'Persist the one-page plan to state.artifacts.plan (required by the oneshot-plan-set guard); oneshot.planSummary is an optional pipeline-view label',
       },
     ],
-    events: [],
+    events: phaseEventInstructions('plan'),
+    autoEmittedEvents: phaseRuntimeEmissions('plan'),
     transitionCriteria: 'Plan ready → implementing',
     guardPrerequisites:
       "state.artifacts.plan set — a one-page plan captured before implementation. oneshot.planSummary is a pipeline-view hint, not a substitute.",
@@ -1255,12 +1082,8 @@ export const oneshotPlaybook: readonly PhasePlaybook[] = [
           'Optionally append synthesize.requested to opt into PR-based synthesis at runtime',
       },
     ],
-    events: [
-      {
-        type: 'synthesize.requested',
-        when: 'On opt-in to the synthesize path at the end of implementation',
-      },
-    ],
+    events: phaseEventInstructions('implementing'),
+    autoEmittedEvents: phaseRuntimeEmissions('implementing'),
     transitionCriteria:
       'synthesize opted in → synthesize | opted out → completed',
     guardPrerequisites:
@@ -1292,13 +1115,8 @@ export const oneshotPlaybook: readonly PhasePlaybook[] = [
         purpose: 'Emit gate.executed for pre-synthesis checks',
       },
     ],
-    events: [
-      {
-        type: 'gate.executed',
-        when: 'After pre-synthesis-check.sh runs',
-        fields: ['gateName', 'layer', 'passed'],
-      },
-    ],
+    events: phaseEventInstructions('synthesize'),
+    autoEmittedEvents: phaseRuntimeEmissions('synthesize'),
     transitionCriteria: 'PR merged → completed',
     guardPrerequisites:
       'artifacts.pr exists AND PR merge verified (merge.verified or shepherd.completed event)',
@@ -1334,7 +1152,8 @@ register({
       purpose: 'Record research sources and artifacts',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('gathering'),
+  autoEmittedEvents: phaseRuntimeEmissions('gathering'),
   transitionCriteria: 'Sources collected → synthesizing',
   guardPrerequisites: 'artifacts.sources is a non-empty array',
   validationScripts: [],
@@ -1355,7 +1174,8 @@ register({
       purpose: 'Record report artifact path',
     },
   ],
-  events: [],
+  events: phaseEventInstructions('synthesizing'),
+  autoEmittedEvents: phaseRuntimeEmissions('synthesizing'),
   transitionCriteria: 'Report artifact created → completed',
   guardPrerequisites: 'artifacts.report exists',
   validationScripts: [],
