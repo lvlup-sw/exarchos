@@ -1212,7 +1212,7 @@ describe('handleExecuteIntent run bundle', () => {
     const refs = refsOf(receipt);
     expect(refs).toHaveLength(1);
     const [ref] = refs;
-    if (ref === undefined) return;
+    if (ref === undefined) throw new Error('no reference');
     expect(ref.artifactId).toBe(executeIntentBundleArtifactId('op-bundle'));
     const committed = await operationEvents();
     expect(committed).toHaveLength(1);
