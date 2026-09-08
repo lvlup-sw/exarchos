@@ -29,6 +29,8 @@ import {
   createRefactorHSM,
 } from '../../../../src/workflow/hsm-definitions.js';
 import { sampleEventData } from '../../../../tools/test-helpers/event-payload-sample.js';
+import { guards } from '../../../../src/workflow/guards.js';
+import { oneshotPlaybook } from '../../../../src/workflow/playbooks.js';
 
 const LIVE_REGISTRY: ReadonlyMap<string, string> = new Map(Object.entries(EVENT_EMISSION_REGISTRY));
 
@@ -71,6 +73,45 @@ describe('PHASE_EVENT_CONTRACTS — the live table', () => {
     expect(Object.keys(PHASE_EVENT_CONTRACTS).filter((phase) => !BUILT_IN_PHASES.has(phase))).toEqual(
       [],
     );
+  });
+});
+
+describe('the disclosed producer is the door the model is sent through', () => {
+  // `synthesize.requested` is the one disclosure whose firing the model chooses.
+  // Three surfaces name the producer — the contract row, the playbook the model
+  // reads, and the remediation a blocked transition hands back — and they used
+  // to disagree: the playbook sent the model to a raw `exarchos_event append`
+  // while the guard and the skill named the orchestrate action whose handler
+  // appends it. One door, named once, or the disclosure is fiction.
+  const OPT_IN_ACTION = 'request_synthesize';
+
+  it('PhaseEventContracts_SynthesizeRequested_ContractPlaybookAndGuardNameOneProducer', () => {
+    // It is disclosed rather than expected because the catalog sources it
+    // `auto`; an `expects` row for it is refused at load.
+    expect(LIVE_REGISTRY.get('synthesize.requested')).toBe('auto');
+
+    const disclosed = PHASE_EVENT_CONTRACTS.implementing?.runtimeEmits.find(
+      (row) => row.type === 'synthesize.requested',
+    );
+    expect(disclosed?.emittedBy).toContain(OPT_IN_ACTION);
+
+    const implementing = oneshotPlaybook.find((playbook) => playbook.phase === 'implementing');
+    expect(implementing).toBeDefined();
+    const door = implementing?.tools.find((entry) => entry.action === OPT_IN_ACTION);
+    expect(door?.tool).toBe('exarchos_orchestrate');
+    expect(implementing?.compactGuidance).toContain(OPT_IN_ACTION);
+    // No raw-append door back: `exarchos_event append` writes whatever the
+    // caller hands it, which is the second producer this row denies exists.
+    expect(implementing?.tools.filter((entry) => entry.tool === 'exarchos_event')).toEqual([]);
+
+    const blocked = guards.synthesisOptedIn.evaluate({
+      oneshot: { synthesisPolicy: 'on-request' },
+      _events: [],
+    });
+    expect(blocked).not.toBe(true);
+    if (blocked === true) return;
+    expect(blocked.suggestedFix?.tool).toBe('exarchos_orchestrate');
+    expect(blocked.suggestedFix?.params.action).toBe(OPT_IN_ACTION);
   });
 });
 

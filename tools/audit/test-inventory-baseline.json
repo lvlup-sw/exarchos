@@ -7,7 +7,7 @@
     "testFiles": 1265,
     "parsedFiles": 1220,
     "shellFiles": 45,
-    "cases": 13931,
+    "cases": 13934,
     "dynamicTitles": 150,
     "unparseableFiles": 0
   },
@@ -77199,6 +77199,11 @@
           "dynamic": false
         },
         {
+          "suite": "the disclosed producer is the door the model is sent through",
+          "name": "PhaseEventContracts_SynthesizeRequested_ContractPlaybookAndGuardNameOneProducer",
+          "dynamic": false
+        },
+        {
           "suite": "assertPhaseEventContracts — seeded refusals",
           "name": "Refuses_ARowThatDeclaresNothing",
           "dynamic": false
@@ -77602,6 +77607,16 @@
         {
           "suite": "authority census — the phase-events row, live",
           "name": "AuthorityCensus_PhaseEventsRow_ASeededBakedRowIsNamed",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — the phase-events row, live",
+          "name": "AuthorityCensus_PhaseEventsRow_ADerivedSiteNotComputedFromTheContractIsNamed",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — the phase-events row, live",
+          "name": "AuthorityCensus_PhaseEventsRow_AWrappedProjectionOrAForeignCopyIsOpaque",
           "dynamic": false
         }
       ]

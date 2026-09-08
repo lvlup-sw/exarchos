@@ -234,8 +234,8 @@ export const PHASE_EVENT_CONTRACTS: Readonly<Record<string, PhaseEventContract>>
     runtimeEmits: [
       {
         type: 'synthesize.requested',
-        when: 'On opt-in to the synthesize path at the end of implementation',
-        emittedBy: 'the oneshot lifecycle guard',
+        when: 'When the model opts into the synthesize path by calling request_synthesize',
+        emittedBy: 'exarchos_orchestrate request_synthesize',
       },
     ],
   },

@@ -1076,10 +1076,10 @@ export const oneshotPlaybook: readonly PhasePlaybook[] = [
         purpose: 'Record implementation progress and synthesis choice',
       },
       {
-        tool: 'exarchos_event',
-        action: 'append',
+        tool: 'exarchos_orchestrate',
+        action: 'request_synthesize',
         purpose:
-          'Optionally append synthesize.requested to opt into PR-based synthesis at runtime',
+          'Optionally opt into PR-based synthesis at runtime; the handler appends synthesize.requested',
       },
     ],
     events: phaseEventInstructions('implementing'),
@@ -1091,7 +1091,7 @@ export const oneshotPlaybook: readonly PhasePlaybook[] = [
     validationScripts: [],
     humanCheckpoint: false,
     compactGuidance:
-      'In-session implementation for a oneshot workflow. Verification is risk-proportional — apply the gate ladder resolved for this phase (advisory severity for oneshot), sized to the risk of the change. After the resolved checks pass, the main agent resolves the choice state using pure guards over (synthesisPolicy, synthesize.requested events). If opting into the synthesize path at runtime, append a synthesize.requested event via exarchos_event append. The HSM evaluates the choice state on the next transition attempt. Follow the oneshot skill for the full procedure.',
+      'In-session implementation for a oneshot workflow. Verification is risk-proportional — apply the gate ladder resolved for this phase (advisory severity for oneshot), sized to the risk of the change. After the resolved checks pass, the main agent resolves the choice state using pure guards over (synthesisPolicy, synthesize.requested events). If opting into the synthesize path at runtime, call exarchos_orchestrate request_synthesize; its handler appends the synthesize.requested event. The HSM evaluates the choice state on the next transition attempt. Follow the oneshot skill for the full procedure.',
   },
   {
     phase: 'synthesize',
