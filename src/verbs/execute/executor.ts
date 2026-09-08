@@ -19,6 +19,12 @@
 //   appends its operation event, so the log distinguishes "ran and failed"
 //   from "crashed mid-segment" — the latter leaves no claim and no event.
 //
+//   The run's interior is in custody BEFORE the record that names it. The
+//   per-leaf trace goes to the run-bundle store first; only once those bytes
+//   are durable does the operation event carrying their digest commit. A
+//   crash between the two leaves an orphan blob nothing references, never a
+//   committed reference to bytes that were never written.
+//
 // The registry is reached through the published root module. The handler table
 // is INJECTED by whoever owns it rather than read back from the composite that
 // routes here: reading it back was a runtime import edge closing a ring
@@ -34,7 +40,6 @@ import {
   type ActionPostconditionObservation,
 } from '../../dispatch/core/action-postconditions.js';
 import { evaluateDispatchAdmission } from '../../dispatch/core/dispatch-admission.js';
-import { evidenceArtifactResolver } from '../../workflow/admission/evidence-artifact.js';
 // Type-only, and deliberately so: the dispatch module routes to the composite
 // that routes here, so a value import of it would close a runtime ring.
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
@@ -52,26 +57,17 @@ import {
   type DispatchContext as CorrelationContext,
 } from '../../dispatch/dispatch-context.js';
 import { OperationDigestMismatchError, type EventInput } from '../../events/atomic-appender.js';
-import { runWithAppendObserver } from '../../events/observation/append-observation.js';
-import { OrchestrateIntentExecutedData } from '../../events/schemas.js';
-import type { IntentFailureDetail, ToolResult } from '../../format.js';
-import { OperationIdSchema } from '../../workflow/admission/types.js';
-import { compileIntent, PRODUCTION_COMPILE_DEPS, type CompileDeps } from './compile.js';
-import type {
-  CompiledLeaf,
-  CompiledSegment,
-  IntentReceipt,
-  LeafStatus,
-  ReceiptEvent,
-  ReceiptLeaf,
-  ReceiptSteering,
-} from './types.js';
-
 import {
   INTENT_EXECUTED_SETTLEMENT,
   type BundleRefV1,
 } from '../../events/bundle/digest-references.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
+import { runWithAppendObserver } from '../../events/observation/append-observation.js';
+import { OrchestrateIntentExecutedData } from '../../events/schemas.js';
+import type { IntentFailureDetail, ToolResult } from '../../format.js';
+import { evidenceArtifactResolver } from '../../workflow/admission/evidence-artifact.js';
+import { OperationIdSchema } from '../../workflow/admission/types.js';
+import { compileIntent, PRODUCTION_COMPILE_DEPS, type CompileDeps } from './compile.js';
 import {
   encodeExecuteIntentBundle,
   executeIntentBundleArtifactId,
@@ -83,40 +79,15 @@ import {
   type LeafTrace,
   type LeafVerdict,
 } from './run-bundle.js';
-
-// ─── The bounded action executor ────────────────────────────────────────────
-//
-// `execute_intent` runs a compiled segment leaf by leaf and commits ONE record
-// of what it did. Three properties are load-bearing, and each is paid for here
-// rather than assumed:
-//
-//   Replay is answered BEFORE the first effect. A claimed operation id returns
-//   its persisted receipt with nothing re-executed; the same id carrying a
-//   different request is rejected rather than silently re-run. Asking inside
-//   the commit would ask after all the work.
-//
-//   Each leaf runs under its own derived operation identity. That is the one
-//   deliberate exception to the fresh-id-per-dispatch rule, and it buys two
-//   things: the emission check for leaf N can no longer be satisfied by leaf
-//   1's events, and durable gate evidence ids stay stable across a crash-retry
-//   so a re-run dedupes rows instead of appending duplicates.
-//
-//   Both outcomes commit. A segment that halted on a blocking leaf still
-//   appends its operation event, so the log distinguishes "ran and failed"
-//   from "crashed mid-segment" — the latter leaves no claim and no event.
-//
-//   The run's interior is in custody BEFORE the record that names it. The
-//   per-leaf trace goes to the run-bundle store first; only once those bytes
-//   are durable does the operation event carrying their digest commit. A
-//   crash between the two leaves an orphan blob nothing references, never a
-//   committed reference to bytes that were never written.
-//
-// The registry is reached through the published root module. The handler table
-// is INJECTED by whoever owns it rather than read back from the composite that
-// routes here: reading it back was a runtime import edge closing a ring
-// between this module, that composite, and the dispatch core.
-// Type-only, and deliberately so: the dispatch module routes to the composite
-// that routes here, so a value import of it would close a runtime ring.
+import type {
+  CompiledLeaf,
+  CompiledSegment,
+  IntentReceipt,
+  LeafStatus,
+  ReceiptEvent,
+  ReceiptLeaf,
+  ReceiptSteering,
+} from './types.js';
 
 /**
  * The event this action commits on both outcomes. Read off the settlement
@@ -592,6 +563,7 @@ interface LeafTiming {
   readonly startedAt: string;
   readonly endedAt: string;
 }
+
 /**
  * A leaf's outcome as the body of the run reports it. `disposition` is named
  * by every return path explicitly — there is no default, so a path that
@@ -651,6 +623,7 @@ function traceOf(leaf: CompiledLeaf, outcome: LeafOutcome, timing: LeafTiming): 
     verdict: verdictOf(outcome),
   };
 }
+
 async function runSegment(input: RunSegmentInput): Promise<CommitOutcome> {
   const { segment, operationId, stateDir, ctx, outer, handlers, handlerTool } = input;
   const leaves: ReceiptLeaf[] = [];
@@ -1106,6 +1079,7 @@ function bundleDocument(
     },
   };
 }
+
 /**
  * Write the run's interior to the bundle store, then append the operation
  * event under the CALLER's operation id as the claim key, carrying the receipt
