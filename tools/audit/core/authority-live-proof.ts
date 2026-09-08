@@ -64,19 +64,20 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // PARTIAL BINDING IS NOT BINDING
 //
-// `PHASE_EXPECTED_EVENTS` is the trap this module exists to not fall into. Two
-// of its six entries genuinely derive (`modelEmittedOnly(getRegisteredEventTypes
-// (phase))`); the other four are hand-written literal arrays; and the loop that
-// runs at module load validates only that each event it LISTS is registered and
-// `model`-sourced. That loop can never see an event that should be listed and is
-// not — it is the `authority-to-representation` direction one level down, and
-// treating "a check exists" as a binding would repeat the defect the census
-// exists to report.
+// `PHASE_EXPECTED_EVENTS` was the trap this module exists to not fall into: two
+// of its six entries derived from a two-case switch in the reducer, four were
+// hand-written arrays, and the loop at module load validated only what the table
+// LISTED. It is now computed from `PHASE_EVENT_CONTRACTS`, which is where the
+// phase → event facts are DECLARED. The event-catalog row therefore measures the
+// contract's rows (each names its event as a literal — declared, validated at
+// load, never computed from the registry), and a separate `phase-events` row
+// measures whether the gate tables and the playbooks are computed from the
+// contract. Validation is still not a binding, and "a check exists" still does
+// not close a row.
 //
 // So {@link bindingFor} requires EVERY site to be derived. One literal site in a
-// population of six makes the representation `unbound`, and the co-located test
-// pins the 5-of-6 case specifically: deriving all but one entry must NOT close
-// the row.
+// population makes the representation `unbound`, and the co-located test pins
+// the all-but-one case specifically: deriving all but one row must NOT close it.
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // NON-EMPTY DENOMINATORS
@@ -135,7 +136,16 @@ export { REPO_ROOT };
  * else. There is no third "validated" value, because validation of the entries
  * present is not a binding over the population.
  */
-export type SiteBinding = 'literal' | 'derived';
+/**
+ * How a site holds its value. `literal` bakes the name. `derived` computes it
+ * through a projection of the authority. `opaque` computes it too, but through
+ * something the measurement does not recognise as a projection of the
+ * authority — a conditional, an unrelated helper, a projection imported from
+ * some other module — so it is neither baked nor bound. Only `derived` binds;
+ * a measurement that cannot tell a projection from any other expression would
+ * report a second declaration as bound the moment it stopped being a literal.
+ */
+export type SiteBinding = 'literal' | 'derived' | 'opaque';
 
 export interface MeasuredSite {
   /** Repo-relative, forward-slashed. */
@@ -246,14 +256,18 @@ export function bindingFor(
   how: string,
   why: string,
 ): MeasuredBinding {
-  const literals = sites.filter((s) => s.kind === 'literal');
-  if (literals.length === 0) return { kind: 'bound', boundTo, how };
+  const unbound = sites.filter((s) => s.kind !== 'derived');
+  if (unbound.length === 0) return { kind: 'bound', boundTo, how };
+  const literals = unbound.filter((s) => s.kind === 'literal').length;
+  const opaque = unbound.length - literals;
   return {
     kind: 'unbound',
     why:
-      `${why} Measured live: ${literals.length} of ${sites.length} site(s) bake the name as a ` +
-      `literal (${literals.map((s) => `${s.file}:${s.line} ${s.subject}`).slice(0, 4).join('; ')}` +
-      `${literals.length > 4 ? '; …' : ''}). A representation is bound only when EVERY site is ` +
+      `${why} Measured live: ${unbound.length} of ${sites.length} site(s) are not computed from ` +
+      `the authority — ${literals} bake the name as a literal, ${opaque} compute it through ` +
+      'something the measurement does not recognise as a projection of the authority ' +
+      `(${unbound.map((s) => `${s.file}:${s.line} ${s.subject} [${s.kind}]`).slice(0, 4).join('; ')}` +
+      `${unbound.length > 4 ? '; …' : ''}). A representation is bound only when EVERY site is ` +
       'computed from the authority — partial derivation is not a binding over the population.',
   };
 }
@@ -313,6 +327,23 @@ export function classifyInitializer(node: ts.Expression): SiteBinding {
       : 'derived';
   }
   return 'derived';
+}
+
+/**
+ * How a `derived` initializer is re-read against the shapes that actually reach
+ * an authority. Receives the initializer with its parent pointers set, so a
+ * binder can walk up to the scope that declared a receiver, and the subject the
+ * site measures (the table name, or the property).
+ */
+export type DerivedSiteBinder = (initializer: ts.Expression, subject: string) => SiteBinding;
+
+function bindDerived(
+  initializer: ts.Expression,
+  subject: string,
+  bind: DerivedSiteBinder | undefined,
+): SiteBinding {
+  const kind = classifyInitializer(initializer);
+  return kind === 'derived' && bind !== undefined ? bind(initializer, subject) : kind;
 }
 
 /** Find `export const <name> … = { … }` and return the object literal. */
@@ -378,6 +409,88 @@ export function measureObjectLiteralEntries(
     });
   }
   return requireSites(sites, `\`${constName}\` in ${file}`);
+}
+
+/**
+ * Every declared event row in a source file: an object literal carrying both a
+ * `type` and a `when` property. The phase event contract declares its rows that
+ * way — inline under a phase, or as a module-scope constant shared by several
+ * phases — and each is one site, classified by how its `type` is written. A
+ * string literal is a baked name; anything else is computed. Zero rows throws.
+ * An object whose `when` is not a string literal is a projection of a row (the
+ * derivations copy rows that way), not a declared one, and is not counted.
+ */
+export function measureDeclaredEventRows(source: string, file: string): readonly MeasuredSite[] {
+  const sourceFile = parseOrThrow(source, file, LABEL);
+  const sites: MeasuredSite[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isObjectLiteralExpression(node)) {
+      const assignments = node.properties.filter((p): p is ts.PropertyAssignment =>
+        ts.isPropertyAssignment(p),
+      );
+      const type = assignments.find((p) => propertyName(p.name) === 'type');
+      const when = assignments.find((p) => propertyName(p.name) === 'when');
+      // A declared row states its `when` in prose. The derivations copy rows
+      // with `when: row.when`, which is a projection, not a declaration.
+      if (type !== undefined && when !== undefined && ts.isStringLiteralLike(when.initializer)) {
+        const init = type.initializer;
+        sites.push({
+          file,
+          line: lineOf(sourceFile, type),
+          kind: classifyInitializer(init),
+          subject: ts.isStringLiteralLike(init) ? init.text : init.getText(sourceFile),
+          expression: init.getText(sourceFile),
+          start: init.getStart(sourceFile),
+          end: init.getEnd(),
+        });
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+  return requireSites(sites, `declared event rows (\`type\` + \`when\`) in ${file}`);
+}
+
+/**
+ * One site per named exported constant: how its whole initializer is written.
+ * A call expression is a derivation; an object or array literal is a baked
+ * table. A name that is not exported from the file throws — the constant was
+ * renamed, and a measurement over the wrong name is the instrument dying green.
+ */
+export function measureExportedInitializers(
+  source: string,
+  file: string,
+  names: readonly string[],
+  bind?: DerivedSiteBinder,
+): readonly MeasuredSite[] {
+  const sourceFile = parseOrThrow(source, file, LABEL, true);
+  const sites: MeasuredSite[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && names.includes(node.name.text)) {
+      const init = unwrapObjectFreeze(node.initializer);
+      if (init !== undefined) {
+        sites.push({
+          file,
+          line: lineOf(sourceFile, node),
+          kind: bindDerived(init, node.name.text, bind),
+          subject: node.name.text,
+          expression: init.getText(sourceFile),
+          start: init.getStart(sourceFile),
+          end: init.getEnd(),
+        });
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+  const missing = names.filter((name) => !sites.some((site) => site.subject === name));
+  if (missing.length > 0) {
+    throw new Error(
+      `${LABEL}: ${file} exports no constant named ${missing.join(', ')}. The table was renamed ` +
+        'or moved; refusing to report a measurement over a name that is not there.',
+    );
+  }
+  return sites;
 }
 
 /**
@@ -489,15 +602,16 @@ export function measurePropertyAssignments(
   source: string,
   file: string,
   property: string,
+  bind?: DerivedSiteBinder,
 ): readonly MeasuredSite[] {
-  const sourceFile = parseOrThrow(source, file, LABEL);
+  const sourceFile = parseOrThrow(source, file, LABEL, true);
   const sites: MeasuredSite[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isPropertyAssignment(node) && propertyName(node.name) === property) {
       sites.push({
         file,
         line: lineOf(sourceFile, node),
-        kind: classifyInitializer(node.initializer),
+        kind: bindDerived(node.initializer, property, bind),
         subject: property,
         expression: node.initializer.getText(sourceFile),
         start: node.initializer.getStart(sourceFile),
@@ -680,7 +794,7 @@ export const EVENT_CATALOG_SOURCES: {
   // ROW rather than whichever property currently carries it, so the next move
   // of the wrapper does not silently re-open this.
   emissions: 'src/registry/actions',
-  phaseExpectedEvents: 'src/verbs/gates/check-event-emissions.ts',
+  phaseExpectedEvents: 'src/workflow/topology/phase-events.ts',
   // The AUTHORED skills tree. `skills/<runtime>/` is generated from it, so
   // measuring both would count one representation several times.
   proseRoot: 'content',
@@ -778,7 +892,7 @@ export const EVENT_CATALOG_REPRESENTATION_IDS: {
 } = Object.freeze({
   authority: 'EVENT_EMISSION_REGISTRY (`events/schemas.ts`)',
   emissions: 'the registry emission rows',
-  phaseExpectedEvents: 'PHASE_EXPECTED_EVENTS (`verbs/gates/check-event-emissions.ts`)',
+  phaseExpectedEvents: 'the PHASE_EVENT_CONTRACTS rows (`workflow/topology/phase-events.ts`)',
   prose: 'skill prose naming events to emit',
 });
 
@@ -820,10 +934,9 @@ export function measureEventCatalog(sources: EventCatalogSources): EventCatalogM
     sources.emissions,
     EVENT_CATALOG_SOURCES.emissions,
   );
-  const phaseSites = measureObjectLiteralEntries(
+  const phaseSites = measureDeclaredEventRows(
     sources.phaseExpectedEvents,
     EVENT_CATALOG_SOURCES.phaseExpectedEvents,
-    'PHASE_EXPECTED_EVENTS',
   );
   const proseSites = measureProseEventMentions(sources.docs, modelEvents);
 
@@ -862,9 +975,12 @@ export function measureEventCatalog(sources: EventCatalogSources): EventCatalogM
       binding: bindingFor(
         phaseSites,
         'EVENT_EMISSION_REGISTRY',
-        'every phase entry is computed via `modelEmittedOnly(getRegisteredEventTypes(phase))`',
-        'the module-load loop VALIDATES that each event the table lists is registered and ' +
-          '`model`-sourced, but it can never see an event that should be listed and is not.',
+        'every contract row names its event through an expression computed from the registry',
+        'the contract DECLARES which phase expects which event — a workflow fact the registry ' +
+          'does not hold — so each row is validated against the registry at load (registered, ' +
+          '`model`-sourced for an expectation, `auto`-sourced for a disclosure), never computed ' +
+          'from it. The gate table and the playbooks are computed from the contract; that binding ' +
+          'is the `phase-events` boundary, measured separately.',
       ),
       sites: phaseSites,
     },
@@ -899,11 +1015,456 @@ export function measureEventCatalog(sources: EventCatalogSources): EventCatalogM
       `${registeredEvents.size} event types (${modelEvents.size} \`model\`-sourced). ` +
       `${unbound.length} of ${present.length - 1} non-authoritative representations are unbound. ` +
       `emission rows: ${emissionSites.filter((s) => s.kind === 'literal').length}/` +
-      `${emissionSites.length} sites baked. \`PHASE_EXPECTED_EVENTS\`: ` +
-      `${phaseSites.filter((s) => s.kind === 'literal').length}/${phaseSites.length} entries baked ` +
-      `(the rest derive) — PARTIALLY bound, which is not bound. Skill prose: ${proseSites.length} ` +
+      `${emissionSites.length} sites baked. \`PHASE_EVENT_CONTRACTS\`: ` +
+      `${phaseSites.filter((s) => s.kind === 'literal').length}/${phaseSites.length} rows name ` +
+      `their event as a literal — declared and validated at load, not computed. Skill prose: ${proseSites.length} ` +
       'event names in Markdown, which has no expressions to derive them with.',
   };
+}
+
+// ─── The phase-events boundary, measured ─────────────────────────────────────
+//
+// `PHASE_EVENT_CONTRACTS` declares which model-emitted events a phase expects
+// and which the runtime emits on the model's behalf. Three representations used
+// to hold their own copy — the gate tables, the playbook rows, the skill prose —
+// and disagreed. This row measures whether each is COMPUTED from the contract:
+// the gate's two exported tables by their initializer, every playbook `events:`
+// and `autoEmittedEvents:` row by its initializer, and the prose by the only
+// thing Markdown can offer, which is a count of the contract's event names it
+// carries. The prose is compared to the contract by a test; nothing computes it.
+
+/** Every source the phase-events measurement reads, repo-relative. */
+export const PHASE_EVENTS_SOURCES: {
+  readonly contract: string;
+  readonly gate: string;
+  readonly playbooks: string;
+  readonly prose: readonly string[];
+} = Object.freeze({
+  contract: 'src/workflow/topology/phase-events.ts',
+  gate: 'src/verbs/gates/check-event-emissions.ts',
+  playbooks: 'src/workflow/playbooks.ts',
+  prose: Object.freeze([
+    'content/synthesis/skills/synthesize/SKILL.md',
+    'content/delivery/skills/delegate/SKILL.md',
+  ]),
+});
+
+export interface PhaseEventsSources {
+  readonly contract: string;
+  readonly gate: string;
+  readonly playbooks: string;
+  readonly docs: readonly SkillDoc[];
+}
+
+/** The representation ids the committed `phase-events` row uses. Matched exactly. */
+export const PHASE_EVENTS_REPRESENTATION_IDS: {
+  readonly authority: string;
+  readonly gate: string;
+  readonly playbooks: string;
+  readonly prose: string;
+} = Object.freeze({
+  authority: 'PHASE_EVENT_CONTRACTS (`workflow/topology/phase-events.ts`)',
+  gate: 'the gate tables `PHASE_EXPECTED_EVENTS` and `EVENT_DESCRIPTIONS` (`verbs/gates/check-event-emissions.ts`)',
+  playbooks: 'the playbook `events` and `autoEmittedEvents` rows (`workflow/playbooks.ts`)',
+  prose: 'the skill passages that say what the gate checks',
+});
+
+/** The module every consumer must import the contract's projections from. */
+export const CONTRACT_MODULE_SUFFIX = 'topology/phase-events.js';
+
+/** The contract table itself: the one argument a gate projection may take. */
+export const CONTRACT_TABLE = 'PHASE_EVENT_CONTRACTS';
+
+/** Each gate table and the one contract projection that may compute it. */
+export const GATE_TABLE_PROJECTIONS: Readonly<Record<string, string>> = Object.freeze({
+  PHASE_EXPECTED_EVENTS: 'expectedEventsByPhase',
+  EVENT_DESCRIPTIONS: 'hintDescriptions',
+});
+
+/** The two gate tables that must be computed from the contract. */
+export const GATE_TABLES: readonly string[] = Object.freeze(Object.keys(GATE_TABLE_PROJECTIONS));
+
+/**
+ * Each playbook property and the ONE contract projection that may compute it.
+ * Not a shared pool: `events` instructs the model and `autoEmittedEvents`
+ * discloses what the runtime fires, and a row that calls the other one's
+ * projection has swapped model-owned for runtime-owned semantics — which is
+ * the disagreement the contract exists to end, not a bound representation.
+ */
+export const PLAYBOOK_PROPERTY_PROJECTIONS: Readonly<Record<string, string>> = Object.freeze({
+  events: 'phaseEventInstructions',
+  autoEmittedEvents: 'phaseRuntimeEmissions',
+});
+
+/** The playbook properties the contract must compute. */
+export const PLAYBOOK_PROPERTIES: readonly string[] = Object.freeze(
+  Object.keys(PLAYBOOK_PROPERTY_PROJECTIONS),
+);
+
+/** The contract projections a playbook row may call, across all properties. */
+export const PLAYBOOK_PROJECTIONS: readonly string[] = Object.freeze(
+  Object.values(PLAYBOOK_PROPERTY_PROJECTIONS),
+);
+
+/** The names `file` imports, by name, from a module whose specifier ends with `moduleSuffix`. */
+export function namedImportsFrom(source: string, file: string, moduleSuffix: string): ReadonlySet<string> {
+  const sourceFile = parseOrThrow(source, file, LABEL);
+  const names = new Set<string>();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
+    if (!statement.moduleSpecifier.text.endsWith(moduleSuffix)) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (bindings === undefined || !ts.isNamedImports(bindings)) continue;
+    for (const element of bindings.elements) names.add(element.name.text);
+  }
+  return names;
+}
+
+/** The type of the measured playbook population; the serializer copies rows off a value of this type. */
+export const PLAYBOOK_TYPE = 'PhasePlaybook';
+
+/** A copy of a measured row: `<receiver>.<property>` with `<receiver>` declared as `receiverType`. */
+export interface RowCopyShape {
+  readonly property: string;
+  readonly receiverType: string;
+}
+
+/** What a derived site must look like to count as computed from the authority. */
+export interface ProjectionShape {
+  /** Callees that are projections of the authority, as imported by the file under measurement. */
+  readonly projections: ReadonlySet<string>;
+  /** When set, the projection call's one argument must be exactly this name. */
+  readonly argument?: string;
+  /**
+   * When set, `<receiver>.<property>` — optionally mapped through a named clone,
+   * `<receiver>.<property>.map(clone)` — is a copy of a row already in the
+   * population, provided `<receiver>` is declared in an enclosing scope with the
+   * population's type. Read off anything else, the same property name is a
+   * second table.
+   */
+  readonly copies?: RowCopyShape;
+}
+
+/**
+ * Re-read a `derived` initializer against the shapes that actually reach the
+ * authority. `classifyInitializer` can only say "not a literal"; a conditional
+ * that carries a baked name, an unrelated helper, a projection imported from
+ * anywhere but the authority's module, or a projection call wrapped in a chain,
+ * a spread or a fallback that adds rows of its own is not a literal either, and
+ * would read as bound. The WHOLE initializer is read: it is exactly one call of
+ * an imported projection, or exactly one copy of a measured row. Anything else
+ * is `opaque`, which `bindingFor` counts as unbound.
+ */
+export function bindThroughProjection(initializer: ts.Expression, shape: ProjectionShape): SiteBinding {
+  const node = unwrapParentheses(initializer);
+  if (shape.copies !== undefined && copiesMeasuredRow(node, shape.copies)) return 'derived';
+  if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression)) return 'opaque';
+  if (!shape.projections.has(node.expression.text) || node.arguments.length !== 1) return 'opaque';
+  const [argument] = node.arguments;
+  if (argument === undefined) return 'opaque';
+  if (shape.argument !== undefined) {
+    return ts.isIdentifier(argument) && argument.text === shape.argument ? 'derived' : 'opaque';
+  }
+  // A playbook projection takes the phase — a name or a string, never an
+  // expression that could carry an event.
+  return ts.isIdentifier(argument) || ts.isStringLiteralLike(argument) ? 'derived' : 'opaque';
+}
+
+function unwrapParentheses(node: ts.Expression): ts.Expression {
+  let inner = node;
+  while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
+  return inner;
+}
+
+/** `<receiver>.<property>` or `<receiver>.<property>.map(<clone>)`, with `<receiver>` declared as the population's type. */
+function copiesMeasuredRow(node: ts.Expression, copies: RowCopyShape): boolean {
+  let read: ts.Expression = node;
+  if (
+    ts.isCallExpression(read) &&
+    ts.isPropertyAccessExpression(read.expression) &&
+    read.expression.name.text === 'map'
+  ) {
+    const [clone] = read.arguments;
+    if (read.arguments.length !== 1 || clone === undefined || !clonesRowsUnchanged(clone)) return false;
+    read = read.expression.expression;
+  }
+  if (!ts.isPropertyAccessExpression(read) || read.name.text !== copies.property) return false;
+  if (!ts.isIdentifier(read.expression)) return false;
+  return declaredTypeOf(read.expression) === copies.receiverType;
+}
+
+/**
+ * Whether a `.map()` callback hands every row back with its event facts
+ * intact. A copy is only a copy if nothing is rewritten on the way through:
+ * a callback free to set `type` or `when` is a second author of the phase →
+ * event facts wearing the shape of a clone, and the census would report the
+ * rewritten rows as bound to the contract they no longer agree with.
+ *
+ * Accepted, and nothing else: a one-parameter arrow or function expression
+ * returning an object literal whose every element is a spread — of the
+ * parameter itself, or of a guarded object literal that only re-copies the
+ * parameter's own same-named property (`e.fields !== undefined && { fields:
+ * [...e.fields] }`, the deep-copy the live serializer does). A named callback
+ * is resolved to its declaration first; one that resolves to nothing readable
+ * is not a clone.
+ */
+function clonesRowsUnchanged(callback: ts.Expression): boolean {
+  const declared = unwrapParentheses(callback);
+  const fn = ts.isIdentifier(declared) ? declaredValueOf(declared) : declared;
+  if (fn === undefined) return false;
+  if (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) return false;
+  const [parameter] = fn.parameters;
+  if (fn.parameters.length !== 1 || parameter === undefined || !ts.isIdentifier(parameter.name)) {
+    return false;
+  }
+  const row = parameter.name.text;
+  const returned = returnedExpression(fn.body);
+  if (returned === undefined || !ts.isObjectLiteralExpression(returned)) return false;
+  return returned.properties.every(
+    (property) => ts.isSpreadAssignment(property) && spreadKeepsRow(property.expression, row),
+  );
+}
+
+/** The single expression a body evaluates to — `=> expr`, or a block whose only statement returns one. */
+function returnedExpression(body: ts.ConciseBody): ts.Expression | undefined {
+  if (!ts.isBlock(body)) return unwrapParentheses(body);
+  const [statement] = body.statements;
+  if (body.statements.length !== 1 || statement === undefined || !ts.isReturnStatement(statement)) {
+    return undefined;
+  }
+  return statement.expression === undefined ? undefined : unwrapParentheses(statement.expression);
+}
+
+/** `...row`, or `...(<guard> && { k: <reads row.k> })` — a spread that adds nothing of its own. */
+function spreadKeepsRow(expression: ts.Expression, row: string): boolean {
+  const node = unwrapParentheses(expression);
+  if (ts.isIdentifier(node)) return node.text === row;
+  const guarded = ts.isBinaryExpression(node)
+    ? unwrapParentheses(node.right)
+    : ts.isConditionalExpression(node)
+      ? unwrapParentheses(node.whenTrue)
+      : undefined;
+  if (guarded === undefined || !ts.isObjectLiteralExpression(guarded)) return false;
+  return guarded.properties.every(
+    (property) =>
+      ts.isPropertyAssignment(property) &&
+      ts.isIdentifier(property.name) &&
+      readsRowProperty(property.initializer, row, property.name.text),
+  );
+}
+
+/** `row.k` or `[...row.k]` under the key `k`: the same field, copied, never renamed or replaced. */
+function readsRowProperty(initializer: ts.Expression, row: string, key: string): boolean {
+  const node = unwrapParentheses(initializer);
+  if (ts.isArrayLiteralExpression(node)) {
+    const [element] = node.elements;
+    return (
+      node.elements.length === 1 &&
+      element !== undefined &&
+      ts.isSpreadElement(element) &&
+      readsRowProperty(element.expression, row, key)
+    );
+  }
+  return (
+    ts.isPropertyAccessExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === row &&
+    node.name.text === key
+  );
+}
+
+/** The initializer of the nearest enclosing declaration of `identifier`, if it has one. */
+function declaredValueOf(identifier: ts.Identifier): ts.Expression | undefined {
+  requireParentPointers(identifier, 'declaredValueOf');
+  for (let scope: ts.Node | undefined = identifier.parent; scope !== undefined; scope = scope.parent) {
+    if (!ts.isBlock(scope) && !ts.isSourceFile(scope)) continue;
+    for (const statement of scope.statements) {
+      if (!ts.isVariableStatement(statement)) continue;
+      const declaration = statement.declarationList.declarations.find(
+        (d) => ts.isIdentifier(d.name) && d.name.text === identifier.text,
+      );
+      if (declaration !== undefined) {
+        return declaration.initializer === undefined
+          ? undefined
+          : unwrapParentheses(declaration.initializer);
+      }
+    }
+  }
+  return undefined;
+}
+
+/** Reading a scope off a parentless tree answers "nothing declares it" for every question. */
+function requireParentPointers(node: ts.Node, caller: string): void {
+  if (node.parent === undefined) {
+    throw new Error(
+      `${LABEL}: ${caller} needs a source parsed with parent pointers; the measurer that ` +
+        'produced this site parsed without them, so no declaration could ever resolve.',
+    );
+  }
+}
+
+/**
+ * The annotated type name on the nearest enclosing declaration of
+ * `identifier`: a parameter of an enclosing function, or a variable declared
+ * in an enclosing block. Undefined when no enclosing scope declares it, or
+ * declares it without a type reference — either way, not the population's
+ * type. Needs a parse with parent pointers, and refuses one without them
+ * rather than reading "no enclosing scope" off a tree that has no parents.
+ */
+function declaredTypeOf(identifier: ts.Identifier): string | undefined {
+  requireParentPointers(identifier, 'declaredTypeOf');
+  for (let scope: ts.Node | undefined = identifier.parent; scope !== undefined; scope = scope.parent) {
+    if (ts.isFunctionLike(scope)) {
+      const parameter = scope.parameters.find(
+        (p) => ts.isIdentifier(p.name) && p.name.text === identifier.text,
+      );
+      if (parameter !== undefined) return typeNameOf(parameter.type);
+    }
+    if (ts.isBlock(scope) || ts.isSourceFile(scope)) {
+      for (const statement of scope.statements) {
+        if (!ts.isVariableStatement(statement)) continue;
+        const declaration = statement.declarationList.declarations.find(
+          (d) => ts.isIdentifier(d.name) && d.name.text === identifier.text,
+        );
+        if (declaration !== undefined) return typeNameOf(declaration.type);
+      }
+    }
+  }
+  return undefined;
+}
+
+function typeNameOf(type: ts.TypeNode | undefined): string | undefined {
+  return type !== undefined && ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName)
+    ? type.typeName.text
+    : undefined;
+}
+
+/** Measure the phase-events boundary from source. */
+export function measurePhaseEvents(sources: PhaseEventsSources): MeasuredBoundary {
+  const contractRows = measureDeclaredEventRows(sources.contract, PHASE_EVENTS_SOURCES.contract);
+  const contractEvents = new Set(
+    contractRows.filter((site) => site.kind === 'literal').map((site) => site.subject),
+  );
+  if (contractEvents.size === 0) {
+    throw new Error(
+      `${LABEL}: the phase event contract declares ${contractRows.length} row(s) but NONE names ` +
+        'its event as a literal. The prose representation is measured against the declared ' +
+        'names, and an empty set would make it vanish rather than be found unbound.',
+    );
+  }
+  // A derived site binds only through a projection the file imports from the
+  // contract module; the gate's projection must take the contract table itself.
+  const gateImports = namedImportsFrom(sources.gate, PHASE_EVENTS_SOURCES.gate, CONTRACT_MODULE_SUFFIX);
+  const gateSites = measureExportedInitializers(
+    sources.gate,
+    PHASE_EVENTS_SOURCES.gate,
+    GATE_TABLES,
+    (initializer, table) =>
+      bindThroughProjection(initializer, {
+        projections: new Set(
+          [GATE_TABLE_PROJECTIONS[table]].filter(
+            (name): name is string => name !== undefined && gateImports.has(name),
+          ),
+        ),
+        argument: gateImports.has(CONTRACT_TABLE) ? CONTRACT_TABLE : `${CONTRACT_TABLE} (not imported)`,
+      }),
+  );
+  const playbookImports = namedImportsFrom(
+    sources.playbooks,
+    PHASE_EVENTS_SOURCES.playbooks,
+    CONTRACT_MODULE_SUFFIX,
+  );
+  const playbookSites = PLAYBOOK_PROPERTIES.flatMap((property) =>
+    measurePropertyAssignments(sources.playbooks, PHASE_EVENTS_SOURCES.playbooks, property, (initializer) =>
+      bindThroughProjection(initializer, {
+        // This property's own projection, and only if the file imports it.
+        projections: new Set(
+          [PLAYBOOK_PROPERTY_PROJECTIONS[property]].filter(
+            (name): name is string => name !== undefined && playbookImports.has(name),
+          ),
+        ),
+        copies: { property, receiverType: PLAYBOOK_TYPE },
+      }),
+    ),
+  );
+  const proseSites = measureProseEventMentions(sources.docs, contractEvents);
+  const representations: MeasuredRepresentation[] = [
+    {
+      id: PHASE_EVENTS_REPRESENTATION_IDS.authority,
+      binding: { kind: 'authoritative' },
+      sites: contractRows,
+    },
+    {
+      id: PHASE_EVENTS_REPRESENTATION_IDS.gate,
+      binding: bindingFor(
+        gateSites,
+        PHASE_EVENTS_REPRESENTATION_IDS.authority,
+        'both tables are computed from the contract at load — `expectedEventsByPhase` and ' +
+          '`hintDescriptions`, each imported from the contract module and applied to the ' +
+          'contract table — and the gate module holds no phase or event literal of its own',
+        'a gate table written as a literal is a second copy of the phase → event facts, which is ' +
+          'the drift the contract exists to end.',
+      ),
+      sites: gateSites,
+    },
+    {
+      id: PHASE_EVENTS_REPRESENTATION_IDS.playbooks,
+      binding: bindingFor(
+        playbookSites,
+        PHASE_EVENTS_REPRESENTATION_IDS.authority,
+        'every playbook row is `phaseEventInstructions(phase)` or `phaseRuntimeEmissions(phase)`, ' +
+          'imported from the contract module (or the serializer copying such a row off a `PhasePlaybook`); the per-phase ' +
+          'arrays and the delegate metadata maps are gone',
+        'a playbook row written as a literal instructs the model from a copy the gate does not ' +
+          'check — four phases instructed runtime-owned events that way before the contract.',
+      ),
+      sites: playbookSites,
+    },
+    {
+      id: PHASE_EVENTS_REPRESENTATION_IDS.prose,
+      binding: {
+        kind: 'unbound',
+        why:
+          'Markdown; the checked-by line and the delegate table are compared to the contract by ' +
+          '`tests/architecture/skill-prose-gate-row-agreement.test.ts`, so drift fails, but nothing ' +
+          'computes them — the renderer may not import `workflow/`. Measured live: ' +
+          `${proseSites.length} contract event name(s) written in prose across ` +
+          `${new Set(proseSites.map((s) => s.file)).size} document(s).`,
+      },
+      sites: proseSites,
+    },
+  ];
+  const present = representations.filter((r) => r.sites.length > 0);
+  return {
+    boundary: 'phase-events',
+    authority: { kind: 'single', authority: PHASE_EVENTS_REPRESENTATION_IDS.authority },
+    representations: present,
+    siteCount: present.reduce((total, r) => total + r.sites.length, 0),
+    measured:
+      `Measured LIVE from source by \`authority-live-proof.ts\`: the contract declares ` +
+      `${contractRows.length} event rows. Gate tables: ` +
+      `${gateSites.filter((s) => s.kind === 'derived').length}/${gateSites.length} initializers computed. ` +
+      `Playbook rows: ${playbookSites.filter((s) => s.kind === 'derived').length}/${playbookSites.length} ` +
+      `computed. Skill prose: ${proseSites.length} event names in Markdown, compared by test, not computed.`,
+  };
+}
+
+/** Read every phase-events source off disk. The only IO in the measurement. */
+export function readPhaseEventsSources(repoRoot: string = REPO_ROOT): PhaseEventsSources {
+  return {
+    contract: readOrThrow(repoRoot, PHASE_EVENTS_SOURCES.contract),
+    gate: readOrThrow(repoRoot, PHASE_EVENTS_SOURCES.gate),
+    playbooks: readOrThrow(repoRoot, PHASE_EVENTS_SOURCES.playbooks),
+    docs: PHASE_EVENTS_SOURCES.prose.map((file) => ({
+      file,
+      text: readOrThrow(repoRoot, file),
+    })),
+  };
+}
+
+/** {@link measurePhaseEvents} over the live tree. */
+export function measurePhaseEventsLive(repoRoot: string = REPO_ROOT): MeasuredBoundary {
+  return measurePhaseEvents(readPhaseEventsSources(repoRoot));
 }
 
 // ─── The effect-event boundary, measured ─────────────────────────────────────

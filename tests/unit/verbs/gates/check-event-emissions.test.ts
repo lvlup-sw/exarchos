@@ -45,12 +45,12 @@ vi.mock('../../../../src/projections/fold-at-tail.js', () => ({
 import {
   EVENT_DESCRIPTIONS,
   PHASE_EXPECTED_EVENTS,
-  assertDescriptionsCoverExpectations,
-  assertDescriptionsLive,
-  assertExpectationsLive,
   handleCheckEventEmissions,
-  modelEmittedOnly,
 } from '../../../../src/verbs/gates/check-event-emissions.js';
+import {
+  PHASE_EVENT_CONTRACTS,
+  assertPhaseEventContracts,
+} from '../../../../src/workflow/topology/phase-events.js';
 
 const STATE_DIR = '/tmp/test-check-event-emissions';
 
@@ -115,40 +115,52 @@ describe('PHASE_EXPECTED_EVENTS', () => {
     expect(Object.keys(EVENT_DESCRIPTIONS)).not.toContain('stack.submitted');
   });
 
-  it('EventDescriptions_LiveTables_DescribeExactlyTheExpectedPopulation', () => {
-    // The denominator first: a pair of empty tables would agree about nothing.
-    expect(Object.keys(EVENT_DESCRIPTIONS).length).toBeGreaterThan(0);
-    expect(Object.values(PHASE_EXPECTED_EVENTS).flat().length).toBeGreaterThan(0);
-    expect(() =>
-      assertDescriptionsCoverExpectations(PHASE_EXPECTED_EVENTS, EVENT_DESCRIPTIONS),
-    ).not.toThrow();
+  it('EventDescriptions_AreTotalOverTheExpectedTypes', () => {
+    // Both tables project the phase event contract, so this cannot drift; the
+    // pin is here so the gate's own suite says what it relies on.
+    const expected = new Set(Object.values(PHASE_EXPECTED_EVENTS).flat());
+    expect(expected.size).toBeGreaterThan(0);
+    expect([...expected].filter((type) => EVENT_DESCRIPTIONS[type] === undefined)).toEqual([]);
+    expect(Object.keys(EVENT_DESCRIPTIONS).filter((type) => !expected.has(type))).toEqual([]);
   });
 
-  it('EventDescriptions_RowNoPhaseExpects_IsNamedAtLoad', () => {
-    // The stale-prose direction: a description that outlived its expectation
-    // row — what a flip is required to delete in the same commit.
-    const seededType = 'seeded.described-but-unexpected';
+  it('CheckEventEmissions_DelegatePhase_IncludesTaskProgressed', () => {
+    const delegateEvents = PHASE_EXPECTED_EVENTS['delegate'];
+    expect(delegateEvents).toBeDefined();
+    expect(delegateEvents).toContain('task.progressed');
+  });
+
+  it('PhaseExpectedEvents_AllEntries_OnlyModelEmitted', () => {
+    for (const [phase, eventTypes] of Object.entries(PHASE_EXPECTED_EVENTS)) {
+      for (const eventType of eventTypes) {
+        expect(
+          EVENT_EMISSION_REGISTRY[eventType],
+          `Event '${eventType}' in phase '${phase}' should be model-emitted`,
+        ).toBe('model');
+      }
+    }
+  });
+
+  it('PhaseExpectedEvents_AutoEventListed_IsRefusedWhereTheContractLoads', () => {
+    // Regression guard (#1395, RC2): flipping a registry entry to 'auto'
+    // WITHOUT deleting its expectation must throw. The expectation table is a
+    // projection of the phase event contract, so the refusal lives at the
+    // contract's load — exercised here through the real function on a seeded
+    // row, not a re-implemented copy of the loop. `review.routed` is 'auto'
+    // post-migration, so expecting it is precisely the violation.
+    expect(EVENT_EMISSION_REGISTRY['review.routed']).toBe('auto');
     expect(() =>
-      assertDescriptionsCoverExpectations(PHASE_EXPECTED_EVENTS, {
-        ...EVENT_DESCRIPTIONS,
-        [seededType]: 'Emit seeded.described-but-unexpected via exarchos_event',
+      assertPhaseEventContracts({
+        review: {
+          expects: [
+            { type: 'team.spawned', when: 'seeded' },
+            { type: 'review.routed', when: 'seeded' },
+          ],
+          runtimeEmits: [],
+        },
       }),
-    ).toThrow(new RegExp(`no phase expects: ${seededType.replace('.', '\\.')}`));
-  });
-
-  it('EventDescriptions_ExpectationWithoutARow_IsNamedAtLoad', () => {
-    // The generic-hint direction: an expected event nobody described. The
-    // fixture drops a LIVE expected type from the description table, so it
-    // stays valid whatever the rows say tomorrow.
-    const [dropped] = Object.values(PHASE_EXPECTED_EVENTS).flat();
-    expect(dropped).toBeDefined();
-    if (dropped === undefined) return;
-    const withoutOne = Object.fromEntries(
-      Object.entries(EVENT_DESCRIPTIONS).filter(([eventType]) => eventType !== dropped),
-    );
-    expect(() => assertDescriptionsCoverExpectations(PHASE_EXPECTED_EVENTS, withoutOne)).toThrow(
-      new RegExp(`does not describe: ${dropped.replace('.', '\\.')}`),
-    );
+    ).toThrow(/expects 'review\.routed', whose emission source is 'auto'/);
+    expect(() => assertPhaseEventContracts(PHASE_EVENT_CONTRACTS)).not.toThrow();
   });
 
   it('CheckEventEmissions_DelegatePhase_IncludesTaskProgressed', () => {
@@ -460,71 +472,3 @@ describe('handleOrchestrate integration', () => {
 // event cannot silently vanish from a derived expectation list, a phase row
 // cannot silently derive to empty, and a description cannot outlive the
 // model-emitted status of its event.
-
-describe('expectation-surface liveness', () => {
-  const seededRegistry = new Map<string, string>([
-    ['seeded.model', 'model'],
-    ['seeded.auto', 'auto'],
-    ['seeded.retired', 'retired'],
-  ]);
-
-  it('ModelEmittedOnly_RetiredType_ThrowsInsteadOfFiltering', () => {
-    // Silent filtering is for events the RUNTIME emits. A retired event is
-    // emitted by nobody, so dropping it empties the expectation while every
-    // check over it stays green — the throw couples the retirement to the
-    // expectation edit.
-    expect(() => modelEmittedOnly(['seeded.model', 'seeded.retired'], seededRegistry)).toThrow(
-      /retired and still expected/,
-    );
-  });
-
-  it('ModelEmittedOnly_AutoType_IsFilteredSilently', () => {
-    // The documented behavior stays: auto-emitted events are recognised by the
-    // reducer for folding but never nagged for.
-    expect(modelEmittedOnly(['seeded.model', 'seeded.auto'], seededRegistry)).toEqual([
-      'seeded.model',
-    ]);
-  });
-
-  it('ModelEmittedOnly_UnregisteredType_Throws', () => {
-    expect(() => modelEmittedOnly(['seeded.typo'], seededRegistry)).toThrow(/not registered/);
-  });
-
-  it('AssertExpectationsLive_EmptyPhaseRow_Throws', () => {
-    expect(() =>
-      assertExpectationsLive({ delegate: [] }, seededRegistry),
-    ).toThrow(/is empty/);
-  });
-
-  it('AssertExpectationsLive_NonModelEntry_Throws', () => {
-    expect(() =>
-      assertExpectationsLive(
-        { delegate: ['seeded.auto' as EventType] },
-        seededRegistry,
-      ),
-    ).toThrow(/non-model event/);
-  });
-
-  it('AssertExpectationsLive_ModelEntries_Pass', () => {
-    expect(() =>
-      assertExpectationsLive({ delegate: ['seeded.model' as EventType] }, seededRegistry),
-    ).not.toThrow();
-  });
-
-  it('AssertDescriptionsLive_DemotedKey_Throws', () => {
-    expect(() =>
-      assertDescriptionsLive({ 'seeded.auto': 'Emit seeded.auto' }, seededRegistry),
-    ).toThrow(/stale/);
-    expect(() =>
-      assertDescriptionsLive({ 'seeded.gone': 'Emit seeded.gone' }, seededRegistry),
-    ).toThrow(/unregistered/);
-  });
-
-  it('PhaseExpectedEvents_DerivedRows_AreNonEmpty', () => {
-    // The load-time assertion already fails the whole module if a derived row
-    // empties; this floor pins the same fact where a reader of the delegate
-    // contract will look for it.
-    expect(PHASE_EXPECTED_EVENTS['delegate']?.length).toBeGreaterThan(0);
-    expect(PHASE_EXPECTED_EVENTS['overhaul-delegate']?.length).toBeGreaterThan(0);
-  });
-});

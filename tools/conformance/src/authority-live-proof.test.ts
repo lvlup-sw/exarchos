@@ -77,6 +77,12 @@ import {
   type MeasuredBoundary,
   type MeasuredRepresentation,
   type MeasuredSite,
+  GATE_TABLES,
+  PHASE_EVENTS_REPRESENTATION_IDS,
+  PHASE_EVENTS_SOURCES,
+  measurePhaseEvents,
+  measurePhaseEventsLive,
+  readPhaseEventsSources,
 } from '../../audit/core/authority-live-proof.js';
 
 /** The live composition root task 020's guard governs. */
@@ -308,26 +314,22 @@ describe('authority census — the event-catalog row, live', () => {
     // `model`-sourced, and can never see an event that should be listed and is
     // not. Partial derivation is therefore not a binding, and the measurement
     // records the split rather than collapsing it to a verdict.
+    // ── 2. `PHASE_EVENT_CONTRACTS` — declared rows, MEASURED ─────────────────
+    // The contract declares which phase expects which event. Every row names its
+    // event as a literal: the fact is authored here and validated against the
+    // registry at load, never computed from it — so the representation is
+    // unbound by the census's rule, and honestly so. The old half-derived gate
+    // table this section used to measure is now a projection of these rows and
+    // is measured by the `phase-events` row below.
     const phase = representation(catalog, EVENT_CATALOG_REPRESENTATION_IDS.phaseExpectedEvents);
-    expect(phase.sites).toHaveLength(6);
-    expect(derivedSites(phase).map((s) => s.subject)).toEqual(['delegate', 'overhaul-delegate']);
-    expect(literalSites(phase).map((s) => s.subject)).toEqual([
-      'review',
-      'overhaul-review',
-      'synthesize',
-      'overhaul-update-docs',
-    ]);
+    expect(phase.sites.length).toBeGreaterThan(10);
+    expect(derivedSites(phase)).toHaveLength(0);
+    expect(literalSites(phase)).toHaveLength(phase.sites.length);
     expect(phase.binding.kind).toBe('unbound');
-    // The two entries that DO derive name the derivation, so "2 of 6" is a
-    // measured fact about the expression and not about the array's contents.
-    for (const site of derivedSites(phase)) {
-      expect(site.expression).toContain('modelEmittedOnly(getRegisteredEventTypes(');
+    const declared = new Set(phase.sites.map((s) => s.subject));
+    for (const expected of Object.values(PHASE_EXPECTED_EVENTS).flat()) {
+      expect(declared.has(expected), `${expected} is a declared row`).toBe(true);
     }
-    // …and the source keys are exactly the runtime object's keys, so the parse
-    // is measuring the constant the program actually uses.
-    expect(phase.sites.map((s) => s.subject)).toEqual(Object.keys(PHASE_EXPECTED_EVENTS));
-
-    // ── 3. Emission rows — every site baked ─────────────────────────────────
     const emissionRows = representation(catalog, EVENT_CATALOG_REPRESENTATION_IDS.emissions);
     expect(emissionRows.sites.length).toBeGreaterThan(0);
     expect(derivedSites(emissionRows)).toHaveLength(0);
@@ -353,8 +355,8 @@ describe('authority census — the event-catalog row, live', () => {
     // returns.
     expect(live.evaluatedRows).toBe(topologyRows().length);
     expect(tuplesFor(live, 'event-catalog')).toEqual([
-      `event-catalog | binding | missing | ${EVENT_CATALOG_REPRESENTATION_IDS.phaseExpectedEvents}`,
       `event-catalog | binding | missing | ${EVENT_CATALOG_REPRESENTATION_IDS.prose}`,
+      `event-catalog | binding | missing | ${EVENT_CATALOG_REPRESENTATION_IDS.phaseExpectedEvents}`,
       `event-catalog | binding | missing | ${EVENT_CATALOG_REPRESENTATION_IDS.emissions}`,
     ]);
     expect(live.ok).toBe(false);
@@ -365,8 +367,8 @@ describe('authority census — the event-catalog row, live', () => {
     // it, because relabelling it here and not there would launder the finding
     // out of half the table while every per-row count stayed put — which task
     // 025 added the cross-row `ambiguous` arm to catch.
-    const carriers = live.findings.filter((f) =>
-      f.subject.startsWith('PHASE_EXPECTED_EVENTS'),
+    const carriers = live.findings.filter(
+      (f) => f.subject === EVENT_CATALOG_REPRESENTATION_IDS.phaseExpectedEvents,
     );
     expect(carriers.map((f) => f.boundary).sort()).toEqual(['event-catalog', 'phase-sequencing']);
     expect(carriers.map((f) => f.kind)).toEqual(['missing', 'missing']);
@@ -377,34 +379,30 @@ describe('authority census — the event-catalog row, live', () => {
     // measured "a derivation exists" it would go green here; it must not,
     // because G5 is a claim about the population. This is the control that
     // separates measuring the fact from measuring the presence of a check.
+    // All but one row computed must NOT close the row — partial derivation is
+    // not a binding over the population.
     const onlyOneLeft = spliceSites(
       sources.phaseExpectedEvents,
-      literalSites(phase).slice(0, 3),
-      (site) => `modelEmittedOnly(getRegisteredEventTypes('${site.subject}'))`,
+      literalSites(phase).slice(0, -1),
+      (site) => `eventFor('${site.subject}')`,
     );
-    const fiveOfSix = measureEventCatalog({ ...sources, phaseExpectedEvents: onlyOneLeft });
+    const allButOne = measureEventCatalog({ ...sources, phaseExpectedEvents: onlyOneLeft });
     const stillOpen = representation(
-      fiveOfSix,
+      allButOne,
       EVENT_CATALOG_REPRESENTATION_IDS.phaseExpectedEvents,
     );
-    expect(derivedSites(stillOpen)).toHaveLength(5);
+    expect(derivedSites(stillOpen)).toHaveLength(phase.sites.length - 1);
     expect(literalSites(stillOpen)).toHaveLength(1);
     expect(stillOpen.binding.kind).toBe('unbound');
     expect(
-      tuplesFor(runAuthorityCensus(liveTopology([fiveOfSix])), 'event-catalog'),
+      tuplesFor(runAuthorityCensus(liveTopology([allButOne])), 'event-catalog'),
     ).toContain(
       `event-catalog | binding | missing | ${EVENT_CATALOG_REPRESENTATION_IDS.phaseExpectedEvents}`,
     );
-
-    // ── 8. SENSITIVITY CONTROL B — the row closes when the tree changes ──────
-    // All six entries derived, every emission row's event computed, and the prose
-    // no longer naming any registered event. The measurement then reports a
-    // closed boundary, which is what makes the red above a fact about the tree
-    // rather than a hard-coded verdict.
     const allDerived = spliceSites(
       sources.phaseExpectedEvents,
       literalSites(phase),
-      (site) => `modelEmittedOnly(getRegisteredEventTypes('${site.subject}'))`,
+      (site) => `eventFor('${site.subject}')`,
     );
     const emissionsDerived = spliceSites(
       sources.emissions,
@@ -608,7 +606,7 @@ describe('authority census — the live proof fails closed', () => {
     // wholesale would claim live evidence for all eight rows when only the
     // measured ones have any. These rows, and only these, have a measurement
     // that reads the tree.
-    const LIVE = ['cli-surface', 'effect-event', 'event-catalog'];
+    const LIVE = ['cli-surface', 'effect-event', 'event-catalog', 'phase-events'];
     expect([...liveMeasuredBoundaries()].sort()).toEqual(LIVE);
     for (const boundary of topologyRows().map((r) => r.boundary)) {
       if (!LIVE.includes(boundary)) continue;
@@ -656,6 +654,7 @@ describe('authority census — the live proof fails closed', () => {
           ...GOVERNED_SOURCES,
           ...Object.values(EVENT_CATALOG_SOURCES),
           ...Object.values(EFFECT_EVENT_SOURCES),
+          ...Object.values(PHASE_EVENTS_SOURCES).flat(),
         ]),
       ].sort(),
     );
@@ -664,11 +663,13 @@ describe('authority census — the live proof fails closed', () => {
       measureCliSurfaceLive(),
       measureEventCatalog(readEventCatalogSources()),
       measureEffectEvent(readEffectEventSources()),
+      measurePhaseEventsLive(),
     ];
     expect(measured.map((m) => m.boundary).sort()).toEqual([
       'cli-surface',
       'effect-event',
       'event-catalog',
+      'phase-events',
     ]);
 
     // The live report and the committed report agree, finding for finding, over
@@ -773,5 +774,274 @@ describe('authority census — the live proof fails closed', () => {
     expect(() => measureEffectEvent({ ...sources, carrier: gutted })).toThrow(
       /ZERO .*UnrecordedEmissionError/,
     );
+  });
+});
+
+describe('authority census — the phase-events row, live', () => {
+  it('AuthorityCensus_PhaseEventsRow_DerivedSurfacesAreBoundAndProseIsNot', () => {
+    const sources = readPhaseEventsSources();
+    const measured = measurePhaseEvents(sources);
+
+    // The authority: every declared row names its event as a literal.
+    const authority = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.authority);
+    expect(authority.sites.length).toBeGreaterThan(10);
+    expect(derivedSites(authority)).toHaveLength(0);
+
+    // The gate tables: both computed from the contract.
+    const gate = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.gate);
+    expect(gate.sites.map((s) => s.subject).sort()).toEqual([...GATE_TABLES].sort());
+    expect(literalSites(gate)).toHaveLength(0);
+    expect(gate.binding.kind).toBe('bound');
+
+    // The playbooks: every `events` / `autoEmittedEvents` row computed.
+    const playbooks = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.playbooks);
+    expect(playbooks.sites.length).toBeGreaterThan(30);
+    expect(literalSites(playbooks)).toHaveLength(0);
+    expect(playbooks.binding.kind).toBe('bound');
+
+    // The prose: authored, counted, unbound.
+    const prose = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.prose);
+    expect(prose.sites.length).toBeGreaterThan(0);
+    expect(prose.binding.kind).toBe('unbound');
+
+    // The census over the live row: open on the prose alone. The row enforces
+    // from wave-5, so at the default wave the finding is reported, not blocking.
+    const live = runAuthorityCensus(liveTopology([measured]));
+    expect(live.totality.ok).toBe(true);
+    expect(tuplesFor(live, 'phase-events')).toEqual([
+      `phase-events | binding | missing | ${PHASE_EVENTS_REPRESENTATION_IDS.prose}`,
+    ]);
+    expect(live.blocking.filter((f) => f.boundary === 'phase-events')).toHaveLength(0);
+    const atWave5 = runAuthorityCensus(liveTopology([measured]), { atWave: 'wave-5' });
+    expect(atWave5.blocking.filter((f) => f.boundary === 'phase-events')).toHaveLength(1);
+    expect(
+      live.findings.filter((f) => f.boundary === 'phase-events' && f.hop === 'enforcement'),
+    ).toEqual([]);
+  });
+
+  it('AuthorityCensus_PhaseEventsRow_ASeededBakedRowIsNamed', () => {
+    const sources = readPhaseEventsSources();
+    const measured = measurePhaseEvents(sources);
+    const playbooks = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.playbooks);
+    const gate = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.gate);
+
+    // One playbook row written back as a literal array reopens the binding.
+    const [firstRow] = playbooks.sites;
+    expect(firstRow).toBeDefined();
+    if (firstRow === undefined) return;
+    const bakedPlaybooks = spliceSites(
+      sources.playbooks,
+      [firstRow],
+      () => "[{ type: 'team.spawned', when: 'seeded' }]",
+    );
+    const seeded = measurePhaseEvents({ ...sources, playbooks: bakedPlaybooks });
+    expect(representation(seeded, PHASE_EVENTS_REPRESENTATION_IDS.playbooks).binding.kind).toBe(
+      'unbound',
+    );
+    expect(tuplesFor(runAuthorityCensus(liveTopology([seeded])), 'phase-events')).toContain(
+      `phase-events | binding | missing | ${PHASE_EVENTS_REPRESENTATION_IDS.playbooks}`,
+    );
+
+    // A gate table written back as a literal reopens the binding.
+    const [gateSite] = gate.sites;
+    expect(gateSite).toBeDefined();
+    if (gateSite === undefined) return;
+    const bakedGate = spliceSites(sources.gate, [gateSite], () => '{}');
+    expect(
+      representation(
+        measurePhaseEvents({ ...sources, gate: bakedGate }),
+        PHASE_EVENTS_REPRESENTATION_IDS.gate,
+      ).binding.kind,
+    ).toBe('unbound');
+
+    // A renamed gate table fails closed rather than measuring nothing.
+    expect(() =>
+      measurePhaseEvents({
+        ...sources,
+        gate: sources.gate.split('PHASE_EXPECTED_EVENTS').join('PHASE_EXPECTED_EVENTS_RENAMED'),
+      }),
+    ).toThrow(/exports no constant named PHASE_EXPECTED_EVENTS/);
+  });
+
+  it('AuthorityCensus_PhaseEventsRow_ADerivedSiteNotComputedFromTheContractIsNamed', () => {
+    // "Not a literal" is not "bound": a conditional carrying a baked name, an
+    // unrelated helper, or the right projection imported from the wrong module
+    // each compute a value without reaching the contract. Each reads `opaque`
+    // and reopens the binding.
+    const sources = readPhaseEventsSources();
+    const measured = measurePhaseEvents(sources);
+    const [gateSite] = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.gate).sites;
+    const [playbookSite] = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.playbooks).sites;
+    expect(gateSite).toBeDefined();
+    expect(playbookSite).toBeDefined();
+    if (gateSite === undefined || playbookSite === undefined) return;
+
+    const conditionalGate = spliceSites(
+      sources.gate,
+      [gateSite],
+      () =>
+        "process.env['SEEDED'] === '1' ? { delegate: ['team.spawned'] } : " +
+        'expectedEventsByPhase(PHASE_EVENT_CONTRACTS)',
+    );
+    const seededGate = representation(
+      measurePhaseEvents({ ...sources, gate: conditionalGate }),
+      PHASE_EVENTS_REPRESENTATION_IDS.gate,
+    );
+    expect(seededGate.sites.filter((s) => s.kind === 'opaque').map((s) => s.subject)).toEqual([
+      gateSite.subject,
+    ]);
+    expect(seededGate.binding.kind).toBe('unbound');
+    expect(seededGate.binding.kind === 'unbound' ? seededGate.binding.why : '').toMatch(
+      /1 compute it through something the measurement does not recognise/,
+    );
+
+    const helperPlaybooks = spliceSites(sources.playbooks, [playbookSite], () => "seededRows('delegate')");
+    const seededHelper = measurePhaseEvents({ ...sources, playbooks: helperPlaybooks });
+    const helperRows = representation(seededHelper, PHASE_EVENTS_REPRESENTATION_IDS.playbooks);
+    expect(helperRows.sites.filter((s) => s.kind === 'opaque')).toHaveLength(1);
+    expect(helperRows.binding.kind).toBe('unbound');
+    expect(tuplesFor(runAuthorityCensus(liveTopology([seededHelper])), 'phase-events')).toContain(
+      `phase-events | binding | missing | ${PHASE_EVENTS_REPRESENTATION_IDS.playbooks}`,
+    );
+
+    const elsewhere = sources.playbooks.replace(
+      "from './topology/phase-events.js'",
+      "from './topology/phase-events-copy.js'",
+    );
+    expect(elsewhere).not.toBe(sources.playbooks);
+    const importedElsewhere = representation(
+      measurePhaseEvents({ ...sources, playbooks: elsewhere }),
+      PHASE_EVENTS_REPRESENTATION_IDS.playbooks,
+    );
+    // Every projection call is opaque now; only the serializer's copies of a row still bind.
+    expect(importedElsewhere.sites.filter((s) => s.kind === 'derived').length).toBeLessThan(4);
+    expect(importedElsewhere.sites.filter((s) => s.kind === 'opaque').length).toBeGreaterThan(60);
+    expect(importedElsewhere.binding.kind).toBe('unbound');
+  });
+
+  it('AuthorityCensus_PhaseEventsRow_AWrappedProjectionOrAForeignCopyIsOpaque', () => {
+    // The binder reads the WHOLE initializer, not its two ends. A projection
+    // call wrapped in a chain, a spread or a fallback carries whatever the
+    // wrapper adds; a same-named property read off anything but a playbook is
+    // a second table. Each such site reads `opaque` and reopens the binding,
+    // while the serializer's live copies — read off a `PhasePlaybook`
+    // parameter — stay `derived`.
+    const sources = readPhaseEventsSources();
+    const measured = measurePhaseEvents(sources);
+    const playbooks = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.playbooks);
+    const [projectionSite] = playbooks.sites.filter((s) => s.expression.startsWith('phaseEventInstructions('));
+    const copySites = playbooks.sites.filter((s) => s.expression.startsWith('playbook.'));
+    const [copySite] = copySites;
+    const [gateSite] = representation(measured, PHASE_EVENTS_REPRESENTATION_IDS.gate).sites;
+    expect(copySites.map((s) => s.kind)).toEqual(['derived', 'derived']);
+    expect(projectionSite).toBeDefined();
+    expect(copySite).toBeDefined();
+    expect(gateSite).toBeDefined();
+    if (projectionSite === undefined || copySite === undefined || gateSite === undefined) return;
+
+    const playbookRowsOf = (playbooksSource: string): MeasuredRepresentation =>
+      representation(
+        measurePhaseEvents({ ...sources, playbooks: playbooksSource }),
+        PHASE_EVENTS_REPRESENTATION_IDS.playbooks,
+      );
+    const opaqueLines = (rows: MeasuredRepresentation): readonly number[] =>
+      rows.sites.filter((s) => s.kind === 'opaque').map((s) => s.line);
+
+    for (const wrapped of [
+      "phaseEventInstructions('delegate').concat([{ type: 'team.spawned', when: 'seeded' }])",
+      "phaseEventInstructions(SEEDED) ?? phaseEventInstructions('delegate')",
+      "[...phaseEventInstructions('delegate'), { type: 'team.spawned', when: 'seeded' }]",
+      "phaseEventInstructions(seededPhaseFor('delegate'))",
+    ]) {
+      const rows = playbookRowsOf(spliceSites(sources.playbooks, [projectionSite], () => wrapped));
+      expect(opaqueLines(rows), wrapped).toEqual([projectionSite.line]);
+      expect(rows.binding.kind, wrapped).toBe('unbound');
+    }
+
+    for (const foreign of [
+      'LEGACY_ROWS.events.map(cloneEvent)',
+      'LEGACY_ROWS.events',
+      "playbook.events.map((e) => ({ ...e, type: 'team.spawned' }))",
+    ]) {
+      const rows = playbookRowsOf(spliceSites(sources.playbooks, [copySite], () => foreign));
+      expect(opaqueLines(rows), foreign).toEqual([copySite.line]);
+      expect(rows.binding.kind, foreign).toBe('unbound');
+    }
+
+    // The receiver IS a parameter, declared with another type: still not a measured row.
+    const retyped = sources.playbooks.replace(
+      '  playbook: PhasePlaybook,\n): SerializedPhasePlaybook {',
+      '  playbook: SerializedPhasePlaybook,\n): SerializedPhasePlaybook {',
+    );
+    expect(retyped).not.toBe(sources.playbooks);
+    expect([...opaqueLines(playbookRowsOf(retyped))].sort()).toEqual(copySites.map((s) => s.line).sort());
+
+    // A NAMED callback is resolved to its declaration and read: one that
+    // rewrites a field is not a clone, however clone-shaped its call site is.
+    // Declared on the SAME line so no site's line number shifts, and spliced
+    // from the original offsets before the declaration is inserted.
+    const rewriter = spliceSites(
+      sources.playbooks,
+      [copySite],
+      () => 'playbook.events.map(rewriteEvent)',
+    ).replace(
+      '  const cloneEvent =',
+      "  const rewriteEvent = (e) => ({ ...e, type: 'team.spawned' }); const cloneEvent =",
+    );
+    expect(rewriter).not.toBe(sources.playbooks);
+    const rewritten = playbookRowsOf(rewriter);
+    expect(opaqueLines(rewritten)).toEqual([copySite.line]);
+    expect(rewritten.binding.kind).toBe('unbound');
+
+    const spread = spliceSites(
+      sources.gate,
+      [gateSite],
+      () => "{ ...expectedEventsByPhase(PHASE_EVENT_CONTRACTS), delegate: ['team.spawned'] }",
+    );
+    const gateRows = representation(
+      measurePhaseEvents({ ...sources, gate: spread }),
+      PHASE_EVENTS_REPRESENTATION_IDS.gate,
+    );
+    expect(gateRows.sites.filter((s) => s.kind === 'opaque').map((s) => s.subject)).toEqual([gateSite.subject]);
+    expect(gateRows.binding.kind).toBe('unbound');
+  });
+
+  it('AuthorityCensus_PhaseEventsRow_APlaybookRowCallingTheOtherPropertysProjectionIsOpaque', () => {
+    // `events` instructs the model; `autoEmittedEvents` discloses what the
+    // runtime fires. A row that calls the other property's projection has
+    // swapped model-owned for runtime-owned semantics — the exact
+    // disagreement the contract ends — so each property binds through its own
+    // projection alone, not through a shared pool of both.
+    const sources = readPhaseEventsSources();
+    const playbooks = representation(
+      measurePhaseEvents(sources),
+      PHASE_EVENTS_REPRESENTATION_IDS.playbooks,
+    );
+    const [instructionSite] = playbooks.sites.filter((s) =>
+      s.expression.startsWith('phaseEventInstructions('),
+    );
+    const [disclosureSite] = playbooks.sites.filter((s) =>
+      s.expression.startsWith('phaseRuntimeEmissions('),
+    );
+    expect(instructionSite).toBeDefined();
+    expect(disclosureSite).toBeDefined();
+    if (instructionSite === undefined || disclosureSite === undefined) return;
+
+    for (const [site, swapped] of [
+      [instructionSite, "phaseRuntimeEmissions('delegate')"],
+      [disclosureSite, "phaseEventInstructions('delegate')"],
+    ] as const) {
+      const rows = representation(
+        measurePhaseEvents({
+          ...sources,
+          playbooks: spliceSites(sources.playbooks, [site], () => swapped),
+        }),
+        PHASE_EVENTS_REPRESENTATION_IDS.playbooks,
+      );
+      expect(rows.sites.filter((s) => s.kind === 'opaque').map((s) => s.line), swapped).toEqual([
+        site.line,
+      ]);
+      expect(rows.binding.kind, swapped).toBe('unbound');
+    }
   });
 });

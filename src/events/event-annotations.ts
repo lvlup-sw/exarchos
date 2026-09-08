@@ -917,9 +917,9 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
 
   // ── Workflow-local — a workflow definition's model-walked runbook step composes it ──
   //
-  // The other eighteen report-coupled registrations. `PHASE_EXPECTED_EVENTS`
-  // (`verbs/gates/check-event-emissions.ts`) is the independent authority: it maps model-emitted
-  // events to the phase that owns them, and its header records the reason they stay model-emitted
+  // The other eighteen report-coupled registrations. `PHASE_EVENT_CONTRACTS`
+  // (`workflow/topology/phase-events.ts`) is the independent authority: it maps model-emitted
+  // events to the phase that owns them, and the gate's header records the reason they stay model-emitted
   // — "their transition site is a model-walked runbook step bracketing a `native:` harness tool
   // (runbooks/definitions.ts) — there is no in-process handler seam to move the append into yet."
   //

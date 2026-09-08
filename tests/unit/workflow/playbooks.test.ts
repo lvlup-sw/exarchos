@@ -397,21 +397,25 @@ describe('listPlaybookWorkflowTypes', () => {
 // ─── DR-5: EventInstruction fields + compactGuidance describe hint ──────────
 
 describe('EventInstruction fields property', () => {
-  it('EventInstruction_GateExecuted_HasRequiredFields', () => {
+  it('EventInstruction_GateExecuted_IsDisclosedAsRuntimeEmittedNeverInstructed', () => {
+    // `gate.executed` is auto-emitted by the gates. The playbooks used to
+    // instruct the model to emit it in four phases; the phase event contract
+    // keeps it on the disclosure side, with the fields the schema requires.
     const playbooks = serializePlaybooks('feature');
-    // Find any phase with a gate.executed event
-    const phasesWithGateExecuted = Object.entries(playbooks.phases).filter(
-      ([, pb]) => pb.events.some((e) => e.type === 'gate.executed'),
+    const instructing = Object.entries(playbooks.phases).filter(([, pb]) =>
+      pb.events.some((e) => e.type === 'gate.executed'),
     );
-    expect(phasesWithGateExecuted.length).toBeGreaterThan(0);
-    for (const [, pb] of phasesWithGateExecuted) {
-      const gateEvent = pb.events.find((e) => e.type === 'gate.executed');
-      expect(gateEvent).toBeDefined();
-      expect((gateEvent as { fields?: readonly string[] }).fields).toBeDefined();
-      const fields = (gateEvent as { fields?: readonly string[] }).fields!;
-      expect(fields).toContain('gateName');
-      expect(fields).toContain('layer');
-      expect(fields).toContain('passed');
+    expect(instructing.map(([phase]) => phase)).toEqual([]);
+    const disclosing = Object.entries(playbooks.phases).filter(([, pb]) =>
+      (pb.autoEmittedEvents ?? []).some((e) => e.type === 'gate.executed'),
+    );
+    expect(disclosing.length).toBeGreaterThan(0);
+    for (const [, pb] of disclosing) {
+      const gateEvent = (pb.autoEmittedEvents ?? []).find((e) => e.type === 'gate.executed');
+      expect(gateEvent?.fields).toBeDefined();
+      expect(gateEvent?.fields).toContain('gateName');
+      expect(gateEvent?.fields).toContain('layer');
+      expect(gateEvent?.fields).toContain('passed');
     }
   });
 
@@ -493,15 +497,22 @@ describe('Review contract consistency across playbooks and tools.ts', () => {
   });
 });
 
-// ─── DR-6: review.completed in review phase playbook ─────────────────────────
+// ─── review.completed is not a playbook instruction ──────────────────────────
+//
+// The review playbook used to instruct the model to emit `review.completed`.
+// Measured before the phase event contract replaced the per-playbook rows:
+// nothing in `src/` emits it, the review skill never instructs it (verdicts
+// travel through `check_review_verdict`), and the gate never checked it — a
+// phantom instruction. Making it a checked expectation is a contract row plus
+// a skill instruction in one change, not a playbook row on its own.
 
 describe('review.completed in review phase', () => {
-  it('ReviewPlaybook_Events_IncludesReviewCompleted', () => {
+  it('ReviewPlaybook_Events_DoNotInstructReviewCompleted', () => {
     const playbooks = serializePlaybooks('feature');
     const reviewPhase = playbooks.phases['review'];
     expect(reviewPhase).toBeDefined();
-    const hasReviewCompleted = reviewPhase.events.some((e) => e.type === 'review.completed');
-    expect(hasReviewCompleted).toBe(true);
+    expect(reviewPhase?.events.map((e) => e.type)).not.toContain('review.completed');
+    expect(reviewPhase?.events.length).toBeGreaterThan(0);
   });
 });
 
@@ -776,25 +787,12 @@ describe('T6: autoEmittedEvents sibling field (#1227)', () => {
     ).toEqual([]);
   });
 
-  it('AutoEmittedEvents_SoTConsistency_ThrowsOnMissingMetadata', async () => {
-    // If a new auto-source event sneaks into the SoT registry without a
-    // corresponding DELEGATE_PHASE_AUTO_EVENT_METADATA entry, module load
-    // must throw — mirroring the existing model-event SoT check. Simulate
-    // by stubbing getRegisteredEventTypes to include an auto-source event
-    // that has no metadata entry (`workflow.cleanup`).
-    vi.resetModules();
-    vi.doMock('../../../src/projections/rehydration/reducer.js', () => ({
-      getRegisteredEventTypes: (phase: string) =>
-        phase === 'delegate' || phase === 'overhaul-delegate'
-          ? ['task.assigned', 'task.completed', 'task.failed', 'workflow.cleanup']
-          : [],
-    }));
-    await expect(import('../../../src/workflow/playbooks.js')).rejects.toThrow(
-      /DELEGATE_PHASE_AUTO_EVENT_METADATA/,
-    );
-    vi.doUnmock('../../../src/projections/rehydration/reducer.js');
-    vi.resetModules();
-  });
+  // The old load-time proof here stubbed the reducer's event list to smuggle an
+  // auto-source event past the playbook's metadata map. Both surfaces derive
+  // from the phase event contract now; the refusal — a disclosed event that is
+  // not `auto`-sourced, an expected one that is not `model`-sourced — fires
+  // where the contract loads and is proven with a seeded registry in
+  // `tests/unit/workflow/topology/phase-events.test.ts`.
 
   it('PhaseEvents_OverhaulDelegatePhase_ExposesAutoEmittedEvents', () => {
     const playbook = getPlaybook('refactor', 'overhaul-delegate')!;

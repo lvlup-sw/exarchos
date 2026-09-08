@@ -365,7 +365,7 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
           // deriving the list from the oracle's own sources rather than restating it.
           'src/events/event-annotations.ts',
           'src/registry/actions',
-          'src/verbs/gates/check-event-emissions.ts',
+          'src/workflow/topology/phase-events.ts',
           'content',
         ]),
       }),
@@ -387,11 +387,11 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
           // deriving the list from the oracle's own sources rather than restating it.
           'src/events/event-annotations.ts',
           'src/registry/actions',
-          'src/verbs/gates/check-event-emissions.ts',
+          'src/workflow/topology/phase-events.ts',
           'content',
         ]),
       }),
-      why: 'each of the three non-authoritative representations is classified from its own source — including the PARTIAL binding of `PHASE_EXPECTED_EVENTS` (2 of 6 entries derived), which is exactly the fact a transcribed row rounds off.',
+      why: 'each of the three non-authoritative representations is classified from its own source — including every declared row of `PHASE_EVENT_CONTRACTS`, whose event names are baked by design and validated at load, which is exactly the distinction a transcribed row rounds off.',
     }),
     enforcement: Object.freeze({
       boundary: 'event-catalog',
@@ -401,6 +401,48 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
     }),
   }),
 
+  'phase-events': Object.freeze({
+    authority: Object.freeze({
+      boundary: 'phase-events',
+      hop: 'authority',
+      evidence: 'live-measurement',
+      oracle: Object.freeze({
+        module: 'tools/audit/core/authority-live-proof.ts',
+        entrypoint: 'measurePhaseEvents',
+        subjects: Object.freeze([
+          'src/workflow/topology/phase-events.ts',
+          'src/verbs/gates/check-event-emissions.ts',
+          'src/workflow/playbooks.ts',
+          'content/synthesis/skills/synthesize/SKILL.md',
+          'content/delivery/skills/delegate/SKILL.md',
+        ]),
+      }),
+      why: 'the contract is read from its own declaration — every row carrying a `type` and a `when` — so the single authority is measured off the tree, not asserted.',
+    }),
+    binding: Object.freeze({
+      boundary: 'phase-events',
+      hop: 'binding',
+      evidence: 'live-measurement',
+      oracle: Object.freeze({
+        module: 'tools/audit/core/authority-live-proof.ts',
+        entrypoint: 'measurePhaseEvents',
+        subjects: Object.freeze([
+          'src/workflow/topology/phase-events.ts',
+          'src/verbs/gates/check-event-emissions.ts',
+          'src/workflow/playbooks.ts',
+          'content/synthesis/skills/synthesize/SKILL.md',
+          'content/delivery/skills/delegate/SKILL.md',
+        ]),
+      }),
+      why: 'the gate tables are classified by their exported initializers and every playbook `events` / `autoEmittedEvents` row by its initializer — computed from the contract or baked; the prose is counted, since Markdown carries no expressions.',
+    }),
+    enforcement: Object.freeze({
+      boundary: 'phase-events',
+      hop: 'enforcement',
+      evidence: 'not-applicable',
+      why: 'the row enforces from wave-5 as a `wave` claim — its prose representation is authored and only compared, so it makes no `already-enforced` claim — and the hop resolves nothing.',
+    }),
+  }),
   'phase-sequencing': Object.freeze({
     authority: Object.freeze({
       boundary: 'phase-sequencing',

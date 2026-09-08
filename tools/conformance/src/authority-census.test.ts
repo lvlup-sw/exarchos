@@ -600,6 +600,7 @@ describe('authority census — vocabulary', () => {
       'cli-surface',
       'effect-event',
       'event-catalog',
+      'phase-events',
     ]);
 
     const report = auditRowEvidence();
@@ -609,10 +610,10 @@ describe('authority census — vocabulary', () => {
     expect(report.rowCount).toBe(CONTRACT_BOUNDARIES.length);
     expect(report.entryCount).toBe(CONTRACT_BOUNDARIES.length * CENSUS_HOPS.length);
     expect(report.checkedRows).toBe(CONTRACT_BOUNDARIES.length);
-    expect(report.liveMeasured).toEqual(['cli-surface', 'effect-event', 'event-catalog']);
+    expect(report.liveMeasured).toEqual(['cli-surface', 'effect-event', 'event-catalog', 'phase-events']);
     expect(report.declaredOnly).toHaveLength(5);
     // 3 rows × 2 hops (authority + binding) carry the live class; nothing else.
-    expect(report.byClass['live-measurement']).toBe(6);
+    expect(report.byClass['live-measurement']).toBe(8);
     // Exactly one row claims `already-enforced`, so exactly one hop resolves
     // against a registered instrument.
     expect(report.byClass['registered-instrument']).toBe(1);
@@ -849,10 +850,11 @@ describe('authority census — the live topology', () => {
       'capability-posture | binding | missing | the INV-11 invariants-catalog text',
       'cli-surface | authority | ambiguous | cli-surface',
       'effect-event | binding | missing | the promotion record sink (`install/atomic-promotion.ts`)',
-      'event-catalog | binding | missing | PHASE_EXPECTED_EVENTS (`verbs/gates/check-event-emissions.ts`)',
       'event-catalog | binding | missing | skill prose naming events to emit',
+      'event-catalog | binding | missing | the PHASE_EVENT_CONTRACTS rows (`workflow/topology/phase-events.ts`)',
       'event-catalog | binding | missing | the registry emission rows',
-      'phase-sequencing | binding | missing | PHASE_EXPECTED_EVENTS (`verbs/gates/check-event-emissions.ts`)',
+      'phase-events | binding | missing | the skill passages that say what the gate checks',
+      'phase-sequencing | binding | missing | the PHASE_EVENT_CONTRACTS rows (`workflow/topology/phase-events.ts`)',
       'phase-sequencing | binding | missing | the phase playbooks',
       'response-shape | binding | missing | Envelope<T>',
       'response-shape | binding | missing | the runtime response payload',
@@ -863,9 +865,10 @@ describe('authority census — the live topology', () => {
     expect(report.ok).toBe(false);
 
     // `action-contract` is the one row whose authority, bindings, and named
-    // instrument all hold. The other seven stay open.
+    // instrument all hold. The other eight stay open — `phase-events` on its
+    // prose representation alone.
     expect(report.closedBoundaries).toEqual(['action-contract']);
-    expect(report.openBoundaries).toHaveLength(7);
+    expect(report.openBoundaries).toHaveLength(8);
 
     // Denominators, reported and non-trivial (DR-30: "the denominator is
     // reported and ratcheted"), derived against the same independent
@@ -895,7 +898,7 @@ describe('authority census — the live topology', () => {
     // from, not three: its authority hop resolves (the plan's `emits` set is the
     // single authority) and one of its two representations is bound, so the
     // promotion sink is the only subject left to count.
-    expect(perWave.map((r) => r.blocking.length)).toEqual([4, 5, 8, 10, 13]);
+    expect(perWave.map((r) => r.blocking.length)).toEqual([4, 5, 8, 10, 14]);
     expect(perWave.map((r) => r.ok)).toEqual([false, false, false, false, false]);
 
     // Wave 1 counts exactly these — no wave-2+ subject leaks in early.
@@ -969,7 +972,7 @@ describe('authority census — the live topology', () => {
     // and is not — and 4 of its 6 phase entries are hand-written literals.
     // "A check exists" is not a binding, so the census must keep reporting it.
     const report = runAuthorityCensus();
-    const carriers = report.findings.filter((f) => f.subject.startsWith('PHASE_EXPECTED_EVENTS'));
+    const carriers = report.findings.filter((f) => f.subject.startsWith('the PHASE_EVENT_CONTRACTS rows'));
 
     expect(carriers.map((f) => f.boundary).sort()).toEqual(['event-catalog', 'phase-sequencing']);
     expect(carriers.map((f) => f.kind)).toEqual(['missing', 'missing']);
