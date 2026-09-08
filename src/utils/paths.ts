@@ -296,6 +296,15 @@ export const STORE_DB_FILENAME = 'exarchos.db';
 export const RUN_BUNDLE_DIRNAME = 'run-bundles';
 
 /**
+ * Evidence-artifact blobs live under this directory of the state dir. One
+ * constant because a reference carries no root: a blob written under one root
+ * and looked for under another is indistinguishable from a blob that was
+ * never written, and that is a difference the durable-evidence check has to
+ * be able to make.
+ */
+export const EVIDENCE_ARTIFACT_DIRNAME = 'admission-evidence';
+
+/**
  * Resolve the absolute event-store database path — the ONE resolver the CLI and
  * plugin MCP surfaces share (DR-11 B-5). Composes the state-dir cascade
  * ({@link resolveStateDir}) with {@link STORE_DB_FILENAME}, so a change to the

@@ -1,9 +1,11 @@
 import { TextDecoder } from 'node:util';
-import { z } from 'zod';
+import { join } from 'node:path';
 import {
   ContentAddressedStore,
   ContentAddressedStoreError,
+  type ContentAddressedStoreIo,
 } from '../../storage/artifacts/content-addressed-store.js';
+import { EVIDENCE_ARTIFACT_DIRNAME } from '../../utils/paths.js';
 import {
   canonicalizeEvidenceSubject,
   createEvidenceSubject,
@@ -14,8 +16,14 @@ import {
 } from './evidence-subject.js';
 import {
   ADMISSION_RUNTIME_CONTRACT_VERSION,
-  EvidenceSubjectV1Schema,
+  EvidenceArtifactReferenceV1Schema,
+  type EvidenceArtifactReferenceV1,
   type EvidenceSubjectV1,
+} from './types.js';
+
+export {
+  EvidenceArtifactReferenceV1Schema,
+  type EvidenceArtifactReferenceV1,
 } from './types.js';
 
 type ArtifactEvidenceSubjectV1 = Extract<
@@ -25,25 +33,6 @@ type ArtifactEvidenceSubjectV1 = Extract<
 type ArtifactEvidenceSubjectIdentityV1 = Omit<
   ArtifactEvidenceSubjectV1,
   'digest'
->;
-
-const ArtifactEvidenceSubjectV1Schema = EvidenceSubjectV1Schema.refine(
-  (subject): subject is ArtifactEvidenceSubjectV1 => subject.kind === 'artifact',
-  'evidence artifact references require an artifact subject',
-);
-
-export const EvidenceArtifactReferenceV1Schema = z
-  .object({
-    contractVersion: z.literal(ADMISSION_RUNTIME_CONTRACT_VERSION),
-    subject: ArtifactEvidenceSubjectV1Schema,
-    mediaType: z.string().trim().min(1).max(255),
-    byteLength: z.number().int().nonnegative(),
-  })
-  .strict()
-  .readonly();
-
-export type EvidenceArtifactReferenceV1 = z.infer<
-  typeof EvidenceArtifactReferenceV1Schema
 >;
 
 export type EvidenceArtifactErrorCode =
@@ -232,4 +221,37 @@ export async function resolveEvidenceArtifact(
   }
 
   return normalizeEvidenceSubjectContent(content);
+}
+
+/**
+ * Bind an artifact store to the evidence root of a state directory. The only
+ * construction production code may use: a reference names a digest and no
+ * root, so a producer and a reader that disagree about the root turn a
+ * present blob into an absent one.
+ */
+export function evidenceArtifactStore(
+  stateDir: string,
+  io?: ContentAddressedStoreIo,
+): ContentAddressedStore {
+  const root = join(stateDir, EVIDENCE_ARTIFACT_DIRNAME);
+  return io === undefined ? new ContentAddressedStore(root) : new ContentAddressedStore(root, io);
+}
+
+/**
+ * What the durable-evidence check needs of a blob source: the ability to say
+ * that one reference holds. It throws when the reference does not resolve; it
+ * never answers "probably".
+ */
+export interface EvidenceArtifactResolver {
+  resolve(reference: unknown): Promise<void>;
+}
+
+/** The production resolver for a state directory. */
+export function evidenceArtifactResolver(stateDir: string): EvidenceArtifactResolver {
+  const store = evidenceArtifactStore(stateDir);
+  return {
+    async resolve(reference: unknown): Promise<void> {
+      await resolveEvidenceArtifact(store, reference);
+    },
+  };
 }

@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1265,
-    "parsedFiles": 1220,
+    "testFiles": 1266,
+    "parsedFiles": 1221,
     "shellFiles": 45,
-    "cases": 13935,
-    "dynamicTitles": 150,
+    "cases": 13969,
+    "dynamicTitles": 151,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -4969,6 +4969,16 @@
         },
         {
           "suite": "durable action postcondition observation",
+          "name": "Postconditions_RowWithoutArtifactRefs_SatisfiesWithNoResolver",
+          "dynamic": false
+        },
+        {
+          "suite": "durable action postcondition observation",
+          "name": "Postconditions_ArtifactKindSubjectWithoutReference_IsSatisfied",
+          "dynamic": false
+        },
+        {
+          "suite": "durable action postcondition observation",
           "name": "Postconditions_ReplayedEvidenceWitness_DoesNotPass",
           "dynamic": false
         },
@@ -4980,6 +4990,41 @@
         {
           "suite": "durable action postcondition observation",
           "name": "Postconditions_FailureOutcome_ChecksFailureAndAlways",
+          "dynamic": false
+        },
+        {
+          "suite": "durable action postcondition observation — artifact-backed evidence",
+          "name": "Postconditions_ArtifactBackedCorpus_IsNotEmpty",
+          "dynamic": false
+        },
+        {
+          "suite": "durable action postcondition observation — artifact-backed evidence",
+          "name": "Postconditions_ArtifactRefsWithoutResolver_IsViolation",
+          "dynamic": false
+        },
+        {
+          "suite": "durable action postcondition observation — artifact-backed evidence",
+          "name": "Postconditions_ArtifactBlobDeleted_IsViolation",
+          "dynamic": false
+        },
+        {
+          "suite": "durable action postcondition observation — artifact-backed evidence",
+          "name": "Postconditions_ArtifactBlobTampered_IsViolation",
+          "dynamic": false
+        },
+        {
+          "suite": "durable action postcondition observation — artifact-backed evidence",
+          "name": "Postconditions_AnyIntactRowOfTheKind_Satisfies",
+          "dynamic": false
+        },
+        {
+          "suite": "durable action postcondition observation — artifact-backed evidence",
+          "name": "Postconditions_EveryRowUnresolved_IsViolationNamingEachBlob",
+          "dynamic": false
+        },
+        {
+          "suite": "durable action postcondition observation — artifact-backed evidence",
+          "name": "Postconditions_ArtifactBlobUnderAnotherRoot_IsViolation",
           "dynamic": false
         },
         {
@@ -4995,6 +5040,16 @@
         {
           "suite": "dispatch gates success on applicable ensures",
           "name": "Dispatch_HostOwned_DoesNotExecuteObligation",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch gates success on applicable ensures",
+          "name": "Dispatch_UnresolvableArtifactEvidence_BlocksSuccess",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch gates success on applicable ensures",
+          "name": "Dispatch_ResolvableArtifactEvidence_Succeeds",
           "dynamic": false
         },
         {
@@ -5874,6 +5929,72 @@
         {
           "suite": "EventEmissionsGate — nothing shipped decides on its verdict",
           "name": "EventEmissionsGate_SeededReaderDiscriminatingOnTheName_IsNamedAndAnImportIsNot",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/evidence-artifact-store-census.test.ts": {
+      "file": "tests/architecture/evidence-artifact-store-census.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "EvidenceStoreConstructionCensus — one root for evidence artifacts",
+          "name": "Census_ScannedPopulation_IsNotVacuous",
+          "dynamic": false
+        },
+        {
+          "suite": "EvidenceStoreConstructionCensus — one root for evidence artifacts",
+          "name": "Census_EveryProductionConstruction_IsOwned",
+          "dynamic": false
+        },
+        {
+          "suite": "EvidenceStoreConstructionCensus — one root for evidence artifacts",
+          "name": "Census_BothEvidenceProducers_BindToTheRootConstant",
+          "dynamic": false
+        },
+        {
+          "suite": "EvidenceStoreConstructionCensus — one root for evidence artifacts",
+          "name": "Census_SeededModuleOnDisk_IsWalkedAndNamed",
+          "dynamic": false
+        },
+        {
+          "suite": "EvidenceStoreConstructionCensus — one root for evidence artifacts",
+          "name": "Census_AliasedImportThroughTheBarrel_SplitAcrossLines_IsStillAConstruction",
+          "dynamic": false
+        },
+        {
+          "suite": "EvidenceStoreConstructionCensus — one root for evidence artifacts",
+          "name": "Census_NamespaceImportAndSubclass_AreValueUsesToo",
+          "dynamic": false
+        },
+        {
+          "suite": "EvidenceStoreConstructionCensus — one root for evidence artifacts",
+          "name": "Census_ImportThenExportBarrel_AliasedOrNot_IsADoorToo",
+          "dynamic": false
+        },
+        {
+          "suite": "EvidenceStoreConstructionCensus — one root for evidence artifacts",
+          "name": "Census_LongBarrelChainThroughACycle_IsFollowedToTheClass ($hops)",
+          "dynamic": false
+        },
+        {
+          "suite": "EvidenceStoreConstructionCensus — one root for evidence artifacts",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "EvidenceStoreConstructionCensus — one root for evidence artifacts",
+          "name": "Census_TextInStringsCommentsAndTypePositions_IsNotAUse",
+          "dynamic": false
+        },
+        {
+          "suite": "EvidenceStoreConstructionCensus — one root for evidence artifacts",
+          "name": "Census_TypeOnlyImport_BindsNothingAtAll",
+          "dynamic": false
+        },
+        {
+          "suite": "EvidenceStoreConstructionCensus — one root for evidence artifacts",
+          "name": "Census_NamespaceReExportedAndAliased_IsADoorToo",
           "dynamic": false
         }
       ]
@@ -51517,6 +51638,21 @@
           "dynamic": false
         },
         {
+          "suite": "handleExecuteIntent per-leaf ensures",
+          "name": "Executor_LeafArtifactEvidenceUnderAnotherRoot_HaltsWithEmissionContractViolated",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent per-leaf ensures",
+          "name": "Executor_LeafArtifactEvidenceUnderTheStateDir_Passes",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent per-leaf ensures",
+          "name": "Executor_PostconditionObservationThrows_HaltsInsteadOfEscaping",
+          "dynamic": false
+        },
+        {
           "suite": "handleExecuteIntent emission enforcement on a continue leaf",
           "name": "BlockMode_HaltsTheSegmentEvenThoughTheLeafIsAdvisory",
           "dynamic": false
@@ -53185,6 +53321,11 @@
         {
           "suite": "canonical evidence-producing gate runner",
           "name": "GateRunner_Report_IsContentAddressedAndExcludedFromEventPayload",
+          "dynamic": false
+        },
+        {
+          "suite": "canonical evidence-producing gate runner",
+          "name": "GateRunner_SameOperationRetry_ReDerivesArtifactRefFromThePersistedRow",
           "dynamic": false
         },
         {
@@ -66388,6 +66529,26 @@
           "suite": "content-addressed evidence artifacts",
           "name": "EvidenceArtifact_ConcurrentStores_ResolveToOneCanonicalArtifact",
           "dynamic": false
+        },
+        {
+          "suite": "content-addressed evidence artifacts",
+          "name": "EvidenceArtifactReference_SampledFromItsJsonSchema_ParsesUnderItself",
+          "dynamic": false
+        },
+        {
+          "suite": "content-addressed evidence artifacts",
+          "name": "EvidenceArtifactStore_ForStateDir_RootsUnderTheDirnameConstant",
+          "dynamic": false
+        },
+        {
+          "suite": "content-addressed evidence artifacts",
+          "name": "EvidenceArtifactResolver_Miss_Rejects",
+          "dynamic": false
+        },
+        {
+          "suite": "content-addressed evidence artifacts",
+          "name": "EvidenceArtifactResolver_Tampered_Rejects",
+          "dynamic": false
         }
       ]
     },
@@ -66479,6 +66640,21 @@
         {
           "suite": "EvidenceReader — empty store semantics",
           "name": "EvidenceReader_EmptyStore_ReportsNoEvidenceNotCleanEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "readPersistedEvidence — the observation the durable-evidence ensure reads",
+          "name": "EvidenceReader_RowWithNoArtifactRefs_ObservesEmptyList",
+          "dynamic": false
+        },
+        {
+          "suite": "readPersistedEvidence — the observation the durable-evidence ensure reads",
+          "name": "EvidenceReader_RowWithArtifactRefs_CarriesThemAndTheSubject",
+          "dynamic": false
+        },
+        {
+          "suite": "readPersistedEvidence — the observation the durable-evidence ensure reads",
+          "name": "EvidenceReader_RowWhoseReferenceNamesANonArtifactSubject_IsDropped",
           "dynamic": false
         }
       ]
