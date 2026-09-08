@@ -197,6 +197,10 @@ function reachesClass(
       if (follow(target, name)) return true;
       continue;
     }
+    // `export * as ns from '...'` binds a NAMESPACE OBJECT under `ns`, never
+    // the class itself, so it is not an answer to this question. It is still a
+    // door — `new ns.ContentAddressedStore()` through a named import of `ns` —
+    // and `namespaceExportTarget` below is the query that follows it.
     if (!ts.isNamedExports(statement.exportClause)) continue;
     for (const element of statement.exportClause.elements) {
       if (element.isTypeOnly || element.name.text !== name) continue;
@@ -204,6 +208,55 @@ function reachesClass(
     }
   }
   return false;
+}
+
+/**
+ * The module whose namespace is exported from `modulePath` under `name`, or
+ * `undefined` if that export is not a namespace.
+ *
+ * `export * as store from './content-addressed-store.js'` re-exports a
+ * namespace, so an importer writing `import { store }` and then
+ * `new store.ContentAddressedStore(root)` reaches the class without ever
+ * binding it by name. Followed through the same pass-through and rename
+ * shapes as the class query, and cut by a per-query visited set.
+ */
+function namespaceExportTarget(
+  modulePath: string,
+  name: string,
+  resolution: Resolution,
+  visited: Set<string>,
+): string | undefined {
+  const key = `${modulePath}::${name}`;
+  if (visited.has(key)) return undefined;
+  visited.add(key);
+
+  const sourceFile = parsedModule(modulePath, resolution);
+  for (const statement of sourceFile.statements) {
+    if (!ts.isExportDeclaration(statement) || statement.isTypeOnly) continue;
+    const specifier = statement.moduleSpecifier;
+    if (specifier === undefined || !ts.isStringLiteral(specifier)) continue;
+    const target = resolveSpecifier(modulePath, specifier.text);
+    if (target === undefined) continue;
+    const clause = statement.exportClause;
+    if (clause === undefined) {
+      // `export * from '...'` — the name passes through unchanged.
+      const found = namespaceExportTarget(target, name, resolution, visited);
+      if (found !== undefined) return found;
+      continue;
+    }
+    if (ts.isNamespaceExport(clause)) {
+      if (clause.name.text === name) return target;
+      continue;
+    }
+    if (!ts.isNamedExports(clause)) continue;
+    for (const element of clause.elements) {
+      if (element.isTypeOnly || element.name.text !== name) continue;
+      const upstream = (element.propertyName ?? element.name).text;
+      const found = namespaceExportTarget(target, upstream, resolution, visited);
+      if (found !== undefined) return found;
+    }
+  }
+  return undefined;
 }
 
 /** The value import that binds `local` in `sourceFile`: its resolved module and the name taken from it. */
@@ -231,8 +284,16 @@ function importBindingOf(
 interface ClassBindings {
   /** Local names that ARE the class (`import { ContentAddressedStore as X }`). */
   readonly direct: ReadonlySet<string>;
-  /** Local namespace names through which `<ns>.ContentAddressedStore` is the class. */
-  readonly namespaces: ReadonlySet<string>;
+  /**
+   * Local namespace names, each mapped to the module whose namespace it is.
+   *
+   * The MEMBER is resolved at the use site rather than here: the class can be
+   * re-exported from that module under any name, so `<ns>.ContentAddressedStore`
+   * is one door among many and `<ns>.Store` is the same door under an alias.
+   * Asking per member is also what lets this hold a namespace whose module
+   * turns out to export the class under no name at all — it simply answers no.
+   */
+  readonly namespaces: ReadonlyMap<string, string>;
 }
 
 function collectClassBindings(
@@ -242,7 +303,7 @@ function collectClassBindings(
   resolution: Resolution,
 ): ClassBindings {
   const direct = new Set<string>();
-  const namespaces = new Set<string>();
+  const namespaces = new Map<string, string>();
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement)) continue;
     const clause = statement.importClause;
@@ -253,9 +314,7 @@ function collectClassBindings(
     const bindings = clause.namedBindings;
     if (bindings === undefined) continue;
     if (ts.isNamespaceImport(bindings)) {
-      if (bindsClass(sourceDir, target, CLASS_NAME, resolution)) {
-        namespaces.add(bindings.name.text);
-      }
+      namespaces.set(bindings.name.text, target);
       continue;
     }
     for (const element of bindings.elements) {
@@ -263,21 +322,29 @@ function collectClassBindings(
       const imported = (element.propertyName ?? element.name).text;
       if (bindsClass(sourceDir, target, imported, resolution)) {
         direct.add(element.name.text);
+        continue;
       }
+      // Not the class under this name — but it may be a namespace the target
+      // re-exported, and the class may sit inside it.
+      const namespaceModule = namespaceExportTarget(target, imported, resolution, new Set());
+      if (namespaceModule !== undefined) namespaces.set(element.name.text, namespaceModule);
     }
   }
   return { direct, namespaces };
 }
 
 /** Whether `node` is the class, through a direct binding or a namespace member. */
-function isClassExpression(node: ts.Node, bindings: ClassBindings): boolean {
+function isClassExpression(
+  node: ts.Node,
+  bindings: ClassBindings,
+  sourceDir: string,
+  resolution: Resolution,
+): boolean {
   if (ts.isIdentifier(node)) return bindings.direct.has(node.text);
-  if (
-    ts.isPropertyAccessExpression(node) &&
-    ts.isIdentifier(node.expression) &&
-    node.name.text === CLASS_NAME
-  ) {
-    return bindings.namespaces.has(node.expression.text);
+  if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) {
+    const namespaceModule = bindings.namespaces.get(node.expression.text);
+    if (namespaceModule === undefined) return false;
+    return bindsClass(sourceDir, namespaceModule, node.name.text, resolution);
   }
   return false;
 }
@@ -366,13 +433,19 @@ export function scanEvidenceStoreConstructions(
       // A type position never constructs anything; the import statements
       // are the bindings themselves, not uses of them.
       if (ts.isTypeNode(node) || ts.isImportDeclaration(node)) return;
-      if (ts.isNewExpression(node) && isClassExpression(node.expression, bindings)) {
+      if (
+        ts.isNewExpression(node) &&
+        isClassExpression(node.expression, bindings, options.sourceDir, resolution)
+      ) {
         record(node, 'construct');
         // The class expression inside is this same use; do not report it twice.
         node.arguments?.forEach(visit);
         return;
       }
-      if (ts.isPropertyAccessExpression(node) && isClassExpression(node, bindings)) {
+      if (
+        ts.isPropertyAccessExpression(node) &&
+        isClassExpression(node, bindings, options.sourceDir, resolution)
+      ) {
         record(node, 'reference');
         return;
       }

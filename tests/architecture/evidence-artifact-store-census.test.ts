@@ -245,27 +245,77 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
     }
   });
 
-  it('Census_LongBarrelChainThroughACycle_IsFollowedToTheClass', async () => {
-    // Six hops, two of them a cycle. A hop budget answered "no class" past
-    // its bound, and memoised that answer under whichever module reached the
-    // node first — so the verdict depended on walk order. The visited set is
-    // per query: the cycle terminates and every hop is followed.
+  /** The six-hop chain, two hops of it a cycle, that every long-chain case walks. */
+  const BARREL_CHAIN: Readonly<Record<string, string>> = {
+    'b1.ts': "export * from './b2.js';\n",
+    'b2.ts': "export * from './b1.js';\nexport * from './b3.js';\n",
+    'b3.ts': "export * from './b4.js';\n",
+    'b4.ts': "export { ContentAddressedStore } from './b5.js';\n",
+    'b5.ts': "export { ContentAddressedStore } from './b6.js';\n",
+    'b6.ts': "export { ContentAddressedStore } from './storage/artifacts/content-addressed-store.js';\n",
+  };
+
+  // Each entry point gets its OWN tree and therefore its own scan. A single
+  // tree holding both would let the shorter walk settle `b3` first and the
+  // longer one return that memoised answer without walking its own hops, so a
+  // reintroduced depth bound would still pass here — and which walk ran first
+  // was never pinned anyway, because the scanner does not sort `readdirSync`.
+  // One caller per scan is what makes each of these a real measurement of the
+  // distance from that caller to the class.
+  it.each([
+    { entry: 'b1.js', hops: 'six hops through the cycle' },
+    { entry: 'b3.js', hops: 'four hops, past the cycle' },
+  ])(
+    'Census_LongBarrelChainThroughACycle_IsFollowedToTheClass ($hops)',
+    async ({ entry }) => {
+      const root = await seededTree({
+        ...BARREL_CHAIN,
+        'seeded-caller.ts': [
+          `import { ContentAddressedStore } from './${entry}';`,
+          'export const s = new ContentAddressedStore(root);',
+          '',
+        ].join('\n'),
+      });
+      try {
+        const seeded = scanEvidenceStoreConstructions(root, {
+          sourceDir: path.join(root, 'src'),
+          owners: [],
+        });
+        expect(seeded.unowned.map((site) => [site.file, site.kind])).toEqual([
+          ['src/seeded-caller.ts', 'construct'],
+        ]);
+      } finally {
+        await rm(root, { recursive: true });
+      }
+    },
+  );
+
+  it('Census_TextInStringsCommentsAndTypePositions_IsNotAUse', async () => {
+    // The false positives a line pattern produces and the compiler does not:
+    // the class name inside a string, inside a comment, and in a type
+    // annotation. None of these can construct.
+    //
+    // Each decoy module BINDS the class as a value and constructs it once.
+    // Without that, the scanner skips a module that binds nothing and the
+    // decoys are never read at all — the assertion would then pass because
+    // nothing looked, which is the same green as looking and judging right.
+    // The construction is the positive control: its site proves the module
+    // was walked, and its being the ONLY site proves the decoys beside it
+    // were judged and rejected.
     const root = await seededTree({
-      'b1.ts': "export * from './b2.js';\n",
-      'b2.ts': "export * from './b1.js';\nexport * from './b3.js';\n",
-      'b3.ts': "export * from './b4.js';\n",
-      'b4.ts': "export { ContentAddressedStore } from './b5.js';\n",
-      'b5.ts': "export { ContentAddressedStore } from './b6.js';\n",
-      'b6.ts': "export { ContentAddressedStore } from './storage/artifacts/content-addressed-store.js';\n",
-      'seeded-far.ts': [
-        "import { ContentAddressedStore } from './b1.js';",
+      'seeded-text.ts': [
+        "import { ContentAddressedStore } from './storage/artifacts/content-addressed-store.js';",
+        "export const decoy = 'new ContentAddressedStore(root)';",
+        '// new ContentAddressedStore(root)',
+        '/* new ContentAddressedStore(root) */',
         'export const s = new ContentAddressedStore(root);',
         '',
       ].join('\n'),
-      // Walked AFTER `seeded-far.ts` reached the class through b3: the
-      // answer for b3 must not have been settled as a negative on the way.
-      'seeded-near.ts': [
-        "import { ContentAddressedStore } from './b3.js';",
+      'seeded-type-position.ts': [
+        "import { ContentAddressedStore } from './storage/artifacts/content-addressed-store.js';",
+        'export function bind(store: ContentAddressedStore): ContentAddressedStore {',
+        '  return store;',
+        '}',
         'export const s = new ContentAddressedStore(root);',
         '',
       ].join('\n'),
@@ -275,26 +325,22 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
         sourceDir: path.join(root, 'src'),
         owners: [],
       });
-      expect(seeded.unowned.map((site) => [site.file, site.kind]).sort()).toEqual([
-        ['src/seeded-far.ts', 'construct'],
-        ['src/seeded-near.ts', 'construct'],
+      expect(seeded.scannedModuleCount).toBe(4);
+      expect(seeded.sites.map((site) => [site.file, site.line, site.kind]).sort()).toEqual([
+        ['src/seeded-text.ts', 5, 'construct'],
+        ['src/seeded-type-position.ts', 5, 'construct'],
       ]);
     } finally {
       await rm(root, { recursive: true });
     }
   });
 
-  it('Census_TextInStringsCommentsAndTypePositions_IsNotAUse', async () => {
-    // The false positives a line pattern produces and the compiler does not:
-    // the class name inside a string, inside a comment, and in a type-only
-    // import used purely as an annotation. None of these can construct.
+  it('Census_TypeOnlyImport_BindsNothingAtAll', async () => {
+    // Distinct from the case above: there the class is value-bound and the
+    // TYPE POSITIONS are rejected; here the only import is type-only, so the
+    // module binds no value and is skipped whole. Both readings have to hold,
+    // and only one of them can be shown per fixture.
     const root = await seededTree({
-      'seeded-text.ts': [
-        "export const s = 'new ContentAddressedStore(root)';",
-        '// new ContentAddressedStore(root)',
-        '/* new ContentAddressedStore(root) */',
-        '',
-      ].join('\n'),
       'seeded-type-only.ts': [
         "import type { ContentAddressedStore } from './storage/artifacts/content-addressed-store.js';",
         'export function bind(store: ContentAddressedStore): ContentAddressedStore {',
@@ -308,8 +354,48 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
         sourceDir: path.join(root, 'src'),
         owners: [],
       });
-      expect(seeded.scannedModuleCount).toBe(4);
+      expect(seeded.scannedModuleCount).toBe(3);
       expect(seeded.sites).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true });
+    }
+  });
+
+  it('Census_NamespaceReExportedAndAliased_IsADoorToo', async () => {
+    // Two namespace doors that spell neither the class name at the use site
+    // nor its directory at the import. `ns.Store` is the class under an alias
+    // inside a namespace; `viaNamed` is a namespace the barrel re-exported,
+    // reached by a NAMED import. A namespace binding that resolves the member
+    // eagerly against the class's own name sees neither.
+    const root = await seededTree({
+      'alias-barrel.ts': [
+        "export { ContentAddressedStore as Store } from './storage/artifacts/content-addressed-store.js';",
+        '',
+      ].join('\n'),
+      'namespace-barrel.ts': [
+        "export * as inner from './storage/artifacts/index.js';",
+        '',
+      ].join('\n'),
+      'seeded-namespace-alias.ts': [
+        "import * as ns from './alias-barrel.js';",
+        'export const s = new ns.Store(root);',
+        '',
+      ].join('\n'),
+      'seeded-namespace-through-named.ts': [
+        "import { inner } from './namespace-barrel.js';",
+        'export const t = new inner.ContentAddressedStore(root);',
+        '',
+      ].join('\n'),
+    });
+    try {
+      const seeded = scanEvidenceStoreConstructions(root, {
+        sourceDir: path.join(root, 'src'),
+        owners: [],
+      });
+      expect(seeded.unowned.map((site) => [site.file, site.kind]).sort()).toEqual([
+        ['src/seeded-namespace-alias.ts', 'construct'],
+        ['src/seeded-namespace-through-named.ts', 'construct'],
+      ]);
     } finally {
       await rm(root, { recursive: true });
     }

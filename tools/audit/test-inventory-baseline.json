@@ -7,8 +7,8 @@
     "testFiles": 1266,
     "parsedFiles": 1221,
     "shellFiles": 45,
-    "cases": 13966,
-    "dynamicTitles": 150,
+    "cases": 13969,
+    "dynamicTitles": 151,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -5974,12 +5974,27 @@
         },
         {
           "suite": "EvidenceStoreConstructionCensus — one root for evidence artifacts",
-          "name": "Census_LongBarrelChainThroughACycle_IsFollowedToTheClass",
+          "name": "Census_LongBarrelChainThroughACycle_IsFollowedToTheClass ($hops)",
           "dynamic": false
         },
         {
           "suite": "EvidenceStoreConstructionCensus — one root for evidence artifacts",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "EvidenceStoreConstructionCensus — one root for evidence artifacts",
           "name": "Census_TextInStringsCommentsAndTypePositions_IsNotAUse",
+          "dynamic": false
+        },
+        {
+          "suite": "EvidenceStoreConstructionCensus — one root for evidence artifacts",
+          "name": "Census_TypeOnlyImport_BindsNothingAtAll",
+          "dynamic": false
+        },
+        {
+          "suite": "EvidenceStoreConstructionCensus — one root for evidence artifacts",
+          "name": "Census_NamespaceReExportedAndAliased_IsADoorToo",
           "dynamic": false
         }
       ]
