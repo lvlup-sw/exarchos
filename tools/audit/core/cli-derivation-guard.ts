@@ -235,19 +235,17 @@ function readParseErrors(sourceFile: ts.SourceFile): { readonly count: number; r
  * fail-closed parse semantics (task 026's live authority proof reuses it). The
  * `label` prefixes the failure so the message still names the caller; it
  * defaults to this guard, so the existing behaviour and message are unchanged.
+ * `setParentNodes` is for a measurement that must walk UP from a site — to the
+ * scope that declared an identifier — and is off by default because the site
+ * extractors here only walk down.
  */
 export function parseOrThrow(
   source: string,
   fileName: string,
   label: string = 'cli-derivation-guard',
+  setParentNodes: boolean = false,
 ): ts.SourceFile {
-  const sourceFile = ts.createSourceFile(
-    fileName,
-    source,
-    ts.ScriptTarget.Latest,
-    /* setParentNodes */ false,
-    ts.ScriptKind.TS,
-  );
+  const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, setParentNodes, ts.ScriptKind.TS);
   const errors = readParseErrors(sourceFile);
   if (errors.count > 0) {
     throw new Error(
