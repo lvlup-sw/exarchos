@@ -7,7 +7,7 @@
     "testFiles": 1265,
     "parsedFiles": 1220,
     "shellFiles": 45,
-    "cases": 13934,
+    "cases": 13935,
     "dynamicTitles": 150,
     "unparseableFiles": 0
   },
@@ -77617,6 +77617,11 @@
         {
           "suite": "authority census — the phase-events row, live",
           "name": "AuthorityCensus_PhaseEventsRow_AWrappedProjectionOrAForeignCopyIsOpaque",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — the phase-events row, live",
+          "name": "AuthorityCensus_PhaseEventsRow_APlaybookRowCallingTheOtherPropertysProjectionIsOpaque",
           "dynamic": false
         }
       ]

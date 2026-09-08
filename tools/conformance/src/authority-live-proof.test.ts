@@ -976,6 +976,23 @@ describe('authority census — the phase-events row, live', () => {
     expect(retyped).not.toBe(sources.playbooks);
     expect([...opaqueLines(playbookRowsOf(retyped))].sort()).toEqual(copySites.map((s) => s.line).sort());
 
+    // A NAMED callback is resolved to its declaration and read: one that
+    // rewrites a field is not a clone, however clone-shaped its call site is.
+    // Declared on the SAME line so no site's line number shifts, and spliced
+    // from the original offsets before the declaration is inserted.
+    const rewriter = spliceSites(
+      sources.playbooks,
+      [copySite],
+      () => 'playbook.events.map(rewriteEvent)',
+    ).replace(
+      '  const cloneEvent =',
+      "  const rewriteEvent = (e) => ({ ...e, type: 'team.spawned' }); const cloneEvent =",
+    );
+    expect(rewriter).not.toBe(sources.playbooks);
+    const rewritten = playbookRowsOf(rewriter);
+    expect(opaqueLines(rewritten)).toEqual([copySite.line]);
+    expect(rewritten.binding.kind).toBe('unbound');
+
     const spread = spliceSites(
       sources.gate,
       [gateSite],
@@ -987,5 +1004,44 @@ describe('authority census — the phase-events row, live', () => {
     );
     expect(gateRows.sites.filter((s) => s.kind === 'opaque').map((s) => s.subject)).toEqual([gateSite.subject]);
     expect(gateRows.binding.kind).toBe('unbound');
+  });
+
+  it('AuthorityCensus_PhaseEventsRow_APlaybookRowCallingTheOtherPropertysProjectionIsOpaque', () => {
+    // `events` instructs the model; `autoEmittedEvents` discloses what the
+    // runtime fires. A row that calls the other property's projection has
+    // swapped model-owned for runtime-owned semantics — the exact
+    // disagreement the contract ends — so each property binds through its own
+    // projection alone, not through a shared pool of both.
+    const sources = readPhaseEventsSources();
+    const playbooks = representation(
+      measurePhaseEvents(sources),
+      PHASE_EVENTS_REPRESENTATION_IDS.playbooks,
+    );
+    const [instructionSite] = playbooks.sites.filter((s) =>
+      s.expression.startsWith('phaseEventInstructions('),
+    );
+    const [disclosureSite] = playbooks.sites.filter((s) =>
+      s.expression.startsWith('phaseRuntimeEmissions('),
+    );
+    expect(instructionSite).toBeDefined();
+    expect(disclosureSite).toBeDefined();
+    if (instructionSite === undefined || disclosureSite === undefined) return;
+
+    for (const [site, swapped] of [
+      [instructionSite, "phaseRuntimeEmissions('delegate')"],
+      [disclosureSite, "phaseEventInstructions('delegate')"],
+    ] as const) {
+      const rows = representation(
+        measurePhaseEvents({
+          ...sources,
+          playbooks: spliceSites(sources.playbooks, [site], () => swapped),
+        }),
+        PHASE_EVENTS_REPRESENTATION_IDS.playbooks,
+      );
+      expect(rows.sites.filter((s) => s.kind === 'opaque').map((s) => s.line), swapped).toEqual([
+        site.line,
+      ]);
+      expect(rows.binding.kind, swapped).toBe('unbound');
+    }
   });
 });

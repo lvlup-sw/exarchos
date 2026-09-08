@@ -1084,11 +1084,27 @@ export const GATE_TABLE_PROJECTIONS: Readonly<Record<string, string>> = Object.f
 /** The two gate tables that must be computed from the contract. */
 export const GATE_TABLES: readonly string[] = Object.freeze(Object.keys(GATE_TABLE_PROJECTIONS));
 
-/** The contract projections a playbook row may call. */
-export const PLAYBOOK_PROJECTIONS: readonly string[] = Object.freeze([
-  'phaseEventInstructions',
-  'phaseRuntimeEmissions',
-]);
+/**
+ * Each playbook property and the ONE contract projection that may compute it.
+ * Not a shared pool: `events` instructs the model and `autoEmittedEvents`
+ * discloses what the runtime fires, and a row that calls the other one's
+ * projection has swapped model-owned for runtime-owned semantics — which is
+ * the disagreement the contract exists to end, not a bound representation.
+ */
+export const PLAYBOOK_PROPERTY_PROJECTIONS: Readonly<Record<string, string>> = Object.freeze({
+  events: 'phaseEventInstructions',
+  autoEmittedEvents: 'phaseRuntimeEmissions',
+});
+
+/** The playbook properties the contract must compute. */
+export const PLAYBOOK_PROPERTIES: readonly string[] = Object.freeze(
+  Object.keys(PLAYBOOK_PROPERTY_PROJECTIONS),
+);
+
+/** The contract projections a playbook row may call, across all properties. */
+export const PLAYBOOK_PROJECTIONS: readonly string[] = Object.freeze(
+  Object.values(PLAYBOOK_PROPERTY_PROJECTIONS),
+);
 
 /** The names `file` imports, by name, from a module whose specifier ends with `moduleSuffix`. */
 export function namedImportsFrom(source: string, file: string, moduleSuffix: string): ReadonlySet<string> {
@@ -1169,12 +1185,122 @@ function copiesMeasuredRow(node: ts.Expression, copies: RowCopyShape): boolean {
     read.expression.name.text === 'map'
   ) {
     const [clone] = read.arguments;
-    if (read.arguments.length !== 1 || clone === undefined || !ts.isIdentifier(clone)) return false;
+    if (read.arguments.length !== 1 || clone === undefined || !clonesRowsUnchanged(clone)) return false;
     read = read.expression.expression;
   }
   if (!ts.isPropertyAccessExpression(read) || read.name.text !== copies.property) return false;
   if (!ts.isIdentifier(read.expression)) return false;
   return declaredTypeOf(read.expression) === copies.receiverType;
+}
+
+/**
+ * Whether a `.map()` callback hands every row back with its event facts
+ * intact. A copy is only a copy if nothing is rewritten on the way through:
+ * a callback free to set `type` or `when` is a second author of the phase →
+ * event facts wearing the shape of a clone, and the census would report the
+ * rewritten rows as bound to the contract they no longer agree with.
+ *
+ * Accepted, and nothing else: a one-parameter arrow or function expression
+ * returning an object literal whose every element is a spread — of the
+ * parameter itself, or of a guarded object literal that only re-copies the
+ * parameter's own same-named property (`e.fields !== undefined && { fields:
+ * [...e.fields] }`, the deep-copy the live serializer does). A named callback
+ * is resolved to its declaration first; one that resolves to nothing readable
+ * is not a clone.
+ */
+function clonesRowsUnchanged(callback: ts.Expression): boolean {
+  const declared = unwrapParentheses(callback);
+  const fn = ts.isIdentifier(declared) ? declaredValueOf(declared) : declared;
+  if (fn === undefined) return false;
+  if (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) return false;
+  const [parameter] = fn.parameters;
+  if (fn.parameters.length !== 1 || parameter === undefined || !ts.isIdentifier(parameter.name)) {
+    return false;
+  }
+  const row = parameter.name.text;
+  const returned = returnedExpression(fn.body);
+  if (returned === undefined || !ts.isObjectLiteralExpression(returned)) return false;
+  return returned.properties.every(
+    (property) => ts.isSpreadAssignment(property) && spreadKeepsRow(property.expression, row),
+  );
+}
+
+/** The single expression a body evaluates to — `=> expr`, or a block whose only statement returns one. */
+function returnedExpression(body: ts.ConciseBody): ts.Expression | undefined {
+  if (!ts.isBlock(body)) return unwrapParentheses(body);
+  const [statement] = body.statements;
+  if (body.statements.length !== 1 || statement === undefined || !ts.isReturnStatement(statement)) {
+    return undefined;
+  }
+  return statement.expression === undefined ? undefined : unwrapParentheses(statement.expression);
+}
+
+/** `...row`, or `...(<guard> && { k: <reads row.k> })` — a spread that adds nothing of its own. */
+function spreadKeepsRow(expression: ts.Expression, row: string): boolean {
+  const node = unwrapParentheses(expression);
+  if (ts.isIdentifier(node)) return node.text === row;
+  const guarded = ts.isBinaryExpression(node)
+    ? unwrapParentheses(node.right)
+    : ts.isConditionalExpression(node)
+      ? unwrapParentheses(node.whenTrue)
+      : undefined;
+  if (guarded === undefined || !ts.isObjectLiteralExpression(guarded)) return false;
+  return guarded.properties.every(
+    (property) =>
+      ts.isPropertyAssignment(property) &&
+      ts.isIdentifier(property.name) &&
+      readsRowProperty(property.initializer, row, property.name.text),
+  );
+}
+
+/** `row.k` or `[...row.k]` under the key `k`: the same field, copied, never renamed or replaced. */
+function readsRowProperty(initializer: ts.Expression, row: string, key: string): boolean {
+  const node = unwrapParentheses(initializer);
+  if (ts.isArrayLiteralExpression(node)) {
+    const [element] = node.elements;
+    return (
+      node.elements.length === 1 &&
+      element !== undefined &&
+      ts.isSpreadElement(element) &&
+      readsRowProperty(element.expression, row, key)
+    );
+  }
+  return (
+    ts.isPropertyAccessExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === row &&
+    node.name.text === key
+  );
+}
+
+/** The initializer of the nearest enclosing declaration of `identifier`, if it has one. */
+function declaredValueOf(identifier: ts.Identifier): ts.Expression | undefined {
+  requireParentPointers(identifier, 'declaredValueOf');
+  for (let scope: ts.Node | undefined = identifier.parent; scope !== undefined; scope = scope.parent) {
+    if (!ts.isBlock(scope) && !ts.isSourceFile(scope)) continue;
+    for (const statement of scope.statements) {
+      if (!ts.isVariableStatement(statement)) continue;
+      const declaration = statement.declarationList.declarations.find(
+        (d) => ts.isIdentifier(d.name) && d.name.text === identifier.text,
+      );
+      if (declaration !== undefined) {
+        return declaration.initializer === undefined
+          ? undefined
+          : unwrapParentheses(declaration.initializer);
+      }
+    }
+  }
+  return undefined;
+}
+
+/** Reading a scope off a parentless tree answers "nothing declares it" for every question. */
+function requireParentPointers(node: ts.Node, caller: string): void {
+  if (node.parent === undefined) {
+    throw new Error(
+      `${LABEL}: ${caller} needs a source parsed with parent pointers; the measurer that ` +
+        'produced this site parsed without them, so no declaration could ever resolve.',
+    );
+  }
 }
 
 /**
@@ -1186,12 +1312,7 @@ function copiesMeasuredRow(node: ts.Expression, copies: RowCopyShape): boolean {
  * rather than reading "no enclosing scope" off a tree that has no parents.
  */
 function declaredTypeOf(identifier: ts.Identifier): string | undefined {
-  if (identifier.parent === undefined) {
-    throw new Error(
-      `${LABEL}: declaredTypeOf needs a source parsed with parent pointers; the measurer that ` +
-        'produced this site parsed without them, so no receiver could ever resolve.',
-    );
-  }
+  requireParentPointers(identifier, 'declaredTypeOf');
   for (let scope: ts.Node | undefined = identifier.parent; scope !== undefined; scope = scope.parent) {
     if (ts.isFunctionLike(scope)) {
       const parameter = scope.parameters.find(
@@ -1253,13 +1374,15 @@ export function measurePhaseEvents(sources: PhaseEventsSources): MeasuredBoundar
     PHASE_EVENTS_SOURCES.playbooks,
     CONTRACT_MODULE_SUFFIX,
   );
-  const playbookProjections: ReadonlySet<string> = new Set(
-    PLAYBOOK_PROJECTIONS.filter((name) => playbookImports.has(name)),
-  );
-  const playbookSites = ['events', 'autoEmittedEvents'].flatMap((property) =>
+  const playbookSites = PLAYBOOK_PROPERTIES.flatMap((property) =>
     measurePropertyAssignments(sources.playbooks, PHASE_EVENTS_SOURCES.playbooks, property, (initializer) =>
       bindThroughProjection(initializer, {
-        projections: playbookProjections,
+        // This property's own projection, and only if the file imports it.
+        projections: new Set(
+          [PLAYBOOK_PROPERTY_PROJECTIONS[property]].filter(
+            (name): name is string => name !== undefined && playbookImports.has(name),
+          ),
+        ),
         copies: { property, receiverType: PLAYBOOK_TYPE },
       }),
     ),
