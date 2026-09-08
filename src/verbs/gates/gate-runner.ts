@@ -1,8 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import type {
-  ContentAddressedStore,
-} from '../../storage/artifacts/content-addressed-store.js';
+import type { ContentAddressedStore } from '../../storage/artifacts/content-addressed-store.js';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
 import type { EventStore } from '../../events/store.js';
 import {
