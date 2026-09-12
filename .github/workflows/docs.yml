@@ -21,10 +21,17 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  # Resolves the @lvlup-sw scope from GitHub Packages (see .npmrc).
+  packages: read
 
 concurrency:
   group: pages
   cancel-in-progress: false
+
+env:
+  # Authenticates the @lvlup-sw scope against GitHub Packages (see .npmrc).
+  # Deliberately not NODE_AUTH_TOKEN, which setup-node binds to npmjs.org.
+  GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   build:

@@ -4,6 +4,11 @@ on:
   pull_request:
     types: [synchronize, opened, reopened]
 
+env:
+  # Authenticates the @lvlup-sw scope against GitHub Packages (see .npmrc).
+  # Deliberately not NODE_AUTH_TOKEN, which setup-node binds to npmjs.org.
+  GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 jobs:
   benchmark:
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'

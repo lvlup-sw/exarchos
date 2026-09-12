@@ -7,6 +7,9 @@
   "bin": {
     "exarchos-release-verify": "dist/release-verify.js"
   },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
   "files": [
     "dist/bin",
     "dist/release-verify.js",

@@ -23,6 +23,9 @@ on:
 # no dependency on that download path.
 env:
   npm_config_build_from_source: 'true'
+  # Authenticates the @lvlup-sw scope against GitHub Packages (see .npmrc).
+  # Deliberately not NODE_AUTH_TOKEN, which setup-node binds to npmjs.org.
+  GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   eval-regression:
