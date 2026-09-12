@@ -798,10 +798,10 @@
     "rationale": "Consumed by the install-skills bridge at src/lifecycle/install-skills-bridge.js via the .js → .ts re-export shim at src/install/runtimes/load.js (NodeNext contract: the bridge is .js to keep tsc (allowJs: false) away while bun's --compile bundler still follows its imports). knip does not follow the shim's re-export chain back into the bridge's .js importer and reports this symbol as unreferenced. The bridge is the only live consumer; delete this exemption when the bridge moves to a .ts source (the matching tsconfig exclude + bridge-as-ts plan tracked in the PR body)."
   },
   {
-    "symbol": "@lvlup-sw/strategos-contracts",
-    "file": "package.json",
+    "symbol": "src/contract/capsule/exarchos-capsule-schema-cli.ts",
+    "file": "src/contract/capsule/exarchos-capsule-schema-cli.ts",
     "owner": "@reedsalus",
     "expires": "2026-11-30",
-    "rationale": "Pinned, deliberately not imported yet. It DOES have a consumer knip cannot see: extractStrategosContractsSpec (src/contract/authority-collector.ts) reads this spec by name out of package.json TEXT to stamp the strategos-contracts authority version — a string read, never an import. The seam that would import it stays shut because the published InvariantEntry and CheckNode reject both live invariant catalogs, Strategos's own included (lvlup-sw/strategos#231, due in Contracts 0.15.0). Retire this row when the first real import lands — the gate reports a stale allowlist entry, so it names itself."
+    "rationale": "Script-invoked generator for the capsule JSON Schema artifact — reached by `npx tsx`, never by import, which knip cannot see. Same shape and same expiry as the admission-ir-schema-cli row above it. Re-home under knip entry config at expiry, or delete with the capsule contract if it is abandoned."
   }
 ]

@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1267,
-    "parsedFiles": 1222,
+    "testFiles": 1271,
+    "parsedFiles": 1226,
     "shellFiles": 45,
-    "cases": 13982,
-    "dynamicTitles": 154,
+    "cases": 14030,
+    "dynamicTitles": 159,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -19093,6 +19093,200 @@
         {
           "suite": "verifyBindings — exit proof: missing/duplicate/stale/non-function fail BEFORE startup (P03-04)",
           "name": "CleanVerdict_ReportsGreenLight_WithNoViolations",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/contract/capsule/capsule-references.test.ts": {
+      "file": "tests/unit/contract/capsule/capsule-references.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "capsule reference integrity",
+          "name": "CapsuleReferences_TheBaseFixture_IsSound",
+          "dynamic": false
+        },
+        {
+          "suite": "capsule reference integrity",
+          "name": "CapsuleReferences_TheBaseFixtureAgainstItsDefinition_IsSound",
+          "dynamic": false
+        },
+        {
+          "suite": "capsule reference integrity",
+          "name": "CapsuleReferences_IsStructurallyValid_$name",
+          "dynamic": false
+        },
+        {
+          "suite": "capsule reference integrity",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "capsule reference integrity",
+          "name": "CapsuleReferences_IsNamedByTheResolver_$name",
+          "dynamic": false
+        },
+        {
+          "suite": "capsule reference integrity",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "capsule reference integrity",
+          "name": "CapsuleReferences_EveryDeclaredKind_HasAFixture",
+          "dynamic": false
+        },
+        {
+          "suite": "capsule reference integrity",
+          "name": "CapsuleReferences_ManyBrokenReferences_AreAllReported",
+          "dynamic": false
+        },
+        {
+          "suite": "capsule reference integrity",
+          "name": "CapsuleReferences_OneCycle_IsReportedOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "capsule reference integrity",
+          "name": "CapsuleReferences_ADanglingEndpoint_IsNotAlsoReportedAsACycle",
+          "dynamic": false
+        },
+        {
+          "suite": "capsule reference integrity",
+          "name": "CapsuleReferences_WithNoDefinitionSupplied_StepRefsAreNotResolved",
+          "dynamic": false
+        },
+        {
+          "suite": "capsule reference integrity",
+          "name": "CapsuleReferences_AnUnsoundDefinition_SuppressesStepResolution",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/contract/capsule/exarchos-capsule-schema.test.ts": {
+      "file": "tests/unit/contract/capsule/exarchos-capsule-schema.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the capsule JSON Schema artifact",
+          "name": "CapsuleSchemaArtifact_OnDisk_MatchesAFreshGeneration",
+          "dynamic": false
+        },
+        {
+          "suite": "the capsule JSON Schema artifact",
+          "name": "CapsuleSchemaArtifact_GeneratedTwice_IsByteIdentical",
+          "dynamic": false
+        },
+        {
+          "suite": "the capsule JSON Schema artifact",
+          "name": "CapsuleSchemaArtifact_IsCanonicalJsonWithATrailingNewline",
+          "dynamic": false
+        },
+        {
+          "suite": "the capsule JSON Schema artifact",
+          "name": "CapsuleSchemaArtifact_OnDiskBytes_CompileAsAJsonSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "the capsule JSON Schema artifact",
+          "name": "CapsuleSchemaArtifact_IsNotVacuous",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/contract/capsule/kernel-derivation.test.ts": {
+      "file": "tests/unit/contract/capsule/kernel-derivation.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "deriving the capsule authority block from the kernel",
+          "name": "KernelDerivation_EveryReachableNodeType_IsHandled",
+          "dynamic": false
+        },
+        {
+          "suite": "deriving the capsule authority block from the kernel",
+          "name": "KernelDerivation_EveryEmittedObject_IsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "deriving the capsule authority block from the kernel",
+          "name": "KernelDerivation_ChangesOnlyOpenness_AndNothingElse",
+          "dynamic": false
+        },
+        {
+          "suite": "deriving the capsule authority block from the kernel",
+          "name": "KernelDerivation_TheVacuityHazard_IsStillRealInTheInstalledPackage",
+          "dynamic": false
+        },
+        {
+          "suite": "deriving the capsule authority block from the kernel",
+          "name": "KernelDerivation_RequiredCategories_AreNamesTheKernelStillCarries",
+          "dynamic": false
+        },
+        {
+          "suite": "deriving the capsule authority block from the kernel",
+          "name": "KernelDerivation_Goals_StayOptional",
+          "dynamic": false
+        },
+        {
+          "suite": "deriving the capsule authority block from the kernel",
+          "name": "KernelDerivation_PromotingAMissingField_Throws",
+          "dynamic": false
+        },
+        {
+          "suite": "deriving the capsule authority block from the kernel",
+          "name": "KernelDerivation_UnwrappingANonOptional_Throws",
+          "dynamic": false
+        },
+        {
+          "suite": "deriving the capsule authority block from the kernel",
+          "name": "KernelDerivation_TheBorrowedDigestVocabulary_IsTheKernels",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/contract/capsule/roundtrip.test.ts": {
+      "file": "tests/unit/contract/capsule/roundtrip.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the capsule contract, validated both ways",
+          "name": "Capsule_Zod_$name",
+          "dynamic": false
+        },
+        {
+          "suite": "the capsule contract, validated both ways",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the capsule contract, validated both ways",
+          "name": "Capsule_Ajv_$name",
+          "dynamic": false
+        },
+        {
+          "suite": "the capsule contract, validated both ways",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "the capsule contract, validated both ways",
+          "name": "Capsule_BothValidatorsAgree_$name",
+          "dynamic": false
+        },
+        {
+          "suite": "the capsule contract, validated both ways",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "the capsule contract, validated both ways",
+          "name": "Capsule_TheCorpus_ExercisesBothVerdicts",
+          "dynamic": false
+        },
+        {
+          "suite": "the capsule contract, validated both ways",
+          "name": "Capsule_EveryFixtureName_IsDistinct",
           "dynamic": false
         }
       ]
