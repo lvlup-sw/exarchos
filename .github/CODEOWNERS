@@ -1,15 +1,15 @@
 # Default owner
-* @reedsalus
+* @reedsalus @coderabbitai
 
 # Product source
-src/ @reedsalus
+src/ @reedsalus @coderabbitai
 
 # Repo automation: gates, build/publish scripts, conformance suite, lint rules
-tools/ @reedsalus
+tools/ @reedsalus @coderabbitai
 
 # Authored content, and the generated trees rendered from it
-content/ @reedsalus
-rendered/ @reedsalus
+content/ @reedsalus @coderabbitai
+rendered/ @reedsalus @coderabbitai
 
 # The single test tree
-tests/ @reedsalus
+tests/ @reedsalus @coderabbitai
