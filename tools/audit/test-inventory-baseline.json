@@ -7,8 +7,8 @@
     "testFiles": 1271,
     "parsedFiles": 1226,
     "shellFiles": 45,
-    "cases": 14030,
-    "dynamicTitles": 159,
+    "cases": 14034,
+    "dynamicTitles": 160,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -19158,6 +19158,16 @@
         },
         {
           "suite": "capsule reference integrity",
+          "name": "CapsuleReferences_AStepIdSmuggledOntoALooseObject_DoesNotResolve",
+          "dynamic": false
+        },
+        {
+          "suite": "capsule reference integrity",
+          "name": "CapsuleReferences_AStepNestedInsideTheKernelsOwnStructures_DoesResolve",
+          "dynamic": false
+        },
+        {
+          "suite": "capsule reference integrity",
           "name": "CapsuleReferences_AnUnsoundDefinition_SuppressesStepResolution",
           "dynamic": false
         }
@@ -19210,7 +19220,17 @@
         },
         {
           "suite": "deriving the capsule authority block from the kernel",
-          "name": "KernelDerivation_ChangesOnlyOpenness_AndNothingElse",
+          "name": "KernelDerivation_ChangesOnlyOpenness_AndNothingElse_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "deriving the capsule authority block from the kernel",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "deriving the capsule authority block from the kernel",
+          "name": "KernelDerivation_TheEquivalenceProof_CoversEveryApplicationOfTheTransform",
           "dynamic": false
         },
         {
@@ -37826,18 +37846,28 @@
           "dynamic": false
         },
         {
-          "suite": "D3 token-budget gate emission",
-          "name": "withTelemetry_TokenThresholdExceeded_EmitsGateExecutedForD3",
+          "suite": "token-budget breach record",
+          "name": "withTelemetry_TokenThresholdExceeded_RecordsBreachOnTheTelemetryStream",
           "dynamic": false
         },
         {
-          "suite": "D3 token-budget gate emission",
-          "name": "withTelemetry_TokenBelowThreshold_NoGateEvent",
+          "suite": "token-budget breach record",
+          "name": "withTelemetry_TokenThresholdExceeded_WritesNothingToTheFeatureStream",
           "dynamic": false
         },
         {
-          "suite": "D3 token-budget gate emission",
-          "name": "withTelemetry_NoFeatureIdInArgs_SkipsGateEmission",
+          "suite": "token-budget breach record",
+          "name": "withTelemetry_NoFeatureId_StillRecordsTheBreachWithoutOne",
+          "dynamic": false
+        },
+        {
+          "suite": "token-budget breach record",
+          "name": "withTelemetry_TokenBelowThreshold_NoBreachRecord",
+          "dynamic": false
+        },
+        {
+          "suite": "token-budget breach record",
+          "name": "withTelemetry_NoFeatureIdInArgs_AppendsNoGateRowAndNamesTheWholeStream",
           "dynamic": false
         },
         {
@@ -37936,6 +37966,26 @@
         {
           "suite": "TelemetryProjection > initToolMetrics",
           "name": "should return zeroed metrics with empty arrays",
+          "dynamic": false
+        },
+        {
+          "suite": "TelemetryProjection > apply - tool.budget_exceeded",
+          "name": "TelemetryProjection_BudgetExceeded_CountsPerTool",
+          "dynamic": false
+        },
+        {
+          "suite": "TelemetryProjection > apply - tool.budget_exceeded",
+          "name": "TelemetryProjection_BudgetExceeded_SurvivesTheNextCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "TelemetryProjection > apply - tool.budget_exceeded",
+          "name": "TelemetryProjection_BudgetExceededWithoutATool_IsIdentity",
+          "dynamic": false
+        },
+        {
+          "suite": "TelemetryProjection > apply - tool.budget_exceeded",
+          "name": "TelemetryProjection_BudgetExceededWithoutData_IsIdentity",
           "dynamic": false
         },
         {
@@ -38289,6 +38339,21 @@
           "dynamic": false
         },
         {
+          "suite": "CodeQualityView > apply - ci.check_observed",
+          "name": "CodeQuality_CiCheckObserved_NeverEntersTheGateNamespace",
+          "dynamic": false
+        },
+        {
+          "suite": "CodeQualityView > apply - ci.check_observed",
+          "name": "CodeQuality_CiCheckObserved_KeepsThePerSkillOutcome",
+          "dynamic": false
+        },
+        {
+          "suite": "CodeQualityView > apply - ci.check_observed",
+          "name": "CodeQuality_CiCheckObservedWithoutASkill_IsIdentity",
+          "dynamic": false
+        },
+        {
           "suite": "CodeQualityView > apply - benchmark.completed",
           "name": "Apply_BenchmarkCompleted_AppendsTrend",
           "dynamic": false
@@ -38416,6 +38481,21 @@
         {
           "suite": "CodeQualityView - mutation-score trend (W2-6, #1525)",
           "name": "CodeQuality_NonMutationGateWithNumericMutationScore_IsIgnored",
+          "dynamic": false
+        },
+        {
+          "suite": "CodeQualityView - internal trackers survive the fold",
+          "name": "CodeQuality_ObservationBetweenFailures_StillDetectsTheRegression",
+          "dynamic": false
+        },
+        {
+          "suite": "CodeQualityView - internal trackers survive the fold",
+          "name": "CodeQuality_ObservationBetweenRemediations_KeepsTheCounter",
+          "dynamic": false
+        },
+        {
+          "suite": "CodeQualityView - internal trackers survive the fold",
+          "name": "CodeQuality_EveryHandledEventType_KeepsBothTrackers",
           "dynamic": false
         }
       ]
@@ -38645,6 +38725,16 @@
         {
           "suite": "ConvergenceView > init",
           "name": "ConvergenceView_Init_ReturnsDefaultState",
+          "dynamic": false
+        },
+        {
+          "suite": "ConvergenceView > the unrecoverable-dimension hazard",
+          "name": "ConvergenceView_FailedGateNameThatNeverReRuns_PinsTheDimensionForever",
+          "dynamic": false
+        },
+        {
+          "suite": "ConvergenceView > the unrecoverable-dimension hazard",
+          "name": "ConvergenceView_BudgetExceededRecord_IsIdentity",
           "dynamic": false
         },
         {
@@ -63697,7 +63787,7 @@
         },
         {
           "suite": "handleAssessStack > event emission",
-          "name": "AssessStack_EmitsGateExecutedEvents",
+          "name": "AssessStack_EmitsCiCheckObservedEvents",
           "dynamic": false
         },
         {
