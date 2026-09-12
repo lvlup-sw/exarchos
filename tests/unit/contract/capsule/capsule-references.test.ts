@@ -364,6 +364,21 @@ describe('capsule reference integrity', () => {
     expect(verdict.violations[0]?.ref).toBe('step-verify');
   });
 
+  it('CapsuleReferences_AStepCollectionNestedInALooseObject_DoesNotResolve', () => {
+    // The same smuggling one level deeper, under a key that DOES name a step
+    // collection. A walk that matched key names over the document would collect
+    // this; only a walk that follows the kernel's schema refuses it, because
+    // `notes` is no field the kernel declares.
+    const base = baseValidCapsule();
+    const definition = {
+      ...(kernelDefinition(['step-compile']) as Record<string, unknown>),
+      notes: { steps: [{ stepId: 'step-verify' }] },
+    };
+    const verdict = resolveCapsuleReferences(base, { definition });
+    expect(verdict.violations.map((v) => v.kind)).toEqual(['dangling-step-ref']);
+    expect(verdict.violations[0]?.ref).toBe('step-verify');
+  });
+
   it('CapsuleReferences_AStepNestedInsideTheKernelsOwnStructures_DoesResolve', () => {
     // And the narrowing is not over-tight: the kernel nests steps in a loop
     // body, so a task naming one of those has to resolve. A rule that only read

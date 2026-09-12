@@ -71,14 +71,22 @@ export const CAPSULE_REQUIRED_AUTHORITY_CATEGORIES: readonly string[] = [
   'escalationBoundaries',
 ];
 
-/** One authority or intent statement, closed — the kernel's shape, our strictness. */
-const CapsuleStatementSchema = deepStrictify(WorkflowAuthorityStatementV1Schema);
+/** One statement, as the kernel types it. Borrowed, so a kernel change lands here. */
+type CapsuleAuthorityStatement = NonNullable<WorkflowAuthorityV1['invariants']>[number];
+
+/**
+ * One authority or intent statement, closed — the kernel's shape, our strictness.
+ *
+ * Annotated with the kernel's statement type, not left to inference, so every
+ * array built from it carries typed statements rather than `unknown[]`. No cast
+ * is involved: `deepStrictify` preserves its source's output type.
+ */
+const CapsuleStatementSchema: z.ZodType<CapsuleAuthorityStatement> = deepStrictify(
+  WorkflowAuthorityStatementV1Schema,
+);
 
 /** The kernel's content-digest vocabulary, borrowed rather than re-typed. */
 const KernelDigestSchema = unwrapOptional(WorkflowDefinitionV1Schema.shape.contentHash);
-
-/** One statement, as the kernel types it. Borrowed, so a kernel change lands here. */
-type CapsuleAuthorityStatement = NonNullable<WorkflowAuthorityV1['invariants']>[number];
 
 /**
  * The authority block a capsule carries.

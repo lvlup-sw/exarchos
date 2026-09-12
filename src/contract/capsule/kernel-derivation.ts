@@ -62,6 +62,10 @@ interface ZodNodeInternals<TInner extends z.ZodType = z.ZodType> {
       readonly innerType?: TInner;
       readonly element?: z.ZodType;
       readonly shape?: Record<string, z.ZodType>;
+      readonly checks?: readonly unknown[];
+      readonly options?: readonly z.ZodType[];
+      readonly getter?: () => z.ZodType;
+      readonly in?: z.ZodType;
     };
   };
 }
@@ -143,9 +147,28 @@ export function reachableZodNodeTypes(schema: z.ZodType): ReadonlySet<string> {
  * from both the import and the derivation and comparing them with
  * `additionalProperties` erased — one side from `node_modules`, one from here,
  * so the comparison cannot pass by checking a copy against itself.
+ *
+ * A rebuilt node is constructed fresh, so any check the source node carried — an
+ * array's `.min()`, an object's `.superRefine()` — would not survive it. Rather
+ * than drop one silently, a rebuilt node that carries checks is refused: the
+ * equivalence test covers only the applications it names, and a kernel release
+ * that adds a check to one of them must fail here rather than loosen the
+ * contract.
+ *
+ * Generic in the source so the kernel's own output type survives the rebuild.
+ * Closing an object refuses keys; it never changes the type of one it accepts.
+ *
+ * @throws when a node the transform rebuilds carries checks.
  */
+export function deepStrictify<T extends z.ZodType>(schema: T): z.ZodType<z.output<T>>;
 export function deepStrictify(schema: z.ZodType): z.ZodType {
   const def = internals(schema);
+  if (HANDLED_REBUILT_TYPES.has(def.type) && (def.checks?.length ?? 0) > 0) {
+    throw new Error(
+      `kernel-derivation: the kernel's ${def.type} node carries ${def.checks?.length} check(s), ` +
+        'which a rebuild would drop. Carry them across before deriving from it.',
+    );
+  }
   switch (def.type) {
     case 'object': {
       const closed = Object.fromEntries(
@@ -163,6 +186,67 @@ export function deepStrictify(schema: z.ZodType): z.ZodType {
     }
     default:
       return schema;
+  }
+}
+
+/** The node types {@link deepStrictify} constructs afresh rather than passing through. */
+const HANDLED_REBUILT_TYPES: ReadonlySet<string> = new Set(['object', 'optional', 'array']);
+
+/**
+ * Visit every object a schema DECLARES within a value it accepted.
+ *
+ * A loose schema accepts unknown keys and keeps them, so a walk over the value
+ * alone cannot tell an object the kernel declared from one that merely rode
+ * along. This walks the value and the schema together and descends only into
+ * keys the schema's own shape names. A union follows the first option that
+ * accepts the value, which is the option Zod itself would have chosen.
+ *
+ * `key` is the property the object was reached through; an array's elements are
+ * reached through the array's key.
+ */
+export function visitDeclaredObjects(
+  schema: z.ZodType,
+  value: unknown,
+  visit: (object: ReadonlyMap<string, unknown>, key: string | undefined) => void,
+  key?: string,
+): void {
+  const def = internals(schema);
+  switch (def.type) {
+    case 'object': {
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) return;
+      const entries: ReadonlyMap<string, unknown> = new Map(Object.entries(value));
+      visit(entries, key);
+      for (const [childKey, child] of Object.entries(shapeOf(schema))) {
+        if (entries.has(childKey)) visitDeclaredObjects(child, entries.get(childKey), visit, childKey);
+      }
+      return;
+    }
+    case 'array':
+      if (def.element === undefined || !Array.isArray(value)) return;
+      for (const element of value) visitDeclaredObjects(def.element, element, visit, key);
+      return;
+    case 'optional':
+    case 'nullable':
+    case 'nonoptional':
+    case 'default':
+    case 'prefault':
+    case 'catch':
+    case 'readonly':
+      if (def.innerType !== undefined) visitDeclaredObjects(def.innerType, value, visit, key);
+      return;
+    case 'lazy':
+      if (def.getter !== undefined) visitDeclaredObjects(def.getter(), value, visit, key);
+      return;
+    case 'pipe':
+      if (def.in !== undefined) visitDeclaredObjects(def.in, value, visit, key);
+      return;
+    case 'union': {
+      const chosen = def.options?.find((option) => option.safeParse(value).success);
+      if (chosen !== undefined) visitDeclaredObjects(chosen, value, visit, key);
+      return;
+    }
+    default:
+      return;
   }
 }
 
