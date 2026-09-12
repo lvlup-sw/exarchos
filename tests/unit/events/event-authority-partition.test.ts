@@ -48,7 +48,6 @@
 // retention policy may drop from the canonical state, not from every view.
 
 import { describe, it, expect } from 'vitest';
-import type { z } from 'zod';
 import {
   deriveEventAuthority,
   type AuthorityWitness,
@@ -67,83 +66,22 @@ import {
   classifyEventAuthority,
   tierEmissionSourceOf,
 } from '../../../src/events/partition/event-authority.js';
-import {
-  EVENT_DATA_SCHEMAS,
-  EventTypes,
-  type WorkflowEvent,
-} from '../../../src/events/schemas.js';
-import { buildEvent } from '../../../src/events/event-factory.js';
+import { EventTypes, type WorkflowEvent } from '../../../src/events/schemas.js';
 import { workflowStateProjection } from '../../../src/projections/views/workflow-state-projection.js';
-import { sampleEventData } from '../../../tools/test-helpers/event-payload-sample.js';
+import {
+  CORPUS_PAYLOADS as PAYLOADS,
+  CORPUS_SCHEMAS as SCHEMAS,
+  UNSCHEMATIZED_PAYLOADS,
+  buildAuthorityCorpus,
+} from '../../../tools/test-helpers/authority-corpus.js';
 
 /**
- * Payloads for the catalog types that declare no data schema, so the corpus has
- * no empty-bag holes for a fold arm to hide behind. `state.patched` is the one
- * that matters — its patch bag is hash-unrecoverable by construction, which is
- * exactly why it has no schema and exactly why it must not fold as a no-op.
+ * The shared corpus, under this oracle's own stream id. Built by the helper so
+ * this differential and the secondary-view one measure the same population —
+ * two corpora that had to agree, with nothing checking that they did, is the
+ * drift this import removes.
  */
-const UNSCHEMATIZED_PAYLOADS: Readonly<Record<string, Record<string, unknown>>> = {
-  'state.patched': { patch: { 'oneshot.synthesisPolicy': 'always' } },
-  'pr.created': { prNumber: 1, url: 'https://example.invalid/pr/1' },
-  'pr.merged': { prNumber: 1, mergedAt: '2026-01-01T00:00:00.000Z' },
-  'pr.commented': { prNumber: 1, body: 'sample comment' },
-  'issue.created': { issueNumber: 1, url: 'https://example.invalid/issue/1' },
-  'checkpoint.enforced': { reason: 'sample reason' },
-  'checkpoint.state_missing': { featureId: 'feat-authority-corpus' },
-  'preflight.executed': { check: 'sample check', passed: true },
-  'preflight.blocked': { check: 'sample check', reason: 'sample reason' },
-};
-
-const SCHEMAS: Readonly<Record<string, z.ZodType | undefined>> = EVENT_DATA_SCHEMAS;
-
-/**
- * Constraints a schema states as a refinement, which JSON Schema cannot carry
- * and the sampler therefore cannot see: a workflow type must be a registered
- * name, and a migration source path must be state-dir relative. These are
- * merged over the sampled payload; the validity assertion below is what keeps
- * this table honest, because a refinement the sampler can suddenly satisfy
- * makes its row here dead cover that the next reader should delete.
- */
-const REFINEMENT_OVERRIDES: Readonly<Record<string, Record<string, unknown>>> = {
-  'workflow.started': { workflowType: 'feature' },
-  'migration.legacy_jsonl_imported': { sourcePath: 'legacy/events.jsonl' },
-};
-
-/** The payload the corpus uses for a type, and where it came from. */
-interface CorpusPayload {
-  readonly data: Record<string, unknown>;
-  readonly source: 'schema' | 'unschematized' | 'none';
-}
-
-function payloadFor(eventType: string): CorpusPayload {
-  const sampled = sampleEventData(SCHEMAS[eventType]);
-  if (sampled !== undefined && Object.keys(sampled).length > 0) {
-    return { data: { ...sampled, ...REFINEMENT_OVERRIDES[eventType] }, source: 'schema' };
-  }
-  const supplied = UNSCHEMATIZED_PAYLOADS[eventType];
-  if (supplied !== undefined) return { data: supplied, source: 'unschematized' };
-  return { data: {}, source: 'none' };
-}
-
-const PAYLOADS: ReadonlyMap<string, CorpusPayload> = new Map(
-  EventTypes.map((type) => [type, payloadFor(type)] as const),
-);
-
-/**
- * One event of every catalog type, in catalog order. Total over the catalog by
- * construction, so it cannot go vacuous when a type is added — a new event type
- * joins the corpus without anyone editing this file.
- *
- * The timestamp is fixed so the two folds compare a state whose time fields
- * came from the events rather than from the clock.
- */
-const CORPUS: readonly WorkflowEvent[] = EventTypes.map((type, index) =>
-  buildEvent('feat-authority-corpus', index + 1, {
-    type,
-    data: PAYLOADS.get(type)?.data ?? {},
-    timestamp: '2026-01-01T00:00:00.000Z',
-  }),
-);
+const CORPUS = buildAuthorityCorpus('feat-authority-corpus');
 
 type FoldedState = ReturnType<typeof workflowStateProjection.init>;
 
