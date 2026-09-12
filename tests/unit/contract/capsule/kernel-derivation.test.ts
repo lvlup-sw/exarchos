@@ -159,6 +159,16 @@ describe('deriving the capsule authority block from the kernel', () => {
     );
   });
 
+  it.each([
+    ['an array with a length bound', z.object({ xs: z.array(z.string()).min(1) })],
+    ['an object with a refinement', z.object({ a: z.string() }).superRefine(() => undefined)],
+  ])('KernelDerivation_ARebuiltNodeCarryingChecks_Throws_%s', (_name, source) => {
+    // A rebuild constructs the node fresh, so a check on it would vanish. The
+    // equivalence proof above covers only the applications it names; this is
+    // what stops a check added upstream from being dropped in silence.
+    expect(() => deepStrictify(source)).toThrow(/carries 1 check/);
+  });
+
   it('KernelDerivation_UnwrappingANonOptional_Throws', () => {
     expect(() => unwrapOptional(z.string())).toThrow(/expected an optional/);
   });

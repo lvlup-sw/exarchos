@@ -70,7 +70,8 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
     // header states: "an untracked scratch file makes the walk larger, never
     // the authority smaller, and cannot turn a real shortfall green". Both real
     // failures still fail: fewer than tracked means the walk lost part of the
-    // tree, and substantially more means an exclusion stopped working.
+    // tree, and more than the one known probe means an exclusion stopped
+    // working.
     //
     // Strict equality additionally required that NO untracked `.ts` exist under
     // `src/` at the instant this ran, which is not a property of this census at
@@ -80,12 +81,15 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
     // files are in the `unit` project, so they run in parallel workers, and on
     // a 2-core Windows runner that window is seconds wide. The equality was
     // asserting the absence of a sibling test's fixture.
+    //
+    // The allowance is exactly that one file, not a proportion: a percentage
+    // would let an exclusion regression admit dozens of modules and still pass.
     expect(census.scannedModuleCount).toBeGreaterThanOrEqual(tracked.length);
     expect(
       census.scannedModuleCount,
-      'the walk reached substantially more modules than the tree tracks in its ' +
-        'scope — an exclusion stopped working',
-    ).toBeLessThanOrEqual(Math.ceil(tracked.length * 1.1));
+      'the walk reached more modules than the tree tracks in its scope, beyond the ' +
+        "one probe file a sibling test writes — an exclusion stopped working",
+    ).toBeLessThanOrEqual(tracked.length + 1);
     // The tolerance has a ceiling of its own. Skipping a module that vanished
     // under a sibling test is right; skipping many is a tree that is
     // disappearing, and the two must not look the same from here.

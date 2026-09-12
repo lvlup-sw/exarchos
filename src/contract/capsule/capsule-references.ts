@@ -40,6 +40,7 @@ import { z } from 'zod';
 import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
 import type { IrEdgeConditionNode } from '../ir/admission-ir.js';
 import type { ExarchosCapsuleV1 } from './exarchos-capsule.js';
+import { visitDeclaredObjects } from './kernel-derivation.js';
 
 /**
  * Every kind of reference-integrity violation this pass can report.
@@ -104,40 +105,28 @@ export interface ResolveCapsuleReferencesOptions {
  *
  * The kernel nests steps in more than one place — a loop's body, a branch
  * path, a fork path, a failure handler — so the set has to be reachable at any
- * depth. But it is a SET, not "any object carrying a stepId", and that
- * distinction is load-bearing: `WorkflowDefinitionV1Schema` is built on
- * `z.looseObject`, so a definition the kernel accepts may retain arbitrary
- * unknown objects. Collecting `stepId` from any of them would let a definition
- * carrying `{ notes: { stepId: 'step-ghost' } }` resolve a capsule task that
- * names no declared step at all — a dangling reference reported as sound.
+ * depth. But it is a SET, not "any object carrying a stepId": a transition's
+ * `fromStepId`/`toStepId` are different keys and are never collected, so a
+ * transition cannot make a dangling id look resolvable.
  */
 const STEP_COLLECTION_KEYS: ReadonlySet<string> = new Set(['steps', 'bodySteps']);
 /**
  * Every step id DECLARED by a kernel definition, at any nesting.
  *
- * Walks the whole document to find the step collections, and reads `stepId`
- * only from their elements. A transition's `fromStepId`/`toStepId` are
- * different keys and are never collected, so a transition cannot make a
- * dangling id look resolvable; neither can an unknown object the loose schema
- * let through.
+ * The walk follows the kernel's own schema, not the document. That distinction
+ * is load-bearing: `WorkflowDefinitionV1Schema` is built on `z.looseObject`, so
+ * a definition the kernel accepts may retain arbitrary unknown objects, and a
+ * key-name match alone would still reach inside them. A definition carrying
+ * `{ notes: { steps: [{ stepId: 'step-ghost' }] } }` would then resolve a
+ * capsule task that names no declared step at all — a dangling reference
+ * reported as sound.
  */
-function collectStepIds(node: unknown, into: Set<string>, inStepCollection = false): void {
-  if (Array.isArray(node)) {
-    for (const child of node) collectStepIds(child, into, inStepCollection);
-    return;
-  }
-  if (node === null || typeof node !== 'object') return;
-  if (
-    inStepCollection &&
-    'stepId' in node &&
-    typeof node.stepId === 'string' &&
-    node.stepId.length > 0
-  ) {
-    into.add(node.stepId);
-  }
-  for (const [key, child] of Object.entries(node)) {
-    collectStepIds(child, into, STEP_COLLECTION_KEYS.has(key));
-  }
+function collectStepIds(definition: unknown, into: Set<string>): void {
+  visitDeclaredObjects(WorkflowDefinitionV1Schema, definition, (object, key) => {
+    if (key === undefined || !STEP_COLLECTION_KEYS.has(key)) return;
+    const stepId = object.get('stepId');
+    if (typeof stepId === 'string' && stepId.length > 0) into.add(stepId);
+  });
 }
 
 /** Every fact field and event identity a condition names, with its own path. */
