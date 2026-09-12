@@ -79,6 +79,7 @@ export const CLI_ACTION_IDS: readonly string[] = [
   'exarchos_orchestrate.runbook',
   'exarchos_orchestrate.select_debug_track',
   'exarchos_orchestrate.serialize_merge',
+  'exarchos_orchestrate.settle',
   'exarchos_orchestrate.setup_worktree',
   'exarchos_orchestrate.spec_coverage_check',
   'exarchos_orchestrate.stack_place',

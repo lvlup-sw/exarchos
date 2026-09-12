@@ -97,8 +97,19 @@ const LOCK_NOTE =
   'still compared, and a kill probe confirms both arms still bite. The digest still covers ' +
   'the hand-written stand-in, which STAYS: the published `InvariantEntry` and `CheckNode` ' +
   'reject both live catalogs — including Strategos\'s own — so the seam cannot close until ' +
-  'lvlup-sw/strategos#231 lands. Nothing imports the package yet; it is pinned for the ' +
-  'workflow-definition kernel the capsule work consumes next.';
+  'lvlup-sw/strategos#231 lands.' +
+  ' RE-APPROVED for the settlement endpoint. Two things moved and both are real. ' +
+  'The `action-id-registry` digest moves because `exarchos_orchestrate.settle` is NEW — the ' +
+  'semantic plane\'s adjudication endpoint, which reads one batch of returned claims against ' +
+  'the capsule pinned when the work was compiled and commits one `execution.settled` record. ' +
+  'It adds capability rather than closing a disagreement, which is the opposite of the ' +
+  'effect-ledger re-approval above and is why this note says so plainly: a reviewer should ' +
+  'read the new action\'s contract, not just its name. And the `strategos-contracts` note ' +
+  'directly above is now WRONG where it says nothing imports the package — the capsule ' +
+  'contract imports it, and `settle` is that contract\'s first production consumer. The ' +
+  'sentence is corrected here rather than left standing, because a freeze whose own note ' +
+  'describes a tree that no longer exists is the failure mode this file keeps warning about. ' +
+  'No event schema, no invariant and no wire format changed for an EXISTING action.';
 
 /**
  * Who/what the freeze records as the approver of the CURRENT snapshot. Bump
@@ -106,10 +117,10 @@ const LOCK_NOTE =
  * lockfile carries the provenance of the approval rather than of the tool.
  */
 export const CURRENT_APPROVER =
-  'Reed (re-approved for the #1837 resolution: version compared only where no digest ' +
-  'exists, and the strategos-contracts version re-pointed at the published contract ' +
-  'dependency spec; decision recorded on their instruction). Previously: Reed ' +
-  '(effect-ledger remedy: reconcile_worktrees added, stack_place re-parented)';
+  'Reed (re-approved for the settlement endpoint: exarchos_orchestrate.settle added, and the ' +
+  'stale "nothing imports strategos-contracts" sentence in the note corrected; decision ' +
+  'recorded on their instruction). Previously: Reed (#1837 resolution: version compared only ' +
+  'where no digest exists, strategos-contracts version re-pointed at the dependency spec)';
 
 export function regenerateAuthorityLock(approvedBy = CURRENT_APPROVER): string {
   const paths = defaultSourcePaths();

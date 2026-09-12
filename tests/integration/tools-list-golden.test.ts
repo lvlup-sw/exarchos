@@ -223,6 +223,34 @@
 // was added or removed, no order changed, and no other action's schema or
 // digest moved.
 //
+// ── `settle` joins the tool: the first ADDITION this golden has recorded ───
+//
+// Every reviewed move above changed an existing action. This one adds one, and
+// the distinction is the review: an addition cannot break a caller, but it can
+// silently widen the surface, so what has to be checked is that NOTHING ELSE
+// moved alongside it.
+//
+// MEASURED, not eyeballed: normalising both goldens and diffing yields ONE
+// changed tool (`exarchos_orchestrate`) across exactly THREE surfaces, all of
+// them additive:
+//
+//     description   — two lines added: `settle`'s signature and its contract
+//                     digest row. No existing action's signature, flags or
+//                     digest moved.
+//     inputSchema   — `settle` added to the `action` enum, and its argument
+//                     schema added beside the others. 11,006 → 12,101 bytes,
+//                     all of it the new block.
+//     (nothing else)
+//
+// The other three tools are byte-identical, no tool was added or removed, and
+// no order changed. Measured by parsing both goldens and comparing per tool
+// and per field rather than by reading the line diff, because a line diff over
+// a single-line JSON description cannot tell an addition from a rewrite.
+//
+// What the new action is: the semantic plane's settlement endpoint. It reads
+// one batch of returned claims against the capsule pinned when the work was
+// compiled and commits one `execution.settled` record. It runs nothing.
+//
 // Regenerate deliberately (and review the diff) with:
 //   UPDATE_TOOLS_LIST_GOLDEN=1 npx vitest run --project core tests/integration/tools-list-golden.test.ts
 

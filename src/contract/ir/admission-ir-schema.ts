@@ -8,9 +8,12 @@
 // working tree vs. an LF CI checkout.
 //
 // Running the generator CLI (`admission-ir-schema-cli.ts`) is the regeneration
-// gesture; the co-located `admission-ir-schema.test.ts` drift guard fails when
-// the checked-in artifact diverges from a fresh generation (the same
-// "regenerate + review in a diff" gesture as the authority lock).
+// gesture; the drift guard under `tests/unit/contract/ir/` fails when the
+// checked-in artifact diverges from a fresh generation (the same
+// "regenerate + review in a diff" gesture as the authority lock). It is NOT
+// co-located, as this note used to say — every test in this repository lives
+// under `tests/`, and a reader who went looking beside this file for the guard
+// would conclude there wasn't one.
 // ────────────────────────────────────────────────────────────────────────────
 
 import path from 'node:path';

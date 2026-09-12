@@ -33,13 +33,13 @@
 import { createHash, randomUUID } from 'node:crypto';
 
 import { resolveEmissionEnforcement } from '../../config/resolve.js';
-import { snapshotCallerAuthorization } from '../../dispatch/caller-identity.js';
 import {
   applicableEnsures,
   observeActionPostconditions,
   type ActionPostconditionObservation,
 } from '../../dispatch/core/action-postconditions.js';
 import { evaluateDispatchAdmission } from '../../dispatch/core/dispatch-admission.js';
+import { outerCorrelation, stampFromAmbient } from '../../dispatch/core/outer-correlation.js';
 // Type-only, and deliberately so: the dispatch module routes to the composite
 // that routes here, so a value import of it would close a runtime ring.
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
@@ -52,7 +52,6 @@ import {
 } from '../../dispatch/core/interceptors/emission-verifier.js';
 import {
   getDispatchContext,
-  mintDispatchContext,
   runWithDispatchContext,
   type DispatchContext as CorrelationContext,
 } from '../../dispatch/dispatch-context.js';
@@ -194,26 +193,6 @@ function requestDigestOf(
   return `sha256:${createHash('sha256').update(canonical).digest('hex')}`;
 }
 
-// ─── Correlation ────────────────────────────────────────────────────────────
-
-/**
- * The correlation packet the commit and every leaf inherit from.
- *
- * Under a real dispatch this IS the active context. Absent one — a direct
- * in-process call — a packet is minted so authorization is still present:
- * the durable gate runner refuses a caller it cannot identify, so a leaf that
- * runs without one fails for a reason that has nothing to do with the gate.
- */
-function outerCorrelation(ctx: DispatchContext): CorrelationContext {
-  const active = getDispatchContext();
-  if (active !== undefined) return active;
-  const authorization =
-    ctx.callerIdentity === undefined
-      ? undefined
-      : snapshotCallerAuthorization(ctx.callerIdentity, ctx.capabilityResolver);
-  return mintDispatchContext(undefined, authorization);
-}
-
 /**
  * A leaf's own operation identity, derived from the caller's.
  *
@@ -279,27 +258,6 @@ function obligedEmissions(leaf: CompiledLeaf): ReadonlySet<string> {
 }
 
 // ─── Commit ─────────────────────────────────────────────────────────────────
-
-/**
- * Fill the correlation triple from the ambient dispatch context.
- *
- * `decideOnce` is the substrate primitive, below the store method that stamps;
- * it persists what it is handed. Reading the ambient context here is what keeps
- * the operation event findable by the emission check running over the OUTER
- * dispatch, which queries by that dispatch's operation id.
- */
-function stampFromAmbient(event: EventInput): EventInput {
-  const ctx = getDispatchContext();
-  if (ctx === undefined) return event;
-  return {
-    ...event,
-    ...(event.operationId === undefined ? { operationId: ctx.operationId } : {}),
-    ...(event.correlationId === undefined ? { correlationId: ctx.correlationId } : {}),
-    ...(event.causationId === undefined && ctx.causationId !== undefined
-      ? { causationId: ctx.causationId }
-      : {}),
-  };
-}
 
 function buildSteering(args: Record<string, unknown>): ReceiptSteering | undefined {
   const riskTier = args.riskTier;

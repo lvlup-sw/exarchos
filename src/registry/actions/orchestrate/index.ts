@@ -23,6 +23,7 @@ import { invariantActions } from './invariants.js';
 import { worktreeActions } from './worktree.js';
 import { cutoverActions } from './cutover.js';
 import { executeActions } from './execute.js';
+import { settleActions } from './settle.js';
 
 export const orchestrateActions: readonly BuiltinToolAction[] = [
   ...coordinationActions,
@@ -37,5 +38,6 @@ export const orchestrateActions: readonly BuiltinToolAction[] = [
   ...worktreeActions,
   ...cutoverActions,
   ...executeActions,
+  ...settleActions,
   makeDescribeAction('exarchos_orchestrate.describe'),
 ];

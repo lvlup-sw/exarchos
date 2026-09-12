@@ -112,6 +112,7 @@ import { realScaffoldDeps } from './invariants/fs-deps.js';
 import { applyLadderGateSeverity, resolvePhaseMode } from './gates/gate-utils.js';
 import { resolveWorkflowState } from './resolve-state.js';
 import { handleExecuteIntent, productionExecuteDeps } from './execute/executor.js';
+import { handleSettle } from './settle/handler.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -573,6 +574,15 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   execute_intent: async (args, stateDir, ctx) => {
     if (!ctx) throw new Error('DispatchContext required for execute_intent');
     return handleExecuteIntent(args, stateDir, ctx, productionExecuteDeps(ACTION_HANDLERS, ACTION_HANDLERS_TOOL));
+  },
+  // The settlement endpoint. Like the executor above it needs a real
+  // DispatchContext — it reads the operation claim and commits through the
+  // store — so it is a direct ActionHandler rather than an `adaptWithCtx`
+  // entry. Unlike the executor it takes no handler table: `settle` runs
+  // nothing, so it has nothing to dispatch into.
+  settle: async (args, stateDir, ctx) => {
+    if (!ctx) throw new Error('DispatchContext required for settle');
+    return handleSettle(args, stateDir, ctx);
   },
 };
 

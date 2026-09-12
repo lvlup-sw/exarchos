@@ -1,9 +1,9 @@
 {
-  "note": "P05-02 packaged action/CLI proof coverage baseline. Regenerate with EXARCHOS_WRITE_PACKAGED_BASELINE=1 npx vitest run test/process/packaged-proof.test.ts from servers/exarchos-mcp. 'missing' entries are accepted, documented gaps the ratchet holds the line at; the compiled-process test fails if any NEW denominator item goes unexercised through the shipped binary.",
+  "note": "P05-02 packaged action/CLI proof coverage baseline. Regenerate with EXARCHOS_WRITE_PACKAGED_BASELINE=1 npx vitest run --project core tests/core/process/packaged-proof.test.ts from the repo root. 'missing' entries are accepted, documented gaps the ratchet holds the line at; the compiled-process test fails if any NEW denominator item goes unexercised through the shipped binary.",
   "dimensions": {
     "actions": {
-      "total": 125,
-      "covered": 125,
+      "total": 126,
+      "covered": 126,
       "missing": []
     },
     "presentationAliases": {

@@ -218,8 +218,11 @@ export const MULTI_PRIMARY_OWNER_CODE = 'MULTI_PRIMARY_OWNER';
  * This check was never affected: it reads the contract through {@link declaredEmissionEdges}, and
  * 71 clears a floor of 54, so the stale constant was conservative rather than wrong. Re-pinning it
  * to the measured value is what makes a later narrowing visible again.
+ *
+ * 71 -> 72: `execution.settled` is a new event type carrying a declared primary edge, from
+ * `exarchos_orchestrate.settle`. One type, one edge — the population grew by exactly the arrival.
  */
-export const PRIMARY_OWNER_POPULATION_FLOOR = 71;
+export const PRIMARY_OWNER_POPULATION_FLOOR = 72;
 
 /**
  * The measured size of the set the provider comparison ranges over: declared emission edges whose

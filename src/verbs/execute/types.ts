@@ -6,11 +6,15 @@
 // the compiler, and `CompiledSegment` is what it produces.
 //
 // CompiledSegment is an INTERIM executable form, and deliberately private to
-// this directory. There is no second intermediate representation in this tree
-// to lower it into yet; lowering is deferred until the shared kernel that owns
-// that representation exists (`lvlup-sw/strategos#193`). Nothing outside
-// `verbs/execute/` should grow a dependency on this shape, because a later
-// lowering would then have to preserve it rather than replace it.
+// this directory. The shared kernel that owns the representation it would lower
+// into now EXISTS — `@lvlup-sw/strategos-contracts` ships `WorkflowDefinitionV1`
+// with both `authority` and `contentHash`, and `contract/capsule/` derives from
+// it. What is still absent is a compiler with somewhere to put the result: this
+// tree has no `prepare`. So lowering remains deferred, for a reason that has
+// changed from "the target does not exist" to "nothing produces the input yet".
+// Nothing outside `verbs/execute/` should grow a dependency on this shape,
+// because a later lowering would then have to preserve it rather than replace
+// it.
 
 import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
 import type { ActionContract, ToolAction } from '../../registry.js';

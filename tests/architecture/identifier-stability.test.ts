@@ -192,6 +192,7 @@ describe('identifier stability across decomposition', () => {
         'cutover_readiness',
         'cutover_decide',
         'execute_intent',
+        'settle',
         'describe',
       ],
       exarchos_view: [

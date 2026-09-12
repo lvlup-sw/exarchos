@@ -89,10 +89,21 @@ export interface UnverifiableActionEmission {
  *
  * An action edge names an event, never a file, so the only measurement the
  * census can offer is "some module appends this event". These events fail even
- * that: every append they ride goes through machinery whose `type:`
- * discriminant is a runtime value, so the site lands in the census's
- * `unresolved` bucket, which carries no event name. The census genuinely cannot
- * tell these apart from a declaration whose append was deleted.
+ * that, and for one of TWO reasons rather than the one this note used to give.
+ *
+ * Most ride an append whose `type:` discriminant is a runtime value, so the
+ * site lands in the census's `unresolved` bucket, which carries no event name.
+ *
+ * The two settlement records — `orchestrate.intent_executed` and
+ * `execution.settled` — are invisible for a different reason, and it is worth
+ * stating because a literal discriminant does not fix it. Both commit through
+ * `decideOnce`, and the scanner behind this census inspects `.append(...)` call
+ * sites; a `decideOnce` commit is not one, so its events are ABSENT from the
+ * scan rather than unresolved within it. Measured on `execution.settled` by
+ * writing the literal and watching the finding stand.
+ *
+ * Either way the census genuinely cannot tell these apart from a declaration
+ * whose append was deleted.
  *
  * So the distinction is pinned here and held to the tree in BOTH directions,
  * the same ratchet every declared surface in this file carries. SHRINK-ONLY: a
@@ -105,6 +116,7 @@ export interface UnverifiableActionEmission {
  * closes.
  */
 export const UNRESOLVED_ACTION_EVENT_ALLOWANCE: readonly string[] = Object.freeze([
+  'execution.settled',
   'mutation.executed',
   'mutation.executing_started',
   'onboard.executed',

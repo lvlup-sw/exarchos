@@ -754,7 +754,11 @@ describe('TOOL_REGISTRY', () => {
       // The bounded action executor added `execute_intent` (compiles a named
       // intent into a segment of already-registered local actions and runs it
       // leaf by leaf, committing one operation record): 82 → 83.
-      expect(composite!.actions).toHaveLength(83);
+      // The semantic plane added `settle` (adjudicates one batch of returned
+      // claims against the capsule pinned when the work was compiled, and
+      // commits one settlement record). It runs nothing — the asymmetry with
+      // the executor above is the point: 83 → 84.
+      expect(composite!.actions).toHaveLength(84);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -3199,6 +3203,7 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.cutover_readiness': 2000,
   'exarchos_orchestrate.cutover_decide': 2000,
   'exarchos_orchestrate.execute_intent': 1000,
+  'exarchos_orchestrate.settle': 1000,
   'exarchos_orchestrate.describe': 8000,
   'exarchos_view.pipeline': 2000,
   'exarchos_view.tasks': 2000,
@@ -3299,12 +3304,12 @@ describe('registry economy budgets (DR-1)', () => {
 
     // Nothing outside the allowlist declares an economy block — a stray
     // declaration would silently widen the budget surface. `execute_intent`
-    // is the one action outside this list that declares an economy block, and
-    // it is checked separately below because it is NOT a "verbose by design"
-    // declaration: its budget sits BELOW the default (a measured ceiling on a
-    // real receipt, not a raised one), and it declares a real `summarize`
-    // reducer rather than relying on the generic capped fallback — a distinct
-    // category the widen-only allowlist above does not name.
+    // and `settle` are the two actions outside this list that declare one, and
+    // both are checked separately below because neither is a "verbose by
+    // design" declaration: each budget sits BELOW the default (a measured
+    // ceiling on a real receipt, not a raised one), and each declares a real
+    // `summarize` reducer rather than relying on the generic capped fallback —
+    // a distinct category the widen-only allowlist above does not name.
     const declared = TOOL_REGISTRY.flatMap((t) =>
       t.actions
         .filter((a) => a.economy !== undefined)
@@ -3316,24 +3321,34 @@ describe('registry economy budgets (DR-1)', () => {
         'exarchos_orchestrate.describe',
         'exarchos_orchestrate.execute_intent',
         'exarchos_orchestrate.runbook',
+        'exarchos_orchestrate.settle',
         'exarchos_view.describe',
         'exarchos_workflow.describe',
       ].sort(),
     );
   });
 
-  it('registryEconomy_ExecuteIntent_DeclaresAMeasuredBudgetAndARealSummarizer', () => {
-    const action = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate')?.actions.find(
-      (a) => a.name === 'execute_intent',
-    );
-    expect(action).toBeDefined();
-    // Below the default, not above it — a measured ceiling on the shipped
-    // receipt shape, the opposite of the verbose-by-design allowlist's reason
-    // for declaring one at all.
-    expect(action?.economy?.budgetTokens).toBeLessThan(DEFAULT_ECONOMY_BUDGET_TOKENS);
-    expect(resolveEconomyBudget(action as ToolAction)).toBe(action?.economy?.budgetTokens);
-    expect(typeof action?.economy?.summarize).toBe('function');
-  });
+  // Both members of the measured-ceiling category, named individually rather
+  // than looped over a derived list: the category is defined by a JUDGEMENT
+  // (this budget was measured against a real response) that no predicate can
+  // read off a declaration, so a list derived from the registry would grow
+  // silently the moment a third action declared an economy block for some
+  // other reason.
+  it.each(['execute_intent', 'settle'])(
+    'registryEconomy_%s_DeclaresAMeasuredBudgetAndARealSummarizer',
+    (name) => {
+      const action = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate')?.actions.find(
+        (a) => a.name === name,
+      );
+      expect(action).toBeDefined();
+      // Below the default, not above it — a measured ceiling on the shipped
+      // receipt shape, the opposite of the verbose-by-design allowlist's reason
+      // for declaring one at all.
+      expect(action?.economy?.budgetTokens).toBeLessThan(DEFAULT_ECONOMY_BUDGET_TOKENS);
+      expect(resolveEconomyBudget(action as ToolAction)).toBe(action?.economy?.budgetTokens);
+      expect(typeof action?.economy?.summarize).toBe('function');
+    },
+  );
 
   it('describeAction_WithBudget_SurfacesBudgetTokens', async () => {
     const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate')!;
@@ -3541,6 +3556,21 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       leaves: [], tailSequence: 0, requestDigest: `sha256:${'a'.repeat(64)}`,
       interaction: { leavesExecuted: 0, eventsAppended: 0, requests: 1, deferred: [] },
     },
+    // `settle` — the settlement receipt. `findings` and `acceptedTasks` are the
+    // only arrays with no minimum, so a settled batch that produced neither is
+    // the floor. Deliberately the SETTLED outcome rather than a rejected one:
+    // the floor has to be a shape the action really emits, and a rejection
+    // carries at least one finding by construction.
+    'exarchos_orchestrate.settle': {
+      operationId: 'op-1', streamId: 'feat-x',
+      capsule: {
+        workflowId: 'wf-1', definitionVersion: 'a'.repeat(64), designVersion: 'design-1',
+        capsuleVersion: 1, batchId: 'batch-0001',
+      },
+      outcome: 'settled', acceptedTasks: [], findings: [],
+      adjudicated: { claims: 0, requiredResults: 0, fields: 0, evidence: 0, deviations: 0 },
+      requestDigest: `sha256:${'a'.repeat(64)}`, tailSequence: 0,
+    },
   };
   function baselineEnvelope(data: Record<string, unknown>): Record<string, unknown> {
     return {
@@ -3714,7 +3744,12 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       // The 17th is the bounded action executor's `execute_intent`, NEW like
       // `reconcile_worktrees` — a shrink-only allowlist has no waiver for a
       // fresh action to acquire, so it was declared substantively from the start.
-      expect(actions.length).toBe(17);
+      //
+      // The 18th is the semantic plane's `settle`, by the same route for the
+      // same reason. Its schema is worth reading rather than counting: the
+      // receipt is the verdict, so a vacuous one would have described nothing
+      // at exactly the surface an agent acts on.
+      expect(actions.length).toBe(18);
       for (const { tool, action } of actions) {
         const parsed = action.outputSchema.safeParse(cappedEnvelope());
         expect(

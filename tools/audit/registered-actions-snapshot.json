@@ -4,8 +4,8 @@
   "counts": {
     "tools": 5,
     "visibleTools": 4,
-    "actions": 125,
-    "eventTypes": 180
+    "actions": 126,
+    "eventTypes": 181
   },
   "tools": [
     {
@@ -92,6 +92,7 @@
         "runbook",
         "select_debug_track",
         "serialize_merge",
+        "settle",
         "setup_worktree",
         "spec_coverage_check",
         "stack_place",
@@ -394,6 +395,12 @@
     {
       "type": "eval.run.started",
       "lifecycle": "planned",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "execution.settled",
+      "lifecycle": "active",
       "tier": "substrate",
       "rationale": "operation-record"
     },

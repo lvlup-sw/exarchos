@@ -613,6 +613,13 @@ export const EventTypes = [
   // under the caller's operationId on both the committed and the failed path,
   // so a fully-failed segment leaves a queryable fact instead of zero events.
   'orchestrate.intent_executed',
+  // The semantic plane's settlement record: one batch of returned claims,
+  // adjudicated against the capsule that was pinned when the work was
+  // compiled. Appended on every outcome — settled, rejected, or held for a
+  // deviation — because a refused batch is a fact the next call has to be able
+  // to read, and a settlement that only recorded its successes would leave the
+  // caller re-deriving why the last one did not take.
+  'execution.settled',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -3897,6 +3904,98 @@ export const OrchestrateIntentExecutedData = z
   .strict();
 export type OrchestrateIntentExecuted = z.infer<typeof OrchestrateIntentExecutedData>;
 
+// ─── Settlement record (settle) ─────────────────────────────────────────────
+//
+// `execution.settled` is what one adjudicated batch leaves behind. The payload
+// is the SUMMARY a reader needs without opening anything: which capsule was
+// applied, how the batch came out, which tasks were accepted, and how many
+// findings of each kind there were. The findings themselves — and the claims
+// they were reached from — live in the referenced bundle, because an
+// adjudication interior is material to audit and must not become material a
+// projection folds.
+//
+// The counts are carried rather than the findings for a reason that outlives
+// the size argument: a payload that grew with the batch would make the ledger
+// row's size a function of how badly the work went.
+
+/** How many findings of one kind this settlement reported. */
+export const SettlementFindingCount = z
+  .object({
+    kind: z.string().min(1).describe('Adjudication finding kind, as `verbs/settle` names it'),
+    count: z.number().int().positive().describe('How many findings of this kind the batch produced'),
+  })
+  .strict();
+
+/**
+ * What the adjudication actually looked at.
+ *
+ * Present so a zero-finding settlement cannot be read as a clean one without
+ * checking. A batch that adjudicated nothing reports no findings, and so does a
+ * batch that adjudicated everything and found nothing wrong; only the
+ * denominator separates them, so it travels with the record.
+ */
+export const SettlementCensusData = z
+  .object({
+    claims: z.number().int().nonnegative().describe('Claims submitted in this batch'),
+    requiredResults: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe("Tasks the capsule's settlement contract required a result from"),
+    fields: z.number().int().nonnegative().describe('Declared result fields read against a claim'),
+    evidence: z.number().int().nonnegative().describe('Evidence entries checked for admissibility'),
+    deviations: z.number().int().nonnegative().describe('Deviations proposed against the envelope'),
+  })
+  .strict();
+
+export const ExecutionSettledData = z
+  .object({
+    operationId: z
+      .string()
+      .min(1)
+      .describe('Caller-supplied (or core-minted) idempotency key for this settle call'),
+    workflowId: z.string().min(1).describe('Workflow the settled capsule compiled for'),
+    capsuleVersion: z
+      .number()
+      .int()
+      .min(1)
+      .describe('Which compilation of the design was applied — half of the settlement key'),
+    batchId: z.string().min(1).describe('The batch this settlement adjudicated — the other half'),
+    definitionVersion: z
+      .string()
+      .min(1)
+      .describe('Digest of the workflow definition the capsule compiled from'),
+    outcome: z
+      .enum(['settled', 'rejected', 'deviation-pending'])
+      .describe('Whether the batch settled, was refused, or is held for a deviation decision'),
+    acceptedTasks: z
+      .array(z.string().min(1))
+      .describe('Task ids whose claims were adjudicated with no finding against them'),
+    findingCounts: z
+      .array(SettlementFindingCount)
+      .describe('Findings by kind; the findings themselves are in the referenced bundle'),
+    adjudicated: SettlementCensusData.describe('The denominator this verdict was reached over'),
+    requestDigest: z
+      .string()
+      .min(1)
+      .describe('Digest of {capsule identity, batch, claims} — the replay comparison key'),
+    // Required, and at least one, for the same reason the executor's record
+    // requires it: this is a settlement endpoint the run-bundle integrity
+    // oracle keys on, and that oracle reports a custodial settlement with no
+    // reference as a violation. Requiring the field here means the handler
+    // cannot append a record the oracle would immediately condemn — the
+    // adjudication interior is in custody before the fact naming it exists.
+    [BUNDLE_REF_FIELD]: z
+      .array(BundleRefV1Schema)
+      .min(1)
+      .describe(
+        'Content-addressed reference to the adjudication bundle this record summarises; ' +
+          'the bytes are durable before this row exists',
+      ),
+  })
+  .strict();
+export type ExecutionSettled = z.infer<typeof ExecutionSettledData>;
+
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
@@ -4174,6 +4273,8 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
 
   // The bounded action executor's operation record.
   'orchestrate.intent_executed': OrchestrateIntentExecutedData,
+  // The semantic plane's settlement record.
+  'execution.settled': ExecutionSettledData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -4516,6 +4617,8 @@ export type EventDataMap = {
   'projection.recovered': ProjectionRecovered;
   // The bounded action executor's operation record.
   'orchestrate.intent_executed': OrchestrateIntentExecuted;
+  // The semantic plane's settlement record.
+  'execution.settled': ExecutionSettled;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────

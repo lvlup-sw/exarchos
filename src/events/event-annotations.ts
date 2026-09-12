@@ -486,6 +486,19 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     tier: 'substrate',
     rationale: 'operation-record',
   },
+  // The semantic plane's settlement record. Appended by `settle`'s own handler
+  // on every outcome — the durable record of the adjudication it just
+  // performed. `capability` is unavailable for the same structural reason the
+  // row above gives: no reducer, view or telemetry surface folds this yet, so
+  // there is no `ConsumerId` to name, and `consumedBy` is a non-empty tuple
+  // precisely so that "a future projection will" cannot be written down as a
+  // consumer. `operation-record` claims only what is true today — the code
+  // performing the adjudication owns the append.
+  'execution.settled': {
+    lifecycle: 'active',
+    tier: 'substrate',
+    rationale: 'operation-record',
+  },
 
   // ── Capability — an effect provider appends it, and named consumers fold it ──
   //

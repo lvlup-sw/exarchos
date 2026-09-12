@@ -1164,6 +1164,13 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       // fact about the execute_intent call, not about the workflow's phase or
       // task progress, so no field of this view moves for it.
       case 'orchestrate.intent_executed':
+      // The semantic plane's settlement record — which claims were adjudicated
+      // against which pinned capsule, and how the batch came out. It is a fact
+      // about one settle call, not about the workflow's phase or task progress,
+      // so no field of this view moves for it. The batch's own consequences are
+      // the caller's to act on; folding an adjudication verdict into phase
+      // state would make this view an authority on work it never observed.
+      case 'execution.settled':
         return view;
 
       // ── Exhaustiveness guard (#1554 guard (a)) ─────────────────────────

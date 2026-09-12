@@ -150,8 +150,8 @@ To re-approve after an intentional change (a registry edit, a new binding, an
 effect-ledger change):
 
 ```sh
-# from the repo root (or servers/exarchos-mcp)
-node servers/exarchos-mcp/src/contract/reachability/regenerate.mjs
+# from the repo root
+node src/contract/reachability/regenerate.mjs
 ```
 
 `regenerate.mjs` reproduces vitest's `bun:sqlite` → node-shim alias (the

@@ -1,8 +1,3 @@
-// RESERVED(issue: #1856, owner: exarchos, expires: 2026-12-31) — the integrity
-// pass ships with the contract it checks, and both land ahead of `settle`,
-// their only production consumer. Delete this header when `settle` imports the
-// resolver; delete the module if `settle` is abandoned.
-//
 // ─── The Exarchos workflow capsule — reference integrity ─────────────────────
 //
 // The schema (`exarchos-capsule.ts`) proves a capsule is CLOSED. This module

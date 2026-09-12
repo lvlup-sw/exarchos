@@ -1,7 +1,7 @@
 {
   "capturedAt": "2026-08-27",
   "tree": "31d11ac26557491e1b901d3a18048a1f7ca90288",
-  "count": 125,
+  "count": 126,
   "actionIds": [
     "exarchos_event.append",
     "exarchos_event.batch_append",
@@ -77,6 +77,7 @@
     "exarchos_orchestrate.runbook",
     "exarchos_orchestrate.select_debug_track",
     "exarchos_orchestrate.serialize_merge",
+    "exarchos_orchestrate.settle",
     "exarchos_orchestrate.setup_worktree",
     "exarchos_orchestrate.spec_coverage_check",
     "exarchos_orchestrate.stack_place",

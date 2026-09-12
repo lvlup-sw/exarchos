@@ -1,9 +1,3 @@
-// RESERVED(issue: #1856, owner: exarchos, expires: 2026-12-31) — the capsule
-// contract ships ahead of its only consumer. `settle` is the first production
-// importer; until it lands this module has none, and the module-intent gate is
-// right to say so. Delete this header when `settle` imports the schema; delete
-// the module if `settle` is abandoned.
-//
 // ─── The Exarchos workflow capsule — authored contract ───────────────────────
 //
 // A capsule is what a workflow becomes once intent, bound knowledge and

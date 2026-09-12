@@ -491,10 +491,10 @@ beforeAll(async () => {
     const baseline = reportToBaseline(
       SWEEP.report,
       'P05-02 packaged action/CLI proof coverage baseline. Regenerate with ' +
-        'EXARCHOS_WRITE_PACKAGED_BASELINE=1 npx vitest run test/process/packaged-proof.test.ts ' +
-        "from servers/exarchos-mcp. 'missing' entries are accepted, documented gaps the ratchet " +
-        'holds the line at; the compiled-process test fails if any NEW denominator item goes ' +
-        'unexercised through the shipped binary.',
+        'EXARCHOS_WRITE_PACKAGED_BASELINE=1 npx vitest run --project core ' +
+        "tests/core/process/packaged-proof.test.ts from the repo root. 'missing' entries are " +
+        'accepted, documented gaps the ratchet holds the line at; the compiled-process test ' +
+        'fails if any NEW denominator item goes unexercised through the shipped binary.',
     );
     fs.writeFileSync(BASELINE_PATH, `${JSON.stringify(baseline, null, 2)}\n`, 'utf8');
     // eslint-disable-next-line no-console
