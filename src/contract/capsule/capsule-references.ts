@@ -99,20 +99,45 @@ export interface ResolveCapsuleReferencesOptions {
   readonly definition?: unknown;
 }
 
-/** Collect a `stepId` from anywhere in a kernel definition, at any nesting. */
-function collectStepIds(node: unknown, into: Set<string>): void {
+/**
+ * The keys under which the kernel declares a collection of STEPS.
+ *
+ * The kernel nests steps in more than one place — a loop's body, a branch
+ * path, a fork path, a failure handler — so the set has to be reachable at any
+ * depth. But it is a SET, not "any object carrying a stepId", and that
+ * distinction is load-bearing: `WorkflowDefinitionV1Schema` is built on
+ * `z.looseObject`, so a definition the kernel accepts may retain arbitrary
+ * unknown objects. Collecting `stepId` from any of them would let a definition
+ * carrying `{ notes: { stepId: 'step-ghost' } }` resolve a capsule task that
+ * names no declared step at all — a dangling reference reported as sound.
+ */
+const STEP_COLLECTION_KEYS: ReadonlySet<string> = new Set(['steps', 'bodySteps']);
+/**
+ * Every step id DECLARED by a kernel definition, at any nesting.
+ *
+ * Walks the whole document to find the step collections, and reads `stepId`
+ * only from their elements. A transition's `fromStepId`/`toStepId` are
+ * different keys and are never collected, so a transition cannot make a
+ * dangling id look resolvable; neither can an unknown object the loose schema
+ * let through.
+ */
+function collectStepIds(node: unknown, into: Set<string>, inStepCollection = false): void {
   if (Array.isArray(node)) {
-    for (const child of node) collectStepIds(child, into);
+    for (const child of node) collectStepIds(child, into, inStepCollection);
     return;
   }
   if (node === null || typeof node !== 'object') return;
-  // A step declares its own id under `stepId`; the transitions that point AT one
-  // use different keys. Only the declaration key is collected, so a transition
-  // cannot make a dangling id look resolvable.
-  if ('stepId' in node && typeof node.stepId === 'string' && node.stepId.length > 0) {
+  if (
+    inStepCollection &&
+    'stepId' in node &&
+    typeof node.stepId === 'string' &&
+    node.stepId.length > 0
+  ) {
     into.add(node.stepId);
   }
-  for (const child of Object.values(node)) collectStepIds(child, into);
+  for (const [key, child] of Object.entries(node)) {
+    collectStepIds(child, into, STEP_COLLECTION_KEYS.has(key));
+  }
 }
 
 /** Every fact field and event identity a condition names, with its own path. */
@@ -140,6 +165,16 @@ function collectConditionRefs(
     case 'not':
       collectConditionRefs(node.operand, `${at}.operand`, facts, events);
       return;
+    default: {
+      // The AST is a closed seven-kind union. A kind added to it without an arm
+      // here would silently contribute no references, so this pass would report
+      // a predicate as fully declared while never having read part of it —
+      // which is worse than a missing check, because it reads as a clean
+      // verdict. The assignment narrows to `never` today, so an eighth kind is
+      // a compile error rather than a quiet hole.
+      const unhandled: never = node;
+      throw new Error(`capsule-references: unhandled condition kind ${JSON.stringify(unhandled)}`);
+    }
   }
 }
 

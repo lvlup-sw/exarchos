@@ -53,9 +53,10 @@ export const CAPSULE_FORMAT_VERSION: '1' = '1';
  * The kernel leaves all five optional because it serializes the frame and
  * proves none of it. A capsule is adjudicated against its authority, so an
  * empty block is not a permissive capsule — it is one that cannot be settled
- * against anything. `goals` is deliberately absent: the kernel keeps it here,
- * this contract keeps a capsule's goals under `intent`, and leaving it optional
- * is what preserves assignability to the kernel's own authority field.
+ * against anything. `goals` is deliberately absent for a reason of its own: the
+ * kernel keeps goals here, this contract keeps a capsule's goals under `intent`,
+ * and requiring a category this contract does not use would be inventing an
+ * obligation rather than tightening one.
  */
 export const CAPSULE_REQUIRED_AUTHORITY_CATEGORIES: readonly string[] = [
   'invariants',
@@ -102,17 +103,35 @@ export const ExarchosCapsuleAuthorityV1Schema = requireNonEmptyArrayFields(
   CAPSULE_REQUIRED_AUTHORITY_CATEGORIES,
 ) as z.ZodType<ExarchosCapsuleAuthorityV1>;
 
+/** The compile-time assertion helpers, per this repository's `@proof` idiom. */
+type Expect<T extends true> = T;
+type IsNotAssignable<A, B> = A extends B ? false : true;
+
 /**
  * The capsule's authority is a NARROWING of the kernel's, never a widening.
- * The reverse direction must not compile: if it ever does, the required
- * categories stopped being required and this contract quietly became the
- * kernel's.
+ *
+ * Wrapped in `Expect<…>` rather than left as a bare conditional. A bare
+ * `A extends B ? true : never` alias resolves to `never` when the relation
+ * fails and compiles perfectly well — it records the question without ever
+ * demanding an answer. `Expect` constrains its parameter to `true`, so the day
+ * this narrowing stops holding the compiler says so.
  * @proof
  */
-export type _CapsuleAuthorityNarrowsKernel = ExarchosCapsuleAuthorityV1 extends WorkflowAuthorityV1
-  ? true
-  : never;
+export type _CapsuleAuthorityInventsNoCategory = Expect<
+  keyof ExarchosCapsuleAuthorityV1 extends keyof WorkflowAuthorityV1 ? true : false
+>;
 
+/**
+ * And the narrowing has TEETH: the kernel's own authority does not satisfy this
+ * contract. The kernel leaves every category optional, so `{}` is a valid
+ * `WorkflowAuthorityV1`; if that were also a valid capsule authority, the four
+ * required categories would be decoration. This is the assertion that fails the
+ * day someone relaxes them.
+ * @proof
+ */
+export type _KernelAuthorityDoesNotSatisfyTheCapsule = Expect<
+  IsNotAssignable<WorkflowAuthorityV1, ExarchosCapsuleAuthorityV1>
+>;
 /** What this capsule is a compilation OF, and which compilation it is. */
 export const CapsuleIdentitySchema = z
   .object({

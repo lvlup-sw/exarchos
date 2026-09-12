@@ -5,10 +5,17 @@
 // the assertions here are about totality and about equivalence-modulo-closure,
 // and every one of them reads the installed package rather than a recorded
 // constant — otherwise this file would be comparing our work to our work.
+//
+// @oracle-sources: @lvlup-sw/strategos-contracts read from node_modules, whose emitted JSON Schema is one side of every equivalence assertion here and is produced by a package this repository does not author, ../../../../src/contract/capsule/exarchos-capsule.ts, read as TEXT for the transform-application denominator rather than imported, so a call site added there reaches this file whether or not anyone remembers it
+
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { z } from 'zod';
 import { describe, it, expect } from 'vitest';
 import {
+  WorkflowAuthorityStatementV1Schema,
   WorkflowAuthorityV1Schema,
   WorkflowDefinitionV1Schema,
 } from '@lvlup-sw/strategos-contracts';
@@ -24,6 +31,11 @@ import {
   CAPSULE_REQUIRED_AUTHORITY_CATEGORIES,
   ExarchosCapsuleAuthorityV1Schema,
 } from '../../../../src/contract/capsule/exarchos-capsule.js';
+
+const CAPSULE_MODULE = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../../src/contract/capsule/exarchos-capsule.ts',
+);
 
 const KERNEL_AUTHORITY = WorkflowAuthorityV1Schema as unknown as z.ZodType;
 const DERIVED_STRUCTURE = deepStrictify(KERNEL_AUTHORITY);
@@ -78,9 +90,34 @@ describe('deriving the capsule authority block from the kernel', () => {
 
   // The load-bearing assertion. One side is emitted from `node_modules`, the
   // other from our derivation, so it cannot pass by comparing a copy to itself.
-  it('KernelDerivation_ChangesOnlyOpenness_AndNothingElse', () => {
-    expect(stripAdditionalProperties(emit(DERIVED_STRUCTURE))).toEqual(
-      stripAdditionalProperties(emit(KERNEL_AUTHORITY)),
+  //
+  // Run over EVERY schema the transform is applied to, not just the one. The
+  // transform rebuilds array and optional nodes — `z.array(deepStrictify(el))`,
+  // `deepStrictify(inner).optional()` — and a rebuild constructed that way
+  // carries no `.min()`, `.max()`, `.default()` or `.catch()` the source node
+  // had. So "changes only openness" is a property of each APPLICATION, not of
+  // the function, and an application with no equivalence check behind it is an
+  // unproven claim wearing a proven one's header.
+  it.each([
+    ['the authority block', KERNEL_AUTHORITY],
+    ['one authority statement', WorkflowAuthorityStatementV1Schema as unknown as z.ZodType],
+  ])('KernelDerivation_ChangesOnlyOpenness_AndNothingElse_%s', (_name, source) => {
+    expect(stripAdditionalProperties(emit(deepStrictify(source)))).toEqual(
+      stripAdditionalProperties(emit(source)),
+    );
+  });
+
+  it('KernelDerivation_TheEquivalenceProof_CoversEveryApplicationOfTheTransform', () => {
+    // The denominator for the case above. The proof is per-application, so the
+    // set of applications is itself the thing that can go stale: a third
+    // `deepStrictify(...)` call site added to the contract and not added here
+    // would be an unchecked rebuild, and nothing else would say so.
+    const source = readFileSync(CAPSULE_MODULE, 'utf8');
+    const applications = [...source.matchAll(/deepStrictify\(\s*([A-Za-z0-9_]+)/g)].map(
+      (match) => match[1],
+    );
+    expect(new Set(applications)).toEqual(
+      new Set(['WorkflowAuthorityStatementV1Schema', 'WorkflowAuthorityV1Schema']),
     );
   });
 

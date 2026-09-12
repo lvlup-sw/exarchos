@@ -7,8 +7,8 @@
     "testFiles": 1274,
     "parsedFiles": 1229,
     "shellFiles": 45,
-    "cases": 14064,
-    "dynamicTitles": 163,
+    "cases": 14068,
+    "dynamicTitles": 164,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -19158,6 +19158,16 @@
         },
         {
           "suite": "capsule reference integrity",
+          "name": "CapsuleReferences_AStepIdSmuggledOntoALooseObject_DoesNotResolve",
+          "dynamic": false
+        },
+        {
+          "suite": "capsule reference integrity",
+          "name": "CapsuleReferences_AStepNestedInsideTheKernelsOwnStructures_DoesResolve",
+          "dynamic": false
+        },
+        {
+          "suite": "capsule reference integrity",
           "name": "CapsuleReferences_AnUnsoundDefinition_SuppressesStepResolution",
           "dynamic": false
         }
@@ -19210,7 +19220,17 @@
         },
         {
           "suite": "deriving the capsule authority block from the kernel",
-          "name": "KernelDerivation_ChangesOnlyOpenness_AndNothingElse",
+          "name": "KernelDerivation_ChangesOnlyOpenness_AndNothingElse_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "deriving the capsule authority block from the kernel",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "deriving the capsule authority block from the kernel",
+          "name": "KernelDerivation_TheEquivalenceProof_CoversEveryApplicationOfTheTransform",
           "dynamic": false
         },
         {

@@ -349,6 +349,49 @@ describe('capsule reference integrity', () => {
     ).toBe(false);
   });
 
+  it('CapsuleReferences_AStepIdSmuggledOntoALooseObject_DoesNotResolve', () => {
+    // The kernel's definition schema is built on `z.looseObject`, so a
+    // definition it ACCEPTS may retain arbitrary unknown objects. One carrying a
+    // `stepId` must not make a capsule task resolvable — that would be a
+    // dangling reference reported as sound, which is worse than no check.
+    const base = baseValidCapsule();
+    const definition = {
+      ...(kernelDefinition(['step-compile']) as Record<string, unknown>),
+      notes: { stepId: 'step-verify' },
+    };
+    const verdict = resolveCapsuleReferences(base, { definition });
+    expect(verdict.violations.map((v) => v.kind)).toEqual(['dangling-step-ref']);
+    expect(verdict.violations[0]?.ref).toBe('step-verify');
+  });
+
+  it('CapsuleReferences_AStepNestedInsideTheKernelsOwnStructures_DoesResolve', () => {
+    // And the narrowing is not over-tight: the kernel nests steps in a loop
+    // body, so a task naming one of those has to resolve. A rule that only read
+    // the top-level `steps` array would report this as dangling.
+    const base = baseValidCapsule();
+    const definition = {
+      ...(kernelDefinition(['step-compile']) as Record<string, unknown>),
+      loops: [
+        {
+          loopId: 'loop-1',
+          loopName: 'retry',
+          fromStepId: 'step-compile',
+          maxIterations: 2,
+          bodySteps: [
+            {
+              kind: 'skill',
+              stepId: 'step-verify',
+              stepName: 'step-verify',
+              isTerminal: false,
+              stepType: 'work',
+            },
+          ],
+        },
+      ],
+    };
+    expect(resolveCapsuleReferences(base, { definition }).violations).toEqual([]);
+  });
+
   it('CapsuleReferences_AnUnsoundDefinition_SuppressesStepResolution', () => {
     // A definition that failed the kernel contract cannot be a reference target.
     // Reporting dangling steps against it too would blame the capsule for the
