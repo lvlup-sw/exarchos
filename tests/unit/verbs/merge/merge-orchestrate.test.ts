@@ -50,6 +50,7 @@ import { VersionConflictError } from '../../../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { WORKTREES_STREAM } from '../../../../src/verbs/worktree/manager.js';
 import type { ProcessTableSource, ProcessRecord } from '../../../../src/verbs/worktree/pure/probe.js';
+import { BYPASS_SECTION_0A } from '../../../helpers/section-0a-bypass.js';
 
 // ─── Test helpers ──────────────────────────────────────────────────────────
 
@@ -166,6 +167,7 @@ describe('handleMergeOrchestrate (T11)', () => {
         // DI: bypass real preflight composer + executor
         preflight,
         executeMerge,
+        gitExec: BYPASS_SECTION_0A,
       },
       ctx,
     );
@@ -202,6 +204,7 @@ describe('handleMergeOrchestrate (T11)', () => {
         strategy: 'squash',
         preflight,
         executeMerge,
+        gitExec: BYPASS_SECTION_0A,
       },
       ctx,
     );
@@ -261,6 +264,7 @@ describe('handleMergeOrchestrate (T12 — preflight-fail abort)', () => {
         preflight,
         executeMerge,
         persistState,
+        gitExec: BYPASS_SECTION_0A,
       },
       ctx,
     );
@@ -305,6 +309,7 @@ describe('handleMergeOrchestrate (T12 — preflight-fail abort)', () => {
         preflight,
         executeMerge,
         persistState,
+        gitExec: BYPASS_SECTION_0A,
       },
       ctx,
     );
@@ -331,6 +336,7 @@ describe('handleMergeOrchestrate (T12 — preflight-fail abort)', () => {
         preflight,
         executeMerge,
         persistState,
+        gitExec: BYPASS_SECTION_0A,
       },
       ctx,
     );
@@ -416,6 +422,7 @@ describe('handleMergeOrchestrate (#1362 — preflight.debug event-wire)', () => 
         preflight,
         executeMerge,
         persistState,
+        gitExec: BYPASS_SECTION_0A,
       },
       ctx,
     );
@@ -472,6 +479,7 @@ describe('handleMergeOrchestrate (#1362 — preflight.debug event-wire)', () => 
         preflight,
         executeMerge,
         persistState,
+        gitExec: BYPASS_SECTION_0A,
       },
       ctx,
     );
@@ -521,6 +529,7 @@ describe('handleMergeOrchestrate (#1362 — preflight.debug event-wire)', () => 
         preflight,
         executeMerge,
         persistState,
+        gitExec: BYPASS_SECTION_0A,
       },
       ctx,
     );
@@ -558,6 +567,7 @@ describe('handleMergeOrchestrate (T13 — dry-run path)', () => {
         preflight,
         executeMerge,
         persistState,
+        gitExec: BYPASS_SECTION_0A,
       },
       ctx,
     );
@@ -585,6 +595,7 @@ describe('handleMergeOrchestrate (T13 — dry-run path)', () => {
         preflight,
         executeMerge,
         persistState,
+        gitExec: BYPASS_SECTION_0A,
       },
       ctx,
     );
@@ -631,7 +642,7 @@ describe('handleMergeOrchestrate (#1706 DR-1 — unknown-error coded envelopes)'
   // fixture — mirroring the DR-2 lease-guard describe block's `NO_GIT`
   // below — makes these tests deterministic regardless of the host repo's
   // real worktree topology.
-  const bypassSection0a: GitExec = () => ({ exitCode: 1, stdout: '', stderr: '' });
+  const bypassSection0a = BYPASS_SECTION_0A;
 
   it('MergeOrchestrate_PreflightAppendUnknownError_ReturnsCodedEnvelopeNotThrow', async () => {
     // The `merge.preflight` append (section 2) runs before the dry-run /
@@ -799,6 +810,7 @@ describe('handleMergeOrchestrate (T14 — resume path)', () => {
         executeMerge,
         persistState,
         readState,
+        gitExec: BYPASS_SECTION_0A,
       },
       ctx,
     );
@@ -840,6 +852,7 @@ describe('handleMergeOrchestrate (T14 — resume path)', () => {
         executeMerge,
         persistState,
         readState,
+        gitExec: BYPASS_SECTION_0A,
       },
       ctx,
     );
@@ -893,6 +906,7 @@ describe('handleMergeOrchestrate (T14 — resume path)', () => {
         executeMerge,
         persistState,
         readState,
+        gitExec: BYPASS_SECTION_0A,
       },
       ctx,
     );
@@ -931,6 +945,7 @@ describe('handleMergeOrchestrate (T14 — resume path)', () => {
         preflight,
         executeMerge,
         persistState,
+        gitExec: BYPASS_SECTION_0A,
       },
       ctx,
     );
@@ -959,6 +974,7 @@ describe('handleMergeOrchestrate (T14 — resume path)', () => {
         preflight,
         executeMerge,
         persistState,
+        gitExec: BYPASS_SECTION_0A,
       },
       ctx,
     );
@@ -1037,8 +1053,8 @@ async function seedLease(
   );
 }
 
-/** A gitExec that fails every invocation → neutralizes the section-0a probe. */
-const NO_GIT: GitExec = () => ({ exitCode: 1, stdout: '', stderr: '' });
+/** @see BYPASS_SECTION_0A — the shared helper this alias points at. */
+const NO_GIT = BYPASS_SECTION_0A;
 
 function passingExecuteMerge() {
   return vi.fn().mockResolvedValue({
