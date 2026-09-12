@@ -60,6 +60,7 @@ import {
 import { createFeatureHSM } from '../../../../src/workflow/hsm-definitions.js';
 import { handleWorkflow } from '../../../../src/workflow/composite.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { BYPASS_SECTION_0A } from '../../../helpers/section-0a-bypass.js';
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -243,6 +244,7 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
         persistState: async () => {
           /* no-op */
         },
+        gitExec: BYPASS_SECTION_0A,
       },
       ctx,
     );
@@ -473,6 +475,7 @@ describe('handleMergeOrchestrate integration — rollback timeline (T24)', () =>
             innerCtx,
           );
         },
+        gitExec: BYPASS_SECTION_0A,
       },
       ctx,
     );
@@ -524,6 +527,7 @@ describe('handleMergeOrchestrate integration — rollback timeline (T24)', () =>
             innerCtx,
           );
         },
+        gitExec: BYPASS_SECTION_0A,
       },
       ctx,
     );
@@ -666,6 +670,7 @@ describe('handleMergeOrchestrate integration — idempotency & concurrency (#130
           persistState: async () => {
             /* no-op */
           },
+          gitExec: BYPASS_SECTION_0A,
         },
         ctx,
       );
@@ -717,6 +722,7 @@ describe('handleMergeOrchestrate integration — idempotency & concurrency (#130
         // through to fresh dispatch (which is the non-trivial replay path
         // we need to exercise).
         readState: async () => undefined,
+        gitExec: BYPASS_SECTION_0A,
       },
       ctx,
     );

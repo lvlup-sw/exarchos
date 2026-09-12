@@ -209,6 +209,66 @@ function fromInternal(state: InternalState): CodeQualityViewState {
 
 // ─── Event Handlers ────────────────────────────────────────────────────────
 
+/**
+ * One observed CI check, folded into the SKILL metrics only.
+ *
+ * These rows arrived as `gate.executed` and went through
+ * {@link handleGateExecuted}, which put every GitHub check name into
+ * `state.gates` beside the gates this repository runs itself. Two populations,
+ * one namespace, and no discriminant between them: the old rows carried
+ * `layer: 'ci'`, which nothing validated and nothing read. A CI job sharing a
+ * name with one of our gates merged their pass rates into one number and
+ * nothing would have reported it (#1898 item 8).
+ *
+ * The per-skill half is kept deliberately. Driving checks green IS the
+ * shepherd's outcome, so its pass rate belongs on the skill — which is why the
+ * old rows carried `details.skill` at all. What is not kept: no `gates[...]`
+ * entry, no model metrics (a CI check has no model), no failure tracker (the
+ * regression detector is about OUR gates failing consecutively), and no
+ * mutation trend.
+ */
+function handleCiCheckObserved(
+  state: InternalState,
+  event: WorkflowEvent,
+): CodeQualityViewState {
+  const data = event.data as
+    | { check?: unknown; passed?: unknown; skill?: unknown }
+    | undefined;
+  if (!data || typeof data.check !== 'string' || typeof data.skill !== 'string') {
+    return fromInternal(state);
+  }
+
+  const passed = data.passed === true;
+  const prev = state.skills[data.skill] ?? defaultSkillMetrics(data.skill);
+  const totalExecutions = prev.totalExecutions + 1;
+  const passCount = Math.round(prev.gatePassRate * prev.totalExecutions) + (passed ? 1 : 0);
+
+  // A failing check is categorized by its own name. There is no `reason` on
+  // this record and inventing one would be worse than naming the check.
+  let categories = [...prev.topFailureCategories] as Array<{ category: string; count: number }>;
+  if (!passed) {
+    const existing = categories.find((c) => c.category === data.check);
+    categories = existing
+      ? categories.map((c) => (c.category === data.check ? { ...c, count: c.count + 1 } : c))
+      : [...categories, { category: data.check, count: 1 }];
+    categories.sort((a, b) => b.count - a.count);
+    if (categories.length > 10) categories.length = 10;
+  }
+
+  return fromInternal({
+    ...state,
+    skills: {
+      ...state.skills,
+      [data.skill]: {
+        ...prev,
+        totalExecutions,
+        gatePassRate: passCount / totalExecutions,
+        topFailureCategories: categories,
+      },
+    },
+  });
+}
+
 function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQualityViewState {
   const data = event.data as {
     gateName?: string;
@@ -482,6 +542,34 @@ function handleRemediationSucceeded(state: InternalState, event: WorkflowEvent):
   });
 }
 
+/**
+ * The handler for an event type, or `undefined` where this view ignores it.
+ *
+ * The lookup exists so that `toInternal` has exactly ONE call site. The two
+ * tracker maps are non-enumerable, so a case arm that handed the PUBLIC view to
+ * its handler lost them on that handler's first spread. Nothing went red when
+ * that happened: regression detection and the remediation counter simply
+ * started over from zero mid-stream, and every later verdict was computed from
+ * a history that had been silently truncated. A handler that cannot be reached
+ * without the conversion cannot make that mistake.
+ */
+function handlerFor(
+  type: WorkflowEvent['type'],
+): ((state: InternalState, event: WorkflowEvent) => CodeQualityViewState) | undefined {
+  switch (type) {
+    case 'gate.executed':
+      return handleGateExecuted;
+    case 'ci.check_observed':
+      return handleCiCheckObserved;
+    case 'benchmark.completed':
+      return handleBenchmarkCompleted;
+    case 'remediation.succeeded':
+      return handleRemediationSucceeded;
+    default:
+      return undefined;
+  }
+}
+
 // ─── Projection ────────────────────────────────────────────────────────────
 
 export const codeQualityProjection: ViewProjection<CodeQualityViewState> = {
@@ -494,27 +582,8 @@ export const codeQualityProjection: ViewProjection<CodeQualityViewState> = {
   }),
 
   apply: (view: CodeQualityViewState, event: WorkflowEvent): CodeQualityViewState => {
-    switch (event.type) {
-      case 'gate.executed': {
-        if (!event.data) return view;
-        const state = toInternal(view);
-        return handleGateExecuted(state, event);
-      }
-
-      case 'benchmark.completed': {
-        if (!event.data) return view;
-        const state = toInternal(view);
-        return handleBenchmarkCompleted(state, event);
-      }
-
-      case 'remediation.succeeded': {
-        if (!event.data) return view;
-        const state = toInternal(view);
-        return handleRemediationSucceeded(state, event);
-      }
-
-      default:
-        return view;
-    }
+    const handler = handlerFor(event.type);
+    if (handler === undefined || !event.data) return view;
+    return handler(toInternal(view), event);
   },
 };

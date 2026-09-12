@@ -1,3 +1,4 @@
+import type { WorkflowEvent } from '../../../events/schemas.js';
 import { TELEMETRY_VIEW, telemetryProjection } from '../../telemetry/telemetry-projection.js';
 import { CODE_QUALITY_VIEW, codeQualityProjection } from '../code-quality-view.js';
 import { CONVERGENCE_VIEW, convergenceProjection } from '../convergence-view.js';
@@ -5,7 +6,7 @@ import { DELEGATION_READINESS_VIEW, delegationReadinessProjection } from '../del
 import { DELEGATION_TIMELINE_VIEW, delegationTimelineProjection } from '../delegation-timeline-view.js';
 import { EVAL_RESULTS_VIEW, evalResultsProjection } from '../eval-results-view.js';
 import { GATE_RELIABILITY_VIEW, gateReliabilityProjection } from '../gate-reliability-view.js';
-import { ViewMaterializer } from '../materializer.js';
+import { ViewMaterializer, type ViewProjection } from '../materializer.js';
 import { PIPELINE_SNAPSHOT_NAME, PIPELINE_VIEW, pipelineProjection } from '../pipeline-view.js';
 import { PROVENANCE_VIEW, provenanceProjection } from '../provenance-view.js';
 import { SHEPHERD_STATUS_VIEW, shepherdStatusProjection } from '../shepherd-status-view.js';
@@ -23,6 +24,62 @@ import { WORKFLOW_STATUS_VIEW, workflowStatusProjection } from '../workflow-stat
 // #1555 — shared `asOf` bounded-fold seam (dispatch-core, INV-2).
 // ─── Helper: create a materializer with all projections registered ─────────
 
+/**
+ * One registered view, with its state type sealed inside.
+ *
+ * Each projection folds to its own state shape, so a plain table of them has no
+ * single element type that is not a cast. Closing over the type at construction
+ * keeps both capabilities the roster needs — registration and a fold — without
+ * one.
+ */
+export interface RegisteredView {
+  readonly id: string;
+  /** Register this projection, preserving its state type. */
+  registerInto(materializer: ViewMaterializer): void;
+  /** Fold a stream to this view's state, as a comparable value. */
+  fold(events: readonly WorkflowEvent[]): unknown;
+}
+
+function registeredView<T>(id: string, projection: ViewProjection<T>): RegisteredView {
+  return {
+    id,
+    registerInto: (materializer) => materializer.register(id, projection),
+    fold: (events) =>
+      events.reduce<T>((state, event) => projection.apply(state, event), projection.init()),
+  };
+}
+
+/**
+ * Every view the runtime materializes.
+ *
+ * Exported because registration is not the only thing that has to see this
+ * roster. The telemetry-dependence differential folds each of these twice — once
+ * over a full corpus and once with telemetry dropped — and a view reachable at
+ * runtime but absent from the roster that differential walks would be an
+ * unmeasured verdict surface, which is the gap that oracle exists to close.
+ *
+ * `createMaterializer` registers FROM this list rather than repeating it, so a
+ * view cannot reach the runtime without joining the measured population.
+ */
+export const REGISTERED_VIEWS: readonly RegisteredView[] = Object.freeze([
+  registeredView(WORKFLOW_STATUS_VIEW, workflowStatusProjection),
+  registeredView(TASK_DETAIL_VIEW, taskDetailProjection),
+  registeredView(PIPELINE_VIEW, pipelineProjection),
+  registeredView(STACK_VIEW, stackViewProjection),
+  registeredView(TELEMETRY_VIEW, telemetryProjection),
+  registeredView(TEAM_PERFORMANCE_VIEW, teamPerformanceProjection),
+  registeredView(DELEGATION_TIMELINE_VIEW, delegationTimelineProjection),
+  registeredView(CODE_QUALITY_VIEW, codeQualityProjection),
+  registeredView(EVAL_RESULTS_VIEW, evalResultsProjection),
+  registeredView(WORKFLOW_STATE_VIEW, workflowStateProjection),
+  registeredView(DELEGATION_READINESS_VIEW, delegationReadinessProjection),
+  registeredView(SYNTHESIS_READINESS_VIEW, synthesisReadinessProjection),
+  registeredView(SHEPHERD_STATUS_VIEW, shepherdStatusProjection),
+  registeredView(PROVENANCE_VIEW, provenanceProjection),
+  registeredView(CONVERGENCE_VIEW, convergenceProjection),
+  registeredView(GATE_RELIABILITY_VIEW, gateReliabilityProjection),
+]);
+
 function createMaterializer(stateDir: string): ViewMaterializer {
   // DR-5/DR-6 snapshot-lineage registration: the pipeline view's snapshots move
   // to a versioned filename (`pipeline-v2`) so pre-upgrade v1 snapshots are
@@ -32,22 +89,9 @@ function createMaterializer(stateDir: string): ViewMaterializer {
     [PIPELINE_VIEW]: PIPELINE_SNAPSHOT_NAME,
   });
   const materializer = new ViewMaterializer({ snapshotStore });
-  materializer.register(WORKFLOW_STATUS_VIEW, workflowStatusProjection);
-  materializer.register(TASK_DETAIL_VIEW, taskDetailProjection);
-  materializer.register(PIPELINE_VIEW, pipelineProjection);
-  materializer.register(STACK_VIEW, stackViewProjection);
-  materializer.register(TELEMETRY_VIEW, telemetryProjection);
-  materializer.register(TEAM_PERFORMANCE_VIEW, teamPerformanceProjection);
-  materializer.register(DELEGATION_TIMELINE_VIEW, delegationTimelineProjection);
-  materializer.register(CODE_QUALITY_VIEW, codeQualityProjection);
-  materializer.register(EVAL_RESULTS_VIEW, evalResultsProjection);
-  materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
-  materializer.register(DELEGATION_READINESS_VIEW, delegationReadinessProjection);
-  materializer.register(SYNTHESIS_READINESS_VIEW, synthesisReadinessProjection);
-  materializer.register(SHEPHERD_STATUS_VIEW, shepherdStatusProjection);
-  materializer.register(PROVENANCE_VIEW, provenanceProjection);
-  materializer.register(CONVERGENCE_VIEW, convergenceProjection);
-  materializer.register(GATE_RELIABILITY_VIEW, gateReliabilityProjection);
+  for (const view of REGISTERED_VIEWS) {
+    view.registerInto(materializer);
+  }
   return materializer;
 }
 

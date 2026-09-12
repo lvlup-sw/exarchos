@@ -14,5 +14,5 @@ export const CONSISTENCY_WINDOW_SIZE = 5;
 
 // ─── Gate Threshold ─────────────────────────────────────────────────────────
 
-/** Token estimate threshold above which a D3 gate.executed event is emitted. ~8KB response. */
+/** Token estimate above which a `tool.budget_exceeded` record is appended. ~8KB response. */
 export const TOKEN_GATE_THRESHOLD = 2048;

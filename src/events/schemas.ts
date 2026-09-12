@@ -191,6 +191,11 @@ export const EventTypes = [
   // PREFLIGHT_FAILED, RESERVED_FIELD, etc.) so `view telemetry` can report
   // them instead of silently rolling them up as completions.
   'tool.action_errored',
+  // Split out of `gate.executed` (#1898 item 8). The middleware appended the
+  // budget breach as a gate row carrying `details.dimension: 'D3'`, and the
+  // convergence view folded it as an unrecoverable failure of the Context
+  // Economy dimension. It is a per-tool runtime measurement and nothing else.
+  'tool.budget_exceeded',
   // #1262 — per-turn output-token sample. The schema, the type-map entry and two
   // folds exist (`telemetry-projection.ts`, `workflow-state-projection.ts`), and
   // the `output_tokens_high` quality hint (catalog:
@@ -253,6 +258,11 @@ export const EventTypes = [
   'typecheck.result',
   'stack.submitted',
   'ci.status',
+  // Split out of `gate.executed` (#1898 item 8). The per-check detail beside
+  // the per-PR `ci.status` roll-up, appended by the same assessment pass. It
+  // was sharing the `gates[...]` namespace with the gates this repository runs
+  // itself, so a CI job named after one of ours merged two pass rates.
+  'ci.check_observed',
   'comment.posted',
   'comment.resolved',
   'diagnostic.executed',
@@ -865,6 +875,61 @@ export const GateExecutedData = z.object({
   passed: z.boolean(),
   duration: z.number().optional(),
   details: z.record(z.string(), z.unknown()).optional(),
+});
+
+// ─── Telemetry check records — the two `gate.executed` uses that never governed ───
+//
+// `gate.executed` carried a `layer: z.string()` that NOTHING validated and
+// NOTHING read, and that unread string was the only thing separating two
+// populations: gates the verification ladder runs, and checks we merely
+// observe. The separation was decorative, so the observations folded into the
+// governance views as if they were gate runs. See the two types below for what
+// each one was doing there.
+//
+// The payloads are shaped for what each site actually records rather than
+// inherited from `GateExecutedData`. A CI check has a PR number and no
+// duration; a budget breach has a byte count and no pass/fail (it is only
+// appended when it breached). Keeping the gate shape would have preserved the
+// vocabulary that caused the collision.
+
+/**
+ * A tool response that exceeded its response-economy token budget.
+ *
+ * Was appended as `gate.executed` with `gateName: 'token-budget'` and
+ * `details.dimension: 'D3'`. `D3` is a REAL convergence dimension (Context
+ * Economy), so the convergence view folded the row into `dimensions.D3` as a
+ * failed gate result — under a gate name nothing ever re-runs, which made the
+ * failure unrecoverable. Once any response in a feature stream breached the
+ * budget, D3 could never converge again and `overallConverged` was pinned
+ * false. The legitimate path from runtime economy to the D3 verdict already
+ * exists and is unaffected: the `context-economy` gate reads
+ * `queryRuntimeMetrics` and appends its own governance verdict.
+ */
+export const ToolBudgetExceededData = z.object({
+  tool: z.string(),
+  tokenEstimate: z.number().int().nonnegative(),
+  responseBytes: z.number().int().nonnegative(),
+  threshold: z.number().int().nonnegative(),
+  /** The workflow the breaching call named, when it named one. */
+  featureId: z.string().optional(),
+});
+
+/**
+ * The observed status of one CI check on one pull request.
+ *
+ * Was appended as `gate.executed` with `gateName` set to the CI check's name,
+ * which put every GitHub check into the same `gates[...]` namespace as the
+ * gates this repository runs itself. A CI job named after one of ours silently
+ * merged two populations' pass rates. The per-skill measurement that motivated
+ * the original `details.skill` is kept — it is the shepherd's outcome measure —
+ * and only the gate-namespace half is dropped.
+ */
+export const CiCheckObservedData = z.object({
+  pr: z.number().int(),
+  check: z.string(),
+  passed: z.boolean(),
+  /** The skill whose outcome this check measures. */
+  skill: z.string().optional(),
 });
 
 // ─── Stack Event Data ───────────────────────────────────────────────────────
@@ -3890,6 +3955,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'tool.errored': ToolErroredData,
   // PR3/T7 (#1364) — structured action-level failure event.
   'tool.action_errored': ToolActionErroredData,
+  'tool.budget_exceeded': ToolBudgetExceededData,
   // #1262 — per-turn output-token sample (CodeRabbit F2 on PR #1409).
   'turn.completed': TurnCompletedDataSchema,
   'subagent.tokens_used': SubagentTokensUsedDataSchema,
@@ -3931,6 +3997,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'test.result': TestResultData,
   'typecheck.result': TypecheckResultData,
   'ci.status': CiStatusData,
+  'ci.check_observed': CiCheckObservedData,
   'comment.posted': CommentPostedData,
   'comment.resolved': CommentResolvedData,
 
@@ -4147,6 +4214,7 @@ export type WorkflowProjectionDegraded = z.infer<typeof WorkflowProjectionDegrad
 export type SynthesizeRequested = z.infer<typeof SynthesizeRequestedData>;
 export type ToolInvoked = z.infer<typeof ToolInvokedData>;
 export type ToolCompleted = z.infer<typeof ToolCompletedData>;
+export type ToolBudgetExceeded = z.infer<typeof ToolBudgetExceededData>;
 export type ToolErrored = z.infer<typeof ToolErroredData>;
 // PR3/T7 (#1364)
 export type ToolActionErrored = z.infer<typeof ToolActionErroredData>;
@@ -4184,6 +4252,7 @@ export type TestResult = z.infer<typeof TestResultData>;
 export type TypecheckResult = z.infer<typeof TypecheckResultData>;
 export type StackSubmitted = z.infer<typeof StackSubmittedData>;
 export type CiStatus = z.infer<typeof CiStatusData>;
+export type CiCheckObserved = z.infer<typeof CiCheckObservedData>;
 export type CommentPosted = z.infer<typeof CommentPostedData>;
 export type CommentResolved = z.infer<typeof CommentResolvedData>;
 export type DiagnosticExecuted = z.infer<typeof DiagnosticExecutedDataSchema>;
@@ -4315,6 +4384,7 @@ export type EventDataMap = {
   'tool.errored': ToolErrored;
   // PR3/T7 (#1364)
   'tool.action_errored': ToolActionErrored;
+  'tool.budget_exceeded': ToolBudgetExceeded;
   'benchmark.completed': BenchmarkCompleted;
   'team.spawned': TeamSpawned;
   'team.task.assigned': TeamTaskAssigned;
@@ -4358,6 +4428,7 @@ export type EventDataMap = {
   'typecheck.result': TypecheckResult;
   'stack.submitted': StackSubmitted;
   'ci.status': CiStatus;
+  'ci.check_observed': CiCheckObserved;
   'comment.posted': CommentPosted;
   'comment.resolved': CommentResolved;
   'diagnostic.executed': DiagnosticExecuted;

@@ -199,17 +199,27 @@ export const EMISSION_PROVIDER_MISMATCH_CODE = 'EMISSION_PROVIDER_MISMATCH';
  * declared emission edge names — a weld claiming cover nothing in the tool registry backs.
  */
 export const STALE_CAPABILITY_COVER_CODE = 'STALE_CAPABILITY_COVER';
-/** No event type in the autoEmits population names a primary declaring tool. */
+/** No event type in the declared-emission population names a primary declaring tool. */
 export const ZERO_PRIMARY_OWNER_CODE = 'ZERO_PRIMARY_OWNER';
 /** Two or more distinct primary owners claim the same event type. */
 export const MULTI_PRIMARY_OWNER_CODE = 'MULTI_PRIMARY_OWNER';
 
 /**
  * The measured size of the K2 primary-owner population: distinct event types that carry at least
- * one `autoEmits` edge. A floor, not an expectation — same ratchet semantics as
+ * one declared emission edge. A floor, not an expectation — same ratchet semantics as
  * {@link EMISSION_DENOMINATOR_FLOOR}.
+ *
+ * RE-MEASURED 54 -> 71. The gap is a measurement that stopped, not growth nobody watched. The
+ * census behind this number (`tools/audit/core/measure-primary-owner-population.mjs`) read
+ * `action.autoEmits`, and `withActionContract` strips that field from every registered action —
+ * so from the day the action-contract closure landed the census resolved ZERO edges and threw on
+ * every run. Nothing invoked it, so nothing said so.
+ *
+ * This check was never affected: it reads the contract through {@link declaredEmissionEdges}, and
+ * 71 clears a floor of 54, so the stale constant was conservative rather than wrong. Re-pinning it
+ * to the measured value is what makes a later narrowing visible again.
  */
-export const PRIMARY_OWNER_POPULATION_FLOOR = 54;
+export const PRIMARY_OWNER_POPULATION_FLOOR = 71;
 
 /**
  * The measured size of the set the provider comparison ranges over: declared emission edges whose

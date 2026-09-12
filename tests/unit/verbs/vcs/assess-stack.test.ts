@@ -846,7 +846,13 @@ describe('handleAssessStack', () => {
       expect(eventData.status).toBe('passing');
     });
 
-    it('AssessStack_EmitsGateExecutedEvents', async () => {
+    // Renamed from `AssessStack_EmitsGateExecutedEvents` with the type it
+    // asserts. These rows were `gate.executed` keyed by the CI check's name,
+    // which put every GitHub check into the same `gates[...]` namespace as the
+    // gates this repository runs itself (#1898 item 8). The per-check fidelity
+    // this test exists to pin is unchanged — one row per check, idempotent per
+    // iteration — and the `skill` the code-quality view folds is still carried.
+    it('AssessStack_EmitsCiCheckObservedEvents', async () => {
       const provider = createMockProvider({
         checkCi: {
           status: 'fail',
@@ -864,22 +870,29 @@ describe('handleAssessStack', () => {
         provider,
       );
 
+      const checkCalls = mockAppend.mock.calls.filter(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'ci.check_observed',
+      );
+      expect(checkCalls.length).toBe(2);
+
+      // The split must not resurrect the old name from anywhere in this pass.
       const gateExecutedCalls = mockAppend.mock.calls.filter(
         (call: unknown[]) => (call[1] as { type: string }).type === 'gate.executed',
       );
-      expect(gateExecutedCalls.length).toBe(2);
+      expect(gateExecutedCalls).toEqual([]);
 
-      const gateIdempotencyKey = (gateExecutedCalls[0][2] as { idempotencyKey: string })?.idempotencyKey;
-      expect(gateIdempotencyKey).toMatch(/iter-\d+$/);
+      const checkIdempotencyKey = (checkCalls[0][2] as { idempotencyKey: string })?.idempotencyKey;
+      expect(checkIdempotencyKey).toMatch(/iter-\d+$/);
 
-      const firstGate = (gateExecutedCalls[0][1] as { data: Record<string, unknown> }).data;
-      expect(firstGate.gateName).toBe('ci/build');
-      expect((firstGate.details as Record<string, unknown>).skill).toBe('shepherd');
-      expect((firstGate.details as Record<string, unknown>).gate).toBe('ci/build');
+      const firstCheck = (checkCalls[0][1] as { data: Record<string, unknown> }).data;
+      expect(firstCheck.check).toBe('ci/build');
+      expect(firstCheck.pr).toBe(42);
+      expect(firstCheck.passed).toBe(true);
+      expect(firstCheck.skill).toBe('shepherd');
 
-      const secondGate = (gateExecutedCalls[1][1] as { data: Record<string, unknown> }).data;
-      expect(secondGate.gateName).toBe('ci/test');
-      expect(secondGate.passed).toBe(false);
+      const secondCheck = (checkCalls[1][1] as { data: Record<string, unknown> }).data;
+      expect(secondCheck.check).toBe('ci/test');
+      expect(secondCheck.passed).toBe(false);
     });
   });
 

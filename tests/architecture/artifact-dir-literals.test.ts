@@ -81,7 +81,6 @@ const PROSE_BUDGET: Readonly<Record<string, number>> = {
   'src/registry/actions/orchestrate/gates.ts': 2,
   'src/registry/actions/orchestrate/review-ops.ts': 1,
   'src/workflow/playbooks.ts': 2,
-  'tests/helpers/preflight.ts': 1,
   'tools/audit/measure-reference-census.mjs': 1,
 };
 

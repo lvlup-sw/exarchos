@@ -151,6 +151,49 @@ describe('verifyAuthorities — fail-closed (exit proofs)', () => {
     ).toBe(true);
   });
 
+  // The #1837 rule, both directions. Version is compared only where there is no
+  // digest to compare — so `mcp-protocol` above still blocks on version alone,
+  // and a digest-bearing authority does not.
+  //
+  // This is a deliberate RELAXATION, so the pair matters more than either half:
+  // the first test alone would also pass if version comparison were removed
+  // everywhere, and the second alone would also pass if the digest check were
+  // the thing that broke.
+  it('Verify_DigestBearingAuthority_VersionDriftAlone_DoesNotBlock', () => {
+    const live = computeAuthorities(sampleInputs());
+    const lock = buildAuthorityLock(live, { approvedBy: 'test' });
+    const versionMoved: AuthorityLock = {
+      ...lock,
+      authorities: {
+        ...lock.authorities,
+        'strategos-contracts': {
+          ...lock.authorities['strategos-contracts']!,
+          version: '0.13.0',
+          versionSpec: '0.13.0',
+        },
+      },
+    };
+    expect(lock.authorities['strategos-contracts']!.digest).not.toBeNull();
+    const verdict = verifyAuthorities(live, versionMoved);
+    expect(verdict.ok).toBe(true);
+    expect(verdict.violations).toEqual([]);
+  });
+
+  it('Verify_DigestBearingAuthority_DigestDrift_StillBlocks', () => {
+    const live = computeAuthorities(sampleInputs());
+    const moved = computeAuthorities(
+      sampleInputs({ strategosContractsSource: 'export const FooSchema = 2;\n' }),
+    );
+    const lock = buildAuthorityLock(live, { approvedBy: 'test' });
+    const verdict = verifyAuthorities(moved, lock);
+    expect(verdict.ok).toBe(false);
+    expect(
+      verdict.violations.some(
+        (v) => v.kind === 'mismatch' && v.authority === 'strategos-contracts',
+      ),
+    ).toBe(true);
+  });
+
   it('Verify_MissingPinBlocks', () => {
     const live = computeAuthorities(sampleInputs());
     const lock = buildAuthorityLock(live, { approvedBy: 'test' });

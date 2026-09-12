@@ -66,8 +66,28 @@ const PARTITION = partitionByAuthority(DERIVED);
 /** Events something depends on: the fold consumes them, or a raw reader does. */
 export const GOVERNANCE_EVENTS: ReadonlySet<string> = PARTITION.governance;
 
-/** Events that record what happened and that nothing decides anything from. */
+/**
+ * Events that record what happened and that the CANONICAL FOLD decides nothing
+ * from.
+ *
+ * Read the scope, because the shorter claim is measurably false. The
+ * differential behind this partition covers `workflowStateProjection` and says
+ * so in its own header. Five registered views fold telemetry, and two of them
+ * derive a verdict from it — see {@link VERDICT_BEARING_VIEWS}. Membership here
+ * bounds what a retention policy may drop from the canonical state, not from
+ * every reader in the tree.
+ */
 export const TELEMETRY_EVENTS: ReadonlySet<string> = PARTITION.telemetry;
+
+/**
+ * The views whose verdict moves when a telemetry event is dropped.
+ *
+ * Re-exported onto the partition's own surface because a consumer asking
+ * "may I drop telemetry?" gets a misleading answer from {@link TELEMETRY_EVENTS}
+ * alone. The two facts belong together: the canonical fold is independent, AND
+ * these views are not.
+ */
+export { VERDICT_BEARING_VIEWS, VIEW_TELEMETRY_DEPENDENCE } from './view-dependence.js';
 
 /**
  * The authority of one event type, or `undefined` for a type outside the

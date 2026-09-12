@@ -16,6 +16,13 @@ on:
       - 'tools/evals-pkg/**'
       - '.github/workflows/eval-gate.yml'
 
+permissions:
+  contents: read
+  # Resolves the @lvlup-sw scope from GitHub Packages (see .npmrc). The repo
+  # default grants this, but an explicit block replaces the default rather than
+  # extending it, so omitting it here would leave `npm ci` at packages: none.
+  packages: read
+
 # Build native modules from source rather than fetching prebuilt binaries from
 # GitHub Releases via `prebuild-install`, whose CDN fetch wedged `npm ci` on the
 # hosted runners until the 15-minute job timeout (see RCA
@@ -23,6 +30,9 @@ on:
 # no dependency on that download path.
 env:
   npm_config_build_from_source: 'true'
+  # Authenticates the @lvlup-sw scope against GitHub Packages (see .npmrc).
+  # Deliberately not NODE_AUTH_TOKEN, which setup-node binds to npmjs.org.
+  GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   eval-regression:

@@ -49,7 +49,7 @@ export interface AuthoritySourcePaths {
   readonly strategosContractsFile: string;
   /** Compatibility-policy implementation. */
   readonly compatibilityPolicyFile: string;
-  /** exarchos-mcp package.json (version + SDK dependency spec). */
+  /** This repo's package.json (the SDK and Strategos-contract dependency specs). */
   readonly packageJsonFile: string;
   /** Target invariant catalog. */
   readonly invariantCatalogFile: string;
@@ -84,6 +84,30 @@ function readText(file: string): string {
   return fs.readFileSync(file, 'utf8');
 }
 
+/**
+ * The pinned spec of the published Strategos contract package.
+ *
+ * Was the EXARCHOS package version, read from the same file's `version` key.
+ * That made the freeze fire on every release of this repo whether or not a
+ * contract moved, because the version and the digest were measured from
+ * different files and nothing kept them in step (exarchos#1837).
+ */
+function extractStrategosContractsSpec(packageJsonText: string): string {
+  return extractDependencySpec(packageJsonText, '@lvlup-sw/strategos-contracts');
+}
+
+function extractDependencySpec(packageJsonText: string, packageName: string): string {
+  const parsed: unknown = JSON.parse(packageJsonText);
+  if (parsed && typeof parsed === 'object' && 'dependencies' in parsed) {
+    const deps = (parsed as { dependencies?: unknown }).dependencies;
+    if (deps && typeof deps === 'object') {
+      const spec = (deps as Record<string, unknown>)[packageName];
+      if (typeof spec === 'string') return spec;
+    }
+  }
+  return '';
+}
+
 function extractSdkVersionSpec(packageJsonText: string): string {
   const parsed: unknown = JSON.parse(packageJsonText);
   if (parsed && typeof parsed === 'object' && 'dependencies' in parsed) {
@@ -102,15 +126,6 @@ function extractSdkVersionSpec(packageJsonText: string): string {
   return '';
 }
 
-function extractPackageVersion(packageJsonText: string): string {
-  const parsed: unknown = JSON.parse(packageJsonText);
-  if (parsed && typeof parsed === 'object' && 'version' in parsed) {
-    const version = (parsed as { version?: unknown }).version;
-    if (typeof version === 'string') return version;
-  }
-  return '';
-}
-
 function extractSchemaVersion(catalogText: string): string {
   const match = /^schema-version:\s*(\S+)\s*$/m.exec(catalogText);
   return match?.[1] ?? '';
@@ -123,7 +138,7 @@ export function collectAuthorityInputs(
   const packageJsonText = readText(paths.packageJsonFile);
   const catalogText = readText(paths.invariantCatalogFile);
   return {
-    strategosContractsVersion: extractPackageVersion(packageJsonText),
+    strategosContractsVersion: extractStrategosContractsSpec(packageJsonText),
     strategosContractsSource: readText(paths.strategosContractsFile),
     mcpProtocolVersion: V2_LATEST_PROTOCOL_VERSION,
     mcpSdkVersionSpec: extractSdkVersionSpec(packageJsonText),

@@ -60,8 +60,16 @@ function walkHasTs(dir: string): boolean {
  * is the only live consumer of the symbol; the exemption's expiry forces a
  * re-decision when the bridge moves to a `.ts` source or the `.js` import chain
  * becomes visible to knip.
+ *
+ * 114 → 115 (the published Strategos contract package). The dependency is
+ * pinned and deliberately not imported: the seam that would import it stays
+ * shut while the published `InvariantEntry` and `CheckNode` reject both live
+ * invariant catalogs. It is not unconsumed, though — the contract-authority
+ * collector reads the spec by name out of package.json TEXT, which is a read
+ * no import graph can see. The exemption retires itself: once a real import
+ * lands, knip stops reporting the dependency and the gate names the row stale.
  */
-const ALLOWLIST_BUDGET = 114;
+const ALLOWLIST_BUDGET = 115;
 
 /** Reasons that are not reasons. A rationale matching any of these is a stub. */
 const STUB_RATIONALE = /^(n\/?a|tbd|todo|fixme|wip|unused|dead|legacy|see above|\?+|-+)\.?$/i;
