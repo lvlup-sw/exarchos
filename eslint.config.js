@@ -1,7 +1,7 @@
 // @ts-check
 import tseslint from 'typescript-eslint';
 import { loadPolicy } from './tools/audit/lib/comment-policy.mjs';
-import commentContent from './tools/eslint-rules/comment-content.js';
+import commentContent, { resolvePolicyPath } from './tools/eslint-rules/comment-content.js';
 
 /**
  * Minimal, SCOPED ESLint config — Windows-portability rules only (#1623).
@@ -55,8 +55,18 @@ import commentContent from './tools/eslint-rules/comment-content.js';
  * Windows-portability rules keep running over the same files, and so the rule
  * itself stays a pure classifier: its kill probe runs the offender corpus
  * through it by path, which a rule that self-exempted could not do.
+ *
+ * Resolved through the RULE's own `resolvePolicyPath`, not `loadPolicy`'s
+ * default. The rule honours `EXARCHOS_COMMENT_POLICY` and falls back
+ * module-relative when the working directory is not the repository root. A
+ * second resolver here would scope the rule by one datum while the rule
+ * classified by another — exempt files still linted, non-exempt files
+ * silently excused.
  */
-const commentPolicyExemptions = loadPolicy().exemptPaths.map((entry) => entry.glob);
+const commentPolicyExemptions = loadPolicy(resolvePolicyPath()).exemptPaths.map(
+  (entry) => entry.glob,
+);
+
 export default [
   {
     // Seeded-defect corpus fixtures (#1675, task 003) are INTENTIONALLY broken
