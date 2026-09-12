@@ -35,7 +35,7 @@ describe('assertExarchosOnPath', () => {
     expect(message).toContain(sentinel);
     expect(message).toContain('not found on PATH');
     // Must name a v2.10 install remediation verbatim.
-    expect(message).toMatch(/npm link|get-exarchos\.sh/);
+    expect(message).toMatch(/get-exarchos\.sh/);
   }, PATH_LOOKUP_TIMEOUT_MS);
 
   it('AssertExarchosOnPath_CustomCommand_UsesOverride', () => {
@@ -64,7 +64,7 @@ describe('assertExarchosOnPath', () => {
       expect(caught).toBeInstanceOf(Error);
       const message = (caught as Error).message;
       expect(message).toContain('exarchos');
-      expect(message).toMatch(/npm link|get-exarchos\.sh/);
+      expect(message).toMatch(/get-exarchos\.sh/);
     } finally {
       process.env.PATH = savedPath;
     }

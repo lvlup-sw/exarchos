@@ -48,8 +48,19 @@ import { randomUUID } from 'node:crypto';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const OUT = path.join(ROOT, 'tools/audit/core/primary-owner-population.json');
-/** Must match {@link PRIMARY_OWNER_POPULATION_FLOOR} in `src/events/registration-validate.ts`. */
-const PRIMARY_OWNER_POPULATION_FLOOR = 54;
+/**
+ * Must match {@link PRIMARY_OWNER_POPULATION_FLOOR} in
+ * `src/events/registration-validate.ts`.
+ *
+ * 54 -> 71, and the gap is the measurement this script stopped taking rather
+ * than growth nobody noticed. The extractor read `action.autoEmits`, which
+ * `withActionContract` STRIPS from every registered action — so from the day
+ * the action-contract closure landed, this census walked the registry and
+ * resolved zero edges. The shipped check was never affected: it reads the
+ * contract through `declaredEmissionEdges`, and 71 comfortably clears a floor
+ * of 54, so the stale constant was conservative rather than wrong.
+ */
+const PRIMARY_OWNER_POPULATION_FLOOR = 71;
 const CENSUS_MARKER = '<<<CENSUS>>>';
 
 // ─── Raw facts, read from the live registry as VALUES ────────────────────────
@@ -61,6 +72,7 @@ const CENSUS_MARKER = '<<<CENSUS>>>';
 // rather than this process.
 const EXTRACT = `
 import { TOOL_REGISTRY } from './src/registry.js';
+import { contractEmissionsOf } from './src/registry/action-contract.js';
 import { EVENT_ANNOTATIONS } from './src/events/event-annotations.js';
 import { MODULE_EMISSIONS } from './src/events/module-emissions.js';
 import { VCS_LEDGER_EMISSIONS } from './src/vcs/mutation-owner.js';
@@ -69,7 +81,7 @@ import { PROMOTION_EXECUTED } from './src/install/atomic-promotion.js';
 const edges = [];
 for (const tool of TOOL_REGISTRY) {
   for (const action of tool.actions) {
-    for (const emission of action.autoEmits ?? []) {
+    for (const emission of contractEmissionsOf(action)) {
       edges.push({
         event: emission.event,
         action: action.name,
@@ -407,13 +419,28 @@ function measure(raw) {
 
 function assertPopulationFloor(measured) {
   const population = measured.keys['per-event-type/primary-owners'].populationSize;
-  if (population !== PRIMARY_OWNER_POPULATION_FLOOR) {
+  if (population === PRIMARY_OWNER_POPULATION_FLOOR) return;
+
+  // A census of ZERO is not a shrunken catalog, and saying "reconcile the
+  // constant" for it sends the reader to the wrong file. This script resolves
+  // edges through ONE accessor; when that accessor stops matching the registry
+  // the population collapses to nothing, which is exactly what happened when
+  // the action-contract closure stripped `autoEmits`. Name the scanner first.
+  if (population === 0) {
     throw new Error(
-      `PRIMARY_OWNER_POPULATION_FLOOR drift: census reports ${population}, ` +
-        `script constant is ${PRIMARY_OWNER_POPULATION_FLOOR}; reconcile with ` +
-        'src/events/registration-validate.ts PRIMARY_OWNER_POPULATION_FLOOR.',
+      'primary-owner census resolved ZERO edges over a non-empty registry. That is a broken ' +
+        'extractor, not a shrunken catalog: `contractEmissionsOf` no longer matches how the ' +
+        'registry carries emissions. Fix the accessor in EXTRACT before touching any constant — ' +
+        'compare against `declaredEmissionEdges` in src/events/registration-validate.ts, which ' +
+        'is the shipped reader of the same declarations.',
     );
   }
+
+  throw new Error(
+    `PRIMARY_OWNER_POPULATION_FLOOR drift: census reports ${population}, ` +
+      `script constant is ${PRIMARY_OWNER_POPULATION_FLOOR}; reconcile with ` +
+      'src/events/registration-validate.ts PRIMARY_OWNER_POPULATION_FLOOR.',
+  );
 }
 
 const measured = measure(readRawFacts());

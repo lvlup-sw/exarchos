@@ -144,23 +144,34 @@ export function withTelemetry(
       const responseBytes = Buffer.byteLength(responseText, 'utf-8');
       const tokenEstimate = Math.ceil(responseBytes / 4);
 
-      // Emit D3 gate event when token threshold exceeded (fire-and-forget)
-      const featureIdForGate = typeof correctedArgs.featureId === 'string' ? correctedArgs.featureId : undefined;
-      if (featureIdForGate && tokenEstimate > TOKEN_GATE_THRESHOLD) {
+      // Record a budget breach (fire-and-forget), on the TELEMETRY stream.
+      //
+      // This was a `gate.executed` on the FEATURE stream carrying
+      // `details.dimension: 'D3'`, and `D3` is a real convergence dimension
+      // (Context Economy). The convergence view folded it as a failed gate
+      // result under the name `token-budget`, which nothing ever re-runs — so
+      // the dimension could not recover. One breach anywhere in a feature
+      // stream pinned `overallConverged` false for the rest of that workflow's
+      // life. The runtime-economy signal already reaches the D3 verdict the
+      // sanctioned way: the `context-economy` gate reads `queryRuntimeMetrics`
+      // and appends its own governance row (#1898 item 8).
+      //
+      // The featureId is now RECORDED rather than required. It used to gate the
+      // emission only because the row needed a stream to be written to, so a
+      // breach from a call that named no workflow was dropped for a reason that
+      // had nothing to do with the measurement.
+      if (tokenEstimate > TOKEN_GATE_THRESHOLD) {
+        const featureIdForBreach =
+          typeof correctedArgs.featureId === 'string' ? correctedArgs.featureId : undefined;
         eventStore
-          .append(featureIdForGate, {
-            type: 'gate.executed',
+          .append(TELEMETRY_STREAM, {
+            type: 'tool.budget_exceeded',
             data: {
-              gateName: 'token-budget',
-              layer: 'runtime',
-              passed: false,
-              details: {
-                dimension: 'D3',
-                phase: 'runtime',
-                tokenEstimate,
-                responseBytes,
-                tool: toolName,
-              },
+              tool: toolName,
+              tokenEstimate,
+              responseBytes,
+              threshold: TOKEN_GATE_THRESHOLD,
+              ...(featureIdForBreach !== undefined && { featureId: featureIdForBreach }),
             },
           })
           .catch(() => { /* telemetry drop — non-fatal, never block workflow */ });

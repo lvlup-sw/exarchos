@@ -4,7 +4,7 @@
 // Shepherd is NOT a separate HSM phase — it operates within the `synthesize`
 // phase. This action queries CI status, reviews, and comments per PR via
 // `VcsProvider`, then emits dual events: `ci.status` for ShepherdStatusView and
-// `gate.executed` for CodeQualityView/flywheel pass rate tracking.
+// `ci.check_observed` for CodeQualityView/flywheel pass rate tracking.
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { VcsProvider, CiStatus, PrComment as VcsPrComment } from '../../vcs/provider.js';
@@ -40,9 +40,9 @@ export interface CiCheck {
  * DR-2 per-PR check roll-up. Passing/pending checks carry no actionable detail,
  * so the RESULT surfaces only their counts; failing checks (the only ones a
  * shepherd acts on) keep their full detail in {@link PrStatus.failingChecks}.
- * This is a result-shape economy only — `emitGateExecutedEvents` still emits one
- * `gate.executed` per check from the internal full set, so per-check event
- * fidelity is unchanged.
+ * This is a result-shape economy only — `emitCiCheckObservedEvents` still emits
+ * one `ci.check_observed` per check from the internal full set, so per-check
+ * event fidelity is unchanged.
  */
 export interface CheckCounts {
   readonly pass: number;
@@ -496,7 +496,17 @@ async function emitCiStatusEvents(
   }
 }
 
-async function emitGateExecutedEvents(
+// One row per observed CI check, beside the per-PR `ci.status` roll-up its
+// sibling appends from the same assessment pass.
+//
+// These were `gate.executed` rows carrying `layer: 'ci'` — a string nothing
+// validated and nothing read — so the code-quality view folded a GitHub check
+// into `gates[<check name>]` alongside the gates this repository runs itself. A
+// CI job named after one of ours merged two populations' pass rates into one
+// number, and nothing would have said so. The per-skill measurement that the
+// old `details.skill` existed for is kept: driving checks green IS the
+// shepherd's outcome (#1898 item 8).
+async function emitCiCheckObservedEvents(
   eventStore: EventStore,
   featureId: string,
   prStatuses: readonly PrAssessment[],
@@ -505,19 +515,15 @@ async function emitGateExecutedEvents(
   for (const prStatus of prStatuses) {
     for (const check of prStatus.checks) {
       await eventStore.append(featureId, {
-        type: 'gate.executed' as const,
+        type: 'ci.check_observed' as const,
         data: {
-          gateName: check.name,
-          layer: 'ci',
+          pr: prStatus.pr,
+          check: check.name,
           passed: check.status === 'pass',
-          details: {
-            skill: 'shepherd',
-            gate: check.name,
-            pr: prStatus.pr,
-          },
+          skill: 'shepherd',
         },
       }, {
-        idempotencyKey: `${featureId}:gate.executed:${prStatus.pr}:${check.name}:iter-${iterationCount}`,
+        idempotencyKey: `${featureId}:ci.check_observed:${prStatus.pr}:${check.name}:iter-${iterationCount}`,
       });
     }
   }
@@ -698,9 +704,9 @@ export async function handleAssessStack(
     args.prNumbers.map(pr => assessPr(vcs, pr, registry, eventStore, args.featureId)),
   );
 
-  // Emit dual events (one gate.executed per check, from the FULL set)
+  // Emit dual events (one ci.check_observed per check, from the FULL set)
   await emitCiStatusEvents(eventStore, args.featureId, assessments, iterationCount);
-  await emitGateExecutedEvents(eventStore, args.featureId, assessments, iterationCount);
+  await emitCiCheckObservedEvents(eventStore, args.featureId, assessments, iterationCount);
 
   // Classify action items over the FULL comment set — the recommendation and
   // the shepherd's fix/escalate decision must see every unresolved comment, not

@@ -30,6 +30,15 @@ permissions:
   # Publisher must be enrolled on npmjs.com for @lvlup-sw/exarchos pointing
   # at this repo + workflow (lvlup-sw/exarchos / .github/workflows/release.yml).
   id-token: write
+  # Resolves the @lvlup-sw scope from GitHub Packages (see .npmrc). This is a
+  # READ grant for installing; the publish of this package still goes to
+  # npmjs.org, pinned by publishConfig.registry in package.json.
+  packages: read
+
+env:
+  # Authenticates the @lvlup-sw scope against GitHub Packages (see .npmrc).
+  # Deliberately not NODE_AUTH_TOKEN, which setup-node binds to npmjs.org.
+  GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   release:

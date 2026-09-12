@@ -3984,10 +3984,16 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       expect(violations, `owner-set inconsistency:\n${violations.join('\n')}`).toEqual([]);
 
       // Canonical conforming shape 1 — a wide fan-in inside ONE area. Every
-      // gate declaration lives under `actions/orchestrate/`, so the 24 edges
+      // gate declaration lives under `actions/orchestrate/`, so the 23 edges
       // share an owner and the primary count is unconstrained.
+      //
+      // 24 → 23: `assess_stack` left the fan-in. Its rows were CI check
+      // outcomes, not gate runs, and they now declare `ci.check_observed`
+      // (#1898 item 8). Every edge that remains is a gate this repository
+      // actually runs, which is what made the fan-in conforming in the first
+      // place — the departed one was the odd member.
       const gateExecuted = byEvent.get('gate.executed') ?? [];
-      expect(gateExecuted).toHaveLength(24);
+      expect(gateExecuted).toHaveLength(23);
       expect([...new Set(gateExecuted.map((e) => e.emission.owner))]).toEqual(['orchestrate']);
 
       // Canonical conforming shape 2 — a narrow fan-in ACROSS two areas.

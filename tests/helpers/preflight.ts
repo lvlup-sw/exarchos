@@ -17,9 +17,19 @@ const BINARY_NAME = 'exarchos';
  *
  * The v2.9 install rewrite ships a single bun-compiled binary named
  * `exarchos` with subcommands (e.g. `exarchos mcp`, `exarchos version`);
- * there is no separate `exarchos-mcp` binary. Local dev installs it via
- * `npm link`; users install via the `tools/release/get-exarchos.sh` /
- * `get-exarchos.ps1` bootstrap.
+ * there is no separate `exarchos-mcp` binary. Users install it via the
+ * `tools/release/get-exarchos.sh` / `get-exarchos.ps1` bootstrap.
+ *
+ * `npm link` does NOT work here, though this message said so for a long time.
+ * The `bin` map in package.json publishes `exarchos-release-verify` and
+ * nothing else, and the build emits a platform-suffixed
+ * `dist/bin/exarchos-<os>-<arch>` — so there is no `exarchos` for npm to
+ * link. To run this tier against the WORKING TREE rather than against a
+ * published release, build the host target and put it on PATH under the bare
+ * name:
+ *
+ *   bun run tools/release/build-binary.ts --target <os>-<arch>
+ *   ln -s "$PWD/dist/bin/exarchos-<os>-<arch>" <dir-on-PATH>/exarchos
  *
  * Resolution uses the platform's own lookup:
  *   - POSIX: `which <command>`
@@ -34,7 +44,13 @@ export function assertExarchosOnPath(command: string = BINARY_NAME): void {
     execFileSync(lookup, [command], { stdio: 'pipe' });
   } catch {
     throw new Error(
-      `${command} not found on PATH. For local dev, run \`npm link\` in the repo root; otherwise install via \`tools/release/get-exarchos.sh\` (POSIX) or \`tools/release/get-exarchos.ps1\` (Windows). See docs/designs/2026-05-05-e2e-v29-revisited.md §5.1.`,
+      `${command} not found on PATH. To test the working tree, build the host ` +
+        'target and link it under the bare name: `bun run tools/release/build-binary.ts ' +
+        '--target <os>-<arch>` then symlink `dist/bin/exarchos-<os>-<arch>` onto PATH as ' +
+        '`exarchos`. To test a published release, install via ' +
+        '`tools/release/get-exarchos.sh` (POSIX) or `tools/release/get-exarchos.ps1` ' +
+        '(Windows). `npm link` does NOT provide this binary — package.json maps only ' +
+        '`exarchos-release-verify`.',
     );
   }
 }
@@ -110,9 +126,10 @@ export interface AssertExarchosVersionOpts {
  * matches the repo's expected release line (read from root `package.json`).
  *
  * Throws an Error naming both the expected and the actual version on
- * mismatch. A stale-binary case is the most common failure mode when a
- * developer's `npm link` points at an older checkout — without this gate
- * the process-fidelity suite would silently exercise stale behavior.
+ * mismatch. A stale-binary case is the most common failure mode when the
+ * `exarchos` symlink on PATH still points at an older checkout's build —
+ * without this gate the process-fidelity suite would silently exercise
+ * stale behavior.
  */
 export async function assertExarchosVersion(
   opts: AssertExarchosVersionOpts = {},
@@ -126,7 +143,7 @@ export async function assertExarchosVersion(
 
   if (actualMajorMinor !== expected) {
     throw new Error(
-      `${command} version mismatch: expected ${expected}.x but found ${actualRaw} (major.minor=${actualMajorMinor}). Re-run \`npm link\` from the v${expected} checkout, or reinstall via \`tools/release/get-exarchos.sh\`.`,
+      `${command} version mismatch: expected ${expected}.x but found ${actualRaw} (major.minor=${actualMajorMinor}). Rebuild the host target from the v${expected} checkout and re-point the \`exarchos\` symlink at it, or reinstall via \`tools/release/get-exarchos.sh\` (POSIX) or \`tools/release/get-exarchos.ps1\` (Windows).`,
     );
   }
 }

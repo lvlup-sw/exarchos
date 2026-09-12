@@ -34,11 +34,11 @@
     "ciResult": "green"
   },
   "excludedFromOracle": {
-    "count": 26,
-    "files": 9,
-    "reason": "Local-only failures, confined to the merge-orchestrate handler and one event-store race test. The same tree is green on CI, so these are an environment artifact rather than a defect this refactor must carry. They are named individually so a later reconciliation can tell them apart from a regression: an unexplained failure outside this list blocks, and any of these that starts passing locally should be removed from the list rather than left as permanent cover.",
-    "reviewTrigger": "If any listed test fails on CI, this exclusion is void and the failure is real.",
-    "byFile": {
+    "count": 0,
+    "files": 0,
+    "byFile": {},
+    "reason": "Empty. All 26 exclusions were retired on 2026-09-12 by fixing their cause rather than by re-confirming them. They were never an environment artifact: handleMergeOrchestrate runs a sibling-worktree probe (section 0a) against REAL git before it reaches the injected preflight, and these tests merge to `main`, which this repository's own .claude/worktrees/ development layout genuinely does keep checked out in a sibling directory. CI has one worktree, so CI never saw it. `gitExec` was already an injectable seam; these call sites simply did not use it. They now inject the shared BYPASS_SECTION_0A helper (tests/helpers/section-0a-bypass.ts) and pass on a multi-worktree machine.",
+    "retiredFrom": {
       "tests/unit/events/store.race.test.ts": [
         "MergeOrchestrate_TwoConcurrentInvocationsSameStream_NoDuplicateSequences"
       ],
@@ -83,7 +83,8 @@
         "handleMergeOrchestrate_StateWriteRetriesExhausted_ReturnsToolResultFailure",
         "handleMergeOrchestrate_StateWriteVersionConflict_RetriesAndSucceeds"
       ]
-    }
+    },
+    "reviewTrigger": "The set is empty, so nothing is excused and any local failure blocks. If an exclusion is ever added back, it is void unless it names the condition that retires it — and the first question is whether the test grew an unmocked ambient dependency, because the previous list stood for a year while naming a defect as an environment."
   },
   "windowsLeg": {
     "status": "outstanding",

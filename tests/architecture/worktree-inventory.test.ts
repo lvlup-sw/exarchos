@@ -15,6 +15,7 @@ import { execFileSync } from 'node:child_process';
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 
 type Inventory = {
+  capturedIn: string;
   disposition: string;
   dispositionRationale: string;
   worktrees: {
@@ -84,8 +85,13 @@ describe('worktree inventory', () => {
     // The session doing the inventorying is itself one of the entries. That is
     // the concrete reason a prune here is self-destructive, and pinning it
     // keeps the point from being lost.
-    const branches = inventory.worktrees.records.map((r) => r.branch);
+    // Derived from the artifact, not a branch name someone must remember to
+    // update. The name pinned here before was the capturing session's branch,
+    // which held only until that worktree was removed — after which this failed
+    // for a reason that had nothing to do with the property being claimed.
+    const paths = inventory.worktrees.records.map((r) => r.path);
 
-    expect(branches).toContain('worktree-exarchos-overhaul-staging');
+    expect(inventory.capturedIn.length).toBeGreaterThan(0);
+    expect(paths).toContain(inventory.capturedIn);
   });
 });

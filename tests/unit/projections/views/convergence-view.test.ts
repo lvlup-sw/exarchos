@@ -33,6 +33,83 @@ describe('ConvergenceView', () => {
     });
   });
 
+  // ─── The `gate.executed` split, from the reader's side (#1898 item 8) ─────
+  //
+  // The telemetry middleware used to append a `gate.executed` naming
+  // `details.dimension: 'D3'` — the Context Economy dimension — with
+  // `gateName: 'token-budget'` and `passed: false`. Both halves of the damage
+  // are pinned here, because the fix is at the producer and a reader-side pin
+  // is what notices if a second producer ever makes the same mistake.
+
+  describe('the unrecoverable-dimension hazard', () => {
+    // CHARACTERIZATION, not a defect: `isDimensionConverged` keeps the latest
+    // result PER GATE NAME and requires every name to be green. That is right
+    // for gates that re-run. It means a failing row under a name nothing ever
+    // re-runs pins its dimension forever — which is what made the telemetry row
+    // so damaging, and what any future D3-dimensioned producer must know.
+    it('ConvergenceView_FailedGateNameThatNeverReRuns_PinsTheDimensionForever', () => {
+      const pass = (seq: number) =>
+        makeEvent(
+          'gate.executed',
+          { gateName: 'context-economy', passed: true, details: { dimension: 'D3' } },
+          seq,
+        );
+      const strayFailure = makeEvent(
+        'gate.executed',
+        { gateName: 'token-budget', passed: false, details: { dimension: 'D3' } },
+        2,
+      );
+
+      const fold = (events: readonly WorkflowEvent[]): ConvergenceViewState =>
+        events.reduce(
+          (view, event) => convergenceProjection.apply(view, event),
+          convergenceProjection.init(),
+        );
+
+      // The real gate alone converges the dimension.
+      expect(fold([pass(1)]).dimensions['D3']?.converged).toBe(true);
+
+      // One stray failure under a second name un-converges it...
+      expect(fold([pass(1), strayFailure]).dimensions['D3']?.converged).toBe(false);
+
+      // ...and re-running the real gate does NOT recover it, however often.
+      const afterRetries = fold([pass(1), strayFailure, pass(3), pass(4), pass(5)]);
+      expect(afterRetries.dimensions['D3']?.converged).toBe(false);
+      expect(afterRetries.overallConverged).toBe(false);
+    });
+
+    it('ConvergenceView_BudgetExceededRecord_IsIdentity', () => {
+      // The replacement type carries no `dimension` and is not a gate row, so
+      // the convergence fold cannot see it even if one reached this stream.
+      const converged = convergenceProjection.apply(
+        convergenceProjection.init(),
+        makeEvent(
+          'gate.executed',
+          { gateName: 'context-economy', passed: true, details: { dimension: 'D3' } },
+          1,
+        ),
+      );
+      expect(converged.dimensions['D3']?.converged).toBe(true);
+
+      const after = convergenceProjection.apply(
+        converged,
+        makeEvent(
+          'tool.budget_exceeded',
+          { tool: 'exarchos_view', tokenEstimate: 9999, responseBytes: 40_000, threshold: 2048 },
+          2,
+        ),
+      );
+      // Stated as concrete values rather than as parity with the prior state.
+      // A `toEqual(converged)` here would compare two folds of the same
+      // projection, which proves the fold agrees with itself.
+      expect(after.dimensions['D3']?.converged).toBe(true);
+      expect(after.dimensions['D3']?.gateResults.map((r) => r.gateName)).toEqual([
+        'context-economy',
+      ]);
+      expect(after.uncheckedDimensions).toEqual(['D1', 'D2', 'D4', 'D5']);
+    });
+  });
+
   // ─── T2: gate.executed with dimension ─────────────────────────────────────
 
   describe('apply - gate.executed with dimension', () => {

@@ -102,6 +102,12 @@ function main() {
 
   const payload = {
     capturedAt: new Date().toISOString().slice(0, 10),
+    // The worktree this census ran in. Recorded so the "a prune here is
+    // self-destructive" property is checkable from the artifact alone: the
+    // capturing session appears in its own records. The accompanying test used
+    // to pin that by branch NAME, which held only until that worktree was
+    // removed and then failed for a reason unrelated to the property.
+    capturedIn: REPO_ROOT,
     base,
     disposition: 'inventory-only',
     dispositionRationale:

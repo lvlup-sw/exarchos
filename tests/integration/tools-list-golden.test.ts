@@ -209,8 +209,22 @@
 // cannot. No tool or action was added or removed, no order changed, and no
 // other action's schema or digest moved.
 //
+// ── `assess_stack` stops ensuring an append it does not always make ─────────
+//
+// MEASURED, not eyeballed: normalising both goldens and diffing yields ONE
+// changed tool description (`exarchos_orchestrate`) with exactly TWO changed
+// tokens on ONE action signature line — `assess_stack`'s contract digest, and
+// `ensures=declared` becoming `ensures=none`. The `always` postcondition was
+// carried over unchanged from the event spelling that preceded it, and it held
+// in neither: the actions that ensure an append `always` are gate RUNNERS,
+// whose result row is the point of the call, while this one observes. A stack
+// with no checks to read — empty, or a provider failure the check query records
+// and swallows — assesses successfully and appends nothing. No tool or action
+// was added or removed, no order changed, and no other action's schema or
+// digest moved.
+//
 // Regenerate deliberately (and review the diff) with:
-//   UPDATE_TOOLS_LIST_GOLDEN=1 npx vitest run src/__tests__/integration/tools-list-golden.test.ts
+//   UPDATE_TOOLS_LIST_GOLDEN=1 npx vitest run --project core tests/integration/tools-list-golden.test.ts
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
