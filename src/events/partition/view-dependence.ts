@@ -145,3 +145,51 @@ export const CORPUS_BLIND_READERS: Readonly<Record<string, string>> = Object.fre
     'Folds `worktree.baseline`, whose arm keys on a worktree the corpus never created ' +
     'under the sampled identifier.',
 });
+
+/**
+ * The views whose VERDICT moves when telemetry is dropped.
+ *
+ * Derived, never listed: the backlog shrinks by re-sourcing a view off the
+ * telemetry type and changing its row, and a second hand-maintained list would
+ * be free to disagree with the first.
+ */
+export const VERDICT_BEARING_VIEWS: ReadonlySet<string> = new Set(
+  Object.entries(VIEW_TELEMETRY_DEPENDENCE)
+    .filter(([, declared]) => declared.kind === 'verdict')
+    .map(([viewId]) => viewId),
+);
+
+/**
+ * Refuse a declaration set that contradicts itself, at load.
+ *
+ * The two tables make OPPOSITE claims about a view: one says the differential
+ * sees a dependence, the other says it cannot. A view in both is not a stricter
+ * declaration, it is an unreadable one, and the oracle would report whichever
+ * assertion happened to run first.
+ *
+ * A row with no paths is the other shape: a dependence declared on nothing,
+ * which passes the equality check against an empty measurement and so declares
+ * cover it does not hold.
+ */
+export function assertViewDependenceDeclarations(): void {
+  const contradictory = Object.keys(VIEW_TELEMETRY_DEPENDENCE).filter(
+    (viewId) => viewId in CORPUS_BLIND_READERS,
+  );
+  if (contradictory.length > 0) {
+    throw new Error(
+      `view-dependence: ${contradictory.join(', ')} declared BOTH a telemetry ` +
+        'dependence and corpus blindness — the two claims are opposites',
+    );
+  }
+  const pathless = Object.entries(VIEW_TELEMETRY_DEPENDENCE)
+    .filter(([, declared]) => declared.paths.length === 0)
+    .map(([viewId]) => viewId);
+  if (pathless.length > 0) {
+    throw new Error(
+      `view-dependence: ${pathless.join(', ')} declared a dependence on no paths — ` +
+        'an empty declaration matches an empty measurement and proves nothing',
+    );
+  }
+}
+
+assertViewDependenceDeclarations();
