@@ -192,11 +192,13 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
         };
       }
 
-      // PR3/T9 (#1364) — fold structured action-level failures.
-      // `tool.errored` continues to track transport/protocol failures
-      // (JS throws); `tool.action_errored` carries `errorCode` so the
-      // projection can report `actionErrorBreakdown` per tool. See
-      // [`docs/designs/archive/2026-05-15-wave2-wave3-polish.md`](../../docs/designs/archive/2026-05-15-wave2-wave3-polish.md).
+      // `tool.errored` tracks transport and protocol failures — a JS throw.
+      // `tool.action_errored` carries an `errorCode` instead, which is what
+      // lets this projection report `actionErrorBreakdown` per tool (#1364).
+      // The two stay separate because a typed action-level failure and a
+      // broken transport are not the same measurement, and one counter for
+      // both would make a handler returning an error code indistinguishable
+      // from a connection that died.
       case 'tool.action_errored': {
         const aeData = event.data as {
           tool?: unknown;
@@ -230,11 +232,11 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
         };
       }
 
-      // Split out of `gate.executed` (#1898 item 8). The breach used to be
-      // appended to the FEATURE stream as a gate row naming the `D3`
-      // convergence dimension, where the convergence view folded it as an
-      // unrecoverable failure of Context Economy. It is a per-tool runtime
-      // measurement, and this is the view that holds per-tool measurements.
+      // A token-budget breach is a per-tool runtime measurement, and this is
+      // the view that holds per-tool measurements. It is deliberately not a
+      // gate row on the feature stream: the convergence view keys gate results
+      // by name and nothing re-runs this one, so a breach folded there pins
+      // its dimension false for the rest of that workflow's life (#1898).
       case 'tool.budget_exceeded': {
         const beData = event.data as { tool?: unknown } | undefined;
         if (!beData || typeof beData.tool !== 'string') return view;

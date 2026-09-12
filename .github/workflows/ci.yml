@@ -200,9 +200,19 @@ jobs:
 
       - run: npm run typecheck
 
-      # Windows-portability lint (#1623): editor-first ESLint rules, also run
-      # here as a config-rot guard + second enforcement of the spawn-shim /
+      # The shared ESLint config. Two things ride it, and the script name
+      # predates the second.
+      #
+      # Windows-portability (#1623): editor-first rules, also run here as a
+      # config-rot guard + second enforcement of the spawn-shim /
       # URL.pathname anti-patterns (the grep-gate is the primary CI enforcer).
+      #
+      # Comment content: `comments/comment-content` enforces
+      # `.exarchos/comment-policy.json` over src, tools and tests. The existing
+      # backlog is suppressed per file in
+      # `tools/audit/comment-content-suppressions.json`; a NEW violation fails
+      # here, and so does a FIXED one whose suppression was not pruned, which
+      # is what keeps that file shrink-only.
       - run: npm run lint:windows
       - run: bash tests/scripts/check-eslint-windows.test.sh
 

@@ -1,5 +1,7 @@
 // @ts-check
 import tseslint from 'typescript-eslint';
+import { loadPolicy } from './tools/audit/lib/comment-policy.mjs';
+import commentContent, { resolvePolicyPath } from './tools/eslint-rules/comment-content.js';
 
 /**
  * Minimal, SCOPED ESLint config — Windows-portability rules only (#1623).
@@ -13,7 +15,58 @@ import tseslint from 'typescript-eslint';
  *
  * Deliberately rule-only — NO recommended ruleset — so it never flags
  * pre-existing code; it forbids exactly the two patterns below and nothing else.
+ *
+ * It also carries `comments/comment-content`, which was written to be loaded
+ * here and never was. Its own header describes itself as the edit-time half of
+ * a pair whose other half is a CI gate — and that gate does not exist either:
+ * the datum's `exemptPaths` still name `scripts/check-comment-*.mjs`, a path
+ * with no file behind it. So a policy with ten forbidden patterns, a
+ * classifier, a fixture corpus and two test suites enforced NOTHING, and an
+ * `INV-1` sat in a linted file through green lint runs until a human found it.
+ *
+ * The standing backlog is 9,288 findings over 1,212 files — a decade of
+ * planning ordinals, and every remedy is a rewrite only the comment's author
+ * can judge. So it is recorded per file in
+ * `tools/audit/comment-content-suppressions.json` rather than fixed here or
+ * waved through. A new violation fails, an extra one in an already-recorded
+ * file fails, and a FIXED one fails too until its suppression is pruned —
+ * which is what makes that file shrink-only rather than a place to hide.
+ *
+ *   npx eslint <the lint script's globs> --suppressions-location \
+ *     tools/audit/comment-content-suppressions.json --prune-suppressions
+ *
+ * `envelopes/no-handler-throw` is deliberately NOT here. It has its own
+ * type-aware `eslint.envelopes.config.js`, wired into CI as `lint:envelopes`,
+ * and that config says in its own words that it is never the shared one. Its
+ * suppressions live off the default path for the same reason: a file at
+ * `eslint-suppressions.json` is read by EVERY eslint invocation in the repo,
+ * which turned that green gate red until this one was moved aside.
  */
+
+/**
+ * The comment policy's own exemptions, read from the datum rather than copied.
+ *
+ * A kill fixture carries verbatim offender text and the datum spells the
+ * patterns it forbids, so both must be out of this rule's reach — and both
+ * already say so, with reasons, in `exemptPaths`. Restating them here would be
+ * the second authority the rule's header explicitly refuses.
+ *
+ * They are turned OFF for this rule rather than ignored outright, so the
+ * Windows-portability rules keep running over the same files, and so the rule
+ * itself stays a pure classifier: its kill probe runs the offender corpus
+ * through it by path, which a rule that self-exempted could not do.
+ *
+ * Resolved through the RULE's own `resolvePolicyPath`, not `loadPolicy`'s
+ * default. The rule honours `EXARCHOS_COMMENT_POLICY` and falls back
+ * module-relative when the working directory is not the repository root. A
+ * second resolver here would scope the rule by one datum while the rule
+ * classified by another — exempt files still linted, non-exempt files
+ * silently excused.
+ */
+const commentPolicyExemptions = loadPolicy(resolvePolicyPath()).exemptPaths.map(
+  (entry) => entry.glob,
+);
+
 export default [
   {
     // Seeded-defect corpus fixtures (#1675, task 003) are INTENTIONALLY broken
@@ -36,7 +89,15 @@ export default [
     // widening rather than assumed: zero. That is a property of this ruleset
     // being narrow (one `no-restricted-syntax` rule), not a general licence to
     // widen without looking.
-    files: ['src/**/*.ts', 'tools/**/*.ts'],
+    //
+    // Widened again to `tests/**` when `comments/comment-content` was wired in
+    // below. Measured the same way first: 4,127 comment findings over 664 test
+    // files, and ZERO new `no-restricted-syntax` findings, so the existing
+    // rules gain reach at no cost. Leaving the test tree out would have left
+    // open the exact hole that prompted this — a planning-artifact path in
+    // `tests/helpers/preflight.ts` that a human reviewer caught because no
+    // lint run could see the file.
+    files: ['src/**/*.ts', 'tools/**/*.ts', 'tests/**/*.ts'],
     languageOptions: {
       parser: tseslint.parser,
     },
@@ -46,11 +107,13 @@ export default [
     // "unused" just because we keep their rules off.
     plugins: {
       '@typescript-eslint': tseslint.plugin,
+      comments: { rules: { 'comment-content': commentContent } },
     },
     linterOptions: {
       reportUnusedDisableDirectives: 'off',
     },
     rules: {
+      'comments/comment-content': 'error',
       'no-restricted-syntax': [
         'error',
         {
@@ -72,5 +135,9 @@ export default [
         },
       ],
     },
+  },
+  {
+    files: commentPolicyExemptions,
+    rules: { 'comments/comment-content': 'off' },
   },
 ];

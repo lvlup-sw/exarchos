@@ -30,9 +30,14 @@ import { classifyText } from '../audit/lib/comment-classifier.mjs';
  * is also loaded directly by its own tests, where that is not guaranteed.
  * Preferring cwd keeps the rule reading the same datum the gate reads.
  *
+ * Exported because `eslint.config.js` reads `exemptPaths` from the same datum
+ * to decide where to turn this rule off. Two resolvers would let the config
+ * scope the rule by one policy while the rule classifies by another — exempt
+ * files still linted, non-exempt files silently excused — so there is one.
+ *
  * @returns {string}
  */
-function resolvePolicyPath() {
+export function resolvePolicyPath() {
   const fromCwd = path.resolve(process.cwd(), DEFAULT_POLICY_PATH);
   const here = path.dirname(fileURLToPath(import.meta.url));
   const fromModule = path.resolve(here, '..', '..', DEFAULT_POLICY_PATH);

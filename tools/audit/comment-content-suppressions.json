@@ -1,0 +1,6057 @@
+{
+  "src/adapters/cli/cli-format.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/adapters/cli/cli.ts": {
+    "comments/comment-content": {
+      "count": 67
+    }
+  },
+  "src/adapters/cli/schema-to-flags.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/adapters/mcp/mcp.ts": {
+    "comments/comment-content": {
+      "count": 25
+    }
+  },
+  "src/adapters/mcp/remote-mcp.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/architecture/__fixtures__/declaration-seam-violator.fixture.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/architecture/audit-delivery-closure.data.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/architecture/audit-delivery-closure.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/architecture/audit-prompt.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "src/architecture/catalog-merge.ts": {
+    "comments/comment-content": {
+      "count": 13
+    }
+  },
+  "src/architecture/catalog-sources.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/architecture/check-evaluator.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/architecture/effect-ledger.ts": {
+    "comments/comment-content": {
+      "count": 28
+    }
+  },
+  "src/architecture/invariant-schema.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "src/architecture/invariants-loader.ts": {
+    "comments/comment-content": {
+      "count": 31
+    }
+  },
+  "src/architecture/layer-boundaries-seam.ts": {
+    "comments/comment-content": {
+      "count": 24
+    }
+  },
+  "src/architecture/project-catalog.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/architecture/resolve-effective-catalog.ts": {
+    "comments/comment-content": {
+      "count": 15
+    }
+  },
+  "src/architecture/sdk-generation-seam.ts": {
+    "comments/comment-content": {
+      "count": 30
+    }
+  },
+  "src/architecture/sdlc-catalog.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "src/architecture/vocabulary-lint-cli.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/architecture/vocabulary-lint.ts": {
+    "comments/comment-content": {
+      "count": 17
+    }
+  },
+  "src/cli/follow-loop.ts": {
+    "comments/comment-content": {
+      "count": 16
+    }
+  },
+  "src/config/artifacts.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/config/exarchos-config-schema.ts": {
+    "comments/comment-content": {
+      "count": 32
+    }
+  },
+  "src/config/load-exarchos-config.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/config/prune-removed-knobs.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/config/register.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "src/config/resolve.ts": {
+    "comments/comment-content": {
+      "count": 17
+    }
+  },
+  "src/config/task-runners.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/config/test-runtime-resolver.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/config/toolchains.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/config/validation.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/config/yaml-schema.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "src/contract/authority-collector.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/contract/authority-lock-cli.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/contract/cli/cli-contract-seam.ts": {
+    "comments/comment-content": {
+      "count": 26
+    }
+  },
+  "src/contract/cli/cli-surface.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/contract/cli/differential-fixtures.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/contract/cli/generated-client.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/contract/compiler/index.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/contract/compiler/meta-model.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/contract/compiler/runtime-authority.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/contract/declaration-seam.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "src/contract/declaration.ts": {
+    "comments/comment-content": {
+      "count": 16
+    }
+  },
+  "src/contract/oracle/fixtures.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "src/contract/oracle/oracle-seam.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "src/contract/reachability/collect.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/contract/reachability/dispatch-routes.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/contract/reachability/graph.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/contract/schemas/envelope.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/contract/schemas/schema-totality.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/contract/sdk/brand.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "src/contract/sdk/seam.ts": {
+    "comments/comment-content": {
+      "count": 17
+    }
+  },
+  "src/contract/shared/validation.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/describe/handler.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "src/dispatch/core/context.ts": {
+    "comments/comment-content": {
+      "count": 13
+    }
+  },
+  "src/dispatch/core/dispatch.economy-seam.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/dispatch/core/dispatch.ts": {
+    "comments/comment-content": {
+      "count": 26
+    }
+  },
+  "src/dispatch/core/economy.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/dispatch/core/effect-carrier.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/dispatch/core/infra-streams.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/dispatch/core/interceptors/session-machinery.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/dispatch/core/onboarding/event-ctx.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/dispatch/core/onboarding/reconcile.ts": {
+    "comments/comment-content": {
+      "count": 87
+    }
+  },
+  "src/dispatch/core/onboarding/types.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "src/dispatch/core/response-economy.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "src/dispatch/tasks-augmented.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/dispatch/undeclared-parameters.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/envelope-wrap.ts": {
+    "comments/comment-content": {
+      "count": 14
+    }
+  },
+  "src/events/atomic-appender.ts": {
+    "comments/comment-content": {
+      "count": 24
+    }
+  },
+  "src/events/concurrency-error.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/events/event-annotations.ts": {
+    "comments/comment-content": {
+      "count": 43
+    }
+  },
+  "src/events/event-declarations.ts": {
+    "comments/comment-content": {
+      "count": 28
+    }
+  },
+  "src/events/event-factory.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/events/event-name.ts": {
+    "comments/comment-content": {
+      "count": 20
+    }
+  },
+  "src/events/event-registration.ts": {
+    "comments/comment-content": {
+      "count": 51
+    }
+  },
+  "src/events/event-validation.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/events/index.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/events/judgment-content-schemas.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/events/liveness-registry.ts": {
+    "comments/comment-content": {
+      "count": 17
+    }
+  },
+  "src/events/registration-validate.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/events/schemas.ts": {
+    "comments/comment-content": {
+      "count": 238
+    }
+  },
+  "src/events/session-errors.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/events/storage-busy-error.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/events/store.ts": {
+    "comments/comment-content": {
+      "count": 17
+    }
+  },
+  "src/events/subscriptions.ts": {
+    "comments/comment-content": {
+      "count": 13
+    }
+  },
+  "src/events/tools.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "src/format.ts": {
+    "comments/comment-content": {
+      "count": 40
+    }
+  },
+  "src/index.ts": {
+    "comments/comment-content": {
+      "count": 21
+    }
+  },
+  "src/install/advisory-registry.ts": {
+    "comments/comment-content": {
+      "count": 15
+    }
+  },
+  "src/install/atomic-promotion.ts": {
+    "comments/comment-content": {
+      "count": 15
+    }
+  },
+  "src/install/binding.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/install/build-command-aliases.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/install/build-hooks.ts": {
+    "comments/comment-content": {
+      "count": 16
+    }
+  },
+  "src/install/build-skills/build-all.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/install/build-skills/call-macro.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/install/build-skills/main.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/install/build-skills/procedural.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/install/build-skills/references-copy.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/install/build-skills/requires-guards.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "src/install/build-skills/standard-runtime.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/install/build-skills/token-coverage.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/install/config/canonical-skills.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/install/friction-signal.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/install/install-skills-messages.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/install/install-skills.ts": {
+    "comments/comment-content": {
+      "count": 41
+    }
+  },
+  "src/install/onramp/managed-block.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/install/placeholder-lint.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "src/install/projection-containment.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "src/install/runtimes/detect.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/install/runtimes/load.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/install/runtimes/types.ts": {
+    "comments/comment-content": {
+      "count": 14
+    }
+  },
+  "src/install/shim-registry.ts": {
+    "comments/comment-content": {
+      "count": 16
+    }
+  },
+  "src/install/skill-vocabulary.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/install/skills-guard.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/install/vocabulary-lint.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/lifecycle/event-query.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/lifecycle/install-skills-bridge.d.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/lifecycle/run-tests.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/lifecycle/session-start.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/lifecycle/subagent-stop.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/lifecycle/types.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/lifecycle/verify-worktree-boundary.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/lifecycle/version.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/mcp/tasks-methods.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "src/ndjson/encoder.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/ndjson/frames.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/ndjson/heartbeat.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/next-action.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/next-actions-computer.ts": {
+    "comments/comment-content": {
+      "count": 17
+    }
+  },
+  "src/next-actions-from-result.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "src/output-schema-declaration.ts": {
+    "comments/comment-content": {
+      "count": 26
+    }
+  },
+  "src/output-schema-vacuity-allowlist.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "src/projections/bisect.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/projections/cursor.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/projections/degraded-result.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/projections/diff-states.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/projections/freshness.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/projections/gwt.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/projections/index.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/projections/merge-orchestrator/index.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/projections/merge-orchestrator/reducer.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "src/projections/merge-orchestrator/types.ts": {
+    "comments/comment-content": {
+      "count": 16
+    }
+  },
+  "src/projections/next-action/index.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/projections/next-action/reducer.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "src/projections/rebuild.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "src/projections/registry.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/projections/rehydration/fingerprint-cli.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/projections/rehydration/fingerprint.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/projections/rehydration/index.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "src/projections/rehydration/prose-lint-cli.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/projections/rehydration/prose-lint.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/projections/rehydration/reducer.ts": {
+    "comments/comment-content": {
+      "count": 27
+    }
+  },
+  "src/projections/rehydration/schema.ts": {
+    "comments/comment-content": {
+      "count": 23
+    }
+  },
+  "src/projections/rehydration/serialize.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "src/projections/rehydration/upgrade.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/projections/shared/event-data-extractors.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/projections/snapshot-schema.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/projections/store.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/projections/task-store/attach.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/projections/task-store/event-sourced-task-store.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "src/projections/task-store/port.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/projections/taskstore/index.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/projections/taskstore/reducer.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/projections/taskstore/types.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/projections/telemetry/middleware.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/projections/telemetry/tools.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "src/projections/testing.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/projections/types.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/projections/views/composite.ts": {
+    "comments/comment-content": {
+      "count": 36
+    }
+  },
+  "src/projections/views/convergence-view.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/projections/views/delegation-readiness-view.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "src/projections/views/effective-catalog.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/projections/views/handlers/analytic-contract.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "src/projections/views/handlers/code-quality.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "src/projections/views/handlers/convergence.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/projections/views/handlers/delegation-readiness.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/projections/views/handlers/delegation-timeline.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "src/projections/views/handlers/eval-results.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "src/projections/views/handlers/gate-reliability.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/projections/views/handlers/inventory-contract.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "src/projections/views/handlers/materializer.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/projections/views/handlers/pipeline.ts": {
+    "comments/comment-content": {
+      "count": 28
+    }
+  },
+  "src/projections/views/handlers/provenance.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/projections/views/handlers/quality-attribution.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/projections/views/handlers/quality-correlation.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/projections/views/handlers/quality-hints.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/projections/views/handlers/query.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/projections/views/handlers/session-provenance.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/projections/views/handlers/shepherd-status.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/projections/views/handlers/synthesis-readiness.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/projections/views/handlers/tasks.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "src/projections/views/handlers/team-performance.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/projections/views/handlers/workflow-status.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/projections/views/lifecycle/export.ts": {
+    "comments/comment-content": {
+      "count": 16
+    }
+  },
+  "src/projections/views/lifecycle/inspect.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "src/projections/views/lifecycle/operations-fold.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "src/projections/views/lifecycle/ps.ts": {
+    "comments/comment-content": {
+      "count": 18
+    }
+  },
+  "src/projections/views/lifecycle/schema-fields.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "src/projections/views/lifecycle/wait.ts": {
+    "comments/comment-content": {
+      "count": 21
+    }
+  },
+  "src/projections/views/lifecycle/workflow-fold.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/projections/views/pipeline-view.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/projections/views/shepherd-status-view.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/projections/views/snapshot-store.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/projections/views/workflow-state-projection.ts": {
+    "comments/comment-content": {
+      "count": 39
+    }
+  },
+  "src/projections/workflow-state/index.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/projections/workflow-state/reducer.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/pruner/coordinator.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/pruner/score.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/registry/action-contract.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/registry/actions/orchestrate/coordination.ts": {
+    "comments/comment-content": {
+      "count": 17
+    }
+  },
+  "src/registry/actions/orchestrate/cutover.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/registry/actions/orchestrate/gates.ts": {
+    "comments/comment-content": {
+      "count": 15
+    }
+  },
+  "src/registry/actions/orchestrate/invariants.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "src/registry/actions/orchestrate/lifecycle-ops.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/registry/actions/orchestrate/merge.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/registry/actions/orchestrate/onboarding.ts": {
+    "comments/comment-content": {
+      "count": 15
+    }
+  },
+  "src/registry/actions/orchestrate/review-ops.ts": {
+    "comments/comment-content": {
+      "count": 15
+    }
+  },
+  "src/registry/actions/orchestrate/vcs.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/registry/actions/orchestrate/verification.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "src/registry/actions/orchestrate/worktree.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "src/registry/actions/view/core.ts": {
+    "comments/comment-content": {
+      "count": 33
+    }
+  },
+  "src/registry/actions/view/lifecycle.ts": {
+    "comments/comment-content": {
+      "count": 32
+    }
+  },
+  "src/registry/actions/view/quality.ts": {
+    "comments/comment-content": {
+      "count": 22
+    }
+  },
+  "src/registry/actions/workflow.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "src/registry/annotations.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/registry/custom-tools.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/registry/describe-actions.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/registry/output-schemas.ts": {
+    "comments/comment-content": {
+      "count": 26
+    }
+  },
+  "src/registry/type-assertions.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/registry/types.ts": {
+    "comments/comment-content": {
+      "count": 23
+    }
+  },
+  "src/runbooks/definitions.ts": {
+    "comments/comment-content": {
+      "count": 27
+    }
+  },
+  "src/runtime/agent-environment-detector.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/runtime/agents/adapters/claude.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/runtime/agents/adapters/codex.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/runtime/agents/adapters/copilot.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/runtime/agents/adapters/cursor.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/runtime/agents/adapters/opencode.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/runtime/agents/adapters/support-levels.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/runtime/agents/adapters/types.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/runtime/agents/definitions.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "src/runtime/agents/dispatch-shape.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "src/runtime/agents/generate-agents.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/runtime/agents/spec.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/runtime/agents/types.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/runtime/command-shim-emitter.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/runtime/launcher/create-worktree.ts": {
+    "comments/comment-content": {
+      "count": 28
+    }
+  },
+  "src/runtime/launcher/harness-registry.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "src/runtime/launcher/harnesses/claude-code.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/runtime/launcher/harnesses/codex.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/runtime/launcher/harnesses/copilot.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/runtime/launcher/harnesses/cursor.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/runtime/launcher/harnesses/index.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/runtime/launcher/harnesses/opencode.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/runtime/launcher/injection-seam.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "src/runtime/launcher/launch-reconcile.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/runtime/launcher/lifecycle-core.ts": {
+    "comments/comment-content": {
+      "count": 36
+    }
+  },
+  "src/runtime/launcher/liveness.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/runtime/launcher/production-deps.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "src/runtime/launcher/signals.ts": {
+    "comments/comment-content": {
+      "count": 16
+    }
+  },
+  "src/runtime/launcher/teardown.ts": {
+    "comments/comment-content": {
+      "count": 21
+    }
+  },
+  "src/runtime/launcher/topology.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/runtime/launcher/verb.ts": {
+    "comments/comment-content": {
+      "count": 21
+    }
+  },
+  "src/runtime/launcher/wlm-compose.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/runtime/workspace/discovery.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/storage/backend.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/storage/memory-backend.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "src/storage/snapshot-retention.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/storage/sqlite-backend.ts": {
+    "comments/comment-content": {
+      "count": 27
+    }
+  },
+  "src/storage/sqlite/constants.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/storage/sqlite/errors.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/storage/sqlite/wire-types.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/utils/atomic-write.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/utils/paths.ts": {
+    "comments/comment-content": {
+      "count": 13
+    }
+  },
+  "src/utils/process.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/utils/task-id.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/vcs/azure-devops.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/vcs/github.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/vcs/gitlab.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/vcs/mutation-owner.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/vcs/provider.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/verbs/composite.ts": {
+    "comments/comment-content": {
+      "count": 25
+    }
+  },
+  "src/verbs/doctor/checks/__shared__/make-stub-probes.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/verbs/doctor/checks/invariants-catalog.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/verbs/doctor/checks/onramp-block-drift.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/verbs/doctor/checks/retired-hooks-present.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/verbs/doctor/checks/session-start-hook.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/verbs/doctor/checks/stale-skill-dirs.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/verbs/doctor/checks/store-path-divergence.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/verbs/doctor/index.ts": {
+    "comments/comment-content": {
+      "count": 14
+    }
+  },
+  "src/verbs/doctor/probes.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "src/verbs/doctor/schema.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/verbs/gates/assess-refactor-scope.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/verbs/gates/check-exploration-depth.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/verbs/gates/check-integration-suite.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/verbs/gates/check-invariant-conformance-schema.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/verbs/gates/check-invariant-conformance.ts": {
+    "comments/comment-content": {
+      "count": 29
+    }
+  },
+  "src/verbs/gates/contract-drift-handler.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/verbs/gates/contract-drift.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/verbs/gates/cutover-readiness-schema.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "src/verbs/gates/cutover-readiness.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "src/verbs/gates/design-completeness.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "src/verbs/gates/gate-provider-registry.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/verbs/gates/gate-runner.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/verbs/gates/gate-severity.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/verbs/gates/gate-utils.ts": {
+    "comments/comment-content": {
+      "count": 19
+    }
+  },
+  "src/verbs/gates/generate-traceability.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/verbs/gates/mock-boundary-handler.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "src/verbs/gates/mock-boundary.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/verbs/gates/mutation-adequacy.ts": {
+    "comments/comment-content": {
+      "count": 48
+    }
+  },
+  "src/verbs/gates/plan-coverage.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "src/verbs/gates/post-merge.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/verbs/gates/pre-synthesis-check.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/verbs/gates/static-analysis.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "src/verbs/gates/test-adequacy-handler.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/verbs/gates/test-adequacy.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "src/verbs/gates/verify-worktree-baseline.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/verbs/init/index.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "src/verbs/init/schema.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/verbs/init/seed-exarchos-config.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/verbs/init/writers/claude-code.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "src/verbs/init/writers/mcp-json-writer.ts": {
+    "comments/comment-content": {
+      "count": 15
+    }
+  },
+  "src/verbs/init/writers/onramp-block.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "src/verbs/invariants/add.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "src/verbs/invariants/amend.ts": {
+    "comments/comment-content": {
+      "count": 15
+    }
+  },
+  "src/verbs/invariants/catalog-file.ts": {
+    "comments/comment-content": {
+      "count": 16
+    }
+  },
+  "src/verbs/invariants/reserved-tier-guard.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/verbs/invariants/scaffold.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/verbs/merge/execute-merge.ts": {
+    "comments/comment-content": {
+      "count": 19
+    }
+  },
+  "src/verbs/merge/merge-orchestrate.ts": {
+    "comments/comment-content": {
+      "count": 17
+    }
+  },
+  "src/verbs/onboard/block-drift.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/verbs/onboard/hooks.ts": {
+    "comments/comment-content": {
+      "count": 20
+    }
+  },
+  "src/verbs/onboard/index.ts": {
+    "comments/comment-content": {
+      "count": 44
+    }
+  },
+  "src/verbs/onboard/install.ts": {
+    "comments/comment-content": {
+      "count": 54
+    }
+  },
+  "src/verbs/onboard/new.ts": {
+    "comments/comment-content": {
+      "count": 13
+    }
+  },
+  "src/verbs/pure/design-completeness.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "src/verbs/pure/execute-merge.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "src/verbs/pure/gate-preflight.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/verbs/pure/integration-suite.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/verbs/pure/merge-preflight.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/verbs/pure/provenance-chain.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/verbs/pure/static-analysis.ts": {
+    "comments/comment-content": {
+      "count": 27
+    }
+  },
+  "src/verbs/resolve-state.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/verbs/review/escalation-policy.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/verbs/review/investigation-timer.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/verbs/review/review-diff.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/verbs/review/review-verdict.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "src/verbs/review/select-debug-track.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/verbs/review/verify-review-triage.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/verbs/tasks/discover-bridge.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/verbs/tasks/extract-fix-tasks.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/verbs/tasks/extract-intent.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "src/verbs/tasks/finalize-oneshot.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/verbs/tasks/oneshot-state.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/verbs/tasks/parse-task-stamps.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "src/verbs/tasks/task-decomposition.ts": {
+    "comments/comment-content": {
+      "count": 23
+    }
+  },
+  "src/verbs/tasks/tools.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/verbs/team/dispatch-guard.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/verbs/team/prepare-delegation.ts": {
+    "comments/comment-content": {
+      "count": 71
+    }
+  },
+  "src/verbs/team/prepare-review.ts": {
+    "comments/comment-content": {
+      "count": 42
+    }
+  },
+  "src/verbs/team/prepare-synthesis.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/verbs/team/prune-stale-workflows.ts": {
+    "comments/comment-content": {
+      "count": 16
+    }
+  },
+  "src/verbs/team/request-synthesize.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/verbs/team/setup-worktree.ts": {
+    "comments/comment-content": {
+      "count": 16
+    }
+  },
+  "src/verbs/vcs/add-pr-comment.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/verbs/vcs/assess-stack.ts": {
+    "comments/comment-content": {
+      "count": 30
+    }
+  },
+  "src/verbs/vcs/check-pr-comments.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/verbs/vcs/create-issue.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/verbs/vcs/create-pr.ts": {
+    "comments/comment-content": {
+      "count": 13
+    }
+  },
+  "src/verbs/vcs/get-pr-comments.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/verbs/vcs/git-exec-default.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/verbs/vcs/list-prs.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/verbs/vcs/push-with-lease.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/verbs/vcs/validate-pr-body.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "src/verbs/worktree/git-retry.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "src/verbs/worktree/handlers.ts": {
+    "comments/comment-content": {
+      "count": 34
+    }
+  },
+  "src/verbs/worktree/manager.ts": {
+    "comments/comment-content": {
+      "count": 51
+    }
+  },
+  "src/verbs/worktree/merge-serializer.ts": {
+    "comments/comment-content": {
+      "count": 24
+    }
+  },
+  "src/verbs/worktree/projections/index.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/verbs/worktree/projections/worktrees.ts": {
+    "comments/comment-content": {
+      "count": 29
+    }
+  },
+  "src/verbs/worktree/pure/ownership.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/verbs/worktree/pure/path-containment.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/verbs/worktree/pure/probe.ts": {
+    "comments/comment-content": {
+      "count": 18
+    }
+  },
+  "src/verbs/worktree/pure/process-identity.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/verbs/worktree/pure/prune-ladder.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/verbs/worktree/schemas.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "src/workflow/admission/bootstrap-attempts.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/workflow/admission/bootstrap-generation.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/workflow/admission/cutover-auto-export.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/workflow/admission/cutover-gate.ts": {
+    "comments/comment-content": {
+      "count": 14
+    }
+  },
+  "src/workflow/admission/edge-condition-evaluate.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/workflow/admission/edge-condition-select.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/workflow/admission/edge-condition.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/workflow/admission/evidence-artifact.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/workflow/admission/evidence-reader.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/workflow/admission/freeze-requirements.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/workflow/admission/legacy-state-translation.ts": {
+    "comments/comment-content": {
+      "count": 28
+    }
+  },
+  "src/workflow/admission/live-shadow-observer.ts": {
+    "comments/comment-content": {
+      "count": 38
+    }
+  },
+  "src/workflow/admission/phase-attempt-state.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/workflow/admission/reassessment.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/workflow/admission/remediation-purity.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/workflow/admission/requirement-context.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "src/workflow/admission/requirement-resolution.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/workflow/admission/requirement-strength.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/workflow/admission/shadow-decision.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/workflow/admission/transition-command.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/workflow/admission/types.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/workflow/cancel-process-manager.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "src/workflow/cancel.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "src/workflow/capabilities/posture-mapping.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/workflow/capabilities/resolver.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "src/workflow/checkpoint.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "src/workflow/cleanup.ts": {
+    "comments/comment-content": {
+      "count": 19
+    }
+  },
+  "src/workflow/compensation.ts": {
+    "comments/comment-content": {
+      "count": 16
+    }
+  },
+  "src/workflow/composite.ts": {
+    "comments/comment-content": {
+      "count": 17
+    }
+  },
+  "src/workflow/depth-proposal.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "src/workflow/describe-config.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/workflow/events.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/workflow/feedback.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/workflow/guards.ts": {
+    "comments/comment-content": {
+      "count": 19
+    }
+  },
+  "src/workflow/handlers/checkpoint.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "src/workflow/handlers/get.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/workflow/handlers/init.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/workflow/handlers/set.ts": {
+    "comments/comment-content": {
+      "count": 29
+    }
+  },
+  "src/workflow/handlers/shared.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/workflow/handlers/transition.ts": {
+    "comments/comment-content": {
+      "count": 23
+    }
+  },
+  "src/workflow/handlers/update.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/workflow/handoff-lint.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/workflow/hsm-definitions.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "src/workflow/hsm-transition-guard.ts": {
+    "comments/comment-content": {
+      "count": 29
+    }
+  },
+  "src/workflow/phase-kind.ts": {
+    "comments/comment-content": {
+      "count": 26
+    }
+  },
+  "src/workflow/plan-depth-policy.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/workflow/playbooks.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "src/workflow/rehydrate.ts": {
+    "comments/comment-content": {
+      "count": 69
+    }
+  },
+  "src/workflow/retirement/retirement-safety.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/workflow/review-contract.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/workflow/schemas.ts": {
+    "comments/comment-content": {
+      "count": 14
+    }
+  },
+  "src/workflow/state-machine.ts": {
+    "comments/comment-content": {
+      "count": 29
+    }
+  },
+  "src/workflow/state-mutation.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "src/workflow/state-retry.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/workflow/state-store.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "src/workflow/topology/loader.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "src/workflow/topology/phase-contract.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "src/workflow/verification-policy-resolver.ts": {
+    "comments/comment-content": {
+      "count": 13
+    }
+  },
+  "src/workflow/verification-policy.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/architecture/agent-instructions.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/architecture/artifact-dir-literals.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/architecture/baseline-green.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/architecture/build-graph.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/architecture/case-exactness.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/architecture/dead-code-allowlist.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/architecture/depcruise-rule-liveness.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/architecture/directory-readmes.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/architecture/documentation-accuracy.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/architecture/guard-liveness.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/architecture/identifier-stability.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/architecture/layer-map.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/architecture/locality.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/architecture/test-inventory.test.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "tests/architecture/test-tree-contract.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/architecture/top-level-contract.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/architecture/vitest-config.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/core/integration/_harness.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/core/integration/governance/denied-transition.test.ts": {
+    "comments/comment-content": {
+      "count": 13
+    }
+  },
+  "tests/core/integration/governance/evidence-provenance.test.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "tests/core/integration/governance/gate-before-completion.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/core/integration/governance/merge-idempotency.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/core/integration/public-root/actions.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/core/integration/suite-invariants.test.ts": {
+    "comments/comment-content": {
+      "count": 20
+    }
+  },
+  "tests/core/integration/suite-invariants/corpus.ts": {
+    "comments/comment-content": {
+      "count": 17
+    }
+  },
+  "tests/core/integration/suite-invariants/detectors.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/core/integration/suite-invariants/fixtures.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/core/integration/suite-invariants/legacy-shape-debt.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/core/integration/suite-invariants/regenerate-baseline.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/core/integration/suite-invariants/registry.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "tests/core/integration/suite-invariants/shapes.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/core/load-bearing-golden.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/core/packaged/containment.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/core/parity-actions.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/core/parity.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/core/process/_helpers.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/core/process/_helpers.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "tests/core/process/compiled-binary-mcp.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/core/process/multi-process-append.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/core/process/packaged-proof.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/core/process/promotion-kill.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/core/scripts/cli-derivation-guard.test.ts": {
+    "comments/comment-content": {
+      "count": 35
+    }
+  },
+  "tests/core/scripts/cli-derivation-ratchet-guard.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/core/scripts/cli-vocab-guard.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/core/scripts/output-schema-ratchet-guard.test.ts": {
+    "comments/comment-content": {
+      "count": 17
+    }
+  },
+  "tests/e2e/fresh-install-bootstrap.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/evals/native-baseline/emit-baseline-csv.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/evals/native-baseline/harness.test.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "tests/evals/native-baseline/harness.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "tests/evals/quality-ab/grade.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/evals/quality-ab/grade.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/evals/quality-ab/run-underspec.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/evals/quality-ab/run-underspec.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "tests/helpers/cli-runner.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/helpers/cli-runner.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/helpers/event-replay.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/helpers/event-replay.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/helpers/mcp-client.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/helpers/mcp-envelope.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/helpers/parity-contract.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/helpers/saga-driver.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/helpers/saga-driver.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/integration/cli-parity.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/integration/cli-table-tree-regression.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/integration/doctor-workflow.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/integration/elicitation-roundtrip.fixture.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/integration/elicitation-roundtrip.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/integration/ideate-update-action.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/integration/next-actions-round-trip.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/integration/perf-validation.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/integration/tools-call.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/integration/tools-list-2020-12.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/integration/tools-list-golden.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/integration/tools-list.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/migration/batch-migration.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/migration/delegate-migration.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/migration/ideate-migration.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/migration/snapshots.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/migration/structural-invariant.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/outcome/merge-orchestrate-multiworktree.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/outcome/onboard.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/outcome/rehydrate-projection-drift.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/outcome/runbook-merge-orchestration.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/process/cli/doctor.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/process/cli/emissions.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/process/cli/mcp-start-stop.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/process/cli/onboard.test.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "tests/process/cli/schema.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/process/cli/topology.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/process/cli/version.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/process/parity-event-query.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/process/parity-workflow-describe.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/process/parity-workflow-rehydrate.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/process/saga-merge-detour.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/scripts/audit/consolidate-suite.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/scripts/audit/cycle-gate.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/scripts/audit/register-entry-schema.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/scripts/build-binary.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/scripts/build-release-manifest.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/scripts/check-enforcer-wiring.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/scripts/check-event-store-composition-root.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/scripts/check-golden-fixture-note.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/scripts/check-measured-premises.test.ts": {
+    "comments/comment-content": {
+      "count": 17
+    }
+  },
+  "tests/scripts/check-module-intent.test.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "tests/scripts/check-no-state-json.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/scripts/check-prefix-fingerprint.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/scripts/check-prose-lint.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/scripts/check-query-upcast-choke-point.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/scripts/check-single-workflow-fold.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/scripts/ci-binary-matrix.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/scripts/ci-topology.test.ts": {
+    "comments/comment-content": {
+      "count": 19
+    }
+  },
+  "tests/scripts/ci-workflow-shape.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/scripts/docs-check.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/scripts/generate-legacy-skill-hashes.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/scripts/guard-inventory.test.ts": {
+    "comments/comment-content": {
+      "count": 28
+    }
+  },
+  "tests/scripts/installer-verify.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/scripts/lib/comment-classifier.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/scripts/lint-inv6.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/scripts/migration-followups.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/scripts/release-workflow.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/scripts/run-validate.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/scripts/tsconfig-scripts-coverage.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/scripts/tsconfig-strictness/count-casts.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/scripts/validate-plugin.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/smoke/runtime-smoke.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/adapters/adapter-direction.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/adapters/cli/cli-format.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/adapters/cli/cli-init.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/adapters/cli/cli-install-skills.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/adapters/cli/cli-launcher.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/adapters/cli/cli-long-running.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/adapters/cli/cli-merge-orchestrate.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/adapters/cli/cli.correlation-flags.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/adapters/cli/cli.test.ts": {
+    "comments/comment-content": {
+      "count": 39
+    }
+  },
+  "tests/unit/adapters/cli/hooks.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/adapters/cli/schema-introspection.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/adapters/cli/schema-to-flags.parity.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/adapters/cli/schema-to-flags.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/adapters/mcp/mcp.test.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "tests/unit/adapters/mcp/remote-mcp.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/architecture/audit-delivery-closure.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/architecture/audit-prompt.test.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "tests/unit/architecture/catalog-merge.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/architecture/catalog-sources.test.ts": {
+    "comments/comment-content": {
+      "count": 19
+    }
+  },
+  "tests/unit/architecture/check-evaluator.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/architecture/dev-catalog-content.test.ts": {
+    "comments/comment-content": {
+      "count": 29
+    }
+  },
+  "tests/unit/architecture/dev-catalog-ref-paths.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/architecture/doc-scanners-specs.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/architecture/effect-ledger.test.ts": {
+    "comments/comment-content": {
+      "count": 24
+    }
+  },
+  "tests/unit/architecture/invariant-schema.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/architecture/invariants-loader.test.ts": {
+    "comments/comment-content": {
+      "count": 83
+    }
+  },
+  "tests/unit/architecture/layer-boundaries-seam.test.ts": {
+    "comments/comment-content": {
+      "count": 21
+    }
+  },
+  "tests/unit/architecture/project-catalog.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/architecture/resolve-effective-catalog.characterization.test.ts": {
+    "comments/comment-content": {
+      "count": 22
+    }
+  },
+  "tests/unit/architecture/resolve-effective-catalog.test.ts": {
+    "comments/comment-content": {
+      "count": 15
+    }
+  },
+  "tests/unit/architecture/sdk-generation-seam.test.ts": {
+    "comments/comment-content": {
+      "count": 25
+    }
+  },
+  "tests/unit/architecture/sdlc-catalog.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/architecture/skill-retirement.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/architecture/vcs-ownership.kill.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/architecture/vocabulary-lint.test.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "tests/unit/cli/cli-follow-expansion.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/cli/follow-loop.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/coerce.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/commands/delegate-prose.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/commands/ideate-loader.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/commands/phase-transition-prose.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/config/artifact-dir-symlink.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/config/artifacts.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/config/exarchos-config-schema.test.ts": {
+    "comments/comment-content": {
+      "count": 22
+    }
+  },
+  "tests/unit/config/load-exarchos-config.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/config/mutation-diff-scope.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/config/resolve.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/config/test-runtime-resolver.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/config/toolchains.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/config/yaml-schema.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/contract/authority-collector.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/contract/cli/cli-contract-seam.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/contract/compiler/meta-model.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/contract/declaration-seam.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/contract/declaration.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/contract/fixtures/in-memory-ir.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/contract/governing-catalog.test.ts": {
+    "comments/comment-content": {
+      "count": 22
+    }
+  },
+  "tests/unit/contract/oracle/fixtures.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/contract/oracle/oracle-seam.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/contract/relocation-proof.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/contract/sdk/seam.test.ts": {
+    "comments/comment-content": {
+      "count": 27
+    }
+  },
+  "tests/unit/contract/shared/validation.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/correlation-acceptance.test.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "tests/unit/describe/handler.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/dispatch/core/context.test.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "tests/unit/dispatch/core/dispatch-context.acceptance.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/dispatch/core/dispatch.test.ts": {
+    "comments/comment-content": {
+      "count": 17
+    }
+  },
+  "tests/unit/dispatch/core/economy-enforcement.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/dispatch/core/economy.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/dispatch/core/effect-carrier.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/dispatch/core/interceptors/session-machinery.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/dispatch/core/onboarding/reconcile.apply.test.ts": {
+    "comments/comment-content": {
+      "count": 14
+    }
+  },
+  "tests/unit/dispatch/core/onboarding/reconcile.characterization.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/dispatch/core/onboarding/reconcile.detect.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/dispatch/core/onboarding/reconcile.diff.test.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "tests/unit/dispatch/core/onboarding/reconcile.events.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/dispatch/core/onboarding/types.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/dispatch/undeclared-parameters.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/envelope-wrap.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/event-store/single-composition-root.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/events/admission-append-idempotency.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/events/aggregate-stream.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/events/atomic-appender-consumers.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/events/atomic-appender.acceptance.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/events/atomic-appender.appendcomputed-opts.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/events/atomic-appender.gate.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/events/atomic-appender.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/events/cli-concurrency.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/events/composite.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/events/concurrency-error.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/events/cross-stream.acceptance.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/events/cross-stream.bundle.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/events/decide.race.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/events/decide.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/events/emission-derivation.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/events/emitter-closure.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/events/event-annotations.test.ts": {
+    "comments/comment-content": {
+      "count": 15
+    }
+  },
+  "tests/unit/events/event-declarations.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/events/event-migration.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/events/event-name-persisted-replay.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/events/event-name.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/events/event-registration.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/events/golden-log-replay.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/events/grep-gates.test.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "tests/unit/events/liveness-instance-id.emitters.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/events/liveness-registry.test.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "tests/unit/events/multi-process.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/events/parity.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/events/poc.acceptance.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/events/registration-validate.boot.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/events/registration-validate.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/events/schemas.legacy.test.ts": {
+    "comments/comment-content": {
+      "count": 41
+    }
+  },
+  "tests/unit/events/schemas.onboard.test.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "tests/unit/events/schemas.test.ts": {
+    "comments/comment-content": {
+      "count": 149
+    }
+  },
+  "tests/unit/events/storage-busy-error.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/events/store.race.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/events/store.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/events/subagent-stream-router.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/events/subscriptions.test.ts": {
+    "comments/comment-content": {
+      "count": 28
+    }
+  },
+  "tests/unit/events/substrate-resilience.acceptance.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/events/tools.legacy.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/events/tools.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/events/transition-admission-events.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/events/with-session.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/format.test.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "tests/unit/index.slim-registration.test.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "tests/unit/index.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/install/advisory-registry.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/install/atomic-promotion.orphan.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/install/binding.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/install/build-command-aliases.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/install/build-hooks.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/install/build-skills-cli.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/install/build-skills.acceptance.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/install/build-skills.migration.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/install/build-skills.test.ts": {
+    "comments/comment-content": {
+      "count": 39
+    }
+  },
+  "tests/unit/install/cleanup-validation.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/install/collect-identity.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/install/commands-checkpoint-validation.test.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "tests/unit/install/commands-rehydrate-validation.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/install/commands-tree-shim.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/install/hooks-guard.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/install/hooks-validation.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/install/install-skills.characterization.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/install/install-skills.test.ts": {
+    "comments/comment-content": {
+      "count": 18
+    }
+  },
+  "tests/unit/install/operations/hooks-config.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/install/packaging-consistency.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/install/placeholder-lint.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/install/plugin-validation.test.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "tests/unit/install/runtimes/detect.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/install/runtimes/load.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/install/runtimes/presence-claude.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/install/runtimes/presence-codex.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/install/runtimes/presence-copilot.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/install/runtimes/presence-cursor.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/install/runtimes/presence-generic.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/install/runtimes/presence-opencode.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/install/runtimes/types.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/install/server-paths.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/install/shim-registry.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/install/skills-catalog-gating.test.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "tests/unit/install/skills-guard.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/mcp-tools.integration.test.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "tests/unit/mcp/tasks-methods.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/next-action.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/next-actions-computer.test.ts": {
+    "comments/comment-content": {
+      "count": 21
+    }
+  },
+  "tests/unit/next-actions-from-result.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/output-schema-declaration.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/output-schema-vacuity-allowlist.test.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "tests/unit/parity-harness.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "tests/unit/parity.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/projections/clone-extraction-fold.regression.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/projections/freshness.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/projections/gwt.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/projections/immutability.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/projections/merge-orchestrator/index.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/projections/merge-orchestrator/reducer.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/projections/merge-rollback-replay.regression.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/projections/next-action/reducer.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/projections/project-at.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/projections/quality/skill-example-validator.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/projections/rebuild.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/projections/registry.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/projections/rehydration/chaos.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/projections/rehydration/fingerprint.test.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "tests/unit/projections/rehydration/prose-lint.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/projections/rehydration/reducer.test.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "tests/unit/projections/rehydration/schema.test.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "tests/unit/projections/rehydration/serialize.test.ts": {
+    "comments/comment-content": {
+      "count": 13
+    }
+  },
+  "tests/unit/projections/rehydration/upgrade.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/projections/task-store/event-sourced-task-store.test.ts": {
+    "comments/comment-content": {
+      "count": 13
+    }
+  },
+  "tests/unit/projections/task-store/production-wiring.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/projections/task-store/seam.test.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "tests/unit/projections/telemetry/tools.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/projections/views/code-quality-view.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/projections/views/composite.envelope.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/projections/views/composite.test.ts": {
+    "comments/comment-content": {
+      "count": 31
+    }
+  },
+  "tests/unit/projections/views/convergence-view.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/projections/views/delegation-readiness-view.test.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "tests/unit/projections/views/delegation-timeline-view.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/projections/views/derive-correlation-filters.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/projections/views/describe.coverage.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/projections/views/effective-catalog.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/projections/views/gate-reliability-view.production.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/projections/views/handlers.legacy.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/projections/views/handlers.test.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "tests/unit/projections/views/lifecycle/errors.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/projections/views/lifecycle/export.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/projections/views/lifecycle/inspect.follow.test.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "tests/unit/projections/views/lifecycle/inspect.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/projections/views/lifecycle/operations-fold.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/projections/views/lifecycle/ps.test.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "tests/unit/projections/views/lifecycle/s6-recovery.acceptance.test.ts": {
+    "comments/comment-content": {
+      "count": 17
+    }
+  },
+  "tests/unit/projections/views/lifecycle/wait.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/projections/views/lifecycle/workflow-fold.bench.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/projections/views/lifecycle/workflow-fold.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/projections/views/materializer.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/projections/views/parity.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/projections/views/pipeline-view.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/projections/views/provenance-view.test.ts": {
+    "comments/comment-content": {
+      "count": 30
+    }
+  },
+  "tests/unit/projections/views/shepherd-status-view.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/projections/views/snapshot-store.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/projections/views/tools.asof.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/projections/views/tools.ctx-default.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/projections/views/tools.pipeline.test.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "tests/unit/projections/views/tools.test.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "tests/unit/projections/views/workflow-state-projection.test.ts": {
+    "comments/comment-content": {
+      "count": 19
+    }
+  },
+  "tests/unit/projections/workflow-state/reducer.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/pruner/coordinator.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/pruner/integration.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/pruner/pruner.dr7-removal.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/pruner/score.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/registration-parity.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/registry.construction.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/registry.onboard.test.ts": {
+    "comments/comment-content": {
+      "count": 18
+    }
+  },
+  "tests/unit/registry.prune-knob-removal.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/registry.test.ts": {
+    "comments/comment-content": {
+      "count": 126
+    }
+  },
+  "tests/unit/runbooks/definitions.shape.test.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "tests/unit/runbooks/definitions.test.ts": {
+    "comments/comment-content": {
+      "count": 15
+    }
+  },
+  "tests/unit/runbooks/drift.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/runbooks/ordering.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/runbooks/skill-coverage.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/runtime/agents/adapters/claude.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/runtime/agents/adapters/codex.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/runtime/agents/adapters/copilot.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/runtime/agents/adapters/cursor.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/runtime/agents/adapters/opencode.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/runtime/agents/adapters/support-levels.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/runtime/agents/adapters/types.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/runtime/agents/agents.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/runtime/agents/build-pipeline.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/runtime/agents/definitions.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/runtime/agents/dispatch-shape.prose-binding.test.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "tests/unit/runtime/agents/dispatch-shape.test.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "tests/unit/runtime/agents/generate-agents.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/runtime/agents/generated-drift.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/runtime/agents/implementer-prompt.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/runtime/agents/plugin.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/runtime/agents/spec.dr6-removal.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/runtime/agents/spec.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/runtime/launcher/channel-probe.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/runtime/launcher/create-worktree.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/runtime/launcher/harness-registry.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/runtime/launcher/harness-registry.type-test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/runtime/launcher/injection-channel.integration.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/runtime/launcher/injection-seam.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/runtime/launcher/launch-reconcile.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/runtime/launcher/lifecycle.test.ts": {
+    "comments/comment-content": {
+      "count": 13
+    }
+  },
+  "tests/unit/runtime/launcher/liveness.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/runtime/launcher/on-ramps.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/runtime/launcher/production-deps.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/runtime/launcher/signals.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/runtime/launcher/single-abstraction.guard.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/runtime/launcher/teardown.test.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "tests/unit/runtime/launcher/wlm-compose.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/runtime/runtimes/claude.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/runtime/runtimes/codex.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/runtime/runtimes/copilot.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/runtime/runtimes/opencode.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/sdk-patch-policy.test.ts": {
+    "comments/comment-content": {
+      "count": 16
+    }
+  },
+  "tests/unit/sdk-pin-policy.test.ts": {
+    "comments/comment-content": {
+      "count": 13
+    }
+  },
+  "tests/unit/skills/prune.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/storage/backend-contract.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/storage/lifecycle.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/storage/memory-backend.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/storage/no-legacy-runtime-deps.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/storage/sqlite-backend-bun-import.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/storage/sqlite-backend.pragma.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/storage/sqlite-backend.schema-freshness.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/storage/sqlite-backend.test.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "tests/unit/sync/outbox.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/tasks/handlers.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/tasks/tools.evidence-bypass.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/tasks/tools.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/tsconfig-strictness.test.ts": {
+    "comments/comment-content": {
+      "count": 13
+    }
+  },
+  "tests/unit/utils/atomic-write.fsync-adequacy.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/utils/atomic-write.test.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "tests/unit/utils/json-schema-migration.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/utils/path-portability.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/utils/paths.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/utils/process.spawn.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/vcs/github.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/vcs/mutation-owner.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/vcs/provider.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/verbs/composite.onboard-dispatch.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/composite.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/verbs/config-gate-integration.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/cutover-readiness-schema.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/verbs/dispatch-shape.kill-fixture.test.ts": {
+    "comments/comment-content": {
+      "count": 13
+    }
+  },
+  "tests/unit/verbs/docs-onboard-sweep.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/doctor.parity.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/verbs/doctor/checks/invariants-catalog.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/doctor/checks/plugin-skill-hash-sync.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/doctor/checks/plugin-version-match.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/doctor/checks/retired-hooks-present.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/doctor/checks/stale-skill-dirs.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/verbs/doctor/checks/vcs-git-available.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/doctor/doctor-fix.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/verbs/doctor/doctor-roster.characterization.test.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "tests/unit/verbs/doctor/doctor.characterization.test.ts": {
+    "comments/comment-content": {
+      "count": 20
+    }
+  },
+  "tests/unit/verbs/doctor/index.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/verbs/doctor/probes.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/verbs/gates/assess-refactor-scope.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/gates/check-event-emissions.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/verbs/gates/check-exploration-depth.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/gates/check-integration-suite.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/gates/check-invariant-conformance.parity.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/verbs/gates/check-invariant-conformance.test.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "tests/unit/verbs/gates/contract-drift-handler.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/gates/contract-drift.integration.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/verbs/gates/contract-drift.parity.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/gates/contract-drift.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/gates/cutover-readiness.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/verbs/gates/design-completeness.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/gates/gate-runner.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/verbs/gates/gate-severity.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/gates/gate-utils.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/verbs/gates/generate-traceability.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/gates/mock-boundary-handler.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/gates/mock-boundary.integration.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/verbs/gates/mock-boundary.parity.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/gates/mock-boundary.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/verbs/gates/mutation-adequacy.characterization.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/verbs/gates/mutation-adequacy.report.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/gates/mutation-adequacy.test.ts": {
+    "comments/comment-content": {
+      "count": 31
+    }
+  },
+  "tests/unit/verbs/gates/plan-coverage.test.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "tests/unit/verbs/gates/pre-synthesis-check.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/gates/spec-coverage-check.boundary.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/gates/static-analysis.parity.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/verbs/gates/static-analysis.test.ts": {
+    "comments/comment-content": {
+      "count": 20
+    }
+  },
+  "tests/unit/verbs/gates/test-adequacy.handler.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/verbs/gates/test-adequacy.integration.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/verbs/gates/test-adequacy.parity.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/gates/test-adequacy.production-path.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/verbs/gates/test-adequacy.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/verbs/gates/verify-worktree-baseline.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/implement-severity.test.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "tests/unit/verbs/init/seed-exarchos-config.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/init/writers/claude-code.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/init/writers/mcp-json-writer.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/init/writers/onramp-block.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/invariants/add.test.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "tests/unit/verbs/invariants/amend.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/verbs/invariants/catalog-splice.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/verbs/invariants/id-uniqueness.test.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "tests/unit/verbs/invariants/parity.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/verbs/invariants/reserved-tier-guard.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/invariants/scaffold.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/verbs/ladder-gate-evidence.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/merge/execute-merge.deprecation-parity.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/verbs/merge/execute-merge.migration.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/verbs/merge/execute-merge.test.ts": {
+    "comments/comment-content": {
+      "count": 30
+    }
+  },
+  "tests/unit/verbs/merge/merge-orchestrate.api-refire.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/verbs/merge/merge-orchestrate.busy.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/verbs/merge/merge-orchestrate.integration.test.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "tests/unit/verbs/merge/merge-orchestrate.migration.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/verbs/merge/merge-orchestrate.parity-harness.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/verbs/merge/merge-orchestrate.race.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/verbs/merge/merge-orchestrate.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/verbs/new-project-removed.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/verbs/onboard/hooks.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/verbs/onboard/index.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/verbs/onboard/install.test.ts": {
+    "comments/comment-content": {
+      "count": 13
+    }
+  },
+  "tests/unit/verbs/onboard/new.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/verbs/onboard/onboard.failuremodes.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/verbs/onboard/onboard.parity.test.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "tests/unit/verbs/parity.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/verbs/phase-gate-evidence.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/prepare-synthesis.production-path.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/pure/design-completeness.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/verbs/pure/execute-merge.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/verbs/pure/gate-preflight.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/pure/merge-preflight.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/pure/provenance-chain.test.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "tests/unit/verbs/pure/static-analysis.parity.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/verbs/pure/static-analysis.test.ts": {
+    "comments/comment-content": {
+      "count": 17
+    }
+  },
+  "tests/unit/verbs/resolve-state.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/review/escalation-policy.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/verbs/review/investigation-timer.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/review/review-verdict.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/review/select-debug-track.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/review/verify-review-triage.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/sidecar-removal.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/stack/handlers.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/stryker-adapter.smoke.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/verbs/tasks/discover-bridge.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/tasks/extract-fix-tasks.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/tasks/extract-intent.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/verbs/tasks/extract-task.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/tasks/oneshot-state.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/tasks/task-decomposition.fixtures.test.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "tests/unit/verbs/tasks/task-decomposition.test.ts": {
+    "comments/comment-content": {
+      "count": 23
+    }
+  },
+  "tests/unit/verbs/team/dispatch-guard.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/team/prepare-delegation.integration.test.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "tests/unit/verbs/team/prepare-delegation.test.ts": {
+    "comments/comment-content": {
+      "count": 63
+    }
+  },
+  "tests/unit/verbs/team/prepare-review.test.ts": {
+    "comments/comment-content": {
+      "count": 15
+    }
+  },
+  "tests/unit/verbs/team/prepare-synthesis.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/verbs/team/prune-stale-workflows.test.ts": {
+    "comments/comment-content": {
+      "count": 15
+    }
+  },
+  "tests/unit/verbs/team/setup-worktree.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/verbs/template-roundtrip.test.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "tests/unit/verbs/tools.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/verbs/vcs/add-pr-comment.parity.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/vcs/add-pr-comment.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/vcs/assess-stack.test.ts": {
+    "comments/comment-content": {
+      "count": 15
+    }
+  },
+  "tests/unit/verbs/vcs/check-pr-comments.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/vcs/create-pr.test.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "tests/unit/verbs/vcs/get-pr-comments.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/vcs/git-exec-default.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/vcs/list-prs.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/vcs/validate-pr-body.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/workflow-transition.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/verbs/worktree/boundary.regression.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/verbs/worktree/dispatch.parity.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/verbs/worktree/git-retry.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/verbs/worktree/handlers.test.ts": {
+    "comments/comment-content": {
+      "count": 13
+    }
+  },
+  "tests/unit/verbs/worktree/manager.adopt.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/verbs/worktree/manager.prune.test.ts": {
+    "comments/comment-content": {
+      "count": 15
+    }
+  },
+  "tests/unit/verbs/worktree/manager.reconcile.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/worktree/merge-serializer.test.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "tests/unit/verbs/worktree/projections/worktrees.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/verbs/worktree/pure/ownership.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/worktree/pure/probe.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/worktree/pure/process-identity.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/worktree/pure/prune-ladder.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/verbs/worktree/recovery.test.ts": {
+    "comments/comment-content": {
+      "count": 23
+    }
+  },
+  "tests/unit/verbs/worktree/serialize-dryrun.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/verbs/worktree/worktree-schemas.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/views/tools-error-paths.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/workflow/__fixtures__/guard-classification.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/workflow/admission/bootstrap-attempts.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/admission/cutover-auto-export.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/workflow/admission/cutover-gate.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/workflow/admission/edge-condition-evaluate.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/admission/edge-condition-select.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/workflow/admission/edge-condition.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/admission/evidence-provenance.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/workflow/admission/evidence-reader.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/workflow/admission/freeze-requirements.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/admission/legacy-guard-parity.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/workflow/admission/legacy-state-translation.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/workflow/admission/live-shadow-observer.test.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "tests/unit/workflow/admission/phase-attempt-state.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/admission/reassessment.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/admission/remediation-purity.kill-lexer.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/workflow/admission/requirement-context.test.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "tests/unit/workflow/admission/requirement-resolution.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/admission/requirement-strength.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/cancel-process-manager.integration.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/cancel-process-manager.saga.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/cancel-process-manager.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/cancel-saga-paths.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/workflow/cancel.envelope.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/workflow/cancel.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/workflow/capabilities/posture-mapping.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/workflow/capabilities/resolver.acceptance.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/workflow/capabilities/resolver.test.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "tests/unit/workflow/capabilities/shared-mutating-gate.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/checkpoint-gate.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/workflow/checkpoint.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/workflow/cleanup.composite.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/workflow/cleanup.pass-state.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/workflow/cleanup.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/workflow/compensation.legacy.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/compensation.test.ts": {
+    "comments/comment-content": {
+      "count": 13
+    }
+  },
+  "tests/unit/workflow/composite.next-actions.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/workflow/composite.test.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "tests/unit/workflow/describe-config.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/workflow/event-injection.test.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "tests/unit/workflow/events.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/workflow/feedback.parity.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/feedback.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/workflow/guard-classification.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/guards.artifact.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/workflow/guards.legacy.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/workflow/guards.suggestion.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/workflow/guards.test.ts": {
+    "comments/comment-content": {
+      "count": 14
+    }
+  },
+  "tests/unit/workflow/hsm-definitions.kind.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/workflow/hsm-transition-guard.envelope.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/hsm-transition-guard.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/workflow/implement-reachability.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/workflow/index.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tests/unit/workflow/integration.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/workflow/parity.test.ts": {
+    "comments/comment-content": {
+      "count": 13
+    }
+  },
+  "tests/unit/workflow/phase-kind.test.ts": {
+    "comments/comment-content": {
+      "count": 26
+    }
+  },
+  "tests/unit/workflow/phase-mutation-ownership.test.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "tests/unit/workflow/phase-skip-integration.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/plan-depth-policy.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/workflow/playbooks.property.test.ts": {
+    "comments/comment-content": {
+      "count": 13
+    }
+  },
+  "tests/unit/workflow/playbooks.suggestion.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/workflow/playbooks.test.ts": {
+    "comments/comment-content": {
+      "count": 20
+    }
+  },
+  "tests/unit/workflow/query.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/reconcile-state.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/rehydrate.test.ts": {
+    "comments/comment-content": {
+      "count": 66
+    }
+  },
+  "tests/unit/workflow/retirement/retirement-safety.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/workflow/review-contract.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/workflow/scaffolding.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/workflow/schemas.legacy.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/workflow/schemas.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/state-machine.legacy.test.ts": {
+    "comments/comment-content": {
+      "count": 16
+    }
+  },
+  "tests/unit/workflow/state-machine.test.ts": {
+    "comments/comment-content": {
+      "count": 21
+    }
+  },
+  "tests/unit/workflow/state-retry.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tests/unit/workflow/state-store.legacy.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/workflow/state-store.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tests/unit/workflow/tools.asof.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/workflow/tools.idempotent-transition.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/workflow/tools.init.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tests/unit/workflow/tools.legacy.test.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "tests/unit/workflow/tools.playbook.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/tools.test.ts": {
+    "comments/comment-content": {
+      "count": 26
+    }
+  },
+  "tests/unit/workflow/tools.update.integration.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/workflow/tools.update.race.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/workflow/tools.update.test.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tests/unit/workflow/topology/loader.dr7-removal.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tests/unit/workflow/topology/loader.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/topology/phase-contract.acceptance.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tests/unit/workflow/topology/phase-contract.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/transition-dry-run.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/verification-policy-resolver.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tests/unit/workflow/verification-policy.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tools/audit/__shims__/bun.d.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/audit/check-base-substrate.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/audit/core/authority-live-proof.ts": {
+    "comments/comment-content": {
+      "count": 26
+    }
+  },
+  "tools/audit/core/cli-derivation-guard.ts": {
+    "comments/comment-content": {
+      "count": 35
+    }
+  },
+  "tools/audit/core/cli-derivation-ratchet-guard.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "tools/audit/core/cli-derivation-seed-pin.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "tools/audit/core/cli-vocab-guard.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "tools/audit/core/entrypoint-predicates.selftest.test.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "tools/audit/core/generate-docs.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tools/audit/core/output-schema-ratchet-guard.ts": {
+    "comments/comment-content": {
+      "count": 14
+    }
+  },
+  "tools/audit/core/report-coupling-ratchet-guard.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tools/audit/cycle-gate.ts": {
+    "comments/comment-content": {
+      "count": 15
+    }
+  },
+  "tools/audit/gates/guard-inventory/artifact-predicates.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tools/audit/gates/guard-inventory/audit.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tools/audit/gates/guard-inventory/build.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tools/audit/gates/guard-inventory/exemptions.ts": {
+    "comments/comment-content": {
+      "count": 19
+    }
+  },
+  "tools/audit/gates/guard-inventory/hosts.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tools/audit/gates/guard-inventory/model.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tools/audit/gates/guard-inventory/package-scripts.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/audit/gates/guard-inventory/paths.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tools/audit/gates/guard-inventory/production-modules.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tools/audit/gates/guard-inventory/scanners.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/audit/gates/measured-premises-derive.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tools/audit/gates/test-utils.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tools/audit/knip-diff.ts": {
+    "comments/comment-content": {
+      "count": 13
+    }
+  },
+  "tools/audit/register-entry-schema.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tools/audit/test-fixtures/release-fixture.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tools/audit/tsconfig-strictness/count-casts.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tools/conformance/src/authority-census.test.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "tools/conformance/src/authority-census.ts": {
+    "comments/comment-content": {
+      "count": 17
+    }
+  },
+  "tools/conformance/src/authority-live-proof.test.ts": {
+    "comments/comment-content": {
+      "count": 22
+    }
+  },
+  "tools/conformance/src/authority-topology.test.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "tools/conformance/src/authority-topology.ts": {
+    "comments/comment-content": {
+      "count": 17
+    }
+  },
+  "tools/conformance/src/bindings/artifacts.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/conformance/src/bindings/declaration.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/conformance/src/bindings/events.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tools/conformance/src/bindings/index.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/conformance/src/bindings/output-schema.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tools/conformance/src/bindings/registry.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/conformance/src/contract-seam.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/conformance/src/ctk/__fixtures__/admission-decision-path.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/conformance/src/ctk/__fixtures__/workflow-reference-validator.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/conformance/src/ctk/cross-runtime.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tools/conformance/src/delivery-safety.kill-lexer.test.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tools/conformance/src/delivery-safety.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tools/conformance/src/delivery-safety.ts": {
+    "comments/comment-content": {
+      "count": 9
+    }
+  },
+  "tools/conformance/src/description-budget.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/conformance/src/event-grammar-census.test.ts": {
+    "comments/comment-content": {
+      "count": 16
+    }
+  },
+  "tools/conformance/src/event-grammar-census.ts": {
+    "comments/comment-content": {
+      "count": 38
+    }
+  },
+  "tools/conformance/src/event-grammar-concessions.ts": {
+    "comments/comment-content": {
+      "count": 16
+    }
+  },
+  "tools/conformance/src/import-cycles.test.ts": {
+    "comments/comment-content": {
+      "count": 5
+    }
+  },
+  "tools/conformance/src/import-cycles.ts": {
+    "comments/comment-content": {
+      "count": 10
+    }
+  },
+  "tools/conformance/src/output-schema-census.selftest.test.ts": {
+    "comments/comment-content": {
+      "count": 17
+    }
+  },
+  "tools/conformance/src/output-schema-census.test.ts": {
+    "comments/comment-content": {
+      "count": 19
+    }
+  },
+  "tools/conformance/src/output-schema-census.ts": {
+    "comments/comment-content": {
+      "count": 29
+    }
+  },
+  "tools/conformance/src/output-schema-seed-pin.ts": {
+    "comments/comment-content": {
+      "count": 20
+    }
+  },
+  "tools/conformance/src/parity/lifecycle-verbs.parity.test.ts": {
+    "comments/comment-content": {
+      "count": 19
+    }
+  },
+  "tools/conformance/src/parity/readonly-cap-parity.test.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tools/conformance/src/report-coupling-census.test.ts": {
+    "comments/comment-content": {
+      "count": 11
+    }
+  },
+  "tools/conformance/src/report-coupling-census.ts": {
+    "comments/comment-content": {
+      "count": 22
+    }
+  },
+  "tools/conformance/src/report-coupling-seed-pin.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tools/conformance/src/report-coupling-seed.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tools/conformance/src/subject-root.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tools/conformance/src/vcs-ownership.kill-lexer.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tools/conformance/src/vcs-ownership.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tools/conformance/src/vcs-ownership.ts": {
+    "comments/comment-content": {
+      "count": 19
+    }
+  },
+  "tools/conformance/src/verb-registration.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tools/conformance/src/waiver-ledger-digest.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/conformance/src/waiver-ledger.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tools/conformance/src/waiver-ledger.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tools/conformance/src/wave1-exit.test.ts": {
+    "comments/comment-content": {
+      "count": 23
+    }
+  },
+  "tools/evals-pkg/src/index.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/evals/bench/cli-startup.bench.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tools/evals/benchmarks/baselines-schema.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tools/evals/evals/benchmarks/exp1-binary-driver.test.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tools/evals/evals/benchmarks/exp1-binary-driver.ts": {
+    "comments/comment-content": {
+      "count": 12
+    }
+  },
+  "tools/evals/evals/benchmarks/seeded-defects/catch-rate-driver.test.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tools/evals/evals/benchmarks/seeded-defects/catch-rate-driver.ts": {
+    "comments/comment-content": {
+      "count": 8
+    }
+  },
+  "tools/evals/evals/benchmarks/seeded-defects/corpus.test.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tools/evals/evals/benchmarks/seeded-defects/corpus.ts": {
+    "comments/comment-content": {
+      "count": 15
+    }
+  },
+  "tools/evals/evals/graders/llm-graders-absent-dep.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/evals/evals/graders/llm-rubric.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/evals/evals/graders/llm-rubric.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/evals/evals/graders/llm-similarity.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/evals/evals/graders/llm-similarity.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/evals/evals/graders/promptfoo-loader.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/evals/evals/graders/promptfoo-loader.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tools/evals/evals/graders/promptfoo.d.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/evals/evals/provenance.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/git-hooks/pre-push.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/release/build-binary.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tools/release/build-release-manifest.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tools/test-helpers/adversarial-lexer-inputs.ts": {
+    "comments/comment-content": {
+      "count": 7
+    }
+  },
+  "tools/test-helpers/comment-prose.ts": {
+    "comments/comment-content": {
+      "count": 3
+    }
+  },
+  "tools/test-helpers/module-lexer.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tools/test-helpers/module-specifier-parser.ts": {
+    "comments/comment-content": {
+      "count": 6
+    }
+  },
+  "tools/test-helpers/superseded-site-lexers.ts": {
+    "comments/comment-content": {
+      "count": 4
+    }
+  },
+  "tools/test-helpers/superseded-source-lexer.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  },
+  "tools/test-helpers/temp-dir.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/test-helpers/tracked-population.test.ts": {
+    "comments/comment-content": {
+      "count": 1
+    }
+  },
+  "tools/test-helpers/tracked-population.ts": {
+    "comments/comment-content": {
+      "count": 2
+    }
+  }
+}
