@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1266,
-    "parsedFiles": 1221,
+    "testFiles": 1267,
+    "parsedFiles": 1222,
     "shellFiles": 45,
-    "cases": 13969,
-    "dynamicTitles": 151,
+    "cases": 13982,
+    "dynamicTitles": 154,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -18968,6 +18968,16 @@
         },
         {
           "suite": "verifyAuthorities — fail-closed (exit proofs)",
+          "name": "Verify_DigestBearingAuthority_VersionDriftAlone_DoesNotBlock",
+          "dynamic": false
+        },
+        {
+          "suite": "verifyAuthorities — fail-closed (exit proofs)",
+          "name": "Verify_DigestBearingAuthority_DigestDrift_StillBlocks",
+          "dynamic": false
+        },
+        {
+          "suite": "verifyAuthorities — fail-closed (exit proofs)",
           "name": "Verify_MissingPinBlocks",
           "dynamic": false
         },
@@ -27444,6 +27454,67 @@
         {
           "suite": "Export event contract (DR-6, lifecycle-verbs task 012)",
           "name": "ExportEventSchemas_Serialization_ValidPayloadsValidate_MalformedReject",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/events/secondary-view-telemetry-dependence.test.ts": {
+      "file": "tests/unit/events/secondary-view-telemetry-dependence.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "secondary-view telemetry dependence",
+          "name": "SecondaryViews_TheMeasuredDependentSet_IsExactlyTheDeclaredSet",
+          "dynamic": false
+        },
+        {
+          "suite": "secondary-view telemetry dependence",
+          "name": "SecondaryViews_%sDiffersOnExactlyItsDeclaredPaths",
+          "dynamic": false
+        },
+        {
+          "suite": "secondary-view telemetry dependence",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "secondary-view telemetry dependence",
+          "name": "SecondaryViews_TheDifferentialCanSeeSomething_IsAsserted",
+          "dynamic": false
+        },
+        {
+          "suite": "secondary-view telemetry dependence",
+          "name": "SecondaryViews_%sDeclaresAKindAndAReason",
+          "dynamic": false
+        },
+        {
+          "suite": "secondary-view telemetry dependence",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "secondary-view telemetry dependence",
+          "name": "SecondaryViews_TheVerdictBacklog_MayOnlyShrink",
+          "dynamic": false
+        },
+        {
+          "suite": "secondary-view telemetry dependence",
+          "name": "SecondaryViews_%sIsStillBlindToTheCorpusNotIndependentOfTelemetry",
+          "dynamic": false
+        },
+        {
+          "suite": "secondary-view telemetry dependence",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "secondary-view telemetry dependence",
+          "name": "SecondaryViews_TheClockDependentPaths_AreExactlyThoseDeclared",
+          "dynamic": false
+        },
+        {
+          "suite": "secondary-view telemetry dependence",
+          "name": "SecondaryViews_EveryDeclaredAndBlindViewIsRegistered",
           "dynamic": false
         }
       ]
