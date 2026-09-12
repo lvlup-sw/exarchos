@@ -228,16 +228,18 @@ function fromInternal(state: InternalState): CodeQualityViewState {
  * mutation trend.
  */
 function handleCiCheckObserved(
-  view: CodeQualityViewState,
+  state: InternalState,
   event: WorkflowEvent,
 ): CodeQualityViewState {
   const data = event.data as
     | { check?: unknown; passed?: unknown; skill?: unknown }
     | undefined;
-  if (!data || typeof data.check !== 'string' || typeof data.skill !== 'string') return view;
+  if (!data || typeof data.check !== 'string' || typeof data.skill !== 'string') {
+    return fromInternal(state);
+  }
 
   const passed = data.passed === true;
-  const prev = view.skills[data.skill] ?? defaultSkillMetrics(data.skill);
+  const prev = state.skills[data.skill] ?? defaultSkillMetrics(data.skill);
   const totalExecutions = prev.totalExecutions + 1;
   const passCount = Math.round(prev.gatePassRate * prev.totalExecutions) + (passed ? 1 : 0);
 
@@ -253,10 +255,10 @@ function handleCiCheckObserved(
     if (categories.length > 10) categories.length = 10;
   }
 
-  return {
-    ...view,
+  return fromInternal({
+    ...state,
     skills: {
-      ...view.skills,
+      ...state.skills,
       [data.skill]: {
         ...prev,
         totalExecutions,
@@ -264,7 +266,7 @@ function handleCiCheckObserved(
         topFailureCategories: categories,
       },
     },
-  };
+  });
 }
 
 function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQualityViewState {
@@ -540,6 +542,34 @@ function handleRemediationSucceeded(state: InternalState, event: WorkflowEvent):
   });
 }
 
+/**
+ * The handler for an event type, or `undefined` where this view ignores it.
+ *
+ * The lookup exists so that `toInternal` has exactly ONE call site. The two
+ * tracker maps are non-enumerable, so a case arm that handed the PUBLIC view to
+ * its handler lost them on that handler's first spread. Nothing went red when
+ * that happened: regression detection and the remediation counter simply
+ * started over from zero mid-stream, and every later verdict was computed from
+ * a history that had been silently truncated. A handler that cannot be reached
+ * without the conversion cannot make that mistake.
+ */
+function handlerFor(
+  type: WorkflowEvent['type'],
+): ((state: InternalState, event: WorkflowEvent) => CodeQualityViewState) | undefined {
+  switch (type) {
+    case 'gate.executed':
+      return handleGateExecuted;
+    case 'ci.check_observed':
+      return handleCiCheckObserved;
+    case 'benchmark.completed':
+      return handleBenchmarkCompleted;
+    case 'remediation.succeeded':
+      return handleRemediationSucceeded;
+    default:
+      return undefined;
+  }
+}
+
 // ─── Projection ────────────────────────────────────────────────────────────
 
 export const codeQualityProjection: ViewProjection<CodeQualityViewState> = {
@@ -552,32 +582,8 @@ export const codeQualityProjection: ViewProjection<CodeQualityViewState> = {
   }),
 
   apply: (view: CodeQualityViewState, event: WorkflowEvent): CodeQualityViewState => {
-    switch (event.type) {
-      case 'gate.executed': {
-        if (!event.data) return view;
-        const state = toInternal(view);
-        return handleGateExecuted(state, event);
-      }
-
-      case 'ci.check_observed': {
-        if (!event.data) return view;
-        return handleCiCheckObserved(view, event);
-      }
-
-      case 'benchmark.completed': {
-        if (!event.data) return view;
-        const state = toInternal(view);
-        return handleBenchmarkCompleted(state, event);
-      }
-
-      case 'remediation.succeeded': {
-        if (!event.data) return view;
-        const state = toInternal(view);
-        return handleRemediationSucceeded(state, event);
-      }
-
-      default:
-        return view;
-    }
+    const handler = handlerFor(event.type);
+    if (handler === undefined || !event.data) return view;
+    return handler(toInternal(view), event);
   },
 };
