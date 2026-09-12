@@ -834,11 +834,6 @@
       "count": 4
     }
   },
-  "src/projections/telemetry/telemetry-projection.ts": {
-    "comments/comment-content": {
-      "count": 2
-    }
-  },
   "src/projections/telemetry/tools.ts": {
     "comments/comment-content": {
       "count": 7

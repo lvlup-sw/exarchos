@@ -47,12 +47,13 @@ describe('TelemetryProjection', () => {
     });
   });
 
-  // ─── The `gate.executed` split (#1898 item 8) ────────────────────────────
+  // ─── Token-budget breaches ───────────────────────────────────────────────
   //
-  // The breach used to be appended to the FEATURE stream as a gate row naming
-  // `details.dimension: 'D3'`, where the convergence view folded it as an
-  // unrecoverable failure of the Context Economy dimension. It is a per-tool
-  // runtime measurement, and this is the view that holds those.
+  // A breach is a per-tool runtime measurement, and this is the view that holds
+  // those. It is deliberately not a gate row on the feature stream: the
+  // convergence view keys gate results by name and nothing re-runs this one, so
+  // a breach folded there would pin the Context Economy dimension false for the
+  // rest of that workflow's life (#1898).
   describe('apply - tool.budget_exceeded', () => {
     const breach = (tool: string, seq: number): WorkflowEvent =>
       ({
