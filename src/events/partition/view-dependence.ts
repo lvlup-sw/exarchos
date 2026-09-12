@@ -51,7 +51,35 @@ export const VIEW_TELEMETRY_DEPENDENCE: Readonly<
 > = Object.freeze({
   telemetry: {
     kind: 'display',
-    paths: ['tools.sample-tool', 'totalInvocations', 'totalTokens', 'turns'],
+    paths: [
+      // Per-FIELD rather than the whole `tools.sample-tool` object, and the
+      // reason is worth keeping: `tool.budget_exceeded` is GOVERNANCE, so it
+      // survives the telemetry-dropped fold and creates the per-tool entry on
+      // both sides. The difference is therefore what the telemetry rows fill
+      // IN that entry, which is a sharper statement than "the entry is gone".
+      // `budgetExceeded` is absent from this list for the same reason — it is
+      // identical on both sides. If that type is ever demoted to telemetry,
+      // these collapse back to `tools.sample-tool` and this test says so.
+      'tools.sample-tool.actionErrorBreakdown.sample-errorCode',
+      'tools.sample-tool.actionErrors',
+      'tools.sample-tool.durations',
+      'tools.sample-tool.errors',
+      'tools.sample-tool.invocations',
+      'tools.sample-tool.p50Bytes',
+      'tools.sample-tool.p50DurationMs',
+      'tools.sample-tool.p50Tokens',
+      'tools.sample-tool.p95Bytes',
+      'tools.sample-tool.p95DurationMs',
+      'tools.sample-tool.p95Tokens',
+      'tools.sample-tool.sizes',
+      'tools.sample-tool.tokenEstimates',
+      'tools.sample-tool.totalBytes',
+      'tools.sample-tool.totalDurationMs',
+      'tools.sample-tool.totalTokens',
+      'totalInvocations',
+      'totalTokens',
+      'turns',
+    ],
     because:
       'The view whose entire purpose is to fold the per-tool and per-turn records. ' +
       'Its independence would mean the telemetry partition folds nowhere at all.',
@@ -65,7 +93,13 @@ export const VIEW_TELEMETRY_DEPENDENCE: Readonly<
   },
   'code-quality': {
     kind: 'display',
-    paths: ['skills.sample-skill'],
+    // Narrowed from the whole `skills.sample-skill` object for the same reason
+    // the telemetry rows narrowed: `ci.check_observed` is governance and
+    // creates the skill entry on both sides, so what remains is the one field
+    // only telemetry fills. That the pass-rate fields do NOT appear is the
+    // measurement worth having — the skill's outcome numbers survive a
+    // telemetry drop, and only the remediation average does not.
+    paths: ['skills.sample-skill.avgRemediationAttempts'],
     because:
       'Per-skill remediation metrics. Displayed by `view quality`; nothing decides on them.',
   },

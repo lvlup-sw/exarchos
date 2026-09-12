@@ -55,12 +55,17 @@ const MEASURED_CONTRADICTIONS: readonly string[] = Object.freeze([
  * vocabulary until the row happens to typecheck.
  */
 const MEASURED_UNGOVERNED: readonly string[] = Object.freeze([
-  'gate.executed -> projections/telemetry/middleware.ts',
   'launch.executed -> runtime/launcher/liveness.ts',
   'launch.executing_started -> runtime/launcher/liveness.ts',
   'review.routed -> review/tools.ts',
   'subagent.tokens_used -> lifecycle/subagent-stop.ts',
   'tool.action_errored -> projections/telemetry/middleware.ts',
+  // RENAMED, not added: this row was `gate.executed -> …/middleware.ts`. The
+  // split (#1898 item 8) did not move the append, so the area is as ungoverned
+  // as it was. What changed is that the row now sits with the rest of the
+  // dispatch wrapper's family instead of naming a governance type the wrapper
+  // had no business appending.
+  'tool.budget_exceeded -> projections/telemetry/middleware.ts',
   'tool.completed -> projections/telemetry/middleware.ts',
   'tool.errored -> projections/telemetry/middleware.ts',
 ]);

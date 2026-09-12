@@ -43,6 +43,69 @@ describe('TelemetryProjection', () => {
       expect(metrics.durations).toEqual([]);
       expect(metrics.sizes).toEqual([]);
       expect(metrics.tokenEstimates).toEqual([]);
+      expect(metrics.budgetExceeded).toBe(0);
+    });
+  });
+
+  // ─── The `gate.executed` split (#1898 item 8) ────────────────────────────
+  //
+  // The breach used to be appended to the FEATURE stream as a gate row naming
+  // `details.dimension: 'D3'`, where the convergence view folded it as an
+  // unrecoverable failure of the Context Economy dimension. It is a per-tool
+  // runtime measurement, and this is the view that holds those.
+  describe('apply - tool.budget_exceeded', () => {
+    const breach = (tool: string, seq: number): WorkflowEvent =>
+      ({
+        streamId: 'telemetry',
+        sequence: seq,
+        timestamp: '2026-01-01T00:00:00.000Z',
+        type: 'tool.budget_exceeded',
+        data: { tool, tokenEstimate: 9999, responseBytes: 40_000, threshold: 2048 },
+        schemaVersion: '1.0',
+      }) as unknown as WorkflowEvent;
+
+    const completed = (tool: string, seq: number): WorkflowEvent =>
+      ({
+        streamId: 'telemetry',
+        sequence: seq,
+        timestamp: '2026-01-01T00:00:00.000Z',
+        type: 'tool.completed',
+        data: { tool, durationMs: 10, responseBytes: 100, tokenEstimate: 25 },
+        schemaVersion: '1.0',
+      }) as unknown as WorkflowEvent;
+
+    const fold = (events: readonly WorkflowEvent[]): TelemetryViewState =>
+      events.reduce(
+        (view, event) => telemetryProjection.apply(view, event),
+        telemetryProjection.init(),
+      );
+
+    it('TelemetryProjection_BudgetExceeded_CountsPerTool', () => {
+      const state = fold([breach('exarchos_view', 1), breach('exarchos_view', 2), breach('exarchos_event', 3)]);
+      expect(state.tools['exarchos_view']?.budgetExceeded).toBe(2);
+      expect(state.tools['exarchos_event']?.budgetExceeded).toBe(1);
+      // A breach is not an invocation: the counters it must not move.
+      expect(state.totalInvocations).toBe(0);
+      expect(state.totalTokens).toBe(0);
+      expect(state.tools['exarchos_view']?.invocations).toBe(0);
+    });
+
+    // The `tool.completed` arm builds its ToolMetrics literal exhaustively
+    // rather than spreading `existing`, so a counter it forgets to carry is
+    // silently reset by the next completion of the same tool.
+    it('TelemetryProjection_BudgetExceeded_SurvivesTheNextCompletion', () => {
+      const state = fold([breach('exarchos_view', 1), completed('exarchos_view', 2)]);
+      expect(state.tools['exarchos_view']?.budgetExceeded).toBe(1);
+      expect(state.tools['exarchos_view']?.invocations).toBe(1);
+    });
+
+    it('TelemetryProjection_BudgetExceededWithoutATool_IsIdentity', () => {
+      const before = telemetryProjection.init();
+      const after = telemetryProjection.apply(before, {
+        ...breach('x', 1),
+        data: { tokenEstimate: 1 },
+      } as unknown as WorkflowEvent);
+      expect(after).toEqual(before);
     });
   });
 

@@ -323,20 +323,22 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     longRunning: true,
     outputSchema: vacuityWaiver('exarchos_orchestrate.assess_stack'),
     // sentry LOW on PR #1369: `assess_stack` reads GitHub PR state but
-    // also emits 3 shepherd lifecycle events + gate.executed on every
+    // also emits 3 shepherd lifecycle events + ci.check_observed on every
     // call. `readOnly: true` would mislead clients that gate on the
     // hint. REMOTE_MUTATION matches the actual write surface; the
     // conditional emission discipline is a handler-level detail and
     // should not be smuggled into the advisory annotation.
     annotations: REMOTE_MUTATION,
   }, {
-    ensures: declared({ source: 'event-append', when: 'always', event: 'gate.executed' }),
+    ensures: declared({ source: 'event-append', when: 'always', event: 'ci.check_observed' }),
     needs: declared('mcp:exarchos'),
     resources: declared({ kind: 'stream', selector: 'featureId' }),
     replay: { kind: 'claim-required', scope: 'stream-subject-request' },
     emissions: declared(
       { event: 'ci.status', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'One per PR assessed; none when the stack is empty' },
-      { event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' },
+      // Was `gate.executed` (#1898 item 8). One row per observed CI check,
+      // beside the per-PR `ci.status` roll-up above.
+      { event: 'ci.check_observed', condition: 'always', owner: 'orchestrate', role: 'primary' },
       { event: 'shepherd.approval_requested', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'When approval needed' },
       { event: 'shepherd.completed', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'When PR merged' },
       { event: 'shepherd.escalated', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'When the auto-fix bound is reached' },

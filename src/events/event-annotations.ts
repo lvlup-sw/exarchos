@@ -580,6 +580,21 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_orchestrate',
     consumedBy: ['shepherd-status'],
   },
+  // Split out of `gate.executed` (#1898 item 8). Appended by the same
+  // assessment pass that appends `ci.status`, from the same provider area, one
+  // row per check rather than one per pull request.
+  //
+  // `code-quality` is the consumer because the per-skill outcome measurement is
+  // the half of the old fold worth keeping: the shepherd's job IS to drive
+  // checks green, so its pass rate is its outcome. The half that is dropped is
+  // the gate-name one, which put every CI job into the same `gates[...]`
+  // namespace as the gates this repository runs itself.
+  'ci.check_observed': {
+    lifecycle: 'active',
+    tier: 'capability',
+    provider: 'exarchos_orchestrate',
+    consumedBy: ['code-quality'],
+  },
   'shepherd.started': {
     lifecycle: 'active',
     tier: 'capability',
@@ -705,6 +720,24 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     consumedBy: ['worktrees@v1'],
   },
   'tool.completed': {
+    lifecycle: 'active',
+    tier: 'capability',
+    provider: 'exarchos_event',
+    consumedBy: ['telemetry'],
+  },
+  // Split out of `gate.executed` (#1898 item 8). Appended by the same telemetry
+  // wrapper that appends the rest of the `tool` family, to the same telemetry
+  // stream, and folded by the same view — which is what `gate.executed` was
+  // NOT doing: it went to the FEATURE stream, where the convergence view read
+  // it as a governance verdict on the Context Economy dimension.
+  //
+  // Derives GOVERNANCE, like every other `auto`-tier type, and stays there.
+  // The `tool` family's demotions were ordered by a charter act that named
+  // those four types literally, and `CHARTER_TELEMETRY_EXAMPLES` is a literal
+  // set precisely so a later family member is not admitted as though the act
+  // had covered it. Demoting this one is a new decision for the roadmap, not a
+  // consequence of the split.
+  'tool.budget_exceeded': {
     lifecycle: 'active',
     tier: 'capability',
     provider: 'exarchos_event',

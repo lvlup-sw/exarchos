@@ -164,12 +164,19 @@ const DISPOSITIONS = Object.freeze([
     rationale: diagnosticRationale,
     category: 'diagnostic-observation',
   })),
-  { file: 'src/verbs/vcs/assess-stack.ts', kind: 'manual-gate-event', count: 1, owner: 'orchestrate/assess-stack', rationale: 'Mirrors external CI check status for diagnostics; it does not produce admission evidence.', category: 'diagnostic-observation' },
   { file: 'src/verbs/gates/gate-utils.ts', kind: 'manual-gate-event', count: 1, owner: 'orchestrate/gate-utils', rationale: 'Legacy compatibility event helper; canonical enforceable proof is owned by gate-runner.', category: 'diagnostic-observation' },
   { file: 'tools/evals/benchmarks/event-factories.ts', kind: 'manual-gate-event', count: 1, owner: 'benchmarks/event-factories', rationale: 'Synthetic benchmark fixture construction cannot execute or enforce a workflow gate.', category: 'diagnostic-observation' },
   { file: 'src/verbs/review/review-verdict.ts', kind: 'manual-gate-event', count: 1, owner: 'orchestrate/review-verdict', rationale: 'Read-only query of compatibility observations; durable review evidence is produced by the merged runner seam.', category: 'diagnostic-observation' },
   { file: 'src/verbs/tasks/tools.ts', kind: 'manual-gate-event', count: 1, owner: 'tasks/tools', rationale: 'Read-only task status query; this path cannot emit or enforce gate evidence.', category: 'diagnostic-observation' },
-  { file: 'src/projections/telemetry/middleware.ts', kind: 'manual-gate-event', count: 1, owner: 'telemetry/middleware', rationale: 'Fire-and-forget token-budget telemetry; append failure is explicitly non-fatal and cannot affect a transition.', category: 'telemetry-observation' },
+  // TWO ROWS REMOVED by the `gate.executed` split (#1898 item 8):
+  // `src/verbs/vcs/assess-stack.ts` ("Mirrors external CI check status for
+  // diagnostics; it does not produce admission evidence") and
+  // `src/projections/telemetry/middleware.ts` ("Fire-and-forget token-budget
+  // telemetry; append failure is explicitly non-fatal and cannot affect a
+  // transition"). This census had already classified both as observations
+  // rather than gate runs — it was carrying the disposition for a name that
+  // could not express it. Both now append their own type, so neither file
+  // mentions `gate.executed` and a row here would cover nothing.
   { file: 'src/workflow/playbooks.ts', kind: 'playbook-gate-observation', count: 4, owner: 'workflow/playbooks', rationale: 'Four compact-guidance sentences tell the model the runtime records gate.executed and never to emit it; the per-phase disclosure rows derive from the phase event contract, and the six tool rows that once said "Emit gate.executed" are gone.', category: 'diagnostic-observation' },
   { file: 'src/workflow/topology/phase-events.ts', kind: 'playbook-gate-observation', count: 3, owner: 'workflow/topology/phase-events', rationale: 'The two `runtimeEmits` disclosure rows (review, synthesize) from which every playbook autoEmittedEvents row is derived, plus the module header naming the instruction defect the contract ended; a disclosure names the runtime surface that emits and instructs nothing, and the contract refuses gate.executed on the expects side because it is auto-sourced.', category: 'diagnostic-observation' },
 ]);

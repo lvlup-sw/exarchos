@@ -907,6 +907,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'tool.completed':
       case 'tool.errored':
       case 'tool.action_errored':
+      case 'tool.budget_exceeded':
       case 'turn.completed':
       case 'subagent.tokens_used':
       case 'benchmark.completed':
@@ -962,6 +963,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'test.result':
       case 'typecheck.result':
       case 'ci.status':
+      case 'ci.check_observed':
       case 'comment.posted':
       case 'comment.resolved':
       case 'diagnostic.executed':
