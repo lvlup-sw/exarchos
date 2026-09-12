@@ -366,6 +366,17 @@ const THIRD_PARTY_NETWORK_CLIENTS: ReadonlySet<string> = new Set([
  *   fails on; leaving it would have been an allowlist entry vouching for a
  *   package that is not installed.)
  *
+ *   - `@lvlup-sw/strategos-contracts` — the published workflow-definition
+ *     kernel, VETTED at its first shipped import (the capsule contract under
+ *     `contract/capsule/`). This entry is unusually checkable, because the
+ *     package is not hand-written: its whole `dist/` is emitted from TypeSpec
+ *     and consists of Zod schemas plus their inferred types. Three things carry
+ *     the judgement, and each can be re-measured against `node_modules` rather
+ *     than believed — `sideEffects: false` in its manifest, `zod` as the only
+ *     non-relative import anywhere in `dist/` (and `zod` is vetted inert two
+ *     entries down), and no occurrence of a `node:` builtin, `fetch`, or any
+ *     socket primitive in the emitted output. A release that adds a runtime of
+ *     its own would break all three at once.
  *   - `@modelcontextprotocol/client` — the v2 MCP client package, added by task
  *     049 so the integration proofs could drive a v2 server without a
  *     cross-generation transport pair. The judgement is the same shape as the
@@ -415,6 +426,7 @@ const THIRD_PARTY_NETWORK_CLIENTS: ReadonlySet<string> = new Set([
  *                    validator. All pure data transforms.
  */
 export const INERT_DEPENDENCIES: ReadonlySet<string> = new Set([
+  '@lvlup-sw/strategos-contracts',
   '@modelcontextprotocol/client',
   '@modelcontextprotocol/core',
   '@modelcontextprotocol/server',

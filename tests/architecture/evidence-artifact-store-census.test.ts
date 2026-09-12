@@ -64,7 +64,40 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
     // Second authority: a scanner that lost most of the tree would still
     // report a plausible-looking count on its own. Agreement with `git
     // ls-files` is what rules that out.
-    expect(census.scannedModuleCount).toBe(tracked.length);
+    //
+    // BOUNDED, not equal — the shape `effect-ledger.test.ts` already uses for
+    // the same comparison, and the relation `tracked-population.ts`'s own
+    // header states: "an untracked scratch file makes the walk larger, never
+    // the authority smaller, and cannot turn a real shortfall green". Both real
+    // failures still fail: fewer than tracked means the walk lost part of the
+    // tree, and more than the one known probe means an exclusion stopped
+    // working.
+    //
+    // Strict equality additionally required that NO untracked `.ts` exist under
+    // `src/` at the instant this ran, which is not a property of this census at
+    // all. `tests/scripts/check-module-intent.test.ts` writes a real
+    // `src/dr9-root-src-probe.ts` — deliberately, to prove that gate reaches
+    // the live tree — and holds it there across two full-tree CLI scans. Both
+    // files are in the `unit` project, so they run in parallel workers, and on
+    // a 2-core Windows runner that window is seconds wide. The equality was
+    // asserting the absence of a sibling test's fixture.
+    //
+    // The allowance is exactly that one file, not a proportion: a percentage
+    // would let an exclusion regression admit dozens of modules and still pass.
+    expect(census.scannedModuleCount).toBeGreaterThanOrEqual(tracked.length);
+    expect(
+      census.scannedModuleCount,
+      'the walk reached more modules than the tree tracks in its scope, beyond the ' +
+        "one probe file a sibling test writes — an exclusion stopped working",
+    ).toBeLessThanOrEqual(tracked.length + 1);
+    // The tolerance has a ceiling of its own. Skipping a module that vanished
+    // under a sibling test is right; skipping many is a tree that is
+    // disappearing, and the two must not look the same from here.
+    expect(
+      census.vanishedModuleCount,
+      'modules kept vanishing between the walk and the read — this is no longer ' +
+        "one sibling test's probe file",
+    ).toBeLessThanOrEqual(2);
   }, 60_000);
 
   it('Census_EveryProductionConstruction_IsOwned', () => {

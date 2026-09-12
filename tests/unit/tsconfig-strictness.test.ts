@@ -170,7 +170,30 @@ describe('DR-14: escape-hatch census', () => {
   // a consumer (see the removal note there). A paydown, not a paydown target —
   // the site went away with the code that held it, so the floor SLIDES down by
   // one and the window keeps its width.
-  const BASELINE: CastCounts = { nonNull: 70, asCast: 1715, asAny: 0 };
+  // RE-BASELINE (#1856, the capsule contract) — asCast 1715 -> 1722, nonNull
+  // unchanged. Four of the seven predate this change: the tree had drifted to
+  // 1719 and the window was down to one site of headroom, so the next module to
+  // need any was going to pay for all of it. That is recorded here rather than
+  // absorbed silently, because a re-baseline that does not say which sites are
+  // new is indistinguishable from a budget bump.
+  //
+  // The three new ones are `src/contract/capsule/`, and they arrived after a
+  // paydown inside the same change: twelve down to three. What went away was
+  // avoidable — `as const` on closed vocabularies became `z.enum(...).options`,
+  // so the schema declares the vocabulary and the array is derived from it
+  // rather than the reverse; the JSON Schema accessor now returns the
+  // chokepoint's own emitted type instead of asserting a record; a second
+  // untyped view of a Zod node folded into the first; an `unknown` walk became
+  // an `in` narrowing; and the optional-unwrap helper became generic, so the
+  // kernel's leaf schema survives the unwrap instead of being asserted back.
+  //
+  // What is left has no cast-free form. Two are the single `as unknown as` that
+  // reads Zod's `_zod.def` — the library does not type its internals, and the
+  // derivation this contract is built on has to walk them. The third annotates a
+  // schema BUILT at runtime, which cannot carry a static shape out with it; what
+  // keeps that one honest is not the compiler but the derivation tests, which
+  // compare the emitted JSON Schema against the published kernel's own.
+  const BASELINE: CastCounts = { nonNull: 70, asCast: 1722, asAny: 0 };
 
   // Declared budget = MAX escape-hatch sites maintenance work may introduce
   // before the NEXT documented re-baseline. `as any` may never grow.
