@@ -206,6 +206,18 @@ describe('settlement adjudication', () => {
     expect(verdict.acceptedTasks).toEqual([]);
   });
 
+  it('Adjudicate_ADefectiveDuplicateClaim_IsRefusedOnlyAsADuplicate', () => {
+    // The duplicate is refused whole. A second claim carrying its own defects
+    // must not also report them: those would be findings against a claim that
+    // was never going to be considered.
+    const verdict = adjudicateSettlement(baseValidCapsule(), [
+      passingClaim(),
+      { taskId: 'task-verify', fields: { passed: 'yes', smuggled: 1 }, evidence: [{ kind: 'vibes', ref: 'r' }] },
+    ]);
+    expect(verdict.findings.map((f) => [f.kind, f.at])).toEqual([['duplicate-claim', 'claims[1].taskId']]);
+    expect(verdict.outcome).toBe('rejected');
+  });
+
   it('Adjudicate_AnOptionalFieldLeftOut_IsNotAFinding', () => {
     // `required: false` has to mean something, or the flag is decoration.
     const base = baseValidCapsule();

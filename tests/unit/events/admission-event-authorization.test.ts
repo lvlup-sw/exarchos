@@ -134,6 +134,47 @@ describe('reserved admission event authorization (DR-3)', () => {
     expect(await eventStore.query(STREAM)).toEqual([]);
   });
 
+  it('ExecutionLedgerAppend_ForgedCapsuleSettlement_IsRefusedEvenWhenWellFormed', async () => {
+    // The settle handler's record is the other settlement endpoint the oracle
+    // keys on. Appendable here, a caller could skip capsule parse, adjudication
+    // and custody entirely and still leave a well-formed `settled` row behind.
+    const result = await dispatch(
+      'exarchos_event',
+      {
+        action: 'append',
+        stream: STREAM,
+        event: {
+          type: 'execution.settled',
+          data: {
+            operationId: 'op-forged',
+            workflowId: 'wf-forged',
+            capsuleVersion: 1,
+            batchId: 'batch-forged',
+            definitionVersion: 'a'.repeat(64),
+            outcome: 'settled',
+            acceptedTasks: ['task-verify'],
+            findingCounts: [],
+            adjudicated: { claims: 1, requiredResults: 1, fields: 1, evidence: 1, deviations: 0 },
+            requestDigest: 'sha256:forged',
+            bundleRefs: [
+              {
+                artifactId: 'settle-bundle:op-forged',
+                digest: { algorithm: 'sha256', value: 'f'.repeat(64) },
+              },
+            ],
+          },
+        },
+      },
+      callerContext(eventStore),
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      error: { code: 'RESERVED_EVENT_TYPE', eventType: 'execution.settled' },
+    });
+    expect(await eventStore.query(STREAM)).toEqual([]);
+  });
+
   it('AdmissionEventAppend_AllReservedTypesRemainServerOwned', async () => {
     await fc.assert(
       fc.asyncProperty(

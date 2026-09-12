@@ -102,10 +102,15 @@ export const INTERNAL_VCS_LEDGER_EVENT_TYPES: readonly [
  * reporting on input its producer does not own. Reserving the type is what
  * makes the record's custody claim true: the only writer is the one that put
  * the bytes first.
+ *
+ * `execution.settled` is reserved for the same reason: it is committed by the
+ * settle handler after capsule parse, adjudication and custody, and the oracle
+ * keys on it exactly as it does on the executor's record.
  */
-export const INTERNAL_EXECUTION_LEDGER_EVENT_TYPES: readonly ['orchestrate.intent_executed'] = [
+export const INTERNAL_EXECUTION_LEDGER_EVENT_TYPES: readonly [
   'orchestrate.intent_executed',
-];
+  'execution.settled',
+] = ['orchestrate.intent_executed', 'execution.settled'];
 
 /** Server-owned cancellation process-manager facts (v2.12, DR-7). */
 export const INTERNAL_CANCELLATION_EVENT_TYPES = [

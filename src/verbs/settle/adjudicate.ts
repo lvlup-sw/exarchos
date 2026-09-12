@@ -160,6 +160,9 @@ export function adjudicateSettlement(
         at: `${at}.taskId`,
         message: `two claims for task ${JSON.stringify(claim.taskId)} — settlement cannot adjudicate a task twice`,
       });
+      // The second claim is refused whole. Adjudicating its fields too would
+      // report defects against a claim that was never going to be considered.
+      return;
     }
     seen.add(claim.taskId);
 
