@@ -86,6 +86,14 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
       'the walk reached substantially more modules than the tree tracks in its ' +
         'scope — an exclusion stopped working',
     ).toBeLessThanOrEqual(Math.ceil(tracked.length * 1.1));
+    // The tolerance has a ceiling of its own. Skipping a module that vanished
+    // under a sibling test is right; skipping many is a tree that is
+    // disappearing, and the two must not look the same from here.
+    expect(
+      census.vanishedModuleCount,
+      'modules kept vanishing between the walk and the read — this is no longer ' +
+        "one sibling test's probe file",
+    ).toBeLessThanOrEqual(2);
   }, 60_000);
 
   it('Census_EveryProductionConstruction_IsOwned', () => {
