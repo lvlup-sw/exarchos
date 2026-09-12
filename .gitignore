@@ -117,3 +117,9 @@ docs/references
 docs/research
 docs/runbooks
 docs/specs
+
+# The primary-owner census writes a one-shot `.mts` extractor at the repo root
+# and removes it in a `finally`. A hard kill (OOM, CI timeout) skips that, and
+# the leftover would then read as an untracked source file to every later
+# `git status` check — including the ones other gates make.
+.tmp-primary-owner-census-*.mts

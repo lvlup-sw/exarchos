@@ -1100,6 +1100,24 @@ jobs:
       - name: Prose-lint gate — rehydration prose slop (DR-13)
         run: node tools/audit/gates/check-prose-lint.mjs
 
+      # Primary-owner population census (#1854 K2). `--check` re-derives the
+      # census and compares it byte for byte with the checked-in JSON, so the
+      # measurement behind `PRIMARY_OWNER_POPULATION_FLOOR` cannot drift from
+      # the catalog it is supposed to describe.
+      #
+      # WIRED LATE, and the reason is the point: it was written with no caller.
+      # Its extractor read `action.autoEmits`, which `withActionContract`
+      # strips from every registered action, so from the day the action-contract
+      # closure landed the census resolved ZERO edges and threw on every run.
+      # Nothing invoked it — not this workflow, not package.json, not a test —
+      # so it stayed broken and its output stayed stale for months. A census
+      # nothing runs is a census nobody can rely on.
+      #
+      # Rides the deps tail: the extractor shells out to `tsx` and imports the
+      # live registry, which pulls the SQLite substrate.
+      - name: Primary-owner population census (#1854 K2)
+        run: node tools/audit/core/measure-primary-owner-population.mjs --check
+
       # Measured-premise drift gate (task 054, DR-27). Binds every annotated
       # numeric claim in the internal-mechanics-overhaul spec (+ the invariants
       # catalog) to the artifact that produces it, so the document cannot assert
