@@ -48,6 +48,21 @@ export interface EvidenceStoreConstructionSite {
 
 export interface EvidenceStoreConstructionCensus {
   readonly scannedModuleCount: number;
+  /**
+   * Modules the walk listed and the read could not open.
+   *
+   * A directory walk followed by per-file reads is time-of-check to
+   * time-of-use by construction, and this census runs in a vitest project whose
+   * members deliberately create and delete files under the live `src/` to prove
+   * that gates reach it (`tests/scripts/check-module-intent.test.ts` writes
+   * `src/dr9-root-src-probe.ts` and removes it again). A module that existed at
+   * walk time and is gone at read time was never TRACKED, so it is not part of
+   * the population this census is about — but it is counted rather than
+   * discarded, because "one file vanished under a sibling test" and "the tree
+   * is disappearing" are different facts and a silent skip cannot tell them
+   * apart.
+   */
+  readonly vanishedModuleCount: number;
   readonly sites: readonly EvidenceStoreConstructionSite[];
   readonly unowned: readonly EvidenceStoreConstructionSite[];
 }
@@ -399,8 +414,22 @@ export function scanEvidenceStoreConstructions(
   // was tried as a prefilter and is unsound: a barrel that re-exports the
   // class under an alias leaves a caller spelling neither, and the census
   // would have skipped exactly the door it exists to find.
+  let vanishedModuleCount = 0;
   for (const modulePath of modules) {
-    const sourceFile = parsedModule(modulePath, resolution);
+    // ENOENT is tolerated HERE and nowhere else. At this level the path came
+    // from the walk, so a missing file means it was removed since; through
+    // `collectClassBindings` the path came from an import, and a missing import
+    // target is a real finding that must still throw.
+    let sourceFile: ts.SourceFile;
+    try {
+      sourceFile = parsedModule(modulePath, resolution);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+        vanishedModuleCount += 1;
+        continue;
+      }
+      throw error;
+    }
     const source = sourceFile.text;
     const bindings = collectClassBindings(options.sourceDir, modulePath, sourceFile, resolution);
     if (bindings.direct.size === 0 && bindings.namespaces.size === 0) continue;
@@ -459,5 +488,5 @@ export function scanEvidenceStoreConstructions(
   }
 
   const unowned = sites.filter((site) => !owners.has(site.file));
-  return { scannedModuleCount: modules.length, sites, unowned };
+  return { scannedModuleCount: modules.length - vanishedModuleCount, vanishedModuleCount, sites, unowned };
 }
