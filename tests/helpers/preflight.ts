@@ -143,7 +143,7 @@ export async function assertExarchosVersion(
 
   if (actualMajorMinor !== expected) {
     throw new Error(
-      `${command} version mismatch: expected ${expected}.x but found ${actualRaw} (major.minor=${actualMajorMinor}). Rebuild the host target from the v${expected} checkout and re-point the \`exarchos\` symlink at it, or reinstall via \`tools/release/get-exarchos.sh\`.`,
+      `${command} version mismatch: expected ${expected}.x but found ${actualRaw} (major.minor=${actualMajorMinor}). Rebuild the host target from the v${expected} checkout and re-point the \`exarchos\` symlink at it, or reinstall via \`tools/release/get-exarchos.sh\` (POSIX) or \`tools/release/get-exarchos.ps1\` (Windows).`,
     );
   }
 }

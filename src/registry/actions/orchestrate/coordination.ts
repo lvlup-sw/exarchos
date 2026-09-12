@@ -330,7 +330,14 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     // should not be smuggled into the advisory annotation.
     annotations: REMOTE_MUTATION,
   }, {
-    ensures: declared({ source: 'event-append', when: 'always', event: 'ci.check_observed' }),
+    // Carried over from `gate.executed` unchanged and wrong in both spellings.
+    // The 22 actions that ensure an append `always` are gate RUNNERS, whose
+    // result row is the point of the call. This one observes: it appends once
+    // per check it read, and it reads none when the stack is empty or when
+    // `queryPrChecks` records a provider failure and returns an empty list.
+    // The assessment still succeeds in both cases, which is exactly the shape
+    // an `always` postcondition must not have.
+    ensures: none('assess_stack reports observed CI state; a stack with no checks to read succeeds and appends nothing'),
     needs: declared('mcp:exarchos'),
     resources: declared({ kind: 'stream', selector: 'featureId' }),
     replay: { kind: 'claim-required', scope: 'stream-subject-request' },
@@ -338,7 +345,7 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
       { event: 'ci.status', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'One per PR assessed; none when the stack is empty' },
       // Was `gate.executed` (#1898 item 8). One row per observed CI check,
       // beside the per-PR `ci.status` roll-up above.
-      { event: 'ci.check_observed', condition: 'always', owner: 'orchestrate', role: 'primary' },
+      { event: 'ci.check_observed', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'One per observed check; none when no check was read' },
       { event: 'shepherd.approval_requested', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'When approval needed' },
       { event: 'shepherd.completed', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'When PR merged' },
       { event: 'shepherd.escalated', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'When the auto-fix bound is reached' },

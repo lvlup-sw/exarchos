@@ -99,13 +99,27 @@ describe('TelemetryProjection', () => {
       expect(state.tools['exarchos_view']?.invocations).toBe(1);
     });
 
+    // `toBe`, not `toEqual`: the arm returns the CALLER'S object, and a later
+    // edit that rebuilt an equivalent one would pass `toEqual` while losing the
+    // structural sharing every other identity arm in this projection relies on.
     it('TelemetryProjection_BudgetExceededWithoutATool_IsIdentity', () => {
       const before = telemetryProjection.init();
       const after = telemetryProjection.apply(before, {
         ...breach('x', 1),
         data: { tokenEstimate: 1 },
       } as unknown as WorkflowEvent);
-      expect(after).toEqual(before);
+      expect(after).toBe(before);
+    });
+
+    // The guard has two arms and only one was covered. This is the other: no
+    // payload at all, rather than a payload missing its `tool`.
+    it('TelemetryProjection_BudgetExceededWithoutData_IsIdentity', () => {
+      const before = telemetryProjection.init();
+      const after = telemetryProjection.apply(before, {
+        ...breach('x', 1),
+        data: undefined,
+      } as unknown as WorkflowEvent);
+      expect(after).toBe(before);
     });
   });
 
