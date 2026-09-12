@@ -29,4 +29,4 @@ import type { GitExec } from '../../src/verbs/pure/execute-merge.js';
  * A `gitExec` that fails every invocation, neutralizing the section-0a
  * sibling-worktree probe.
  */
-export const BYPASS_SECTION_0A: GitExec = () => ({ exitCode: 1, stdout: '', stderr: '' });
+export const BYPASS_SECTION_0A: GitExec = () => ({ exitCode: 1, stdout: '' });

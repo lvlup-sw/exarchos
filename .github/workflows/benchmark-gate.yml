@@ -4,6 +4,13 @@ on:
   pull_request:
     types: [synchronize, opened, reopened]
 
+permissions:
+  contents: read
+  # Resolves the @lvlup-sw scope from GitHub Packages (see .npmrc). The repo
+  # default grants this, but an explicit block replaces the default rather than
+  # extending it, so omitting it here would leave `npm ci` at packages: none.
+  packages: read
+
 env:
   # Authenticates the @lvlup-sw scope against GitHub Packages (see .npmrc).
   # Deliberately not NODE_AUTH_TOKEN, which setup-node binds to npmjs.org.

@@ -50,7 +50,7 @@ export function assertExarchosOnPath(command: string = BINARY_NAME): void {
         '`exarchos`. To test a published release, install via ' +
         '`tools/release/get-exarchos.sh` (POSIX) or `tools/release/get-exarchos.ps1` ' +
         '(Windows). `npm link` does NOT provide this binary — package.json maps only ' +
-        '`exarchos-release-verify`. See docs/designs/2026-05-05-e2e-v29-revisited.md §5.1.',
+        '`exarchos-release-verify`.',
     );
   }
 }
@@ -126,9 +126,10 @@ export interface AssertExarchosVersionOpts {
  * matches the repo's expected release line (read from root `package.json`).
  *
  * Throws an Error naming both the expected and the actual version on
- * mismatch. A stale-binary case is the most common failure mode when a
- * developer's `npm link` points at an older checkout — without this gate
- * the process-fidelity suite would silently exercise stale behavior.
+ * mismatch. A stale-binary case is the most common failure mode when the
+ * `exarchos` symlink on PATH still points at an older checkout's build —
+ * without this gate the process-fidelity suite would silently exercise
+ * stale behavior.
  */
 export async function assertExarchosVersion(
   opts: AssertExarchosVersionOpts = {},
@@ -142,7 +143,7 @@ export async function assertExarchosVersion(
 
   if (actualMajorMinor !== expected) {
     throw new Error(
-      `${command} version mismatch: expected ${expected}.x but found ${actualRaw} (major.minor=${actualMajorMinor}). Re-run \`npm link\` from the v${expected} checkout, or reinstall via \`tools/release/get-exarchos.sh\`.`,
+      `${command} version mismatch: expected ${expected}.x but found ${actualRaw} (major.minor=${actualMajorMinor}). Rebuild the host target from the v${expected} checkout and re-point the \`exarchos\` symlink at it, or reinstall via \`tools/release/get-exarchos.sh\`.`,
     );
   }
 }

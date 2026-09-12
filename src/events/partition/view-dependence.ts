@@ -143,8 +143,8 @@ export const VIEW_TELEMETRY_DEPENDENCE: Readonly<
  * the alternative is an oracle that reports a telemetry dependence at midnight
  * and none at noon. Subtracting them is a concession to a defect, not a
  * blessing of it: a reducer that reads the clock is not a left-fold over the
- * log, which is what INV-1 requires of every read-model, and a replay of the
- * same stream cannot reproduce it.
+ * log, which every read-model must be, and a replay of the same stream
+ * cannot reproduce it.
  *
  * This list may only SHRINK. A path leaves it by moving its value onto the
  * event that should have carried it.

@@ -28,6 +28,7 @@ import { TELEMETRY_EVENTS } from '../../../src/events/partition/event-authority.
 import {
   CLOCK_DEPENDENT_VIEW_PATHS,
   CORPUS_BLIND_READERS,
+  VERDICT_BEARING_VIEWS,
   VIEW_TELEMETRY_DEPENDENCE,
 } from '../../../src/events/partition/view-dependence.js';
 import { EventTypes, type WorkflowEvent } from '../../../src/events/schemas.js';
@@ -156,11 +157,13 @@ describe('secondary-view telemetry dependence', () => {
   // retired by re-sourcing the view off the telemetry type, never by relabeling
   // the row `display`.
   it('SecondaryViews_TheVerdictBacklog_MayOnlyShrink', () => {
-    const verdicts = Object.entries(VIEW_TELEMETRY_DEPENDENCE)
-      .filter(([, declared]) => declared.kind === 'verdict')
-      .map(([viewId]) => viewId)
-      .sort();
-    expect(verdicts).toEqual(['shepherd-status', 'synthesis-readiness']);
+    // Asserted through the partition's own derivation, not a copy of the
+    // filter. The export exists so the backlog has ONE definition; repeating
+    // the filter here would have let the two disagree and still pass.
+    expect([...VERDICT_BEARING_VIEWS].sort()).toEqual([
+      'shepherd-status',
+      'synthesis-readiness',
+    ]);
   });
 
   // A blind row claims the corpus cannot see a dependence the source plainly
