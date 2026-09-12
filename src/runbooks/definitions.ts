@@ -295,7 +295,7 @@ export const SHEPHERD_ITERATION: RunbookDefinition = {
       note: 'git push to trigger CI re-run' },
   ],
   templateVars: ['featureId', 'streamId', 'stream', 'event', 'prNumbers'],
-  autoEmits: ['gate.executed', 'shepherd.approval_requested', 'shepherd.completed', 'shepherd.started'],
+  autoEmits: ['ci.check_observed', 'shepherd.approval_requested', 'shepherd.completed', 'shepherd.started'],
 };
 
 export const TASK_FIX: RunbookDefinition = {

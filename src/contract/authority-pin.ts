@@ -183,8 +183,10 @@ export function computeAuthorities(inputs: AuthorityInputs): AuthorityValue[] {
       versionSpec: inputs.strategosContractsVersion,
       digest: digestText(inputs.strategosContractsSource),
       source:
-        'src/architecture/invariant-schema.ts (hand-written Strategos.Contracts ' +
-        'stand-in) pinned at the exarchos-mcp package version',
+        'digest: src/architecture/invariant-schema.ts (hand-written stand-in, still in ' +
+        'use — the published InvariantEntry and CheckNode reject both live catalogs, ' +
+        'lvlup-sw/strategos#231). version: the @lvlup-sw/strategos-contracts dependency ' +
+        'spec, RECORDED for review and never compared',
     },
     {
       id: 'mcp-protocol',
@@ -339,7 +341,28 @@ export function verifyAuthorities(
             `locked ${String(pin.digest)}`,
         });
       }
-      if (value.version !== pin.version) {
+      // Version is COMPARED only where there is no digest to compare.
+      //
+      // A digest-bearing authority already has the real signal: the digest moves
+      // exactly when the frozen content moves. Its version is provenance — the
+      // human-legible label a reviewer reads to know what was approved against —
+      // and comparing it too is at best redundant and at worst a false alarm.
+      //
+      // Redundant for `compatibility-policy`, `invariant-catalog` and
+      // `contract-surface`, whose version is a constant INSIDE the very source
+      // the digest covers, so it cannot move on its own.
+      //
+      // A false alarm for `strategos-contracts`, whose two dimensions have
+      // DIFFERENT sources — the version from package.json, the digest from the
+      // schema module. They disagree whenever one moves without the other, which
+      // is every release, and each trip costs a re-approval plus a wide red
+      // fan-out. A freeze that fires loudest when it has least to say trains its
+      // readers to re-approve without looking. See exarchos#1837.
+      //
+      // `mcp-protocol` and `mcp-sdk` carry no digest, so their version IS the
+      // authority and is still compared here.
+      const versionIsTheOnlySignal = value.digest === null && pin.digest === null;
+      if (versionIsTheOnlySignal && value.version !== pin.version) {
         violations.push({
           authority: id,
           kind: 'mismatch',

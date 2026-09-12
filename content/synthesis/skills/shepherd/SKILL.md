@@ -92,7 +92,7 @@ The composite action internally handles:
 - Formal review status (APPROVED / CHANGES_REQUESTED)
 - Inline review comment polling and thread resolution (Sentry, CodeRabbit, humans)
 - Stack health verification
-- Event emission: `gate.executed` events per CI check (feeds CodeQualityView) and `ci.status` events per PR (feeds ShepherdStatusView). See `references/gate-event-emission.md` for the event format.
+- Event emission: `ci.check_observed` events per CI check (feeds CodeQualityView) and `ci.status` events per PR (feeds ShepherdStatusView). See `references/gate-event-emission.md` for the event format.
 
 Review the returned `actionItems` and `recommendation`:
 
@@ -268,7 +268,7 @@ Before emitting any shepherd events, consult `references/shepherd-event-schemas.
 |-------|------|---------|
 | `shepherd.started` | On skill start (emitted by `assess_stack`) | Audit trail |
 | `shepherd.iteration` | After each assess cycle | Track progress |
-| `gate.executed` | Per CI check (emitted by `assess_stack`) | CodeQualityView -- gate pass rates |
+| `ci.check_observed` | Per CI check (emitted by `assess_stack`) | CodeQualityView -- per-skill pass rates |
 | `ci.status` | Per CI check result | ShepherdStatusView -- PR health tracking |
 | `remediation.attempted` | Before applying a fix | selfCorrectionRate metric |
 | `remediation.succeeded` | After fix confirmed | avgRemediationAttempts metric |
@@ -280,7 +280,7 @@ Before emitting any shepherd events, consult `references/shepherd-event-schemas.
 Consult these references for detailed guidance:
 - `references/fix-strategies.md` — Fix approaches per issue type, response templates, remediation event emission details
 - `references/escalation-criteria.md` — When to stop iterating and escalate to the user
-- `references/gate-event-emission.md` — Event format for `gate.executed` (now emitted by `assess_stack`)
+- `references/gate-event-emission.md` — Event format for `ci.check_observed` (emitted by `assess_stack`)
 - `references/shepherd-event-schemas.md` — Full Zod-aligned schemas for all four shepherd lifecycle events
 
 ### Decision Runbooks

@@ -36,6 +36,17 @@ export interface ToolMetrics {
   // `errors` (which counts transport/protocol throws via tool.errored only).
   readonly actionErrors: number;
   readonly actionErrorBreakdown: Readonly<Record<string, number>>;
+  /**
+   * How many of this tool's responses exceeded the response-economy token
+   * budget (#1898 item 8).
+   *
+   * Counted here rather than inferred from `tokenEstimates`, because the two
+   * measure different populations: the rolling array is capped at the window
+   * size and holds only the calls that produced a `tool.completed`, while a
+   * breach is recorded on its own and must stay countable after it falls out
+   * of the window.
+   */
+  readonly budgetExceeded: number;
 }
 
 // ─── Per-Turn Output-Token Record (#1262) ──────────────────────────────────
@@ -88,6 +99,7 @@ export function initToolMetrics(): ToolMetrics {
     // PR3/T9 (#1364)
     actionErrors: 0,
     actionErrorBreakdown: {},
+    budgetExceeded: 0,
   };
 }
 
@@ -146,8 +158,12 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
           // PR3/T9 (#1364) — preserve structured-failure counters across
           // tool.completed folds. Listed explicitly (rather than ...existing)
           // to keep the literal exhaustive in the type checker.
+          // `budgetExceeded` rides the same rule: its own arm counts it, and
+          // this arm must carry it forward or every breach would be erased by
+          // the next completion of the same tool.
           actionErrors: existing.actionErrors,
           actionErrorBreakdown: existing.actionErrorBreakdown,
+          budgetExceeded: existing.budgetExceeded,
         };
 
         return {
@@ -211,6 +227,25 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
         return {
           ...view,
           tools: { ...view.tools, [toolName]: updated },
+        };
+      }
+
+      // Split out of `gate.executed` (#1898 item 8). The breach used to be
+      // appended to the FEATURE stream as a gate row naming the `D3`
+      // convergence dimension, where the convergence view folded it as an
+      // unrecoverable failure of Context Economy. It is a per-tool runtime
+      // measurement, and this is the view that holds per-tool measurements.
+      case 'tool.budget_exceeded': {
+        const beData = event.data as { tool?: unknown } | undefined;
+        if (!beData || typeof beData.tool !== 'string') return view;
+
+        const existing = view.tools[beData.tool] ?? initToolMetrics();
+        return {
+          ...view,
+          tools: {
+            ...view.tools,
+            [beData.tool]: { ...existing, budgetExceeded: existing.budgetExceeded + 1 },
+          },
         };
       }
 

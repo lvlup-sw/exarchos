@@ -580,7 +580,19 @@ describe('EventTypes', () => {
     // Bumped 177 → 178 for `orchestrate.intent_executed`, the bounded action
     // executor's own operation record — appended by the handler under the
     // caller's operationId on both the committed and the failed path.
-    expect(EventTypes).toHaveLength(178);
+    // Bumped 178 → 180 by the `gate.executed` split (#1898 item 8):
+    //   tool.budget_exceeded — a response over the token budget, recorded on
+    //     the telemetry stream. It was a `gate.executed` on the FEATURE stream
+    //     naming `details.dimension: 'D3'`, and D3 is a real convergence
+    //     dimension, so the convergence view folded it as a failure of Context
+    //     Economy under a gate name nothing re-runs.
+    //   ci.check_observed — one observed CI check, beside the `ci.status`
+    //     roll-up the same assessment pass appends. It was a `gate.executed`
+    //     keyed by the CI check's name, sharing the `gates[...]` namespace with
+    //     the gates this repository runs itself.
+    expect(EventTypes).toHaveLength(180);
+    expect(EventTypes).toContain('tool.budget_exceeded');
+    expect(EventTypes).toContain('ci.check_observed');
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');

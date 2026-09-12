@@ -164,6 +164,12 @@ export const MODULE_EMISSIONS: readonly ModuleEmission[] = Object.freeze([
     rationale: TELEMETRY_WRAPPER,
   },
   {
+    event: 'tool.budget_exceeded',
+    module: 'projections/telemetry/middleware.ts',
+    trigger: 'dispatch-wrapper',
+    rationale: TELEMETRY_WRAPPER,
+  },
+  {
     event: 'admission.cutover-ready',
     module: 'workflow/admission/cutover-auto-export.ts',
     trigger: 'success-hook',

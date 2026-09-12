@@ -5,7 +5,7 @@ import {
   CODE_QUALITY_VIEW,
 } from '../../../../src/projections/views/code-quality-view.js';
 import type { CodeQualityViewState } from '../../../../src/projections/views/code-quality-view.js';
-import type { WorkflowEvent } from '../../../../src/events/schemas.js';
+import { EventTypes, type WorkflowEvent } from '../../../../src/events/schemas.js';
 
 const makeEvent = (type: string, data: Record<string, unknown>, seq = 1): WorkflowEvent => ({
   streamId: 'test',
@@ -109,6 +109,61 @@ describe('CodeQualityView', () => {
   });
 
   // ─── T14: benchmark.completed handling ────────────────────────────────────
+
+  // ─── The `gate.executed` split (#1898 item 8) ────────────────────────────
+  //
+  // These rows arrived as `gate.executed` keyed by the CI check's name, so every
+  // GitHub check landed in `state.gates` beside the gates this repository runs
+  // itself. The discriminant between the two populations was `layer: 'ci'`, a
+  // string nothing validated and nothing read.
+  describe('apply - ci.check_observed', () => {
+    const observed = (check: string, passed: boolean, seq = 1): WorkflowEvent =>
+      makeEvent('ci.check_observed', { pr: 42, check, passed, skill: 'shepherd' }, seq);
+
+    it('CodeQuality_CiCheckObserved_NeverEntersTheGateNamespace', () => {
+      const state = codeQualityProjection.apply(
+        codeQualityProjection.init(),
+        observed('static-analysis', false),
+      );
+
+      // The check name here is deliberately one of OUR gate names. Before the
+      // split this fold would have written `gates['static-analysis']` with a 0%
+      // pass rate from a GitHub job, and nothing would have reported it.
+      expect(state.gates).toEqual({});
+      expect(state.models).toEqual({});
+      expect(state.regressions).toEqual([]);
+    });
+
+    it('CodeQuality_CiCheckObserved_KeepsThePerSkillOutcome', () => {
+      const fold = (events: readonly WorkflowEvent[]): CodeQualityViewState =>
+        events.reduce(
+          (view, event) => codeQualityProjection.apply(view, event),
+          codeQualityProjection.init(),
+        );
+
+      const state = fold([
+        observed('ci/build', true, 1),
+        observed('ci/test', false, 2),
+        observed('ci/lint', true, 3),
+      ]);
+
+      const shepherd = state.skills['shepherd'];
+      expect(shepherd?.totalExecutions).toBe(3);
+      expect(shepherd?.gatePassRate).toBeCloseTo(2 / 3);
+      // A failing check is categorized by its own name — there is no `reason`
+      // on this record and inventing one would be worse than naming the check.
+      expect(shepherd?.topFailureCategories).toEqual([{ category: 'ci/test', count: 1 }]);
+    });
+
+    it('CodeQuality_CiCheckObservedWithoutASkill_IsIdentity', () => {
+      const before = codeQualityProjection.init();
+      const after = codeQualityProjection.apply(
+        before,
+        makeEvent('ci.check_observed', { pr: 42, check: 'ci/build', passed: true }),
+      );
+      expect(after).toEqual(before);
+    });
+  });
 
   describe('apply - benchmark.completed', () => {
     it('Apply_BenchmarkCompleted_AppendsTrend', () => {
@@ -669,5 +724,115 @@ describe('CodeQualityView - mutation-score trend (W2-6, #1525)', () => {
 
     expect(state.skills['delegation']).toBeDefined();
     expect(state.skills['delegation'].mutationScoreTrend).toBeUndefined();
+  });
+});
+
+// ─── The internal trackers must survive every fold step ──────────────────────
+//
+// `_failureTrackers` and `_remediationCounts` are stored NON-ENUMERABLE, so they
+// stay out of `toEqual` and `JSON.stringify` while still riding the apply()
+// chain. That also puts them out of reach of the ordinary spread a handler
+// reaches for first, and losing them is silent: the counters restart mid-stream,
+// the public shape does not change, and every later verdict is computed from a
+// history that was truncated without saying so.
+//
+// These cover the property directly. Finding it by symptom costs a regression
+// that is never reported.
+
+describe('CodeQualityView - internal trackers survive the fold', () => {
+  const fold = (events: readonly WorkflowEvent[]): CodeQualityViewState =>
+    events.reduce(
+      (view, event) => codeQualityProjection.apply(view, event),
+      codeQualityProjection.init(),
+    );
+
+  const failure = (seq: number): WorkflowEvent =>
+    makeEvent(
+      'gate.executed',
+      {
+        gateName: 'review',
+        layer: 'verification-ladder',
+        passed: false,
+        duration: 1,
+        details: { skill: 'shepherd', commit: `c${seq}` },
+      },
+      seq,
+    );
+
+  const observation = (seq: number): WorkflowEvent =>
+    makeEvent('ci.check_observed', { pr: 7, check: 'CI Gate', passed: false, skill: 'shepherd' }, seq);
+
+  const remediation = (seq: number): WorkflowEvent =>
+    makeEvent('remediation.succeeded', { skill: 'shepherd', totalAttempts: 4 }, seq);
+
+  const hidden = (view: CodeQualityViewState, key: string): unknown =>
+    Object.getOwnPropertyDescriptor(view, key)?.value;
+
+  // Regression detection fires on the THIRD consecutive failure of one
+  // gate+skill. An observation folded between the second and the third reset the
+  // counter, so the third failure counted as the first and the regression was
+  // never raised at all.
+  it('CodeQuality_ObservationBetweenFailures_StillDetectsTheRegression', () => {
+    const uninterrupted = fold([failure(1), failure(2), failure(3)]);
+    const interleaved = fold([failure(1), failure(2), observation(3), failure(4)]);
+
+    expect(uninterrupted.regressions).toHaveLength(1);
+    expect(interleaved.regressions).toHaveLength(1);
+    expect(interleaved.regressions[0]?.consecutiveFailures).toBe(3);
+  });
+
+  // The same mechanism on the other tracker. This counter is the denominator of
+  // `selfCorrectionRate` and the weight of the running average behind
+  // `avgRemediationAttempts`, so resetting it inflates both.
+  it('CodeQuality_ObservationBetweenRemediations_KeepsTheCounter', () => {
+    const interleaved = fold([remediation(1), remediation(2), observation(3), remediation(4)]);
+    expect(hidden(interleaved, '_remediationCounts')).toEqual({ shepherd: 3 });
+  });
+
+  // One payload per handled type that actually reaches the handler's BODY. A
+  // payload the handler rejects only exercises its early return, which is the
+  // cheap half of the path and not where a spread lives.
+  const VALID_PAYLOAD: Readonly<Record<string, Record<string, unknown>>> = {
+    'gate.executed': {
+      gateName: 'review',
+      layer: 'verification-ladder',
+      passed: false,
+      duration: 1,
+      details: { skill: 'shepherd', commit: 'c9' },
+    },
+    'ci.check_observed': { pr: 7, check: 'CI Gate', passed: false, skill: 'shepherd' },
+    'benchmark.completed': {
+      results: [{ name: 'fold', value: 1, unit: 'ms' }],
+      skill: 'shepherd',
+    },
+    'remediation.succeeded': { skill: 'shepherd', totalAttempts: 4 },
+  };
+
+  // The property itself, over a MEASURED denominator. An event type this view
+  // ignores comes back as the same object reference, so the handled set is
+  // discovered rather than transcribed. The pin then makes a new handler a
+  // visible edit, and the payload table makes it an edit that cannot be made
+  // without saying what the new event carries.
+  it('CodeQuality_EveryHandledEventType_KeepsBothTrackers', () => {
+    const seeded = fold([failure(1), remediation(2)]);
+    const handled = EventTypes.filter(
+      (type) => codeQualityProjection.apply(seeded, makeEvent(type, { skill: 'shepherd' }, 9)) !== seeded,
+    );
+
+    expect([...handled].sort()).toEqual([
+      'benchmark.completed',
+      'ci.check_observed',
+      'gate.executed',
+      'remediation.succeeded',
+    ]);
+
+    for (const type of handled) {
+      const payload = VALID_PAYLOAD[type];
+      expect(payload, `no exercising payload declared for ${type}`).toBeDefined();
+      const next = codeQualityProjection.apply(seeded, makeEvent(type, payload ?? {}, 9));
+      expect(next, type).not.toBe(seeded);
+      expect(hidden(next, '_failureTrackers'), type).toBeDefined();
+      expect(hidden(next, '_remediationCounts'), type).toBeDefined();
+    }
   });
 });

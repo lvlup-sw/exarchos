@@ -82,7 +82,23 @@ const LOCK_NOTE =
   'registered to `exarchos_orchestrate` while being appended from a `exarchos_view` ' +
   'action, so the registry and the tree disagreed about who performs the effect. No event ' +
   'schema, no invariant and no wire format changed; `ps` loses its `probe` parameter and ' +
-  'becomes genuinely read-only, which is the user-visible half.';
+  'becomes genuinely read-only, which is the user-visible half.' +
+  ' RE-APPROVED for the #1837 resolution: the `strategos-contracts` version stops being ' +
+  'COMPARED and becomes recorded provenance, and its value moves from this repo\'s own ' +
+  'package version to the `@lvlup-sw/strategos-contracts` dependency spec, now a real ' +
+  'published contract (0.14.0, GitHub Packages). The rule is derived, not an exception ' +
+  'list: a version is compared only where the authority carries NO digest. Where a digest ' +
+  'exists it is the signal, and the version is the human-legible label a reviewer reads. ' +
+  'For three authorities that comparison was merely redundant — their version is a ' +
+  'constant inside the very source the digest covers. For `strategos-contracts` it was ' +
+  'a false alarm: its two dimensions had DIFFERENT sources, so every release of this repo ' +
+  'tripped the freeze with no contract having moved, costing a re-approval and a wide red ' +
+  'fan-out each time. `mcp-protocol` and `mcp-sdk` carry no digest, so their version is ' +
+  'still compared, and a kill probe confirms both arms still bite. The digest still covers ' +
+  'the hand-written stand-in, which STAYS: the published `InvariantEntry` and `CheckNode` ' +
+  'reject both live catalogs — including Strategos\'s own — so the seam cannot close until ' +
+  'lvlup-sw/strategos#231 lands. Nothing imports the package yet; it is pinned for the ' +
+  'workflow-definition kernel the capsule work consumes next.';
 
 /**
  * Who/what the freeze records as the approver of the CURRENT snapshot. Bump
@@ -90,10 +106,10 @@ const LOCK_NOTE =
  * lockfile carries the provenance of the approval rather than of the tool.
  */
 export const CURRENT_APPROVER =
-  'Reed (re-approved for the effect-ledger remedy: reconcile_worktrees added and ' +
-  'stack_place re-parented onto exarchos_orchestrate, closing three provider ' +
-  'disagreements; decision recorded on their instruction). Previously: Reed ' +
-  '(v2.12.0-preview.4 release bump)';
+  'Reed (re-approved for the #1837 resolution: version compared only where no digest ' +
+  'exists, and the strategos-contracts version re-pointed at the published contract ' +
+  'dependency spec; decision recorded on their instruction). Previously: Reed ' +
+  '(effect-ledger remedy: reconcile_worktrees added, stack_place re-parented)';
 
 export function regenerateAuthorityLock(approvedBy = CURRENT_APPROVER): string {
   const paths = defaultSourcePaths();

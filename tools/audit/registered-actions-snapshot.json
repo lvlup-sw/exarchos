@@ -1,11 +1,11 @@
 {
   "note": "Live TOOL_REGISTRY and event-annotation denominator. Regenerated from the live registry whenever a registration is deliberately added or removed; the counts are a measurement, not a target.",
-  "capturedAt": "2026-08-27",
+  "capturedAt": "2026-09-11",
   "counts": {
     "tools": 5,
     "visibleTools": 4,
     "actions": 125,
-    "eventTypes": 178
+    "eventTypes": 180
   },
   "tools": [
     {
@@ -307,6 +307,11 @@
       "lifecycle": "active",
       "tier": "substrate",
       "rationale": "operation-record"
+    },
+    {
+      "type": "ci.check_observed",
+      "lifecycle": "active",
+      "tier": "capability"
     },
     {
       "type": "ci.status",
@@ -912,6 +917,11 @@
     },
     {
       "type": "tool.action_errored",
+      "lifecycle": "active",
+      "tier": "capability"
+    },
+    {
+      "type": "tool.budget_exceeded",
       "lifecycle": "active",
       "tier": "capability"
     },

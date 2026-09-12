@@ -399,7 +399,17 @@ describe('auto-correction integration', () => {
   });
 });
 
-describe('D3 token-budget gate emission', () => {
+// Renamed from 'D3 token-budget gate emission' with the behaviour it covers.
+//
+// The wrapper used to append a `gate.executed` to the FEATURE stream carrying
+// `details.dimension: 'D3'`. D3 is a real convergence dimension (Context
+// Economy), so the convergence view folded the row as a failed gate result
+// under the name `token-budget` — a name nothing ever re-runs, so the dimension
+// could not recover. One breach anywhere in a feature stream pinned
+// `overallConverged` false for the rest of that workflow's life. The assertions
+// below used to PIN that placement ("should be emitted to the workflow stream")
+// (#1898 item 8).
+describe('token-budget breach record', () => {
   let tmpDir: string;
   let eventStore: EventStore;
 
@@ -412,7 +422,7 @@ describe('D3 token-budget gate emission', () => {
     await rmrfAsync(tmpDir);
   });
 
-  it('withTelemetry_TokenThresholdExceeded_EmitsGateExecutedForD3', async () => {
+  it('withTelemetry_TokenThresholdExceeded_RecordsBreachOnTheTelemetryStream', async () => {
     // Arrange: ~10KB response -> ~2560 tokens (exceeds 2048 threshold)
     const handler: CoreHandler = async () => ({
       success: true,
@@ -424,23 +434,55 @@ describe('D3 token-budget gate emission', () => {
     // Act
     await wrapped({ featureId: 'test-feature' });
 
-    // Assert: gate.executed event should be emitted to the workflow stream (featureId)
-    const workflowEvents = await eventStore.query('test-feature');
-    const gateEvents = workflowEvents.filter((e) => e.type === 'gate.executed');
-    expect(gateEvents).toHaveLength(1);
+    // Assert: the breach lands on the TELEMETRY stream, beside the rest of the
+    // wrapper's records.
+    const telemetryEvents = await eventStore.query(TELEMETRY_STREAM);
+    const breaches = telemetryEvents.filter((e) => e.type === 'tool.budget_exceeded');
+    expect(breaches).toHaveLength(1);
 
-    const gateData = gateEvents[0].data as Record<string, unknown>;
-    expect(gateData.gateName).toBe('token-budget');
-    expect(gateData.passed).toBe(false);
-
-    const details = gateData.details as Record<string, unknown>;
-    expect(details.dimension).toBe('D3');
-    expect(details.phase).toBe('runtime');
-    expect(details.tokenEstimate).toBeGreaterThan(2048);
-    expect(details.tool).toBe('test-tool');
+    const data = breaches[0].data as Record<string, unknown>;
+    expect(data.tool).toBe('test-tool');
+    expect(data.featureId).toBe('test-feature');
+    expect(data.threshold).toBe(2048);
+    expect(data.tokenEstimate as number).toBeGreaterThan(2048);
+    expect(data.responseBytes as number).toBeGreaterThan(10_000 - 1);
   });
 
-  it('withTelemetry_TokenBelowThreshold_NoGateEvent', async () => {
+  // The regression this split exists to prevent, stated at the stream rather
+  // than at the view: nothing the wrapper appends may reach the feature stream,
+  // because that is where the convergence view reads from.
+  it('withTelemetry_TokenThresholdExceeded_WritesNothingToTheFeatureStream', async () => {
+    const handler: CoreHandler = async () => ({
+      success: true,
+      data: { content: 'x'.repeat(10_000) },
+    });
+
+    const wrapped = withTelemetry(handler, 'test-tool', eventStore);
+    await wrapped({ featureId: 'test-feature' });
+
+    const workflowEvents = await eventStore.query('test-feature');
+    expect(workflowEvents).toEqual([]);
+  });
+
+  // The featureId used to GATE the emission, because the row needed a stream to
+  // be written to. On the telemetry stream it does not, so a breach from a call
+  // that named no workflow is recorded instead of dropped.
+  it('withTelemetry_NoFeatureId_StillRecordsTheBreachWithoutOne', async () => {
+    const handler: CoreHandler = async () => ({
+      success: true,
+      data: { content: 'x'.repeat(10_000) },
+    });
+
+    const wrapped = withTelemetry(handler, 'test-tool', eventStore);
+    await wrapped({ action: 'get' });
+
+    const telemetryEvents = await eventStore.query(TELEMETRY_STREAM);
+    const breaches = telemetryEvents.filter((e) => e.type === 'tool.budget_exceeded');
+    expect(breaches).toHaveLength(1);
+    expect((breaches[0].data as Record<string, unknown>).featureId).toBeUndefined();
+  });
+
+  it('withTelemetry_TokenBelowThreshold_NoBreachRecord', async () => {
     // Arrange: small response (~25 tokens, well below 2048 threshold)
     const handler: CoreHandler = async () => ({
       success: true,
@@ -452,13 +494,19 @@ describe('D3 token-budget gate emission', () => {
     // Act
     await wrapped({ featureId: 'test-feature' });
 
-    // Assert: no gate.executed event emitted to the workflow stream
+    // Assert: no breach record anywhere.
+    const telemetryEvents = await eventStore.query(TELEMETRY_STREAM);
+    expect(telemetryEvents.filter((e) => e.type === 'tool.budget_exceeded')).toHaveLength(0);
     const workflowEvents = await eventStore.query('test-feature');
-    const gateEvents = workflowEvents.filter((e) => e.type === 'gate.executed');
-    expect(gateEvents).toHaveLength(0);
+    expect(workflowEvents.filter((e) => e.type === 'tool.budget_exceeded')).toHaveLength(0);
   });
 
-  it('withTelemetry_NoFeatureIdInArgs_SkipsGateEmission', async () => {
+  // Was `withTelemetry_NoFeatureIdInArgs_SkipsGateEmission`, which pinned the
+  // drop this split removed. What survives is the half worth keeping: the
+  // wrapper appends no `gate.executed` anywhere, and the composition of the
+  // telemetry stream is stated rather than merely filtered — a stream assertion
+  // that only filters cannot tell "the row is absent" from "the stream is".
+  it('withTelemetry_NoFeatureIdInArgs_AppendsNoGateRowAndNamesTheWholeStream', async () => {
     // Arrange: large response but no featureId in args
     const handler: CoreHandler = async () => ({
       success: true,
@@ -470,15 +518,13 @@ describe('D3 token-budget gate emission', () => {
     // Act — no featureId provided
     await wrapped({ action: 'get' });
 
-    // Assert: only telemetry stream events exist, no gate.executed anywhere
     const telemetryEvents = await eventStore.query(TELEMETRY_STREAM);
-    const telemetryGateEvents = telemetryEvents.filter((e) => e.type === 'gate.executed');
-    expect(telemetryGateEvents).toHaveLength(0);
-
-    // The telemetry stream should have tool.invoked and tool.completed only
-    expect(telemetryEvents).toHaveLength(2);
-    expect(telemetryEvents[0].type).toBe('tool.invoked');
-    expect(telemetryEvents[1].type).toBe('tool.completed');
+    expect(telemetryEvents.filter((e) => e.type === 'gate.executed')).toEqual([]);
+    expect(telemetryEvents.map((e) => e.type)).toEqual([
+      'tool.invoked',
+      'tool.budget_exceeded',
+      'tool.completed',
+    ]);
   });
 });
 

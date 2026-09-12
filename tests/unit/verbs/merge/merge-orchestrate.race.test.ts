@@ -49,6 +49,7 @@ import { handleExecuteMerge } from '../../../../src/verbs/merge/execute-merge.js
 import type { MergePreflightResult } from '../../../../src/verbs/pure/merge-preflight.js';
 import '../../../../src/projections/merge-orchestrator/index.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
+import { BYPASS_SECTION_0A } from '../../../helpers/section-0a-bypass.js';
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -154,6 +155,7 @@ describe('handleMergeOrchestrate — Wave 4 / Task 4.5 concurrency race', () => 
           executeMerge: realExecutor,
           persistState: orchestratorPersistState,
           readState,
+          gitExec: BYPASS_SECTION_0A,
         },
         ctx,
       );
