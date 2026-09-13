@@ -70,17 +70,35 @@ export const INTENT_EXECUTED_SETTLEMENT = Object.freeze({
 }) satisfies SettlementEndpoint;
 
 /**
+ * The semantic plane's settlement record. `settle` stamps this type and this
+ * version on every row it commits, importing them from here, so the writer, the
+ * schema and the oracle cannot name three different things.
+ *
+ * Custodial from its first version: unlike the executor's record, this one
+ * never existed before run-bundle custody did, so there is no pre-custody epoch
+ * to exempt.
+ */
+export const EXECUTION_SETTLED_SETTLEMENT = Object.freeze({
+  type: 'execution.settled',
+  custodyFromSchemaVersion: '1.0',
+}) satisfies SettlementEndpoint;
+
+/**
  * The settlement endpoints this oracle keys its "a settled operation must
  * reference bytes" assertion on. Membership is DATA, not a schema change: the
  * names here are already-registered event types, so extending the set is a
- * one-line edit rather than a change to what the store will accept. The next
- * entry is the semantic `execution.settled` kind, when its emitter exists.
+ * one-line edit rather than a change to what the store will accept.
  *
  * A custodial settlement carrying zero references is reported as a violation
  * rather than skipped, because the degenerate way to pass a resolvability
- * check is to reference nothing at all.
+ * check is to reference nothing at all. That is why a row is added here only
+ * once an emitter that writes bytes exists: an endpoint listed ahead of its
+ * producer would condemn the first record its producer ever wrote.
  */
-export const SETTLEMENT_ENDPOINTS: readonly SettlementEndpoint[] = [INTENT_EXECUTED_SETTLEMENT];
+export const SETTLEMENT_ENDPOINTS: readonly SettlementEndpoint[] = [
+  INTENT_EXECUTED_SETTLEMENT,
+  EXECUTION_SETTLED_SETTLEMENT,
+];
 
 /** The settlement event types, for readers that key on the name alone. */
 export const SETTLED_EVENT_TYPES: readonly EventType[] = SETTLEMENT_ENDPOINTS.map(

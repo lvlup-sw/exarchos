@@ -1,9 +1,3 @@
-// RESERVED(issue: #1856, owner: exarchos, expires: 2026-12-31) — the capsule
-// contract ships ahead of its only consumer. `settle` is the first production
-// importer; until it lands this module has none, and the module-intent gate is
-// right to say so. Delete this header when `settle` imports the schema; delete
-// the module if `settle` is abandoned.
-//
 // ─── The Exarchos workflow capsule — authored contract ───────────────────────
 //
 // A capsule is what a workflow becomes once intent, bound knowledge and
@@ -70,10 +64,6 @@ export const CAPSULE_REQUIRED_AUTHORITY_CATEGORIES: readonly string[] = [
   'delegatedDecisions',
   'escalationBoundaries',
 ];
-
-/** One statement, as the kernel types it. Borrowed, so a kernel change lands here. */
-type CapsuleAuthorityStatement = NonNullable<WorkflowAuthorityV1['invariants']>[number];
-
 /**
  * One authority or intent statement, closed — the kernel's shape, our strictness.
  *
@@ -87,7 +77,8 @@ const CapsuleStatementSchema: z.ZodType<CapsuleAuthorityStatement> = deepStricti
 
 /** The kernel's content-digest vocabulary, borrowed rather than re-typed. */
 const KernelDigestSchema = unwrapOptional(WorkflowDefinitionV1Schema.shape.contentHash);
-
+/** One statement, as the kernel types it. Borrowed, so a kernel change lands here. */
+type CapsuleAuthorityStatement = NonNullable<WorkflowAuthorityV1['invariants']>[number];
 /**
  * The authority block a capsule carries.
  *
@@ -146,7 +137,6 @@ export type _CapsuleAuthorityInventsNoCategory = Expect<
 export type _KernelAuthorityDoesNotSatisfyTheCapsule = Expect<
   IsNotAssignable<WorkflowAuthorityV1, ExarchosCapsuleAuthorityV1>
 >;
-
 /** What this capsule is a compilation OF, and which compilation it is. */
 export const CapsuleIdentitySchema = z
   .object({

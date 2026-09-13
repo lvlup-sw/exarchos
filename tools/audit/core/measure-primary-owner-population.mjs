@@ -60,7 +60,7 @@ const OUT = path.join(ROOT, 'tools/audit/core/primary-owner-population.json');
  * contract through `declaredEmissionEdges`, and 71 comfortably clears a floor
  * of 54, so the stale constant was conservative rather than wrong.
  */
-const PRIMARY_OWNER_POPULATION_FLOOR = 71;
+const PRIMARY_OWNER_POPULATION_FLOOR = 72;
 const CENSUS_MARKER = '<<<CENSUS>>>';
 
 // ─── Raw facts, read from the live registry as VALUES ────────────────────────

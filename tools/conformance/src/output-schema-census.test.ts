@@ -459,13 +459,20 @@ describe('DR-4: outputSchema vacuity census', () => {
     //   shrink-only allowlist leaves `withCappedShape` as the only legal
     //   declaration. The waiver count is untouched and the sum rises again.
     //
+    //   THE SETTLEMENT ENDPOINT added one more (`settle`) by that same forced
+    //   route. Worth noting rather than tallying: the last three additions all
+    //   arrived capped for a STRUCTURAL reason, not because three authors chose
+    //   well. A shrink-only literal union of waiver ids means a new action has
+    //   no vacuous declaration available to it, which is what turns a
+    //   convention into a property.
+    //
     // So 111/10/121 became 110/12/122, then 108/14/122, then 107/16/123, then
-    // 107/17/124.
+    // 107/17/124, then 107/18/125.
     expect(sites).toHaveLength(waiverSites + cappedSites);
     expect(literalVacuousSites).toBe(0);
     expect(waiverSites).toBe(107);
-    expect(cappedSites).toBe(17);
-    expect(waiverSites + cappedSites).toBe(124);
+    expect(cappedSites).toBe(18);
+    expect(waiverSites + cappedSites).toBe(125);
     // Two of the waivers carry an explicit named binding — the aliased vacuity
     // this census exists to see through.
     expect(namedBindingSites).toBe(2);
@@ -502,13 +509,16 @@ describe('DR-4: outputSchema vacuity census', () => {
     // three together is what makes the ratchet legible. `execute_intent`
     // arriving capped is another denominator move: 108/16 -> 108/17 over 124 ->
     // 125, vacuousCount flat because nothing paid down or was newly waived.
-    expect(report.total).toBe(125);
+    // `settle` is the same move again — 108/17 -> 108/18 over 125 -> 126 — and
+    // for the same structural reason rather than by choice: the waiver id union
+    // is shrink-only, so a new action has no vacuous option to take.
+    expect(report.total).toBe(126);
     expect(report.vacuousCount).toBe(108);
-    expect(report.substantiveCount).toBe(17);
+    expect(report.substantiveCount).toBe(18);
     expect(countByReason(report)).toEqual({
       'unknown-data': 107,
       'wrapped-unknown-data': 1,
-      'typed-data': 17,
+      'typed-data': 18,
       'unreadable-envelope': 0,
     });
 

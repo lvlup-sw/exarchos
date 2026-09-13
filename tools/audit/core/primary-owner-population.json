@@ -1,17 +1,17 @@
 {
   "totals": {
-    "emissionEdges": 102,
-    "edgesCarryingRole": 102,
-    "edgesCarryingOwner": 102,
-    "distinctEventsWithEdges": 71,
+    "emissionEdges": 103,
+    "edgesCarryingRole": 103,
+    "edgesCarryingOwner": 103,
+    "distinctEventsWithEdges": 72,
     "distinctOwners": 3,
-    "registeredEvents": 180,
+    "registeredEvents": 181,
     "moduleEmitterRows": 24
   },
   "keys": {
     "per-event-type/primary-edges": {
-      "populationSize": 71,
-      "satisfyingCount": 67,
+      "populationSize": 72,
+      "satisfyingCount": 68,
       "zeroPrimaryCount": 0,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 4,
@@ -105,6 +105,7 @@
         "ci.status",
         "diagnostic.executed",
         "dispatch.classified",
+        "execution.settled",
         "export.executed",
         "export.requested",
         "feedback.recorded",
@@ -174,8 +175,8 @@
       }
     },
     "per-event-type/primary-owners": {
-      "populationSize": 71,
-      "satisfyingCount": 71,
+      "populationSize": 72,
+      "satisfyingCount": 72,
       "zeroPrimaryCount": 0,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -193,6 +194,7 @@
         "ci.status",
         "diagnostic.executed",
         "dispatch.classified",
+        "execution.settled",
         "export.executed",
         "export.requested",
         "feedback.recorded",
@@ -265,8 +267,8 @@
       }
     },
     "per-emission-site/primary-edges": {
-      "populationSize": 102,
-      "satisfyingCount": 99,
+      "populationSize": 103,
+      "satisfyingCount": 100,
       "zeroPrimaryCount": 3,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -319,6 +321,7 @@
         "ci.status@exarchos_orchestrate.assess_stack",
         "diagnostic.executed@exarchos_orchestrate.doctor",
         "dispatch.classified@exarchos_orchestrate.classify_review_items",
+        "execution.settled@exarchos_orchestrate.settle",
         "export.executed@exarchos_view.export",
         "export.requested@exarchos_view.export",
         "feedback.recorded@exarchos_workflow.feedback",
@@ -415,8 +418,8 @@
       }
     },
     "per-event-and-tool/primary-owners": {
-      "populationSize": 72,
-      "satisfyingCount": 71,
+      "populationSize": 73,
+      "satisfyingCount": 72,
       "zeroPrimaryCount": 1,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -445,6 +448,7 @@
         "ci.status@exarchos_orchestrate",
         "diagnostic.executed@exarchos_orchestrate",
         "dispatch.classified@exarchos_orchestrate",
+        "execution.settled@exarchos_orchestrate",
         "export.executed@exarchos_view",
         "export.requested@exarchos_view",
         "feedback.recorded@exarchos_workflow",
@@ -558,13 +562,14 @@
     },
     {
       "tier": "substrate",
-      "eventCount": 41,
+      "eventCount": 42,
       "events": [
         "branch.delete.executed",
         "branch.delete.requested",
         "catalog.registered",
         "diagnostic.executed",
         "dispatch.classified",
+        "execution.settled",
         "export.executed",
         "export.requested",
         "feedback.recorded",

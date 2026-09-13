@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1271,
-    "parsedFiles": 1226,
+    "testFiles": 1274,
+    "parsedFiles": 1229,
     "shellFiles": 45,
-    "cases": 14034,
-    "dynamicTitles": 160,
+    "cases": 14068,
+    "dynamicTitles": 164,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -42933,8 +42933,13 @@
         },
         {
           "suite": "registry economy budgets (DR-1)",
-          "name": "registryEconomy_ExecuteIntent_DeclaresAMeasuredBudgetAndARealSummarizer",
+          "name": "registryEconomy_%s_DeclaresAMeasuredBudgetAndARealSummarizer",
           "dynamic": false
+        },
+        {
+          "suite": "registry economy budgets (DR-1)",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
         },
         {
           "suite": "registry economy budgets (DR-1)",
@@ -54163,7 +54168,7 @@
         },
         {
           "suite": "mutation-adequacy roster characterization (PIN) > OrchestrateActionRoster_CurrentBuild_PinnedActionSet",
-          "name": "exposes exactly 83 actions (WLM operational-core #1578 added serialize_merge; DR-4 (#1630) added check_exploration_depth; WLM foundation task 008 added acquire_worktree, release_worktree, prune_worktrees; #1587 retired check_tdd_compliance; #1581 task 018 added discover_bridge; #1739 added cutover_readiness + cutover_decide; task 068 added invariants_amend; the effect-ledger remedy added reconcile_worktrees and moved stack_place here from exarchos_view; the bounded action executor added execute_intent)",
+          "name": "exposes exactly 84 actions (WLM operational-core #1578 added serialize_merge; DR-4 (#1630) added check_exploration_depth; WLM foundation task 008 added acquire_worktree, release_worktree, prune_worktrees; #1587 retired check_tdd_compliance; #1581 task 018 added discover_bridge; #1739 added cutover_readiness + cutover_decide; task 068 added invariants_amend; the effect-ledger remedy added reconcile_worktrees and moved stack_place here from exarchos_view; the bounded action executor added execute_intent; the semantic plane added settle)",
           "dynamic": false
         },
         {
@@ -60515,6 +60520,189 @@
         {
           "suite": "handleVerifyReviewTriage",
           "name": "FilelessMcpOnly_ResolvesPrsAndRoutedEventsFromEventStore",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/adjudicate.test.ts": {
+      "file": "tests/unit/verbs/settle/adjudicate.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settlement adjudication",
+          "name": "Adjudicate_ABatchSatisfyingTheCapsule_Settles",
+          "dynamic": false
+        },
+        {
+          "suite": "settlement adjudication",
+          "name": "Adjudicate_TheVerdict_CarriesItsOwnDenominator",
+          "dynamic": false
+        },
+        {
+          "suite": "settlement adjudication",
+          "name": "Adjudicate_IsStructurallyValid_$name",
+          "dynamic": false
+        },
+        {
+          "suite": "settlement adjudication",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "settlement adjudication",
+          "name": "Adjudicate_IsNamed_$name",
+          "dynamic": false
+        },
+        {
+          "suite": "settlement adjudication",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "settlement adjudication",
+          "name": "Adjudicate_EveryDeclaredFindingKind_HasACase",
+          "dynamic": false
+        },
+        {
+          "suite": "settlement adjudication",
+          "name": "Adjudicate_ADeviationInsideTheEnvelope_HoldsTheBatchRatherThanRefusingIt",
+          "dynamic": false
+        },
+        {
+          "suite": "settlement adjudication",
+          "name": "Adjudicate_AnEnvelopeThatDoesNotRequireApproval_SettlesWithTheDeviation",
+          "dynamic": false
+        },
+        {
+          "suite": "settlement adjudication",
+          "name": "Adjudicate_ManyDefects_AreAllReported",
+          "dynamic": false
+        },
+        {
+          "suite": "settlement adjudication",
+          "name": "Adjudicate_AnOptionalFieldLeftOut_IsNotAFinding",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/handler.test.ts": {
+      "file": "tests/unit/verbs/settle/handler.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle — the adjudication endpoint",
+          "name": "Settle_ASatisfiedBatch_SettlesAndCommitsOneRecord",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint",
+          "name": "Settle_TheCommittedRecord_ReferencesBytesInCustody",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint",
+          "name": "Settle_ThisRecord_IsARegisteredSettlementEndpoint",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint",
+          "name": "Settle_ARejectedBatch_IsStillASettlementAndStillCommits",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint",
+          "name": "Settle_AReplayOfTheSameBatch_ReturnsThePersistedVerdictAndAppendsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint",
+          "name": "Settle_ADifferentBatchUnderTheSameOperationId_IsRefusedAndAppendsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint",
+          "name": "Settle_ACapsuleTheContractRejects_RefusesBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint",
+          "name": "Settle_ACapsuleThatParsesAndDoesNotResolve_RefusesSeparately",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint",
+          "name": "Settle_TwoSpellingsOfTheSubjectThatDisagree_AreRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint",
+          "name": "Settle_AReservedInfrastructureStream_IsRefused_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle — the adjudication endpoint",
+          "name": "Settle_NoSubject_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint",
+          "name": "Settle_AMalformedClaim_IsRefusedWithoutAdjudicating",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint",
+          "name": "Settle_TheTailSequence_IsTheRowThisCallAppended",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settlement-bundle.test.ts": {
+      "file": "tests/unit/verbs/settle/settlement-bundle.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the settlement bundle",
+          "name": "SettlementBundle_TheSameDocument_EncodesToTheSameBytes",
+          "dynamic": false
+        },
+        {
+          "suite": "the settlement bundle",
+          "name": "SettlementBundle_KeyOrderInTheInput_DoesNotReachTheBytes",
+          "dynamic": false
+        },
+        {
+          "suite": "the settlement bundle",
+          "name": "SettlementBundle_EncodedBytes_AreCanonicalJsonWithATrailingNewline",
+          "dynamic": false
+        },
+        {
+          "suite": "the settlement bundle",
+          "name": "SettlementBundle_RoundTrips",
+          "dynamic": false
+        },
+        {
+          "suite": "the settlement bundle",
+          "name": "SettlementBundle_ADocumentTheSchemaRejects_NeverReachesCustody",
+          "dynamic": false
+        },
+        {
+          "suite": "the settlement bundle",
+          "name": "SettlementBundle_PartialBytes_AreRefusedRatherThanTolerated",
+          "dynamic": false
+        },
+        {
+          "suite": "the settlement bundle",
+          "name": "SettlementBundle_ArtifactId_NamesTheBatchAndTheCompilation",
+          "dynamic": false
+        },
+        {
+          "suite": "the settlement bundle",
+          "name": "SettlementBundle_AnIdTheGrammarRefuses_Throws",
           "dynamic": false
         }
       ]

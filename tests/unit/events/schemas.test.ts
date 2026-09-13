@@ -699,7 +699,12 @@ describe('EventTypes', () => {
     //     roll-up the same assessment pass appends. It was a `gate.executed`
     //     keyed by the CI check's name, sharing the `gates[...]` namespace with
     //     the gates this repository runs itself.
-    expect(EventTypes).toHaveLength(180);
+    // Bumped 180 → 181 by `execution.settled` — the semantic plane's settlement
+    // record, appended by `settle` on every adjudicated outcome. It lands with
+    // its emitter rather than ahead of it, which is the rule the semantic kinds
+    // are held to: a registered name nothing writes is a catalog entry that
+    // cannot be told apart from a declaration nobody finished.
+    expect(EventTypes).toHaveLength(181);
     expect(EventTypes).toContain('tool.budget_exceeded');
     expect(EventTypes).toContain('ci.check_observed');
     expect(EventTypes).toContain('merge.recovered');
@@ -4320,7 +4325,12 @@ describe('WLM operational-core merge lease schemas', () => {
     // by the `gate.executed` split (#1898 item 8) — `tool.budget_exceeded` and
     // `ci.check_observed`, the two uses of that name that never governed
     // anything and were folded by the governance views as though they did.
-    expect(EventTypes).toHaveLength(180);
+    // Bumped 180 → 181 by `execution.settled` — the semantic plane's settlement
+    // record, appended by `settle` on every adjudicated outcome. It lands with
+    // its emitter rather than ahead of it, which is the rule the semantic kinds
+    // are held to: a registered name nothing writes is a catalog entry that
+    // cannot be told apart from a declaration nobody finished.
+    expect(EventTypes).toHaveLength(181);
     // No duplicate slipped in while bumping the count.
     expect(new Set(EventTypes).size).toBe(EventTypes.length);
   });

@@ -25,11 +25,18 @@
 // encodings of one document that differed by key order would be two artifacts.
 //
 // This is an INTERIM persisted shape, like the compiled segment it records.
-// The kernel that owns workflow definitions and their settlement records
-// (`lvlup-sw/strategos#193`) does not exist yet; when it does, this document
-// lowers into that kernel's run-record form and `bundleVersion` is what lets a
-// reader tell a pre-kernel bundle from a lowered one. Nothing outside
-// `verbs/execute/` should grow a dependency on this shape.
+// The kernel that owns workflow definitions now EXISTS — it shipped in
+// `@lvlup-sw/strategos-contracts`, and `contract/capsule/` derives from it —
+// but it deliberately owns no run-record form, so there is still nothing here
+// to lower into. `bundleVersion` is what will let a reader tell a pre-kernel
+// bundle from a lowered one if that changes. Nothing outside `verbs/execute/`
+// should grow a dependency on this shape.
+//
+// The settlement half of that sentence is no longer a future: `verbs/settle/`
+// records its own adjudication interior through the same store, under its own
+// document. Two producers, two shapes, one custody — deliberately, because a
+// run trace and an adjudication are different facts and a shared schema would
+// have to admit both.
 
 import { z } from 'zod';
 
