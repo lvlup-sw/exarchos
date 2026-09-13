@@ -57,24 +57,33 @@ export const settleActions: readonly BuiltinToolAction[] = [
     // one thing a caller cannot discover from the schema (that a refusal is a
     // successful settlement, not an error), and the two refusals that are.
     description:
-      'Adjudicate ONE batch of returned claims against a pinned capsule and commit one ' +
-      'execution.settled record. `capsule` is the compiled artifact the harness ran under — ' +
-      'the terms come from it, never from current state. Each claim is read against that ' +
+      'Adjudicate ONE batch of returned claims against a prepared capsule and commit one ' +
+      'execution.settled record. `capsuleVersion` names the capsule prepare recorded; the terms ' +
+      'come from that record, never from current state or a submitted document (a submitted ' +
+      '`capsule` must match the record\'s digest). Each claim is read against that ' +
       "capsule's declared result shape for its task; evidence is checked against its admitted " +
       'kinds; deviations are checked against its envelope. Outcome is `settled`, `rejected` ' +
       '(a claim failed adjudication) or `deviation-pending` (a deviation inside the envelope ' +
       'needs approval). A REJECTED batch is a successful call: the findings say which claim ' +
       'to fix. Only a malformed request, a capsule that fails the published contract ' +
-      '(CAPSULE_INVALID) or one whose own references do not resolve (CAPSULE_UNRESOLVED) ' +
-      'answer with an error, and none of those adjudicates anything. ' +
+      '(CAPSULE_INVALID), one never prepared (CAPSULE_NOT_PREPARED) or not the one prepared ' +
+      '(CAPSULE_DIGEST_MISMATCH), or one that does not resolve (CAPSULE_UNRESOLVED) answer ' +
+      'with an error, and none of those adjudicates anything. ' +
       'A settlement is keyed by (capsule version, `batchId`): resubmitting the same batch ' +
       'returns the persisted verdict and adjudicates nothing, different claims under a ' +
       'settled batch are refused, and a corrected batch goes back under a NEW `batchId`.',
     schema: z
       .object({
+        capsuleVersion: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe('The capsule version prepare returned. Required unless the capsule itself is submitted'),
         capsule: z
           .record(z.string(), z.unknown())
-          .describe('The compiled capsule document, validated against the published contract'),
+          .optional()
+          .describe('Optional: the compiled capsule document, checked against the prepared record by digest'),
         batchId: z
           .string()
           .min(1)

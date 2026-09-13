@@ -11,24 +11,29 @@
 // leaving a record the integrity oracle condemns on sight. A known violation is
 // not a degraded success.
 //
-// Three refusals happen BEFORE any effect, and each is a different question:
+// Four refusals happen BEFORE any effect, and each is a different question:
 //
 //   1. the request is malformed — a missing subject, two spellings of it that
 //      disagree, a missing or malformed batch id, a caller-supplied operation
-//      id;
-//   2. the capsule is not a capsule — it fails the published contract;
-//   3. the capsule is a capsule but does not resolve — a dangling task
-//      reference, a dependency cycle, a required result nothing declares.
+//      id, no capsule named at all;
+//   2. a submitted capsule is not a capsule — it fails the published contract;
+//   3. the capsule was never prepared — no `workflow.prepared` record exists
+//      for its version, or the submitted document is not the one the record
+//      pinned;
+//   4. the pinned capsule does not resolve — a dangling task reference, a
+//      dependency cycle, a required result nothing declares, a task naming a
+//      step its pinned definition lacks.
 //
-// The third is worth separating from the second because the failure mode is
-// completely different to fix, and because a capsule that parses and does not
-// resolve is exactly the document a structural check alone would wave through.
+// The third is what makes pinning real. Settlement adjudicates against the
+// capsule read back out of custody, never against a document the caller hands
+// in: a submitted capsule is only ever compared with the record, so the terms a
+// batch is judged by are the terms it was compiled under.
 //
 // A REFUSED BATCH IS STILL A SETTLEMENT. `outcome: 'rejected'` returns success
 // with the findings attached, and appends the record: the caller needs to know
 // which claim to fix, and the next call needs to be able to read that this
-// batch did not take. Only the three refusals above answer with an error, and
-// none of them has adjudicated anything.
+// batch did not take. Only the refusals above answer with an error, and none of
+// them has adjudicated anything.
 //
 // THE BATCH IS THE KEY. Transport is at least once; settlement is not. The
 // operation claim a settlement is recorded under is derived from the batch
@@ -39,20 +44,25 @@
 
 import { createHash } from 'node:crypto';
 
-import { ExarchosCapsuleV1Schema } from '../../contract/capsule/exarchos-capsule.js';
+import { capsuleDigest } from '../../contract/capsule/capsule-digest.js';
 import { resolveCapsuleReferences } from '../../contract/capsule/capsule-references.js';
+import {
+  ExarchosCapsuleV1Schema,
+  type ExarchosCapsuleV1,
+} from '../../contract/capsule/exarchos-capsule.js';
 import { SharedStableIdSchema } from '../../contract/ir/admission-ir.js';
 import { canonicalJson, requestDigest as canonicalRequestDigest } from '../../contract/request-context.js';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
-import { isFeatureStream } from '../../dispatch/core/infra-streams.js';
 import { runExclusivePerOperation } from '../../dispatch/core/operation-serializer.js';
 import { outerCorrelation, stampFromAmbient } from '../../dispatch/core/outer-correlation.js';
+import { resolveSubjectStream } from '../../dispatch/core/subject-stream.js';
 import { runWithDispatchContext } from '../../dispatch/dispatch-context.js';
 import { OperationDigestMismatchError } from '../../events/atomic-appender.js';
 import { EXECUTION_SETTLED_SETTLEMENT, type BundleRefV1 } from '../../events/bundle/digest-references.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import { ExecutionSettledData } from '../../events/schemas.js';
 import type { ToolResult } from '../../format.js';
+import { findPreparedCapsule } from '../prepare/prepared-record.js';
 import {
   adjudicateSettlement,
   type ProposedDeviation,
@@ -73,6 +83,10 @@ export interface SettleDeps {
 
 function invalid(message: string): ToolResult {
   return { success: false, error: { code: 'INVALID_INPUT', message } };
+}
+
+function refused(code: string, message: string): ToolResult {
+  return { success: false, error: { code, message } };
 }
 
 function readString(raw: Record<string, unknown>, key: string): string | undefined {
@@ -108,10 +122,8 @@ function settlementClaimKey(streamId: string, identity: SettledCapsuleIdentity):
  *
  * Over the capsule IDENTITY plus the batch contents, not the whole capsule
  * document. Two calls submitting the same claims under the same compilation are
- * the same request, and a capsule that differed only in a comment-shaped field
- * would otherwise read as a different one. Canonical, so two encodings of one
- * batch that differ only by object key order are one request rather than a
- * conflict.
+ * the same request. Canonical, so two encodings of one batch that differ only
+ * by object key order are one request rather than a conflict.
  */
 function requestDigestOf(
   streamId: string,
@@ -180,29 +192,9 @@ export async function handleSettle(
   ctx: DispatchContext,
   deps: SettleDeps = {},
 ): Promise<ToolResult> {
-  // Subject identity, `featureId` first — the same precedence the dispatch
-  // stream resolver uses. Two spellings of one thing that disagree are not a
-  // precedence question, so a disagreement is refused rather than resolved.
-  const featureId = readString(raw, 'featureId');
-  const streamAlias = readString(raw, 'streamId');
-  if (featureId !== undefined && streamAlias !== undefined && featureId !== streamAlias) {
-    return invalid(
-      `featureId '${featureId}' and streamId '${streamAlias}' name different streams. ` +
-        'They are two spellings of one subject — pass one, or pass the same value for both.',
-    );
-  }
-  const streamId = featureId ?? streamAlias;
-  if (streamId === undefined) {
-    return invalid(
-      'streamId is required (featureId is accepted as an alias — the workflow stream id is the bare featureId)',
-    );
-  }
-  if (!isFeatureStream(streamId)) {
-    return invalid(
-      `'${streamId}' is a reserved infrastructure stream, not a workflow subject — ` +
-        "pass the feature's own id",
-    );
-  }
+  const subject = resolveSubjectStream(raw);
+  if (!subject.ok) return invalid(subject.message);
+  const { streamId } = subject;
 
   // Two keys for one settlement would be two authorities over whether it
   // happened: the same batch submitted under two caller ids would adjudicate
@@ -222,40 +214,79 @@ export async function handleSettle(
     );
   }
 
-  if (!isRecord(raw.capsule)) {
-    return invalid('capsule is required and must be the compiled capsule document');
-  }
-  const parsed = ExarchosCapsuleV1Schema.safeParse(raw.capsule);
-  if (!parsed.success) {
-    return {
-      success: false,
-      error: {
-        code: 'CAPSULE_INVALID',
-        message:
-          'the submitted capsule does not satisfy the published capsule contract, so there are ' +
+  // The capsule is named by version, and may also be submitted whole. A
+  // submitted document is parsed only so it can be compared with the record;
+  // it is never what the batch is adjudicated against.
+  let submitted: ExarchosCapsuleV1 | undefined;
+  if (raw.capsule !== undefined) {
+    if (!isRecord(raw.capsule)) {
+      return invalid('capsule must be the compiled capsule document');
+    }
+    const parsed = ExarchosCapsuleV1Schema.safeParse(raw.capsule);
+    if (!parsed.success) {
+      return refused(
+        'CAPSULE_INVALID',
+        'the submitted capsule does not satisfy the published capsule contract, so there are ' +
           `no terms to adjudicate against: ${parsed.error.issues
             .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
             .join('; ')}`,
-      },
-    };
+      );
+    }
+    submitted = parsed.data;
   }
-  const capsule = parsed.data;
+
+  let capsuleVersion: number;
+  if (raw.capsuleVersion !== undefined) {
+    const version = raw.capsuleVersion;
+    if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) {
+      return invalid('capsuleVersion must be a positive integer — the version prepare returned');
+    }
+    if (submitted !== undefined && submitted.identity.capsuleVersion !== version) {
+      return invalid(
+        `capsuleVersion ${version} and the submitted capsule's own version ` +
+          `${submitted.identity.capsuleVersion} name different compilations`,
+      );
+    }
+    capsuleVersion = version;
+  } else if (submitted !== undefined) {
+    capsuleVersion = submitted.identity.capsuleVersion;
+  } else {
+    return invalid(
+      'capsuleVersion is required — the version prepare returned — so settlement can find the ' +
+        'capsule this batch ran under',
+    );
+  }
+
+  const pinned = await findPreparedCapsule(ctx, streamId, capsuleVersion, deps.bundleStore);
+  if (!pinned.found) {
+    return refused(
+      'CAPSULE_NOT_PREPARED',
+      `no capsule v${capsuleVersion} was prepared for '${streamId}'. Settlement adjudicates only ` +
+        'a capsule a prepare call recorded, so the terms a batch is judged by are the ones it was ' +
+        'compiled under.',
+    );
+  }
+  if (submitted !== undefined && capsuleDigest(submitted) !== pinned.record.capsuleDigest) {
+    return refused(
+      'CAPSULE_DIGEST_MISMATCH',
+      `the submitted capsule is not the one prepared as v${capsuleVersion}: its digest ` +
+        `${capsuleDigest(submitted)} differs from the recorded ${pinned.record.capsuleDigest}. ` +
+        'Settle against the recorded capsule by version, or prepare again.',
+    );
+  }
+  const capsule = pinned.capsule;
 
   // Structure and resolvability are two questions, and a capsule can pass the
-  // first and fail the second. Adjudicating against a capsule whose required
-  // results name tasks that do not exist would produce findings about the
-  // capsule dressed as findings about the work.
-  const references = resolveCapsuleReferences(capsule);
+  // first and fail the second. Resolved against the definition the record
+  // pinned, so a task naming a step that definition lacks is refused here
+  // rather than adjudicated as if the step existed.
+  const references = resolveCapsuleReferences(capsule, { definition: pinned.definition });
   if (!references.ok) {
-    return {
-      success: false,
-      error: {
-        code: 'CAPSULE_UNRESOLVED',
-        message:
-          'the submitted capsule parses and does not resolve, so its own terms cannot be ' +
-          `applied: ${references.violations.map((v) => `${v.at}: ${v.message}`).join('; ')}`,
-      },
-    };
+    return refused(
+      'CAPSULE_UNRESOLVED',
+      'the prepared capsule does not resolve against its pinned definition, so its own terms ' +
+        `cannot be applied: ${references.violations.map((v) => `${v.at}: ${v.message}`).join('; ')}`,
+    );
   }
 
   const claims = readClaims(raw.claims);
@@ -287,16 +318,12 @@ export async function handleSettle(
       .lookupOperationClaim<SettlementReceipt>(operationId);
     if (claim !== undefined) {
       if (claim.requestDigest !== requestDigest) {
-        return {
-          success: false,
-          error: {
-            code: 'OPERATION_DIGEST_MISMATCH',
-            message:
-              `${batchLabel} is already settled under a different request. Nothing was ` +
-              'adjudicated. Resubmitting the same batch returns its verdict; a correction goes ' +
-              'back under a new batchId.',
-          },
-        };
+        return refused(
+          'OPERATION_DIGEST_MISMATCH',
+          `${batchLabel} is already settled under a different request. Nothing was ` +
+            'adjudicated. Resubmitting the same batch returns its verdict; a correction goes ' +
+            'back under a new batchId.',
+        );
       }
       return receiptResult(claim.result);
     }
@@ -402,15 +429,11 @@ export async function handleSettle(
           return receiptResult(persisted);
         } catch (error) {
           if (error instanceof OperationDigestMismatchError) {
-            return {
-              success: false,
-              error: {
-                code: 'OPERATION_DIGEST_MISMATCH',
-                message:
-                  `${batchLabel} was settled under a different request while this call was ` +
-                  'adjudicating. Its verdict was NOT persisted.',
-              },
-            };
+            return refused(
+              'OPERATION_DIGEST_MISMATCH',
+              `${batchLabel} was settled under a different request while this call was ` +
+                'adjudicating. Its verdict was NOT persisted.',
+            );
           }
           throw error;
         }

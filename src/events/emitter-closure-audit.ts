@@ -128,6 +128,7 @@ export const UNRESOLVED_ACTION_EVENT_ALLOWANCE: readonly string[] = Object.freez
   'workflow.cleanup',
   'workflow.compensation',
   'workflow.fix-cycle',
+  'workflow.prepared',
   'workflow.rehydrated',
   'workflow.started',
   'workflow.transition',

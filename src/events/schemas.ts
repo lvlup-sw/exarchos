@@ -106,11 +106,17 @@ export const INTERNAL_VCS_LEDGER_EVENT_TYPES: readonly [
  * `execution.settled` is reserved for the same reason: it is committed by the
  * settle handler after capsule parse, adjudication and custody, and the oracle
  * keys on it exactly as it does on the executor's record.
+ *
+ * `workflow.prepared` is reserved because settlement trusts it. A capsule is
+ * adjudicated only when a prepared record pins its digest, so a record any
+ * caller could append would let any caller pin any capsule, and the pin would
+ * prove nothing.
  */
 export const INTERNAL_EXECUTION_LEDGER_EVENT_TYPES: readonly [
   'orchestrate.intent_executed',
   'execution.settled',
-] = ['orchestrate.intent_executed', 'execution.settled'];
+  'workflow.prepared',
+] = ['orchestrate.intent_executed', 'execution.settled', 'workflow.prepared'];
 
 /** Server-owned cancellation process-manager facts (v2.12, DR-7). */
 export const INTERNAL_CANCELLATION_EVENT_TYPES = [
@@ -625,6 +631,11 @@ export const EventTypes = [
   // to read, and a settlement that only recorded its successes would leave the
   // caller re-deriving why the last one did not take.
   'execution.settled',
+  // The semantic plane's compilation record: one capsule compiled from a
+  // workflow's outstanding work, its bytes in custody and its digest pinned.
+  // Settlement adjudicates a capsule only against this record, so the terms a
+  // batch is judged by are the terms it was compiled under.
+  'workflow.prepared',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -4001,6 +4012,48 @@ export const ExecutionSettledData = z
   .strict();
 export type ExecutionSettled = z.infer<typeof ExecutionSettledData>;
 
+export const WorkflowPreparedData = z
+  .object({
+    operationId: z
+      .string()
+      .min(1)
+      .describe('The claim this compilation was recorded under, derived from its inputs'),
+    workflowId: z.string().min(1).describe('Workflow the capsule compiled for'),
+    workflowType: z.string().min(1).describe('The workflow type whose definition was lowered'),
+    capsuleVersion: z
+      .number()
+      .int()
+      .min(1)
+      .describe('Which compilation this is — monotonic per workflow, and half of the settlement key'),
+    definitionVersion: z
+      .string()
+      .min(1)
+      .describe('Digest of the workflow definition the capsule compiled from'),
+    designVersion: z.string().min(1).describe('The design reference this compilation pinned'),
+    capsuleDigest: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .describe('Content address of the compiled capsule; settlement refuses one that does not match'),
+    compilerVersion: z.string().min(1).describe('The compiler that produced the capsule'),
+    taskCount: z.number().int().min(1).describe('Tasks in the compiled batch'),
+    requestDigest: z
+      .string()
+      .min(1)
+      .describe('Digest of the compilation inputs — the replay comparison key'),
+    // Required, and at least one: the capsule and the definition it pins are
+    // in custody before this record exists, and a record naming no bytes
+    // would pin a capsule nobody can read back.
+    [BUNDLE_REF_FIELD]: z
+      .array(BundleRefV1Schema)
+      .min(1)
+      .describe(
+        'Content-addressed reference to the compiled capsule and its definition; ' +
+          'the bytes are durable before this row exists',
+      ),
+  })
+  .strict();
+export type WorkflowPrepared = z.infer<typeof WorkflowPreparedData>;
+
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
@@ -4280,6 +4333,8 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'orchestrate.intent_executed': OrchestrateIntentExecutedData,
   // The semantic plane's settlement record.
   'execution.settled': ExecutionSettledData,
+  // The semantic plane's compilation record.
+  'workflow.prepared': WorkflowPreparedData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -4624,6 +4679,8 @@ export type EventDataMap = {
   'orchestrate.intent_executed': OrchestrateIntentExecuted;
   // The semantic plane's settlement record.
   'execution.settled': ExecutionSettled;
+  // The semantic plane's compilation record.
+  'workflow.prepared': WorkflowPrepared;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────

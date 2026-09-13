@@ -130,7 +130,7 @@ function collectStepIds(definition: unknown, into: Set<string>): void {
 }
 
 /** Every fact field and event identity a condition names, with its own path. */
-function collectConditionRefs(
+export function collectConditionRefs(
   node: IrEdgeConditionNode,
   at: string,
   facts: { ref: string; at: string }[],

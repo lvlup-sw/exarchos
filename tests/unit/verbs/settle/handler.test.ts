@@ -4,13 +4,13 @@
 // The load-bearing assertions here are the ones no unit test of the adjudicator
 // can make: that the ledger record REFERENCES bytes that are actually in
 // custody, that a replay is answered from the durable claim rather than
-// recomputed, and that the pre-effect refusals leave the store untouched.
+// recomputed, that a capsule is adjudicated only if a prepare call recorded it,
+// and that the pre-effect refusals leave the store untouched.
 //
-// The replay assertions compare a receipt the handler BUILT while adjudicating
-// against the one a later call for the same batch READS out of the claim row.
-// One authority is the code under test; the other is the durable row it wrote.
-// A replay answered out of memory would compare a value with itself and could
-// never disagree.
+// Every prepared capsule is seeded through `commitPreparedCapsule`, the same
+// function the prepare handler commits through. A test-only writer would be a
+// second producer of the record settlement trusts, and could drift from the
+// real one without anything here noticing.
 //
 // @oracle-sources: ../../../../src/verbs/settle/handler.ts, the persisted operation claim the SQLite appender hands back on a replay which is read out of the store rather than rebuilt in process
 
@@ -18,8 +18,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp, readdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
 
-import { baseValidCapsule } from '../../../../src/contract/capsule/exarchos-capsule-fixtures.js';
+import type { ExarchosCapsuleV1 } from '../../../../src/contract/capsule/exarchos-capsule.js';
+import {
+  baseValidCapsule,
+  baseValidDefinition,
+} from '../../../../src/contract/capsule/exarchos-capsule-fixtures.js';
 import { deriveMcpCallerIdentity } from '../../../../src/dispatch/caller-identity.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { INFRA_STREAM_IDS } from '../../../../src/dispatch/core/infra-streams.js';
@@ -35,6 +40,7 @@ import {
 import { EventStore } from '../../../../src/events/store.js';
 import { ExecutionSettledData } from '../../../../src/events/schemas.js';
 import type { ToolResult } from '../../../../src/format.js';
+import { commitPreparedCapsule } from '../../../../src/verbs/prepare/prepared-record.js';
 import { handleSettle } from '../../../../src/verbs/settle/handler.js';
 import { decodeSettlementBundle } from '../../../../src/verbs/settle/settlement-bundle.js';
 import type { SettlementReceipt } from '../../../../src/verbs/settle/types.js';
@@ -44,17 +50,8 @@ const STREAM = 'feat-settle-unit';
 
 let stateDir: string;
 let store: EventStore;
-
-beforeEach(async () => {
-  stateDir = await mkdtemp(path.join(tmpdir(), 'settle-unit-'));
-  store = new EventStore(stateDir);
-  await store.initialize();
-});
-
-afterEach(async () => {
-  store.close();
-  await rmrfAsync(stateDir);
-});
+/** Blobs in custody once the base capsule is prepared, before any settlement. */
+let seededBlobs: number;
 
 function wiring(): DispatchContext {
   return { stateDir, eventStore: store, enableTelemetry: false };
@@ -64,6 +61,40 @@ function correlation(): ReturnType<typeof mintDispatchContext> {
   deriveMcpCallerIdentity({ sessionId: 'settle-fixture' });
   return mintDispatchContext(undefined);
 }
+
+/** Record `capsule` as prepared, through the production commit. */
+async function seedPrepared(
+  capsule: ExarchosCapsuleV1 = baseValidCapsule(),
+  definition: unknown = baseValidDefinition(),
+): Promise<void> {
+  await runWithDispatchContext(correlation(), () =>
+    commitPreparedCapsule(wiring(), {
+      streamId: STREAM,
+      operationId: `seed:${capsule.identity.capsuleVersion}`,
+      requestDigest: `sha256:seed-${capsule.identity.capsuleVersion}`,
+      workflowType: 'feature',
+      capsule,
+      definition: WorkflowDefinitionV1Schema.parse(definition),
+    }),
+  );
+}
+
+function withVersion(capsule: ExarchosCapsuleV1, capsuleVersion: number): ExarchosCapsuleV1 {
+  return { ...capsule, identity: { ...capsule.identity, capsuleVersion } };
+}
+
+beforeEach(async () => {
+  stateDir = await mkdtemp(path.join(tmpdir(), 'settle-unit-'));
+  store = new EventStore(stateDir);
+  await store.initialize();
+  await seedPrepared();
+  seededBlobs = await bundleBlobCount();
+});
+
+afterEach(async () => {
+  store.close();
+  await rmrfAsync(stateDir);
+});
 
 function passingClaim(): Record<string, unknown> {
   return {
@@ -130,12 +161,7 @@ async function settledRows(): Promise<
 describe('settle — the adjudication endpoint', () => {
   it('Settle_ASatisfiedBatch_SettlesAndCommitsOneRecord', async () => {
     const receipt = receiptOf(
-      await settle({
-        featureId: STREAM,
-        capsule: baseValidCapsule(),
-        batchId: 'batch-0001',
-        claims: [passingClaim()],
-      }),
+      await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-0001', claims: [passingClaim()] }),
     );
     expect(receipt.outcome).toBe('settled');
     expect(receipt.acceptedTasks).toEqual(['task-verify']);
@@ -157,12 +183,7 @@ describe('settle — the adjudication endpoint', () => {
     // The custody contract: the interior is durable BEFORE the fact naming it
     // exists, and the reference resolves to a document a reader can decode.
     const receipt = receiptOf(
-      await settle({
-        featureId: STREAM,
-        capsule: baseValidCapsule(),
-        batchId: 'batch-custody',
-        claims: [passingClaim()],
-      }),
+      await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-custody', claims: [passingClaim()] }),
     );
     const refs = receipt.bundleRefs;
     expect(refs, 'the receipt carries no bundle reference').toBeDefined();
@@ -196,12 +217,7 @@ describe('settle — the adjudication endpoint', () => {
     // A refusal is the caller's next input, and the next call has to be able to
     // read that this batch did not take.
     const receipt = receiptOf(
-      await settle({
-        featureId: STREAM,
-        capsule: baseValidCapsule(),
-        batchId: 'batch-rejected',
-        claims: [failingClaim()],
-      }),
+      await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-rejected', claims: [failingClaim()] }),
     );
     expect(receipt.outcome).toBe('rejected');
     expect(receipt.findings.map((f) => f.kind)).toContain('field-type-mismatch');
@@ -213,20 +229,122 @@ describe('settle — the adjudication endpoint', () => {
     expect(data.findingCounts).toEqual([{ kind: 'field-type-mismatch', count: 1 }]);
   });
 
+  describe('the terms are the prepared capsule', () => {
+    it('Settle_ACapsuleVersionNeverPrepared_IsRefusedBeforeAnyEffect', async () => {
+      const result = await settle({ featureId: STREAM, capsuleVersion: 9, batchId: 'batch-unprepared', claims: [passingClaim()] });
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.code).toBe('CAPSULE_NOT_PREPARED');
+      expect(await settledRows()).toEqual([]);
+      expect(await bundleBlobCount()).toBe(seededBlobs);
+    });
+
+    it('Settle_ASubmittedCapsuleThatIsNotTheRecordedOne_IsRefused', async () => {
+      // Same version, different terms: a document a caller edited after the
+      // compilation. Adjudicating against it would let the caller rewrite the
+      // contract its own work is judged by.
+      const base = baseValidCapsule();
+      const edited = {
+        ...base,
+        contracts: { ...base.contracts, evidenceKinds: ['test', 'diff', 'anything'] },
+      };
+      const result = await settle({ featureId: STREAM, capsule: edited, batchId: 'batch-edited', claims: [passingClaim()] });
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.code).toBe('CAPSULE_DIGEST_MISMATCH');
+      expect(await settledRows()).toEqual([]);
+    });
+
+    it('Settle_ASubmittedCapsuleThatIsTheRecordedOne_Settles', async () => {
+      const receipt = receiptOf(
+        await settle({ featureId: STREAM, capsule: baseValidCapsule(), batchId: 'batch-inline', claims: [passingClaim()] }),
+      );
+      expect(receipt.outcome).toBe('settled');
+    });
+
+    it('Settle_AVersionThatDisagreesWithTheSubmittedCapsule_IsRefused', async () => {
+      const result = await settle({
+        featureId: STREAM,
+        capsuleVersion: 8,
+        capsule: baseValidCapsule(),
+        batchId: 'batch-disagree',
+        claims: [passingClaim()],
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.code).toBe('INVALID_INPUT');
+    });
+
+    it('Settle_NoCapsuleNamedAtAll_IsRefused', async () => {
+      const result = await settle({ featureId: STREAM, batchId: 'batch-nameless', claims: [passingClaim()] });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.code).toBe('INVALID_INPUT');
+        expect(result.error.message).toContain('capsuleVersion');
+      }
+    });
+
+    it('Settle_ATaskNamingAStepItsPinnedDefinitionLacks_IsUnresolved', async () => {
+      // The reference pass runs against the definition the record pinned, not
+      // without one: a task pointing at a step the definition does not have is
+      // refused rather than adjudicated as if the step existed.
+      const base = baseValidCapsule();
+      const ghost = withVersion(
+        {
+          ...base,
+          graph: {
+            ...base.graph,
+            tasks: base.graph.tasks.map((t) => (t.taskId === 'task-verify' ? { ...t, stepId: 'step-ghost' } : t)),
+          },
+        },
+        10,
+      );
+      await seedPrepared(ghost);
+      const result = await settle({ featureId: STREAM, capsuleVersion: 10, batchId: 'batch-ghost', claims: [passingClaim()] });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.code).toBe('CAPSULE_UNRESOLVED');
+        expect(result.error.message).toContain('step-ghost');
+      }
+      expect(await settledRows()).toEqual([]);
+    });
+
+    it('Settle_APreparedCapsuleThatDoesNotResolve_IsRefusedSeparately', async () => {
+      const base = baseValidCapsule();
+      const dangling = withVersion(
+        { ...base, graph: { ...base.graph, dependencies: [{ from: 'task-compile', to: 'task-ghost' }] } },
+        11,
+      );
+      await seedPrepared(dangling);
+      const result = await settle({ featureId: STREAM, capsuleVersion: 11, batchId: 'batch-dangling', claims: [passingClaim()] });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.code).toBe('CAPSULE_UNRESOLVED');
+        expect(result.error.message).toContain('task-ghost');
+      }
+      expect(await settledRows()).toEqual([]);
+    });
+
+    it('Settle_ASubmittedCapsuleTheContractRejects_RefusesBeforeAnyEffect', async () => {
+      const base = baseValidCapsule();
+      const result = await settle({
+        featureId: STREAM,
+        capsule: { ...base, authority: { ...base.authority, invariants: [] } },
+        batchId: 'batch-invalid',
+        claims: [passingClaim()],
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.code).toBe('CAPSULE_INVALID');
+      expect(await settledRows()).toEqual([]);
+    });
+  });
+
   describe('the settlement key is the batch identity', () => {
     it('Settle_ARetryOfTheSameBatch_ReturnsThePersistedVerdictAndAppendsNothing', async () => {
       // No caller-held id: a harness that timed out and resubmits the batch it
       // already sent carries nothing but the batch itself, and that has to be
       // enough to find the verdict instead of producing a second one.
-      const args = {
-        featureId: STREAM,
-        capsule: baseValidCapsule(),
-        batchId: 'batch-replay',
-        claims: [passingClaim()],
-      };
+      const args = { featureId: STREAM, capsuleVersion: 7, batchId: 'batch-replay', claims: [passingClaim()] };
       const first = receiptOf(await settle(args));
       const afterFirst = await bundleBlobCount();
-      expect(afterFirst).toBe(1);
+      expect(afterFirst).toBe(seededBlobs + 1);
 
       const replayed = receiptOf(await settle(args));
       expect(replayed).toEqual(first);
@@ -245,7 +363,7 @@ describe('settle — the adjudication endpoint', () => {
       const first = receiptOf(
         await settle({
           featureId: STREAM,
-          capsule: baseValidCapsule(),
+          capsuleVersion: 7,
           batchId: 'batch-key-order',
           claims: [{ taskId: 'task-verify', fields: { passed: true, notes: 'n' }, evidence: [] }],
         }),
@@ -253,7 +371,7 @@ describe('settle — the adjudication endpoint', () => {
       const second = receiptOf(
         await settle({
           featureId: STREAM,
-          capsule: baseValidCapsule(),
+          capsuleVersion: 7,
           batchId: 'batch-key-order',
           claims: [{ taskId: 'task-verify', fields: { notes: 'n', passed: true }, evidence: [] }],
         }),
@@ -263,18 +381,8 @@ describe('settle — the adjudication endpoint', () => {
     });
 
     it('Settle_DifferentClaimsUnderASettledBatch_AreRefusedBeforeAnyEffect', async () => {
-      await settle({
-        featureId: STREAM,
-        capsule: baseValidCapsule(),
-        batchId: 'batch-collide',
-        claims: [passingClaim()],
-      });
-      const second = await settle({
-        featureId: STREAM,
-        capsule: baseValidCapsule(),
-        batchId: 'batch-collide',
-        claims: [failingClaim()],
-      });
+      await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-collide', claims: [passingClaim()] });
+      const second = await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-collide', claims: [failingClaim()] });
       expect(second.success).toBe(false);
       if (!second.success) {
         expect(second.error.code).toBe('OPERATION_DIGEST_MISMATCH');
@@ -283,7 +391,7 @@ describe('settle — the adjudication endpoint', () => {
       expect(await settledRows()).toHaveLength(1);
       // Refused BEFORE the effect, not after it: a mismatch caught downstream
       // would already have put a bundle nothing will ever reference into custody.
-      expect(await bundleBlobCount()).toBe(1);
+      expect(await bundleBlobCount()).toBe(seededBlobs + 1);
     });
 
     it('Settle_ACorrectedBatchUnderTheSamePinnedCapsule_SettlesAsANewBatch', async () => {
@@ -293,48 +401,30 @@ describe('settle — the adjudication endpoint', () => {
       // a different request, and correcting a rejection would cost a fresh
       // compilation.
       const rejected = receiptOf(
-        await settle({
-          featureId: STREAM,
-          capsule: baseValidCapsule(),
-          batchId: 'batch-first-attempt',
-          claims: [failingClaim()],
-        }),
+        await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-first-attempt', claims: [failingClaim()] }),
       );
       expect(rejected.outcome).toBe('rejected');
 
       const corrected = receiptOf(
-        await settle({
-          featureId: STREAM,
-          capsule: baseValidCapsule(),
-          batchId: 'batch-second-attempt',
-          claims: [passingClaim()],
-        }),
+        await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-second-attempt', claims: [passingClaim()] }),
       );
       expect(corrected.outcome).toBe('settled');
       expect(corrected.operationId).not.toBe(rejected.operationId);
 
       const rows = await settledRows();
-      expect(rows.map((r) => ExecutionSettledData.parse(r.data).outcome)).toEqual([
-        'rejected',
-        'settled',
-      ]);
+      expect(rows.map((r) => ExecutionSettledData.parse(r.data).outcome)).toEqual(['rejected', 'settled']);
     });
 
     it('Settle_TheSameBatchIdUnderAnotherCapsuleVersion_IsAnotherSettlement', async () => {
       // Half a key is not a key. A batch id reused against a recompiled capsule
       // names different terms, and answering it with the old verdict would
       // report work judged against terms it never ran under.
-      const base = baseValidCapsule();
+      await seedPrepared(withVersion(baseValidCapsule(), 8));
       const v7 = receiptOf(
-        await settle({ featureId: STREAM, capsule: base, batchId: 'batch-reused', claims: [passingClaim()] }),
+        await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-reused', claims: [passingClaim()] }),
       );
       const v8 = receiptOf(
-        await settle({
-          featureId: STREAM,
-          capsule: { ...base, identity: { ...base.identity, capsuleVersion: 8 } },
-          batchId: 'batch-reused',
-          claims: [passingClaim()],
-        }),
+        await settle({ featureId: STREAM, capsuleVersion: 8, batchId: 'batch-reused', claims: [passingClaim()] }),
       );
       expect(v8.operationId).not.toBe(v7.operationId);
       expect(await settledRows()).toHaveLength(2);
@@ -345,26 +435,16 @@ describe('settle — the adjudication endpoint', () => {
       // serialization both would adjudicate and both would put a bundle in
       // custody; the loser would then be handed the winner's receipt with its
       // own orphan left behind.
-      const args = {
-        featureId: STREAM,
-        capsule: baseValidCapsule(),
-        batchId: 'batch-race',
-        claims: [passingClaim()],
-      };
+      const args = { featureId: STREAM, capsuleVersion: 7, batchId: 'batch-race', claims: [passingClaim()] };
       const [a, b] = await Promise.all([settle(args), settle(args)]);
       expect(receiptOf(b)).toEqual(receiptOf(a));
       expect(await settledRows()).toHaveLength(1);
-      expect(await bundleBlobCount()).toBe(1);
+      expect(await bundleBlobCount()).toBe(seededBlobs + 1);
     });
 
     it('Settle_TheReceiptOperationId_IsDerivedFromTheBatchIdentity', async () => {
       const receipt = receiptOf(
-        await settle({
-          featureId: STREAM,
-          capsule: baseValidCapsule(),
-          batchId: 'batch-derived',
-          claims: [passingClaim()],
-        }),
+        await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-derived', claims: [passingClaim()] }),
       );
       expect(receipt.operationId).toMatch(/^settle:[0-9a-f]{64}$/);
       const rows = await settledRows();
@@ -372,11 +452,7 @@ describe('settle — the adjudication endpoint', () => {
     });
 
     it('Settle_NoBatchId_IsRefusedBeforeAnyEffect', async () => {
-      const result = await settle({
-        featureId: STREAM,
-        capsule: baseValidCapsule(),
-        claims: [passingClaim()],
-      });
+      const result = await settle({ featureId: STREAM, capsuleVersion: 7, claims: [passingClaim()] });
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.error.code).toBe('INVALID_INPUT');
@@ -390,7 +466,7 @@ describe('settle — the adjudication endpoint', () => {
       // happened: the same batch under two caller ids would adjudicate twice.
       const result = await settle({
         featureId: STREAM,
-        capsule: baseValidCapsule(),
+        capsuleVersion: 7,
         batchId: 'batch-with-op',
         claims: [passingClaim()],
         operationId: 'op-caller',
@@ -404,46 +480,11 @@ describe('settle — the adjudication endpoint', () => {
     });
   });
 
-  it('Settle_ACapsuleTheContractRejects_RefusesBeforeAnyEffect', async () => {
-    const base = baseValidCapsule();
-    const result = await settle({
-      featureId: STREAM,
-      capsule: { ...base, authority: { ...base.authority, invariants: [] } },
-      batchId: 'batch-invalid',
-      claims: [passingClaim()],
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.code).toBe('CAPSULE_INVALID');
-    expect(await settledRows()).toEqual([]);
-  });
-
-  it('Settle_ACapsuleThatParsesAndDoesNotResolve_RefusesSeparately', async () => {
-    // The two refusals are different questions with different repairs, and a
-    // capsule that parses and does not resolve is exactly the document a
-    // structural check alone waves through.
-    const base = baseValidCapsule();
-    const result = await settle({
-      featureId: STREAM,
-      capsule: {
-        ...base,
-        graph: { ...base.graph, dependencies: [{ from: 'task-compile', to: 'task-ghost' }] },
-      },
-      batchId: 'batch-unresolved',
-      claims: [passingClaim()],
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error.code).toBe('CAPSULE_UNRESOLVED');
-      expect(result.error.message).toContain('task-ghost');
-    }
-    expect(await settledRows()).toEqual([]);
-  });
-
   it('Settle_TwoSpellingsOfTheSubjectThatDisagree_AreRefused', async () => {
     const result = await settle({
       featureId: STREAM,
       streamId: 'feat-other',
-      capsule: baseValidCapsule(),
+      capsuleVersion: 7,
       batchId: 'batch-spellings',
       claims: [passingClaim()],
     });
@@ -457,12 +498,7 @@ describe('settle — the adjudication endpoint', () => {
       // Every member, not one representative: the refusal is what keeps a
       // settlement record off the streams the reservation exists to keep
       // separate, and a single-member test would go quiet the day the set grew.
-      const result = await settle({
-        featureId: reserved,
-        capsule: baseValidCapsule(),
-        batchId: 'batch-reserved',
-        claims: [passingClaim()],
-      });
+      const result = await settle({ featureId: reserved, capsuleVersion: 7, batchId: 'batch-reserved', claims: [passingClaim()] });
       expect(result.success).toBe(false);
       if (!result.success) expect(result.error.message).toContain('reserved infrastructure stream');
       expect(await settledRows()).toEqual([]);
@@ -470,11 +506,7 @@ describe('settle — the adjudication endpoint', () => {
   );
 
   it('Settle_NoSubject_IsRefused', async () => {
-    const result = await settle({
-      capsule: baseValidCapsule(),
-      batchId: 'batch-no-subject',
-      claims: [passingClaim()],
-    });
+    const result = await settle({ capsuleVersion: 7, batchId: 'batch-no-subject', claims: [passingClaim()] });
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.code).toBe('INVALID_INPUT');
   });
@@ -482,7 +514,7 @@ describe('settle — the adjudication endpoint', () => {
   it('Settle_AMalformedClaim_IsRefusedWithoutAdjudicating', async () => {
     const result = await settle({
       featureId: STREAM,
-      capsule: baseValidCapsule(),
+      capsuleVersion: 7,
       batchId: 'batch-malformed',
       claims: [{ fields: { passed: true } }],
     });
@@ -495,12 +527,7 @@ describe('settle — the adjudication endpoint', () => {
     // Read inside the write lock, so it names the sequence this append landed
     // on rather than whatever the stream held when the transaction opened.
     const receipt = receiptOf(
-      await settle({
-        featureId: STREAM,
-        capsule: baseValidCapsule(),
-        batchId: 'batch-tail',
-        claims: [passingClaim()],
-      }),
+      await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-tail', claims: [passingClaim()] }),
     );
     const events = await store.query(STREAM);
     const row = events.find((e) => e.type === 'execution.settled');
