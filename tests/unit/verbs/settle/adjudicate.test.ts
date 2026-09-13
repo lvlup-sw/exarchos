@@ -125,7 +125,7 @@ describe('settlement adjudication', () => {
     // it travels with the verdict rather than being recomputable by a reader
     // who would have to hold the capsule to do it.
     const empty = adjudicateSettlement(
-      { ...baseValidCapsule(), settlementContract: { requiredResults: ['task-verify'], batchId: 'b' } },
+      { ...baseValidCapsule(), settlementContract: { requiredResults: ['task-verify'] } },
       [],
     );
     const full = adjudicateSettlement(baseValidCapsule(), [passingClaim()]);

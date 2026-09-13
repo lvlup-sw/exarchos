@@ -7,7 +7,7 @@
     "testFiles": 1274,
     "parsedFiles": 1229,
     "shellFiles": 45,
-    "cases": 14068,
+    "cases": 14075,
     "dynamicTitles": 164,
     "unparseableFiles": 0
   },
@@ -60610,13 +60610,48 @@
           "dynamic": false
         },
         {
-          "suite": "settle — the adjudication endpoint",
-          "name": "Settle_AReplayOfTheSameBatch_ReturnsThePersistedVerdictAndAppendsNothing",
+          "suite": "settle — the adjudication endpoint > the settlement key is the batch identity",
+          "name": "Settle_ARetryOfTheSameBatch_ReturnsThePersistedVerdictAndAppendsNothing",
           "dynamic": false
         },
         {
-          "suite": "settle — the adjudication endpoint",
-          "name": "Settle_ADifferentBatchUnderTheSameOperationId_IsRefusedAndAppendsNothing",
+          "suite": "settle — the adjudication endpoint > the settlement key is the batch identity",
+          "name": "Settle_TheSameBatchWithFieldsInAnotherKeyOrder_IsTheSameRequest",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint > the settlement key is the batch identity",
+          "name": "Settle_DifferentClaimsUnderASettledBatch_AreRefusedBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint > the settlement key is the batch identity",
+          "name": "Settle_ACorrectedBatchUnderTheSamePinnedCapsule_SettlesAsANewBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint > the settlement key is the batch identity",
+          "name": "Settle_TheSameBatchIdUnderAnotherCapsuleVersion_IsAnotherSettlement",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint > the settlement key is the batch identity",
+          "name": "Settle_ConcurrentSubmissionsOfOneBatch_AdjudicateOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint > the settlement key is the batch identity",
+          "name": "Settle_TheReceiptOperationId_IsDerivedFromTheBatchIdentity",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint > the settlement key is the batch identity",
+          "name": "Settle_NoBatchId_IsRefusedBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint > the settlement key is the batch identity",
+          "name": "Settle_ACallerOperationId_IsRefusedRatherThanUsedAsASecondKey",
           "dynamic": false
         },
         {
