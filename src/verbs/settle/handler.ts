@@ -14,7 +14,8 @@
 // Three refusals happen BEFORE any effect, and each is a different question:
 //
 //   1. the request is malformed — a missing subject, two spellings of it that
-//      disagree, an operation id the admission grammar rejects;
+//      disagree, a missing or malformed batch id, a caller-supplied operation
+//      id;
 //   2. the capsule is not a capsule — it fails the published contract;
 //   3. the capsule is a capsule but does not resolve — a dangling task
 //      reference, a dependency cycle, a required result nothing declares.
@@ -28,13 +29,23 @@
 // which claim to fix, and the next call needs to be able to read that this
 // batch did not take. Only the three refusals above answer with an error, and
 // none of them has adjudicated anything.
+//
+// THE BATCH IS THE KEY. Transport is at least once; settlement is not. The
+// operation claim a settlement is recorded under is derived from the batch
+// identity, never supplied by the caller, so a harness resubmitting a batch
+// after a timeout reaches the verdict it already has instead of producing a
+// second one — and a correction of a rejected batch, submitted as a new batch
+// under the same pinned capsule, is a new settlement rather than a conflict.
 
-import { randomUUID, createHash } from 'node:crypto';
+import { createHash } from 'node:crypto';
 
 import { ExarchosCapsuleV1Schema } from '../../contract/capsule/exarchos-capsule.js';
 import { resolveCapsuleReferences } from '../../contract/capsule/capsule-references.js';
+import { SharedStableIdSchema } from '../../contract/ir/admission-ir.js';
+import { canonicalJson, requestDigest as canonicalRequestDigest } from '../../contract/request-context.js';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { isFeatureStream } from '../../dispatch/core/infra-streams.js';
+import { runExclusivePerOperation } from '../../dispatch/core/operation-serializer.js';
 import { outerCorrelation, stampFromAmbient } from '../../dispatch/core/outer-correlation.js';
 import { runWithDispatchContext } from '../../dispatch/dispatch-context.js';
 import { OperationDigestMismatchError } from '../../events/atomic-appender.js';
@@ -42,7 +53,6 @@ import { EXECUTION_SETTLED_SETTLEMENT, type BundleRefV1 } from '../../events/bun
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import { ExecutionSettledData } from '../../events/schemas.js';
 import type { ToolResult } from '../../format.js';
-import { OperationIdSchema } from '../../workflow/admission/types.js';
 import {
   adjudicateSettlement,
   type ProposedDeviation,
@@ -54,7 +64,7 @@ import {
   SETTLEMENT_BUNDLE_KIND,
   SETTLEMENT_BUNDLE_VERSION,
 } from './settlement-bundle.js';
-import type { SettlementReceipt } from './types.js';
+import type { SettledCapsuleIdentity, SettlementReceipt } from './types.js';
 
 /** Injected so the tests drive a real store at a temporary root. */
 export interface SettleDeps {
@@ -75,23 +85,41 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * The operation claim one settlement is recorded under.
+ *
+ * Over the subject and the settlement key — `(capsuleVersion, batchId)` of one
+ * workflow — and nothing else. The rest of the capsule identity belongs in the
+ * request digest instead: a submission reusing the key against different terms
+ * has to meet the persisted claim and be refused, not mint a key of its own and
+ * adjudicate the same batch a second time.
+ */
+function settlementClaimKey(streamId: string, identity: SettledCapsuleIdentity): string {
+  const key = canonicalJson({
+    streamId,
+    workflowId: identity.workflowId,
+    capsuleVersion: identity.capsuleVersion,
+    batchId: identity.batchId,
+  });
+  return `settle:${createHash('sha256').update(key, 'utf8').digest('hex')}`;
+}
+
+/**
  * The replay comparison key.
  *
  * Over the capsule IDENTITY plus the batch contents, not the whole capsule
  * document. Two calls submitting the same claims under the same compilation are
  * the same request, and a capsule that differed only in a comment-shaped field
- * would otherwise read as a different one. The identity is what pins the terms
- * — `capsuleVersion` is monotonic per workflow — so a genuinely different
- * capsule carries a different version and a different digest follows.
+ * would otherwise read as a different one. Canonical, so two encodings of one
+ * batch that differ only by object key order are one request rather than a
+ * conflict.
  */
 function requestDigestOf(
   streamId: string,
-  identity: Record<string, unknown>,
+  identity: SettledCapsuleIdentity,
   claims: readonly SettlementClaim[],
   deviations: readonly ProposedDeviation[],
 ): string {
-  const canonical = JSON.stringify({ streamId, identity, claims, deviations });
-  return `sha256:${createHash('sha256').update(canonical).digest('hex')}`;
+  return canonicalRequestDigest({ streamId, identity, claims, deviations });
 }
 
 function receiptResult(receipt: SettlementReceipt): ToolResult {
@@ -176,6 +204,24 @@ export async function handleSettle(
     );
   }
 
+  // Two keys for one settlement would be two authorities over whether it
+  // happened: the same batch submitted under two caller ids would adjudicate
+  // twice. The key is derived from the batch, so a caller-held one is refused
+  // rather than silently ignored.
+  if (raw.operationId !== undefined) {
+    return invalid(
+      'operationId is not accepted: a settlement is keyed by its batch — the capsule version ' +
+        'and batchId — so resubmitting the same batch is already the replay',
+    );
+  }
+  const batch = SharedStableIdSchema.safeParse(raw.batchId);
+  if (!batch.success) {
+    return invalid(
+      'batchId is required and must be an id of letters, digits, dot, underscore, colon or ' +
+        'hyphen. It names this batch: a retry reuses it, a correction of a rejected batch takes a new one',
+    );
+  }
+
   if (!isRecord(raw.capsule)) {
     return invalid('capsule is required and must be the compiled capsule document');
   }
@@ -217,165 +263,158 @@ export async function handleSettle(
   const deviations = readDeviations(raw.deviations);
   if (typeof deviations === 'string') return invalid(deviations);
 
-  let operationId: string;
-  if (raw.operationId === undefined) {
-    operationId = randomUUID();
-  } else {
-    const validated = OperationIdSchema.safeParse(raw.operationId);
-    if (!validated.success) {
-      return invalid(
-        'operationId must be an opaque id of letters, digits, dot, underscore, colon or hyphen, ' +
-          'starting with a letter or digit',
-      );
-    }
-    operationId = validated.data;
-  }
-
-  const identity = {
+  const identity: SettledCapsuleIdentity = {
     workflowId: capsule.identity.workflowId,
     definitionVersion: capsule.identity.definitionVersion,
     designVersion: capsule.identity.designVersion,
     capsuleVersion: capsule.identity.capsuleVersion,
-    batchId: capsule.settlementContract.batchId,
+    batchId: batch.data,
   };
+  const operationId = settlementClaimKey(streamId, identity);
   const requestDigest = requestDigestOf(streamId, identity, claims, deviations);
+  const batchLabel = `batch '${identity.batchId}' of capsule v${identity.capsuleVersion}`;
 
-  // Replay pre-flight, ahead of every effect. A settlement is idempotent on
-  // `(capsuleVersion, batchId)` by contract, and the operation claim is what
-  // enforces it: the same key with the same request returns the persisted
-  // verdict and adjudicates nothing.
-  const claim = ctx.eventStore
-    .getAppender()
-    .ensureSqliteBackendSync()
-    .lookupOperationClaim<SettlementReceipt>(operationId);
-  if (claim !== undefined) {
-    if (claim.requestDigest !== requestDigest) {
-      return {
-        success: false,
-        error: {
-          code: 'OPERATION_DIGEST_MISMATCH',
-          message:
-            `operationId '${operationId}' is already claimed by a different request. ` +
-            'Nothing was adjudicated.',
-        },
-      };
+  // Serialized per batch so a concurrent resubmission waits and then finds the
+  // first call's claim in its own pre-flight, instead of both passing an empty
+  // lookup and both adjudicating. Within one process that closes the window; a
+  // second process is still serialized at the commit.
+  return runExclusivePerOperation(operationId, async (): Promise<ToolResult> => {
+    // Replay pre-flight, ahead of every effect. The same batch with the same
+    // request returns the persisted verdict and adjudicates nothing.
+    const claim = ctx.eventStore
+      .getAppender()
+      .ensureSqliteBackendSync()
+      .lookupOperationClaim<SettlementReceipt>(operationId);
+    if (claim !== undefined) {
+      if (claim.requestDigest !== requestDigest) {
+        return {
+          success: false,
+          error: {
+            code: 'OPERATION_DIGEST_MISMATCH',
+            message:
+              `${batchLabel} is already settled under a different request. Nothing was ` +
+              'adjudicated. Resubmitting the same batch returns its verdict; a correction goes ' +
+              'back under a new batchId.',
+          },
+        };
+      }
+      return receiptResult(claim.result);
     }
-    return receiptResult(claim.result);
-  }
 
-  const verdict = adjudicateSettlement(capsule, claims, deviations);
-  const settledAt = new Date().toISOString();
+    const verdict = adjudicateSettlement(capsule, claims, deviations);
+    const settledAt = new Date().toISOString();
 
-  const bytes = encodeSettlementBundle({
-    bundleVersion: SETTLEMENT_BUNDLE_VERSION,
-    kind: SETTLEMENT_BUNDLE_KIND,
-    operationId,
-    streamId,
-    requestDigest,
-    capsule: identity,
-    outcome: verdict.outcome,
-    acceptedTasks: [...verdict.acceptedTasks],
-    findings: [...verdict.findings],
-    claims: claims.map((c) => ({ taskId: c.taskId, fields: c.fields, evidence: [...c.evidence] })),
-    deviations: [...deviations],
-    adjudicated: verdict.adjudicated,
-    settledAt,
-  });
-
-  const bundles = deps.bundleStore ?? ctx.eventStore.bundleStore;
-  const artifactId = settlementBundleArtifactId(identity.batchId, identity.capsuleVersion);
-  const outer = outerCorrelation(ctx);
-
-  // Findings by kind, in roster order, so two settlements reporting the same
-  // defects produce the same payload. Counting here rather than in the
-  // adjudicator keeps the verdict a statement about the batch and the payload a
-  // statement about the record.
-  const countsByKind = new Map<string, number>();
-  for (const finding of verdict.findings) {
-    countsByKind.set(finding.kind, (countsByKind.get(finding.kind) ?? 0) + 1);
-  }
-  const findingCounts = [...countsByKind.entries()]
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([kind, count]) => ({ kind, count }));
-
-  return bundles.putThenReference(artifactId, bytes, async (ref: BundleRefV1) => {
-    const data: Record<string, unknown> = ExecutionSettledData.parse({
+    const bytes = encodeSettlementBundle({
+      bundleVersion: SETTLEMENT_BUNDLE_VERSION,
+      kind: SETTLEMENT_BUNDLE_KIND,
       operationId,
-      workflowId: identity.workflowId,
-      capsuleVersion: identity.capsuleVersion,
-      batchId: identity.batchId,
-      definitionVersion: identity.definitionVersion,
-      outcome: verdict.outcome,
-      acceptedTasks: verdict.acceptedTasks,
-      findingCounts,
-      adjudicated: verdict.adjudicated,
+      streamId,
       requestDigest,
-      bundleRefs: [ref],
+      capsule: identity,
+      outcome: verdict.outcome,
+      acceptedTasks: [...verdict.acceptedTasks],
+      findings: [...verdict.findings],
+      claims: claims.map((c) => ({ taskId: c.taskId, fields: c.fields, evidence: [...c.evidence] })),
+      deviations: [...deviations],
+      adjudicated: verdict.adjudicated,
+      settledAt,
     });
 
-    return runWithDispatchContext(outer, async (): Promise<ToolResult> => {
-      // The payload version is the custody epoch: it says this row was written
-      // under the contract that requires a bundle reference, which is how the
-      // integrity sweep tells it from a row that settled before custody existed.
-      // Both fields come from the endpoint constant, so the writer, the
-      // schema and the integrity oracle cannot name three different things.
-      //
-      // A literal `type:` was measured here first, to see whether it would
-      // keep the append visible to the emitter-closure census. It does not:
-      // that census resolves `.append(...)` call sites, and this commit goes
-      // through `decideOnce`, which the scanner does not inspect at all. The
-      // append is therefore invisible to it whatever the discriminant is, so
-      // the literal bought nothing and cost the constant's guarantee. The
-      // invisibility is covered by an allowance row instead, which is the
-      // same route `orchestrate.intent_executed` takes for the same reason.
-      const event = stampFromAmbient({
-        type: EXECUTION_SETTLED_SETTLEMENT.type,
-        data,
-        timestamp: settledAt,
-        schemaVersion: EXECUTION_SETTLED_SETTLEMENT.custodyFromSchemaVersion,
+    const bundles = deps.bundleStore ?? ctx.eventStore.bundleStore;
+    const artifactId = settlementBundleArtifactId(identity.batchId, identity.capsuleVersion);
+    const outer = outerCorrelation(ctx);
+
+    // Findings by kind, in roster order, so two settlements reporting the same
+    // defects produce the same payload. Counting here rather than in the
+    // adjudicator keeps the verdict a statement about the batch and the payload a
+    // statement about the record.
+    const countsByKind = new Map<string, number>();
+    for (const finding of verdict.findings) {
+      countsByKind.set(finding.kind, (countsByKind.get(finding.kind) ?? 0) + 1);
+    }
+    const findingCounts = [...countsByKind.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([kind, count]) => ({ kind, count }));
+
+    return bundles.putThenReference(artifactId, bytes, async (ref: BundleRefV1) => {
+      const data: Record<string, unknown> = ExecutionSettledData.parse({
+        operationId,
+        workflowId: identity.workflowId,
+        capsuleVersion: identity.capsuleVersion,
+        batchId: identity.batchId,
+        definitionVersion: identity.definitionVersion,
+        outcome: verdict.outcome,
+        acceptedTasks: verdict.acceptedTasks,
+        findingCounts,
+        adjudicated: verdict.adjudicated,
+        requestDigest,
+        bundleRefs: [ref],
       });
 
-      try {
-        // `decideOnce` RETURNS the claim's canonical result, which on a race is
-        // the winner's receipt rather than the one built here. Handing the
-        // caller the locally-built one would have them holding a receipt no
-        // claim records and no replay can reproduce.
-        const persisted = await ctx.eventStore
-          .getAppender()
-          .decideOnce<SettlementReceipt>(operationId, requestDigest, (tx) => ({
-            streamId,
-            events: [event],
-            result: {
-              operationId,
+      return runWithDispatchContext(outer, async (): Promise<ToolResult> => {
+        // The payload version is the custody epoch: it says this row was written
+        // under the contract that requires a bundle reference, which is how the
+        // integrity sweep tells it from a row that settled before custody existed.
+        // Both fields come from the endpoint constant, so the writer, the
+        // schema and the integrity oracle cannot name three different things.
+        //
+        // A literal `type:` was measured here first, to see whether it would
+        // keep the append visible to the emitter-closure census. It does not:
+        // that census resolves `.append(...)` call sites, and this commit goes
+        // through `decideOnce`, which the scanner does not inspect at all. The
+        // append is therefore invisible to it whatever the discriminant is, so
+        // the literal bought nothing and cost the constant's guarantee. The
+        // invisibility is covered by an allowance row instead, which is the
+        // same route `orchestrate.intent_executed` takes for the same reason.
+        const event = stampFromAmbient({
+          type: EXECUTION_SETTLED_SETTLEMENT.type,
+          data,
+          timestamp: settledAt,
+          schemaVersion: EXECUTION_SETTLED_SETTLEMENT.custodyFromSchemaVersion,
+        });
+
+        try {
+          // `decideOnce` RETURNS the claim's canonical result, which on a race is
+          // the winner's receipt rather than the one built here. Handing the
+          // caller the locally-built one would have them holding a receipt no
+          // claim records and no replay can reproduce.
+          const persisted = await ctx.eventStore
+            .getAppender()
+            .decideOnce<SettlementReceipt>(operationId, requestDigest, (tx) => ({
               streamId,
-              capsule: identity,
-              outcome: verdict.outcome,
-              acceptedTasks: verdict.acceptedTasks,
-              findings: verdict.findings,
-              adjudicated: verdict.adjudicated,
-              requestDigest,
-              // Read inside the write lock, so the tail is the sequence this
-              // very append lands on rather than whatever the stream held
-              // before the transaction opened.
-              tailSequence: tx.readStream(streamId).version + 1,
-              bundleRefs: [ref],
-            },
-          }));
-        return receiptResult(persisted);
-      } catch (error) {
-        if (error instanceof OperationDigestMismatchError) {
-          return {
-            success: false,
-            error: {
-              code: 'OPERATION_DIGEST_MISMATCH',
-              message:
-                `operationId '${operationId}' was claimed by a different request while this ` +
-                'call was adjudicating. Its verdict was NOT persisted.',
-            },
-          };
+              events: [event],
+              result: {
+                operationId,
+                streamId,
+                capsule: identity,
+                outcome: verdict.outcome,
+                acceptedTasks: verdict.acceptedTasks,
+                findings: verdict.findings,
+                adjudicated: verdict.adjudicated,
+                requestDigest,
+                // Read inside the write lock, so the tail is the sequence this
+                // very append lands on rather than whatever the stream held
+                // before the transaction opened.
+                tailSequence: tx.readStream(streamId).version + 1,
+                bundleRefs: [ref],
+              },
+            }));
+          return receiptResult(persisted);
+        } catch (error) {
+          if (error instanceof OperationDigestMismatchError) {
+            return {
+              success: false,
+              error: {
+                code: 'OPERATION_DIGEST_MISMATCH',
+                message:
+                  `${batchLabel} was settled under a different request while this call was ` +
+                  'adjudicating. Its verdict was NOT persisted.',
+              },
+            };
+          }
+          throw error;
         }
-        throw error;
-      }
+      });
     });
   });
 }

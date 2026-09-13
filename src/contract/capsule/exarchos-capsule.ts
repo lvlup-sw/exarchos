@@ -311,17 +311,20 @@ export const CapsuleProvenanceSchema = z
   .strict();
 
 /**
- * The terms one batch is settled under.
+ * The terms every batch of this capsule is settled under.
  *
- * Carried INSIDE the capsule so a compiled artifact is complete on its own.
- * Note the tension to resolve upstream: settlement is idempotent on the pair
- * `(capsuleVersion, batchId)`, and a pair implies one capsule may be settled
- * over more than one batch — which would make `batchId` capsule-external.
+ * The batch identity is deliberately NOT here. Settlement is idempotent on the
+ * pair `(capsuleVersion, batchId)`, and a pair only means something if one
+ * capsule can be settled over more than one batch: a rejected batch is
+ * corrected and resubmitted under the same pinned terms, as a new batch. A
+ * `batchId` compiled into the capsule would make that second submission the
+ * same key with a different request, which the claim refuses — so correcting a
+ * rejection would need a fresh compilation, one call more than the exception
+ * path is budgeted.
  */
 export const CapsuleSettlementContractSchema = z
   .object({
     requiredResults: z.array(SharedStableIdSchema).min(1),
-    batchId: SharedStableIdSchema,
   })
   .strict();
 
