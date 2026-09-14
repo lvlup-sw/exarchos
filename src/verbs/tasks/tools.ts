@@ -8,7 +8,7 @@ import { toEventAck, type ToolResult } from '../../format.js';
 import { getOrCreateMaterializer, resetMaterializerCache } from '../../projections/views/tools.js';
 import { TASK_DETAIL_VIEW } from '../../projections/views/task-detail-view.js';
 import type { TaskDetailViewState } from '../../projections/views/task-detail-view.js';
-import { markTasksCompleteInStateDocument } from '../../workflow/state-store.js';
+import { markTasksCompleteInStateDocument, type TaskStatusSyncOutcome } from '../../workflow/state-store.js';
 import type { WorkflowState } from '../../workflow/types.js';
 import { logger } from '../../logger.js';
 import { getFullRegistry } from '../../registry.js';
@@ -255,11 +255,11 @@ async function attemptTaskClaim(
 // ─── handleTaskComplete ───────────────────────────────────────────────────
 
 /** Why the state document was left as it was, in the words the log reports. */
-const SYNC_SKIP_REASONS = {
+const SYNC_SKIP_REASONS: Record<Extract<TaskStatusSyncOutcome, { kind: 'skipped' }>['reason'], string> = {
   'no-document': 'the workflow has no state document',
   'tasks-not-an-array': 'state.tasks is not an array',
   'tasks-not-found': 'task not found in state.tasks',
-} as const;
+};
 
 export async function handleTaskComplete(
   args: {
