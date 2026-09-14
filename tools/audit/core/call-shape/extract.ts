@@ -81,6 +81,7 @@ const HARNESS_CALL_PLACEHOLDERS: ReadonlySet<string> = new Set([
 const ACTION_KEY = /\baction\s*:\s*["']([\w-]+)["']/g;
 const RUNBOOK_ID_KEY = /\bid\s*:\s*["']([\w-]+)["']/;
 const SHELL_FENCE = /^[ \t]*(?:>[ \t]*)?```(?:bash|sh|shell)[ \t]*$/gm;
+const CLOSING_FENCE = /^[ \t]*(?:>[ \t]*)?```[ \t]*$/m;
 const PLACEHOLDER = /\{\{([A-Z][A-Z_]*)\b[^}]*\}\}/g;
 
 function escapeRegExp(value: string): string {
@@ -166,9 +167,21 @@ export function extractSites(text: string, registry: RegistrySnapshot): Site[] {
   const consumedActionKeys = new Set<number>();
   const raw: RawSite[] = [];
 
+  // A fenced shell block is one harness call. What it holds is shell, not a
+  // call spelled in prose, so no other scan may read a site out of it. An
+  // unclosed fence runs to the end of the file, as Markdown renders it.
+  const shellFences: { readonly start: number; readonly end: number }[] = execAll(SHELL_FENCE, text).map((m) => {
+    const afterOpen = m.index + m[0].length;
+    const close = CLOSING_FENCE.exec(text.slice(afterOpen));
+    return { start: m.index, end: close === null ? text.length - 1 : afterOpen + close.index };
+  });
+  const inShellFence = (offset: number): boolean =>
+    shellFences.some((fence) => offset >= fence.start && offset <= fence.end);
+
   // A call expression: `tool({ ... action: "x" ... })`, whatever prefix a
   // runtime spelling puts before the tool name.
   for (const m of execAll(new RegExp(`(${toolAlternation})\\s*\\(\\s*\\{`), text)) {
+    if (inShellFence(m.index)) continue;
     const tool = m[1] ?? '';
     const open = m.index + m[0].length - 1;
     const close = matchBrace(text, open);
@@ -261,7 +274,7 @@ export function extractSites(text: string, registry: RegistrySnapshot): Site[] {
   // An `action:` key with no tool beside it. The tool is whichever one serves
   // that action name, and only when exactly one does.
   for (const m of execAll(ACTION_KEY, text)) {
-    if (consumedActionKeys.has(m.index)) continue;
+    if (consumedActionKeys.has(m.index) || inShellFence(m.index)) continue;
     const action = m[1] ?? '';
     const owners = registry.tools.filter((t) => t.actions.includes(action));
     const owner = owners.length === 1 ? owners[0] : undefined;
@@ -277,7 +290,7 @@ export function extractSites(text: string, registry: RegistrySnapshot): Site[] {
 
   for (const m of execAll(PLACEHOLDER, text)) {
     const name = m[1] ?? '';
-    if (!HARNESS_CALL_PLACEHOLDERS.has(name)) continue;
+    if (!HARNESS_CALL_PLACEHOLDERS.has(name) || inShellFence(m.index)) continue;
     raw.push({
       offset: m.index,
       endOffset: m.index + m[0].length - 1,
@@ -288,13 +301,10 @@ export function extractSites(text: string, registry: RegistrySnapshot): Site[] {
     });
   }
 
-  // A fenced shell block is one harness call; it spans to its closing fence.
-  for (const m of execAll(SHELL_FENCE, text)) {
-    const afterOpen = m.index + m[0].length;
-    const close = /^[ \t]*(?:>[ \t]*)?```[ \t]*$/m.exec(text.slice(afterOpen));
+  for (const fence of shellFences) {
     raw.push({
-      offset: m.index,
-      endOffset: close === null ? m.index : afterOpen + close.index,
+      offset: fence.start,
+      endOffset: fence.end,
       call: 'native:Bash',
       pattern: 'shell-fence',
       status: 'harness',

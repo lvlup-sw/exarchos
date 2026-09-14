@@ -148,6 +148,27 @@ describe('call-shape extractor', () => {
   });
 });
 
+describe('call-shape extractor inside fences', () => {
+  it('CallShapeExtractor_TokensInsideAShellFence_AreOneHarnessCallNotSeveral', () => {
+    const text = [
+      '```bash',
+      'echo \'exarchos_orchestrate({ action: "finish" })\'',
+      'echo \'action: "update"\' {{SPAWN_AGENT_CALL agent="x"}}',
+      '```',
+      '',
+      '```typescript',
+      'exarchos_orchestrate({ action: "finish" })',
+      '```',
+    ].join('\n');
+    expect(
+      extractSites(text, REGISTRY).map(({ line, endLine, call, pattern }) => ({ line, endLine, call, pattern })),
+    ).toEqual([
+      { line: 1, endLine: 4, call: 'native:Bash', pattern: 'shell-fence' },
+      { line: 7, endLine: 7, call: 'exarchos_orchestrate.finish', pattern: 'call-expression' },
+    ]);
+  });
+});
+
 describe('call-shape census', () => {
   it('CallShapeCensus_FixtureModel_CountsLoopsAsFormulas', () => {
     const { census, errors } = buildCallShapeCensus(inputsFor(FIXTURE), modelWith(INTENT));

@@ -7,7 +7,7 @@
     "testFiles": 1276,
     "parsedFiles": 1231,
     "shellFiles": 45,
-    "cases": 14085,
+    "cases": 14086,
     "dynamicTitles": 164,
     "unparseableFiles": 0
   },
@@ -82531,6 +82531,11 @@
         {
           "suite": "call-shape extractor",
           "name": "CallShapeExtractor_ProseSpellings_ResolveOrFlagWithoutCountingMentions",
+          "dynamic": false
+        },
+        {
+          "suite": "call-shape extractor inside fences",
+          "name": "CallShapeExtractor_TokensInsideAShellFence_AreOneHarnessCallNotSeveral",
           "dynamic": false
         },
         {
