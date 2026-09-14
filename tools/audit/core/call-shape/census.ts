@@ -600,8 +600,13 @@ export function buildCallShapeCensus(
       if (exception.through !== null) {
         const through = exception.through;
         const cut = normalCalls.findIndex((call) => call.call === through);
+        // A call named more than once on the path gives the cut no single place
+        // to land; taking the first would be a silent guess at the branch point.
+        const occurrences = normalCalls.filter((call) => call.call === through).length;
         if (cut === -1) fail(`EXCEPTION_THROUGH_NOT_ON_PATH ${label}: ${through}`);
-        else base = normalCalls.slice(0, cut + 1);
+        else if (occurrences > 1) {
+          fail(`EXCEPTION_THROUGH_AMBIGUOUS ${label}: ${through} occurs ${occurrences} times on the normal path`);
+        } else base = normalCalls.slice(0, cut + 1);
       }
       const extraCalls = exception.extra.flatMap((step) => expand(step, 'once', label, [intent.id], []));
       if (exception.through === null && extraCalls.length === 0 && !exception.reentersNormalPath) {

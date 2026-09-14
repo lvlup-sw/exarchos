@@ -7,7 +7,7 @@
     "testFiles": 1282,
     "parsedFiles": 1237,
     "shellFiles": 45,
-    "cases": 14152,
+    "cases": 14153,
     "dynamicTitles": 169,
     "unparseableFiles": 0
   },
@@ -82906,6 +82906,11 @@
         {
           "suite": "call-shape census",
           "name": "CallShapeCensus_PathCountedOnlyFromMentions_IsRefusedAsUnlocated",
+          "dynamic": false
+        },
+        {
+          "suite": "call-shape census",
+          "name": "CallShapeCensus_ExceptionThroughACallRepeatedOnThePath_IsRefusedAsAmbiguous",
           "dynamic": false
         },
         {

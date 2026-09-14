@@ -292,6 +292,33 @@ describe('call-shape census', () => {
     ]);
   });
 
+  it('CallShapeCensus_ExceptionThroughACallRepeatedOnThePath_IsRefusedAsAmbiguous', () => {
+    const gateTwo = { source: 'fx', call: 'exarchos_orchestrate.check_gate', at: 'target: "two"' };
+    const exception: IntentModel['exceptions'][number] = {
+      id: 'gate-fails',
+      label: 'the gate fails',
+      trigger: { source: 'fx', needle: 'On failure, re-run:' },
+      through: 'exarchos_orchestrate.check_gate',
+      extra: [],
+      reentersNormalPath: false,
+      why: 'fixture',
+    };
+    const once: IntentModel = {
+      ...INTENT,
+      exceptions: [exception],
+      excluded: [{ ref: gateTwo, kind: 'restatement', why: 'fixture' }],
+    };
+    const twice: IntentModel = {
+      ...INTENT,
+      normal: [...INTENT.normal, { kind: 'site', ref: gateTwo }],
+      exceptions: [exception],
+    };
+    expect(buildCallShapeCensus(inputsFor(FIXTURE), modelWith(once)).errors).toEqual([]);
+    expect(buildCallShapeCensus(inputsFor(FIXTURE), modelWith(twice)).errors).toEqual([
+      'EXCEPTION_THROUGH_AMBIGUOUS fixture:exception:gate-fails: exarchos_orchestrate.check_gate occurs 2 times on the normal path',
+    ]);
+  });
+
   it('CallShapeCensus_UnexpandedRunbookFetch_ReportsCallsOnOnlyOneSide', () => {
     const intent: IntentModel = {
       ...INTENT,
