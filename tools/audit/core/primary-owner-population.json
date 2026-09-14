@@ -1,17 +1,17 @@
 {
   "totals": {
-    "emissionEdges": 103,
-    "edgesCarryingRole": 103,
-    "edgesCarryingOwner": 103,
-    "distinctEventsWithEdges": 72,
+    "emissionEdges": 104,
+    "edgesCarryingRole": 104,
+    "edgesCarryingOwner": 104,
+    "distinctEventsWithEdges": 73,
     "distinctOwners": 3,
-    "registeredEvents": 181,
+    "registeredEvents": 182,
     "moduleEmitterRows": 24
   },
   "keys": {
     "per-event-type/primary-edges": {
-      "populationSize": 72,
-      "satisfyingCount": 68,
+      "populationSize": 73,
+      "satisfyingCount": 69,
       "zeroPrimaryCount": 0,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 4,
@@ -154,6 +154,7 @@
         "workflow.compensation",
         "workflow.fix-cycle",
         "workflow.plan-review-dispatched",
+        "workflow.prepared",
         "workflow.pruned",
         "workflow.rehydrated",
         "workflow.started",
@@ -175,8 +176,8 @@
       }
     },
     "per-event-type/primary-owners": {
-      "populationSize": 72,
-      "satisfyingCount": 72,
+      "populationSize": 73,
+      "satisfyingCount": 73,
       "zeroPrimaryCount": 0,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -244,6 +245,7 @@
         "workflow.compensation",
         "workflow.fix-cycle",
         "workflow.plan-review-dispatched",
+        "workflow.prepared",
         "workflow.pruned",
         "workflow.rehydrated",
         "workflow.started",
@@ -267,8 +269,8 @@
       }
     },
     "per-emission-site/primary-edges": {
-      "populationSize": 103,
-      "satisfyingCount": 100,
+      "populationSize": 104,
+      "satisfyingCount": 101,
       "zeroPrimaryCount": 3,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -393,6 +395,7 @@
         "workflow.compensation@exarchos_workflow.cancel",
         "workflow.fix-cycle@exarchos_workflow.transition",
         "workflow.plan-review-dispatched@exarchos_orchestrate.prepare_review",
+        "workflow.prepared@exarchos_orchestrate.prepare",
         "workflow.pruned@exarchos_orchestrate.prune_stale_workflows",
         "workflow.rehydrated@exarchos_workflow.rehydrate",
         "workflow.started@exarchos_workflow.init",
@@ -418,8 +421,8 @@
       }
     },
     "per-event-and-tool/primary-owners": {
-      "populationSize": 73,
-      "satisfyingCount": 72,
+      "populationSize": 74,
+      "satisfyingCount": 73,
       "zeroPrimaryCount": 1,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -498,6 +501,7 @@
         "workflow.compensation@exarchos_workflow",
         "workflow.fix-cycle@exarchos_workflow",
         "workflow.plan-review-dispatched@exarchos_orchestrate",
+        "workflow.prepared@exarchos_orchestrate",
         "workflow.pruned@exarchos_orchestrate",
         "workflow.rehydrated@exarchos_workflow",
         "workflow.started@exarchos_workflow",
@@ -562,7 +566,7 @@
     },
     {
       "tier": "substrate",
-      "eventCount": 42,
+      "eventCount": 43,
       "events": [
         "branch.delete.executed",
         "branch.delete.requested",
@@ -601,6 +605,7 @@
         "workflow.cleanup",
         "workflow.compensation",
         "workflow.plan-review-dispatched",
+        "workflow.prepared",
         "workflow.pruned",
         "workflow.rehydrated",
         "workflow.started",

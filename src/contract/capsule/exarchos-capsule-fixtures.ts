@@ -10,12 +10,34 @@
 // still show a rejection.
 // ────────────────────────────────────────────────────────────────────────────
 
+import { contentDigest } from './capsule-digest.js';
 import type { ExarchosCapsuleV1 } from './exarchos-capsule.js';
 
 const statement = (text: string): { readonly statement: string } => ({ statement: text });
 
-const DIGEST_A = 'a'.repeat(64);
 const DIGEST_B = 'b'.repeat(64);
+
+/**
+ * The kernel definition the base capsule compiled from: one step, the one the
+ * base capsule's `task-verify` names. The base capsule's `definitionVersion` is
+ * this document's digest, so a fixture pinned with it is internally consistent
+ * — the definition a capsule names is the definition it carries.
+ */
+export function baseValidDefinition(): Record<string, unknown> {
+  return {
+    schemaVersion: '1.0',
+    name: 'capsule-corpus',
+    steps: [
+      { kind: 'skill', stepId: 'step-verify', stepName: 'verify', isTerminal: true, stepType: 'work' },
+    ],
+    transitions: [],
+    branchPoints: [],
+    loops: [],
+    forkPoints: [],
+    failureHandlers: [],
+    approvalPoints: [],
+  };
+}
 
 /**
  * A complete, structurally valid capsule. Every other fixture bends this one.
@@ -30,7 +52,7 @@ export function baseValidCapsule(): ExarchosCapsuleV1 {
     capsuleSchemaVersion: '1',
     identity: {
       workflowId: 'wf-capsule-corpus',
-      definitionVersion: DIGEST_A,
+      definitionVersion: contentDigest(baseValidDefinition()),
       designVersion: 'design-1',
       capsuleVersion: 7,
     },

@@ -221,8 +221,10 @@ export const MULTI_PRIMARY_OWNER_CODE = 'MULTI_PRIMARY_OWNER';
  *
  * 71 -> 72: `execution.settled` is a new event type carrying a declared primary edge, from
  * `exarchos_orchestrate.settle`. One type, one edge — the population grew by exactly the arrival.
+ *
+ * 72 -> 73: `workflow.prepared`, the same shape of arrival, from `exarchos_orchestrate.prepare`.
  */
-export const PRIMARY_OWNER_POPULATION_FLOOR = 72;
+export const PRIMARY_OWNER_POPULATION_FLOOR = 73;
 
 /**
  * The measured size of the set the provider comparison ranges over: declared emission edges whose

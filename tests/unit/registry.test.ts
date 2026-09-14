@@ -758,7 +758,10 @@ describe('TOOL_REGISTRY', () => {
       // claims against the capsule pinned when the work was compiled, and
       // commits one settlement record). It runs nothing — the asymmetry with
       // the executor above is the point: 83 → 84.
-      expect(composite!.actions).toHaveLength(84);
+      // Then `prepare`, its other half (compiles a feature's outstanding
+      // delegation batch into the capsule settlement is later judged against,
+      // and commits one prepared record): 84 → 85.
+      expect(composite!.actions).toHaveLength(85);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -3203,6 +3206,7 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.cutover_readiness': 2000,
   'exarchos_orchestrate.cutover_decide': 2000,
   'exarchos_orchestrate.execute_intent': 1000,
+  'exarchos_orchestrate.prepare': 8000,
   'exarchos_orchestrate.settle': 1000,
   'exarchos_orchestrate.describe': 8000,
   'exarchos_view.pipeline': 2000,
@@ -3320,6 +3324,7 @@ describe('registry economy budgets (DR-1)', () => {
         'exarchos_event.describe',
         'exarchos_orchestrate.describe',
         'exarchos_orchestrate.execute_intent',
+        'exarchos_orchestrate.prepare',
         'exarchos_orchestrate.runbook',
         'exarchos_orchestrate.settle',
         'exarchos_view.describe',
@@ -3571,6 +3576,13 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       adjudicated: { claims: 0, requiredResults: 0, fields: 0, evidence: 0, deviations: 0 },
       requestDigest: `sha256:${'a'.repeat(64)}`, tailSequence: 0,
     },
+    // `prepare` — the prepared-capsule receipt. The capsule is carried as an
+    // open record, so the floor is the smallest record the schema admits.
+    'exarchos_orchestrate.prepare': {
+      operationId: `prepare:${'a'.repeat(64)}`, streamId: 'feat-x', workflowId: 'feat-x',
+      capsuleVersion: 1, capsuleDigest: 'a'.repeat(64), definitionVersion: 'a'.repeat(64),
+      capsule: {}, tailSequence: 0,
+    },
   };
   function baselineEnvelope(data: Record<string, unknown>): Record<string, unknown> {
     return {
@@ -3749,7 +3761,10 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       // same reason. Its schema is worth reading rather than counting: the
       // receipt is the verdict, so a vacuous one would have described nothing
       // at exactly the surface an agent acts on.
-      expect(actions.length).toBe(18);
+      //
+      // The 19th is `prepare`, the same route again: the receipt carries the
+      // capsule the harness runs from, so its shape is declared, not waived.
+      expect(actions.length).toBe(19);
       for (const { tool, action } of actions) {
         const parsed = action.outputSchema.safeParse(cappedEnvelope());
         expect(

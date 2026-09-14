@@ -1,7 +1,7 @@
 {
-  "capturedAt": "2026-09-03",
-  "trackedFiles": 3076,
-  "scannedFiles": 2971,
+  "capturedAt": "2026-09-13",
+  "trackedFiles": 3136,
+  "scannedFiles": 3029,
   "namedFilesIncluded": [
     ".github/CODEOWNERS",
     ".gitattributes",
@@ -12,16 +12,16 @@
     "docs/designs": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 112,
+      "externalReferrers": 110,
       "referrersByKind": {
-        "code": 82,
+        "code": 80,
         "config": 3,
         "snapshot": 1,
         "markdownLive": 24,
         "markdownArchival": 1,
         "other": 1
       },
-      "liveReferrers": 111,
+      "liveReferrers": 109,
       "sampleReferrers": [
         ".exarchos.yml",
         ".exarchos/invariants.md",

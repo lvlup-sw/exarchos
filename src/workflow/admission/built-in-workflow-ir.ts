@@ -313,6 +313,17 @@ const TASKS_COMPLETE = all(
   cmp('tasks.count', 'gte', 1),
   eqBool('tasks.allComplete', true),
 );
+
+/**
+ * Every planned task complete, compiled — the obligation on its own.
+ *
+ * Exported for the capsule compiler, which states what delegated work must
+ * achieve and nothing about how a harness runs it. The feature delegate edge
+ * conjoins this with team teardown; teardown is how one harness organises its
+ * workers, so a capsule that required it would bind every other runtime to that
+ * harness's mechanics.
+ */
+export const TASKS_COMPLETE_CONDITION: CompiledEdgeCondition = compile(TASKS_COMPLETE);
 const RETRYABLE = all(
   present('synthesis.lastError'),
   cmp('synthesis.retryCount', 'lt', MAX_SYNTHESIZE_RETRIES),
