@@ -3994,12 +3994,17 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       // (`serialize_merge`) or on the crash-mid-merge heal. Same event, same
       // meaning, two routes — so declaring one and hiding the other is what
       // would be wrong, and both name `orchestrate` as owner.
+      // `task.completed` joined with the semantic plane: the fact is left either
+      // by `task_complete`, one task at a time, or by `settle` for every task a
+      // settled batch accepted. Same fact, same meaning, two routes; both name
+      // `orchestrate`.
       expect(multiDeclarer.map(([event]) => event).sort()).toEqual([
         'admission.evidence-recorded',
         'gate.executed',
         'onboard.executed',
         'onboard.requested',
         'state.patched',
+        'task.completed',
         'worktree.merge_executed',
         'worktree.released',
       ]);

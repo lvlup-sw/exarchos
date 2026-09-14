@@ -253,6 +253,22 @@
 //
 // Regenerate deliberately (and review the diff) with:
 //   UPDATE_TOOLS_LIST_GOLDEN=1 npx vitest run --project core tests/integration/tools-list-golden.test.ts
+//
+// ── A settled batch leaves its facts ───────────────────────────────────────
+//
+// MEASURED, not eyeballed: normalising both goldens and diffing yields ONE
+// changed tool description (`exarchos_orchestrate`) with exactly ONE changed
+// action signature line:
+//
+//     settle — one clause added: a SETTLED batch also commits one
+//              task.completed per accepted task, so the workflow's tasks read
+//              complete and `transition` can follow. The digest moves with the
+//              description and with the declaration it describes — the second
+//              emission edge, `task.completed`, beside `execution.settled`.
+//
+// No tool or action was added or removed, no order changed, and no schema
+// moved: the request shape is byte-identical. The wire now says what the
+// handler does, which is to leave the fact the primitive path leaves.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';

@@ -63,10 +63,11 @@ export const settleActions: readonly BuiltinToolAction[] = [
       'digest). Claims are read against each task\'s declared result shape, evidence against the ' +
       'admitted kinds, deviations against the envelope. Outcome is `settled`, `rejected` or ' +
       '`deviation-pending`; a REJECTED batch is a successful call whose findings say which claim ' +
-      'to fix. Errors, none of which adjudicate: a malformed request, CAPSULE_INVALID, ' +
-      'CAPSULE_NOT_PREPARED, CAPSULE_DIGEST_MISMATCH, CAPSULE_UNRESOLVED. Keyed by ' +
-      '(capsuleVersion, `batchId`): resubmitting a batch returns its verdict, and a correction ' +
-      'goes back under a NEW `batchId`.',
+      'to fix. A SETTLED batch also commits one task.completed per accepted task, so the ' +
+      'workflow\'s tasks read complete and `transition` can follow. Errors, none of which ' +
+      'adjudicate: a malformed request, CAPSULE_INVALID, CAPSULE_NOT_PREPARED, ' +
+      'CAPSULE_DIGEST_MISMATCH, CAPSULE_UNRESOLVED. Keyed by (capsuleVersion, `batchId`): ' +
+      'resubmitting a batch returns its verdict, and a correction goes back under a NEW `batchId`.',
     schema: z
       .object({
         capsuleVersion: z
@@ -155,14 +156,33 @@ export const settleActions: readonly BuiltinToolAction[] = [
     // reported as drift between the declaration and the handler — and recorded
     // as an `emission.violated` row — for doing exactly what the replay
     // contract says it does.
-    emissions: declared({
-      event: 'execution.settled',
-      condition: 'conditional',
-      owner: 'orchestrate',
-      role: 'primary',
-      description:
-        'appended on every adjudicated outcome, including a rejection; a replay of an ' +
-        'already-claimed operation id returns the persisted verdict and appends nothing',
-    }),
+    emissions: declared(
+      {
+        event: 'execution.settled',
+        condition: 'conditional',
+        owner: 'orchestrate',
+        role: 'primary',
+        description:
+          'appended on every adjudicated outcome, including a rejection; a replay of an ' +
+          'already-claimed operation id returns the persisted verdict and appends nothing',
+      },
+      // The batch's consequence, committed in the same transaction as the
+      // record above: the fact the primitive path leaves through
+      // `task_complete`, one per accepted task, so the canonical projection
+      // moves through a fact it already folds rather than through a verdict.
+      // Primary here as well: K2 keys the bijection on the owner string, and
+      // both producers are `orchestrate`, the way every gate's
+      // `admission.evidence-recorded` edge is.
+      {
+        event: 'task.completed',
+        condition: 'conditional',
+        owner: 'orchestrate',
+        role: 'primary',
+        description:
+          'one per accepted task, only on a `settled` outcome and only for a task the stream ' +
+          'does not already show complete; none on a rejected or deviation-pending batch, and ' +
+          'none on a replay',
+      },
+    ),
   }),
 ];

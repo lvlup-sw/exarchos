@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1282,
-    "parsedFiles": 1237,
+    "testFiles": 1283,
+    "parsedFiles": 1238,
     "shellFiles": 45,
-    "cases": 14153,
+    "cases": 14155,
     "dynamicTitles": 169,
     "unparseableFiles": 0
   },
@@ -61069,6 +61069,22 @@
         {
           "suite": "the settlement bundle",
           "name": "SettlementBundle_AnIdTheGrammarRefuses_Throws",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settlement-facts-parity.test.ts": {
+      "file": "tests/unit/verbs/settle/settlement-facts-parity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settlement facts — parity with completing each task by hand",
+          "name": "SettlementParity_ASettledBatch_LeavesTheSameCompletionFacts",
+          "dynamic": false
+        },
+        {
+          "suite": "settlement facts — parity with completing each task by hand",
+          "name": "SettlementParity_ASettledBatch_LeavesTheSameStateDocument",
           "dynamic": false
         }
       ]

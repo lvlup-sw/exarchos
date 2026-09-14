@@ -653,6 +653,75 @@ export async function hydrateEventsFromStore(
   }));
 }
 
+// ─── Task status on the state document ──────────────────────────────────────
+
+/** How marking tasks complete on the state document came out. */
+export type TaskStatusSyncOutcome =
+  | { readonly kind: 'synced'; readonly updated: readonly string[]; readonly missing: readonly string[] }
+  | { readonly kind: 'unchanged'; readonly missing: readonly string[] }
+  | { readonly kind: 'skipped'; readonly reason: 'tasks-not-an-array' | 'tasks-not-found'; readonly missing: readonly string[] }
+  | { readonly kind: 'failed'; readonly attempts: number; readonly error: string };
+
+/**
+ * Mark tasks `complete` on the workflow's state document.
+ *
+ * The transition guards read `state.tasks[].status` off the document — the
+ * backend row or the `.state.json` file — not off the event log, so a
+ * completion fact on the stream admits nothing until the document says the
+ * same. Every writer of a completion fact syncs the document through this one
+ * loop: compare-and-swap on `_version`, re-read and retried under a conflict,
+ * so two writers completing different tasks in parallel cannot lose each
+ * other's update.
+ *
+ * A task the document does not list is reported, not invented; a document
+ * whose `tasks` is not an array is left alone. A read that fails — no
+ * document, a corrupt one — is `failed`, and the caller decides how loudly to
+ * say so. A document already showing every task complete is not rewritten.
+ */
+export async function markTasksCompleteInStateDocument(
+  stateFile: string,
+  taskIds: readonly string[],
+  maxAttempts = 3,
+): Promise<TaskStatusSyncOutcome> {
+  let lastError = '';
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const state = await readStateFile(stateFile);
+      if (!Array.isArray(state.tasks)) {
+        return { kind: 'skipped', reason: 'tasks-not-an-array', missing: [...taskIds] };
+      }
+      const tasks = state.tasks as Array<{ id: string; status: string }>;
+      const updated: string[] = [];
+      const missing: string[] = [];
+      for (const taskId of taskIds) {
+        const task = tasks.find((t) => t.id === taskId);
+        if (!task) {
+          missing.push(taskId);
+          continue;
+        }
+        if (task.status === 'complete') continue;
+        task.status = 'complete';
+        updated.push(taskId);
+      }
+      if (updated.length === 0) {
+        return missing.length === taskIds.length && taskIds.length > 0
+          ? { kind: 'skipped', reason: 'tasks-not-found', missing }
+          : { kind: 'unchanged', missing };
+      }
+      const rawVersion = (state as Record<string, unknown>)._version;
+      const version = typeof rawVersion === 'number' ? rawVersion : 1;
+      (state as Record<string, unknown>).updatedAt = new Date().toISOString();
+      await writeStateFile(stateFile, state, { expectedVersion: version, skipValidation: true });
+      return { kind: 'synced', updated, missing };
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      if (err instanceof VersionConflictError && attempt < maxAttempts) continue;
+      return { kind: 'failed', attempts: attempt, error: lastError };
+    }
+  }
+  return { kind: 'failed', attempts: maxAttempts, error: lastError };
+}
+
 // ─── Reconcile State from Events ────────────────────────────────────────────
 
 /**

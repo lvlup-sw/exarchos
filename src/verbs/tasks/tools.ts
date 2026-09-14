@@ -8,7 +8,7 @@ import { toEventAck, type ToolResult } from '../../format.js';
 import { getOrCreateMaterializer, resetMaterializerCache } from '../../projections/views/tools.js';
 import { TASK_DETAIL_VIEW } from '../../projections/views/task-detail-view.js';
 import type { TaskDetailViewState } from '../../projections/views/task-detail-view.js';
-import { readStateFile, writeStateFile, VersionConflictError } from '../../workflow/state-store.js';
+import { markTasksCompleteInStateDocument } from '../../workflow/state-store.js';
 import type { WorkflowState } from '../../workflow/types.js';
 import { logger } from '../../logger.js';
 import { getFullRegistry } from '../../registry.js';
@@ -428,48 +428,24 @@ export async function handleTaskComplete(
       data,
     }, { idempotencyKey: `${streamId}:task.completed:${args.taskId}` });
 
-    // Sync task status to workflow state file so guards (e.g. allTasksComplete) pass.
-    // Uses CAS (compare-and-swap) with retry to prevent lost updates under parallel delegation.
+    // Sync task status to the state document the transition guards read
+    // (e.g. allTasksComplete). One loop serves every writer of a completion
+    // fact — `settle` syncs its accepted tasks through the same one — so the
+    // compare-and-swap and its retry are decided in one place.
     const stateFile = path.join(stateDir, `${streamId}.state.json`);
-    const maxAttempts = 3;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        const state = await readStateFile(stateFile);
-        if (!Array.isArray(state.tasks)) {
-          logger.warn(
-            { streamId: streamId, taskId: args.taskId, attempt },
-            'task_complete state sync skipped: state.tasks is not an array',
-          );
-          break;
-        }
-        const tasks = state.tasks as Array<{ id: string; status: string }>;
-        const task = tasks.find((t) => t.id === args.taskId);
-        if (!task) {
-          logger.warn(
-            { streamId: streamId, taskId: args.taskId, attempt },
-            'task_complete state sync skipped: task not found in state.tasks',
-          );
-          break;
-        }
-        task.status = 'complete';
-        const rawVersion = (state as Record<string, unknown>)._version;
-        const version = typeof rawVersion === 'number' ? rawVersion : 1;
-        (state as Record<string, unknown>).updatedAt = new Date().toISOString();
-        await writeStateFile(stateFile, state, {
-          expectedVersion: version,
-          skipValidation: true,
-        });
-        break;
-      } catch (syncErr) {
-        if (syncErr instanceof VersionConflictError && attempt < maxAttempts) {
-          continue; // Re-read and retry
-        }
-        logger.warn(
-          { streamId: streamId, taskId: args.taskId, attempt, err: syncErr instanceof Error ? syncErr.message : String(syncErr) },
-          'task_complete state sync failed',
-        );
-        break;
-      }
+    const sync = await markTasksCompleteInStateDocument(stateFile, [args.taskId]);
+    if (sync.kind === 'skipped') {
+      logger.warn(
+        { streamId: streamId, taskId: args.taskId, reason: sync.reason },
+        sync.reason === 'tasks-not-an-array'
+          ? 'task_complete state sync skipped: state.tasks is not an array'
+          : 'task_complete state sync skipped: task not found in state.tasks',
+      );
+    } else if (sync.kind === 'failed') {
+      logger.warn(
+        { streamId: streamId, taskId: args.taskId, attempt: sync.attempts, err: sync.error },
+        'task_complete state sync failed',
+      );
     }
 
     return { success: true, data: toEventAck(event) };
