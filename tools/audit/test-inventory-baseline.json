@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1280,
-    "parsedFiles": 1235,
+    "testFiles": 1282,
+    "parsedFiles": 1237,
     "shellFiles": 45,
-    "cases": 14134,
+    "cases": 14153,
     "dynamicTitles": 169,
     "unparseableFiles": 0
   },
@@ -82853,6 +82853,113 @@
       "file": "tools/skill-validators/validate-frontmatter.test.sh",
       "runner": "shell",
       "cases": []
+    },
+    "tests/scripts/call-shape-census.test.ts": {
+      "file": "tests/scripts/call-shape-census.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "call-shape extractor",
+          "name": "CallShapeExtractor_EachSpelling_IsLocatedWithItsToolAndAction",
+          "dynamic": false
+        },
+        {
+          "suite": "call-shape extractor",
+          "name": "CallShapeExtractor_ProseSpellings_ResolveOrFlagWithoutCountingMentions",
+          "dynamic": false
+        },
+        {
+          "suite": "call-shape extractor inside fences",
+          "name": "CallShapeExtractor_TokensInsideAShellFence_AreOneHarnessCallNotSeveral",
+          "dynamic": false
+        },
+        {
+          "suite": "call-shape census",
+          "name": "CallShapeCensus_FixtureModel_CountsLoopsAsFormulas",
+          "dynamic": false
+        },
+        {
+          "suite": "call-shape census",
+          "name": "CallShapeCensus_CountedUnknownAction_IsRefusedNotCounted",
+          "dynamic": false
+        },
+        {
+          "suite": "call-shape census",
+          "name": "CallShapeCensus_StaleSpellingExcludedByName_IsReportedAsAFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "call-shape census",
+          "name": "CallShapeCensus_RemovedCall_FailsToResolveRatherThanCountingZero",
+          "dynamic": false
+        },
+        {
+          "suite": "call-shape census",
+          "name": "CallShapeCensus_NewCallNobodyPlaced_IsReportedUndispositioned",
+          "dynamic": false
+        },
+        {
+          "suite": "call-shape census",
+          "name": "CallShapeCensus_NormalPathWithNoExarchosCall_IsRefusedAsVacuous",
+          "dynamic": false
+        },
+        {
+          "suite": "call-shape census",
+          "name": "CallShapeCensus_PathCountedOnlyFromMentions_IsRefusedAsUnlocated",
+          "dynamic": false
+        },
+        {
+          "suite": "call-shape census",
+          "name": "CallShapeCensus_ExceptionThroughACallRepeatedOnThePath_IsRefusedAsAmbiguous",
+          "dynamic": false
+        },
+        {
+          "suite": "call-shape census",
+          "name": "CallShapeCensus_UnexpandedRunbookFetch_ReportsCallsOnOnlyOneSide",
+          "dynamic": false
+        },
+        {
+          "suite": "call-shape census",
+          "name": "CallShapeCensus_RosterDisagreeingWithTheContractLock_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "call-shape census",
+          "name": "CallShapeCensus_Serialization_SortsKeysAndIsStable",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/call-shape-census.test.ts": {
+      "file": "tests/architecture/call-shape-census.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "static call-shape census",
+          "name": "CallShapeCensus_LiveTree_BuildsWithoutRefusal",
+          "dynamic": false
+        },
+        {
+          "suite": "static call-shape census",
+          "name": "CallShapeCensus_EveryNamedIntent_CountsAnExarchosCallOnItsNormalPath",
+          "dynamic": false
+        },
+        {
+          "suite": "static call-shape census",
+          "name": "CallShapeCensus_EverySource_YieldsLocatedCallsAndEveryRunbookIsRead",
+          "dynamic": false
+        },
+        {
+          "suite": "static call-shape census",
+          "name": "CallShapeCensus_CheckedInCensus_IsByteIdenticalToTheLiveTree",
+          "dynamic": false
+        },
+        {
+          "suite": "static call-shape census",
+          "name": "CallShapeCensus_CheckedInSummary_IsRenderedFromTheSameCensus",
+          "dynamic": false
+        }
+      ]
     }
   }
 }
