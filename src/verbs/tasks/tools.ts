@@ -8,7 +8,7 @@ import { toEventAck, type ToolResult } from '../../format.js';
 import { getOrCreateMaterializer, resetMaterializerCache } from '../../projections/views/tools.js';
 import { TASK_DETAIL_VIEW } from '../../projections/views/task-detail-view.js';
 import type { TaskDetailViewState } from '../../projections/views/task-detail-view.js';
-import { readStateFile, writeStateFile, VersionConflictError } from '../../workflow/state-store.js';
+import { markTasksCompleteInStateDocument, type TaskStatusSyncOutcome } from '../../workflow/state-store.js';
 import type { WorkflowState } from '../../workflow/types.js';
 import { logger } from '../../logger.js';
 import { getFullRegistry } from '../../registry.js';
@@ -254,6 +254,13 @@ async function attemptTaskClaim(
 
 // ─── handleTaskComplete ───────────────────────────────────────────────────
 
+/** Why the state document was left as it was, in the words the log reports. */
+const SYNC_SKIP_REASONS: Record<Extract<TaskStatusSyncOutcome, { kind: 'skipped' }>['reason'], string> = {
+  'no-document': 'the workflow has no state document',
+  'tasks-not-an-array': 'state.tasks is not an array',
+  'tasks-not-found': 'task not found in state.tasks',
+};
+
 export async function handleTaskComplete(
   args: {
     taskId: string;
@@ -428,48 +435,41 @@ export async function handleTaskComplete(
       data,
     }, { idempotencyKey: `${streamId}:task.completed:${args.taskId}` });
 
-    // Sync task status to workflow state file so guards (e.g. allTasksComplete) pass.
-    // Uses CAS (compare-and-swap) with retry to prevent lost updates under parallel delegation.
+    // Sync task status to the state document the transition guards read
+    // (e.g. allTasksComplete). One loop serves every writer of a completion
+    // fact — `settle` syncs its accepted tasks through the same one — so the
+    // compare-and-swap and its retry are decided in one place.
     const stateFile = path.join(stateDir, `${streamId}.state.json`);
-    const maxAttempts = 3;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        const state = await readStateFile(stateFile);
-        if (!Array.isArray(state.tasks)) {
-          logger.warn(
-            { streamId: streamId, taskId: args.taskId, attempt },
-            'task_complete state sync skipped: state.tasks is not an array',
-          );
-          break;
-        }
-        const tasks = state.tasks as Array<{ id: string; status: string }>;
-        const task = tasks.find((t) => t.id === args.taskId);
-        if (!task) {
-          logger.warn(
-            { streamId: streamId, taskId: args.taskId, attempt },
-            'task_complete state sync skipped: task not found in state.tasks',
-          );
-          break;
-        }
-        task.status = 'complete';
-        const rawVersion = (state as Record<string, unknown>)._version;
-        const version = typeof rawVersion === 'number' ? rawVersion : 1;
-        (state as Record<string, unknown>).updatedAt = new Date().toISOString();
-        await writeStateFile(stateFile, state, {
-          expectedVersion: version,
-          skipValidation: true,
-        });
-        break;
-      } catch (syncErr) {
-        if (syncErr instanceof VersionConflictError && attempt < maxAttempts) {
-          continue; // Re-read and retry
-        }
-        logger.warn(
-          { streamId: streamId, taskId: args.taskId, attempt, err: syncErr instanceof Error ? syncErr.message : String(syncErr) },
-          'task_complete state sync failed',
-        );
-        break;
-      }
+    const sync = await markTasksCompleteInStateDocument(stateFile, [args.taskId]);
+    if (sync.kind === 'skipped') {
+      // A workflow with no document is the ordinary case, not a warning: the
+      // document is the planner's stamp, and a tracked workflow may have none.
+      const detail = { streamId: streamId, taskId: args.taskId, reason: sync.reason };
+      const message = `task_complete state sync skipped: ${SYNC_SKIP_REASONS[sync.reason]}`;
+      if (sync.reason === 'no-document') logger.debug(detail, message);
+      else logger.warn(detail, message);
+    } else if (sync.kind === 'failed') {
+      // The fact is durable and the document is not level with it, and the
+      // caller has to hear so: the guards read the document, so a completion
+      // returned as success here would be one that admits nothing. The
+      // task-keyed idempotency makes the retry the repair — the store returns
+      // the persisted row and the sync runs again.
+      logger.warn(
+        { streamId: streamId, taskId: args.taskId, attempt: sync.attempts, err: sync.error },
+        'task_complete state sync failed',
+      );
+      return {
+        success: false,
+        data: toEventAck(event),
+        error: {
+          code: 'STATE_SYNC_FAILED',
+          message:
+            `task ${args.taskId} is recorded complete (task.completed at sequence ${event.sequence}), but ` +
+            'the state document the transition guards read could not be updated after ' +
+            `${sync.attempts} attempt(s): ${sync.error}. Retry task_complete to bring the document ` +
+            'level; the fact is not recorded twice.',
+        },
+      };
     }
 
     return { success: true, data: toEventAck(event) };

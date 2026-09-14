@@ -34,6 +34,16 @@
 // batch did not take. Only the refusals above answer with an error, and none of
 // them has adjudicated anything.
 //
+// A SETTLED BATCH LEAVES FACTS. The settlement record says how the batch came
+// out; it is not what the workflow's projection folds. What the projection
+// folds is the fact the primitive path leaves through `task_complete` — one
+// `task.completed` per task — so a settled batch commits that fact for each
+// accepted task, built from the claim's own fields, in the same transaction as
+// the record. The projection then moves for a settlement exactly as it moves
+// for a `task_complete`, and nothing has to interpret a verdict as progress.
+// The phase does not move: `transition` stays the caller's next call, with its
+// own guard and its own single writer.
+//
 // THE BATCH IS THE KEY. Transport is at least once; settlement is not. The
 // operation claim a settlement is recorded under is derived from the batch
 // identity, never supplied by the caller, so a harness resubmitting a batch
@@ -42,6 +52,7 @@
 // under the same pinned capsule, is a new settlement rather than a conflict.
 
 import { createHash } from 'node:crypto';
+import * as path from 'node:path';
 
 import { capsuleDigest } from '../../contract/capsule/capsule-digest.js';
 import { resolveCapsuleReferences } from '../../contract/capsule/capsule-references.js';
@@ -56,11 +67,13 @@ import { runExclusivePerOperation } from '../../dispatch/core/operation-serializ
 import { outerCorrelation, stampFromAmbient } from '../../dispatch/core/outer-correlation.js';
 import { resolveSubjectStream } from '../../dispatch/core/subject-stream.js';
 import { runWithDispatchContext } from '../../dispatch/dispatch-context.js';
-import { OperationDigestMismatchError } from '../../events/atomic-appender.js';
+import { OperationDigestMismatchError, type DecideOnceStoredEvent } from '../../events/atomic-appender.js';
 import { EXECUTION_SETTLED_SETTLEMENT, type BundleRefV1 } from '../../events/bundle/digest-references.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
-import { ExecutionSettledData } from '../../events/schemas.js';
+import { ExecutionSettledData, TaskCompletedData } from '../../events/schemas.js';
 import type { ToolResult } from '../../format.js';
+import { orchestrateLogger } from '../../logger.js';
+import { markTasksCompleteInStateDocument, type TaskStatusSyncOutcome } from '../../workflow/state-store.js';
 import { findPreparedCapsule } from '../prepare/prepared-record.js';
 import {
   adjudicateSettlement,
@@ -140,6 +153,123 @@ function receiptResult(receipt: SettlementReceipt): ToolResult {
   return { success: true, data: receipt };
 }
 
+/** One completion fact a settled batch leaves: the task, and the record's payload. */
+interface CompletionFact {
+  readonly taskId: string;
+  readonly data: Record<string, unknown>;
+}
+
+/**
+ * The completion facts a settled batch leaves, one per accepted task.
+ *
+ * Built from the claim's own fields, read through the completion record's
+ * schema: the fields the record carries are kept, the rest stay in the
+ * settlement bundle where the whole claim is in custody. `verified` is derived
+ * the way `task_complete` derives it — from the presence of evidence — rather
+ * than taken from the claim. A claim whose fields the record cannot carry is
+ * reported as a string so the caller refuses BEFORE any effect: the batch stays
+ * unclaimed, and a corrected resubmission under the same batch id is answered
+ * fresh.
+ */
+function completionFactsOf(
+  acceptedTasks: readonly string[],
+  claims: readonly SettlementClaim[],
+): CompletionFact[] | string {
+  const byTask = new Map(claims.map((claim) => [claim.taskId, claim] as const));
+  const facts: CompletionFact[] = [];
+  for (const taskId of acceptedTasks) {
+    const claim = byTask.get(taskId);
+    if (claim === undefined) continue;
+    const parsed = TaskCompletedData.safeParse({
+      ...claim.fields,
+      taskId,
+      verified: claim.fields.evidence !== undefined,
+    });
+    if (!parsed.success) {
+      return (
+        `the accepted claim for task ${JSON.stringify(taskId)} cannot be recorded as a ` +
+        `completion: ${parsed.error.issues
+          .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+          .join('; ')}`
+      );
+    }
+    facts.push({ taskId, data: { ...parsed.data } });
+  }
+  return facts;
+}
+
+/** The tasks a stream already shows complete, read from the rows themselves. */
+function completedTaskIds(events: readonly DecideOnceStoredEvent[]): Set<string> {
+  const ids = new Set<string>();
+  for (const event of events) {
+    if (event.type !== 'task.completed') continue;
+    const taskId = event.data?.taskId;
+    if (typeof taskId === 'string') ids.add(taskId);
+  }
+  return ids;
+}
+
+/**
+ * Mark the settled tasks complete on the document the transition guards read.
+ *
+ * The fact is already durable on the stream; this is the same sync
+ * `task_complete` performs after its own append, through the same loop, so the
+ * `allTasksComplete` guard sees a settlement the way it sees a completion.
+ * Idempotent: a settlement answered from a claim, or one that lost the commit
+ * race to a concurrent resubmission, syncs tasks the winner already synced and
+ * changes nothing. A document that could not be brought level is reported,
+ * because a `transition` refused for tasks the ledger shows complete would
+ * otherwise have no visible cause.
+ */
+async function syncStateDocument(
+  stateDir: string,
+  streamId: string,
+  taskIds: readonly string[],
+): Promise<TaskStatusSyncOutcome> {
+  const stateFile = path.join(stateDir, `${streamId}.state.json`);
+  const outcome = await markTasksCompleteInStateDocument(stateFile, taskIds);
+  // A workflow with no document is the ordinary case, not a warning.
+  const level =
+    ((outcome.kind === 'synced' || outcome.kind === 'unchanged') && outcome.missing.length === 0) ||
+    (outcome.kind === 'skipped' && outcome.reason === 'no-document');
+  if (!level) {
+    orchestrateLogger.warn(
+      { streamId, taskIds, outcome },
+      'settle: the state document the transition guards read is not level with the settled tasks',
+    );
+  }
+  return outcome;
+}
+
+/**
+ * The receipt, with the document brought level first when the batch settled.
+ * Runs on the first return and on every replay alike: a sync that failed
+ * after the verdict was durable is repaired by the next call, rather than
+ * left behind a receipt that reads as success over a document that admits
+ * nothing. A write that fails is reported beside the receipt, so the caller
+ * knows the verdict stands and the document does not.
+ */
+async function settledResult(
+  receipt: SettlementReceipt,
+  stateDir: string,
+  streamId: string,
+): Promise<ToolResult> {
+  if (receipt.outcome !== 'settled' || receipt.acceptedTasks.length === 0) return receiptResult(receipt);
+  const sync = await syncStateDocument(stateDir, streamId, receipt.acceptedTasks);
+  if (sync.kind !== 'failed') return receiptResult(receipt);
+  return {
+    success: false,
+    data: receipt,
+    error: {
+      code: 'STATE_SYNC_FAILED',
+      message:
+        'the batch is settled and its tasks are recorded complete, but the state document the ' +
+        `transition guards read could not be updated after ${sync.attempts} attempt(s): ${sync.error}. ` +
+        'Settle the same batch again to bring the document level; nothing is adjudicated twice.',
+    },
+  };
+}
+
 /** Claims as the request carries them, refused as a whole if any entry is malformed. */
 function readClaims(raw: unknown): SettlementClaim[] | string {
   if (raw === undefined) return [];
@@ -187,7 +317,7 @@ function readDeviations(raw: unknown): ProposedDeviation[] | string {
 
 export async function handleSettle(
   raw: Record<string, unknown>,
-  _stateDir: string,
+  stateDir: string,
   ctx: DispatchContext,
   deps: SettleDeps = {},
 ): Promise<ToolResult> {
@@ -314,10 +444,18 @@ export async function handleSettle(
             'back under a new batchId.',
         );
       }
-      return receiptResult(claim.result);
+      return settledResult(claim.result, stateDir, streamId);
     }
 
     const verdict = adjudicateSettlement(capsule, claims, deviations);
+
+    // The batch's consequence, built before the first effect. A settled batch
+    // leaves one completion fact per accepted task; a rejected or held batch
+    // leaves none. A claim the completion record cannot carry refuses the
+    // call here, with nothing in custody and no claim taken.
+    const facts = verdict.outcome === 'settled' ? completionFactsOf(verdict.acceptedTasks, claims) : [];
+    if (typeof facts === 'string') return invalid(facts);
+
     const settledAt = new Date().toISOString();
 
     const bytes = encodeSettlementBundle({
@@ -388,6 +526,12 @@ export async function handleSettle(
           timestamp: settledAt,
           schemaVersion: EXECUTION_SETTLED_SETTLEMENT.custodyFromSchemaVersion,
         });
+        // The facts, stamped under the same dispatch as the record they follow
+        // and dated to the settlement, so the batch reads as one moment.
+        const completions = facts.map((fact) => ({
+          taskId: fact.taskId,
+          event: stampFromAmbient({ type: 'task.completed', data: fact.data, timestamp: settledAt }),
+        }));
 
         try {
           // `decideOnce` RETURNS the claim's canonical result, which on a race is
@@ -396,26 +540,38 @@ export async function handleSettle(
           // claim records and no replay can reproduce.
           const persisted = await ctx.eventStore
             .getAppender()
-            .decideOnce<SettlementReceipt>(operationId, requestDigest, (tx) => ({
-              streamId,
-              events: [event],
-              result: {
-                operationId,
+            .decideOnce<SettlementReceipt>(operationId, requestDigest, (tx) => {
+              // Read inside the write lock, so the tail is the sequence the
+              // last of these appends lands on, and so a completion that
+              // landed between adjudication and commit is seen: a task the
+              // stream already shows complete — the old path and this one
+              // meeting on one workflow — is not completed a second time.
+              const snapshot = tx.readStream(streamId);
+              const alreadyComplete = completedTaskIds(snapshot.events);
+              const events = [
+                event,
+                ...completions.filter((c) => !alreadyComplete.has(c.taskId)).map((c) => c.event),
+              ];
+              return {
                 streamId,
-                capsule: identity,
-                outcome: verdict.outcome,
-                acceptedTasks: verdict.acceptedTasks,
-                findings: verdict.findings,
-                adjudicated: verdict.adjudicated,
-                requestDigest,
-                // Read inside the write lock, so the tail is the sequence this
-                // very append lands on rather than whatever the stream held
-                // before the transaction opened.
-                tailSequence: tx.readStream(streamId).version + 1,
-                bundleRefs: [ref],
-              },
-            }));
-          return receiptResult(persisted);
+                events,
+                result: {
+                  operationId,
+                  streamId,
+                  capsule: identity,
+                  outcome: verdict.outcome,
+                  acceptedTasks: verdict.acceptedTasks,
+                  findings: verdict.findings,
+                  adjudicated: verdict.adjudicated,
+                  requestDigest,
+                  tailSequence: snapshot.version + events.length,
+                  bundleRefs: [ref],
+                },
+              };
+            });
+          // On a race the receipt is the winner's, and so is the accepted set;
+          // the sync is idempotent either way.
+          return settledResult(persisted, stateDir, streamId);
         } catch (error) {
           if (error instanceof OperationDigestMismatchError) {
             return refused(

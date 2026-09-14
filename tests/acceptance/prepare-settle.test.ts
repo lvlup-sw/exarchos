@@ -6,8 +6,11 @@
 // exactly as they do for an agent. What this proves that no handler test can:
 // the capsule a caller receives from `prepare` is one `settle` accepts when
 // named by version, a retry of the same batch is answered from the claim, a
-// capsule edited after compilation is refused, and the record that makes all of
-// it trustworthy cannot be written by anyone but `prepare`.
+// capsule edited after compilation is refused, the record that makes all of
+// it trustworthy cannot be written by anyone but `prepare`, and a settled
+// batch leaves the workflow's tasks complete — on the stream, in the
+// projection, and on the document the transition guards read — so the
+// transition that follows is admitted as the third call.
 //
 // @oracle-sources: ../../src/verbs/prepare/handler.ts, the settlement record and bundle blobs counted out of the real event store and content-addressed store after each dispatched call
 
@@ -21,6 +24,7 @@ import { dispatch } from '../../src/dispatch/core/dispatch.js';
 import { EventStore } from '../../src/events/store.js';
 import { PREPARE_ECONOMY_BUDGET_TOKENS } from '../../src/verbs/prepare/economy.js';
 import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
+import { initStateFile } from '../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 const STREAM = 'feat-prepare-settle-acceptance';
@@ -61,21 +65,27 @@ async function call(tool: string, args: Record<string, unknown>): Promise<{
   };
 }
 
-/** A feature workflow standing in `delegate` with three outstanding tasks, one waiting on another. */
+const TASKS = [
+  { id: 'task-a', title: 'first', status: 'pending', blockedBy: [] },
+  { id: 'task-b', title: 'second', status: 'pending', blockedBy: ['task-a'] },
+  { id: 'task-c', title: 'third', status: 'pending', blockedBy: [] },
+];
+
+/**
+ * A feature workflow standing in `delegate` with three outstanding tasks, one
+ * waiting on another: the events the projection folds, and the document the
+ * transition guards read, saying the same thing.
+ */
 async function seedDelegatingFeature(): Promise<void> {
+  await initStateFile(stateDir, STREAM, 'feature', {
+    phase: 'delegate',
+    tasks: TASKS.map(({ id, title, status }) => ({ id, title, status })),
+  });
   await eventStore.append(STREAM, { type: 'workflow.started', data: { featureId: STREAM, workflowType: 'feature' } });
   await eventStore.append(STREAM, { type: 'workflow.transition', data: { from: 'plan-review', to: 'delegate' } });
   await eventStore.append(STREAM, {
     type: 'state.patched',
-    data: {
-      patch: {
-        tasks: [
-          { id: 'task-a', title: 'first', status: 'pending', blockedBy: [] },
-          { id: 'task-b', title: 'second', status: 'pending', blockedBy: ['task-a'] },
-          { id: 'task-c', title: 'third', status: 'pending', blockedBy: [] },
-        ],
-      },
-    },
+    data: { patch: { tasks: TASKS } },
   });
 }
 
@@ -159,7 +169,66 @@ describe('prepare then settle, through the dispatcher', () => {
 
     expect(retried.data).toEqual(first.data);
     expect(await rowsOf('execution.settled')).toHaveLength(1);
+    expect(await rowsOf('task.completed')).toHaveLength(3);
     expect(await blobCount()).toBe(blobs);
+  });
+
+  it('PrepareSettle_ASettledBatch_CompletesItsTasksAndAdmitsTheTransition', async () => {
+    await seedDelegatingFeature();
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const { capsuleVersion } = prepared.data as PreparedReceipt;
+    const settled = await call('exarchos_orchestrate', {
+      action: 'settle',
+      featureId: STREAM,
+      capsuleVersion,
+      batchId: 'batch-1',
+      claims: completedClaims(),
+    });
+    expect(settled.success, JSON.stringify(settled)).toBe(true);
+    expect((settled.data as { outcome: string }).outcome).toBe('settled');
+
+    // The fact the primitive path leaves, one per task, on the feature stream.
+    const completions = (await rowsOf('task.completed')) as { data: { taskId: string; verified: boolean } }[];
+    expect(completions.map((e) => e.data.taskId).sort()).toEqual(['task-a', 'task-b', 'task-c']);
+    expect(completions.every((e) => e.data.verified === true)).toBe(true);
+
+    // The projection reads them as progress, through the fold it already has.
+    const got = await call('exarchos_workflow', { action: 'get', featureId: STREAM });
+    expect(got.success, JSON.stringify(got)).toBe(true);
+    const tasks = (got.data as { tasks: { id: string; status: string }[] }).tasks;
+    expect(tasks.map((t) => t.status)).toEqual(['complete', 'complete', 'complete']);
+
+    // And the transition — still its own call, with its own guard — is admitted.
+    const moved = await call('exarchos_workflow', { action: 'transition', featureId: STREAM, target: 'review' });
+    expect(moved.success, JSON.stringify(moved)).toBe(true);
+    const transitions = (await rowsOf('workflow.transition')) as { data: { to: string } }[];
+    expect(transitions.at(-1)?.data.to).toBe('review');
+  });
+
+  it('PrepareSettle_ARejectedBatch_LeavesNoCompletion', async () => {
+    await seedDelegatingFeature();
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const { capsuleVersion } = prepared.data as PreparedReceipt;
+    // `evidence` is declared as an object; a string on ONE claim is a
+    // field-type mismatch, which refuses the whole batch while the other two
+    // tasks are accepted. A refused batch is still a settlement, and still not
+    // progress — for any of its tasks, accepted or not.
+    const claims = completedClaims().map((claim, i) =>
+      i === 0 ? { ...claim, fields: { evidence: 'green' } } : claim,
+    );
+    const settled = await call('exarchos_orchestrate', {
+      action: 'settle',
+      featureId: STREAM,
+      capsuleVersion,
+      batchId: 'batch-wrong',
+      claims,
+    });
+    expect(settled.success, JSON.stringify(settled)).toBe(true);
+    const receipt = settled.data as { outcome: string; acceptedTasks: string[] };
+    expect(receipt.outcome).toBe('rejected');
+    expect(receipt.acceptedTasks).toEqual(['task-b', 'task-c']);
+    expect(await rowsOf('execution.settled')).toHaveLength(1);
+    expect(await rowsOf('task.completed')).toEqual([]);
   });
 
   it('PrepareSettle_ACapsuleEditedAfterCompilation_IsRefused', async () => {
