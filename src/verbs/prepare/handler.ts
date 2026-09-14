@@ -25,13 +25,18 @@ import { resolveEffectiveCatalog } from '../../architecture/resolve-effective-ca
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { runExclusivePerOperation } from '../../dispatch/core/operation-serializer.js';
 import { resolveSubjectStream } from '../../dispatch/core/subject-stream.js';
+import { getDispatchContext } from '../../dispatch/dispatch-context.js';
 import { OperationDigestMismatchError } from '../../events/atomic-appender.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import { ConcurrencyError } from '../../events/concurrency-error.js';
 import type { ToolResult } from '../../format.js';
+import { findActionInRegistry } from '../../registry.js';
+import { ALL_RUNBOOKS } from '../../runbooks/definitions.js';
+import { capabilityNeedSatisfied } from '../../workflow/capabilities/resolver.js';
+import { resolveVerificationPolicy } from '../../workflow/verification-policy-resolver.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import type { CatalogInvariant } from './bind-authority.js';
-import { compileDelegationCapsule } from './compile-capsule.js';
+import { compileDelegationCapsule, verificationProfiles, type CompileCapsuleInput } from './compile-capsule.js';
 import { lowerBuiltInDefinition } from './lower-definition.js';
 import { DELEGATION_STEP_ID, partitionDelegationBatch } from './partition-tasks.js';
 import { commitPreparedCapsule } from './prepared-record.js';
@@ -39,6 +44,41 @@ import type { PreparedCapsuleReceipt, PrepareRefusal } from './types.js';
 
 /** The workflow type whose delegation batch this compiler knows how to compile. */
 const PREPARABLE_WORKFLOW_TYPE = 'feature';
+
+/** The runbook settlement composes per accepted task; its leaves' needs are the batch's. */
+const SETTLEMENT_SEGMENT_INTENT = 'task-completion';
+
+/**
+ * The capabilities a runtime must hold to run a batch through the plane: what
+ * `settle` itself declares it needs, and what every leaf of the segment it
+ * composes declares. Read off the registry so the profile cannot drift from
+ * the contracts it stands for; a runtime refused here is refused before it
+ * fans out, rather than at settlement after the work is done.
+ */
+export function planeExecutionCapabilities(): readonly string[] {
+  const needs = new Set<string>();
+  const collect = (tool: string, action: string): void => {
+    const declared = findActionInRegistry(tool, action)?.actionContract?.needs;
+    if (declared?.kind !== 'declared') return;
+    for (const capability of declared.values) needs.add(capability);
+  };
+  collect('exarchos_orchestrate', 'settle');
+  const segment = ALL_RUNBOOKS.find((runbook) => runbook.id === SETTLEMENT_SEGMENT_INTENT);
+  for (const step of segment?.steps ?? []) {
+    if (step.tool === 'none' || step.tool.startsWith('native:')) continue;
+    collect(step.tool, step.action);
+  }
+  return [...needs].sort();
+}
+
+/**
+ * The capabilities the calling runtime is known to hold: the trusted caller
+ * snapshot the dispatch minted, the same grant admission reads. No snapshot
+ * is no grant — a caller nothing vouched for holds nothing here.
+ */
+function heldCapabilities(): ReadonlySet<string> {
+  return new Set(getDispatchContext()?.authorization?.capabilities ?? []);
+}
 
 /** Injected so the tests drive a real store at a temporary root, with a fixed catalog and clock. */
 export interface PrepareDeps {
@@ -141,6 +181,22 @@ export async function handlePrepare(
   if (!partition.ok) return refused(partition.refusal);
   const { batch } = partition;
 
+  // The runtime is measured against the profile BEFORE anything is compiled
+  // or recorded: a harness that cannot settle what it is about to dispatch
+  // should learn so before it dispatches.
+  const capabilities = planeExecutionCapabilities();
+  const held = heldCapabilities();
+  const missing = capabilities.filter((capability) => !capabilityNeedSatisfied(held, capability));
+  if (missing.length > 0) {
+    return refused({
+      code: 'RUNTIME_UNFIT',
+      message:
+        `the calling runtime lacks ${missing.map((c) => JSON.stringify(c)).join(', ')}, which the batch's ` +
+        `execution profile requires (${capabilities.join(', ')}): settlement runs each task's ` +
+        'verification through the same runtime, so the batch is refused before it is dispatched.',
+    });
+  }
+
   const artifacts = isRecord(state.artifacts) ? state.artifacts : {};
   const designRef =
     typeof artifacts.design === 'string' && artifacts.design.length > 0 ? artifacts.design : undefined;
@@ -152,6 +208,20 @@ export async function handlePrepare(
     ctx.cwd ?? process.cwd(),
   );
 
+  // Through the policy's one composer, with the dispatched project's
+  // overrides applied: the sequence the capsule states is the sequence the
+  // gates' own self-skip routing will honour at settlement. Resolved ahead
+  // of the digest, because the terms are inputs to the compilation: a
+  // policy that changes under an unchanged plan compiles the next version
+  // rather than replaying a capsule that states the old sequence.
+  const sequenceOf: CompileCapsuleInput['verificationSequence'] = (riskTier, boundaryTouching) =>
+    resolveVerificationPolicy(riskTier, boundaryTouching, ctx.projectConfig).sequence;
+  const verificationTerms = verificationProfiles(batch).map((profile) => ({
+    riskTier: profile.riskTier,
+    boundaryTouching: profile.boundaryTouching,
+    sequence: [...sequenceOf(profile.riskTier, profile.boundaryTouching)],
+  }));
+
   const inputs = {
     streamId,
     workflowType,
@@ -159,6 +229,8 @@ export async function handlePrepare(
     batch,
     catalogInvariants,
     designRef: designRef ?? null,
+    executionProfile: { capabilities },
+    verificationTerms,
   };
   const operationId = `prepare:${contentDigest(inputs)}`;
   const requestDigest = canonicalRequestDigest(inputs);
@@ -179,6 +251,8 @@ export async function handlePrepare(
       batch,
       catalogInvariants,
       designRef,
+      executionProfile: { capabilities },
+      verificationSequence: sequenceOf,
       compiledAt: (deps.now ?? (() => new Date().toISOString()))(),
     });
     if (!compiled.ok) return refused(compiled.refusal);

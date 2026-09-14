@@ -26,6 +26,8 @@ export const PREPARE_REFUSAL_CODES = [
   'INVALID_TASK_STAMP',
   /** The compiled capsule does not validate — a cyclic plan, or a compiler defect. */
   'CAPSULE_UNSOUND',
+  /** The calling runtime lacks a capability the batch's execution profile requires. */
+  'RUNTIME_UNFIT',
 ] as const;
 
 export type PrepareRefusalCode = (typeof PREPARE_REFUSAL_CODES)[number];

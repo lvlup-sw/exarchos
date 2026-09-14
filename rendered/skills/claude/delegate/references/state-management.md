@@ -16,12 +16,7 @@ action: "update", featureId: "<id>", updates: {
 }
 ```
 
-**On Task Complete:**
-```text
-action: "update", featureId: "<id>", updates: {
-  "tasks[id=<taskId>]": { "status": "complete", "completedAt": "<ISO timestamp>" }
-}
-```
+**On Task Complete:** nothing to patch. A settled batch marks each accepted task complete on the stream and on the state document — `settle` is the writer of `tasks[].status: "complete"`. Patching it by hand ahead of settlement lets an unverified task through the transition guard.
 
 **On All Tasks Complete:**
 ```text

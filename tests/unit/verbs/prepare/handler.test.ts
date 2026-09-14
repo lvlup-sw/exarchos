@@ -13,8 +13,12 @@ import * as path from 'node:path';
 import { mkdtemp, readdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
+import { resolveConfig, type ResolvedProjectConfig } from '../../../../src/config/resolve.js';
 import { capsuleDigest } from '../../../../src/contract/capsule/capsule-digest.js';
-import { deriveMcpCallerIdentity } from '../../../../src/dispatch/caller-identity.js';
+import {
+  deriveMcpCallerIdentity,
+  snapshotCallerAuthorization,
+} from '../../../../src/dispatch/caller-identity.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import {
   mintDispatchContext,
@@ -25,14 +29,17 @@ import { WorkflowPreparedData } from '../../../../src/events/schemas.js';
 import { EventStore } from '../../../../src/events/store.js';
 import type { ToolResult } from '../../../../src/format.js';
 import type { CatalogInvariant } from '../../../../src/verbs/prepare/bind-authority.js';
-import { handlePrepare } from '../../../../src/verbs/prepare/handler.js';
+import { handlePrepare, planeExecutionCapabilities } from '../../../../src/verbs/prepare/handler.js';
 import { lowerBuiltInDefinition } from '../../../../src/verbs/prepare/lower-definition.js';
 import { findPreparedCapsule } from '../../../../src/verbs/prepare/prepared-record.js';
 import type { PreparedCapsuleReceipt } from '../../../../src/verbs/prepare/types.js';
+import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 const STREAM = 'feat-prepare-unit';
 const COMPILED_AT = '2026-09-12T00:00:00.000Z';
+/** What a runtime that can settle what it dispatches holds; the profile is a subset. */
+const FIT_CAPABILITIES = ['fs:read', 'fs:write', 'shell:exec', 'mcp:exarchos', 'subagent:spawn'];
 
 let stateDir: string;
 let store: EventStore;
@@ -52,17 +59,23 @@ function wiring(): DispatchContext {
   return { stateDir, eventStore: store, enableTelemetry: false };
 }
 
-function correlation(): ReturnType<typeof mintDispatchContext> {
-  deriveMcpCallerIdentity({ sessionId: 'prepare-fixture' });
-  return mintDispatchContext(undefined);
+function correlation(capabilities: readonly string[] = FIT_CAPABILITIES): ReturnType<typeof mintDispatchContext> {
+  const identity = deriveMcpCallerIdentity({ sessionId: 'prepare-fixture' });
+  return mintDispatchContext(
+    undefined,
+    snapshotCallerAuthorization(identity, createInMemoryResolver(capabilities)),
+  );
 }
 
 async function prepare(
   raw: Record<string, unknown>,
   catalog: readonly CatalogInvariant[] = [],
+  capabilities: readonly string[] = FIT_CAPABILITIES,
+  projectConfig?: ResolvedProjectConfig,
 ): Promise<ToolResult> {
-  return runWithDispatchContext(correlation(), () =>
-    handlePrepare(raw, stateDir, wiring(), { catalogInvariants: () => catalog, now: () => COMPILED_AT }),
+  const ctx = { ...wiring(), ...(projectConfig !== undefined ? { projectConfig } : {}) };
+  return runWithDispatchContext(correlation(capabilities), () =>
+    handlePrepare(raw, stateDir, ctx, { catalogInvariants: () => catalog, now: () => COMPILED_AT }),
   );
 }
 
@@ -177,6 +190,35 @@ describe('prepare — the compilation endpoint', () => {
     expect(await preparedRows()).toHaveLength(2);
   });
 
+  it('Prepare_AChangedVerificationPolicy_CompilesTheNextVersion', async () => {
+    // The verification terms are inputs to the compilation, not a decoration
+    // of it: the same plan under a policy that now names another sequence
+    // for a profile the batch carries is the next version, whose capsule
+    // states the new sequence. A change to a profile the batch does not
+    // carry changes none of its terms, and replays.
+    await seedDelegatingFeature(PLAN);
+    const first = receiptOf(await prepare({ featureId: STREAM }));
+    expect(first.capsule.settlementContract.taskVerification?.['T-2']).toEqual({
+      riskTier: 'medium',
+      boundaryTouching: false,
+    });
+    const before = first.capsule.knowledge.patterns.map((p) => p.statement);
+
+    const elsewhere = resolveConfig({ verification: { policy: { high: ['check_contract_drift'] } } });
+    expect(receiptOf(await prepare({ featureId: STREAM }, [], FIT_CAPABILITIES, elsewhere))).toEqual(first);
+    expect(await preparedRows()).toHaveLength(1);
+
+    const changed = resolveConfig({ verification: { policy: { medium: ['check_contract_drift'] } } });
+    const next = receiptOf(await prepare({ featureId: STREAM }, [], FIT_CAPABILITIES, changed));
+    expect(next.capsuleVersion).toBe(2);
+    const after = next.capsule.knowledge.patterns.map((p) => p.statement);
+    expect(after).toContain(
+      'A task at riskTier=medium, boundaryTouching=false is verified at settlement by: check_contract_drift.',
+    );
+    expect(after).not.toEqual(before);
+    expect(await preparedRows()).toHaveLength(2);
+  });
+
   it('Prepare_ARegisteredCatalog_IsBoundIntoTheAuthority', async () => {
     await seedDelegatingFeature(PLAN);
     const receipt = receiptOf(await prepare({ featureId: STREAM }, [{ id: 'INV-9', summary: 'catalog statement' }]));
@@ -231,6 +273,46 @@ describe('prepare — the compilation endpoint', () => {
     const retried = receiptOf(await prepare({ featureId: STREAM }));
     expect(retried.capsuleVersion).toBe(1);
     expect(await preparedRows()).toHaveLength(1);
+  });
+
+  it('Prepare_TheCapsule_CarriesTheExecutionProfileTheRegistryDeclares', async () => {
+    // The profile is what the plane's own calls need — settle, and every leaf
+    // of the segment it composes — read off their registrations rather than
+    // listed. Pinned against the registry-derived set, and against the
+    // shape a fit runtime is measured by.
+    await seedDelegatingFeature(PLAN);
+    const receipt = receiptOf(await prepare({ featureId: STREAM }));
+    const profile = receipt.capsule.executionProfile;
+    expect(profile).toBeDefined();
+    expect(profile?.capabilities).toEqual(planeExecutionCapabilities());
+    expect(profile?.capabilities).toEqual(['fs:read', 'fs:write', 'mcp:exarchos', 'shell:exec']);
+    // And the bound knowledge says what each tier's work will be judged by,
+    // so a dispatching harness can tell its workers without a policy copy.
+    expect(receipt.capsule.knowledge.patterns.map((p) => p.statement)).toEqual([
+      'A task at riskTier=medium, boundaryTouching=false is verified at settlement by: check_static_analysis, check_test_adequacy.',
+    ]);
+  });
+
+  it('Prepare_ARuntimeThatCannotSettleTheBatch_IsRefusedBeforeFanOut', async () => {
+    // A harness without shell access cannot run the ladder gates settlement
+    // composes. It learns so here, with nothing compiled and nothing recorded,
+    // rather than at settlement with the work already dispatched.
+    await seedDelegatingFeature(PLAN);
+    const blobs = await bundleBlobCount();
+    const result = await prepare({ featureId: STREAM }, [], ['fs:read', 'fs:write', 'mcp:exarchos']);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('RUNTIME_UNFIT');
+      expect(result.error.message).toContain('"shell:exec"');
+    }
+    expect(await preparedRows()).toEqual([]);
+    expect(await bundleBlobCount()).toBe(blobs);
+    // No trusted snapshot at all is no grant at all.
+    const anonymous = await runWithDispatchContext(mintDispatchContext(undefined), () =>
+      handlePrepare({ featureId: STREAM }, stateDir, wiring(), { catalogInvariants: () => [], now: () => COMPILED_AT }),
+    );
+    expect(anonymous.success).toBe(false);
+    if (!anonymous.success) expect(anonymous.error.code).toBe('RUNTIME_UNFIT');
   });
 
   describe('refusals happen before any effect', () => {

@@ -38,14 +38,14 @@ If `exarchos_orchestrate` with `action: "task_claim"` returns ALREADY_CLAIMED:
 
 ### Error: `all-tasks-complete not satisfied: N task(s) incomplete`
 
-**Cause:** The runtime's native task list was modified, but exarchos workflow state was not synced. The `all-tasks-complete` guard checks the exarchos workflow `tasks[]` array, NOT any runtime-native task list.
+**Cause:** A task was rejected or held at settlement (read the settlement receipt's `findings` — a rejected task is not complete, whatever the worker reported), or, on the primitive path, the runtime's native task list was modified but exarchos workflow state was not synced. The `all-tasks-complete` guard checks the exarchos workflow `tasks[]` array, NOT any runtime-native task list.
 
 <!-- requires:team:agent-teams -->
 With Agent Teams enabled, this typically happens when teammates update their runtime task list (for example via `TaskUpdate`) but the orchestrator hasn't mirrored those statuses into exarchos workflow state.
 <!-- /requires -->
 
 
-**Solution:** Before transitioning to review, call `exarchos_workflow update` with updated task statuses:
+**Solution:** On the capsule path, fix the rejected task and resubmit the batch to `settle` under a new batch id; settlement marks it complete. On the primitive path only, call `exarchos_workflow update` with updated task statuses before transitioning:
 ```json
 {
   "action": "update",

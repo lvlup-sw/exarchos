@@ -151,8 +151,8 @@ modes or comparing their semantics.
 | Visibility | None (background) |
 | Cross-task deps | Orchestrator manages phases |
 | State updates | Orchestrator updates state |
-| Quality gates | Manual via `post_delegation_check` action |
-| Model control | `recommendedModel` per task from `prepare_delegation` (config cascade) |
+| Quality gates | `settle` runs each task's gates when the batch is submitted; `check_integration_suite` once per wave |
+| Model control | The capsule's `taskVerification[taskId].riskTier` via `agents.tier-models` (`recommendedModel` on the primitive path) |
 | Max parallelism | Unlimited |
 | Resume on crash | Task results preserved |
 
@@ -166,8 +166,8 @@ modes or comparing their semantics.
 | Visibility | None (background) | tmux split panes |
 | Cross-task deps | Orchestrator manages phases | Shared task list + unblocked-task detection |
 | State updates | Orchestrator updates state | `TeammateIdle` hook auto-updates via state bridge |
-| Quality gates | Manual via `post_delegation_check` action | Automatic via `TeammateIdle` hook |
-| Model control | `recommendedModel` per task from `prepare_delegation` (config cascade) | Session model shared by all teammates |
+| Quality gates | `settle` runs each task's gates when the batch is submitted | `TeammateIdle` hook runs its own checks; settlement still decides |
+| Model control | The capsule's `taskVerification[taskId].riskTier` via `agents.tier-models` | Session model shared by all teammates |
 | Max parallelism | Unlimited | One team, N teammates |
 | Resume on crash | Task results preserved | Worktrees survive; teammates lost |
 
@@ -182,10 +182,10 @@ TaskOutput({ task_id, block: true })
 
 ## Model Selection Guide
 
-Model selection is config-driven via `.exarchos.yml`. The `prepare_delegation` action returns a `recommendedModel` in each task classification based on the config cascade: per-agent override, then default-model, then fallback. Override per-task via the dispatch primitive's `model` parameter when needed.
+Model selection is config-driven via `.exarchos.yml`. The tier is the capsule's `settlementContract.taskVerification[taskId].riskTier`, resolved through `agents.tier-models` (per-agent override, then default-model, then fallback); on the primitive path `prepare_delegation` returns the same resolution as `recommendedModel` per task classification. Override per-task via the dispatch primitive's `model` parameter when needed.
 
 
-**Note:** When using Agent Teams, all teammates inherit the session's model. Model is resolved from `.exarchos.yml` config via `prepare_delegation`. Use subagent dispatch if you need per-task model override.
+**Note:** When using Agent Teams, all teammates inherit the session's model. Model is resolved from `.exarchos.yml` config. Use subagent dispatch if you need per-task model override.
 
 ## Agent Teams Dispatch Pattern
 

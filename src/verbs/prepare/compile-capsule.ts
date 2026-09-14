@@ -14,9 +14,9 @@
 //               `definitionVersion`
 //   bind        the built-in authority, with the catalog's invariants on top
 //   partition   the plan's outstanding tasks, already cut into a batch
-//   lower       nothing is attached for a runtime yet: the capsule carries no
-//               execution profile, and a harness schedules the batch however
-//               its dependencies allow
+//   lower       the execution profile: the capabilities the plane's own calls
+//               need, which the handler reads off the registry and hands in;
+//               a harness schedules the batch however its dependencies allow
 //   validate    the published contract, then every reference — against the
 //               definition the capsule pins, so a task naming a step that
 //               definition lacks is refused here rather than at settlement
@@ -37,7 +37,7 @@ import {
 import { EdgeConditionNodeSchema } from '../../contract/ir/admission-ir.js';
 import { TaskCompletedData } from '../../events/schemas.js';
 import { findActionInRegistry } from '../../registry.js';
-import { VERIFICATION_GATE_NAMES } from '../../workflow/verification-policy.js';
+import { VERIFICATION_GATE_NAMES, type RiskTier } from '../../workflow/verification-policy.js';
 import {
   FACT_DECLARATION,
   TASKS_COMPLETE_CONDITION,
@@ -45,7 +45,7 @@ import {
 import { bindCatalogInvariants, type CatalogInvariant } from './bind-authority.js';
 import { builtInWorkflowAuthority } from './built-in-authority.js';
 import type { LoweredBuiltInDefinition } from './lower-definition.js';
-import { DELEGATION_STEP_ID, type DelegationBatch } from './partition-tasks.js';
+import { DELEGATION_STEP_ID, type BatchTaskVerification, type DelegationBatch } from './partition-tasks.js';
 import type { PrepareRefusal } from './types.js';
 
 /** Names the compiler that produced a capsule, so a reader can tell compilations apart. */
@@ -62,6 +62,18 @@ export interface CompileCapsuleInput {
   readonly catalogInvariants: readonly CatalogInvariant[];
   /** The workflow's design artifact reference, when it records one. */
   readonly designRef: string | undefined;
+  /**
+   * The capabilities a runtime must hold to run this batch through the plane,
+   * derived by the handler from the registry's own declarations. Empty means
+   * no profile is attached.
+   */
+  readonly executionProfile: { readonly capabilities: readonly string[] };
+  /**
+   * The gates a task at a given tier is verified by, as the handler resolves
+   * them through the policy's one composer — the project's overrides applied,
+   * so the capsule states the sequence the gates' own routing will honour.
+   */
+  readonly verificationSequence: (riskTier: RiskTier, boundaryTouching: boolean) => readonly string[];
   readonly compiledAt: string;
 }
 
@@ -138,6 +150,43 @@ function delegatedEvidenceKinds(): string[] {
 
 function statement(text: string): { statement: string } {
   return { statement: text };
+}
+
+/**
+ * One statement per distinct verification profile in the batch, naming the
+ * gates settlement runs for a task at that tier. Bound as knowledge so the
+ * dispatching harness can tell each worker what its work will be judged by,
+ * without a second copy of the policy table in prose. Resolved through the
+ * sequence the handler hands in, in profile order, so the same batch yields
+ * the same statements.
+ */
+/**
+ * The distinct verification profiles the batch's tasks settle under, in one
+ * fixed order. The capsule's pattern statements and the compilation's replay
+ * key are both built over this list, so the terms the capsule states are the
+ * terms the key was taken over.
+ */
+export function verificationProfiles(batch: DelegationBatch): readonly BatchTaskVerification[] {
+  const profiles = new Map<string, BatchTaskVerification>();
+  for (const task of batch.tasks) {
+    const key = `${task.verification.riskTier}|${task.verification.boundaryTouching}`;
+    if (!profiles.has(key)) profiles.set(key, task.verification);
+  }
+  return [...profiles.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([, profile]) => profile);
+}
+
+function verificationPatterns(
+  batch: DelegationBatch,
+  sequenceOf: CompileCapsuleInput['verificationSequence'],
+): { statement: string }[] {
+  return verificationProfiles(batch).map((profile) =>
+    statement(
+      `A task at riskTier=${profile.riskTier}, boundaryTouching=${profile.boundaryTouching} is ` +
+        `verified at settlement by: ${sequenceOf(profile.riskTier, profile.boundaryTouching).join(', ')}.`,
+    ),
+  );
 }
 
 /** Compile one delegation batch, or refuse it. */
@@ -222,9 +271,12 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
     knowledge: {
       mode: 'eager',
       rationale: designRef !== undefined ? [statement(`The design of record is ${designRef}.`)] : [],
-      patterns: [],
+      patterns: verificationPatterns(batch, input.verificationSequence),
       glossary: [],
     },
+    ...(input.executionProfile.capabilities.length > 0
+      ? { executionProfile: { capabilities: [...input.executionProfile.capabilities] } }
+      : {}),
     provenance: {
       sources,
       compiledAt: input.compiledAt,
