@@ -76,20 +76,67 @@ describe('delegation capsule compilation', () => {
     expect(fields).not.toContain('team.disbandedOk');
   });
 
-  it('Compile_EveryTaskResult_RequiresEvidence', () => {
+  it('Compile_EveryTaskResult_RequiresTheWorktree_AndCarriesNoEvidence', () => {
+    // A runtime returns where it worked and what it produced. It does not
+    // return evidence or a verified flag: settlement derives both by running
+    // the task's verification against that worktree, and a result shape that
+    // admitted them would let the work certify itself.
     const outcome = compileDelegationCapsule(input());
     if (!outcome.ok) throw new Error(outcome.refusal.message);
     const results = outcome.capsule.contracts.taskResults;
     expect(Object.keys(results).sort()).toEqual(['T-1', 'T-2', 'T-3']);
     for (const fields of Object.values(results)) {
-      expect(fields.find((field) => field.name === 'evidence')).toEqual({
-        name: 'evidence',
-        type: 'object',
+      expect(fields.find((field) => field.name === 'worktreePath')).toEqual({
+        name: 'worktreePath',
+        type: 'string',
         required: true,
       });
-      expect(fields.map((field) => field.name)).not.toContain('taskId');
+      expect(fields.find((field) => field.name === 'branch')).toEqual({
+        name: 'branch',
+        type: 'string',
+        required: false,
+      });
+      const names = fields.map((field) => field.name);
+      expect(names).not.toContain('taskId');
+      expect(names).not.toContain('evidence');
+      expect(names).not.toContain('verified');
+      // The record's own provenance fields ride along, optional as they are there.
+      expect(names).toEqual(expect.arrayContaining(['artifacts', 'files', 'tests', 'implements', 'duration']));
     }
-    expect(outcome.capsule.contracts.evidenceKinds).toEqual(['test', 'build', 'typecheck', 'manual']);
+    // Evidence is cited by reference to a recorded ladder row, so the kinds
+    // are the ladder's gate classes — read off the registry, not restated.
+    expect(outcome.capsule.contracts.evidenceKinds).toEqual([
+      'static-analysis',
+      'test-adequacy',
+      'integration-suite',
+      'contract-drift',
+      'mock-boundary',
+    ]);
+  });
+
+  it('Compile_EveryTask_CarriesTheVerificationTermsThePlanResolves', () => {
+    // The planner's stamp wins; the file-and-layer heuristic decides otherwise;
+    // a task with nothing to go on is medium and not boundary-touching. Frozen
+    // into the capsule, because the tier chooses the gates and a runtime must
+    // not choose its own.
+    const outcome = compileDelegationCapsule(
+      input({
+        batch: batchOf([
+          { id: 'T-1', title: 'stamped', status: 'pending', blockedBy: [], riskTier: 'high', boundaryTouching: false },
+          { id: 'T-2', title: 'plain', status: 'pending', blockedBy: [] },
+          { id: 'T-3', title: 'adapter', status: 'pending', blockedBy: [], testLayer: 'integration' },
+        ]),
+      }),
+    );
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    expect(outcome.capsule.settlementContract.taskVerification).toEqual({
+      'T-1': { riskTier: 'high', boundaryTouching: false },
+      'T-2': { riskTier: 'medium', boundaryTouching: false },
+      'T-3': { riskTier: 'medium', boundaryTouching: true },
+    });
+    // And the graph task stays the graph task: the terms live in the
+    // settlement contract, not smuggled onto the node.
+    expect(outcome.capsule.graph.tasks[0]).toEqual({ taskId: 'T-1', title: 'stamped', stepId: 'delegate' });
   });
 
   it('Compile_ACompiledCapsule_IsOneTheRealAdjudicatorCanSettle', () => {
@@ -100,10 +147,10 @@ describe('delegation capsule compilation', () => {
     if (!outcome.ok) throw new Error(outcome.refusal.message);
     const claims = ['T-1', 'T-2', 'T-3'].map((taskId) => ({
       taskId,
-      fields: { evidence: { type: 'test', output: 'ok', passed: true } },
-      evidence: [{ kind: 'test', ref: `run-${taskId}` }],
+      fields: { worktreePath: `/worktrees/${taskId}`, files: ['src/a.ts'] },
+      evidence: [],
     }));
-    const verdict = adjudicateSettlement(outcome.capsule, claims);
+    const verdict = adjudicateSettlement(outcome.capsule, claims, [], { evidenceResolves: () => true });
     expect(verdict.findings).toEqual([]);
     expect(verdict.outcome).toBe('settled');
   });

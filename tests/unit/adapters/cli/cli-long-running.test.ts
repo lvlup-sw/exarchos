@@ -109,6 +109,9 @@ const EXPECTED_LONG_RUNNING_ACTIONS: ReadonlySet<string> = new Set([
   // including gates that themselves shell out (check_static_analysis,
   // check_test_adequacy, check_contract_drift) — far exceeds the 2s heartbeat.
   'execute_intent',
+  // The settlement endpoint: runs each accepted task's task-completion
+  // segment through that executor, so it carries the flag for the same reason.
+  'settle',
 ]);
 
 describe('orchestrate action registry — longRunning metadata (DR-5)', () => {

@@ -90,6 +90,21 @@ const REFERENCE_CASES: readonly ReferenceCase[] = [
     }),
   ),
   bend(
+    'verification terms for a task the graph does not declare',
+    'dangling-task-ref',
+    'settlementContract.taskVerification["task-ghost"]',
+    (b) => ({
+      ...b,
+      settlementContract: {
+        ...b.settlementContract,
+        taskVerification: {
+          ...b.settlementContract.taskVerification,
+          'task-ghost': { riskTier: 'low', boundaryTouching: false },
+        },
+      },
+    }),
+  ),
+  bend(
     'a dependency pointing at no task',
     'dangling-task-ref',
     'graph.dependencies[0].to',

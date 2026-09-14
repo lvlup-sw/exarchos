@@ -50,6 +50,20 @@ const ReceiptCensusSchema = z
     fields: z.number().int().nonnegative(),
     evidence: z.number().int().nonnegative(),
     deviations: z.number().int().nonnegative(),
+    // Optional for the reason `bundleRefs` is: a receipt replayed from a claim
+    // written before settlement verified anything carries no count.
+    verification: z.number().int().nonnegative().optional(),
+  })
+  .passthrough();
+
+const ReceiptVerificationSchema = z
+  .object({
+    taskId: z.string().min(1),
+    outcome: z.enum(['verified', 'already-complete', 'failed']),
+    operationId: z.string().min(1).optional(),
+    failedLeaf: z.string().min(1).optional(),
+    message: z.string().min(1).optional(),
+    bundleRefs: z.array(ReceiptBundleRefSchema).min(1).optional(),
   })
   .passthrough();
 
@@ -64,6 +78,7 @@ const SettlementReceiptData = z
     adjudicated: ReceiptCensusSchema,
     requestDigest: z.string().min(1),
     tailSequence: z.number().int().nonnegative(),
+    verification: z.array(ReceiptVerificationSchema).optional(),
     bundleRefs: z.array(ReceiptBundleRefSchema).min(1).optional(),
   })
   .passthrough();

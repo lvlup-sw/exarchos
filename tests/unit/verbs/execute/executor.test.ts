@@ -233,6 +233,26 @@ describe('handleExecuteIntent commit', () => {
     });
   });
 
+  it('CapsuleSteering_IsRecordedAsTheCapsules', async () => {
+    // A composing caller that read the tier off a pinned capsule says so, and
+    // the record never claims the runtime supplied the terms it was judged by.
+    const deps = { ...depsFor([fixtureStep('fixture_quiet', 'stop')], { fixture_quiet: silentHandler() }), steeringSource: 'capsule' as const };
+    const result = await execute(
+      {
+        intent: INTENT,
+        streamId: STREAM,
+        args: { taskId: 't1', riskTier: 'low', boundaryTouching: false },
+        operationId: 'op-steer-capsule',
+      },
+      deps,
+    );
+    expect(receiptOf(result).steering).toEqual({ riskTier: 'low', boundaryTouching: false, source: 'capsule' });
+    const committed = await operationEvents();
+    expect(committed[0]?.data).toMatchObject({
+      steering: { riskTier: 'low', boundaryTouching: false, source: 'capsule' },
+    });
+  });
+
   it('LeafEvents_CarryTheDerivedPerLeafOperationId', async () => {
     const deps = depsFor(
       [fixtureStep('fixture_quiet', 'stop'), fixtureStep('fixture_promises', 'stop')],

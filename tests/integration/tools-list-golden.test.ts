@@ -269,6 +269,29 @@
 // No tool or action was added or removed, no order changed, and no schema
 // moved: the request shape is byte-identical. The wire now says what the
 // handler does, which is to leave the fact the primitive path leaves.
+//
+// ── Settlement runs the verification it resolves ──────────────────────────
+//
+// MEASURED, not eyeballed: parsing both goldens and comparing per tool and
+// per field yields ONE changed field, `exarchos_orchestrate`'s description,
+// and inside it TWO changed action lines:
+//
+//     settle         — the clause above is replaced: a batch with no finding
+//                      RUNS each task's task-completion segment (the ladder
+//                      gates under the tier the capsule froze, then
+//                      task_complete) against the claim's worktreePath, and a
+//                      halted segment is a verification-failed finding. Cited
+//                      evidence must now resolve to a recorded row. The digest
+//                      moves with the description and with the declaration —
+//                      `shell:exec` and `mcp:exarchos` joined its needs, the
+//                      worktree and branch its resources, and the
+//                      `task.completed` edge left it: the completion leaf the
+//                      segment composes is that fact's one declared producer.
+//     execute_intent — its task-completion argument list gains `result?`, the
+//                      completion's provenance the terminal leaf records.
+//
+// No tool or action was added or removed, no order changed, and no schema
+// moved: both request shapes are byte-identical.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';

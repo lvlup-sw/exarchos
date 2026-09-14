@@ -3868,8 +3868,11 @@ export const IntentExecutedSteering = z
       .optional()
       .describe('Caller-supplied boundary-touching flag passed through to the intent args'),
     source: z
-      .literal('caller-args')
-      .describe('Provenance of the two fields above — caller-supplied, never a resolved durable stamp'),
+      .enum(['caller-args', 'capsule'])
+      .describe(
+        'Provenance of the two fields above — caller-supplied, or read off the pinned capsule a ' +
+          'settlement composed this segment under; never a resolved durable stamp',
+      ),
   })
   .strict();
 
@@ -3961,6 +3964,11 @@ export const SettlementCensusData = z
     fields: z.number().int().nonnegative().describe('Declared result fields read against a claim'),
     evidence: z.number().int().nonnegative().describe('Evidence entries checked for admissibility'),
     deviations: z.number().int().nonnegative().describe('Deviations proposed against the envelope'),
+    verification: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe('Task verification outcomes read on the final pass; zero when no verification ran'),
   })
   .strict();
 

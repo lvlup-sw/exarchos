@@ -24,6 +24,24 @@ export interface SettledCapsuleIdentity {
   readonly batchId: string;
 }
 
+/**
+ * How one accepted claim's verification ran, as the settlement records it.
+ *
+ * `operationId` names the task-completion segment the task ran under, so a
+ * caller can read that segment's own receipt back through `execute_intent`;
+ * it is absent for a task the stream already showed complete, where nothing
+ * ran. `bundleRefs` is the segment's run bundle, present when a segment ran
+ * and committed a record.
+ */
+export interface SettlementVerificationTrace {
+  readonly taskId: string;
+  readonly outcome: 'verified' | 'already-complete' | 'failed';
+  readonly operationId?: string;
+  readonly failedLeaf?: string;
+  readonly message?: string;
+  readonly bundleRefs?: readonly [BundleRefV1, ...BundleRefV1[]];
+}
+
 /** What one `settle` call returns, on every outcome. */
 export interface SettlementReceipt {
   readonly operationId: string;
@@ -35,6 +53,13 @@ export interface SettlementReceipt {
   readonly adjudicated: SettlementCensus;
   readonly requestDigest: string;
   readonly tailSequence: number;
+  /**
+   * How each accepted claim was verified. Empty on a batch adjudication
+   * refused or held before verification ran; optional for the reason
+   * `bundleRefs` is — a receipt replayed from a claim an older build wrote
+   * carries none.
+   */
+  readonly verification?: readonly SettlementVerificationTrace[];
   /**
    * Optional even though every fresh settlement stamps it: a replay returns the
    * receipt persisted in the operation claim, and requiring the field would

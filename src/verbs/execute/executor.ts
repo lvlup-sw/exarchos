@@ -144,6 +144,13 @@ export interface ExecuteIntentDeps extends CompileDeps {
    * the one way to make the write fail without making the filesystem fail.
    */
   readonly bundleStore?: RunBundleStore;
+  /**
+   * Where the segment's steering came from, recorded on the receipt and the
+   * operation record. Absent, `caller-args` — the executor's own public path.
+   * A composing caller that read the tier off a pinned capsule says so here,
+   * so the record never claims a runtime supplied terms it was judged by.
+   */
+  readonly steeringSource?: ReceiptSteering['source'];
 }
 
 /**
@@ -260,7 +267,10 @@ function obligedEmissions(leaf: CompiledLeaf): ReadonlySet<string> {
 
 // ─── Commit ─────────────────────────────────────────────────────────────────
 
-function buildSteering(args: Record<string, unknown>): ReceiptSteering | undefined {
+function buildSteering(
+  args: Record<string, unknown>,
+  source: ReceiptSteering['source'],
+): ReceiptSteering | undefined {
   const riskTier = args.riskTier;
   const boundaryTouching = args.boundaryTouching;
   const hasTier = riskTier === 'low' || riskTier === 'medium' || riskTier === 'high';
@@ -269,7 +279,7 @@ function buildSteering(args: Record<string, unknown>): ReceiptSteering | undefin
   return {
     ...(hasTier ? { riskTier } : {}),
     ...(hasBoundary ? { boundaryTouching } : {}),
-    source: 'caller-args',
+    source,
   };
 }
 
@@ -461,6 +471,7 @@ export async function handleExecuteIntent(
       handlers,
       handlerTool: deps.handlerTool,
       bundles: deps.bundleStore ?? ctx.eventStore.bundleStore,
+      steeringSource: deps.steeringSource ?? 'caller-args',
     });
     if (committed.kind === 'digest-mismatch') {
       return digestMismatchResult(
@@ -485,6 +496,7 @@ interface RunSegmentInput {
   readonly handlers: LeafHandlerTable;
   readonly handlerTool: string;
   readonly bundles: RunBundleStore;
+  readonly steeringSource: ReceiptSteering['source'];
 }
 
 /** The window a leaf ran in — bundle material, not receipt material. */
@@ -588,7 +600,7 @@ async function runSegment(input: RunSegmentInput): Promise<CommitOutcome> {
     }
   }
 
-  const steering = buildSteering(segment.args);
+  const steering = buildSteering(segment.args, input.steeringSource);
   const receipt: IntentReceipt = {
     operationId,
     intent: segment.intent,
@@ -610,7 +622,7 @@ async function runSegment(input: RunSegmentInput): Promise<CommitOutcome> {
   return commitReceipt(input, receipt, traces);
 }
 
-interface RunLeafInput extends Omit<RunSegmentInput, 'requestDigest' | 'bundles'> {
+interface RunLeafInput extends Omit<RunSegmentInput, 'requestDigest' | 'bundles' | 'steeringSource'> {
   readonly leaf: CompiledLeaf;
 }
 

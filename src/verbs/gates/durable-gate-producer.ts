@@ -27,6 +27,16 @@ export interface DurableGateScope {
   readonly eventStore: EventStore;
 }
 
+/**
+ * The requirement a ladder gate's evidence is recorded under. Exported so a
+ * reader resolving a cited gate class — settlement, checking a claim's
+ * reference — names the requirement the producer stamped rather than a
+ * second spelling of it.
+ */
+export function ladderRequirementId(gateClass: string): string {
+  return `verification-ladder:${gateClass}`;
+}
+
 function scopeError(code: string, message: string): ToolResult {
   return { success: false, error: { code, message } };
 }
@@ -131,7 +141,7 @@ export async function runDurableGateProducer(
       streamId: scope.featureId,
       gateClass: scope.gateClass,
       phaseAttemptId: activeAttempt,
-      requirementId: `verification-ladder:${scope.gateClass}`,
+      requirementId: ladderRequirementId(scope.gateClass),
       subject,
       providerInput: {
         featureId: scope.featureId,

@@ -14,14 +14,15 @@
 // Four refusals happen BEFORE any effect, and each is a different question:
 //
 //   1. the request is malformed — a missing subject, two spellings of it that
-//      disagree, a missing or malformed batch id, no capsule named at all;
+//      disagree, a missing or malformed batch id, no capsule named at all, or
+//      an accepted claim the task-completion segment cannot be compiled from;
 //   2. a submitted capsule is not a capsule — it fails the published contract;
 //   3. the capsule was never prepared — no `workflow.prepared` record exists
 //      for its version, or the submitted document is not the one the record
 //      pinned;
 //   4. the pinned capsule does not resolve — a dangling task reference, a
 //      dependency cycle, a required result nothing declares, a task naming a
-//      step its pinned definition lacks.
+//      step its pinned definition lacks, a task with no verification terms.
 //
 // The third is what makes pinning real. Settlement adjudicates against the
 // capsule read back out of custody, never against a document the caller hands
@@ -34,13 +35,19 @@
 // batch did not take. Only the refusals above answer with an error, and none of
 // them has adjudicated anything.
 //
-// A SETTLED BATCH LEAVES FACTS. The settlement record says how the batch came
-// out; it is not what the workflow's projection folds. What the projection
-// folds is the fact the primitive path leaves through `task_complete` — one
-// `task.completed` per task — so a settled batch commits that fact for each
-// accepted task, built from the claim's own fields, in the same transaction as
-// the record. The projection then moves for a settlement exactly as it moves
-// for a `task_complete`, and nothing has to interpret a verdict as progress.
+// A BATCH ADJUDICATION ACCEPTS IS THEN VERIFIED, task by task, and only a
+// verified task is accepted. Verification is the executor's own task-completion
+// segment — the ladder gates under the tier the capsule froze for the task,
+// then `task_complete` — compiled and run in-process against the worktree the
+// claim names, under an operation derived from the batch and the task. The
+// gate rows it leaves are the evidence the settlement resolves; the completion
+// fact it leaves is the one the primitive path leaves, from the same leaf, so
+// the projection moves for a settlement exactly as it moves for a
+// `task_complete`. A segment that halts is a `verification-failed` finding
+// against its task and the batch is rejected; the tasks whose segments
+// committed stay complete, as they would had an orchestrator completed them
+// one at a time. Nothing is verified for a batch adjudication already refuses
+// or holds: its findings come back first, and the corrected batch is verified.
 // The phase does not move: `transition` stays the caller's next call, with its
 // own guard and its own single writer.
 //
@@ -67,18 +74,25 @@ import { runExclusivePerOperation } from '../../dispatch/core/operation-serializ
 import { outerCorrelation, stampFromAmbient } from '../../dispatch/core/outer-correlation.js';
 import { resolveSubjectStream } from '../../dispatch/core/subject-stream.js';
 import { runWithDispatchContext } from '../../dispatch/dispatch-context.js';
-import { OperationDigestMismatchError, type DecideOnceStoredEvent } from '../../events/atomic-appender.js';
+import { OperationDigestMismatchError } from '../../events/atomic-appender.js';
 import { EXECUTION_SETTLED_SETTLEMENT, type BundleRefV1 } from '../../events/bundle/digest-references.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
-import { ExecutionSettledData, TaskCompletedData } from '../../events/schemas.js';
+import { AdmissionEvidenceRecordedData, ExecutionSettledData } from '../../events/schemas.js';
 import type { ToolResult } from '../../format.js';
 import { orchestrateLogger } from '../../logger.js';
+import { evidenceArtifactResolver } from '../../workflow/admission/evidence-artifact.js';
 import { markTasksCompleteInStateDocument, type TaskStatusSyncOutcome } from '../../workflow/state-store.js';
+import { compileIntent } from '../execute/compile.js';
+import { handleExecuteIntent, type ExecuteIntentDeps } from '../execute/executor.js';
+import type { IntentReceipt } from '../execute/types.js';
+import { ladderRequirementId } from '../gates/durable-gate-producer.js';
 import { findPreparedCapsule } from '../prepare/prepared-record.js';
 import {
   adjudicateSettlement,
   type ProposedDeviation,
   type SettlementClaim,
+  type SettlementEvidence,
+  type TaskVerificationOutcome,
 } from './adjudicate.js';
 import {
   encodeSettlementBundle,
@@ -86,10 +100,25 @@ import {
   SETTLEMENT_BUNDLE_KIND,
   SETTLEMENT_BUNDLE_VERSION,
 } from './settlement-bundle.js';
-import type { SettledCapsuleIdentity, SettlementReceipt } from './types.js';
+import type {
+  SettledCapsuleIdentity,
+  SettlementReceipt,
+  SettlementVerificationTrace,
+} from './types.js';
 
-/** Injected so the tests drive a real store at a temporary root. */
+/** The runbook every accepted task's verification is compiled from. */
+const TASK_COMPLETION_INTENT = 'task-completion';
+
+/**
+ * What settlement is wired with. `execute` is the executor's own collaborator
+ * set — its runbook table, registry lookup, handler table — because a task's
+ * verification IS the executor's task-completion segment, run through the
+ * same code the public `execute_intent` runs it through. Required, not
+ * defaulted: a settlement with nothing to run through would accept claims it
+ * had not verified. `bundleStore` is the test seam it has always been.
+ */
 export interface SettleDeps {
+  readonly execute: ExecuteIntentDeps;
   readonly bundleStore?: RunBundleStore;
 }
 
@@ -153,120 +182,262 @@ function receiptResult(receipt: SettlementReceipt): ToolResult {
   return { success: true, data: receipt };
 }
 
-/** One completion fact a settled batch leaves: the task, and the record's payload. */
-interface CompletionFact {
-  readonly taskId: string;
-  readonly data: Record<string, unknown>;
-}
-
-/**
- * The completion facts a settled batch leaves, one per accepted task.
- *
- * Built from the claim's own fields, read through the completion record's
- * schema: the fields the record carries are kept, the rest stay in the
- * settlement bundle where the whole claim is in custody. `verified` is derived
- * the way `task_complete` derives it — from the presence of evidence — rather
- * than taken from the claim. A claim whose fields the record cannot carry is
- * reported as a string so the caller refuses BEFORE any effect: the batch stays
- * unclaimed, and a corrected resubmission under the same batch id is answered
- * fresh.
- */
-function completionFactsOf(
-  acceptedTasks: readonly string[],
-  claims: readonly SettlementClaim[],
-): CompletionFact[] | string {
-  const byTask = new Map(claims.map((claim) => [claim.taskId, claim] as const));
-  const facts: CompletionFact[] = [];
-  for (const taskId of acceptedTasks) {
-    const claim = byTask.get(taskId);
-    if (claim === undefined) continue;
-    const parsed = TaskCompletedData.safeParse({
-      ...claim.fields,
-      taskId,
-      verified: claim.fields.evidence !== undefined,
-    });
-    if (!parsed.success) {
-      return (
-        `the accepted claim for task ${JSON.stringify(taskId)} cannot be recorded as a ` +
-        `completion: ${parsed.error.issues
-          .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
-          .join('; ')}`
-      );
-    }
-    facts.push({ taskId, data: { ...parsed.data } });
-  }
-  return facts;
-}
-
 /** The tasks a stream already shows complete, read from the rows themselves. */
-function completedTaskIds(events: readonly DecideOnceStoredEvent[]): Set<string> {
+function completedTaskIds(events: readonly { readonly type: string; readonly data?: unknown }[]): Set<string> {
   const ids = new Set<string>();
   for (const event of events) {
-    if (event.type !== 'task.completed') continue;
-    const taskId = event.data?.taskId;
+    if (event.type !== 'task.completed' || !isRecord(event.data)) continue;
+    const taskId = event.data.taskId;
     if (typeof taskId === 'string') ids.add(taskId);
   }
   return ids;
 }
 
 /**
- * Mark the settled tasks complete on the document the transition guards read.
- *
- * The fact is already durable on the stream; this is the same sync
- * `task_complete` performs after its own append, through the same loop, so the
- * `allTasksComplete` guard sees a settlement the way it sees a completion.
- * Idempotent: a settlement answered from a claim, or one that lost the commit
- * race to a concurrent resubmission, syncs tasks the winner already synced and
- * changes nothing. A document that could not be brought level is reported,
- * because a `transition` refused for tasks the ledger shows complete would
- * otherwise have no visible cause.
+ * Bring the state document level with tasks the stream shows complete. The
+ * transition guards read `state.tasks[].status` off the document, so a
+ * completion fact on the stream admits nothing until the document says the
+ * same. The composed leaf syncs the document as it leaves the fact; this is
+ * for the paths that leave none — a task complete before the batch, and a
+ * replay — where the fact is on the stream and the document may have been
+ * left behind by a write that failed. A workflow with no document, or one
+ * that does not list the task, is logged and left.
  */
-async function syncStateDocument(
+async function bringDocumentLevel(
   stateDir: string,
   streamId: string,
   taskIds: readonly string[],
 ): Promise<TaskStatusSyncOutcome> {
-  const stateFile = path.join(stateDir, `${streamId}.state.json`);
-  const outcome = await markTasksCompleteInStateDocument(stateFile, taskIds);
-  // A workflow with no document is the ordinary case, not a warning.
+  const outcome = await markTasksCompleteInStateDocument(path.join(stateDir, `${streamId}.state.json`), taskIds);
   const level =
     ((outcome.kind === 'synced' || outcome.kind === 'unchanged') && outcome.missing.length === 0) ||
     (outcome.kind === 'skipped' && outcome.reason === 'no-document');
   if (!level) {
     orchestrateLogger.warn(
       { streamId, taskIds, outcome },
-      'settle: the state document the transition guards read is not level with the settled tasks',
+      'settle: the state document the transition guards read is not level with the completed tasks',
     );
   }
   return outcome;
 }
 
-/**
- * The receipt, with the document brought level first when the batch settled.
- * Runs on the first return and on every replay alike: a sync that failed
- * after the verdict was durable is repaired by the next call, rather than
- * left behind a receipt that reads as success over a document that admits
- * nothing. A write that fails is reported beside the receipt, so the caller
- * knows the verdict stands and the document does not.
- */
-async function settledResult(
-  receipt: SettlementReceipt,
-  stateDir: string,
-  streamId: string,
-): Promise<ToolResult> {
-  if (receipt.outcome !== 'settled' || receipt.acceptedTasks.length === 0) return receiptResult(receipt);
-  const sync = await syncStateDocument(stateDir, streamId, receipt.acceptedTasks);
-  if (sync.kind !== 'failed') return receiptResult(receipt);
+/** The refusal a document that could not follow the facts earns. The facts stand. */
+function documentNotLevel(
+  sync: Extract<TaskStatusSyncOutcome, { kind: 'failed' }>,
+  what: string,
+  then: string,
+  receipt?: SettlementReceipt,
+): ToolResult {
   return {
     success: false,
-    data: receipt,
+    ...(receipt !== undefined ? { data: receipt } : {}),
     error: {
       code: 'STATE_SYNC_FAILED',
       message:
-        'the batch is settled and its tasks are recorded complete, but the state document the ' +
-        `transition guards read could not be updated after ${sync.attempts} attempt(s): ${sync.error}. ` +
-        'Settle the same batch again to bring the document level; nothing is adjudicated twice.',
+        `${what}, but the state document the transition guards read could not be updated after ` +
+        `${sync.attempts} attempt(s): ${sync.error}. ${then}`,
     },
+  };
+}
+
+/** The evidence key the resolution set is built over: the kind and the reference together. */
+function evidenceKey(evidence: SettlementEvidence): string {
+  return `${evidence.kind}\u0000${evidence.ref}`;
+}
+
+/**
+ * Which of the batch's cited references resolve, decided once, ahead of
+ * adjudication, and handed to the adjudicator as a predicate.
+ *
+ * A reference resolves when the stream holds an `admission.evidence-recorded`
+ * row whose evidence id is the reference, whose requirement is the cited
+ * kind's ladder requirement, and whose every named blob resolves under the
+ * state directory's evidence store. That last clause is the rule the
+ * durable-evidence ensure applies: a row naming a blob that is gone is not
+ * evidence. The claim cites; it never carries.
+ */
+async function resolvedEvidence(
+  ctx: DispatchContext,
+  stateDir: string,
+  streamId: string,
+  claims: readonly SettlementClaim[],
+): Promise<ReadonlySet<string>> {
+  const cited = new Map<string, SettlementEvidence>();
+  for (const claim of claims) {
+    for (const evidence of claim.evidence) cited.set(evidenceKey(evidence), evidence);
+  }
+  const resolved = new Set<string>();
+  if (cited.size === 0) return resolved;
+
+  const rows = await ctx.eventStore.query(streamId, { type: 'admission.evidence-recorded' });
+  const recorded = new Map<string, { readonly requirementId: string; readonly artifactRefs: readonly unknown[] }>();
+  for (const row of rows) {
+    const parsed = AdmissionEvidenceRecordedData.safeParse(row.data);
+    if (!parsed.success || parsed.data.evidence.kind !== 'gate') continue;
+    recorded.set(parsed.data.evidence.evidenceId, {
+      requirementId: parsed.data.evidence.requirementId,
+      artifactRefs: parsed.data.evidence.artifactRefs ?? [],
+    });
+  }
+  const resolver = evidenceArtifactResolver(stateDir);
+  for (const [key, evidence] of cited) {
+    const row = recorded.get(evidence.ref);
+    if (row === undefined || row.requirementId !== ladderRequirementId(evidence.kind)) continue;
+    let intact = true;
+    for (const reference of row.artifactRefs) {
+      try {
+        await resolver.resolve(reference);
+      } catch {
+        intact = false;
+        break;
+      }
+    }
+    if (intact) resolved.add(key);
+  }
+  return resolved;
+}
+
+/**
+ * The operation one task's verification segment runs under.
+ *
+ * Derived from the settlement's own claim key and the task, so a resubmission
+ * of the batch after a crash mid-verification reaches the segments that
+ * already committed through their claims and re-runs only what did not — the
+ * executor's crash-retry model, applied one level up. Hashed rather than
+ * concatenated so the id stays inside the bound the executor accepts whatever
+ * the task id's length.
+ */
+function verificationOperationId(operationId: string, taskId: string): string {
+  return `settle-task:${createHash('sha256').update(`${operationId}\u0000${taskId}`, 'utf8').digest('hex')}`;
+}
+
+/**
+ * The intent arguments one accepted claim compiles to.
+ *
+ * The tier and the boundary flag come from the CAPSULE, never from the claim:
+ * they choose which gates run, and a runtime that could set them could choose
+ * its own judge. The worktree and the branch come from the claim, because only
+ * the runtime knows where it worked. The whole claim rides along as the
+ * completion's `result`, which is what an orchestrator hands `task_complete`
+ * on the primitive path, so the fact the segment leaves carries the same
+ * provenance either way.
+ */
+function verificationArgsOf(
+  claim: SettlementClaim,
+  terms: { readonly riskTier: string; readonly boundaryTouching: boolean },
+): Record<string, unknown> {
+  const { worktreePath, branch } = claim.fields;
+  return {
+    taskId: claim.taskId,
+    worktreePath,
+    ...(branch !== undefined ? { branch } : {}),
+    riskTier: terms.riskTier,
+    boundaryTouching: terms.boundaryTouching,
+    result: { ...claim.fields },
+  };
+}
+
+interface CompiledVerification {
+  readonly taskId: string;
+  readonly operationId: string;
+  readonly args: Record<string, unknown>;
+}
+
+/** A receipt, on either outcome, as the executor hands one back inside `data`. */
+function isIntentReceipt(value: unknown): value is IntentReceipt {
+  return (
+    isRecord(value) &&
+    typeof value.operationId === 'string' &&
+    (value.outcome === 'committed' || value.outcome === 'failed') &&
+    Array.isArray(value.leaves)
+  );
+}
+
+type VerificationRun =
+  | {
+      readonly kind: 'ran';
+      readonly outcome: TaskVerificationOutcome;
+      readonly trace: SettlementVerificationTrace;
+    }
+  | { readonly kind: 'refused'; readonly result: ToolResult };
+
+/**
+ * Run one task's verification through the executor, under the derived
+ * operation, and read the segment's receipt back as a verification outcome.
+ *
+ * Both executor outcomes carry a receipt, and both are answers: a committed
+ * segment verified the task, a halted one names the leaf that stopped it. An
+ * executor refusal with no receipt is not an answer about the task — the
+ * derived operation already claimed under a different request means this
+ * batch's claim for the task changed after its verification ran, which is the
+ * settlement's own digest-mismatch refusal reached one level down.
+ */
+async function verifyTask(
+  compiled: CompiledVerification,
+  streamId: string,
+  batchLabel: string,
+  stateDir: string,
+  ctx: DispatchContext,
+  execute: ExecuteIntentDeps,
+): Promise<VerificationRun> {
+  const result = await handleExecuteIntent(
+    {
+      intent: TASK_COMPLETION_INTENT,
+      featureId: streamId,
+      args: compiled.args,
+      operationId: compiled.operationId,
+    },
+    stateDir,
+    ctx,
+    { ...execute, steeringSource: 'capsule' },
+  );
+  const receipt = result.data;
+  if (isIntentReceipt(receipt)) {
+    if (receipt.outcome === 'committed') {
+      return {
+        kind: 'ran',
+        outcome: { kind: 'verified' },
+        trace: {
+          taskId: compiled.taskId,
+          outcome: 'verified',
+          operationId: receipt.operationId,
+          ...(receipt.bundleRefs !== undefined ? { bundleRefs: receipt.bundleRefs } : {}),
+        },
+      };
+    }
+    const failedLeaf = receipt.failedLeaf ?? '<unknown>';
+    const message = receipt.failure?.message ?? result.error?.message ?? 'the segment halted';
+    return {
+      kind: 'ran',
+      outcome: { kind: 'failed', failedLeaf, message },
+      trace: {
+        taskId: compiled.taskId,
+        outcome: 'failed',
+        operationId: receipt.operationId,
+        failedLeaf,
+        message,
+        ...(receipt.bundleRefs !== undefined ? { bundleRefs: receipt.bundleRefs } : {}),
+      },
+    };
+  }
+  if (result.error?.code === 'INTENT_REPLAY_DIGEST_MISMATCH') {
+    return {
+      kind: 'refused',
+      result: refused(
+        'OPERATION_DIGEST_MISMATCH',
+        `task ${JSON.stringify(compiled.taskId)} of ${batchLabel} was already verified under a ` +
+          'different claim. Nothing more was adjudicated. A changed claim is a correction, and goes ' +
+          'back under a new batchId.',
+      ),
+    };
+  }
+  return {
+    kind: 'refused',
+    result: refused(
+      result.error?.code ?? 'VERIFICATION_NOT_RUN',
+      `task ${JSON.stringify(compiled.taskId)} of ${batchLabel} could not be verified: ` +
+        `${result.error?.message ?? 'the executor returned no receipt'}`,
+    ),
   };
 }
 
@@ -319,7 +490,7 @@ export async function handleSettle(
   raw: Record<string, unknown>,
   stateDir: string,
   ctx: DispatchContext,
-  deps: SettleDeps = {},
+  deps: SettleDeps,
 ): Promise<ToolResult> {
   const subject = resolveSubjectStream(raw);
   if (!subject.ok) return invalid(subject.message);
@@ -408,10 +579,33 @@ export async function handleSettle(
     );
   }
 
+  // A task settlement can adjudicate is a task settlement will verify, and
+  // verification runs under terms the capsule froze. A capsule that declares a
+  // result shape for a task and no terms for it cannot be applied — the terms
+  // are not inferred, because the tier chooses the gates.
+  const verificationTerms = capsule.settlementContract.taskVerification ?? {};
+  const untermed = Object.keys(capsule.contracts.taskResults).filter(
+    (taskId) => verificationTerms[taskId] === undefined,
+  );
+  if (untermed.length > 0) {
+    return refused(
+      'CAPSULE_UNRESOLVED',
+      'the prepared capsule declares no verification terms for ' +
+        `${untermed.map((taskId) => JSON.stringify(taskId)).join(', ')}, so their completion ` +
+        'cannot be verified against it. Prepare again under a compiler that freezes them.',
+    );
+  }
+
   const claims = readClaims(raw.claims);
   if (typeof claims === 'string') return invalid(claims);
   const deviations = readDeviations(raw.deviations);
   if (typeof deviations === 'string') return invalid(deviations);
+
+  // Cited evidence is resolved once, here, and adjudicated as a predicate. Read
+  // before the claim pre-flight for the same reason the capsule is: it is an
+  // input to the verdict, not an effect.
+  const resolved = await resolvedEvidence(ctx, stateDir, streamId, claims);
+  const evidenceResolves = (evidence: SettlementEvidence): boolean => resolved.has(evidenceKey(evidence));
 
   const identity: SettledCapsuleIdentity = {
     workflowId: capsule.identity.workflowId,
@@ -444,17 +638,89 @@ export async function handleSettle(
             'back under a new batchId.',
         );
       }
-      return settledResult(claim.result, stateDir, streamId);
+      // A settled batch's replay brings the document level with the facts
+      // the first call left: a sync that failed after the verdict was
+      // durable is repaired here rather than left behind a receipt.
+      if (claim.result.outcome === 'settled' && claim.result.acceptedTasks.length > 0) {
+        const sync = await bringDocumentLevel(stateDir, streamId, claim.result.acceptedTasks);
+        if (sync.kind === 'failed') {
+          return documentNotLevel(
+            sync,
+            `${batchLabel} is settled and its tasks are recorded complete`,
+            'Settle the same batch again to bring the document level; nothing is adjudicated twice.',
+            claim.result,
+          );
+        }
+      }
+      return receiptResult(claim.result);
     }
 
-    const verdict = adjudicateSettlement(capsule, claims, deviations);
+    // The shape pass: is every claim one the capsule admits? Only a batch this
+    // pass would settle is verified; a batch it refuses or holds is recorded
+    // as such, with nothing run, so the caller sees the findings first.
+    const shape = adjudicateSettlement(capsule, claims, deviations, { evidenceResolves });
+    let verdict = shape;
+    const traces: SettlementVerificationTrace[] = [];
 
-    // The batch's consequence, built before the first effect. A settled batch
-    // leaves one completion fact per accepted task; a rejected or held batch
-    // leaves none. A claim the completion record cannot carry refuses the
-    // call here, with nothing in custody and no claim taken.
-    const facts = verdict.outcome === 'settled' ? completionFactsOf(verdict.acceptedTasks, claims) : [];
-    if (typeof facts === 'string') return invalid(facts);
+    if (shape.outcome === 'settled') {
+      const byTask = new Map(claims.map((claim): [string, SettlementClaim] => [claim.taskId, claim]));
+      // The old path and this one meeting on one workflow: a task the stream
+      // already shows complete was completed by `task_complete`, which passed
+      // the gate it demands, and is accepted as it stands rather than
+      // verified a second time under an operation that could not leave the
+      // fact again.
+      const completed = completedTaskIds(
+        await ctx.eventStore.query(streamId, { type: 'task.completed' }),
+      );
+
+      // Every segment is compiled before any runs, so a claim the segment
+      // cannot be built from refuses the call with nothing run — the batch
+      // stays unclaimed and the corrected claim resubmits under the same id.
+      const compiled: CompiledVerification[] = [];
+      const outcomes = new Map<string, TaskVerificationOutcome>();
+      for (const taskId of shape.acceptedTasks) {
+        if (completed.has(taskId)) {
+          // Accepted as it stands, and brought level on the document, which
+          // the leaf that left the fact may have failed to do. Refused
+          // before any effect if it cannot be.
+          const sync = await bringDocumentLevel(stateDir, streamId, [taskId]);
+          if (sync.kind === 'failed') {
+            return documentNotLevel(
+              sync,
+              `task ${JSON.stringify(taskId)} of ${batchLabel} is already recorded complete`,
+              'Nothing was adjudicated; settle the batch again once the document can be written.',
+            );
+          }
+          outcomes.set(taskId, { kind: 'already-complete' });
+          traces.push({ taskId, outcome: 'already-complete' });
+          continue;
+        }
+        const claim = byTask.get(taskId);
+        const terms = verificationTerms[taskId];
+        if (claim === undefined || terms === undefined) continue;
+        const args = verificationArgsOf(claim, terms);
+        const segment = compileIntent(TASK_COMPLETION_INTENT, { streamId }, args, deps.execute);
+        if (!segment.ok) {
+          return invalid(
+            `the accepted claim for task ${JSON.stringify(taskId)} cannot be verified: ` +
+              segment.refusal.message,
+          );
+        }
+        compiled.push({ taskId, operationId: verificationOperationId(operationId, taskId), args });
+      }
+
+      for (const task of compiled) {
+        const run = await verifyTask(task, streamId, batchLabel, stateDir, ctx, deps.execute);
+        if (run.kind === 'refused') return run.result;
+        outcomes.set(task.taskId, run.outcome);
+        traces.push(run.trace);
+      }
+
+      // The final pass: the same adjudication, now with every accepted claim's
+      // verification beside it. A halted segment is a finding; the accepted
+      // set is what passed both.
+      verdict = adjudicateSettlement(capsule, claims, deviations, { evidenceResolves, verification: outcomes });
+    }
 
     const settledAt = new Date().toISOString();
 
@@ -471,6 +737,11 @@ export async function handleSettle(
       claims: claims.map((c) => ({ taskId: c.taskId, fields: c.fields, evidence: [...c.evidence] })),
       deviations: [...deviations],
       adjudicated: verdict.adjudicated,
+      // The bundle schema types the reference list as the plain array it
+      // parses to; the trace holds the executor's readonly tuple.
+      verification: traces.map(({ bundleRefs, ...trace }) =>
+        bundleRefs === undefined ? trace : { ...trace, bundleRefs: [...bundleRefs] },
+      ),
       settledAt,
     });
 
@@ -526,12 +797,6 @@ export async function handleSettle(
           timestamp: settledAt,
           schemaVersion: EXECUTION_SETTLED_SETTLEMENT.custodyFromSchemaVersion,
         });
-        // The facts, stamped under the same dispatch as the record they follow
-        // and dated to the settlement, so the batch reads as one moment.
-        const completions = facts.map((fact) => ({
-          taskId: fact.taskId,
-          event: stampFromAmbient({ type: 'task.completed', data: fact.data, timestamp: settledAt }),
-        }));
 
         try {
           // `decideOnce` RETURNS the claim's canonical result, which on a race is
@@ -541,20 +806,13 @@ export async function handleSettle(
           const persisted = await ctx.eventStore
             .getAppender()
             .decideOnce<SettlementReceipt>(operationId, requestDigest, (tx) => {
-              // Read inside the write lock, so the tail is the sequence the
-              // last of these appends lands on, and so a completion that
-              // landed between adjudication and commit is seen: a task the
-              // stream already shows complete — the old path and this one
-              // meeting on one workflow — is not completed a second time.
+              // Read inside the write lock, so the tail is the sequence this
+              // record lands on rather than whatever the stream held when the
+              // transaction opened — the segments' own rows are already below.
               const snapshot = tx.readStream(streamId);
-              const alreadyComplete = completedTaskIds(snapshot.events);
-              const events = [
-                event,
-                ...completions.filter((c) => !alreadyComplete.has(c.taskId)).map((c) => c.event),
-              ];
               return {
                 streamId,
-                events,
+                events: [event],
                 result: {
                   operationId,
                   streamId,
@@ -564,14 +822,13 @@ export async function handleSettle(
                   findings: verdict.findings,
                   adjudicated: verdict.adjudicated,
                   requestDigest,
-                  tailSequence: snapshot.version + events.length,
+                  tailSequence: snapshot.version + 1,
+                  verification: traces,
                   bundleRefs: [ref],
                 },
               };
             });
-          // On a race the receipt is the winner's, and so is the accepted set;
-          // the sync is idempotent either way.
-          return settledResult(persisted, stateDir, streamId);
+          return receiptResult(persisted);
         } catch (error) {
           if (error instanceof OperationDigestMismatchError) {
             return refused(

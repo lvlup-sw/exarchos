@@ -86,8 +86,8 @@ const TEAM_DISBANDED: PhaseEventRow = {
 
 const TASK_COMPLETED_BY_RUNTIME: PhaseRuntimeEmissionRow = {
   type: 'task.completed',
-  when: 'After task_complete orchestrate action succeeds, or per accepted task when settle settles a batch',
-  emittedBy: 'exarchos_orchestrate task_complete; exarchos_orchestrate settle on a settled batch',
+  when: 'After task_complete orchestrate action succeeds — called directly, or as the terminal leaf of the task-completion segment settle runs per accepted task',
+  emittedBy: 'exarchos_orchestrate task_complete (directly, or as the terminal leaf settle composes)',
   fields: ['taskId', 'evidence', 'verified', 'files', 'implements'],
 };
 const TASK_FAILED_BY_RUNTIME: PhaseRuntimeEmissionRow = {

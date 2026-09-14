@@ -579,11 +579,14 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   // The settlement endpoint. Like the executor above it needs a real
   // DispatchContext — it reads the operation claim and commits through the
   // store — so it is a direct ActionHandler rather than an `adaptWithCtx`
-  // entry. Unlike the executor it takes no handler table: `settle` runs
-  // nothing, so it has nothing to dispatch into.
+  // entry. And like the executor it takes the handler table: a settled batch
+  // runs each accepted task's task-completion segment through that executor,
+  // so the same table is handed in for the same ring reason.
   settle: async (args, stateDir, ctx) => {
     if (!ctx) throw new Error('DispatchContext required for settle');
-    return handleSettle(args, stateDir, ctx);
+    return handleSettle(args, stateDir, ctx, {
+      execute: productionExecuteDeps(ACTION_HANDLERS, ACTION_HANDLERS_TOOL),
+    });
   },
   // The compilation endpoint, the other half of the pair. It reads the
   // workflow and commits through the store, so it needs the real context too.

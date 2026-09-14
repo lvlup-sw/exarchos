@@ -14,11 +14,25 @@
 // join waits for all of them, so the capsule states where the batch rejoins
 // rather than leaving the harness to infer it.
 //
+// Every task in the batch carries the verification terms it will settle under:
+// its risk tier and whether it touches a boundary, resolved here from the
+// plan the way the delegation stamp resolves them — a planner's explicit stamp
+// wins, the file-and-layer heuristic decides otherwise. Resolved at compile
+// time and frozen into the capsule, because they choose which gates the task's
+// completion must pass, and a runtime that could choose its own tier at claim
+// time could choose its own judge.
+//
 // Cycles are NOT detected here. The capsule's reference pass already refuses a
 // cyclic graph, and a second cycle check in this module would be a second
 // answer to a question that pass owns.
 
 import { SharedStableIdSchema } from '../../contract/ir/admission-ir.js';
+import type { RiskTier } from '../../workflow/verification-policy.js';
+import {
+  deriveBoundaryTouching,
+  deriveRiskTier,
+  type TaskInput,
+} from '../team/prepare-delegation.js';
 import type { PrepareRefusal } from './types.js';
 
 /** The kernel step every delegated task compiles from. */
@@ -32,10 +46,17 @@ const COMPLETE_STATUSES: ReadonlySet<string> = new Set(['complete', 'completed']
 /** The capsule's own title bound. A longer plan title is shortened, not refused. */
 const TITLE_LIMIT = 256;
 
+/** The verification terms one task settles under, as the plan resolves them. */
+export interface BatchTaskVerification {
+  readonly riskTier: RiskTier;
+  readonly boundaryTouching: boolean;
+}
+
 export interface BatchTask {
   readonly taskId: string;
   readonly title: string;
   readonly stepId: string;
+  readonly verification: BatchTaskVerification;
 }
 
 export interface DelegationBatch {
@@ -55,10 +76,53 @@ interface PlannedTask {
   readonly title: string;
   readonly complete: boolean;
   readonly blockedBy: readonly string[];
+  readonly verification: BatchTaskVerification;
+}
+
+function isRiskTier(value: unknown): value is RiskTier {
+  return value === 'low' || value === 'medium' || value === 'high';
+}
+
+function isTestLayer(value: unknown): value is NonNullable<TaskInput['testLayer']> {
+  return value === 'acceptance' || value === 'integration' || value === 'unit' || value === 'property';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The verification terms a planned task resolves to, or the refusal for a
+ * planner stamp outside its vocabulary. A stamp that does not parse is refused
+ * rather than ignored: silently deriving a tier the planner tried to set is
+ * how a high-risk task ends up judged as a medium one.
+ */
+function readVerification(entry: Record<string, unknown>, id: string): BatchTaskVerification | PrepareRefusal {
+  const riskTier = entry.riskTier;
+  if (riskTier !== undefined && !isRiskTier(riskTier)) {
+    return {
+      code: 'INVALID_TASK_STAMP',
+      message: `planned task ${JSON.stringify(id)} carries riskTier ${JSON.stringify(riskTier)}; a tier is low, medium or high`,
+    };
+  }
+  const boundaryTouching = entry.boundaryTouching;
+  if (boundaryTouching !== undefined && typeof boundaryTouching !== 'boolean') {
+    return {
+      code: 'INVALID_TASK_STAMP',
+      message: `planned task ${JSON.stringify(id)} carries boundaryTouching ${JSON.stringify(boundaryTouching)}; the flag is a boolean`,
+    };
+  }
+  const testLayer = entry.testLayer;
+  const stamp: TaskInput = {
+    id,
+    title: id,
+    blockedBy: Array.isArray(entry.blockedBy) ? entry.blockedBy.filter((ref): ref is string => typeof ref === 'string') : [],
+    files: Array.isArray(entry.files) ? entry.files.filter((file): file is string => typeof file === 'string') : [],
+    ...(isTestLayer(testLayer) ? { testLayer } : {}),
+    ...(riskTier !== undefined ? { riskTier } : {}),
+    ...(boundaryTouching !== undefined ? { boundaryTouching } : {}),
+  };
+  return { riskTier: deriveRiskTier(stamp), boundaryTouching: deriveBoundaryTouching(stamp) };
 }
 
 function readPlannedTask(entry: unknown, index: number): PlannedTask | PrepareRefusal {
@@ -80,7 +144,9 @@ function readPlannedTask(entry: unknown, index: number): PlannedTask | PrepareRe
     ? entry.blockedBy.filter((ref): ref is string => typeof ref === 'string')
     : [];
   const complete = typeof entry.status === 'string' && COMPLETE_STATUSES.has(entry.status);
-  return { id, title, complete, blockedBy };
+  const verification = readVerification(entry, id);
+  if ('code' in verification) return verification;
+  return { id, title, complete, blockedBy, verification };
 }
 
 /** Partition the projected task list into the batch still to be delegated. */
@@ -132,7 +198,12 @@ export function partitionDelegationBatch(tasks: readonly unknown[]): PartitionOu
   return {
     ok: true,
     batch: {
-      tasks: pending.map((task) => ({ taskId: task.id, title: task.title, stepId: DELEGATION_STEP_ID })),
+      tasks: pending.map((task) => ({
+        taskId: task.id,
+        title: task.title,
+        stepId: DELEGATION_STEP_ID,
+        verification: task.verification,
+      })),
       dependencies,
       joins: sinks.length >= 2 ? [{ joinId: BATCH_JOIN_ID, waitsFor: sinks }] : [],
       requiredResults: pending.map((task) => task.id),

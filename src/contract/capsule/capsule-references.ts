@@ -12,7 +12,8 @@
 // Five reference classes are resolved:
 //
 //   • TASK refs    (`graph.dependencies[].from`/`.to`, `graph.joins[].waitsFor`,
-//                    the keys of `contracts.taskInputs`/`taskResults`, and
+//                    the keys of `contracts.taskInputs`/`taskResults` and of
+//                    `settlementContract.taskVerification`, and
 //                    `settlementContract.requiredResults`) → a task DEFINED in
 //                    `graph.tasks`.
 //   • ORDER        (`graph.dependencies`)                  → acyclic, so the
@@ -336,6 +337,9 @@ export function resolveCapsuleReferences(
   const declaredResults = new Set(Object.keys(capsule.contracts.taskResults));
   for (const key of declaredResults) {
     requireTask(key, `contracts.taskResults[${JSON.stringify(key)}]`);
+  }
+  for (const key of Object.keys(capsule.settlementContract.taskVerification ?? {})) {
+    requireTask(key, `settlementContract.taskVerification[${JSON.stringify(key)}]`);
   }
 
   capsule.settlementContract.requiredResults.forEach((ref, i) => {

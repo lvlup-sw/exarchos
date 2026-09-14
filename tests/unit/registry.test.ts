@@ -755,9 +755,9 @@ describe('TOOL_REGISTRY', () => {
       // intent into a segment of already-registered local actions and runs it
       // leaf by leaf, committing one operation record): 82 → 83.
       // The semantic plane added `settle` (adjudicates one batch of returned
-      // claims against the capsule pinned when the work was compiled, and
-      // commits one settlement record). It runs nothing — the asymmetry with
-      // the executor above is the point: 83 → 84.
+      // claims against the capsule pinned when the work was compiled, runs
+      // each accepted task's task-completion segment through the executor
+      // above, and commits one settlement record): 83 → 84.
       // Then `prepare`, its other half (compiles a feature's outstanding
       // delegation batch into the capsule settlement is later judged against,
       // and commits one prepared record): 84 → 85.
@@ -3994,17 +3994,16 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       // (`serialize_merge`) or on the crash-mid-merge heal. Same event, same
       // meaning, two routes — so declaring one and hiding the other is what
       // would be wrong, and both name `orchestrate` as owner.
-      // `task.completed` joined with the semantic plane: the fact is left either
-      // by `task_complete`, one task at a time, or by `settle` for every task a
-      // settled batch accepted. Same fact, same meaning, two routes; both name
-      // `orchestrate`.
+      // `task.completed` is NOT here although `settle` leaves it too: settle
+      // composes the task-completion segment through the executor, and the
+      // terminal `task_complete` leaf is the one producer — the same way
+      // `execute_intent` declares its own record and none of its leaves'.
       expect(multiDeclarer.map(([event]) => event).sort()).toEqual([
         'admission.evidence-recorded',
         'gate.executed',
         'onboard.executed',
         'onboard.requested',
         'state.patched',
-        'task.completed',
         'worktree.merge_executed',
         'worktree.released',
       ]);
