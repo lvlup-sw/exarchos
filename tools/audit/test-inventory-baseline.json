@@ -60987,7 +60987,7 @@
         },
         {
           "suite": "settle — the adjudication endpoint > the settlement key is the batch identity",
-          "name": "Settle_ACallerOperationId_IsRefusedRatherThanUsedAsASecondKey",
+          "name": "Settle_ACallerOperationId_IsRefusedByTheRegisteredSchema",
           "dynamic": false
         },
         {

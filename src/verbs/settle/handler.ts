@@ -14,8 +14,7 @@
 // Four refusals happen BEFORE any effect, and each is a different question:
 //
 //   1. the request is malformed — a missing subject, two spellings of it that
-//      disagree, a missing or malformed batch id, a caller-supplied operation
-//      id, no capsule named at all;
+//      disagree, a missing or malformed batch id, no capsule named at all;
 //   2. a submitted capsule is not a capsule — it fails the published contract;
 //   3. the capsule was never prepared — no `workflow.prepared` record exists
 //      for its version, or the submitted document is not the one the record
@@ -196,16 +195,6 @@ export async function handleSettle(
   if (!subject.ok) return invalid(subject.message);
   const { streamId } = subject;
 
-  // Two keys for one settlement would be two authorities over whether it
-  // happened: the same batch submitted under two caller ids would adjudicate
-  // twice. The key is derived from the batch, so a caller-held one is refused
-  // rather than silently ignored.
-  if (raw.operationId !== undefined) {
-    return invalid(
-      'operationId is not accepted: a settlement is keyed by its batch — the capsule version ' +
-        'and batchId — so resubmitting the same batch is already the replay',
-    );
-  }
   const batch = SharedStableIdSchema.safeParse(raw.batchId);
   if (!batch.success) {
     return invalid(

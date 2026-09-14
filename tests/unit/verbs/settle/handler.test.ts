@@ -40,6 +40,7 @@ import {
 import { EventStore } from '../../../../src/events/store.js';
 import { ExecutionSettledData } from '../../../../src/events/schemas.js';
 import type { ToolResult } from '../../../../src/format.js';
+import { settleActions } from '../../../../src/registry/actions/orchestrate/settle.js';
 import { commitPreparedCapsule } from '../../../../src/verbs/prepare/prepared-record.js';
 import { handleSettle } from '../../../../src/verbs/settle/handler.js';
 import { decodeSettlementBundle } from '../../../../src/verbs/settle/settlement-bundle.js';
@@ -461,22 +462,21 @@ describe('settle — the adjudication endpoint', () => {
       expect(await settledRows()).toEqual([]);
     });
 
-    it('Settle_ACallerOperationId_IsRefusedRatherThanUsedAsASecondKey', async () => {
+    it('Settle_ACallerOperationId_IsRefusedByTheRegisteredSchema', () => {
       // Two keys for one settlement are two authorities over whether it
       // happened: the same batch under two caller ids would adjudicate twice.
-      const result = await settle({
+      // Dispatch and the executor's leaf compile both parse against this
+      // strict schema before the handler runs, so the refusal lives there.
+      const declaration = settleActions.find((action) => action.name === 'settle');
+      expect(declaration).toBeDefined();
+      const args = {
         featureId: STREAM,
         capsuleVersion: 7,
         batchId: 'batch-with-op',
         claims: [passingClaim()],
-        operationId: 'op-caller',
-      });
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(result.error.code).toBe('INVALID_INPUT');
-        expect(result.error.message).toContain('operationId');
-      }
-      expect(await settledRows()).toEqual([]);
+      };
+      expect(declaration?.schema.safeParse(args).success).toBe(true);
+      expect(declaration?.schema.safeParse({ ...args, operationId: 'op-caller' }).success).toBe(false);
     });
   });
 
