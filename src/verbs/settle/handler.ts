@@ -14,8 +14,7 @@
 // Three refusals happen BEFORE any effect, and each is a different question:
 //
 //   1. the request is malformed — a missing subject, two spellings of it that
-//      disagree, a missing or malformed batch id, a caller-supplied operation
-//      id;
+//      disagree, a missing or malformed batch id;
 //   2. the capsule is not a capsule — it fails the published contract;
 //   3. the capsule is a capsule but does not resolve — a dangling task
 //      reference, a dependency cycle, a required result nothing declares.
