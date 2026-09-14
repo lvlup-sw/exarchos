@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1274,
-    "parsedFiles": 1229,
+    "testFiles": 1280,
+    "parsedFiles": 1235,
     "shellFiles": 45,
-    "cases": 14075,
-    "dynamicTitles": 164,
+    "cases": 14132,
+    "dynamicTitles": 169,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -5159,6 +5159,32 @@
         {
           "suite": "host-owned actions — execute vs return the obligation",
           "name": "HostObligations_AgentSpec_ReturnsTheSpecNotTheObligation",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/prepare-settle.test.ts": {
+      "file": "tests/acceptance/prepare-settle.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_TheNormalPath_IsTwoCallsAndOneDecision",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_ARetriedBatch_IsAnsweredFromTheClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_ACapsuleEditedAfterCompilation_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_APreparedRecord_CannotBeAppendedByAnyoneButPrepare",
           "dynamic": false
         }
       ]
@@ -19093,6 +19119,27 @@
         {
           "suite": "verifyBindings — exit proof: missing/duplicate/stale/non-function fail BEFORE startup (P03-04)",
           "name": "CleanVerdict_ReportsGreenLight_WithNoViolations",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/contract/capsule/capsule-digest.test.ts": {
+      "file": "tests/unit/contract/capsule/capsule-digest.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "capsule content addresses",
+          "name": "CapsuleDigest_KeyOrder_DoesNotReachTheDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "capsule content addresses",
+          "name": "CapsuleDigest_ADifferentCapsule_HasADifferentDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "capsule content addresses",
+          "name": "CapsuleDigest_IsSpelledAsTheKernelSpellsADigest",
           "dynamic": false
         }
       ]
@@ -58420,6 +58467,250 @@
         }
       ]
     },
+    "tests/unit/verbs/prepare/compile-capsule.test.ts": {
+      "file": "tests/unit/verbs/prepare/compile-capsule.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "delegation capsule compilation",
+          "name": "Compile_ARealBatch_ParsesAndResolvesAgainstThePinnedDefinition",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation",
+          "name": "Compile_TheCompletionPredicate_IsTheTaskObligationWithoutTeamTeardown",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation",
+          "name": "Compile_EveryTaskResult_RequiresEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation",
+          "name": "Compile_ACompiledCapsule_IsOneTheRealAdjudicatorCanSettle",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation",
+          "name": "Compile_ACyclicPlan_IsRefusedAsUnsound",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation",
+          "name": "Compile_ADefinitionWithoutTheDelegationStep_IsRefusedAsUnsound",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation",
+          "name": "Compile_CatalogInvariants_AreBoundOnTopOfTheBuiltInAuthority",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation",
+          "name": "Compile_TheSameInputs_CompileTheSameCapsule",
+          "dynamic": false
+        },
+        {
+          "suite": "catalog invariant binding",
+          "name": "BindCatalog_AppendsInCatalogOrderAndBindsEachIdOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "catalog invariant binding",
+          "name": "BindCatalog_AnEmptyCatalog_LeavesTheBaseAsItIs",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/handler.test.ts": {
+      "file": "tests/unit/verbs/prepare/handler.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_ADelegatingFeature_RecordsOneCapsuleWhoseBytesAreInCustody",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_ARetryWithUnchangedInputs_ReturnsTheRecordedCapsuleAndAppendsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_ChangedInputs_CompileTheNextVersion",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_ARegisteredCatalog_IsBoundIntoTheAuthority",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint > refusals happen before any effect",
+          "name": "Prepare_NoWorkflow_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint > refusals happen before any effect",
+          "name": "Prepare_AWorkflowTypeWithoutADelegationBatch_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint > refusals happen before any effect",
+          "name": "Prepare_AFeatureNotYetDelegating_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint > refusals happen before any effect",
+          "name": "Prepare_APlanWithNothingOutstanding_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint > refusals happen before any effect",
+          "name": "Prepare_ATaskWaitingOnATaskThePlanLacks_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint > refusals happen before any effect",
+          "name": "Prepare_ACyclicPlan_IsRefusedAsUnsound",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint > refusals happen before any effect",
+          "name": "Prepare_NoSubject_IsRefused",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/lower-definition.test.ts": {
+      "file": "tests/unit/verbs/prepare/lower-definition.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "built-in definitions lowered into the kernel",
+          "name": "LowerDefinition_TheBuiltInRoster_IsTheMachinesOwn",
+          "dynamic": false
+        },
+        {
+          "suite": "built-in definitions lowered into the kernel",
+          "name": "LowerDefinition_%s_SatisfiesThePublishedKernel",
+          "dynamic": false
+        },
+        {
+          "suite": "built-in definitions lowered into the kernel",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "built-in definitions lowered into the kernel",
+          "name": "LowerDefinition_%s_HasOneStepPerNonCompoundState",
+          "dynamic": false
+        },
+        {
+          "suite": "built-in definitions lowered into the kernel",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "built-in definitions lowered into the kernel",
+          "name": "LowerDefinition_%s_EveryTransitionJoinsTwoSteps",
+          "dynamic": false
+        },
+        {
+          "suite": "built-in definitions lowered into the kernel",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "built-in definitions lowered into the kernel",
+          "name": "LowerDefinition_%s_CarriesEveryMachineTransitionBetweenLeaves",
+          "dynamic": false
+        },
+        {
+          "suite": "built-in definitions lowered into the kernel",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "built-in definitions lowered into the kernel",
+          "name": "LowerDefinition_Feature_EntersAtItsInitialPhaseAndFlattensImplementation",
+          "dynamic": false
+        },
+        {
+          "suite": "built-in definitions lowered into the kernel",
+          "name": "LowerDefinition_TheDigest_IsStableAndMovesWithTheTopology",
+          "dynamic": false
+        },
+        {
+          "suite": "built-in definitions lowered into the kernel",
+          "name": "LowerDefinition_%s_CarriesAnAuthorityACapsuleCanSettleAgainst",
+          "dynamic": false
+        },
+        {
+          "suite": "built-in definitions lowered into the kernel",
+          "name": "<dynamic-case-5>",
+          "dynamic": true
+        },
+        {
+          "suite": "built-in definitions lowered into the kernel",
+          "name": "LowerDefinition_ACustomWorkflowType_IsNotLowered",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/partition-tasks.test.ts": {
+      "file": "tests/unit/verbs/prepare/partition-tasks.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "delegation batch partition",
+          "name": "Partition_CompletedTasks_AreNotInTheBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation batch partition",
+          "name": "Partition_ABlockerInTheBatch_BecomesAnEdge",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation batch partition",
+          "name": "Partition_ACompletedBlocker_IsSatisfiedAndLeavesNoEdge",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation batch partition",
+          "name": "Partition_ABlockerThePlanDoesNotContain_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation batch partition",
+          "name": "Partition_TwoOrMoreSinks_RejoinAtOneJoin",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation batch partition",
+          "name": "Partition_OneSink_NeedsNoJoin",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation batch partition",
+          "name": "Partition_NoPendingTasks_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation batch partition",
+          "name": "Partition_ATaskIdACapsuleCannotName_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation batch partition",
+          "name": "Partition_AMissingTitle_FallsBackToTheTaskId",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/pure/context-economy.parity.test.ts": {
       "file": "tests/unit/verbs/pure/context-economy.parity.test.ts",
       "runner": "vitest:root",
@@ -60610,6 +60901,46 @@
           "dynamic": false
         },
         {
+          "suite": "settle — the adjudication endpoint > the terms are the prepared capsule",
+          "name": "Settle_ACapsuleVersionNeverPrepared_IsRefusedBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint > the terms are the prepared capsule",
+          "name": "Settle_ASubmittedCapsuleThatIsNotTheRecordedOne_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint > the terms are the prepared capsule",
+          "name": "Settle_ASubmittedCapsuleThatIsTheRecordedOne_Settles",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint > the terms are the prepared capsule",
+          "name": "Settle_AVersionThatDisagreesWithTheSubmittedCapsule_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint > the terms are the prepared capsule",
+          "name": "Settle_NoCapsuleNamedAtAll_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint > the terms are the prepared capsule",
+          "name": "Settle_ATaskNamingAStepItsPinnedDefinitionLacks_IsUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint > the terms are the prepared capsule",
+          "name": "Settle_APreparedCapsuleThatDoesNotResolve_IsRefusedSeparately",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the adjudication endpoint > the terms are the prepared capsule",
+          "name": "Settle_ASubmittedCapsuleTheContractRejects_RefusesBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
           "suite": "settle — the adjudication endpoint > the settlement key is the batch identity",
           "name": "Settle_ARetryOfTheSameBatch_ReturnsThePersistedVerdictAndAppendsNothing",
           "dynamic": false
@@ -60652,16 +60983,6 @@
         {
           "suite": "settle — the adjudication endpoint > the settlement key is the batch identity",
           "name": "Settle_ACallerOperationId_IsRefusedRatherThanUsedAsASecondKey",
-          "dynamic": false
-        },
-        {
-          "suite": "settle — the adjudication endpoint",
-          "name": "Settle_ACapsuleTheContractRejects_RefusesBeforeAnyEffect",
-          "dynamic": false
-        },
-        {
-          "suite": "settle — the adjudication endpoint",
-          "name": "Settle_ACapsuleThatParsesAndDoesNotResolve_RefusesSeparately",
           "dynamic": false
         },
         {

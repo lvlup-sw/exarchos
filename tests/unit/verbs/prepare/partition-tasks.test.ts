@@ -48,7 +48,7 @@ describe('delegation batch partition', () => {
   });
 
   it('Partition_TwoOrMoreSinks_RejoinAtOneJoin', () => {
-    // T-1 feeds T-2; T-2 and T-3 are the sinks.
+    // The first task feeds the second; the second and the third are the sinks.
     const batch = batchOf([task('T-1', 'pending'), task('T-2', 'pending', ['T-1']), task('T-3', 'pending')]);
     expect(batch.joins).toEqual([{ joinId: BATCH_JOIN_ID, waitsFor: ['T-2', 'T-3'] }]);
   });

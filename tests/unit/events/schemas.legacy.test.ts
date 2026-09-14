@@ -595,7 +595,7 @@ describe('EventTypes', () => {
     // its emitter rather than ahead of it, which is the rule the semantic kinds
     // are held to: a registered name nothing writes is a catalog entry that
     // cannot be told apart from a declaration nobody finished.
-    expect(EventTypes).toHaveLength(181);
+    expect(EventTypes).toHaveLength(182);
     expect(EventTypes).toContain('tool.budget_exceeded');
     expect(EventTypes).toContain('ci.check_observed');
     expect(EventTypes).toContain('merge.recovered');

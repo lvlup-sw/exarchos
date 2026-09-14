@@ -59,19 +59,14 @@ export const settleActions: readonly BuiltinToolAction[] = [
     description:
       'Adjudicate ONE batch of returned claims against a prepared capsule and commit one ' +
       'execution.settled record. `capsuleVersion` names the capsule prepare recorded; the terms ' +
-      'come from that record, never from current state or a submitted document (a submitted ' +
-      '`capsule` must match the record\'s digest). Each claim is read against that ' +
-      "capsule's declared result shape for its task; evidence is checked against its admitted " +
-      'kinds; deviations are checked against its envelope. Outcome is `settled`, `rejected` ' +
-      '(a claim failed adjudication) or `deviation-pending` (a deviation inside the envelope ' +
-      'needs approval). A REJECTED batch is a successful call: the findings say which claim ' +
-      'to fix. Only a malformed request, a capsule that fails the published contract ' +
-      '(CAPSULE_INVALID), one never prepared (CAPSULE_NOT_PREPARED) or not the one prepared ' +
-      '(CAPSULE_DIGEST_MISMATCH), or one that does not resolve (CAPSULE_UNRESOLVED) answer ' +
-      'with an error, and none of those adjudicates anything. ' +
-      'A settlement is keyed by (capsule version, `batchId`): resubmitting the same batch ' +
-      'returns the persisted verdict and adjudicates nothing, different claims under a ' +
-      'settled batch are refused, and a corrected batch goes back under a NEW `batchId`.',
+      'come from that record, never from current state (a submitted `capsule` must match its ' +
+      'digest). Claims are read against each task\'s declared result shape, evidence against the ' +
+      'admitted kinds, deviations against the envelope. Outcome is `settled`, `rejected` or ' +
+      '`deviation-pending`; a REJECTED batch is a successful call whose findings say which claim ' +
+      'to fix. Errors, none of which adjudicate: a malformed request, CAPSULE_INVALID, ' +
+      'CAPSULE_NOT_PREPARED, CAPSULE_DIGEST_MISMATCH, CAPSULE_UNRESOLVED. Keyed by ' +
+      '(capsuleVersion, `batchId`): resubmitting a batch returns its verdict, and a correction ' +
+      'goes back under a NEW `batchId`.',
     schema: z
       .object({
         capsuleVersion: z

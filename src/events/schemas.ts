@@ -4032,8 +4032,11 @@ export const WorkflowPreparedData = z
     designVersion: z.string().min(1).describe('The design reference this compilation pinned'),
     capsuleDigest: z
       .string()
-      .regex(/^[0-9a-f]{64}$/)
-      .describe('Content address of the compiled capsule; settlement refuses one that does not match'),
+      .min(1)
+      .describe(
+        'Content address of the compiled capsule, as bare sha256 hex; settlement refuses a ' +
+          'submitted capsule that does not match it',
+      ),
     compilerVersion: z.string().min(1).describe('The compiler that produced the capsule'),
     taskCount: z.number().int().min(1).describe('Tasks in the compiled batch'),
     requestDigest: z

@@ -65,6 +65,7 @@ export const CLI_ACTION_IDS: readonly string[] = [
   'exarchos_orchestrate.onboard',
   'exarchos_orchestrate.post_delegation_check',
   'exarchos_orchestrate.pre_synthesis_check',
+  'exarchos_orchestrate.prepare',
   'exarchos_orchestrate.prepare_delegation',
   'exarchos_orchestrate.prepare_review',
   'exarchos_orchestrate.prepare_synthesis',

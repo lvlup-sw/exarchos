@@ -1,7 +1,7 @@
 {
-  "capturedAt": "2026-08-27",
-  "tree": "31d11ac26557491e1b901d3a18048a1f7ca90288",
-  "count": 126,
+  "capturedAt": "2026-09-13",
+  "tree": "0654ae1464f849ddda9f1deb3edc38bb0543f365",
+  "count": 127,
   "actionIds": [
     "exarchos_event.append",
     "exarchos_event.batch_append",
@@ -63,6 +63,7 @@
     "exarchos_orchestrate.onboard",
     "exarchos_orchestrate.post_delegation_check",
     "exarchos_orchestrate.pre_synthesis_check",
+    "exarchos_orchestrate.prepare",
     "exarchos_orchestrate.prepare_delegation",
     "exarchos_orchestrate.prepare_review",
     "exarchos_orchestrate.prepare_synthesis",

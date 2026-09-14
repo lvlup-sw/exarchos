@@ -109,7 +109,16 @@ const LOCK_NOTE =
   'contract imports it, and `settle` is that contract\'s first production consumer. The ' +
   'sentence is corrected here rather than left standing, because a freeze whose own note ' +
   'describes a tree that no longer exists is the failure mode this file keeps warning about. ' +
-  'No event schema, no invariant and no wire format changed for an EXISTING action.';
+  'No event schema, no invariant and no wire format changed for an EXISTING action.' +
+  ' RE-APPROVED for the compilation endpoint. The `action-id-registry` digest moves because ' +
+  '`exarchos_orchestrate.prepare` is NEW — it compiles a feature workflow\'s outstanding ' +
+  'delegation batch into a capsule, puts the capsule and the kernel definition it pins into ' +
+  'content-addressed custody, and commits one reserved `workflow.prepared` record pinning the ' +
+  'capsule\'s digest. Two EXISTING surfaces change with it, and a reviewer should read both: ' +
+  '`settle` now adjudicates only a capsule a prepare call recorded (it takes `capsuleVersion`, ' +
+  'reads the capsule back out of custody, and refuses a submitted capsule whose digest differs), ' +
+  'and the capsule contract no longer carries `batchId`, which moved to the settle request in ' +
+  'the preceding change. No invariant changed.';
 
 /**
  * Who/what the freeze records as the approver of the CURRENT snapshot. Bump
@@ -117,10 +126,11 @@ const LOCK_NOTE =
  * lockfile carries the provenance of the approval rather than of the tool.
  */
 export const CURRENT_APPROVER =
-  'Reed (re-approved for the settlement endpoint: exarchos_orchestrate.settle added, and the ' +
-  'stale "nothing imports strategos-contracts" sentence in the note corrected; decision ' +
-  'recorded on their instruction). Previously: Reed (#1837 resolution: version compared only ' +
-  'where no digest exists, strategos-contracts version re-pointed at the dependency spec)';
+  'Reed (re-approved for the compilation endpoint: exarchos_orchestrate.prepare added, ' +
+  'workflow.prepared reserved, and settle narrowed to prepared capsules; decision recorded on ' +
+  'their instruction). Previously: Reed (re-approved for the settlement endpoint: ' +
+  'exarchos_orchestrate.settle added, and the stale "nothing imports strategos-contracts" ' +
+  'sentence in the note corrected; decision recorded on their instruction)';
 
 export function regenerateAuthorityLock(approvedBy = CURRENT_APPROVER): string {
   const paths = defaultSourcePaths();
