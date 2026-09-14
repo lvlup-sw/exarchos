@@ -659,7 +659,11 @@ export async function hydrateEventsFromStore(
 export type TaskStatusSyncOutcome =
   | { readonly kind: 'synced'; readonly updated: readonly string[]; readonly missing: readonly string[] }
   | { readonly kind: 'unchanged'; readonly missing: readonly string[] }
-  | { readonly kind: 'skipped'; readonly reason: 'tasks-not-an-array' | 'tasks-not-found'; readonly missing: readonly string[] }
+  | {
+      readonly kind: 'skipped';
+      readonly reason: 'no-document' | 'tasks-not-an-array' | 'tasks-not-found';
+      readonly missing: readonly string[];
+    }
   | { readonly kind: 'failed'; readonly attempts: number; readonly error: string };
 
 /**
@@ -674,9 +678,12 @@ export type TaskStatusSyncOutcome =
  * other's update.
  *
  * A task the document does not list is reported, not invented; a document
- * whose `tasks` is not an array is left alone. A read that fails — no
- * document, a corrupt one — is `failed`, and the caller decides how loudly to
- * say so. A document already showing every task complete is not rewritten.
+ * whose `tasks` is not an array is left alone; a workflow with no document
+ * has nothing to bring level — the document is the planner's stamp, and a
+ * tracked workflow may have none — and is `skipped` the same way. A read or
+ * write that fails — a corrupt document, a conflict that outlasts the
+ * retries — is `failed`, and the caller decides how loudly to say so. A
+ * document already showing every task complete is not rewritten.
  */
 export async function markTasksCompleteInStateDocument(
   stateFile: string,
@@ -714,6 +721,9 @@ export async function markTasksCompleteInStateDocument(
       await writeStateFile(stateFile, state, { expectedVersion: version, skipValidation: true });
       return { kind: 'synced', updated, missing };
     } catch (err) {
+      if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
+        return { kind: 'skipped', reason: 'no-document', missing: [...taskIds] };
+      }
       lastError = err instanceof Error ? err.message : String(err);
       if (err instanceof VersionConflictError && attempt < maxAttempts) continue;
       return { kind: 'failed', attempts: attempt, error: lastError };

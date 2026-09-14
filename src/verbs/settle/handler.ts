@@ -73,7 +73,7 @@ import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import { ExecutionSettledData, TaskCompletedData } from '../../events/schemas.js';
 import type { ToolResult } from '../../format.js';
 import { orchestrateLogger } from '../../logger.js';
-import { markTasksCompleteInStateDocument } from '../../workflow/state-store.js';
+import { markTasksCompleteInStateDocument, type TaskStatusSyncOutcome } from '../../workflow/state-store.js';
 import { findPreparedCapsule } from '../prepare/prepared-record.js';
 import {
   adjudicateSettlement,
@@ -225,16 +225,49 @@ async function syncStateDocument(
   stateDir: string,
   streamId: string,
   taskIds: readonly string[],
-): Promise<void> {
+): Promise<TaskStatusSyncOutcome> {
   const stateFile = path.join(stateDir, `${streamId}.state.json`);
   const outcome = await markTasksCompleteInStateDocument(stateFile, taskIds);
+  // A workflow with no document is the ordinary case, not a warning.
   const level =
-    (outcome.kind === 'synced' || outcome.kind === 'unchanged') && outcome.missing.length === 0;
-  if (level) return;
-  orchestrateLogger.warn(
-    { streamId, taskIds, outcome },
-    'settle: the state document the transition guards read is not level with the settled tasks',
-  );
+    ((outcome.kind === 'synced' || outcome.kind === 'unchanged') && outcome.missing.length === 0) ||
+    (outcome.kind === 'skipped' && outcome.reason === 'no-document');
+  if (!level) {
+    orchestrateLogger.warn(
+      { streamId, taskIds, outcome },
+      'settle: the state document the transition guards read is not level with the settled tasks',
+    );
+  }
+  return outcome;
+}
+
+/**
+ * The receipt, with the document brought level first when the batch settled.
+ * Runs on the first return and on every replay alike: a sync that failed
+ * after the verdict was durable is repaired by the next call, rather than
+ * left behind a receipt that reads as success over a document that admits
+ * nothing. A write that fails is reported beside the receipt, so the caller
+ * knows the verdict stands and the document does not.
+ */
+async function settledResult(
+  receipt: SettlementReceipt,
+  stateDir: string,
+  streamId: string,
+): Promise<ToolResult> {
+  if (receipt.outcome !== 'settled' || receipt.acceptedTasks.length === 0) return receiptResult(receipt);
+  const sync = await syncStateDocument(stateDir, streamId, receipt.acceptedTasks);
+  if (sync.kind !== 'failed') return receiptResult(receipt);
+  return {
+    success: false,
+    data: receipt,
+    error: {
+      code: 'STATE_SYNC_FAILED',
+      message:
+        'the batch is settled and its tasks are recorded complete, but the state document the ' +
+        `transition guards read could not be updated after ${sync.attempts} attempt(s): ${sync.error}. ` +
+        'Settle the same batch again to bring the document level; nothing is adjudicated twice.',
+    },
+  };
 }
 
 /** Claims as the request carries them, refused as a whole if any entry is malformed. */
@@ -411,7 +444,7 @@ export async function handleSettle(
             'back under a new batchId.',
         );
       }
-      return receiptResult(claim.result);
+      return settledResult(claim.result, stateDir, streamId);
     }
 
     const verdict = adjudicateSettlement(capsule, claims, deviations);
@@ -538,10 +571,7 @@ export async function handleSettle(
             });
           // On a race the receipt is the winner's, and so is the accepted set;
           // the sync is idempotent either way.
-          if (persisted.outcome === 'settled' && persisted.acceptedTasks.length > 0) {
-            await syncStateDocument(stateDir, streamId, persisted.acceptedTasks);
-          }
-          return receiptResult(persisted);
+          return settledResult(persisted, stateDir, streamId);
         } catch (error) {
           if (error instanceof OperationDigestMismatchError) {
             return refused(

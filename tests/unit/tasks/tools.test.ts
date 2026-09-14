@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore, SequenceConflictError } from '../../../src/events/store.js';
 import { TaskCompletedData } from '../../../src/events/schemas.js';
@@ -1249,6 +1249,60 @@ describe('handleTaskComplete workflow state sync', () => {
     const state = await readStateFile(stateFile);
     const guardResult = guards.allTasksComplete.evaluate(state as unknown as Record<string, unknown>);
     expect(guardResult).toBe(true);
+  });
+
+  it('handleTaskComplete_WhenTheDocumentCannotBeWritten_ReportsTheFailureBesideTheDurableFact', async () => {
+    // The fact lands first and stays. The document the guards read did not
+    // follow it, and success here would be a completion that admits nothing —
+    // so the failure is reported, with the fact's ack beside it. The
+    // task-keyed idempotency makes the retry the repair: the store returns
+    // the persisted row and the sync runs again.
+    const featureId = 'wf-sync-3';
+    await initStateFile(tempDir, featureId, 'feature', {
+      tasks: [{ id: 'task-1', title: 'Test task', status: 'in_progress' }],
+    });
+    const stateFile = path.join(tempDir, `${featureId}.state.json`);
+    const intact = await readFile(stateFile, 'utf-8');
+    await writeFile(stateFile, '{ not a document', 'utf-8');
+
+    const store = new EventStore(tempDir);
+    for (const gateName of ['tdd-compliance', 'static-analysis']) {
+      await store.append(featureId, {
+        type: 'gate.executed',
+        data: { gateName, layer: gateName === 'static-analysis' ? 'quality' : 'task', passed: true, details: { taskId: 'task-1' } },
+      });
+    }
+
+    const failed = await handleTaskComplete({ taskId: 'task-1', streamId: featureId }, tempDir, store);
+    expect(failed.success).toBe(false);
+    expect(failed.error?.code).toBe('STATE_SYNC_FAILED');
+    expect(failed.data).toMatchObject({ streamId: featureId, type: 'task.completed' });
+    expect(await store.query(featureId, { type: 'task.completed' })).toHaveLength(1);
+
+    await writeFile(stateFile, intact, 'utf-8');
+    const retried = await handleTaskComplete({ taskId: 'task-1', streamId: featureId }, tempDir, store);
+    expect(retried.success).toBe(true);
+    expect(retried.data).toEqual(failed.data);
+    expect(await store.query(featureId, { type: 'task.completed' })).toHaveLength(1);
+    const state = await readStateFile(stateFile);
+    expect((state.tasks as { status: string }[]).map((t) => t.status)).toEqual(['complete']);
+  });
+
+  it('handleTaskComplete_WithNoStateDocument_CompletesTheTask', async () => {
+    // A tracked workflow may have no document — it is the planner's stamp,
+    // not an existence signal — and then there is nothing to bring level.
+    const featureId = 'wf-sync-4';
+    const store = new EventStore(tempDir);
+    for (const gateName of ['tdd-compliance', 'static-analysis']) {
+      await store.append(featureId, {
+        type: 'gate.executed',
+        data: { gateName, layer: gateName === 'static-analysis' ? 'quality' : 'task', passed: true, details: { taskId: 'task-1' } },
+      });
+    }
+
+    const result = await handleTaskComplete({ taskId: 'task-1', streamId: featureId }, tempDir, store);
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    await expect(stat(path.join(tempDir, `${featureId}.state.json`))).rejects.toThrow();
   });
 });
 

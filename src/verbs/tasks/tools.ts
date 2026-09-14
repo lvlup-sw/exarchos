@@ -254,6 +254,13 @@ async function attemptTaskClaim(
 
 // ─── handleTaskComplete ───────────────────────────────────────────────────
 
+/** Why the state document was left as it was, in the words the log reports. */
+const SYNC_SKIP_REASONS = {
+  'no-document': 'the workflow has no state document',
+  'tasks-not-an-array': 'state.tasks is not an array',
+  'tasks-not-found': 'task not found in state.tasks',
+} as const;
+
 export async function handleTaskComplete(
   args: {
     taskId: string;
@@ -435,17 +442,34 @@ export async function handleTaskComplete(
     const stateFile = path.join(stateDir, `${streamId}.state.json`);
     const sync = await markTasksCompleteInStateDocument(stateFile, [args.taskId]);
     if (sync.kind === 'skipped') {
-      logger.warn(
-        { streamId: streamId, taskId: args.taskId, reason: sync.reason },
-        sync.reason === 'tasks-not-an-array'
-          ? 'task_complete state sync skipped: state.tasks is not an array'
-          : 'task_complete state sync skipped: task not found in state.tasks',
-      );
+      // A workflow with no document is the ordinary case, not a warning: the
+      // document is the planner's stamp, and a tracked workflow may have none.
+      const detail = { streamId: streamId, taskId: args.taskId, reason: sync.reason };
+      const message = `task_complete state sync skipped: ${SYNC_SKIP_REASONS[sync.reason]}`;
+      if (sync.reason === 'no-document') logger.debug(detail, message);
+      else logger.warn(detail, message);
     } else if (sync.kind === 'failed') {
+      // The fact is durable and the document is not level with it, and the
+      // caller has to hear so: the guards read the document, so a completion
+      // returned as success here would be one that admits nothing. The
+      // task-keyed idempotency makes the retry the repair — the store returns
+      // the persisted row and the sync runs again.
       logger.warn(
         { streamId: streamId, taskId: args.taskId, attempt: sync.attempts, err: sync.error },
         'task_complete state sync failed',
       );
+      return {
+        success: false,
+        data: toEventAck(event),
+        error: {
+          code: 'STATE_SYNC_FAILED',
+          message:
+            `task ${args.taskId} is recorded complete (task.completed at sequence ${event.sequence}), but ` +
+            'the state document the transition guards read could not be updated after ' +
+            `${sync.attempts} attempt(s): ${sync.error}. Retry task_complete to bring the document ` +
+            'level; the fact is not recorded twice.',
+        },
+      };
     }
 
     return { success: true, data: toEventAck(event) };

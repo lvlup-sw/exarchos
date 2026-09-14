@@ -16,7 +16,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, readdir, stat } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
 
@@ -724,6 +724,58 @@ describe('settle — the facts a settled batch leaves', () => {
     expect(tasks.map((t) => [t.id, t.status])).toEqual([
       ['task-verify', 'complete'],
       ['task-other', 'pending'],
+    ]);
+  });
+
+  it('Settle_AReplayOfASettledBatch_BringsAStaleDocumentLevel', async () => {
+    // The first call's sync can fail after the verdict is durable. The replay
+    // returns that verdict and repairs the document, rather than handing back
+    // a receipt over a document that still admits nothing.
+    await initStateFile(stateDir, STREAM, 'feature', {
+      tasks: [{ id: 'task-verify', title: 'verify', status: 'in_progress' }],
+    });
+    const stateFile = path.join(stateDir, `${STREAM}.state.json`);
+    const args = { featureId: STREAM, capsuleVersion: 7, batchId: 'batch-replay-document', claims: [passingClaim()] };
+    const first = receiptOf(await settle(args));
+    const settled = await readStateFile(stateFile);
+    const stale = { ...settled, tasks: [{ id: 'task-verify', title: 'verify', status: 'in_progress' }] };
+    await writeFile(stateFile, JSON.stringify(stale), 'utf-8');
+
+    const again = receiptOf(await settle(args));
+    expect(again).toEqual(first);
+    expect(await completionRows()).toHaveLength(1);
+    const repaired = await readStateFile(stateFile);
+    expect((repaired.tasks as { id: string; status: string }[]).map((t) => [t.id, t.status])).toEqual([
+      ['task-verify', 'complete'],
+    ]);
+  });
+
+  it('Settle_ADocumentThatCannotBeWritten_IsReportedBesideTheDurableVerdict', async () => {
+    // The verdict and the facts are durable before the document is touched;
+    // a document that cannot follow them is reported, not hidden under a
+    // receipt that reads as success. The same batch again is the repair.
+    await initStateFile(stateDir, STREAM, 'feature', {
+      tasks: [{ id: 'task-verify', title: 'verify', status: 'in_progress' }],
+    });
+    const stateFile = path.join(stateDir, `${STREAM}.state.json`);
+    const intact = await readFile(stateFile, 'utf-8');
+    await writeFile(stateFile, '{ not a document', 'utf-8');
+
+    const args = { featureId: STREAM, capsuleVersion: 7, batchId: 'batch-unwritable-document', claims: [passingClaim()] };
+    const failed = await settle(args);
+    expect(failed.success).toBe(false);
+    expect(failed.error?.code).toBe('STATE_SYNC_FAILED');
+    expect(await settledRows()).toHaveLength(1);
+    expect(await completionRows()).toHaveLength(1);
+
+    await writeFile(stateFile, intact, 'utf-8');
+    const repaired = receiptOf(await settle(args));
+    expect(repaired.outcome).toBe('settled');
+    expect(await settledRows()).toHaveLength(1);
+    expect(await completionRows()).toHaveLength(1);
+    const state = await readStateFile(stateFile);
+    expect((state.tasks as { id: string; status: string }[]).map((t) => [t.id, t.status])).toEqual([
+      ['task-verify', 'complete'],
     ]);
   });
 });
