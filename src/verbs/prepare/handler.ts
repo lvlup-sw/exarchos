@@ -36,7 +36,7 @@ import { capabilityNeedSatisfied } from '../../workflow/capabilities/resolver.js
 import { resolveVerificationPolicy } from '../../workflow/verification-policy-resolver.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import type { CatalogInvariant } from './bind-authority.js';
-import { compileDelegationCapsule } from './compile-capsule.js';
+import { compileDelegationCapsule, verificationProfiles, type CompileCapsuleInput } from './compile-capsule.js';
 import { lowerBuiltInDefinition } from './lower-definition.js';
 import { DELEGATION_STEP_ID, partitionDelegationBatch } from './partition-tasks.js';
 import { commitPreparedCapsule } from './prepared-record.js';
@@ -208,6 +208,20 @@ export async function handlePrepare(
     ctx.cwd ?? process.cwd(),
   );
 
+  // Through the policy's one composer, with the dispatched project's
+  // overrides applied: the sequence the capsule states is the sequence the
+  // gates' own self-skip routing will honour at settlement. Resolved ahead
+  // of the digest, because the terms are inputs to the compilation: a
+  // policy that changes under an unchanged plan compiles the next version
+  // rather than replaying a capsule that states the old sequence.
+  const sequenceOf: CompileCapsuleInput['verificationSequence'] = (riskTier, boundaryTouching) =>
+    resolveVerificationPolicy(riskTier, boundaryTouching, ctx.projectConfig).sequence;
+  const verificationTerms = verificationProfiles(batch).map((profile) => ({
+    riskTier: profile.riskTier,
+    boundaryTouching: profile.boundaryTouching,
+    sequence: [...sequenceOf(profile.riskTier, profile.boundaryTouching)],
+  }));
+
   const inputs = {
     streamId,
     workflowType,
@@ -216,6 +230,7 @@ export async function handlePrepare(
     catalogInvariants,
     designRef: designRef ?? null,
     executionProfile: { capabilities },
+    verificationTerms,
   };
   const operationId = `prepare:${contentDigest(inputs)}`;
   const requestDigest = canonicalRequestDigest(inputs);
@@ -237,11 +252,7 @@ export async function handlePrepare(
       catalogInvariants,
       designRef,
       executionProfile: { capabilities },
-      // Through the policy's one composer, with the dispatched project's
-      // overrides applied: the sequence the capsule states is the sequence
-      // the gates' own self-skip routing will honour at settlement.
-      verificationSequence: (riskTier, boundaryTouching) =>
-        resolveVerificationPolicy(riskTier, boundaryTouching, ctx.projectConfig).sequence,
+      verificationSequence: sequenceOf,
       compiledAt: (deps.now ?? (() => new Date().toISOString()))(),
     });
     if (!compiled.ok) return refused(compiled.refusal);

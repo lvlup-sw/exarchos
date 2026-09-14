@@ -13,6 +13,7 @@ import * as path from 'node:path';
 import { mkdtemp, readdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
+import { resolveConfig, type ResolvedProjectConfig } from '../../../../src/config/resolve.js';
 import { capsuleDigest } from '../../../../src/contract/capsule/capsule-digest.js';
 import {
   deriveMcpCallerIdentity,
@@ -70,9 +71,11 @@ async function prepare(
   raw: Record<string, unknown>,
   catalog: readonly CatalogInvariant[] = [],
   capabilities: readonly string[] = FIT_CAPABILITIES,
+  projectConfig?: ResolvedProjectConfig,
 ): Promise<ToolResult> {
+  const ctx = { ...wiring(), ...(projectConfig !== undefined ? { projectConfig } : {}) };
   return runWithDispatchContext(correlation(capabilities), () =>
-    handlePrepare(raw, stateDir, wiring(), { catalogInvariants: () => catalog, now: () => COMPILED_AT }),
+    handlePrepare(raw, stateDir, ctx, { catalogInvariants: () => catalog, now: () => COMPILED_AT }),
   );
 }
 
@@ -184,6 +187,35 @@ describe('prepare — the compilation endpoint', () => {
     const next = receiptOf(await prepare({ featureId: STREAM }));
     expect(next.capsuleVersion).toBe(2);
     expect(next.capsule.graph.tasks.map((t) => t.taskId)).toEqual(['T-3', 'T-4']);
+    expect(await preparedRows()).toHaveLength(2);
+  });
+
+  it('Prepare_AChangedVerificationPolicy_CompilesTheNextVersion', async () => {
+    // The verification terms are inputs to the compilation, not a decoration
+    // of it: the same plan under a policy that now names another sequence
+    // for a profile the batch carries is the next version, whose capsule
+    // states the new sequence. A change to a profile the batch does not
+    // carry changes none of its terms, and replays.
+    await seedDelegatingFeature(PLAN);
+    const first = receiptOf(await prepare({ featureId: STREAM }));
+    expect(first.capsule.settlementContract.taskVerification?.['T-2']).toEqual({
+      riskTier: 'medium',
+      boundaryTouching: false,
+    });
+    const before = first.capsule.knowledge.patterns.map((p) => p.statement);
+
+    const elsewhere = resolveConfig({ verification: { policy: { high: ['check_contract_drift'] } } });
+    expect(receiptOf(await prepare({ featureId: STREAM }, [], FIT_CAPABILITIES, elsewhere))).toEqual(first);
+    expect(await preparedRows()).toHaveLength(1);
+
+    const changed = resolveConfig({ verification: { policy: { medium: ['check_contract_drift'] } } });
+    const next = receiptOf(await prepare({ featureId: STREAM }, [], FIT_CAPABILITIES, changed));
+    expect(next.capsuleVersion).toBe(2);
+    const after = next.capsule.knowledge.patterns.map((p) => p.statement);
+    expect(after).toContain(
+      'A task at riskTier=medium, boundaryTouching=false is verified at settlement by: check_contract_drift.',
+    );
+    expect(after).not.toEqual(before);
     expect(await preparedRows()).toHaveLength(2);
   });
 

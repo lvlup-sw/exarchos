@@ -45,7 +45,7 @@ import {
 import { bindCatalogInvariants, type CatalogInvariant } from './bind-authority.js';
 import { builtInWorkflowAuthority } from './built-in-authority.js';
 import type { LoweredBuiltInDefinition } from './lower-definition.js';
-import { DELEGATION_STEP_ID, type DelegationBatch } from './partition-tasks.js';
+import { DELEGATION_STEP_ID, type BatchTaskVerification, type DelegationBatch } from './partition-tasks.js';
 import type { PrepareRefusal } from './types.js';
 
 /** Names the compiler that produced a capsule, so a reader can tell compilations apart. */
@@ -160,23 +160,33 @@ function statement(text: string): { statement: string } {
  * sequence the handler hands in, in profile order, so the same batch yields
  * the same statements.
  */
-function verificationPatterns(
-  batch: DelegationBatch,
-  sequenceOf: CompileCapsuleInput['verificationSequence'],
-): { statement: string }[] {
-  const profiles = new Map<string, { riskTier: RiskTier; boundaryTouching: boolean }>();
+/**
+ * The distinct verification profiles the batch's tasks settle under, in one
+ * fixed order. The capsule's pattern statements and the compilation's replay
+ * key are both built over this list, so the terms the capsule states are the
+ * terms the key was taken over.
+ */
+export function verificationProfiles(batch: DelegationBatch): readonly BatchTaskVerification[] {
+  const profiles = new Map<string, BatchTaskVerification>();
   for (const task of batch.tasks) {
     const key = `${task.verification.riskTier}|${task.verification.boundaryTouching}`;
     if (!profiles.has(key)) profiles.set(key, task.verification);
   }
   return [...profiles.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([, profile]) =>
-      statement(
-        `A task at riskTier=${profile.riskTier}, boundaryTouching=${profile.boundaryTouching} is ` +
-          `verified at settlement by: ${sequenceOf(profile.riskTier, profile.boundaryTouching).join(', ')}.`,
-      ),
-    );
+    .map(([, profile]) => profile);
+}
+
+function verificationPatterns(
+  batch: DelegationBatch,
+  sequenceOf: CompileCapsuleInput['verificationSequence'],
+): { statement: string }[] {
+  return verificationProfiles(batch).map((profile) =>
+    statement(
+      `A task at riskTier=${profile.riskTier}, boundaryTouching=${profile.boundaryTouching} is ` +
+        `verified at settlement by: ${sequenceOf(profile.riskTier, profile.boundaryTouching).join(', ')}.`,
+    ),
+  );
 }
 
 /** Compile one delegation batch, or refuse it. */
