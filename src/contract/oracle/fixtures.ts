@@ -1238,6 +1238,7 @@ const EMISSION_PROBES: readonly EmissionProbe[] = [
     input: {
       ...FEATURE_INPUT,
       capsule: baseValidCapsule(),
+      batchId: 'emission-probe-batch',
       claims: [
         {
           taskId: 'task-verify',

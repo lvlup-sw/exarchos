@@ -67,13 +67,21 @@ export const settleActions: readonly BuiltinToolAction[] = [
       'to fix. Only a malformed request, a capsule that fails the published contract ' +
       '(CAPSULE_INVALID) or one whose own references do not resolve (CAPSULE_UNRESOLVED) ' +
       'answer with an error, and none of those adjudicates anything. ' +
-      'A caller-supplied `operationId` replays: the same id with the same batch returns the ' +
-      'persisted verdict and adjudicates nothing; a different batch under it is rejected.',
+      'A settlement is keyed by (capsule version, `batchId`): resubmitting the same batch ' +
+      'returns the persisted verdict and adjudicates nothing, different claims under a ' +
+      'settled batch are refused, and a corrected batch goes back under a NEW `batchId`.',
     schema: z
       .object({
         capsule: z
           .record(z.string(), z.unknown())
           .describe('The compiled capsule document, validated against the published contract'),
+        batchId: z
+          .string()
+          .min(1)
+          .describe(
+            'Names this batch. With the capsule version it is the settlement key: a retry reuses ' +
+              'it, a correction of a rejected batch takes a new one',
+          ),
         claims: z
           .array(
             z
@@ -100,7 +108,6 @@ export const settleActions: readonly BuiltinToolAction[] = [
         // either spelling is accepted and exactly one is required.
         streamId: z.string().min(1).optional(),
         featureId: z.string().min(1).optional(),
-        operationId: z.string().optional(),
       })
       .strict(),
     // Advisory — only the next-actions computer reads it. Settlement follows
