@@ -950,10 +950,30 @@ describe('settle — the verification a settled batch runs', () => {
     ]);
   });
 
-  it('Settle_ADocumentThatCannotBeWritten_IsReportedBesideTheDurableVerdict', async () => {
-    // The verdict and the facts are durable before the document is touched;
-    // a document that cannot follow them is reported, not hidden under a
-    // receipt that reads as success. The same batch again is the repair.
+  it('Settle_ATaskTheStreamAlreadyShowsComplete_IsBroughtLevelOnTheDocument', async () => {
+    // Complete on the stream before the batch — by `task_complete`, or by a
+    // batch whose leaf left the fact and then failed to write the document.
+    // Accepted as it stands, and the document follows.
+    await store.append(STREAM, { type: 'task.completed', data: { taskId: 'task-verify', verified: false } });
+    await initStateFile(stateDir, STREAM, 'feature', {
+      tasks: [{ id: 'task-verify', title: 'verify', status: 'in_progress' }],
+    });
+    const receipt = receiptOf(
+      await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-level-again', claims: [passingClaim()] }),
+    );
+    expect(receipt.verification).toEqual([{ taskId: 'task-verify', outcome: 'already-complete' }]);
+    const state = await readStateFile(path.join(stateDir, `${STREAM}.state.json`));
+    expect((state.tasks as { id: string; status: string }[]).map((t) => [t.id, t.status])).toEqual([
+      ['task-verify', 'complete'],
+    ]);
+  });
+
+  it('Settle_ADocumentThatCannotBeWritten_HaltsTheCompletionLeafAndTheNextBatchRepairsIt', async () => {
+    // The leaf leaves the fact and then cannot write the document: it
+    // reports so, the segment halts on it, and the batch is rejected with
+    // the fact durable on the stream. Under the next batch the task is
+    // already complete, and the document is brought level before it is
+    // accepted — the repair is the resubmission, not a second fact.
     await initStateFile(stateDir, STREAM, 'feature', {
       tasks: [{ id: 'task-verify', title: 'verify', status: 'in_progress' }],
     });
@@ -961,17 +981,28 @@ describe('settle — the verification a settled batch runs', () => {
     const intact = await readFile(stateFile, 'utf-8');
     await writeFile(stateFile, '{ not a document', 'utf-8');
 
-    const args = { featureId: STREAM, capsuleVersion: 7, batchId: 'batch-unwritable-document', claims: [passingClaim()] };
-    const failed = await settle(args);
-    expect(failed.success).toBe(false);
-    expect(failed.error?.code).toBe('STATE_SYNC_FAILED');
-    expect(await settledRows()).toHaveLength(1);
+    const rejected = receiptOf(
+      await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-unwritable-document', claims: [passingClaim()] }),
+    );
+    expect(rejected.outcome).toBe('rejected');
+    expect(rejected.findings.map((f) => f.kind)).toEqual(['verification-failed']);
+    expect(rejected.verification?.map((t) => [t.outcome, t.failedLeaf])).toEqual([['failed', 'task_complete']]);
+    expect(rejected.findings[0]?.message).toContain('state document');
     expect(await completionRows()).toHaveLength(1);
 
-    await writeFile(stateFile, intact, 'utf-8');
-    const repaired = receiptOf(await settle(args));
-    expect(repaired.outcome).toBe('settled');
+    // A corrupt document is a refusal before any effect, and the batch stays open.
+    const stillCorrupt = await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-retry-1', claims: [passingClaim()] });
+    expect(stillCorrupt.success).toBe(false);
+    expect(stillCorrupt.error?.code).toBe('STATE_SYNC_FAILED');
     expect(await settledRows()).toHaveLength(1);
+
+    await writeFile(stateFile, intact, 'utf-8');
+    const repaired = receiptOf(
+      await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-retry-1', claims: [passingClaim()] }),
+    );
+    expect(repaired.outcome).toBe('settled');
+    expect(repaired.verification).toEqual([{ taskId: 'task-verify', outcome: 'already-complete' }]);
+    expect(await settledRows()).toHaveLength(2);
     expect(await completionRows()).toHaveLength(1);
     const state = await readStateFile(stateFile);
     expect((state.tasks as { id: string; status: string }[]).map((t) => [t.id, t.status])).toEqual([

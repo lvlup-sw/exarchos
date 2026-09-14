@@ -59,6 +59,7 @@
 // under the same pinned capsule, is a new settlement rather than a conflict.
 
 import { createHash } from 'node:crypto';
+import * as path from 'node:path';
 
 import { capsuleDigest } from '../../contract/capsule/capsule-digest.js';
 import { resolveCapsuleReferences } from '../../contract/capsule/capsule-references.js';
@@ -78,7 +79,9 @@ import { EXECUTION_SETTLED_SETTLEMENT, type BundleRefV1 } from '../../events/bun
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import { AdmissionEvidenceRecordedData, ExecutionSettledData } from '../../events/schemas.js';
 import type { ToolResult } from '../../format.js';
+import { orchestrateLogger } from '../../logger.js';
 import { evidenceArtifactResolver } from '../../workflow/admission/evidence-artifact.js';
+import { markTasksCompleteInStateDocument, type TaskStatusSyncOutcome } from '../../workflow/state-store.js';
 import { compileIntent } from '../execute/compile.js';
 import { handleExecuteIntent, type ExecuteIntentDeps } from '../execute/executor.js';
 import type { IntentReceipt } from '../execute/types.js';
@@ -188,6 +191,53 @@ function completedTaskIds(events: readonly { readonly type: string; readonly dat
     if (typeof taskId === 'string') ids.add(taskId);
   }
   return ids;
+}
+
+/**
+ * Bring the state document level with tasks the stream shows complete. The
+ * transition guards read `state.tasks[].status` off the document, so a
+ * completion fact on the stream admits nothing until the document says the
+ * same. The composed leaf syncs the document as it leaves the fact; this is
+ * for the paths that leave none — a task complete before the batch, and a
+ * replay — where the fact is on the stream and the document may have been
+ * left behind by a write that failed. A workflow with no document, or one
+ * that does not list the task, is logged and left.
+ */
+async function bringDocumentLevel(
+  stateDir: string,
+  streamId: string,
+  taskIds: readonly string[],
+): Promise<TaskStatusSyncOutcome> {
+  const outcome = await markTasksCompleteInStateDocument(path.join(stateDir, `${streamId}.state.json`), taskIds);
+  const level =
+    ((outcome.kind === 'synced' || outcome.kind === 'unchanged') && outcome.missing.length === 0) ||
+    (outcome.kind === 'skipped' && outcome.reason === 'no-document');
+  if (!level) {
+    orchestrateLogger.warn(
+      { streamId, taskIds, outcome },
+      'settle: the state document the transition guards read is not level with the completed tasks',
+    );
+  }
+  return outcome;
+}
+
+/** The refusal a document that could not follow the facts earns. The facts stand. */
+function documentNotLevel(
+  sync: Extract<TaskStatusSyncOutcome, { kind: 'failed' }>,
+  what: string,
+  then: string,
+  receipt?: SettlementReceipt,
+): ToolResult {
+  return {
+    success: false,
+    ...(receipt !== undefined ? { data: receipt } : {}),
+    error: {
+      code: 'STATE_SYNC_FAILED',
+      message:
+        `${what}, but the state document the transition guards read could not be updated after ` +
+        `${sync.attempts} attempt(s): ${sync.error}. ${then}`,
+    },
+  };
 }
 
 /** The evidence key the resolution set is built over: the kind and the reference together. */
@@ -588,6 +638,20 @@ export async function handleSettle(
             'back under a new batchId.',
         );
       }
+      // A settled batch's replay brings the document level with the facts
+      // the first call left: a sync that failed after the verdict was
+      // durable is repaired here rather than left behind a receipt.
+      if (claim.result.outcome === 'settled' && claim.result.acceptedTasks.length > 0) {
+        const sync = await bringDocumentLevel(stateDir, streamId, claim.result.acceptedTasks);
+        if (sync.kind === 'failed') {
+          return documentNotLevel(
+            sync,
+            `${batchLabel} is settled and its tasks are recorded complete`,
+            'Settle the same batch again to bring the document level; nothing is adjudicated twice.',
+            claim.result,
+          );
+        }
+      }
       return receiptResult(claim.result);
     }
 
@@ -616,6 +680,17 @@ export async function handleSettle(
       const outcomes = new Map<string, TaskVerificationOutcome>();
       for (const taskId of shape.acceptedTasks) {
         if (completed.has(taskId)) {
+          // Accepted as it stands, and brought level on the document, which
+          // the leaf that left the fact may have failed to do. Refused
+          // before any effect if it cannot be.
+          const sync = await bringDocumentLevel(stateDir, streamId, [taskId]);
+          if (sync.kind === 'failed') {
+            return documentNotLevel(
+              sync,
+              `task ${JSON.stringify(taskId)} of ${batchLabel} is already recorded complete`,
+              'Nothing was adjudicated; settle the batch again once the document can be written.',
+            );
+          }
           outcomes.set(taskId, { kind: 'already-complete' });
           traces.push({ taskId, outcome: 'already-complete' });
           continue;
