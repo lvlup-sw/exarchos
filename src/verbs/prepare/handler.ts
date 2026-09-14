@@ -43,7 +43,11 @@ const PREPARABLE_WORKFLOW_TYPE = 'feature';
 /** Injected so the tests drive a real store at a temporary root, with a fixed catalog and clock. */
 export interface PrepareDeps {
   readonly bundleStore?: RunBundleStore;
-  readonly catalogInvariants?: (workflowType: string, phase: string) => readonly CatalogInvariant[];
+  readonly catalogInvariants?: (
+    workflowType: string,
+    phase: string,
+    repoRoot: string,
+  ) => readonly CatalogInvariant[];
   readonly now?: () => string;
 }
 
@@ -71,8 +75,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * floor, and the invariant gate treats an unreadable `.exarchos.yml` the same
  * way.
  */
-function resolvedCatalogInvariants(workflowType: string, phase: string): readonly CatalogInvariant[] {
-  const repoRoot = process.cwd();
+function resolvedCatalogInvariants(
+  workflowType: string,
+  phase: string,
+  repoRoot: string,
+): readonly CatalogInvariant[] {
   let config;
   try {
     config = loadExarchosConfig(repoRoot)?.config;
@@ -137,7 +144,13 @@ export async function handlePrepare(
   const artifacts = isRecord(state.artifacts) ? state.artifacts : {};
   const designRef =
     typeof artifacts.design === 'string' && artifacts.design.length > 0 ? artifacts.design : undefined;
-  const catalogInvariants = (deps.catalogInvariants ?? resolvedCatalogInvariants)(workflowType, phase);
+  // Resolved from the workspace the call was dispatched for, which is not
+  // necessarily the directory the serving process started in.
+  const catalogInvariants = (deps.catalogInvariants ?? resolvedCatalogInvariants)(
+    workflowType,
+    phase,
+    ctx.cwd ?? process.cwd(),
+  );
 
   const inputs = {
     streamId,

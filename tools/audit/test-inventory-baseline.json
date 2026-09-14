@@ -7,7 +7,7 @@
     "testFiles": 1280,
     "parsedFiles": 1235,
     "shellFiles": 45,
-    "cases": 14133,
+    "cases": 14134,
     "dynamicTitles": 169,
     "unparseableFiles": 0
   },
@@ -58545,6 +58545,11 @@
         {
           "suite": "prepare — the compilation endpoint",
           "name": "Prepare_ARegisteredCatalog_IsBoundIntoTheAuthority",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_TheCatalog_IsResolvedFromTheDispatchedWorkspace",
           "dynamic": false
         },
         {

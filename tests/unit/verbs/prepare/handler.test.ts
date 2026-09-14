@@ -183,6 +183,26 @@ describe('prepare — the compilation endpoint', () => {
     expect(receipt.capsule.authority.invariants.map((i) => i.id)).toContain('INV-9');
   });
 
+  it('Prepare_TheCatalog_IsResolvedFromTheDispatchedWorkspace', async () => {
+    // A server dispatching for a workspace other than its own directory must
+    // bind that workspace's configuration and catalog, not the process's.
+    await seedDelegatingFeature(PLAN);
+    const workspace = path.join(stateDir, 'dispatched-workspace');
+    expect(workspace).not.toBe(process.cwd());
+    const roots: string[] = [];
+    const result = await runWithDispatchContext(correlation(), () =>
+      handlePrepare({ featureId: STREAM }, stateDir, { ...wiring(), cwd: workspace }, {
+        catalogInvariants: (_workflowType, _phase, repoRoot) => {
+          roots.push(repoRoot);
+          return [];
+        },
+        now: () => COMPILED_AT,
+      }),
+    );
+    receiptOf(result);
+    expect(roots).toEqual([workspace]);
+  });
+
   it('Prepare_AStreamThatMovesBeforeTheCommit_LosesTheVersionAndLeavesNoClaim', async () => {
     await seedDelegatingFeature(PLAN);
     // The stream moves after the handler read its tail and before the record
