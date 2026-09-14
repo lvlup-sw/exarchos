@@ -10,15 +10,9 @@ Feature: `add-email-validation` with two plan tasks:
 
 ## 1. Prepare
 
-Announce the tasks, then compile the batch:
+Compile the batch — the commit announces both tasks (`task.assigned`) ahead of its record, so nothing precedes this call:
 
 ```typescript
-exarchos_event({ action: "batch_append", stream: "add-email-validation",
-  events: [
-    { type: "task.assigned", data: { taskId: "task-001", title: "Email format validator", branch: "feat/task-001" } },
-    { type: "task.assigned", data: { taskId: "task-002", title: "Domain MX check", branch: "feat/task-002" } },
-  ] })
-
 exarchos_orchestrate({ action: "prepare", featureId: "add-email-validation" })
 ```
 

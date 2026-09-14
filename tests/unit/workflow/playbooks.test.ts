@@ -8,6 +8,7 @@ import {
   workflowPlaybooks,
 } from '../../../src/workflow/playbooks.js';
 import type { SerializedPlaybooks, SerializedPhasePlaybook } from '../../../src/workflow/playbooks.js';
+import { phaseRuntimeEmissions } from '../../../src/workflow/topology/phase-events.js';
 import {
   getRequiredReviews,
   getRequiredReviewsPrerequisite,
@@ -419,18 +420,21 @@ describe('EventInstruction fields property', () => {
     }
   });
 
-  it('EventInstruction_TaskAssigned_HasRequiredFields', () => {
+  it('EventInstruction_TaskAssigned_IsDisclosedAsTheRuntimesNotInstructed', () => {
+    // `task.assigned` is appended by `prepare` and `prepare_delegation` now,
+    // so no phase instructs the model to emit it; the delegation phases
+    // disclose it instead, with the field the projections key on.
     const playbooks = serializePlaybooks('feature');
-    const phasesWithTaskAssigned = Object.entries(playbooks.phases).filter(
+    const instructed = Object.entries(playbooks.phases).filter(
       ([, pb]) => pb.events.some((e) => e.type === 'task.assigned'),
     );
-    expect(phasesWithTaskAssigned.length).toBeGreaterThan(0);
-    for (const [, pb] of phasesWithTaskAssigned) {
-      const taskEvent = pb.events.find((e) => e.type === 'task.assigned');
-      expect(taskEvent).toBeDefined();
-      const fields = (taskEvent as { fields?: readonly string[] }).fields!;
-      expect(fields).toBeDefined();
-      expect(fields).toContain('taskId');
+    expect(instructed.map(([phase]) => phase)).toEqual([]);
+    for (const phase of ['delegate', 'overhaul-delegate']) {
+      const disclosed = phaseRuntimeEmissions(phase).find((e) => e.type === 'task.assigned');
+      expect(disclosed, phase).toBeDefined();
+      expect(disclosed?.fields).toContain('taskId');
+      expect(disclosed?.emittedBy).toContain('prepare');
+      expect(disclosed?.emittedBy).toContain('prepare_delegation');
     }
   });
 });

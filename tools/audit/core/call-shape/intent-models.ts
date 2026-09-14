@@ -175,13 +175,8 @@ const DELEGATION: IntentModel = {
     { kind: 'site', ref: at('delegate', `${O}.runbook`, '**Dispatch strategy:**'), why: 'pre-dispatch decision runbook, prescribed before dispatching' },
     {
       kind: 'site',
-      ref: at('delegate', `${E}.batch_append`, 'type: "task.assigned",'),
-      why: 'one batch carries every task, so the call counts once. The one governance call on this path the capsule has not yet absorbed: the delegate-phase event contract still expects the announcement',
-    },
-    {
-      kind: 'site',
       ref: at('delegate', `${O}.prepare`, 'action: "prepare", featureId: "<featureId>" })'),
-      why: 'compiles the batch into the capsule every packet is built from',
+      why: 'compiles the batch into the capsule every packet is built from, and announces its tasks in the same commit — the announcement the skill used to make first is the compilation\'s now',
     },
     {
       kind: 'site',

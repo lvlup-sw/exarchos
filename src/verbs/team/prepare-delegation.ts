@@ -870,6 +870,68 @@ function assembleQualityHints(
   }));
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** A planned task as the workflow state lists it: an id and a title, nothing assumed. */
+function plannedTask(entry: unknown): { readonly id: string; readonly title: string } | undefined {
+  if (!isPlainRecord(entry)) return undefined;
+  const { id, title } = entry;
+  return typeof id === 'string' && typeof title === 'string' ? { id, title } : undefined;
+}
+
+/**
+ * Announce the planned tasks the stream has not yet heard of: one
+ * `task.assigned` per task, ahead of the readiness fold that counts them, so
+ * the delegate phase's event contract is met by this handler rather than by
+ * a call the model has to remember before it. A task already announced — by
+ * an earlier wave, or by hand — is not announced again: the projection reads
+ * a second announcement as the task returning to `assigned`. Keyed per task,
+ * so a retried dispatch lands on the same row.
+ */
+async function announceTasks(
+  store: EventStore,
+  streamId: string,
+  tasks: readonly { readonly id: string; readonly title: string }[],
+): Promise<void> {
+  const heard = new Set<string>();
+  for (const event of await store.query(streamId, { type: 'task.assigned' })) {
+    const taskId = isPlainRecord(event.data) ? event.data.taskId : undefined;
+    if (typeof taskId === 'string') heard.add(taskId);
+  }
+  for (const task of tasks) {
+    if (heard.has(task.id)) continue;
+    heard.add(task.id);
+    await store.append(
+      streamId,
+      { type: 'task.assigned', data: { taskId: task.id, title: task.title } },
+      { idempotencyKey: `${streamId}:task.assigned:${task.id}` },
+    );
+  }
+}
+
+/**
+ * {@link announceTasks}, under the policy every append this handler makes on
+ * its own account follows: a failure is logged, never propagated. A task the
+ * announcement could not leave shows up in the readiness fold as a blocker,
+ * which is where the caller reads it.
+ */
+async function announceTasksBestEffort(
+  store: EventStore,
+  streamId: string,
+  tasks: readonly { readonly id: string; readonly title: string }[],
+): Promise<void> {
+  try {
+    await announceTasks(store, streamId, tasks);
+  } catch (err) {
+    orchestrateLogger.warn(
+      { streamId, tasks: tasks.map((task) => task.id), err: err instanceof Error ? err.message : String(err) },
+      'task announcement failed',
+    );
+  }
+}
+
 // Audit-trail events must persist before the handler returns so callers
 // that query the stream immediately after dispatch observe them
 // (read-your-writes). Failures are logged, never propagated — emission is
@@ -1387,6 +1449,16 @@ export async function handlePrepareDelegation(
     if (gateResult.warning) {
       warnings.push(`checkpoint: ${gateResult.warning}`);
     }
+
+    // The plan's tasks, and any this wave names that the plan does not,
+    // announced before the fold below counts them.
+    const planned = (Array.isArray(workflowState.tasks) ? workflowState.tasks : [])
+      .map(plannedTask)
+      .filter((task): task is { readonly id: string; readonly title: string } => task !== undefined);
+    await announceTasksBestEffort(store, streamId, [
+      ...planned,
+      ...(args.tasks ?? []).map((task) => ({ id: task.id, title: task.title })),
+    ]);
 
     // Materialize delegation readiness from event stream
     const { view: readiness } = await foldToTail<DelegationReadinessState>(

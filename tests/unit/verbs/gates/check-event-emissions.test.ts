@@ -269,11 +269,12 @@ describe('handleCheckEventEmissions', () => {
     mockViewState = { phase: 'delegate' };
 
     // Post Fix 3 (#1180), the delegate-phase model-emitted contract is the
-    // SoT registry filtered to model events: task.assigned + team.spawned +
+    // SoT registry filtered to model events: team.spawned +
     // team.task.planned + team.teammate.dispatched + team.disbanded +
-    // task.progressed (6 events). All must be present for hints to be empty.
+    // task.progressed (5 events — `task.assigned` is the runtime's since
+    // `prepare` and `prepare_delegation` took its append). All must be
+    // present for hints to be empty.
     mockStore.query.mockResolvedValueOnce([
-      { type: 'task.assigned', streamId: 'test', sequence: 1, timestamp: '2026-01-01T00:00:00Z' },
       { type: 'team.spawned', streamId: 'test', sequence: 2, timestamp: '2026-01-01T00:00:00Z' },
       { type: 'team.task.planned', streamId: 'test', sequence: 3, timestamp: '2026-01-01T00:00:00Z' },
       { type: 'team.teammate.dispatched', streamId: 'test', sequence: 4, timestamp: '2026-01-01T00:00:00Z' },
@@ -292,7 +293,7 @@ describe('handleCheckEventEmissions', () => {
       phase: 'delegate',
       hints: [],
       complete: true,
-      checked: 6,
+      checked: 5,
       missing: 0,
     });
   });

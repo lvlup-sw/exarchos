@@ -474,12 +474,12 @@ describe('deriveMetaModel — action-contract projection', () => {
 
 describe('deriveMetaModel — emission source binding', () => {
   it('CompileContract_NonAutoEmissionSource_RejectsActionAndEvent', () => {
-    // 'task.assigned' is a real catalog event whose EVENT_EMISSION_REGISTRY
+    // 'task.progressed' is a real catalog event whose EVENT_EMISSION_REGISTRY
     // source is 'model', not 'auto' — the compiler derivation must reject an
     // action that declares it as an emission, the same as admission does.
     const badContract = validContract({
       emissions: declared({
-        event: 'task.assigned',
+        event: 'task.progressed',
         condition: 'always',
         owner: 'planner',
         role: 'primary',
@@ -495,10 +495,10 @@ describe('deriveMetaModel — emission source binding', () => {
       expect(error).toBeInstanceOf(ActionContractError);
       if (error instanceof ActionContractError) {
         expect(error.message).toContain('exarchos_probe.assign');
-        expect(error.message).toContain('task.assigned');
+        expect(error.message).toContain('task.progressed');
       }
     }
-    expect(() => deriveMetaModel([tool])).toThrow(/task\.assigned/);
+    expect(() => deriveMetaModel([tool])).toThrow(/task\.progressed/);
   });
 
   it('CompileContract_AutoEmissionSource_RemainsByteStable', () => {

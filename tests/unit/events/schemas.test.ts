@@ -138,12 +138,14 @@ describe('EVENT_EMISSION_REGISTRY', () => {
       'review.finding',
       'review.escalated',
       'session.tagged',
-      'task.assigned',
       'task.progressed',
     ];
     for (const eventType of modelSpotChecks) {
       expect(EVENT_EMISSION_REGISTRY[eventType]).toBe('model');
     }
+    // `task.assigned` left this set when `prepare` and `prepare_delegation`
+    // took its append: it is a capability of the orchestrate tool now.
+    expect(EVENT_EMISSION_REGISTRY['task.assigned']).toBe('auto');
   });
 
   it('EventEmissionRegistry_AutoEvents_IncludesWorkflowAndTask', () => {

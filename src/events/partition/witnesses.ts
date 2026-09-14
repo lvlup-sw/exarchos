@@ -121,14 +121,10 @@ export const GOVERNANCE_WITNESSES: Readonly<Record<string, AuthorityWitness>> = 
       'an escalation bound from it, so the reader must be retired or re-sourced first.',
   },
 
-  'task.assigned': {
-    arm: 'projection-fold',
-    evidence: ['src/projections/views/workflow-state-projection.ts'],
-    because:
-      'The canonical workflow-state fold appends a task row for it, so a stream replayed without ' +
-      'it produces a different task list. The task family is pinned governance by charter too, ' +
-      'but that pin is not the basis here — the fold is, and it is measured.',
-  },
+  // `task.assigned` carried a projection-fold witness here while it was
+  // model-emitted. Its tier is `capability` now — `prepare` and
+  // `prepare_delegation` append it — so the tier makes it governance and a
+  // witness would be dead cover.
   'task.progressed': {
     arm: 'raw-reader',
     evidence: ['src/events/schemas.ts'],

@@ -197,7 +197,7 @@ function readyDelegationReadiness(): DelegationReadinessState {
 function notReadyDelegationReadiness(): DelegationReadinessState {
   return {
     ready: false,
-    blockers: ['plan not approved', 'no task.assigned events found — emit task.assigned events for each task via exarchos_event before calling prepare_delegation'],
+    blockers: ['plan not approved', 'no task.assigned events found — prepare_delegation announces the plan\'s tasks itself; give the workflow a task list (workflow update with tasks) or pass tasks, so there is something to announce'],
     plan: { approved: false, taskCount: 0, artifactPresent: false },
     quality: { queried: false, gatePassRate: null, regressions: [] },
     worktrees: {
@@ -2479,6 +2479,46 @@ describe('handlePrepareDelegation', () => {
       expect(implementerTask?.riskTier).toBe('medium');
       expect(scaffolderTask?.recommendedModel).toBe('opus');
       expect(implementerTask?.recommendedModel).toBe('opus');
+    });
+
+    it('PrepareDelegation_AnnouncesEachTaskTheStreamHasNotHeardOf_BeforeReadiness', async () => {
+      // The announcement is this handler's now, not a call the model makes
+      // first: one `task.assigned` per task the stream has not yet heard of,
+      // keyed per task, and none for a task already announced — a second row
+      // would read to the projection as the task returning to `assigned`.
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      mockStore.query.mockImplementation(async (_stream: string, opts?: { type?: string }) =>
+        opts?.type === 'task.assigned'
+          ? [{ type: 'task.assigned', data: { taskId: 'task-1', title: 'by hand' } }]
+          : [],
+      );
+      const args = {
+        featureId: 'test-feature',
+        tasks: [
+          { id: 'task-1', title: 'First' },
+          { id: 'task-2', title: 'Second' },
+        ],
+      };
+      try {
+        const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+        expect(result.success).toBe(true);
+        const announced = mockStore.append.mock.calls
+          .filter(([, event]) => (event as { type: string }).type === 'task.assigned')
+          .map(([, event, opts]) => ({
+            data: (event as { data: unknown }).data,
+            key: (opts as { idempotencyKey?: string } | undefined)?.idempotencyKey,
+          }));
+        // The plan's title, not the wave's: the workflow state lists the second
+        // task as 'Add tests', and the plan is the authority on what a task is.
+        expect(announced).toEqual([
+          { data: { taskId: 'task-2', title: 'Add tests' }, key: 'test-feature:task.assigned:task-2' },
+        ]);
+      } finally {
+        mockStore.query.mockReset();
+        mockStore.query.mockResolvedValue([]);
+      }
     });
 
     it('PrepareDelegation_WithoutCtx_UsesDefaults', async () => {

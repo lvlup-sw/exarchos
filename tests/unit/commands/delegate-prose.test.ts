@@ -15,27 +15,25 @@ const REPO_ROOT = path.resolve(__dirname, '../../..');
 const DELEGATE_SKILL = path.join(REPO_ROOT, 'content/delivery/skills/delegate/SKILL.md');
 
 describe('delegate skill canonical event + transition discipline (#1370 PR-2; DR-3 fold-in)', () => {
-  it('DelegateCommand_DispatchBlock_InstructsTaskAssignedEventEmission', () => {
-    // Per [memory: feedback_orchestrator_task_assigned_emission], the orchestrator
-    // must emit a `task.assigned` event before dispatching a subagent — otherwise
-    // rehydration's `taskProgress` projection is silently empty.
+  it('DelegateSkill_AnnouncesNoTaskItself_TheRuntimeLeavesTheAssignment', () => {
+    // The orchestrator used to emit `task.assigned` by hand before dispatching,
+    // because rehydration's `taskProgress` projection was otherwise silently
+    // empty. The append is the runtime's now: `prepare` leaves it in the same
+    // commit as the prepared record, `prepare_delegation` ahead of its readiness
+    // read. So the skill must SAY who announces, and must not instruct an
+    // `exarchos_event` append of the type on either path.
     const body = fs.readFileSync(DELEGATE_SKILL, 'utf8');
+    expect(body, 'delegate skill must name the announcement').toMatch(/task\.assigned/);
+    expect(body, 'delegate skill must name prepare as an announcer').toMatch(
+      /`prepare`[^\n]*announces[^\n]*`task\.assigned`|announces[^\n]*`task\.assigned`[^\n]*`prepare`/,
+    );
+    expect(body, 'delegate skill must name prepare_delegation as the primitive-path announcer').toMatch(
+      /prepare_delegation[^\n]*announces[^\n]*`task\.assigned`|`task\.assigned`[^\n]*prepare_delegation/,
+    );
     expect(
       body,
-      'delegate skill must instruct task.assigned event emission per dispatch',
-    ).toMatch(/task\.assigned/);
-    // The emission goes through `exarchos_event` and specifies the event type.
-    // (The command-era single-line regex broke on the `tasks.map(...)` period in
-    // the batch-append sketch; these two co-present markers pin the same
-    // contract — an exarchos_event call whose emitted type is task.assigned.)
-    expect(
-      body,
-      'delegate skill must emit via exarchos_event',
-    ).toMatch(/exarchos_event/);
-    expect(
-      body,
-      'delegate skill must specify the task.assigned event type',
-    ).toMatch(/type:\s*["']task\.assigned["']/);
+      'delegate skill must not instruct a task.assigned append',
+    ).not.toMatch(/type:\s*["']task\.assigned["']/);
   });
 
   it('DelegateCommand_AutoChain_UsesTransitionActionNotImplicitUpdate', () => {

@@ -68,28 +68,13 @@ Before dispatching, query decision runbooks to classify the work and select the 
 
 ## Step 1: Prepare
 
-### Step 0 — Announce the tasks
-
-Before compiling, the workflow stream must carry a `task.assigned` event for each task. The delegation timeline and the delegate-phase event contract read these; nothing else in this path does. One batch carries every task, so this is one call:
-
-```typescript
-exarchos_event({
-  action: "batch_append",
-  stream: "<featureId>",
-  events: tasks.map((t) => ({
-    type: "task.assigned",
-    data: { taskId: t.id, title: t.title, branch: t.branch },
-  })),
-})
-```
-
 ### Step 1 — Compile the batch
 
 ```typescript
 exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 ```
 
-`prepare` reads the workflow's plan and compiles every task not yet complete into one capsule, in custody, pinned by digest. Keep the receipt: `capsuleVersion` is what `settle` is keyed by, and the `capsule` is what every subagent's packet is built from.
+`prepare` reads the workflow's plan and compiles every task not yet complete into one capsule, in custody, pinned by digest, and announces each of them (`task.assigned`) in the same commit as its record — no call precedes it. Keep the receipt: `capsuleVersion` is what `settle` is keyed by, and the `capsule` is what every subagent's packet is built from.
 
 | In the capsule | What you read off it |
 |----------------|----------------------|
@@ -570,7 +555,7 @@ This is NOT a human checkpoint — the workflow continues autonomously.
 
 `prepare` compiles feature workflows. When it refuses `WORKFLOW_TYPE_UNSUPPORTED` — a debug or overhaul delegation — the per-task governance calls are made by hand, in this order:
 
-1. **Readiness** — `exarchos_orchestrate({ action: "prepare_delegation", featureId: "<featureId>", planPath: "docs/specs/<the-decomposition-spec>.md", tasks: [...] })`. Pass `planPath` so it lifts each task's `**Risk Tier:**` / `**Boundary Touching:**` stamp; `ready: false` stops the wave. It returns `implementerPromptTemplate`, a `verificationNotes` map keyed by `"<riskTier>|<boundaryTouching>"`, and `taskClassifications[i].verificationNoteKey` — splice the task's note into the template before dispatching.
+1. **Readiness** — `exarchos_orchestrate({ action: "prepare_delegation", featureId: "<featureId>", planPath: "docs/specs/<the-decomposition-spec>.md", tasks: [...] })`. It announces the plan's tasks (`task.assigned`) itself before reading readiness, so no append precedes it. Pass `planPath` so it lifts each task's `**Risk Tier:**` / `**Boundary Touching:**` stamp; `ready: false` stops the wave. It returns `implementerPromptTemplate`, a `verificationNotes` map keyed by `"<riskTier>|<boundaryTouching>"`, and `taskClassifications[i].verificationNoteKey` — splice the task's note into the template before dispatching.
 2. **Dispatch and collect** as in Steps 2 and 3, with the note in place of the capsule's terms.
 3. **Per completed task**, run the task-completion runbook: `exarchos_orchestrate({ action: "runbook", id: "task-completion" })` and execute the returned steps in order. Stop on gate failure. If runbook unavailable, use `describe` to retrieve gate schemas: `exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })`. Its terminal step records the completion with the report's provenance:
 

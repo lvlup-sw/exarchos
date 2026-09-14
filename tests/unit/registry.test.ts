@@ -3998,12 +3998,17 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       // composes the task-completion segment through the executor, and the
       // terminal `task_complete` leaf is the one producer — the same way
       // `execute_intent` declares its own record and none of its leaves'.
+      // `task.assigned` IS here: the announcement has one meaning and two
+      // routes — `prepare` leaves it in the same commit as the prepared record
+      // on the capsule path, `prepare_delegation` ahead of the readiness fold
+      // on the primitive path — and both name `orchestrate` as owner.
       expect(multiDeclarer.map(([event]) => event).sort()).toEqual([
         'admission.evidence-recorded',
         'gate.executed',
         'onboard.executed',
         'onboard.requested',
         'state.patched',
+        'task.assigned',
         'worktree.merge_executed',
         'worktree.released',
       ]);

@@ -103,6 +103,17 @@ function receiptResult(receipt: PreparedCapsuleReceipt): ToolResult {
   return { success: true, data: receipt };
 }
 
+/** The tasks the stream has already announced, read from the rows themselves. */
+function announcedTaskIds(events: readonly { readonly type: string; readonly data?: unknown }[]): Set<string> {
+  const ids = new Set<string>();
+  for (const event of events) {
+    if (event.type !== 'task.assigned' || !isRecord(event.data)) continue;
+    const taskId = event.data.taskId;
+    if (typeof taskId === 'string') ids.add(taskId);
+  }
+  return ids;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -180,6 +191,17 @@ export async function handlePrepare(
   const partition = partitionDelegationBatch(Array.isArray(state.tasks) ? state.tasks : []);
   if (!partition.ok) return refused(partition.refusal);
   const { batch } = partition;
+
+  // Announced in the same commit as the record, and once: a task the stream
+  // has already heard of — from an earlier compilation, or by hand — is not
+  // announced again, because the projection reads a second announcement as
+  // the task returning to `assigned`. Not part of the replay key: rows are
+  // only ever added, so the same inputs under a stream that has since heard
+  // of a task have nothing left to announce.
+  const heard = announcedTaskIds(events);
+  const announce = batch.tasks
+    .filter((task) => !heard.has(task.taskId))
+    .map((task) => ({ taskId: task.taskId, title: task.title }));
 
   // The runtime is measured against the profile BEFORE anything is compiled
   // or recorded: a harness that cannot settle what it is about to dispatch
@@ -268,6 +290,7 @@ export async function handlePrepare(
           capsule: compiled.capsule,
           definition: lowered.definition,
           expectedSequence: tail,
+          announce,
         },
         deps.bundleStore,
       );

@@ -116,7 +116,6 @@ export const REPORT_COUPLING_SEED: Readonly<Record<string, ReportCouplingSeedEnt
     'session.tagged': { owner: 'workflow:feature', expires: '2027-02-28' },
     'shepherd.iteration': { owner: 'workflow:feature', expires: '2027-02-28' },
     'stack.submitted': { owner: 'workflow:feature', expires: '2027-02-28' },
-    'task.assigned': { owner: 'workflow:feature', expires: '2027-02-28' },
     'task.progressed': { owner: 'workflow:feature', expires: '2027-02-28' },
     'team.disbanded': { owner: 'workflow:feature', expires: '2027-02-28', blockedBy: '#1473' },
     'team.spawned': { owner: 'workflow:feature', expires: '2027-02-28', blockedBy: '#1473' },
@@ -144,7 +143,11 @@ export const REPORT_COUPLING_SEED: Readonly<Record<string, ReportCouplingSeedEnt
  */
 export const REPORT_COUPLING_RETIRED: Readonly<Record<string, ReportCouplingRetiredEntry>> =
   Object.freeze({
-    // (none yet — nothing has been re-coupled since the 2026-08-07 seeding)
+    // Re-coupled: `prepare` appends it in the same commit as the prepared
+    // record, `prepare_delegation` ahead of the readiness fold, and the
+    // tier moved to `capability`. The delegate skill no longer prescribes
+    // the append.
+    'task.assigned': { owner: 'workflow:feature', retiredAt: '2026-09-14' },
   });
 
 /** Every seeded event type, sorted — the ratchet's population. */

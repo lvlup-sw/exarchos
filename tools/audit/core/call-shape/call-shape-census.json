@@ -341,13 +341,13 @@
     {
       "boundary": {
         "label": "transition delegate -> review",
-        "line": 444,
+        "line": 430,
         "source": "content/delivery/skills/delegate/SKILL.md"
       },
       "conditional": [
         {
           "call": "exarchos_orchestrate.runbook",
-          "line": 244,
+          "line": 230,
           "per": "once",
           "role": "runbook-fetch",
           "source": "content/delivery/skills/delegate/SKILL.md",
@@ -355,7 +355,7 @@
         },
         {
           "call": "exarchos_workflow.describe",
-          "line": 469,
+          "line": 455,
           "per": "once",
           "role": "describe",
           "source": "content/delivery/skills/delegate/SKILL.md",
@@ -363,7 +363,7 @@
         },
         {
           "call": "exarchos_workflow.describe",
-          "line": 470,
+          "line": 456,
           "per": "once",
           "role": "describe",
           "source": "content/delivery/skills/delegate/SKILL.md",
@@ -371,7 +371,7 @@
         },
         {
           "call": "exarchos_orchestrate.describe",
-          "line": 472,
+          "line": 458,
           "per": "once",
           "role": "describe",
           "source": "content/delivery/skills/delegate/SKILL.md",
@@ -390,16 +390,16 @@
               "perTask": 0
             },
             "exarchos": {
-              "atUnit": 4,
-              "fixed": 4,
-              "formula": "4",
+              "atUnit": 3,
+              "fixed": 3,
+              "formula": "3",
               "perPr": 0,
               "perTask": 0
             },
             "exarchosWithDiscovery": {
-              "atUnit": 6,
-              "fixed": 6,
-              "formula": "6",
+              "atUnit": 5,
+              "fixed": 5,
+              "formula": "5",
               "perPr": 0,
               "perTask": 0
             },
@@ -421,7 +421,7 @@
           "extraCalls": [
             {
               "call": "native:SPAWN_AGENT_CALL",
-              "line": 352,
+              "line": 338,
               "per": "once",
               "role": "native",
               "source": "content/delivery/skills/delegate/SKILL.md",
@@ -429,7 +429,7 @@
             },
             {
               "call": "exarchos_orchestrate.settle",
-              "line": 315,
+              "line": 301,
               "per": "once",
               "role": "work",
               "source": "content/delivery/skills/delegate/SKILL.md",
@@ -441,7 +441,7 @@
           "reentersNormalPath": false,
           "through": "exarchos_orchestrate.settle",
           "trigger": {
-            "line": 310,
+            "line": 296,
             "source": "content/delivery/skills/delegate/SKILL.md"
           }
         },
@@ -456,16 +456,16 @@
               "perTask": 0
             },
             "exarchos": {
-              "atUnit": 4,
-              "fixed": 4,
-              "formula": "4",
+              "atUnit": 3,
+              "fixed": 3,
+              "formula": "3",
               "perPr": 0,
               "perTask": 0
             },
             "exarchosWithDiscovery": {
-              "atUnit": 6,
-              "fixed": 6,
-              "formula": "6",
+              "atUnit": 5,
+              "fixed": 5,
+              "formula": "5",
               "perPr": 0,
               "perTask": 0
             },
@@ -487,7 +487,7 @@
           "extraCalls": [
             {
               "call": "exarchos_orchestrate.settle",
-              "line": 315,
+              "line": 301,
               "per": "once",
               "role": "work",
               "source": "content/delivery/skills/delegate/SKILL.md",
@@ -499,7 +499,7 @@
           "reentersNormalPath": false,
           "through": "exarchos_orchestrate.settle",
           "trigger": {
-            "line": 324,
+            "line": 310,
             "source": "content/delivery/skills/delegate/SKILL.md"
           }
         },
@@ -514,16 +514,16 @@
               "perTask": 0
             },
             "exarchos": {
-              "atUnit": 9,
-              "fixed": 8,
-              "formula": "8 + 1*tasks",
+              "atUnit": 8,
+              "fixed": 7,
+              "formula": "7 + 1*tasks",
               "perPr": 0,
               "perTask": 1
             },
             "exarchosWithDiscovery": {
-              "atUnit": 11,
-              "fixed": 10,
-              "formula": "10 + 1*tasks",
+              "atUnit": 10,
+              "fixed": 9,
+              "formula": "9 + 1*tasks",
               "perPr": 0,
               "perTask": 1
             },
@@ -545,7 +545,7 @@
           "extraCalls": [
             {
               "call": "exarchos_workflow.get",
-              "line": 410,
+              "line": 396,
               "per": "once",
               "role": "work",
               "source": "content/delivery/skills/delegate/SKILL.md",
@@ -553,7 +553,7 @@
             },
             {
               "call": "exarchos_workflow.reconcile",
-              "line": 412,
+              "line": 398,
               "per": "once",
               "role": "work",
               "source": "content/delivery/skills/delegate/SKILL.md",
@@ -565,7 +565,7 @@
           "reentersNormalPath": false,
           "through": null,
           "trigger": {
-            "line": 409,
+            "line": 395,
             "source": "content/delivery/skills/delegate/SKILL.md"
           }
         },
@@ -580,16 +580,16 @@
               "perTask": 0
             },
             "exarchos": {
-              "atUnit": 8,
-              "fixed": 7,
-              "formula": "7 + 1*tasks",
+              "atUnit": 7,
+              "fixed": 6,
+              "formula": "6 + 1*tasks",
               "perPr": 0,
               "perTask": 1
             },
             "exarchosWithDiscovery": {
-              "atUnit": 10,
-              "fixed": 9,
-              "formula": "9 + 1*tasks",
+              "atUnit": 9,
+              "fixed": 8,
+              "formula": "8 + 1*tasks",
               "perPr": 0,
               "perTask": 1
             },
@@ -611,7 +611,7 @@
           "extraCalls": [
             {
               "call": "native:Bash",
-              "line": 541,
+              "line": 527,
               "per": "once",
               "role": "native",
               "source": "content/delivery/skills/delegate/SKILL.md",
@@ -619,7 +619,7 @@
             },
             {
               "call": "native:Bash",
-              "line": 553,
+              "line": 539,
               "per": "once",
               "role": "native",
               "source": "content/delivery/skills/delegate/SKILL.md",
@@ -627,7 +627,7 @@
             },
             {
               "call": "exarchos_orchestrate.serialize_merge",
-              "line": 568,
+              "line": 554,
               "per": "once",
               "role": "work",
               "source": "content/delivery/skills/delegate/SKILL.md",
@@ -639,7 +639,7 @@
           "reentersNormalPath": false,
           "through": null,
           "trigger": {
-            "line": 491,
+            "line": 477,
             "source": "content/delivery/skills/delegate/SKILL.md"
           }
         },
@@ -654,16 +654,16 @@
               "perTask": 0
             },
             "exarchos": {
-              "atUnit": 8,
-              "fixed": 7,
-              "formula": "7 + 1*tasks",
+              "atUnit": 7,
+              "fixed": 6,
+              "formula": "6 + 1*tasks",
               "perPr": 0,
               "perTask": 1
             },
             "exarchosWithDiscovery": {
-              "atUnit": 10,
-              "fixed": 9,
-              "formula": "9 + 1*tasks",
+              "atUnit": 9,
+              "fixed": 8,
+              "formula": "8 + 1*tasks",
               "perPr": 0,
               "perTask": 1
             },
@@ -685,7 +685,7 @@
           "extraCalls": [
             {
               "call": "native:Bash",
-              "line": 541,
+              "line": 527,
               "per": "once",
               "role": "native",
               "source": "content/delivery/skills/delegate/SKILL.md",
@@ -693,7 +693,7 @@
             },
             {
               "call": "native:Bash",
-              "line": 553,
+              "line": 539,
               "per": "once",
               "role": "native",
               "source": "content/delivery/skills/delegate/SKILL.md",
@@ -701,7 +701,7 @@
             },
             {
               "call": "native:Bash",
-              "line": 601,
+              "line": 587,
               "per": "once",
               "role": "native",
               "source": "content/delivery/skills/delegate/SKILL.md",
@@ -709,7 +709,7 @@
             },
             {
               "call": "exarchos_event.append",
-              "line": 611,
+              "line": 597,
               "per": "once",
               "role": "work",
               "source": "content/delivery/skills/delegate/SKILL.md",
@@ -721,7 +721,7 @@
           "reentersNormalPath": false,
           "through": null,
           "trigger": {
-            "line": 596,
+            "line": 582,
             "source": "content/delivery/skills/delegate/SKILL.md"
           }
         }
@@ -730,42 +730,42 @@
         {
           "call": "exarchos_orchestrate.runbook",
           "kind": "restatement",
-          "line": 183,
+          "line": 168,
           "source": "content/delivery/skills/delegate/SKILL.md",
           "why": "restates the pre-dispatch decision runbook already fetched"
         },
         {
           "call": "exarchos_workflow.transition",
           "kind": "restatement",
-          "line": 391,
+          "line": 377,
           "source": "content/delivery/skills/delegate/SKILL.md",
           "why": "the landing checklist names the transition the Transition section spells"
         },
         {
           "call": "exarchos_view.delegation_timeline",
           "kind": "alternate-mode",
-          "line": 333,
+          "line": 319,
           "source": "content/delivery/skills/delegate/SKILL.md",
           "why": "agent-team mode monitoring; this census counts the default subagent mode"
         },
         {
           "call": "native:CHAIN",
           "kind": "beyond-boundary",
-          "line": 631,
+          "line": 617,
           "source": "content/delivery/skills/delegate/SKILL.md",
           "why": "invokes the review skill after the transition this intent ends at"
         },
         {
           "call": "exarchos_orchestrate.prepare_delegation",
           "kind": "alternate-mode",
-          "line": 641,
+          "line": 627,
           "source": "content/delivery/skills/delegate/SKILL.md",
           "why": "the primitive path, for the workflow types prepare does not compile; this census counts the capsule path"
         },
         {
           "call": "exarchos_workflow.update",
           "kind": "alternate-mode",
-          "line": 660,
+          "line": 646,
           "source": "content/delivery/skills/delegate/SKILL.md",
           "why": "the primitive path patches task statuses by hand; on the capsule path settlement leaves them complete"
         }
@@ -790,16 +790,8 @@
             "via": "site"
           },
           {
-            "call": "exarchos_event.batch_append",
-            "line": 86,
-            "per": "once",
-            "role": "work",
-            "source": "content/delivery/skills/delegate/SKILL.md",
-            "via": "site"
-          },
-          {
             "call": "exarchos_orchestrate.prepare",
-            "line": 99,
+            "line": 84,
             "per": "once",
             "role": "work",
             "source": "content/delivery/skills/delegate/SKILL.md",
@@ -807,7 +799,7 @@
           },
           {
             "call": "native:SPAWN_AGENT_CALL",
-            "line": 193,
+            "line": 178,
             "per": "perTask",
             "role": "native",
             "source": "content/delivery/skills/delegate/SKILL.md",
@@ -815,7 +807,7 @@
           },
           {
             "call": "native:SUBAGENT_RESULT_API",
-            "line": 264,
+            "line": 250,
             "per": "perTask",
             "role": "native",
             "source": "content/delivery/skills/delegate/SKILL.md",
@@ -823,7 +815,7 @@
           },
           {
             "call": "exarchos_orchestrate.settle",
-            "line": 294,
+            "line": 280,
             "per": "once",
             "role": "work",
             "source": "content/delivery/skills/delegate/SKILL.md",
@@ -831,7 +823,7 @@
           },
           {
             "call": "exarchos_orchestrate.serialize_merge",
-            "line": 452,
+            "line": 438,
             "per": "perTask",
             "role": "work",
             "source": "content/delivery/skills/delegate/SKILL.md",
@@ -839,7 +831,7 @@
           },
           {
             "call": "exarchos_orchestrate.check_integration_suite",
-            "line": 369,
+            "line": 355,
             "per": "once",
             "role": "work",
             "source": "content/delivery/skills/delegate/SKILL.md",
@@ -847,7 +839,7 @@
           },
           {
             "call": "exarchos_orchestrate.check_operational_resilience",
-            "line": 379,
+            "line": 365,
             "per": "once",
             "role": "work",
             "source": "content/delivery/skills/delegate/SKILL.md",
@@ -855,7 +847,7 @@
           },
           {
             "call": "exarchos_workflow.transition",
-            "line": 630,
+            "line": 616,
             "per": "once",
             "role": "work",
             "source": "content/delivery/skills/delegate/SKILL.md",
@@ -871,16 +863,16 @@
             "perTask": 0
           },
           "exarchos": {
-            "atUnit": 7,
-            "fixed": 6,
-            "formula": "6 + 1*tasks",
+            "atUnit": 6,
+            "fixed": 5,
+            "formula": "5 + 1*tasks",
             "perPr": 0,
             "perTask": 1
           },
           "exarchosWithDiscovery": {
-            "atUnit": 9,
-            "fixed": 8,
-            "formula": "8 + 1*tasks",
+            "atUnit": 8,
+            "fixed": 7,
+            "formula": "7 + 1*tasks",
             "perPr": 0,
             "perTask": 1
           },
@@ -906,13 +898,13 @@
     {
       "boundary": {
         "label": "task_complete records the task complete",
-        "line": 241,
+        "line": 227,
         "source": "content/delivery/skills/delegate/SKILL.md"
       },
       "conditional": [
         {
           "call": "exarchos_orchestrate.describe",
-          "line": 643,
+          "line": 629,
           "per": "once",
           "role": "describe",
           "source": "content/delivery/skills/delegate/SKILL.md",
@@ -962,7 +954,7 @@
           "extraCalls": [
             {
               "call": "native:SUBAGENT_RESULT_API",
-              "line": 340,
+              "line": 326,
               "per": "once",
               "role": "native",
               "source": "content/delivery/skills/delegate/SKILL.md",
@@ -970,7 +962,7 @@
             },
             {
               "call": "native:SPAWN_AGENT_CALL",
-              "line": 352,
+              "line": 338,
               "per": "once",
               "role": "native",
               "source": "content/delivery/skills/delegate/SKILL.md",
@@ -978,7 +970,7 @@
             },
             {
               "call": "exarchos_orchestrate.runbook",
-              "line": 659,
+              "line": 645,
               "per": "once",
               "role": "runbook-fetch",
               "source": "content/delivery/skills/delegate/SKILL.md",
@@ -1014,7 +1006,7 @@
           "reentersNormalPath": false,
           "through": "exarchos_orchestrate.check_static_analysis",
           "trigger": {
-            "line": 659,
+            "line": 645,
             "source": "content/delivery/skills/delegate/SKILL.md"
           }
         }
@@ -1023,7 +1015,7 @@
         {
           "call": "exarchos_orchestrate.task_complete",
           "kind": "restatement",
-          "line": 646,
+          "line": 632,
           "source": "content/delivery/skills/delegate/SKILL.md",
           "why": "shows the provenance payload for the runbook terminal step, not a second call"
         }
@@ -1033,7 +1025,7 @@
         "calls": [
           {
             "call": "exarchos_orchestrate.runbook",
-            "line": 643,
+            "line": 629,
             "per": "once",
             "role": "runbook-fetch",
             "source": "content/delivery/skills/delegate/SKILL.md",
@@ -1901,7 +1893,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "boundary",
-      "line": 444,
+      "line": 430,
       "path": "boundary",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "boundary"
@@ -1927,21 +1919,11 @@
       "subject": "exarchos_orchestrate.runbook"
     },
     {
-      "decision": "one batch carries every task, so the call counts once. The one governance call on this path the capsule has not yet absorbed: the delegate-phase event contract still expects the announcement",
+      "decision": "compiles the batch into the capsule every packet is built from, and announces its tasks in the same commit — the announcement the skill used to make first is the compilation's now",
       "flag": null,
       "intent": "delegation",
       "kind": "site",
-      "line": 90,
-      "path": "normal",
-      "source": "content/delivery/skills/delegate/SKILL.md",
-      "subject": "exarchos_event.batch_append"
-    },
-    {
-      "decision": "compiles the batch into the capsule every packet is built from",
-      "flag": null,
-      "intent": "delegation",
-      "kind": "site",
-      "line": 99,
+      "line": 84,
       "path": "normal",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_orchestrate.prepare"
@@ -1951,7 +1933,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "site",
-      "line": 193,
+      "line": 178,
       "path": "normal",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "native:SPAWN_AGENT_CALL"
@@ -1961,7 +1943,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "site",
-      "line": 264,
+      "line": 250,
       "path": "normal",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "native:SUBAGENT_RESULT_API"
@@ -1971,7 +1953,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "site",
-      "line": 298,
+      "line": 284,
       "path": "normal",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_orchestrate.settle"
@@ -1981,7 +1963,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "mention",
-      "line": 452,
+      "line": 438,
       "path": "normal",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_orchestrate.serialize_merge"
@@ -1991,7 +1973,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "site",
-      "line": 370,
+      "line": 356,
       "path": "normal",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_orchestrate.check_integration_suite"
@@ -2001,7 +1983,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "site",
-      "line": 630,
+      "line": 616,
       "path": "normal",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_workflow.transition"
@@ -2011,7 +1993,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "exception",
-      "line": 310,
+      "line": 296,
       "path": "exception:settlement-rejected",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "settlement rejects a task, so a fixer is dispatched and the batch is resubmitted"
@@ -2021,7 +2003,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "site",
-      "line": 352,
+      "line": 338,
       "path": "exception:settlement-rejected",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "native:SPAWN_AGENT_CALL"
@@ -2031,7 +2013,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "site",
-      "line": 319,
+      "line": 305,
       "path": "exception:settlement-rejected",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_orchestrate.settle"
@@ -2041,7 +2023,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "exception",
-      "line": 324,
+      "line": 310,
       "path": "exception:deviation-pending",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "a worker proposed a deviation, so the batch is held for a decision and resubmitted"
@@ -2051,7 +2033,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "site",
-      "line": 319,
+      "line": 305,
       "path": "exception:deviation-pending",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_orchestrate.settle"
@@ -2061,7 +2043,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "exception",
-      "line": 409,
+      "line": 395,
       "path": "exception:context-compaction",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "context compacts mid-delegation, so state is recovered before continuing"
@@ -2071,7 +2053,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "exception",
-      "line": 491,
+      "line": 477,
       "path": "exception:integration-advanced",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "the integration branch advanced mid-wave, so one worktree is rebased and merged again"
@@ -2081,7 +2063,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "exception",
-      "line": 596,
+      "line": 582,
       "path": "exception:integration-advanced-rollback",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "the rebase cannot be resolved, so the branch is rolled back and the abort recorded"
@@ -2091,7 +2073,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "mention",
-      "line": 611,
+      "line": 597,
       "path": "exception:integration-advanced-rollback",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_event.append"
@@ -2101,7 +2083,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "site",
-      "line": 244,
+      "line": 230,
       "path": "conditional",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_orchestrate.runbook"
@@ -2111,7 +2093,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "site",
-      "line": 469,
+      "line": 455,
       "path": "conditional",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_workflow.describe"
@@ -2121,7 +2103,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "site",
-      "line": 470,
+      "line": 456,
       "path": "conditional",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_workflow.describe"
@@ -2131,7 +2113,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "site",
-      "line": 472,
+      "line": 458,
       "path": "conditional",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_orchestrate.describe"
@@ -2141,7 +2123,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "restatement",
-      "line": 183,
+      "line": 168,
       "path": "excluded",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_orchestrate.runbook"
@@ -2151,7 +2133,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "restatement",
-      "line": 391,
+      "line": 377,
       "path": "excluded",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_workflow.transition"
@@ -2161,7 +2143,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "alternate-mode",
-      "line": 333,
+      "line": 319,
       "path": "excluded",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_view.delegation_timeline"
@@ -2171,7 +2153,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "beyond-boundary",
-      "line": 631,
+      "line": 617,
       "path": "excluded",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "native:CHAIN"
@@ -2181,7 +2163,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "alternate-mode",
-      "line": 641,
+      "line": 627,
       "path": "excluded",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_orchestrate.prepare_delegation"
@@ -2191,7 +2173,7 @@
       "flag": null,
       "intent": "delegation",
       "kind": "alternate-mode",
-      "line": 660,
+      "line": 646,
       "path": "excluded",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_workflow.update"
@@ -2201,7 +2183,7 @@
       "flag": null,
       "intent": "task-completion",
       "kind": "boundary",
-      "line": 241,
+      "line": 227,
       "path": "boundary",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "boundary"
@@ -2211,7 +2193,7 @@
       "flag": null,
       "intent": "task-completion",
       "kind": "runbook",
-      "line": 643,
+      "line": 629,
       "path": "normal",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "runbook:task-completion"
@@ -2221,7 +2203,7 @@
       "flag": null,
       "intent": "task-completion",
       "kind": "exception",
-      "line": 659,
+      "line": 645,
       "path": "exception:gate-failure-fix",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "a blocking gate fails, so a fixer is dispatched and the task-fix chain runs"
@@ -2231,7 +2213,7 @@
       "flag": null,
       "intent": "task-completion",
       "kind": "site",
-      "line": 340,
+      "line": 326,
       "path": "exception:gate-failure-fix",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "native:SUBAGENT_RESULT_API"
@@ -2241,7 +2223,7 @@
       "flag": null,
       "intent": "task-completion",
       "kind": "site",
-      "line": 352,
+      "line": 338,
       "path": "exception:gate-failure-fix",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "native:SPAWN_AGENT_CALL"
@@ -2251,7 +2233,7 @@
       "flag": null,
       "intent": "task-completion",
       "kind": "runbook",
-      "line": 659,
+      "line": 645,
       "path": "exception:gate-failure-fix",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "runbook:task-fix"
@@ -2261,7 +2243,7 @@
       "flag": null,
       "intent": "task-completion",
       "kind": "site",
-      "line": 643,
+      "line": 629,
       "path": "conditional",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_orchestrate.describe"
@@ -2271,7 +2253,7 @@
       "flag": null,
       "intent": "task-completion",
       "kind": "restatement",
-      "line": 646,
+      "line": 632,
       "path": "excluded",
       "source": "content/delivery/skills/delegate/SKILL.md",
       "subject": "exarchos_orchestrate.task_complete"
@@ -2609,7 +2591,7 @@
     "inputs": [
       {
         "file": "content/delivery/skills/delegate/SKILL.md",
-        "sha256": "f959d9398cc9800e97e611a20871fa390b9edbc1468a3a48e9bc233206ca11ba"
+        "sha256": "d1cd8c2bfa8c805861011a902a8cadaedd8f91ef10cc473921fd852f956d9484"
       },
       {
         "file": "content/design/skills/plan/SKILL.md",
@@ -3325,23 +3307,12 @@
         "status": "registered"
       },
       {
-        "call": "exarchos_event.batch_append",
-        "dispositions": [
-          "delegation:normal"
-        ],
-        "endLine": 93,
-        "line": 86,
-        "pattern": "call-expression",
-        "runbookId": null,
-        "status": "registered"
-      },
-      {
         "call": "exarchos_orchestrate.prepare",
         "dispositions": [
           "delegation:normal"
         ],
-        "endLine": 99,
-        "line": 99,
+        "endLine": 84,
+        "line": 84,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3351,8 +3322,8 @@
         "dispositions": [
           "delegation:excluded:restatement"
         ],
-        "endLine": 183,
-        "line": 183,
+        "endLine": 168,
+        "line": 168,
         "pattern": "call-expression",
         "runbookId": "dispatch-decision",
         "status": "registered"
@@ -3362,8 +3333,8 @@
         "dispositions": [
           "delegation:normal"
         ],
-        "endLine": 193,
-        "line": 193,
+        "endLine": 178,
+        "line": 178,
         "pattern": "harness-placeholder",
         "runbookId": null,
         "status": "harness"
@@ -3373,8 +3344,8 @@
         "dispositions": [
           "delegation:conditional"
         ],
-        "endLine": 244,
-        "line": 244,
+        "endLine": 230,
+        "line": 230,
         "pattern": "call-expression",
         "runbookId": "task-completion",
         "status": "registered"
@@ -3384,8 +3355,8 @@
         "dispositions": [
           "delegation:normal"
         ],
-        "endLine": 264,
-        "line": 264,
+        "endLine": 250,
+        "line": 250,
         "pattern": "harness-placeholder",
         "runbookId": null,
         "status": "harness"
@@ -3395,8 +3366,8 @@
         "dispositions": [
           "delegation:normal"
         ],
-        "endLine": 301,
-        "line": 294,
+        "endLine": 287,
+        "line": 280,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3407,8 +3378,8 @@
           "delegation:exception:deviation-pending",
           "delegation:exception:settlement-rejected"
         ],
-        "endLine": 321,
-        "line": 315,
+        "endLine": 307,
+        "line": 301,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3418,8 +3389,8 @@
         "dispositions": [
           "delegation:excluded:alternate-mode"
         ],
-        "endLine": 333,
-        "line": 333,
+        "endLine": 319,
+        "line": 319,
         "pattern": "tool-verb-span",
         "runbookId": null,
         "status": "registered"
@@ -3429,8 +3400,8 @@
         "dispositions": [
           "task-completion:exception:gate-failure-fix"
         ],
-        "endLine": 340,
-        "line": 340,
+        "endLine": 326,
+        "line": 326,
         "pattern": "harness-placeholder",
         "runbookId": null,
         "status": "harness"
@@ -3441,8 +3412,8 @@
           "delegation:exception:settlement-rejected",
           "task-completion:exception:gate-failure-fix"
         ],
-        "endLine": 352,
-        "line": 352,
+        "endLine": 338,
+        "line": 338,
         "pattern": "harness-placeholder",
         "runbookId": null,
         "status": "harness"
@@ -3452,8 +3423,8 @@
         "dispositions": [
           "delegation:normal"
         ],
-        "endLine": 373,
-        "line": 369,
+        "endLine": 359,
+        "line": 355,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3463,8 +3434,8 @@
         "dispositions": [
           "delegation:normal"
         ],
-        "endLine": 384,
-        "line": 379,
+        "endLine": 370,
+        "line": 365,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3474,8 +3445,8 @@
         "dispositions": [
           "delegation:excluded:restatement"
         ],
-        "endLine": 391,
-        "line": 391,
+        "endLine": 377,
+        "line": 377,
         "pattern": "tool-verb-span",
         "runbookId": null,
         "status": "registered"
@@ -3485,8 +3456,8 @@
         "dispositions": [
           "delegation:exception:context-compaction"
         ],
-        "endLine": 410,
-        "line": 410,
+        "endLine": 396,
+        "line": 396,
         "pattern": "tool-verb-span",
         "runbookId": null,
         "status": "registered"
@@ -3496,8 +3467,8 @@
         "dispositions": [
           "delegation:exception:context-compaction"
         ],
-        "endLine": 412,
-        "line": 412,
+        "endLine": 398,
+        "line": 398,
         "pattern": "tool-verb-span",
         "runbookId": null,
         "status": "registered"
@@ -3507,8 +3478,8 @@
         "dispositions": [
           "delegation:conditional"
         ],
-        "endLine": 469,
-        "line": 469,
+        "endLine": 455,
+        "line": 455,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3518,8 +3489,8 @@
         "dispositions": [
           "delegation:conditional"
         ],
-        "endLine": 470,
-        "line": 470,
+        "endLine": 456,
+        "line": 456,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3529,8 +3500,8 @@
         "dispositions": [
           "delegation:conditional"
         ],
-        "endLine": 472,
-        "line": 472,
+        "endLine": 458,
+        "line": 458,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3541,8 +3512,8 @@
           "delegation:exception:integration-advanced",
           "delegation:exception:integration-advanced-rollback"
         ],
-        "endLine": 543,
-        "line": 541,
+        "endLine": 529,
+        "line": 527,
         "pattern": "shell-fence",
         "runbookId": null,
         "status": "harness"
@@ -3553,8 +3524,8 @@
           "delegation:exception:integration-advanced",
           "delegation:exception:integration-advanced-rollback"
         ],
-        "endLine": 557,
-        "line": 553,
+        "endLine": 543,
+        "line": 539,
         "pattern": "shell-fence",
         "runbookId": null,
         "status": "harness"
@@ -3564,8 +3535,8 @@
         "dispositions": [
           "delegation:exception:integration-advanced"
         ],
-        "endLine": 576,
-        "line": 568,
+        "endLine": 562,
+        "line": 554,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3575,8 +3546,8 @@
         "dispositions": [
           "delegation:exception:integration-advanced-rollback"
         ],
-        "endLine": 605,
-        "line": 601,
+        "endLine": 591,
+        "line": 587,
         "pattern": "shell-fence",
         "runbookId": null,
         "status": "harness"
@@ -3586,8 +3557,8 @@
         "dispositions": [
           "delegation:normal"
         ],
-        "endLine": 630,
-        "line": 630,
+        "endLine": 616,
+        "line": 616,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3597,8 +3568,8 @@
         "dispositions": [
           "delegation:excluded:beyond-boundary"
         ],
-        "endLine": 631,
-        "line": 631,
+        "endLine": 617,
+        "line": 617,
         "pattern": "harness-placeholder",
         "runbookId": null,
         "status": "harness"
@@ -3608,8 +3579,8 @@
         "dispositions": [
           "delegation:excluded:alternate-mode"
         ],
-        "endLine": 641,
-        "line": 641,
+        "endLine": 627,
+        "line": 627,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3619,8 +3590,8 @@
         "dispositions": [
           "task-completion:normal"
         ],
-        "endLine": 643,
-        "line": 643,
+        "endLine": 629,
+        "line": 629,
         "pattern": "call-expression",
         "runbookId": "task-completion",
         "status": "registered"
@@ -3630,8 +3601,8 @@
         "dispositions": [
           "task-completion:conditional"
         ],
-        "endLine": 643,
-        "line": 643,
+        "endLine": 629,
+        "line": 629,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3641,8 +3612,8 @@
         "dispositions": [
           "task-completion:excluded:restatement"
         ],
-        "endLine": 656,
-        "line": 646,
+        "endLine": 642,
+        "line": 632,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -3652,8 +3623,8 @@
         "dispositions": [
           "task-completion:exception:gate-failure-fix"
         ],
-        "endLine": 659,
-        "line": 659,
+        "endLine": 645,
+        "line": 645,
         "pattern": "call-expression",
         "runbookId": "task-fix",
         "status": "registered"
@@ -3663,8 +3634,8 @@
         "dispositions": [
           "delegation:excluded:alternate-mode"
         ],
-        "endLine": 660,
-        "line": 660,
+        "endLine": 646,
+        "line": 646,
         "pattern": "tool-verb-span",
         "runbookId": null,
         "status": "registered"
@@ -4296,35 +4267,35 @@
       "endsAt": "transition delegate -> review",
       "exceptions": [
         {
-          "atUnit": 4,
-          "exarchos": "4",
+          "atUnit": 3,
+          "exarchos": "3",
           "id": "settlement-rejected"
         },
         {
-          "atUnit": 4,
-          "exarchos": "4",
+          "atUnit": 3,
+          "exarchos": "3",
           "id": "deviation-pending"
         },
         {
-          "atUnit": 9,
-          "exarchos": "8 + 1*tasks",
+          "atUnit": 8,
+          "exarchos": "7 + 1*tasks",
           "id": "context-compaction"
         },
         {
-          "atUnit": 8,
-          "exarchos": "7 + 1*tasks",
+          "atUnit": 7,
+          "exarchos": "6 + 1*tasks",
           "id": "integration-advanced"
         },
         {
-          "atUnit": 8,
-          "exarchos": "7 + 1*tasks",
+          "atUnit": 7,
+          "exarchos": "6 + 1*tasks",
           "id": "integration-advanced-rollback"
         }
       ],
       "intent": "delegation",
       "native": "2*tasks",
-      "normalExarchos": "6 + 1*tasks",
-      "normalExarchosAtUnit": 7,
+      "normalExarchos": "5 + 1*tasks",
+      "normalExarchosAtUnit": 6,
       "runbookFetch": "2"
     },
     {

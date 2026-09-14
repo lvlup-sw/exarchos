@@ -71,12 +71,12 @@ describe('action-contract algebra', () => {
   });
 
   it('NormalizeEmission_NonAutoEventSource_IsRejected', () => {
-    // 'task.assigned' is a real catalog event whose EVENT_EMISSION_REGISTRY
-    // source is 'model' (a workflow definition composes the emission), not
-    // 'auto' — exactly the shape an action's own emissions declaration must
-    // not be allowed to claim.
+    // 'task.progressed' is a real catalog event whose EVENT_EMISSION_REGISTRY
+    // source is 'model' (a subagent composes the emission), not 'auto' —
+    // exactly the shape an action's own emissions declaration must not be
+    // allowed to claim.
     const badEmission: ActionEmission = {
-      event: 'task.assigned',
+      event: 'task.progressed',
       condition: 'always',
       owner: 'planner',
       role: 'primary',
@@ -88,7 +88,7 @@ describe('action-contract algebra', () => {
       expect(error).toBeInstanceOf(ActionContractError);
       if (error instanceof ActionContractError) {
         expect(error.code).toBe('NON_AUTO_EMISSION_SOURCE');
-        expect(error.message).toContain('task.assigned');
+        expect(error.message).toContain('task.progressed');
       }
     }
   });
