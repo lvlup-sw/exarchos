@@ -572,6 +572,14 @@ export function buildCallShapeCensus(
         `EMPTY_NORMAL_PATH ${intent.id}: no Exarchos work call resolved on the normal path, and a census that counts nothing cannot tell zero calls from a broken extractor`,
       );
     }
+    // Runbook steps and prose mentions resolve without the extractor, so they
+    // can keep a count above zero while the extractor reads nothing in this
+    // intent's source. At least one call on the path must be one it located.
+    if (!normalCalls.some((call) => call.via === 'site' || call.via.endsWith('/site'))) {
+      fail(
+        `NORMAL_PATH_UNLOCATED ${intent.id}: no call on the normal path was located in its source, so the count does not depend on the extractor reading it`,
+      );
+    }
 
     const boundaryAt = locate(intent.boundary.cite, `${intent.id}:boundary`, 'UNRESOLVED_CITE');
     judgements.push({

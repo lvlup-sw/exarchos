@@ -242,6 +242,34 @@ describe('call-shape census', () => {
     expect(errors.some((error) => error.startsWith('EMPTY_NORMAL_PATH fixture'))).toBe(true);
   });
 
+  it('CallShapeCensus_PathCountedOnlyFromMentions_IsRefusedAsUnlocated', () => {
+    const intent: IntentModel = {
+      ...INTENT,
+      normal: [
+        {
+          kind: 'mention',
+          call: 'exarchos_orchestrate.finish',
+          cite: { source: 'fx', needle: 'On failure, re-run:' },
+          why: 'counted without the extractor locating anything',
+        },
+      ],
+      exceptions: [],
+      excluded: [
+        { ref: { source: 'fx', call: 'exarchos_orchestrate.runbook', at: 'id: "fixture-chain"' }, kind: 'restatement', why: 'fixture' },
+        { ref: { source: 'fx', call: 'exarchos_orchestrate.check_gate', at: 'target: "one"' }, kind: 'restatement', why: 'fixture' },
+        { ref: { source: 'fx', call: 'native:SPAWN_AGENT_CALL', at: 'agent="implementer"' }, kind: 'restatement', why: 'fixture' },
+        { ref: { source: 'fx', call: 'exarchos_workflow.update', at: '`exarchos_workflow update`' }, kind: 'restatement', why: 'fixture' },
+        { ref: { source: 'fx', call: 'exarchos_workflow.transition', at: 'action: "transition"' }, kind: 'restatement', why: 'fixture' },
+        { ref: { source: 'fx', call: 'exarchos_orchestrate.check_gate', at: 'target: "two"' }, kind: 'restatement', why: 'fixture' },
+      ],
+    };
+    const { census, errors } = buildCallShapeCensus(inputsFor(FIXTURE), modelWith(intent));
+    expect(census.intents[0]?.normal.counts.exarchos.atUnit).toBe(1);
+    expect(errors).toEqual([
+      'NORMAL_PATH_UNLOCATED fixture: no call on the normal path was located in its source, so the count does not depend on the extractor reading it',
+    ]);
+  });
+
   it('CallShapeCensus_UnexpandedRunbookFetch_ReportsCallsOnOnlyOneSide', () => {
     const intent: IntentModel = {
       ...INTENT,
