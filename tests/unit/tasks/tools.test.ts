@@ -1273,16 +1273,18 @@ describe('handleTaskComplete workflow state sync', () => {
       });
     }
 
+    // The two gate rows are sequences 1 and 2; the fact is the third row.
+    const ack = { streamId: featureId, sequence: 3, type: 'task.completed' };
     const failed = await handleTaskComplete({ taskId: 'task-1', streamId: featureId }, tempDir, store);
     expect(failed.success).toBe(false);
     expect(failed.error?.code).toBe('STATE_SYNC_FAILED');
-    expect(failed.data).toMatchObject({ streamId: featureId, type: 'task.completed' });
+    expect(failed.data).toEqual(ack);
     expect(await store.query(featureId, { type: 'task.completed' })).toHaveLength(1);
 
     await writeFile(stateFile, intact, 'utf-8');
     const retried = await handleTaskComplete({ taskId: 'task-1', streamId: featureId }, tempDir, store);
     expect(retried.success).toBe(true);
-    expect(retried.data).toEqual(failed.data);
+    expect(retried.data).toEqual(ack);
     expect(await store.query(featureId, { type: 'task.completed' })).toHaveLength(1);
     const state = await readStateFile(stateFile);
     expect((state.tasks as { status: string }[]).map((t) => t.status)).toEqual(['complete']);
