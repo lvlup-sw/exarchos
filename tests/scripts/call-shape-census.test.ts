@@ -160,8 +160,9 @@ describe('call-shape extractor inside fences', () => {
       'exarchos_orchestrate({ action: "finish" })',
       '```',
     ].join('\n');
+    const sites = extractSites(text, REGISTRY);
     expect(
-      extractSites(text, REGISTRY).map(({ line, endLine, call, pattern }) => ({ line, endLine, call, pattern })),
+      sites.map(({ line, endLine, call, pattern }) => ({ line, endLine, call, pattern })),
     ).toEqual([
       { line: 1, endLine: 4, call: 'native:Bash', pattern: 'shell-fence' },
       { line: 7, endLine: 7, call: 'exarchos_orchestrate.finish', pattern: 'call-expression' },
