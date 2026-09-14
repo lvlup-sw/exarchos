@@ -1,11 +1,11 @@
 {
   "note": "Live TOOL_REGISTRY and event-annotation denominator. Regenerated from the live registry whenever a registration is deliberately added or removed; the counts are a measurement, not a target.",
-  "capturedAt": "2026-09-11",
+  "capturedAt": "2026-09-13",
   "counts": {
     "tools": 5,
     "visibleTools": 4,
-    "actions": 126,
-    "eventTypes": 181
+    "actions": 127,
+    "eventTypes": 182
   },
   "tools": [
     {
@@ -78,6 +78,7 @@
         "onboard",
         "post_delegation_check",
         "pre_synthesis_check",
+        "prepare",
         "prepare_delegation",
         "prepare_review",
         "prepare_synthesis",
@@ -1069,6 +1070,12 @@
       "lifecycle": "active",
       "tier": "substrate",
       "rationale": "transition-record"
+    },
+    {
+      "type": "workflow.prepared",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
     },
     {
       "type": "workflow.projection_degraded",

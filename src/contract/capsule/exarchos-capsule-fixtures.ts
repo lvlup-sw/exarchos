@@ -10,12 +10,34 @@
 // still show a rejection.
 // ────────────────────────────────────────────────────────────────────────────
 
+import { contentDigest } from './capsule-digest.js';
 import type { ExarchosCapsuleV1 } from './exarchos-capsule.js';
 
 const statement = (text: string): { readonly statement: string } => ({ statement: text });
 
-const DIGEST_A = 'a'.repeat(64);
 const DIGEST_B = 'b'.repeat(64);
+
+/**
+ * The kernel definition the base capsule compiled from: one step, the one the
+ * base capsule's `task-verify` names. The base capsule's `definitionVersion` is
+ * this document's digest, so a fixture pinned with it is internally consistent
+ * — the definition a capsule names is the definition it carries.
+ */
+export function baseValidDefinition(): Record<string, unknown> {
+  return {
+    schemaVersion: '1.0',
+    name: 'capsule-corpus',
+    steps: [
+      { kind: 'skill', stepId: 'step-verify', stepName: 'verify', isTerminal: true, stepType: 'work' },
+    ],
+    transitions: [],
+    branchPoints: [],
+    loops: [],
+    forkPoints: [],
+    failureHandlers: [],
+    approvalPoints: [],
+  };
+}
 
 /**
  * A complete, structurally valid capsule. Every other fixture bends this one.
@@ -30,7 +52,7 @@ export function baseValidCapsule(): ExarchosCapsuleV1 {
     capsuleSchemaVersion: '1',
     identity: {
       workflowId: 'wf-capsule-corpus',
-      definitionVersion: DIGEST_A,
+      definitionVersion: contentDigest(baseValidDefinition()),
       designVersion: 'design-1',
       capsuleVersion: 7,
     },
@@ -74,7 +96,7 @@ export function baseValidCapsule(): ExarchosCapsuleV1 {
       compiledAt: '2026-09-12T00:00:00Z',
       compilerVersion: 'capsule-compiler-0',
     },
-    settlementContract: { requiredResults: ['task-verify'], batchId: 'batch-0001' },
+    settlementContract: { requiredResults: ['task-verify'] },
   };
 }
 
@@ -187,6 +209,12 @@ export const CAPSULE_ROUNDTRIP_FIXTURES: readonly CapsuleFixture[] = [
   bend('no required results', (b) => ({
     ...b,
     settlementContract: { ...b.settlementContract, requiredResults: [] },
+  })),
+  // The batch is named by the settlement request, never compiled in: one
+  // capsule is settled over as many batches as it takes to get one accepted.
+  bend('a batch id compiled into the settlement contract', (b) => ({
+    ...b,
+    settlementContract: { ...b.settlementContract, batchId: 'batch-0001' },
   })),
   bend('no provenance sources', (b) => ({
     ...b,

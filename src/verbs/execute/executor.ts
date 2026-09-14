@@ -44,6 +44,7 @@ import { outerCorrelation, stampFromAmbient } from '../../dispatch/core/outer-co
 // that routes here, so a value import of it would close a runtime ring.
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { isFeatureStream } from '../../dispatch/core/infra-streams.js';
+import { runExclusivePerOperation } from '../../dispatch/core/operation-serializer.js';
 import {
   EMISSION_VIOLATION_EVENT,
   runEmissionVerifierInterceptor,
@@ -470,36 +471,6 @@ export async function handleExecuteIntent(
     }
     return receiptResult(committed.receipt);
   });
-}
-
-// ─── Per-operation serialization ────────────────────────────────────────────────────────────────────
-
-const operationTails = new Map<string, Promise<unknown>>();
-
-/**
- * One flight per operation id at a time, within this process. Mirrors the
- * appender's per-stream promise-chain mutex; not re-entrant — the executor
- * never re-enters itself for the same operation id.
- */
-async function runExclusivePerOperation<T>(
-  operationId: string,
-  fn: () => Promise<T>,
-): Promise<T> {
-  const prior = operationTails.get(operationId) ?? Promise.resolve();
-  let release!: () => void;
-  const next = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  operationTails.set(operationId, next);
-  try {
-    await prior;
-    return await fn();
-  } finally {
-    release();
-    if (operationTails.get(operationId) === next) {
-      operationTails.delete(operationId);
-    }
-  }
 }
 
 // ─── The segment loop ───────────────────────────────────────────────────────

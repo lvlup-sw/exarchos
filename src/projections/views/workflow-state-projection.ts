@@ -1164,6 +1164,11 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       // fact about the execute_intent call, not about the workflow's phase or
       // task progress, so no field of this view moves for it.
       case 'orchestrate.intent_executed':
+      // The semantic plane's compilation record — which capsule was compiled
+      // for the workflow's outstanding work, and where its bytes are. It says
+      // what the terms of a batch ARE, not that any work happened, so no field
+      // of this view moves for it.
+      case 'workflow.prepared':
       // The semantic plane's settlement record — which claims were adjudicated
       // against which pinned capsule, and how the batch came out. It is a fact
       // about one settle call, not about the workflow's phase or task progress,

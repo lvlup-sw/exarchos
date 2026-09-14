@@ -112,6 +112,7 @@ import { realScaffoldDeps } from './invariants/fs-deps.js';
 import { applyLadderGateSeverity, resolvePhaseMode } from './gates/gate-utils.js';
 import { resolveWorkflowState } from './resolve-state.js';
 import { handleExecuteIntent, productionExecuteDeps } from './execute/executor.js';
+import { handlePrepare } from './prepare/handler.js';
 import { handleSettle } from './settle/handler.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
@@ -583,6 +584,12 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   settle: async (args, stateDir, ctx) => {
     if (!ctx) throw new Error('DispatchContext required for settle');
     return handleSettle(args, stateDir, ctx);
+  },
+  // The compilation endpoint, the other half of the pair. It reads the
+  // workflow and commits through the store, so it needs the real context too.
+  prepare: async (args, stateDir, ctx) => {
+    if (!ctx) throw new Error('DispatchContext required for prepare');
+    return handlePrepare(args, stateDir, ctx);
   },
 };
 

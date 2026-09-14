@@ -499,6 +499,16 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     tier: 'substrate',
     rationale: 'operation-record',
   },
+  // The semantic plane's compilation record. Appended by `prepare`'s own handler
+  // once the capsule and its definition are in custody — the durable record of
+  // the compilation it just performed. Its one reader is `settle`, which looks
+  // the record up to verify a capsule rather than folding it into any view, so
+  // there is no `ConsumerId` to name for the same reason the row above gives.
+  'workflow.prepared': {
+    lifecycle: 'active',
+    tier: 'substrate',
+    rationale: 'operation-record',
+  },
 
   // ── Capability — an effect provider appends it, and named consumers fold it ──
   //

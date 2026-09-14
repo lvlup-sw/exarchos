@@ -467,12 +467,13 @@ describe('DR-4: outputSchema vacuity census', () => {
     //   convention into a property.
     //
     // So 111/10/121 became 110/12/122, then 108/14/122, then 107/16/123, then
-    // 107/17/124, then 107/18/125.
+    // 107/17/124, then 107/18/125, then — with `prepare`, the compilation
+    // endpoint, arriving capped by the same forced route — 107/19/126.
     expect(sites).toHaveLength(waiverSites + cappedSites);
     expect(literalVacuousSites).toBe(0);
     expect(waiverSites).toBe(107);
-    expect(cappedSites).toBe(18);
-    expect(waiverSites + cappedSites).toBe(125);
+    expect(cappedSites).toBe(19);
+    expect(waiverSites + cappedSites).toBe(126);
     // Two of the waivers carry an explicit named binding — the aliased vacuity
     // this census exists to see through.
     expect(namedBindingSites).toBe(2);
@@ -512,13 +513,14 @@ describe('DR-4: outputSchema vacuity census', () => {
     // `settle` is the same move again — 108/17 -> 108/18 over 125 -> 126 — and
     // for the same structural reason rather than by choice: the waiver id union
     // is shrink-only, so a new action has no vacuous option to take.
-    expect(report.total).toBe(126);
+    // `prepare` repeats it: 108/18 -> 108/19 over 126 -> 127.
+    expect(report.total).toBe(127);
     expect(report.vacuousCount).toBe(108);
-    expect(report.substantiveCount).toBe(18);
+    expect(report.substantiveCount).toBe(19);
     expect(countByReason(report)).toEqual({
       'unknown-data': 107,
       'wrapped-unknown-data': 1,
-      'typed-data': 18,
+      'typed-data': 19,
       'unreadable-envelope': 0,
     });
 

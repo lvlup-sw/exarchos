@@ -71,7 +71,6 @@ import {
   type ExtensionToolAction,
   type ToolAction,
 } from '../../registry.js';
-import { baseValidCapsule } from '../capsule/exarchos-capsule-fixtures.js';
 import { EnvelopeSchema } from '../schemas/envelope.js';
 import { unregisteredActionOutputSchema } from '../../output-schema-declaration.js';
 import { toEnvelope, wrap, wrapError, type ToolResult } from '../../format.js';
@@ -1219,34 +1218,6 @@ const EMISSION_PROBES: readonly EmissionProbe[] = [
       actionItems: [{ file: 'src/probe.ts', severity: 'low', description: 'emission probe item' }],
     },
   },
-  {
-    // The settlement endpoint is PROBED rather than excluded, which is worth
-    // stating because everything excluded below is excluded for a reason
-    // `settle` does not have. It shells out to nothing, touches no worktree and
-    // resolves no host repository: it reads one capsule, writes the
-    // adjudication interior into the probe's own state dir, and appends one
-    // record. That is offline and confined, which is the whole test.
-    //
-    // The capsule is the contract's OWN corpus fixture, not a hand-written
-    // stand-in, so a change to the capsule schema reaches this probe instead of
-    // leaving it asserting against a shape that no longer ships. The claim
-    // satisfies the fixture's one required result, so the probe exercises the
-    // ACCEPTING path — a rejected batch appends the same record, which would
-    // have let the probe pass while proving less.
-    actionId: 'exarchos_orchestrate.settle',
-    setup: [],
-    input: {
-      ...FEATURE_INPUT,
-      capsule: baseValidCapsule(),
-      claims: [
-        {
-          taskId: 'task-verify',
-          fields: { passed: true },
-          evidence: [{ kind: 'test', ref: 'emission-probe-run' }],
-        },
-      ],
-    },
-  },
 ];
 
 const GATE_EXCLUSION =
@@ -1311,6 +1282,18 @@ const HAND_AUTHORED_EXCLUSIONS: readonly ExcludedEmitter[] = [
   {
     actionId: 'exarchos_orchestrate.prepare_delegation',
     reason: 'requires an on-disk plan and a task roster the probe does not author',
+  },
+  {
+    actionId: 'exarchos_orchestrate.prepare',
+    reason:
+      'compiles only a feature workflow standing in delegate, which the probe could reach only ' +
+      'through the phase transition this corpus already excludes',
+  },
+  {
+    actionId: 'exarchos_orchestrate.settle',
+    reason:
+      'adjudicates only a capsule a prepare call recorded, and prepare is excluded above; a probe ' +
+      'of the refusal alone would append nothing and prove nothing about the emission',
   },
   {
     actionId: 'exarchos_orchestrate.prepare_synthesis',

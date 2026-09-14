@@ -90,7 +90,6 @@ export type SettlementOutcome = 'settled' | 'rejected' | 'deviation-pending';
 /** The batch verdict: the outcome, every finding, and what was adjudicated. */
 export interface SettlementVerdict {
   readonly outcome: SettlementOutcome;
-  readonly batchId: string;
   readonly capsuleVersion: number;
   /** Task ids whose claims were adjudicated with no finding against them. */
   readonly acceptedTasks: readonly string[];
@@ -286,7 +285,6 @@ export function adjudicateSettlement(
 
   return {
     outcome,
-    batchId: capsule.settlementContract.batchId,
     capsuleVersion: capsule.identity.capsuleVersion,
     acceptedTasks: [...accepted].sort(),
     findings,
