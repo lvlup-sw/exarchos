@@ -204,16 +204,6 @@ export async function handleSettle(
     );
   }
 
-  // Two keys for one settlement would be two authorities over whether it
-  // happened: the same batch submitted under two caller ids would adjudicate
-  // twice. The key is derived from the batch, so a caller-held one is refused
-  // rather than silently ignored.
-  if (raw.operationId !== undefined) {
-    return invalid(
-      'operationId is not accepted: a settlement is keyed by its batch — the capsule version ' +
-        'and batchId — so resubmitting the same batch is already the replay',
-    );
-  }
   const batch = SharedStableIdSchema.safeParse(raw.batchId);
   if (!batch.success) {
     return invalid(
