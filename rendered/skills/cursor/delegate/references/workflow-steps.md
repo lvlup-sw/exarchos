@@ -2,7 +2,7 @@
 
 ## Step 1: Prepare Environment
 
-For parallel tasks, create worktrees:
+Compile the batch first — `exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })` — and keep the `capsuleVersion`; the capsule's task graph is the wave. Then, for parallel tasks, create worktrees:
 ```bash
 git worktree add .worktrees/task-001 feature/task-001
 cd .worktrees/task-001 && npm install
@@ -32,8 +32,9 @@ TodoWrite({
 ## Step 4: Dispatch Implementers
 
 **The launch shape is provisioned, not improvised.** Every provisioning verb emits a
-`dispatch` field alongside `posture` — `prepare_delegation` for a mutating wave,
-`prepare_review` for a reviewer or plan-review panel. That field carries the mechanical
+`dispatch` field alongside `posture` — `prepare_delegation` for a mutating wave on the
+primitive path, `prepare_review` for a reviewer or plan-review panel. On the capsule path
+the launch is the runtime's own spawn primitive with the packet the skill's Step 2 builds. That field carries the mechanical
 launch parameters (`subagent`, `naming`, `workspace`), the harness capabilities it
 `requires`, and the declared `fallback` to use when a runtime cannot honour them (DR-25).
 **Read the shape off the emitted `dispatch`.** Where this reference and an emitted
@@ -133,27 +134,26 @@ and produced three phantom agents and zero verdicts.
 
 ## Step 6: Collect Results
 
-When tasks complete, run the post-delegation check:
+When the workers report, build one claim per report and settle the batch:
 
 ```typescript
 exarchos_orchestrate({
-  action: "post_delegation_check",
+  action: "settle",
   featureId: "<feature-id>",
-  stateFile: "<path-to-state.json>",
-  repoRoot: "<project-root>"
+  capsuleVersion: <capsuleVersion>,
+  batchId: "<feature-id>:wave-1",
+  claims: [{ taskId: "task-001", fields: { worktreePath: "<worktree>", branch: "<branch>", files: [...], implements: [...], tests: [...] }, evidence: [] }, ...]
 })
 ```
 
-**Validates:**
-- State file exists and is valid JSON
-- Tasks array has entries
-- All tasks report "complete" status
-- Per-worktree test runs pass (unless `--skip-tests`)
-- State file consistency (all tasks have id and status fields)
+**Settlement decides:**
+- Every claim is read against the task's declared result shape
+- Each accepted task's verification runs — the ladder gates under the tier the capsule froze, then the completion — against the worktree the claim names
+- A settled batch leaves every accepted task complete; a rejected one names every finding at once
 
-**On `passed: true`:** All delegation results collected and verified. Update TodoWrite status, then check if schema sync is needed (Step 7) and proceed to review phase.
+**On `settled`:** All delegation results verified. Update TodoWrite status, land the worktrees, run the wave backstop, then check if schema sync is needed (Step 7) and proceed to review phase.
 
-**On `passed: false`:** Failures detected. Review the per-task status report. Address incomplete tasks or failing tests before proceeding.
+**On `rejected`:** Read the findings. Fix the claim or the task (a fixer dispatch to its worktree), then resubmit every required task under a new batch id.
 
 
 ## Step 7: Schema Sync (Auto-Detection)

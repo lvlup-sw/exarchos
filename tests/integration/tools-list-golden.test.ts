@@ -292,6 +292,22 @@
 //
 // No tool or action was added or removed, no order changed, and no schema
 // moved: both request shapes are byte-identical.
+//
+// ── The capsule carries the runtime's terms ───────────────────────────────
+//
+// MEASURED, not eyeballed: parsing both goldens and comparing per tool and
+// per field yields ONE changed field, `exarchos_orchestrate`'s description,
+// and inside it ONE changed action line:
+//
+//     prepare — the capsule now also carries each task's verification terms
+//               (tier and boundary flag, frozen from the plan) and the
+//               execution profile — the capabilities the plane's own calls
+//               need, read off the registry — and a runtime lacking one is
+//               refused RUNTIME_UNFIT before it fans out; INVALID_TASK_STAMP
+//               joins the refusals. The digest moves with the description.
+//
+// No tool or action was added or removed, no order changed, and no schema
+// moved: the request shape is byte-identical.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';

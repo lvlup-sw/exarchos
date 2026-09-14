@@ -86,6 +86,8 @@ exarchos_workflow get with fields: ["tasks"]
 
 ### Gate Chain After Fix
 
+Fix mode addresses review findings on tasks already complete, so it stays on the per-task gate chain. (A task rejected by settlement inside a delegation wave is not fixed here: its fixer is dispatched and the batch resubmitted to `settle` — see the skill's Step 3.)
+
 After the fix completes, run the `task-fix` runbook:
 ```typescript
 exarchos_orchestrate({ action: "runbook", id: "task-fix" })

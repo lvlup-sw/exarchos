@@ -58,12 +58,15 @@ export const prepareActions: readonly BuiltinToolAction[] = [
       "Compile a feature workflow's outstanding delegation batch into ONE immutable capsule and " +
       'commit one workflow.prepared record pinning its digest. Call it in the delegate phase. The ' +
       'capsule carries the task graph, each task\'s result contract, the admitted evidence kinds, ' +
-      'the deviation envelope and the authority the batch will be settled against. Run the batch ' +
-      'from the capsule with no further governance calls, then submit the results with `settle` ' +
-      '(`capsuleVersion` plus a `batchId`). A retry with unchanged inputs returns the recorded ' +
-      'capsule; changed inputs compile the next version. Refused before any effect: ' +
-      'WORKFLOW_NOT_FOUND, WORKFLOW_TYPE_UNSUPPORTED, PHASE_NOT_PREPARABLE, NOTHING_TO_PREPARE, ' +
-      'INVALID_TASK_ID, UNKNOWN_DEPENDENCY, CAPSULE_UNSOUND.',
+      'the deviation envelope, the authority the batch will be settled against, each task\'s ' +
+      'verification terms (tier and boundary flag, frozen from the plan), and the execution ' +
+      'profile — the capabilities the plane\'s own calls need, read off the registry; a runtime ' +
+      'lacking one is refused RUNTIME_UNFIT before it fans out. Run the batch from the capsule ' +
+      'with no further governance calls, then submit the results with `settle` (`capsuleVersion` ' +
+      'plus a `batchId`). A retry with unchanged inputs returns the recorded capsule; changed ' +
+      'inputs compile the next version. Refused before any effect: WORKFLOW_NOT_FOUND, ' +
+      'WORKFLOW_TYPE_UNSUPPORTED, PHASE_NOT_PREPARABLE, NOTHING_TO_PREPARE, INVALID_TASK_ID, ' +
+      'INVALID_TASK_STAMP, UNKNOWN_DEPENDENCY, CAPSULE_UNSOUND, RUNTIME_UNFIT.',
     schema: z
       .object({
         // Alias, matching settle: `streamId` IS the bare featureId; either

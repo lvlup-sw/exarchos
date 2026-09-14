@@ -9,8 +9,8 @@ Counts read `fixed + k*tasks + m*prs`. The N=1 columns set every loop variable t
 | Intent | Ends at | Exarchos, normal | N=1 | Exception paths, Exarchos (N=1) | Describe | Runbook fetch | Conditional discovery | Harness |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | plan | transition plan -> plan-review | 8 | 8 | coverage-gaps-revise: 11 (11) | 0 | 0 | 3 | 0 |
-| delegation | transition delegate -> review | 7 + 6*tasks | 13 | context-compaction: 9 + 6*tasks (15)<br>integration-advanced: 8 + 6*tasks (14)<br>integration-advanced-rollback: 8 + 6*tasks (14) | 0 | 2 + 1*tasks | 4 | 2*tasks |
-| task-completion | task_complete records the task complete | 5 | 5 | gate-failure-fix: 7 (7) | 0 | 1 | 2 | 0 |
+| delegation | transition delegate -> review | 6 + 1*tasks | 7 | settlement-rejected: 4 (4)<br>deviation-pending: 4 (4)<br>context-compaction: 8 + 1*tasks (9)<br>integration-advanced: 7 + 1*tasks (8)<br>integration-advanced-rollback: 7 + 1*tasks (8) | 0 | 2 | 4 | 2*tasks |
+| task-completion | task_complete records the task complete | 5 | 5 | gate-failure-fix: 7 (7) | 0 | 1 | 1 | 0 |
 | review | transition review -> synthesize | 10 | 10 | needs-fixes: 9 (9) | 0 | 3 | 2 | 1 |
 | synthesis | human checkpoint: merge the stack | 4 + 3*prs | 7 | pr-body-invalid: 5 + 3*prs (8)<br>readiness-fails: 1 (1) | 0 | 1 | 4 | 1*prs |
 
@@ -34,54 +34,57 @@ Exception `coverage-gaps-revise`: the coverage gate fails, so the plan is revise
 
 ## delegation
 
-Ends at: transition delegate -> review (`content/delivery/skills/delegate/SKILL.md:392`)
+Ends at: transition delegate -> review (`content/delivery/skills/delegate/SKILL.md:444`)
 
-1. `exarchos_orchestrate.runbook` (runbook-fetch) `content/delivery/skills/delegate/SKILL.md:70`
-2. `exarchos_orchestrate.runbook` (runbook-fetch) `content/delivery/skills/delegate/SKILL.md:71`
+1. `exarchos_orchestrate.runbook` (runbook-fetch) `content/delivery/skills/delegate/SKILL.md:74`
+2. `exarchos_orchestrate.runbook` (runbook-fetch) `content/delivery/skills/delegate/SKILL.md:75`
 3. `exarchos_event.batch_append` (work) `content/delivery/skills/delegate/SKILL.md:86`
-4. `exarchos_orchestrate.prepare_delegation` (work) `content/delivery/skills/delegate/SKILL.md:99`
-5. `native:SPAWN_AGENT_CALL` (native, perTask) `content/delivery/skills/delegate/SKILL.md:188`
-6. `native:SUBAGENT_RESULT_API` (native, perTask) `content/delivery/skills/delegate/SKILL.md:257`
-7. `exarchos_orchestrate.runbook` (runbook-fetch, perTask, via intent:task-completion/site) `content/delivery/skills/delegate/SKILL.md:263`
-8. `exarchos_orchestrate.check_test_adequacy` (work, perTask, via intent:task-completion/runbook:task-completion#1) `src/runbooks/definitions.ts`
-9. `exarchos_orchestrate.check_contract_drift` (work, perTask, via intent:task-completion/runbook:task-completion#2) `src/runbooks/definitions.ts`
-10. `exarchos_orchestrate.check_mock_boundary` (work, perTask, via intent:task-completion/runbook:task-completion#3) `src/runbooks/definitions.ts`
-11. `exarchos_orchestrate.check_static_analysis` (work, perTask, via intent:task-completion/runbook:task-completion#4) `src/runbooks/definitions.ts`
-12. `exarchos_orchestrate.task_complete` (work, perTask, via intent:task-completion/runbook:task-completion#5) `src/runbooks/definitions.ts`
-13. `exarchos_orchestrate.serialize_merge` (work, perTask, via mention) `content/delivery/skills/delegate/SKILL.md:400`
-14. `exarchos_orchestrate.check_integration_suite` (work, via mention) `content/delivery/skills/delegate/SKILL.md:231`
-15. `exarchos_orchestrate.post_delegation_check` (work, via mention) `content/delivery/skills/delegate/SKILL.md:232`
-16. `exarchos_orchestrate.check_operational_resilience` (work) `content/delivery/skills/delegate/SKILL.md:294`
-17. `exarchos_workflow.update` (work) `content/delivery/skills/delegate/SKILL.md:394`
-18. `exarchos_workflow.update` (work) `content/delivery/skills/delegate/SKILL.md:578`
+4. `exarchos_orchestrate.prepare` (work) `content/delivery/skills/delegate/SKILL.md:99`
+5. `native:SPAWN_AGENT_CALL` (native, perTask) `content/delivery/skills/delegate/SKILL.md:193`
+6. `native:SUBAGENT_RESULT_API` (native, perTask) `content/delivery/skills/delegate/SKILL.md:264`
+7. `exarchos_orchestrate.settle` (work) `content/delivery/skills/delegate/SKILL.md:294`
+8. `exarchos_orchestrate.serialize_merge` (work, perTask, via mention) `content/delivery/skills/delegate/SKILL.md:452`
+9. `exarchos_orchestrate.check_integration_suite` (work) `content/delivery/skills/delegate/SKILL.md:369`
+10. `exarchos_orchestrate.check_operational_resilience` (work) `content/delivery/skills/delegate/SKILL.md:379`
+11. `exarchos_workflow.transition` (work) `content/delivery/skills/delegate/SKILL.md:630`
 
-Exception `context-compaction`: context compacts mid-delegation, so state is recovered before continuing (`content/delivery/skills/delegate/SKILL.md:357`)
+Exception `settlement-rejected`: settlement rejects a task, so a fixer is dispatched and the batch is resubmitted (`content/delivery/skills/delegate/SKILL.md:310`)
+
+- Runs the normal path through `exarchos_orchestrate.settle`, adds `native:SPAWN_AGENT_CALL`, `exarchos_orchestrate.settle`.
+- Exarchos 4; describe 0; runbook fetch 2; harness 1 + 2*tasks.
+
+Exception `deviation-pending`: a worker proposed a deviation, so the batch is held for a decision and resubmitted (`content/delivery/skills/delegate/SKILL.md:324`)
+
+- Runs the normal path through `exarchos_orchestrate.settle`, adds `exarchos_orchestrate.settle`.
+- Exarchos 4; describe 0; runbook fetch 2; harness 2*tasks.
+
+Exception `context-compaction`: context compacts mid-delegation, so state is recovered before continuing (`content/delivery/skills/delegate/SKILL.md:409`)
 
 - Runs the whole normal path, adds `exarchos_workflow.get`, `exarchos_workflow.reconcile`.
-- Exarchos 9 + 6*tasks; describe 0; runbook fetch 2 + 1*tasks; harness 2*tasks.
+- Exarchos 8 + 1*tasks; describe 0; runbook fetch 2; harness 2*tasks.
 
-Exception `integration-advanced`: the integration branch advanced mid-wave, so one worktree is rebased and merged again (`content/delivery/skills/delegate/SKILL.md:439`)
+Exception `integration-advanced`: the integration branch advanced mid-wave, so one worktree is rebased and merged again (`content/delivery/skills/delegate/SKILL.md:491`)
 
 - Runs the whole normal path, adds `native:Bash`, `native:Bash`, `exarchos_orchestrate.serialize_merge`.
-- Exarchos 8 + 6*tasks; describe 0; runbook fetch 2 + 1*tasks; harness 2 + 2*tasks.
+- Exarchos 7 + 1*tasks; describe 0; runbook fetch 2; harness 2 + 2*tasks.
 
-Exception `integration-advanced-rollback`: the rebase cannot be resolved, so the branch is rolled back and the abort recorded (`content/delivery/skills/delegate/SKILL.md:544`)
+Exception `integration-advanced-rollback`: the rebase cannot be resolved, so the branch is rolled back and the abort recorded (`content/delivery/skills/delegate/SKILL.md:596`)
 
 - Runs the whole normal path, adds `native:Bash`, `native:Bash`, `native:Bash`, `exarchos_event.append`.
-- Exarchos 8 + 6*tasks; describe 0; runbook fetch 2 + 1*tasks; harness 3 + 2*tasks.
+- Exarchos 7 + 1*tasks; describe 0; runbook fetch 2; harness 3 + 2*tasks.
 
 ## task-completion
 
-Ends at: task_complete records the task complete (`content/delivery/skills/delegate/SKILL.md:236`)
+Ends at: task_complete records the task complete (`content/delivery/skills/delegate/SKILL.md:241`)
 
-1. `exarchos_orchestrate.runbook` (runbook-fetch) `content/delivery/skills/delegate/SKILL.md:263`
+1. `exarchos_orchestrate.runbook` (runbook-fetch) `content/delivery/skills/delegate/SKILL.md:643`
 2. `exarchos_orchestrate.check_test_adequacy` (work, via runbook:task-completion#1) `src/runbooks/definitions.ts`
 3. `exarchos_orchestrate.check_contract_drift` (work, via runbook:task-completion#2) `src/runbooks/definitions.ts`
 4. `exarchos_orchestrate.check_mock_boundary` (work, via runbook:task-completion#3) `src/runbooks/definitions.ts`
 5. `exarchos_orchestrate.check_static_analysis` (work, via runbook:task-completion#4) `src/runbooks/definitions.ts`
 6. `exarchos_orchestrate.task_complete` (work, via runbook:task-completion#5) `src/runbooks/definitions.ts`
 
-Exception `gate-failure-fix`: a blocking gate fails, so a fixer is dispatched and the task-fix chain runs (`content/delivery/skills/delegate/SKILL.md:264`)
+Exception `gate-failure-fix`: a blocking gate fails, so a fixer is dispatched and the task-fix chain runs (`content/delivery/skills/delegate/SKILL.md:659`)
 
 - Runs the normal path through `exarchos_orchestrate.check_static_analysis`, adds `native:SUBAGENT_RESULT_API`, `native:SPAWN_AGENT_CALL`, `exarchos_orchestrate.runbook`, `exarchos_orchestrate.check_test_adequacy`, `exarchos_orchestrate.check_static_analysis`, `exarchos_orchestrate.task_complete`.
 - Exarchos 7; describe 0; runbook fetch 2; harness 2.
@@ -140,8 +143,6 @@ Exception `readiness-fails`: the readiness check fails, so synthesis returns to 
 - synthesis fetches runbook synthesis-flow at `content/synthesis/skills/synthesize/SKILL.md:53` but spells a different path. Only in the runbook: `exarchos_orchestrate.validate_pr_stack`, `native:bash.gh_pr_create`. Only in the prose: `exarchos_orchestrate.create_pr`, `exarchos_orchestrate.list_prs`, `exarchos_orchestrate.merge_pr`, `exarchos_workflow.update`, `native:Bash`.
 - plan, `exarchos_orchestrate.check_coverage_thresholds` at `content/design/skills/plan/SKILL.md:279`: A plan-phase completion criterion prescribes a coverage-threshold gate, but no coverage summary exists at plan time for it to read.
 - plan, `exarchos_workflow.set` at `content/design/skills/plan/SKILL.md:299`: The plan skill says phase transitions emit through `exarchos_workflow` `set`, an action the registry does not serve; the same skill prescribes `transition` for the phase change.
-- delegation, `exarchos_workflow.update` at `content/delivery/skills/delegate/SKILL.md:578`: The delegate skill moves the phase with `exarchos_workflow update` and `phase: "review"`, while the plan and synthesize skills state that update is non-phase mutation and the runtime rejects a phase in updates.
-- task-completion, `runbook:task-completion` at `content/delivery/skills/delegate/SKILL.md:263`: The skill prose summarises the gate sequence as test adequacy, static analysis, then task_complete; the runbook it defers to also runs the contract-drift and mock-boundary gates.
 - review, `exarchos_orchestrate.check_test_adequacy` at `content/review/skills/review/SKILL.md:55`: The review recipe for the kill probe carries a single `taskId`, while the pass reviews the integrated diff across every task.
 
 ## Scope
@@ -157,7 +158,7 @@ Exception `readiness-fails`: the readiness check fails, so synthesis returns to 
 
 - Registry: 127 actions over 5 tools (4 visible), action ids sha256 `912b77180a58d6f959b6a1ba244ad8ba735aeda89f47998aafdc1e9b6b8e8753` from `tools/audit/registered-actions-snapshot.json`.
 - Contract authority `action-id-registry` digest `sha256:912b77180a58d6f959b6a1ba244ad8ba735aeda89f47998aafdc1e9b6b8e8753` from `src/contract/contract-authority.lock.json`.
-- `content/delivery/skills/delegate/SKILL.md` sha256 `5f472168d1857afea96c2b13d9c62fa1009e501f89f8b0b325abad8e083ccec1`
+- `content/delivery/skills/delegate/SKILL.md` sha256 `f959d9398cc9800e97e611a20871fa390b9edbc1468a3a48e9bc233206ca11ba`
 - `content/design/skills/plan/SKILL.md` sha256 `9d3591bf30492e6f36be249da667fc37b396e47964e9eb6d11d043ed8066696d`
 - `content/review/skills/review/SKILL.md` sha256 `cb281f0c613a9596d837f84010302f97fdf1ee6245a65e999807b330fe0fe055`
 - `content/synthesis/skills/synthesize/SKILL.md` sha256 `22c020a7069bbd9a5ec0ee443a8599af683eb830441e38c442db4d4307b66960`

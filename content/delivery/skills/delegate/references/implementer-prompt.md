@@ -88,7 +88,7 @@ A comment states its constraint **in words** and names no planning ordinal. `DR-
 
 Durable external references stay welcome anywhere: a URL, `owner/repo#123`, a CVE, an RFC section. These name something outside this repository's planning cycle and a reader can follow them.
 
-Provenance ordinals belong in the **completion event**, not the source. Report `implements: ["DR-N"]` through `task_complete` (see Provenance Reporting) — that is what the provenance chain reads, so a comment repeating it adds nothing and rots independently.
+Provenance ordinals belong in the **completion event**, not the source. Report `implements: ["DR-N"]` in your completion report (see Provenance Reporting) — the orchestrator submits it with your claim and it reaches the completion event through settlement, which is what the provenance chain reads, so a comment repeating it adds nothing and rots independently.
 
 This applies to test files exactly as it does to production.
 
@@ -277,14 +277,16 @@ Commits should match logical review units, not individual TDD test cycles. Group
 
 ## Provenance Reporting
 
-When completing a task, include structured provenance data in your completion report. This data flows into the `task.completed` event for traceability through the provenance chain.
+When completing a task, include structured provenance data in your completion report. **Your report is your claim**: the orchestrator submits it, field for field, to settlement, which verifies the work in your worktree and records the completion. Nothing you report certifies the work — the gates settlement runs do — so report where the work is and what it is, exactly.
 
 ### Required Fields
 
-1. **implements** — Design requirement IDs you implemented (e.g., `["DR-1", "DR-3"]`). This is where a DR ordinal belongs. It is carried by the event, never by a code comment — see Code Comments.
-2. **tests** — Tests written, each with name and file path
-3. **files** — Files created or modified
-4. **acceptanceTestRef** — (optional) Task ID of the parent acceptance test, if this task has an `acceptanceTestRef` field
+1. **worktreePath** — the absolute path of the worktree the work is in (your Working Directory). Settlement verifies against it; a claim without one cannot be verified.
+2. **branch** — the branch the work is committed on
+3. **implements** — Design requirement IDs you implemented (e.g., `["DR-1", "DR-3"]`). This is where a DR ordinal belongs. It is carried by the event, never by a code comment — see Code Comments.
+4. **tests** — Tests written, each with name and file path
+5. **files** — Files created or modified
+6. **acceptanceTestRef** — (optional) Task ID of the parent acceptance test, if this task has an `acceptanceTestRef` field
 
 ### Structured Format
 
@@ -292,6 +294,8 @@ Report provenance as a JSON object in your task completion call:
 
 ```json
 {
+  "worktreePath": "/project/.worktrees/task-001-email-validation",
+  "branch": "feat/task-001",
   "implements": ["DR-1", "DR-3"],
   "acceptanceTestRef": "task-000",
   "tests": [
@@ -302,26 +306,11 @@ Report provenance as a JSON object in your task completion call:
 }
 ```
 
-### Passing Provenance in Task Completion
+### How Provenance Reaches the Completion Event
 
-When using Exarchos MCP to mark a task complete, pass provenance fields in the `result` parameter:
+The orchestrator submits your report as one claim of the batch to `settle`. Settlement runs the task's gates against `worktreePath` and, when they pass, records the completion carrying these fields — the same `task.completed` the primitive path's `task_complete` records — so the ProvenanceView traces requirements through to implementation. Do not call `task_complete` yourself; on the capsule path there is no per-task governance call for you to make.
 
-```typescript
-exarchos_orchestrate({
-  action: "task_complete",
-  taskId: "task-001",
-  streamId: "<featureId>",
-  result: {
-    summary: "Implemented email validation with TDD",
-    implements: ["DR-1"],
-    acceptanceTestRef: "task-000",
-    tests: [{ name: "validateEmail_InvalidFormat_ReturnsError", file: "src/validators/email.test.ts" }],
-    files: ["src/validators/email.ts", "src/validators/email.test.ts"]
-  }
-})
-```
-
-These fields are extracted by `handleTaskComplete` and included in the `task.completed` event, enabling the ProvenanceView to trace requirements through to implementation.
+If a capsule assumption turned out wrong while you worked, report a **deviation** (`deviationKind` from the envelope you were given, with a statement) rather than working around it silently.
 
 ## Completion
 

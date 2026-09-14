@@ -118,16 +118,15 @@ const TASK_COMPLETION: IntentModel = {
     {
       kind: 'runbook',
       id: 'task-completion',
-      via: at('delegate', `${O}.runbook`, 'id: "task-completion"'),
-      why: 'the skill says to execute the fetched steps in order. Every gate step is counted, although the frozen risk-tier stamp can route a low-tier task past some of them',
-      flag: 'The skill prose summarises the gate sequence as test adequacy, static analysis, then task_complete; the runbook it defers to also runs the contract-drift and mock-boundary gates.',
+      via: at('delegate', `${O}.runbook`, 'and execute the returned steps in order. Stop on gate failure.'),
+      why: 'the primitive path, kept for the workflow types prepare does not compile: the appendix says to execute the fetched steps in order. Every gate step is counted, although the frozen risk-tier stamp can route a low-tier task past some of them. On the capsule path settlement composes this same runbook per accepted task, and the orchestrator makes none of these calls',
     },
   ],
   exceptions: [
     {
       id: 'gate-failure-fix',
       label: 'a blocking gate fails, so a fixer is dispatched and the task-fix chain runs',
-      trigger: { source: 'delegate', needle: 'Execute the returned steps in order. Stop on gate failure.' },
+      trigger: { source: 'delegate', needle: '**On a gate failure**, dispatch a fixer' },
       through: `${O}.check_static_analysis`,
       extra: [
         {
@@ -151,13 +150,8 @@ const TASK_COMPLETION: IntentModel = {
   conditional: [
     {
       kind: 'site',
-      ref: at('delegate', `${O}.describe`, '> `exarchos_orchestrate({ action: "describe"'),
-      why: 'fallback, only if the runbook action is unavailable',
-    },
-    {
-      kind: 'site',
       ref: at('delegate', `${O}.describe`, 'If runbook unavailable, use `describe` to retrieve gate schemas'),
-      why: 'fallback on the fix path, only if the runbook action is unavailable',
+      why: 'fallback, only if the runbook action is unavailable',
     },
   ],
   excluded: [
@@ -182,9 +176,13 @@ const DELEGATION: IntentModel = {
     {
       kind: 'site',
       ref: at('delegate', `${E}.batch_append`, 'type: "task.assigned",'),
-      why: 'one batch carries every task, so the call counts once',
+      why: 'one batch carries every task, so the call counts once. The one governance call on this path the capsule has not yet absorbed: the delegate-phase event contract still expects the announcement',
     },
-    { kind: 'site', ref: at('delegate', `${O}.prepare_delegation`, '<the-decomposition-spec>.md') },
+    {
+      kind: 'site',
+      ref: at('delegate', `${O}.prepare`, 'action: "prepare", featureId: "<featureId>" })'),
+      why: 'compiles the batch into the capsule every packet is built from',
+    },
     {
       kind: 'site',
       ref: at('delegate', 'native:SPAWN_AGENT_CALL', 'agent="implementer"'),
@@ -197,40 +195,62 @@ const DELEGATION: IntentModel = {
       per: 'perTask',
       why: 'each background result is collected',
     },
-    { kind: 'intent', intent: 'task-completion', per: 'perTask', why: 'the task-completion runbook runs for each completed task' },
+    {
+      kind: 'site',
+      ref: at('delegate', `${O}.settle`, 'batchId: "<featureId>:wave-1",'),
+      why: 'one call submits every claim; settlement adjudicates them and runs each accepted task\'s gates itself, so no per-task governance call follows',
+    },
     {
       kind: 'mention',
       call: `${O}.serialize_merge`,
       cite: { source: 'delegate', needle: '**Land it through `serialize_merge`.**' },
       per: 'perTask',
-      why: 'each task works in its own worktree, a worktree-bearing completion detours through merge-pending, and the skill names this action as the merge path',
+      why: 'each task works in its own worktree, a worktree-bearing completion detours through merge-pending, and the skill names this action as the merge path. The plane compiles and settles the work; it does not land it',
     },
     {
-      kind: 'mention',
-      call: `${O}.check_integration_suite`,
-      cite: { source: 'delegate', needle: '**Once** at the wave boundary' },
-      why: 'the verification-ownership table assigns it to the lead once per wave; the subagent-mode prose gives no recipe, so it is counted from the table for one wave',
-    },
-    {
-      kind: 'mention',
-      call: `${O}.post_delegation_check`,
-      cite: { source: 'delegate', needle: '`post_delegation_check`, after the cumulative suite' },
-      why: 'the same table assigns it to the lead after the cumulative suite, once per wave',
+      kind: 'site',
+      ref: at('delegate', `${O}.check_integration_suite`, 'action: "check_integration_suite",'),
+      why: 'the wave-boundary backstop, once per wave after the merges land',
     },
     { kind: 'site', ref: at('delegate', `${O}.check_operational_resilience`, 'action: "check_operational_resilience",') },
     {
       kind: 'site',
-      ref: at('delegate', `${W}.update`, 'with the tasks array'),
-      why: 'one update carries the whole tasks array before the phase change',
-    },
-    {
-      kind: 'site',
-      ref: at('delegate', `${W}.update`, 'with `phase: "review"`'),
-      why: 'the transition section spells the phase change as an update, counted as spelled',
-      flag: 'The delegate skill moves the phase with `exarchos_workflow update` and `phase: "review"`, while the plan and synthesize skills state that update is non-phase mutation and the runtime rejects a phase in updates.',
+      ref: at('delegate', `${W}.transition`, 'target: "review" })'),
+      why: 'the phase change, as a transition: settlement leaves the tasks complete and the guard admits it',
     },
   ],
   exceptions: [
+    {
+      id: 'settlement-rejected',
+      label: 'settlement rejects a task, so a fixer is dispatched and the batch is resubmitted',
+      trigger: { source: 'delegate', needle: '`verification-failed`: the task\'s segment halted on the named leaf' },
+      through: `${O}.settle`,
+      extra: [
+        { kind: 'site', ref: at('delegate', 'native:SPAWN_AGENT_CALL', 'agent="fixer"'), why: 'fresh fixer dispatch to the rejected task\'s worktree' },
+        {
+          kind: 'site',
+          ref: at('delegate', `${O}.settle`, 'batchId: "<featureId>:wave-1:retry-1",'),
+          why: 'the corrected batch, resubmitted under a new id; tasks already complete are accepted without running again',
+        },
+      ],
+      reentersNormalPath: false,
+      why: 'Counted to the resubmission that settles. Landing, the backstop and the transition then follow as on the normal path; reading the halted segment\'s receipt names no call.',
+    },
+    {
+      id: 'deviation-pending',
+      label: 'a worker proposed a deviation, so the batch is held for a decision and resubmitted',
+      trigger: { source: 'delegate', needle: '**`deviation-pending`** — a worker proposed a deviation' },
+      through: `${O}.settle`,
+      extra: [
+        {
+          kind: 'site',
+          ref: at('delegate', `${O}.settle`, 'batchId: "<featureId>:wave-1:retry-1",'),
+          why: 'the batch resubmitted without the deviation once the human approves it',
+        },
+      ],
+      reentersNormalPath: false,
+      why: 'The decision itself names no call; recording it as a fact is the divergence loop, not yet wired. A refusal revises the plan and re-prepares, which is the normal path again.',
+    },
     {
       id: 'context-compaction',
       label: 'context compacts mid-delegation, so state is recovered before continuing',
@@ -273,20 +293,20 @@ const DELEGATION: IntentModel = {
         },
       ],
       reentersNormalPath: false,
-      why: 'Marking the task failed names no call and is not counted. The fixer dispatch it leads to is the task-completion failure path.',
+      why: 'Marking the task failed names no call and is not counted. The fixer dispatch it leads to is the settlement-rejected path.',
     },
   ],
   conditional: [
     {
       kind: 'site',
-      ref: at('delegate', `${O}.describe`, 'actions: ["prepare_delegation"]'),
-      why: 'fallback, only if the skill drifts from observed behaviour',
+      ref: at('delegate', `${O}.runbook`, 'lists the steps settlement composes'),
+      why: 'a reference to the runbook settlement runs per accepted task, read when the caller wants to know the steps; the orchestrator does not fetch or run it on this path',
     },
     { kind: 'site', ref: at('delegate', `${W}.describe`, 'Use `exarchos_workflow({ action: "describe", actions: ["update", "init"] })` for'), why: SCHEMA_REFERENCE },
     { kind: 'site', ref: at('delegate', `${W}.describe`, 'playbook: "feature" })`'), why: SCHEMA_REFERENCE },
     {
       kind: 'site',
-      ref: at('delegate', `${O}.describe`, '`exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "task_complete"] })`'),
+      ref: at('delegate', `${O}.describe`, '`exarchos_orchestrate({ action: "describe", actions: ["prepare", "settle"] })`'),
       why: SCHEMA_REFERENCE,
     },
   ],
@@ -297,9 +317,9 @@ const DELEGATION: IntentModel = {
       why: 'restates the pre-dispatch decision runbook already fetched',
     },
     {
-      ref: at('delegate', `${W}.update`, '6. **Update workflow state**'),
+      ref: at('delegate', `${W}.transition`, '`exarchos_workflow transition` to `review`'),
       kind: 'restatement',
-      why: 'the transition guard note says one update carries the tasks array; this step describes the same update',
+      why: 'the landing checklist names the transition the Transition section spells',
     },
     {
       ref: at('delegate', 'exarchos_view.delegation_timeline', 'delegation_timeline'),
@@ -310,6 +330,16 @@ const DELEGATION: IntentModel = {
       ref: at('delegate', 'native:CHAIN', '{{CHAIN next="review"'),
       kind: 'beyond-boundary',
       why: 'invokes the review skill after the transition this intent ends at',
+    },
+    {
+      ref: at('delegate', `${O}.prepare_delegation`, 'action: "prepare_delegation", featureId: "<featureId>", planPath:'),
+      kind: 'alternate-mode',
+      why: 'the primitive path, for the workflow types prepare does not compile; this census counts the capsule path',
+    },
+    {
+      ref: at('delegate', `${W}.update`, 'with the tasks array'),
+      kind: 'alternate-mode',
+      why: 'the primitive path patches task statuses by hand; on the capsule path settlement leaves them complete',
     },
   ],
 };

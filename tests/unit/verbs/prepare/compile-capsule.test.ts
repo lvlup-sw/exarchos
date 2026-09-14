@@ -19,6 +19,7 @@ import {
   type DelegationBatch,
 } from '../../../../src/verbs/prepare/partition-tasks.js';
 import { adjudicateSettlement } from '../../../../src/verbs/settle/adjudicate.js';
+import { resolveVerificationPolicy } from '../../../../src/workflow/verification-policy-resolver.js';
 
 function featureDefinition(): NonNullable<ReturnType<typeof lowerBuiltInDefinition>> {
   const lowered = lowerBuiltInDefinition('feature');
@@ -44,6 +45,8 @@ function input(overrides: Partial<CompileCapsuleInput> = {}): CompileCapsuleInpu
     ]),
     catalogInvariants: [],
     designRef: 'docs/specs/feature.md',
+    executionProfile: { capabilities: ['fs:read', 'shell:exec'] },
+    verificationSequence: (riskTier, boundaryTouching) => resolveVerificationPolicy(riskTier, boundaryTouching).sequence,
     compiledAt: '2026-09-12T00:00:00Z',
     ...overrides,
   };
@@ -137,6 +140,36 @@ describe('delegation capsule compilation', () => {
     // And the graph task stays the graph task: the terms live in the
     // settlement contract, not smuggled onto the node.
     expect(outcome.capsule.graph.tasks[0]).toEqual({ taskId: 'T-1', title: 'stamped', stepId: 'delegate' });
+  });
+
+  it('Compile_TheExecutionProfile_IsAttachedAsHandedIn_AndOmittedWhenEmpty', () => {
+    const outcome = compileDelegationCapsule(input());
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    expect(outcome.capsule.executionProfile).toEqual({ capabilities: ['fs:read', 'shell:exec'] });
+    const bare = compileDelegationCapsule(input({ executionProfile: { capabilities: [] } }));
+    if (!bare.ok) throw new Error(bare.refusal.message);
+    // The contract keeps the section optional, and an empty profile would be
+    // a section that says nothing: it is left off rather than attached empty.
+    expect(bare.capsule.executionProfile).toBeUndefined();
+  });
+
+  it('Compile_TheBoundKnowledge_NamesTheGatesEachTierIsVerifiedBy', () => {
+    // One statement per distinct profile in the batch, in profile order, read
+    // off the policy resolver — what a dispatching harness tells each worker.
+    const outcome = compileDelegationCapsule(
+      input({
+        batch: batchOf([
+          { id: 'T-1', title: 'stamped', status: 'pending', blockedBy: [], riskTier: 'high', boundaryTouching: true },
+          { id: 'T-2', title: 'plain', status: 'pending', blockedBy: [] },
+          { id: 'T-3', title: 'plain too', status: 'pending', blockedBy: [] },
+        ]),
+      }),
+    );
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    expect(outcome.capsule.knowledge.patterns.map((p) => p.statement)).toEqual([
+      'A task at riskTier=high, boundaryTouching=true is verified at settlement by: check_static_analysis, check_test_adequacy, check_integration_suite, check_contract_drift, check_mock_boundary.',
+      'A task at riskTier=medium, boundaryTouching=false is verified at settlement by: check_static_analysis, check_test_adequacy.',
+    ]);
   });
 
   it('Compile_ACompiledCapsule_IsOneTheRealAdjudicatorCanSettle', () => {
