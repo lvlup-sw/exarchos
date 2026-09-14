@@ -12,6 +12,13 @@
 // second producer of the record settlement trusts, and could drift from the
 // real one without anything here noticing.
 //
+// Verification runs through the LIVE orchestrate handler table, over the
+// shipped task-completion runbook cut to the leaves that reach a decision
+// without leaving the process — `check_mock_boundary` and `task_complete` —
+// the same no-shell scoping the executor's own parity suite keeps. The gate
+// `task_complete` demands is seeded, so a settled batch here is one whose
+// completion leaf admitted; the halting case seeds nothing for its task.
+//
 // @oracle-sources: ../../../../src/verbs/settle/handler.ts, the persisted operation claim the SQLite appender hands back on a replay which is read out of the store rather than rebuilt in process
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -24,8 +31,12 @@ import type { ExarchosCapsuleV1 } from '../../../../src/contract/capsule/exarcho
 import {
   baseValidCapsule,
   baseValidDefinition,
+  minimalValidCapsule,
 } from '../../../../src/contract/capsule/exarchos-capsule-fixtures.js';
-import { deriveMcpCallerIdentity } from '../../../../src/dispatch/caller-identity.js';
+import {
+  deriveMcpCallerIdentity,
+  snapshotCallerAuthorization,
+} from '../../../../src/dispatch/caller-identity.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { INFRA_STREAM_IDS } from '../../../../src/dispatch/core/infra-streams.js';
 import {
@@ -40,18 +51,35 @@ import {
 import { EventStore } from '../../../../src/events/store.js';
 import { ExecutionSettledData } from '../../../../src/events/schemas.js';
 import type { ToolResult } from '../../../../src/format.js';
+import { findActionInRegistry } from '../../../../src/registry.js';
 import { settleActions } from '../../../../src/registry/actions/orchestrate/settle.js';
+import { ALL_RUNBOOKS } from '../../../../src/runbooks/definitions.js';
+import type { RunbookDefinition } from '../../../../src/runbooks/types.js';
+import { ACTION_HANDLERS } from '../../../../src/verbs/composite.js';
+import { INTENT_ARG_SCHEMAS } from '../../../../src/verbs/execute/arg-schemas.js';
+import { INTENT_EXECUTED_EVENT, type ExecuteIntentDeps } from '../../../../src/verbs/execute/executor.js';
+import { ladderRequirementId } from '../../../../src/verbs/gates/durable-gate-producer.js';
 import { commitPreparedCapsule } from '../../../../src/verbs/prepare/prepared-record.js';
 import { handleSettle } from '../../../../src/verbs/settle/handler.js';
 import { decodeSettlementBundle } from '../../../../src/verbs/settle/settlement-bundle.js';
 import type { SettlementReceipt } from '../../../../src/verbs/settle/types.js';
+import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
 import { initStateFile, readStateFile } from '../../../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { seedActivePhaseAttempt, seedGateEvidence } from '../../../../tools/test-helpers/trusted-context.js';
 
 const STREAM = 'feat-settle-unit';
+/** Where the claims say the work is. Bare, so the one gate that runs passes advisory. */
+const WORKTREE = '/nonexistent-settle-worktree';
+/** What the composed leaves declare they need; the gate runner also needs a trusted caller. */
+const CAPABILITIES = ['fs:read', 'fs:write', 'shell:exec', 'mcp:exarchos', 'admission:issue-gate-evidence'];
+/** The shipped runbook, cut to the leaves that decide without leaving the process. */
+const NO_SHELL_LEAVES = ['check_mock_boundary', 'task_complete'];
 
 let stateDir: string;
 let store: EventStore;
+/** The phase attempt the seeded workflow stands in; cited evidence is recorded under it. */
+let phaseAttemptId: string;
 /** Blobs in custody once the base capsule is prepared, before any settlement. */
 let seededBlobs: number;
 
@@ -60,8 +88,40 @@ function wiring(): DispatchContext {
 }
 
 function correlation(): ReturnType<typeof mintDispatchContext> {
-  deriveMcpCallerIdentity({ sessionId: 'settle-fixture' });
-  return mintDispatchContext(undefined);
+  const identity = deriveMcpCallerIdentity({ sessionId: 'settle-fixture' });
+  return mintDispatchContext(
+    undefined,
+    snapshotCallerAuthorization(identity, createInMemoryResolver(CAPABILITIES)),
+  );
+}
+
+function noShellTaskCompletion(): RunbookDefinition {
+  const shipped = ALL_RUNBOOKS.find((entry) => entry.id === 'task-completion');
+  if (shipped === undefined) throw new Error('the task-completion runbook is missing');
+  const steps = shipped.steps.filter((step) => NO_SHELL_LEAVES.includes(step.action));
+  expect(steps.map((step) => step.action)).toEqual(NO_SHELL_LEAVES);
+  return { ...shipped, steps };
+}
+
+/** The executor's collaborators, as the composite hands them to settle — the live table, the cut runbook. */
+function executeDeps(): ExecuteIntentDeps {
+  const schema = INTENT_ARG_SCHEMAS['task-completion'];
+  if (schema === undefined) throw new Error('no argument schema for task-completion');
+  return {
+    runbookTable: [noShellTaskCompletion()],
+    findAction: findActionInRegistry,
+    argSchemas: { 'task-completion': schema },
+    handlers: ACTION_HANDLERS,
+    handlerTool: 'exarchos_orchestrate',
+  };
+}
+
+/** The gate `task_complete` demands, passed for one task; the cut runbook never runs it. */
+async function seedPassingStaticAnalysis(taskId: string): Promise<void> {
+  await store.append(STREAM, {
+    type: 'gate.executed',
+    data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId } },
+  });
 }
 
 /** Record `capsule` as prepared, through the production commit. */
@@ -89,6 +149,8 @@ beforeEach(async () => {
   stateDir = await mkdtemp(path.join(tmpdir(), 'settle-unit-'));
   store = new EventStore(stateDir);
   await store.initialize();
+  phaseAttemptId = await seedActivePhaseAttempt(store, STREAM);
+  await seedPassingStaticAnalysis('task-verify');
   await seedPrepared();
   seededBlobs = await bundleBlobCount();
 });
@@ -99,19 +161,17 @@ afterEach(async () => {
 });
 
 function passingClaim(): Record<string, unknown> {
-  return {
-    taskId: 'task-verify',
-    fields: { passed: true },
-    evidence: [{ kind: 'test', ref: 'run-1' }],
-  };
+  return { taskId: 'task-verify', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] };
 }
 
 function failingClaim(): Record<string, unknown> {
-  return { taskId: 'task-verify', fields: { passed: 'yes' }, evidence: [] };
+  return { taskId: 'task-verify', fields: { passed: 'yes', worktreePath: WORKTREE }, evidence: [] };
 }
 
 async function settle(raw: Record<string, unknown>): Promise<ToolResult> {
-  return runWithDispatchContext(correlation(), () => handleSettle(raw, stateDir, wiring()));
+  return runWithDispatchContext(correlation(), () =>
+    handleSettle(raw, stateDir, wiring(), { execute: executeDeps() }),
+  );
 }
 
 function receiptOf(result: ToolResult): SettlementReceipt {
@@ -205,7 +265,11 @@ describe('settle — the adjudication endpoint', () => {
     expect(decoded.capsule.batchId).toBe('batch-custody');
     // The interior carries what the ledger row deliberately does not.
     expect(decoded.claims).toEqual([
-      { taskId: 'task-verify', fields: { passed: true }, evidence: [{ kind: 'test', ref: 'run-1' }] },
+      { taskId: 'task-verify', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] },
+    ]);
+    // And how the one accepted claim was verified, beside the claim itself.
+    expect(decoded.verification).toEqual([
+      expect.objectContaining({ taskId: 'task-verify', outcome: 'verified' }),
     ]);
   });
 
@@ -346,7 +410,8 @@ describe('settle — the adjudication endpoint', () => {
       const args = { featureId: STREAM, capsuleVersion: 7, batchId: 'batch-replay', claims: [passingClaim()] };
       const first = receiptOf(await settle(args));
       const afterFirst = await bundleBlobCount();
-      expect(afterFirst).toBe(seededBlobs + 1);
+      // Two: the verified segment's own run bundle, and the settlement's.
+      expect(afterFirst).toBe(seededBlobs + 2);
 
       const replayed = receiptOf(await settle(args));
       expect(replayed).toEqual(first);
@@ -393,7 +458,8 @@ describe('settle — the adjudication endpoint', () => {
       expect(await settledRows()).toHaveLength(1);
       // Refused BEFORE the effect, not after it: a mismatch caught downstream
       // would already have put a bundle nothing will ever reference into custody.
-      expect(await bundleBlobCount()).toBe(seededBlobs + 1);
+      // The two in custody are the first call's: its segment's, and its own.
+      expect(await bundleBlobCount()).toBe(seededBlobs + 2);
     });
 
     it('Settle_ACorrectedBatchUnderTheSamePinnedCapsule_SettlesAsANewBatch', async () => {
@@ -441,7 +507,8 @@ describe('settle — the adjudication endpoint', () => {
       const [a, b] = await Promise.all([settle(args), settle(args)]);
       expect(receiptOf(b)).toEqual(receiptOf(a));
       expect(await settledRows()).toHaveLength(1);
-      expect(await bundleBlobCount()).toBe(seededBlobs + 1);
+      // One segment bundle and one settlement bundle: the loser ran nothing.
+      expect(await bundleBlobCount()).toBe(seededBlobs + 2);
     });
 
     it('Settle_TheReceiptOperationId_IsDerivedFromTheBatchIdentity', async () => {
@@ -524,116 +591,134 @@ describe('settle — the adjudication endpoint', () => {
     expect(await settledRows()).toEqual([]);
   });
 
-  it('Settle_TheTailSequence_IsTheLastRowThisCallAppended', async () => {
-    // Read inside the write lock, so it names the sequence the LAST append of
-    // this call landed on — on a settled batch, the completion that follows
-    // the record — rather than whatever the stream held when the transaction
-    // opened.
+  it('Settle_TheTailSequence_IsTheRecordThisCallAppended', async () => {
+    // Read inside the write lock, so it names the sequence the record landed
+    // on — above every row the verified segments left before it — rather than
+    // whatever the stream held when the transaction opened.
     const receipt = receiptOf(
       await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-tail', claims: [passingClaim()] }),
     );
     const events = await store.query(STREAM);
     const settled = events.find((e) => e.type === 'execution.settled');
     const completion = events.find((e) => e.type === 'task.completed');
-    expect(settled?.sequence).toBe(receipt.tailSequence - 1);
-    expect(completion?.sequence).toBe(receipt.tailSequence);
+    expect(settled?.sequence).toBe(receipt.tailSequence);
+    expect(completion?.sequence).toBeLessThan(receipt.tailSequence);
   });
 });
 
-// ─── The facts a settled batch leaves ───────────────────────────────────────
+// ─── The verification a settled batch runs, and the facts it leaves ─────────
 //
-// The record says how the batch came out; the projection folds none of it. What
-// the projection folds is `task.completed`, the fact the primitive path leaves
-// through `task_complete`, so a settled batch commits one per accepted task in
-// the same transaction as its record. Everything below is about that fact: when
-// it is left, what it carries, when it is withheld, and that the document the
-// transition guards read is brought level with it.
+// Adjudication says whether the claims are ones the capsule admits; it does not
+// say the work is done. What says so is the task-completion segment — the
+// executor's own — run per accepted task against the worktree the claim names,
+// under the tier the capsule froze. Everything below is about that run: that it
+// is the executor's (its record, its derived operations, its steering
+// provenance), that the completion fact is the leaf's and not settlement's,
+// that a halted segment is a finding, and when nothing runs at all.
 
 async function completionRows(): Promise<
-  { readonly sequence: number; readonly data: Record<string, unknown> }[]
+  { readonly sequence: number; readonly operationId?: string | undefined; readonly data: Record<string, unknown> }[]
 > {
   const events = await store.query(STREAM);
   return events
     .filter((e) => e.type === 'task.completed')
-    .map((e) => ({ sequence: e.sequence, data: e.data as Record<string, unknown> }));
+    .map((e) => ({ sequence: e.sequence, operationId: e.operationId, data: e.data as Record<string, unknown> }));
 }
 
-/** The base capsule, with the completion record's `evidence` object admitted as a result field. */
-function capsuleAdmittingCompletionEvidence(capsuleVersion: number): ExarchosCapsuleV1 {
+async function rowsOf(type: string): Promise<{ readonly sequence: number; readonly operationId?: string | undefined; readonly data: unknown }[]> {
+  return (await store.query(STREAM)).filter((e) => e.type === type);
+}
+
+/** The base capsule with a second adjudicable task beside `task-verify`, required on its own. */
+function capsuleWithTask(taskId: string, capsuleVersion: number): ExarchosCapsuleV1 {
   const base = baseValidCapsule();
   return withVersion(
     {
       ...base,
+      graph: { ...base.graph, tasks: [...base.graph.tasks, { taskId, title: `also ${taskId}` }] },
       contracts: {
         ...base.contracts,
-        taskResults: {
-          'task-verify': [
-            { name: 'passed', type: 'boolean', required: true },
-            { name: 'evidence', type: 'object', required: false },
-          ],
-        },
+        taskResults: { ...base.contracts.taskResults, [taskId]: base.contracts.taskResults['task-verify'] ?? [] },
+      },
+      settlementContract: {
+        requiredResults: [taskId],
+        taskVerification: { ...base.settlementContract.taskVerification, [taskId]: { riskTier: 'low', boundaryTouching: false } },
       },
     },
     capsuleVersion,
   );
 }
 
-describe('settle — the facts a settled batch leaves', () => {
-  it('Settle_ASettledBatch_CommitsOneCompletionPerAcceptedTask', async () => {
+describe('settle — the verification a settled batch runs', () => {
+  it('Settle_ASettledBatch_LeavesOneCompletionPerAcceptedTask_FromTheCompletionLeaf', async () => {
     const receipt = receiptOf(
       await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-facts', claims: [passingClaim()] }),
     );
     expect(receipt.outcome).toBe('settled');
-
     const rows = await completionRows();
     expect(rows).toHaveLength(1);
-    // `verified` is derived the way `task_complete` derives it — from the
-    // presence of the completion record's evidence object — not read off the
-    // claim. This claim carries none, so the fact says so.
-    expect(rows[0]?.data).toEqual({ taskId: 'task-verify', verified: false });
+    // The leaf's own payload: the claim rode along as the completion's result,
+    // so the worktree is on the fact the way it is on the primitive path — and
+    // nothing on the claim could make it read verified.
+    expect(rows[0]?.data).toEqual({ taskId: 'task-verify', verified: false, worktreePath: WORKTREE });
   });
 
-  it('Settle_ACompletionAndItsRecord_LandInOneTransaction', async () => {
-    receiptOf(
-      await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-atomic', claims: [passingClaim()] }),
+  it('Settle_TheVerification_IsTheExecutorsOwnSegment', async () => {
+    const receipt = receiptOf(
+      await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-segment', claims: [passingClaim()] }),
     );
-    const events = await store.query(STREAM);
-    const settled = events.find((e) => e.type === 'execution.settled');
-    const completion = events.find((e) => e.type === 'task.completed');
-    // Adjacent: the record first, its consequence immediately after, under
-    // one operation stamp. Nothing can land between them.
-    expect(completion?.sequence).toBe((settled?.sequence ?? Number.NaN) + 1);
-    expect(completion?.operationId).toBe(settled?.operationId);
-  });
-
-  it('Settle_TheCompletionCarriesTheClaimsEvidence_AndReadsVerified', async () => {
-    await seedPrepared(capsuleAdmittingCompletionEvidence(8));
-    const evidence = { type: 'test', output: 'green', passed: true };
-    receiptOf(
-      await settle({
-        featureId: STREAM,
-        capsuleVersion: 8,
-        batchId: 'batch-evidence',
-        claims: [{ taskId: 'task-verify', fields: { passed: true, evidence }, evidence: [{ kind: 'test', ref: 'run-1' }] }],
+    const records = await rowsOf(INTENT_EXECUTED_EVENT);
+    expect(records).toHaveLength(1);
+    const record = records[0]?.data as Record<string, unknown>;
+    expect(record.intent).toBe('task-completion');
+    expect(record.outcome).toBe('committed');
+    // The tier came from the capsule, and the record says so rather than
+    // claiming the runtime supplied it.
+    expect(record.steering).toEqual({ riskTier: 'low', boundaryTouching: false, source: 'capsule' });
+    // Derived from the batch and the task, so a resubmission finds it; named
+    // on the receipt, so a caller can read the segment's own receipt back.
+    expect(receipt.verification).toEqual([
+      expect.objectContaining({
+        taskId: 'task-verify',
+        outcome: 'verified',
+        operationId: expect.stringMatching(/^settle-task:[0-9a-f]{64}$/),
       }),
-    );
-    const rows = await completionRows();
-    expect(rows).toHaveLength(1);
-    // The record's own fields are kept; `passed` is the capsule's result
-    // field, not the record's, and stays in the settlement bundle.
-    expect(rows[0]?.data).toEqual({ taskId: 'task-verify', evidence, verified: true });
+    ]);
+    expect(record.operationId).toBe(receipt.verification?.[0]?.operationId);
+    // The completion landed under that segment's terminal leaf, not under the
+    // settlement's dispatch.
+    const completion = (await completionRows())[0];
+    expect(completion?.operationId).toBe(`${String(record.operationId)}:leaf-1:task_complete`);
   });
 
-  it('Settle_ARejectedBatch_LeavesNoCompletion', async () => {
+  it('Settle_TheGateRows_AreTheEvidenceTheSegmentLeaves', async () => {
+    receiptOf(
+      await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-gate-rows', claims: [passingClaim()] }),
+    );
+    // The one gate the cut runbook carries left its proof and its signal under
+    // the segment's derived leaf operation — durable, and not on the claim.
+    const evidence = await rowsOf('admission.evidence-recorded');
+    const signals = (await rowsOf('gate.executed')).filter(
+      (e) => (e.data as { gateName?: string }).gateName === 'mock-boundary',
+    );
+    expect(evidence).toHaveLength(1);
+    expect(signals).toHaveLength(1);
+    expect(evidence[0]?.operationId).toMatch(/^settle-task:[0-9a-f]{64}:leaf-0:check_mock_boundary$/);
+    expect(signals[0]?.operationId).toBe(evidence[0]?.operationId);
+  });
+
+  it('Settle_ARejectedBatch_VerifiesNothingAndLeavesNoCompletion', async () => {
     const receipt = receiptOf(
       await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-rejected', claims: [failingClaim()] }),
     );
     expect(receipt.outcome).toBe('rejected');
+    expect(receipt.verification).toEqual([]);
     expect(await settledRows()).toHaveLength(1);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toEqual([]);
     expect(await completionRows()).toEqual([]);
   });
 
-  it('Settle_AHeldBatch_LeavesNoCompletion', async () => {
+  it('Settle_AHeldBatch_VerifiesNothingAndLeavesNoCompletion', async () => {
     const receipt = receiptOf(
       await settle({
         featureId: STREAM,
@@ -643,72 +728,187 @@ describe('settle — the facts a settled batch leaves', () => {
         deviations: [{ deviationKind: 'invalidated-assumption', statement: 'the store was not SQLite' }],
       }),
     );
-    // Inside the envelope, so the batch is held rather than refused — and a
-    // held task is not a complete one.
+    // Inside the envelope, so the batch is held rather than refused. The claim
+    // is one the capsule admits, and that is all a held batch says of it: its
+    // verification waits on the decision, and a held task is not a complete one.
     expect(receipt.outcome).toBe('deviation-pending');
     expect(receipt.acceptedTasks).toEqual(['task-verify']);
+    expect(receipt.verification).toEqual([]);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toEqual([]);
     expect(await completionRows()).toEqual([]);
   });
 
-  it('Settle_ATaskTheStreamAlreadyShowsComplete_IsNotCompletedTwice', async () => {
-    // The old path and this one meeting on one workflow: `task_complete`
-    // already left the fact. Settlement adjudicates the batch as usual and
-    // leaves the fact alone.
+  it('Settle_ATaskWhoseSegmentHalts_IsAFindingAndTheBatchIsRejected', async () => {
+    // A task the seeded gate does not cover: its completion leaf refuses for
+    // the gate it demands, the segment halts, and the batch is rejected with
+    // the halt named — the executor's answer, read back as a finding.
+    await seedPrepared(capsuleWithTask('task-unverified', 12));
+    const receipt = receiptOf(
+      await settle({
+        featureId: STREAM,
+        capsuleVersion: 12,
+        batchId: 'batch-halt',
+        claims: [{ taskId: 'task-unverified', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] }],
+      }),
+    );
+    expect(receipt.outcome).toBe('rejected');
+    expect(receipt.acceptedTasks).toEqual([]);
+    expect(receipt.findings.map((f) => [f.kind, f.subject, f.at])).toEqual([
+      ['verification-failed', 'task-unverified', 'claims[0]'],
+    ]);
+    expect(receipt.findings[0]?.message).toContain('task_complete');
+    expect(receipt.verification).toEqual([
+      expect.objectContaining({ taskId: 'task-unverified', outcome: 'failed', failedLeaf: 'task_complete' }),
+    ]);
+    // The segment's own record says the same, and no completion was left.
+    const records = await rowsOf(INTENT_EXECUTED_EVENT);
+    expect(records.map((r) => (r.data as { outcome: string }).outcome)).toEqual(['failed']);
+    expect(await completionRows()).toEqual([]);
+    // Still a settlement: recorded as rejected, with the count.
+    const [row] = await settledRows();
+    expect(ExecutionSettledData.parse(row?.data).findingCounts).toEqual([{ kind: 'verification-failed', count: 1 }]);
+    expect(ExecutionSettledData.parse(row?.data).adjudicated.verification).toBe(1);
+  });
+
+  it('Settle_ATaskTheStreamAlreadyShowsComplete_IsAcceptedWithoutRunningAgain', async () => {
+    // The old path and this one meeting on one workflow: `task_complete` left
+    // the fact, having passed the gate it demands. Accepted as it stands;
+    // nothing is re-run, and the fact is left alone.
     await store.append(STREAM, { type: 'task.completed', data: { taskId: 'task-verify', verified: false } });
     const before = await completionRows();
     const receipt = receiptOf(
       await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-again', claims: [passingClaim()] }),
     );
     expect(receipt.outcome).toBe('settled');
+    expect(receipt.acceptedTasks).toEqual(['task-verify']);
+    expect(receipt.verification).toEqual([{ taskId: 'task-verify', outcome: 'already-complete' }]);
     expect(await completionRows()).toEqual(before);
-    const events = await store.query(STREAM);
-    expect(events.find((e) => e.type === 'execution.settled')?.sequence).toBe(receipt.tailSequence);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toEqual([]);
   });
 
-  it('Settle_AReplay_LeavesNoSecondCompletion', async () => {
+  it('Settle_AReplay_RunsNoSecondVerification', async () => {
     const args = { featureId: STREAM, capsuleVersion: 7, batchId: 'batch-replay-facts', claims: [passingClaim()] };
-    receiptOf(await settle(args));
-    receiptOf(await settle(args));
+    const first = receiptOf(await settle(args));
+    const again = receiptOf(await settle(args));
+    expect(again).toEqual(first);
     expect(await completionRows()).toHaveLength(1);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toHaveLength(1);
   });
 
-  it('Settle_AClaimTheCompletionRecordCannotCarry_IsRefusedBeforeAnyEffect', async () => {
-    await seedPrepared(capsuleAdmittingCompletionEvidence(9));
+  it('Settle_AClaimTheSegmentCannotBeCompiledFrom_IsRefusedBeforeAnyEffect', async () => {
     const blobs = await bundleBlobCount();
-    // An object, so the capsule's flat field vocabulary admits it; not a
-    // completion evidence object, so the record cannot carry it. Refused with
-    // nothing in custody and no claim taken — never silently narrowed into a
-    // fact that says less than the claim did.
+    // The capsule admits the claim — `worktreePath` is optional in its result
+    // shape — but the segment cannot be built without one. Refused with
+    // nothing run, nothing in custody and no claim taken, never recorded as a
+    // batch that verified nothing.
     const refused = await settle({
       featureId: STREAM,
-      capsuleVersion: 9,
-      batchId: 'batch-uncarriable',
-      claims: [{ taskId: 'task-verify', fields: { passed: true, evidence: { type: 'vibes', output: 'x', passed: true } } }],
+      capsuleVersion: 7,
+      batchId: 'batch-unbuildable',
+      claims: [{ taskId: 'task-verify', fields: { passed: true }, evidence: [] }],
     });
     expect(refused.success).toBe(false);
     expect(refused.error?.code).toBe('INVALID_INPUT');
     expect(refused.error?.message).toContain('task-verify');
+    expect(refused.error?.message).toContain('worktreePath');
     expect(await settledRows()).toEqual([]);
-    expect(await completionRows()).toEqual([]);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toEqual([]);
     expect(await bundleBlobCount()).toBe(blobs);
 
     // The batch stayed unclaimed, so the corrected claim goes back under the
     // SAME batch id and is adjudicated fresh.
     const corrected = receiptOf(
-      await settle({
-        featureId: STREAM,
-        capsuleVersion: 9,
-        batchId: 'batch-uncarriable',
-        claims: [{ taskId: 'task-verify', fields: { passed: true, evidence: { type: 'test', output: 'x', passed: true } } }],
-      }),
+      await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-unbuildable', claims: [passingClaim()] }),
     );
     expect(corrected.outcome).toBe('settled');
     expect(await completionRows()).toHaveLength(1);
   });
 
-  it('Settle_ASettledBatch_BringsTheStateDocumentLevel', async () => {
+  it('Settle_ACitedReferenceThatDoesNotResolve_IsInadmissible_AndNothingRuns', async () => {
+    // `test` is a kind the base capsule admits; the reference names no recorded
+    // row of it. A claim citing evidence that is not there is refused on the
+    // shape pass, so nothing is verified for it.
+    const receipt = receiptOf(
+      await settle({
+        featureId: STREAM,
+        capsuleVersion: 7,
+        batchId: 'batch-dangling-evidence',
+        claims: [{ ...passingClaim(), evidence: [{ kind: 'test', ref: 'evidence:nowhere' }] }],
+      }),
+    );
+    expect(receipt.outcome).toBe('rejected');
+    expect(receipt.findings.map((f) => [f.kind, f.subject, f.at])).toEqual([
+      ['inadmissible-evidence', 'evidence:nowhere', 'claims[0].evidence[0].ref'],
+    ]);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toEqual([]);
+    expect(await completionRows()).toEqual([]);
+  });
+
+  it('Settle_ACitedReferenceToARecordedRow_Resolves', async () => {
+    // The reference has to name a recorded row of the cited kind's ladder
+    // requirement, on this stream. One is seeded the way the gate runner
+    // records one, and the claim cites it by its evidence id.
+    const evidenceId = await seedGateEvidence(store, {
+      streamId: STREAM,
+      requirementId: ladderRequirementId('test'),
+      phaseAttemptId,
+    });
+    const receipt = receiptOf(
+      await settle({
+        featureId: STREAM,
+        capsuleVersion: 7,
+        batchId: 'batch-cited',
+        claims: [{ ...passingClaim(), evidence: [{ kind: 'test', ref: evidenceId }] }],
+      }),
+    );
+    expect(receipt.outcome).toBe('settled');
+    expect(receipt.adjudicated.evidence).toBe(1);
+    // The same row cited under a kind it was not recorded for is not that
+    // kind's evidence: the requirement is part of what the reference names.
+    const miscited = receiptOf(
+      await settle({
+        featureId: STREAM,
+        capsuleVersion: 7,
+        batchId: 'batch-miscited',
+        claims: [{ ...passingClaim(), evidence: [{ kind: 'diff', ref: evidenceId }] }],
+      }),
+    );
+    expect(miscited.outcome).toBe('rejected');
+    expect(miscited.findings.map((f) => f.at)).toEqual(['claims[0].evidence[0].ref']);
+  });
+
+  it('Settle_ACapsuleWithNoVerificationTerms_IsRefusedAsUnresolved', async () => {
+    // A capsule that declares a result shape for a task and no terms to verify
+    // it under cannot be applied. The tier is not inferred: it chooses the
+    // gates, and a settlement guessing it would be choosing the judge.
+    await seedPrepared(withVersion(minimalValidCapsule(), 13));
+    const result = await settle({ featureId: STREAM, capsuleVersion: 13, batchId: 'batch-untermed', claims: [passingClaim()] });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('CAPSULE_UNRESOLVED');
+      expect(result.error.message).toContain('task-verify');
+    }
+    expect(await settledRows()).toEqual([]);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toEqual([]);
+  });
+
+  it('Settle_TheRecord_FollowsTheSegmentsItVerified', async () => {
+    receiptOf(
+      await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-order', claims: [passingClaim()] }),
+    );
+    const events = await store.query(STREAM);
+    const sequenceOf = (type: string): number => events.find((e) => e.type === type)?.sequence ?? Number.NaN;
+    // The leaf's fact, then the segment's own record, then the settlement that
+    // read it: verification is not something the record does, it is something
+    // the record follows.
+    expect(sequenceOf('task.completed')).toBeLessThan(sequenceOf(INTENT_EXECUTED_EVENT));
+    expect(sequenceOf(INTENT_EXECUTED_EVENT)).toBeLessThan(sequenceOf('execution.settled'));
+  });
+
+  it('Settle_ASettledBatch_LeavesTheStateDocumentLevel', async () => {
     // The transition guards read `state.tasks[].status` off the document, not
-    // off the stream. A settled task the document still shows in progress
+    // off the stream. The completion leaf brings it level, as it does on the
+    // primitive path; a settled task the document still showed in progress
     // would admit nothing.
     await initStateFile(stateDir, STREAM, 'feature', {
       tasks: [

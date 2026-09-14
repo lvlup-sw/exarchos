@@ -42,6 +42,12 @@ export interface SettlementReceiptSummary {
   readonly capsule: unknown;
   readonly adjudicated: unknown;
   readonly tailSequence: unknown;
+  /**
+   * How each accepted claim was verified, kept whole: a caller acting on a
+   * rejected batch needs the operation id of the segment that halted to read
+   * its receipt back, and the list is bounded by the batch's task count.
+   */
+  readonly verification: unknown;
   /** The custody reference survives the cap: it is the only pointer to the interior. */
   readonly bundleRefs: unknown;
 }
@@ -62,6 +68,7 @@ export function summarizeSettlementReceipt(data: unknown): SettlementReceiptSumm
     readonly capsule?: { readonly batchId?: unknown; readonly capsuleVersion?: unknown };
     readonly adjudicated?: unknown;
     readonly tailSequence?: unknown;
+    readonly verification?: unknown;
     readonly bundleRefs?: unknown;
     readonly acceptedTasks?: ReadonlyArray<unknown>;
     readonly findings?: ReadonlyArray<{
@@ -92,6 +99,7 @@ export function summarizeSettlementReceipt(data: unknown): SettlementReceiptSumm
     capsule: receipt.capsule,
     adjudicated: receipt.adjudicated,
     tailSequence: receipt.tailSequence,
+    verification: receipt.verification,
     bundleRefs: receipt.bundleRefs,
   };
 }

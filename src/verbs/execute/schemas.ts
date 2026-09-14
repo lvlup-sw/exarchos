@@ -57,7 +57,7 @@ const ReceiptSteeringSchema = z
   .object({
     riskTier: z.enum(['low', 'medium', 'high']).optional(),
     boundaryTouching: z.boolean().optional(),
-    source: z.literal('caller-args'),
+    source: z.enum(['caller-args', 'capsule']),
   })
   .passthrough();
 

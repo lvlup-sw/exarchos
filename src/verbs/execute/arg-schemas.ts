@@ -38,6 +38,11 @@ export const TaskCompletionArgs = z
     branch: z.string().min(1).optional(),
     riskTier: z.enum(['low', 'medium', 'high']),
     boundaryTouching: z.boolean(),
+    // The completion's provenance — artifacts, files, tests, implements,
+    // duration, the worktree — handed to the terminal `task_complete` leaf as
+    // its own `result`. No gate leaf declares a `result`, so the compiler
+    // forwards it to the one leaf that records it and to nothing else.
+    result: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 

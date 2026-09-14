@@ -55,6 +55,36 @@ describe('delegation batch partition', () => {
     expect(batch.joins).toEqual([{ joinId: BATCH_JOIN_ID, waitsFor: ['T-2', 'T-3'] }]);
   });
 
+  it('Partition_EveryTask_CarriesItsVerificationTerms', () => {
+    // Resolved the way the delegation stamp resolves them: a planner stamp
+    // wins, the heuristic decides otherwise, and a task with nothing to go on
+    // is medium and off the boundary.
+    const batch = batchOf([
+      { ...task('T-1', 'pending'), riskTier: 'low', boundaryTouching: true },
+      task('T-2', 'pending'),
+      { ...task('T-3', 'pending'), files: ['src/adapters/http.ts'] },
+    ]);
+    expect(batch.tasks.map((t) => [t.taskId, t.verification])).toEqual([
+      ['T-1', { riskTier: 'low', boundaryTouching: true }],
+      ['T-2', { riskTier: 'medium', boundaryTouching: false }],
+      ['T-3', { riskTier: 'medium', boundaryTouching: true }],
+    ]);
+  });
+
+  it('Partition_APlannerStampOutsideItsVocabulary_IsRefused', () => {
+    // Not ignored: silently deriving a tier the planner tried to set is how a
+    // high-risk task ends up judged as a medium one.
+    const outcome = partitionDelegationBatch([{ ...task('T-1', 'pending'), riskTier: 'extreme' }]);
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.refusal.code).toBe('INVALID_TASK_STAMP');
+      expect(outcome.refusal.message).toContain('extreme');
+    }
+    const flag = partitionDelegationBatch([{ ...task('T-1', 'pending'), boundaryTouching: 'yes' }]);
+    expect(flag.ok).toBe(false);
+    if (!flag.ok) expect(flag.refusal.code).toBe('INVALID_TASK_STAMP');
+  });
+
   it('Partition_OneSink_NeedsNoJoin', () => {
     const batch = batchOf([task('T-1', 'pending'), task('T-2', 'pending', ['T-1'])]);
     expect(batch.joins).toEqual([]);

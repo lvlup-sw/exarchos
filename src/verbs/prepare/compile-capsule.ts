@@ -36,6 +36,8 @@ import {
 } from '../../contract/capsule/exarchos-capsule.js';
 import { EdgeConditionNodeSchema } from '../../contract/ir/admission-ir.js';
 import { TaskCompletedData } from '../../events/schemas.js';
+import { findActionInRegistry } from '../../registry.js';
+import { VERIFICATION_GATE_NAMES } from '../../workflow/verification-policy.js';
 import {
   FACT_DECLARATION,
   TASKS_COMPLETE_CONDITION,
@@ -80,33 +82,58 @@ function capsuleFieldTypeOf(schema: z.core.$ZodType): CapsuleFieldType | undefin
 }
 
 /**
- * The result shape every delegated task returns: the task-completion record's
- * own fields, read off its schema rather than listed again here.
+ * The fields of the completion record a runtime does NOT return, because
+ * settlement derives them. `evidence` and `verified` are what running the
+ * task's verification against its worktree produces; a runtime that could
+ * return them could certify its own work. `taskId` is not a result field at
+ * all — a claim names its task outside its fields.
+ */
+const SETTLEMENT_DERIVED_FIELDS: ReadonlySet<string> = new Set(['taskId', 'evidence', 'verified']);
+
+/**
+ * The result shape every delegated task returns: where the work is, then the
+ * task-completion record's own provenance fields, read off its schema rather
+ * than listed again here.
  *
- * Two departures, both deliberate. `taskId` is not a result field — a claim
- * names its task outside its fields. And `evidence` is REQUIRED although the
- * record keeps it optional: the record has to accept completions written before
- * evidence existed, while a capsule is compiled now, under an authority that
- * says a task is complete only when its result arrives with evidence.
+ * `worktreePath` is not on the record's schema at all — `task_complete` copies
+ * it from the result onto the fact — and here it is the one REQUIRED field:
+ * settlement runs the task's verification against that worktree, and a claim
+ * that names none cannot be verified. `branch` rides beside it for the gates
+ * that diff against a base.
  */
 function delegatedTaskResultFields(): { name: string; type: CapsuleFieldType; required: boolean }[] {
-  const fields: { name: string; type: CapsuleFieldType; required: boolean }[] = [];
+  const fields: { name: string; type: CapsuleFieldType; required: boolean }[] = [
+    { name: 'worktreePath', type: 'string', required: true },
+    { name: 'branch', type: 'string', required: false },
+  ];
   for (const [name, schema] of Object.entries(TaskCompletedData.shape)) {
-    if (name === 'taskId') continue;
+    if (SETTLEMENT_DERIVED_FIELDS.has(name)) continue;
     const type = capsuleFieldTypeOf(schema);
     if (type === undefined) {
       throw new Error(
         `the task-completion field '${name}' has a type the capsule's flat field vocabulary cannot carry`,
       );
     }
-    fields.push({ name, type, required: name === 'evidence' || !(schema instanceof z.ZodOptional) });
+    fields.push({ name, type, required: !(schema instanceof z.ZodOptional) });
   }
   return fields;
 }
 
-/** The evidence kinds a completion may cite, read off the completion record's own enum. */
+/**
+ * The evidence kinds a claim may cite: the durable gate classes the
+ * verification ladder records, read off each ladder gate's own registration.
+ * A cited kind names a recorded requirement of that class, and the reference
+ * beside it has to resolve to a row of that requirement on the stream — the
+ * claim points at evidence, it does not carry any.
+ */
 function delegatedEvidenceKinds(): string[] {
-  return [...TaskCompletedData.shape.evidence.unwrap().shape.type.options];
+  return VERIFICATION_GATE_NAMES.map((name) => {
+    const gateClass = findActionInRegistry('exarchos_orchestrate', name)?.gate?.gateClass;
+    if (typeof gateClass !== 'string' || gateClass.length === 0) {
+      throw new Error(`the ladder gate '${name}' declares no gate class to admit evidence under`);
+    }
+    return gateClass;
+  });
 }
 
 function statement(text: string): { statement: string } {
@@ -178,7 +205,7 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
     },
     authority,
     graph: {
-      tasks: batch.tasks.map((task) => ({ ...task })),
+      tasks: batch.tasks.map((task) => ({ taskId: task.taskId, title: task.title, stepId: task.stepId })),
       dependencies: batch.dependencies.map((edge) => ({ ...edge })),
       joins: batch.joins.map((join) => ({ joinId: join.joinId, waitsFor: [...join.waitsFor], mode: 'all' })),
       completionPredicate: {
@@ -203,7 +230,15 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
       compiledAt: input.compiledAt,
       compilerVersion: PREPARE_COMPILER_VERSION,
     },
-    settlementContract: { requiredResults: [...batch.requiredResults] },
+    settlementContract: {
+      requiredResults: [...batch.requiredResults],
+      // The terms each task's completion is verified under, frozen with the
+      // batch: settlement reads the tier and the boundary flag from here,
+      // never from the claim.
+      taskVerification: Object.fromEntries(
+        batch.tasks.map((task) => [task.taskId, { ...task.verification }]),
+      ),
+    },
   };
 
   const parsed = ExarchosCapsuleV1Schema.safeParse(document);

@@ -165,15 +165,17 @@ export interface ReceiptLeaf {
 }
 
 /**
- * Caller-supplied steering recorded verbatim. No durable per-task risk stamp
- * exists — the tier is derived from plan markdown at delegation time and only
- * the workflow-level maximum persists — so the provenance says `caller-args`
- * rather than implying a resolved fact the log could be asked for.
+ * The steering the segment ran under, recorded verbatim with where it came
+ * from. `caller-args` is the executor's own public path: no durable per-task
+ * risk stamp exists, so the tier the caller passed is recorded as the caller's
+ * rather than as a resolved fact the log could be asked for. `capsule` is the
+ * settlement path: the tier was compiled into the capsule the batch ran under
+ * and read back out of it, never supplied by the runtime that did the work.
  */
 export interface ReceiptSteering {
   readonly riskTier?: 'low' | 'medium' | 'high';
   readonly boundaryTouching?: boolean;
-  readonly source: 'caller-args';
+  readonly source: 'caller-args' | 'capsule';
 }
 
 /**

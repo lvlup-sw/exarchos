@@ -16,6 +16,7 @@
 import { z } from 'zod';
 
 import { canonicalJson } from '../../contract/request-context.js';
+import { BundleRefV1Schema } from '../../events/bundle/digest-references.js';
 import { ArtifactIdSchema, type ArtifactId } from '../../workflow/admission/types.js';
 import { SETTLEMENT_FINDING_KINDS } from './adjudicate.js';
 
@@ -67,6 +68,24 @@ const CensusSchema = z
     fields: z.number().int().nonnegative(),
     evidence: z.number().int().nonnegative(),
     deviations: z.number().int().nonnegative(),
+    /** Absent only on a bundle written before settlement verified anything. */
+    verification: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
+/**
+ * How one accepted claim's verification ran. The segment's interior is in its
+ * OWN bundle, named by `bundleRefs`; this trace records only how the
+ * settlement read it.
+ */
+const VerificationTraceSchema = z
+  .object({
+    taskId: z.string().min(1),
+    outcome: z.enum(['verified', 'already-complete', 'failed']),
+    operationId: z.string().min(1).optional(),
+    failedLeaf: z.string().min(1).optional(),
+    message: z.string().min(1).optional(),
+    bundleRefs: z.array(BundleRefV1Schema).min(1).optional(),
   })
   .strict();
 
@@ -93,6 +112,12 @@ export const SettlementBundleV1Schema = z
     claims: z.array(ClaimTraceSchema),
     deviations: z.array(DeviationSchema),
     adjudicated: CensusSchema,
+    /**
+     * Optional only for a bundle written before settlement verified anything;
+     * every bundle this build writes carries the list, empty when adjudication
+     * refused or held the batch before verification ran.
+     */
+    verification: z.array(VerificationTraceSchema).optional(),
     settledAt: z.iso.datetime({ offset: true }),
   })
   .strict();

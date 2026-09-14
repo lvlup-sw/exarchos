@@ -53,21 +53,24 @@ function withContract(
 export const settleActions: readonly BuiltinToolAction[] = [
   withContract({
     name: 'settle',
-    // Trimmed to the per-action description budget: what the call decides, the
-    // one thing a caller cannot discover from the schema (that a refusal is a
-    // successful settlement, not an error), and the two refusals that are.
+    // Trimmed to the per-action description budget: what the call decides, what
+    // it runs, the one thing a caller cannot discover from the schema (that a
+    // refusal is a successful settlement, not an error), and the refusals that
+    // are errors.
     description:
-      'Adjudicate ONE batch of returned claims against a prepared capsule and commit one ' +
-      'execution.settled record. `capsuleVersion` names the capsule prepare recorded; the terms ' +
-      'come from that record, never from current state (a submitted `capsule` must match its ' +
-      'digest). Claims are read against each task\'s declared result shape, evidence against the ' +
-      'admitted kinds, deviations against the envelope. Outcome is `settled`, `rejected` or ' +
-      '`deviation-pending`; a REJECTED batch is a successful call whose findings say which claim ' +
-      'to fix. A SETTLED batch also commits one task.completed per accepted task, so the ' +
-      'workflow\'s tasks read complete and `transition` can follow. Errors, none of which ' +
-      'adjudicate: a malformed request, CAPSULE_INVALID, CAPSULE_NOT_PREPARED, ' +
-      'CAPSULE_DIGEST_MISMATCH, CAPSULE_UNRESOLVED. Keyed by (capsuleVersion, `batchId`): ' +
-      'resubmitting a batch returns its verdict, and a correction goes back under a NEW `batchId`.',
+      'Adjudicate ONE batch of returned claims against a prepared capsule, verify each accepted ' +
+      'task, and commit one execution.settled record. `capsuleVersion` names the capsule prepare ' +
+      'recorded; the terms come from that record, never from current state (a submitted ' +
+      '`capsule` must match its digest). Claims are read against each task\'s declared result ' +
+      'shape, cited evidence must resolve to a recorded row of an admitted kind, deviations ' +
+      'against the envelope. A batch with no finding then RUNS each task\'s task-completion ' +
+      'segment — the ladder gates under the tier the capsule froze, then task_complete — against ' +
+      'the claim\'s `worktreePath`; a segment that halts is a verification-failed finding. ' +
+      'Outcome is `settled`, `rejected` or `deviation-pending`; a REJECTED batch is a successful ' +
+      'call whose findings say what to fix. Errors, none of which adjudicate: a malformed ' +
+      'request, CAPSULE_INVALID, CAPSULE_NOT_PREPARED, CAPSULE_DIGEST_MISMATCH, ' +
+      'CAPSULE_UNRESOLVED. Keyed by (capsuleVersion, `batchId`): resubmitting a batch returns ' +
+      'its verdict; a correction goes back under a NEW `batchId`.',
     schema: z
       .object({
         capsuleVersion: z
@@ -120,6 +123,10 @@ export const settleActions: readonly BuiltinToolAction[] = [
     // comes from. Deliberately not the plan family: nothing is compiled here.
     phases: new Set<string>([...DELEGATE_PHASES, ...REVIEW_PHASES]),
     roles: ROLE_ANY,
+    // Runs each accepted task's compiled segment in-process, including the
+    // gates that shell out to the project's toolchain — the same reason
+    // `execute_intent` and each of those gates carry the flag.
+    longRunning: true,
     outputSchema: withCappedShape(SettlementOutputSchema),
     economy: {
       budgetTokens: SETTLE_ECONOMY_BUDGET_TOKENS,
@@ -145,10 +152,20 @@ export const settleActions: readonly BuiltinToolAction[] = [
     ),
     // `fs:write` is the adjudication interior reaching content-addressed
     // custody under the state directory, before the record that names it
-    // commits. A posture that denies filesystem writes must deny this action
-    // rather than admit an action that writes.
-    needs: declared('fs:read', 'fs:write'),
-    resources: declared({ kind: 'stream', selector: 'featureId' }),
+    // commits. `mcp:exarchos` and `shell:exec` are the composed segment's: its
+    // leaves are the ladder gates, which shell out to the toolchain, and the
+    // completion leaf, and a posture that denies either must deny this action
+    // rather than admit one that runs them.
+    needs: declared('fs:read', 'fs:write', 'mcp:exarchos', 'shell:exec'),
+    resources: declared(
+      { kind: 'stream', selector: 'featureId' },
+      // Each accepted claim names the worktree its segment runs against, and
+      // the branch its gates diff; both live inside the claim, not at the top
+      // of the request.
+      { kind: 'path', selector: 'claims[].fields.worktreePath' },
+      { kind: 'worktree', selector: 'claims[].fields.worktreePath' },
+      { kind: 'git-ref', selector: 'claims[].fields.branch' },
+    ),
     replay: { kind: 'claim-required', scope: 'stream-subject-request' },
     // `conditional` for the same reason the executor's is: a replay returns the
     // persisted verdict without appending anything under the returning
@@ -156,33 +173,19 @@ export const settleActions: readonly BuiltinToolAction[] = [
     // reported as drift between the declaration and the handler — and recorded
     // as an `emission.violated` row — for doing exactly what the replay
     // contract says it does.
-    emissions: declared(
-      {
-        event: 'execution.settled',
-        condition: 'conditional',
-        owner: 'orchestrate',
-        role: 'primary',
-        description:
-          'appended on every adjudicated outcome, including a rejection; a replay of an ' +
-          'already-claimed operation id returns the persisted verdict and appends nothing',
-      },
-      // The batch's consequence, committed in the same transaction as the
-      // record above: the fact the primitive path leaves through
-      // `task_complete`, one per accepted task, so the canonical projection
-      // moves through a fact it already folds rather than through a verdict.
-      // Primary here as well: K2 keys the bijection on the owner string, and
-      // both producers are `orchestrate`, the way every gate's
-      // `admission.evidence-recorded` edge is.
-      {
-        event: 'task.completed',
-        condition: 'conditional',
-        owner: 'orchestrate',
-        role: 'primary',
-        description:
-          'one per accepted task, only on a `settled` outcome and only for a task the stream ' +
-          'does not already show complete; none on a rejected or deviation-pending batch, and ' +
-          'none on a replay',
-      },
-    ),
+    // Only this action's OWN append is declared. The gate rows, the completion
+    // fact and the per-segment operation records a settlement leaves are
+    // appended by the leaves it composes, each under its own derived operation
+    // id and each declared by its own registration — the same line
+    // `execute_intent` draws around the leaves it runs.
+    emissions: declared({
+      event: 'execution.settled',
+      condition: 'conditional',
+      owner: 'orchestrate',
+      role: 'primary',
+      description:
+        'appended on every adjudicated outcome, including a rejection; a replay of an ' +
+        'already-claimed operation id returns the persisted verdict and appends nothing',
+    }),
   }),
 ];

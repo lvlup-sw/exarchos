@@ -22,6 +22,8 @@ export const PREPARE_REFUSAL_CODES = [
   'INVALID_TASK_ID',
   /** A task waits on a task the plan does not contain. */
   'UNKNOWN_DEPENDENCY',
+  /** A planner stamp on a task — its risk tier or boundary flag — is outside its vocabulary. */
+  'INVALID_TASK_STAMP',
   /** The compiled capsule does not validate — a cyclic plan, or a compiler defect. */
   'CAPSULE_UNSOUND',
 ] as const;

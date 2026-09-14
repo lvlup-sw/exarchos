@@ -1,8 +1,8 @@
 {
   "totals": {
-    "emissionEdges": 105,
-    "edgesCarryingRole": 105,
-    "edgesCarryingOwner": 105,
+    "emissionEdges": 104,
+    "edgesCarryingRole": 104,
+    "edgesCarryingOwner": 104,
     "distinctEventsWithEdges": 73,
     "distinctOwners": 3,
     "registeredEvents": 182,
@@ -11,10 +11,10 @@
   "keys": {
     "per-event-type/primary-edges": {
       "populationSize": 73,
-      "satisfyingCount": 68,
+      "satisfyingCount": 69,
       "zeroPrimaryCount": 0,
       "unownedPrimaryCount": 0,
-      "multiPrimaryCount": 5,
+      "multiPrimaryCount": 4,
       "zeroPrimary": [],
       "unownedPrimary": [],
       "multiPrimary": [
@@ -66,19 +66,6 @@
             "exarchos_orchestrate.post_delegation_check",
             "exarchos_orchestrate.pre_synthesis_check",
             "exarchos_orchestrate.prepare_synthesis"
-          ]
-        },
-        {
-          "key": "task.completed",
-          "primaryEdges": 2,
-          "primaryOwners": [
-            "orchestrate"
-          ],
-          "unattributedPrimaryEdges": 0,
-          "declaringEdges": 2,
-          "declaredBy": [
-            "exarchos_orchestrate.settle",
-            "exarchos_orchestrate.task_complete"
           ]
         },
         {
@@ -159,6 +146,7 @@
         "state.patched",
         "synthesize.requested",
         "task.claimed",
+        "task.completed",
         "task.failed",
         "workflow.cancel",
         "workflow.checkpoint",
@@ -281,8 +269,8 @@
       }
     },
     "per-emission-site/primary-edges": {
-      "populationSize": 105,
-      "satisfyingCount": 102,
+      "populationSize": 104,
+      "satisfyingCount": 101,
       "zeroPrimaryCount": 3,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -399,7 +387,6 @@
         "state.patched@exarchos_workflow.update",
         "synthesize.requested@exarchos_orchestrate.request_synthesize",
         "task.claimed@exarchos_orchestrate.task_claim",
-        "task.completed@exarchos_orchestrate.settle",
         "task.completed@exarchos_orchestrate.task_complete",
         "task.failed@exarchos_orchestrate.task_fail",
         "workflow.cancel@exarchos_workflow.cancel",

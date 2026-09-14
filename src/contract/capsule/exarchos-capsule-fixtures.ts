@@ -81,7 +81,12 @@ export function baseValidCapsule(): ExarchosCapsuleV1 {
     },
     contracts: {
       taskInputs: { 'task-compile': [{ name: 'source', type: 'string', required: true }] },
-      taskResults: { 'task-verify': [{ name: 'passed', type: 'boolean', required: true }] },
+      taskResults: {
+        'task-verify': [
+          { name: 'passed', type: 'boolean', required: true },
+          { name: 'worktreePath', type: 'string', required: false },
+        ],
+      },
       evidenceKinds: ['test', 'diff'],
       deviationEnvelope: { allowedDeviationKinds: ['invalidated-assumption'], requiresApproval: true },
     },
@@ -96,17 +101,21 @@ export function baseValidCapsule(): ExarchosCapsuleV1 {
       compiledAt: '2026-09-12T00:00:00Z',
       compilerVersion: 'capsule-compiler-0',
     },
-    settlementContract: { requiredResults: ['task-verify'] },
+    settlementContract: {
+      requiredResults: ['task-verify'],
+      taskVerification: { 'task-verify': { riskTier: 'low', boundaryTouching: false } },
+    },
   };
 }
 
-/** The smallest accepted capsule: no `executionProfile`, empty optional arrays. */
+/** The smallest accepted capsule: no `executionProfile`, no verification terms, empty optional arrays. */
 export function minimalValidCapsule(): ExarchosCapsuleV1 {
   const base = baseValidCapsule();
   return {
     ...base,
     intent: { ...base.intent, nonGoals: [] },
     graph: { ...base.graph, dependencies: [], joins: [] },
+    settlementContract: { requiredResults: base.settlementContract.requiredResults },
   };
 }
 
@@ -209,6 +218,13 @@ export const CAPSULE_ROUNDTRIP_FIXTURES: readonly CapsuleFixture[] = [
   bend('no required results', (b) => ({
     ...b,
     settlementContract: { ...b.settlementContract, requiredResults: [] },
+  })),
+  bend('a verification tier outside the vocabulary', (b) => ({
+    ...b,
+    settlementContract: {
+      ...b.settlementContract,
+      taskVerification: { 'task-verify': { riskTier: 'extreme', boundaryTouching: false } },
+    },
   })),
   // The batch is named by the settlement request, never compiled in: one
   // capsule is settled over as many batches as it takes to get one accepted.

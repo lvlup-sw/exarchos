@@ -368,7 +368,7 @@ describe('serializePlaybooks', () => {
     expect(types).toContain('task.failed');
     const completed = auto.find((e) => e.type === 'task.completed')!;
     expect(completed.source).toBe('auto');
-    expect(completed.emittedBy).toBe('exarchos_orchestrate task_complete; exarchos_orchestrate settle on a settled batch');
+    expect(completed.emittedBy).toBe('exarchos_orchestrate task_complete (directly, or as the terminal leaf settle composes)');
     expect(completed.fields).toContain('taskId');
   });
 
@@ -740,7 +740,7 @@ describe('T6: autoEmittedEvents sibling field (#1227)', () => {
     const completed = (auto ?? []).find((e) => e.type === 'task.completed');
     expect(completed).toBeDefined();
     expect(completed!.source).toBe('auto');
-    expect(completed!.emittedBy).toBe('exarchos_orchestrate task_complete; exarchos_orchestrate settle on a settled batch');
+    expect(completed!.emittedBy).toBe('exarchos_orchestrate task_complete (directly, or as the terminal leaf settle composes)');
     expect(completed!.when).toBeTruthy();
     const fields = completed!.fields ?? [];
     expect(fields).toContain('taskId');

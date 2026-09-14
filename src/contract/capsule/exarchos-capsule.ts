@@ -310,6 +310,26 @@ export const CapsuleProvenanceSchema = z
   })
   .strict();
 
+/** The risk tiers a task's verification is routed by. */
+export const CapsuleRiskTierSchema = z.enum(['low', 'medium', 'high']);
+
+/**
+ * The verification terms one task settles under, frozen when the capsule is
+ * compiled.
+ *
+ * The tier and the boundary flag route which gates a task's completion must
+ * pass. They are terms of settlement, not facts about the runtime: a task that
+ * could name its own tier at claim time could name the gates it is judged by,
+ * so they are compiled here, from the plan, and read back out of the pinned
+ * capsule when the batch is settled.
+ */
+export const CapsuleTaskVerificationSchema = z
+  .object({
+    riskTier: CapsuleRiskTierSchema,
+    boundaryTouching: z.boolean(),
+  })
+  .strict();
+
 /**
  * The terms every batch of this capsule is settled under.
  *
@@ -325,6 +345,13 @@ export const CapsuleProvenanceSchema = z
 export const CapsuleSettlementContractSchema = z
   .object({
     requiredResults: z.array(SharedStableIdSchema).min(1),
+    /**
+     * Per-task verification terms, keyed by task id. Optional at the contract
+     * level because the contract is derived for any kernel step; a settlement
+     * that composes a task's verification refuses a task that has no terms,
+     * rather than inventing a tier for it.
+     */
+    taskVerification: z.record(SharedStableIdSchema, CapsuleTaskVerificationSchema).optional(),
   })
   .strict();
 

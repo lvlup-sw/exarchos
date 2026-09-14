@@ -20,6 +20,7 @@ import {
   BLOCKING_SETTLEMENT_FINDING_KINDS,
   SETTLEMENT_FINDING_KINDS,
   adjudicateSettlement,
+  type AdjudicationContext,
   type ProposedDeviation,
   type SettlementClaim,
   type SettlementFindingKind,
@@ -34,6 +35,12 @@ function passingClaim(): SettlementClaim {
   };
 }
 
+/**
+ * The shape pass's context: every cited reference resolves, and no
+ * verification has run. The cases that bend either say so themselves.
+ */
+const RESOLVING: AdjudicationContext = { evidenceResolves: () => true };
+
 interface AdjudicationCase {
   readonly name: string;
   readonly kind: SettlementFindingKind;
@@ -41,6 +48,7 @@ interface AdjudicationCase {
   readonly capsule: ExarchosCapsuleV1;
   readonly claims: readonly SettlementClaim[];
   readonly deviations?: readonly ProposedDeviation[];
+  readonly context?: AdjudicationContext;
 }
 
 function bend(
@@ -50,8 +58,9 @@ function bend(
   claims: readonly SettlementClaim[],
   mutate: (base: ExarchosCapsuleV1) => ExarchosCapsuleV1 = (b) => b,
   deviations?: readonly ProposedDeviation[],
+  context?: AdjudicationContext,
 ): AdjudicationCase {
-  return { name, kind, at, capsule: mutate(baseValidCapsule()), claims, deviations };
+  return { name, kind, at, capsule: mutate(baseValidCapsule()), claims, deviations, context };
 }
 
 const CASES: readonly AdjudicationCase[] = [
@@ -92,6 +101,29 @@ const CASES: readonly AdjudicationCase[] = [
     [{ taskId: 'task-verify', fields: { passed: true }, evidence: [{ kind: 'vibes', ref: 'r' }] }],
   ),
   bend(
+    'evidence of an admitted kind whose reference does not resolve',
+    'inadmissible-evidence',
+    'claims[0].evidence[0].ref',
+    [passingClaim()],
+    (b) => b,
+    undefined,
+    { evidenceResolves: () => false },
+  ),
+  bend(
+    'an accepted claim whose verification halted',
+    'verification-failed',
+    'claims[0]',
+    [passingClaim()],
+    (b) => b,
+    undefined,
+    {
+      evidenceResolves: () => true,
+      verification: new Map([
+        ['task-verify', { kind: 'failed', failedLeaf: 'task_complete', message: 'Required gates not passed' }],
+      ]),
+    },
+  ),
+  bend(
     'a deviation outside the envelope',
     'deviation-outside-envelope',
     'deviations[0].deviationKind',
@@ -113,7 +145,7 @@ describe('settlement adjudication', () => {
   it('Adjudicate_ABatchSatisfyingTheCapsule_Settles', () => {
     // The denominator. An adjudicator that refused everything would satisfy
     // every rejecting case below without this one.
-    const verdict = adjudicateSettlement(baseValidCapsule(), [passingClaim()]);
+    const verdict = adjudicateSettlement(baseValidCapsule(), [passingClaim()], [], RESOLVING);
     expect(verdict.findings).toEqual([]);
     expect(verdict.outcome).toBe('settled');
     expect(verdict.acceptedTasks).toEqual(['task-verify']);
@@ -127,13 +159,24 @@ describe('settlement adjudication', () => {
     const empty = adjudicateSettlement(
       { ...baseValidCapsule(), settlementContract: { requiredResults: ['task-verify'] } },
       [],
+      [],
+      RESOLVING,
     );
-    const full = adjudicateSettlement(baseValidCapsule(), [passingClaim()]);
+    const full = adjudicateSettlement(baseValidCapsule(), [passingClaim()], [], RESOLVING);
     expect(empty.adjudicated.claims).toBe(0);
     expect(full.adjudicated.claims).toBe(1);
     expect(full.adjudicated.fields).toBeGreaterThan(0);
     expect(full.adjudicated.evidence).toBe(1);
     expect(full.adjudicated.requiredResults).toBe(1);
+    // The shape pass reads no verification; the final pass reads one per
+    // accepted claim. Same batch, two counts — the census is what tells the
+    // two passes apart after the fact.
+    expect(full.adjudicated.verification).toBe(0);
+    const final = adjudicateSettlement(baseValidCapsule(), [passingClaim()], [], {
+      ...RESOLVING,
+      verification: new Map([['task-verify', { kind: 'verified' }]]),
+    });
+    expect(final.adjudicated.verification).toBe(1);
   });
 
   it.each(CASES)('Adjudicate_IsStructurallyValid_$name', ({ capsule }) => {
@@ -143,8 +186,8 @@ describe('settlement adjudication', () => {
     expect(parsed.success, JSON.stringify(parsed.error?.issues ?? [])).toBe(true);
   });
 
-  it.each(CASES)('Adjudicate_IsNamed_$name', ({ capsule, claims, deviations, kind, at }) => {
-    const verdict = adjudicateSettlement(capsule, claims, deviations ?? []);
+  it.each(CASES)('Adjudicate_IsNamed_$name', ({ capsule, claims, deviations, kind, at, context }) => {
+    const verdict = adjudicateSettlement(capsule, claims, deviations ?? [], context ?? RESOLVING);
     expect(verdict.findings.map((f) => f.kind)).toContain(kind);
     expect(verdict.findings.map((f) => f.at)).toContain(at);
     expect(verdict.outcome).not.toBe('settled');
@@ -163,9 +206,12 @@ describe('settlement adjudication', () => {
     // The one non-blocking finding, and the reason it is non-blocking: refusing
     // a legitimate deviation pushes a worker toward silently complying with a
     // premise it has already disproved.
-    const verdict = adjudicateSettlement(baseValidCapsule(), [passingClaim()], [
-      { deviationKind: 'invalidated-assumption', statement: 'the store is not SQLite' },
-    ]);
+    const verdict = adjudicateSettlement(
+      baseValidCapsule(),
+      [passingClaim()],
+      [{ deviationKind: 'invalidated-assumption', statement: 'the store is not SQLite' }],
+      RESOLVING,
+    );
     expect(verdict.outcome).toBe('deviation-pending');
     expect(verdict.findings.map((f) => f.kind)).toEqual(['deviation-awaiting-approval']);
     expect(BLOCKING_SETTLEMENT_FINDING_KINDS).not.toContain('deviation-awaiting-approval');
@@ -186,6 +232,7 @@ describe('settlement adjudication', () => {
       },
       [passingClaim()],
       [{ deviationKind: 'invalidated-assumption', statement: 'the store is not SQLite' }],
+      RESOLVING,
     );
     expect(verdict.findings).toEqual([]);
     expect(verdict.outcome).toBe('settled');
@@ -195,10 +242,15 @@ describe('settlement adjudication', () => {
     // One pass, every reason. A caller fixing a rejected batch that had to
     // discover its defects one round trip at a time is exactly the interaction
     // cost this plane exists to remove.
-    const verdict = adjudicateSettlement(baseValidCapsule(), [
-      { taskId: 'task-verify', fields: { passed: 'yes', smuggled: 1 }, evidence: [{ kind: 'vibes', ref: 'r' }] },
-      { taskId: 'task-ghost', fields: {}, evidence: [] },
-    ]);
+    const verdict = adjudicateSettlement(
+      baseValidCapsule(),
+      [
+        { taskId: 'task-verify', fields: { passed: 'yes', smuggled: 1 }, evidence: [{ kind: 'vibes', ref: 'r' }] },
+        { taskId: 'task-ghost', fields: {}, evidence: [] },
+      ],
+      [],
+      RESOLVING,
+    );
     expect(new Set(verdict.findings.map((f) => f.kind))).toEqual(
       new Set(['field-type-mismatch', 'undeclared-field', 'inadmissible-evidence', 'unknown-task']),
     );
@@ -210,10 +262,15 @@ describe('settlement adjudication', () => {
     // The duplicate is refused whole. A second claim carrying its own defects
     // must not also report them: those would be findings against a claim that
     // was never going to be considered.
-    const verdict = adjudicateSettlement(baseValidCapsule(), [
-      passingClaim(),
-      { taskId: 'task-verify', fields: { passed: 'yes', smuggled: 1 }, evidence: [{ kind: 'vibes', ref: 'r' }] },
-    ]);
+    const verdict = adjudicateSettlement(
+      baseValidCapsule(),
+      [
+        passingClaim(),
+        { taskId: 'task-verify', fields: { passed: 'yes', smuggled: 1 }, evidence: [{ kind: 'vibes', ref: 'r' }] },
+      ],
+      [],
+      RESOLVING,
+    );
     expect(verdict.findings.map((f) => [f.kind, f.at])).toEqual([['duplicate-claim', 'claims[1].taskId']]);
     expect(verdict.outcome).toBe('rejected');
   });
@@ -235,6 +292,8 @@ describe('settlement adjudication', () => {
         },
       },
       [passingClaim()],
+      [],
+      RESOLVING,
     );
     expect(verdict.findings).toEqual([]);
     expect(verdict.adjudicated.fields).toBe(2);
