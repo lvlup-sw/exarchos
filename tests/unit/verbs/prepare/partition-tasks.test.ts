@@ -1,4 +1,6 @@
 // Partitioning a plan's tasks into the batch still to be delegated.
+//
+// @oracle-sources: ../../../../src/verbs/prepare/partition-tasks.ts, the batch and edges and joins worked out by hand from each small plan written in the case
 
 import { describe, it, expect } from 'vitest';
 

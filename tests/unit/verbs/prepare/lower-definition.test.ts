@@ -3,6 +3,8 @@
 // Every expectation below is read off the live machine, never off a list typed
 // into this file: a list of steps written here would agree with itself the day
 // the machine gained a phase.
+//
+// @oracle-sources: ../../../../src/verbs/prepare/lower-definition.ts, the live state machine states and transitions read through getHSMDefinition and the published kernel definition schema
 
 import { describe, it, expect } from 'vitest';
 import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';

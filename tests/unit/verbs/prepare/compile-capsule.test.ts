@@ -1,5 +1,7 @@
 // Compiling a delegation batch into a capsule, validated against the definition
 // it pins — and, as the denominator, adjudicated by the real settlement pass.
+//
+// @oracle-sources: ../../../../src/verbs/prepare/compile-capsule.ts, the real settlement adjudicator's verdict on the compiled capsule and task ids and edges worked out by hand from each fixture plan
 
 import { describe, it, expect } from 'vitest';
 

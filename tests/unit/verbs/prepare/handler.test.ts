@@ -20,6 +20,7 @@ import {
   mintDispatchContext,
   runWithDispatchContext,
 } from '../../../../src/dispatch/dispatch-context.js';
+import type { RunBundleStore } from '../../../../src/events/bundle/run-bundle-store.js';
 import { WorkflowPreparedData } from '../../../../src/events/schemas.js';
 import { EventStore } from '../../../../src/events/store.js';
 import type { ToolResult } from '../../../../src/format.js';
@@ -180,6 +181,36 @@ describe('prepare — the compilation endpoint', () => {
     await seedDelegatingFeature(PLAN);
     const receipt = receiptOf(await prepare({ featureId: STREAM }, [{ id: 'INV-9', summary: 'catalog statement' }]));
     expect(receipt.capsule.authority.invariants.map((i) => i.id)).toContain('INV-9');
+  });
+
+  it('Prepare_AStreamThatMovesBeforeTheCommit_LosesTheVersionAndLeavesNoClaim', async () => {
+    await seedDelegatingFeature(PLAN);
+    // The stream moves after the handler read its tail and before the record
+    // commits: the window a concurrent preparation claiming the same version
+    // would land in.
+    const real = store.bundleStore;
+    const racing: RunBundleStore = Object.create(real);
+    racing.putThenReference = async (artifactId, bytes, commit) => {
+      await store.append(STREAM, { type: 'state.patched', data: { patch: { 'artifacts.notes': 'moved' } } });
+      return real.putThenReference(artifactId, bytes, commit);
+    };
+
+    const lost = await runWithDispatchContext(correlation(), () =>
+      handlePrepare({ featureId: STREAM }, stateDir, wiring(), {
+        bundleStore: racing,
+        catalogInvariants: () => [],
+        now: () => COMPILED_AT,
+      }),
+    );
+    expect(lost.success, JSON.stringify(lost)).toBe(false);
+    if (!lost.success) expect(lost.error.code).toBe('CONCURRENCY_CONFLICT');
+    expect(await preparedRows()).toEqual([]);
+
+    // No claim survived the lost race, so preparing again compiles the version
+    // rather than replaying a decision that was never recorded.
+    const retried = receiptOf(await prepare({ featureId: STREAM }));
+    expect(retried.capsuleVersion).toBe(1);
+    expect(await preparedRows()).toHaveLength(1);
   });
 
   describe('refusals happen before any effect', () => {
