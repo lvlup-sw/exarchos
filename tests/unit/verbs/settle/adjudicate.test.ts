@@ -139,6 +139,15 @@ const CASES: readonly AdjudicationCase[] = [
     (b) => b,
     [{ deviationKind: 'invalidated-assumption', statement: 'the store is not SQLite' }],
   ),
+  bend(
+    'a proposed deviation the decision refused',
+    'deviation-rejected',
+    'deviations[0].deviationKind',
+    [passingClaim()],
+    (b) => b,
+    [{ deviationKind: 'invalidated-assumption', statement: 'the store is not SQLite' }],
+    { evidenceResolves: () => true, decided: () => 'rejected' },
+  ),
 ];
 
 describe('settlement adjudication', () => {
@@ -236,6 +245,38 @@ describe('settlement adjudication', () => {
     );
     expect(verdict.findings).toEqual([]);
     expect(verdict.outcome).toBe('settled');
+  });
+
+  it('Adjudicate_ADecidedDeviation_IsNoLongerAwaiting', () => {
+    // The decision round: the same deviation, now answered. Accepted, the
+    // batch settles as though the envelope had not required approval;
+    // rejected, the batch is refused rather than held, because holding is for
+    // a decision not yet made. Either way the census counts the decision read.
+    const deviation = { deviationKind: 'invalidated-assumption', statement: 'the store is not SQLite' };
+    const decide = (decision: 'accepted' | 'rejected' | undefined) =>
+      adjudicateSettlement(baseValidCapsule(), [passingClaim()], [deviation], {
+        evidenceResolves: () => true,
+        decided: () => decision,
+      });
+
+    const accepted = decide('accepted');
+    expect(accepted.outcome).toBe('settled');
+    expect(accepted.findings).toEqual([]);
+    expect(accepted.adjudicated.decisions).toBe(1);
+
+    const rejected = decide('rejected');
+    expect(rejected.outcome).toBe('rejected');
+    expect(rejected.findings.map((f) => f.kind)).toEqual(['deviation-rejected']);
+    // The claim itself is one the capsule admits; it is the batch that is
+    // refused, on the deviation. What the handler does with an accepted claim
+    // on a rejected batch is nothing — verification runs on a settled shape.
+    expect(rejected.acceptedTasks).toEqual(['task-verify']);
+    expect(rejected.adjudicated.decisions).toBe(1);
+    expect(BLOCKING_SETTLEMENT_FINDING_KINDS).toContain('deviation-rejected');
+
+    const undecided = decide(undefined);
+    expect(undecided.outcome).toBe('deviation-pending');
+    expect(undecided.adjudicated.decisions).toBe(0);
   });
 
   it('Adjudicate_ManyDefects_AreAllReported', () => {
