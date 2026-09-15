@@ -6,6 +6,7 @@ import { WORKFLOW_STATE_VIEW } from '../../../../src/projections/views/workflow-
 import { CODE_QUALITY_VIEW } from '../../../../src/projections/views/code-quality-view.js';
 import { DELEGATION_READINESS_VIEW } from '../../../../src/projections/views/delegation-readiness-view.js';
 import type { DelegationReadinessState } from '../../../../src/projections/views/delegation-readiness-view.js';
+import { SequenceConflictError } from '../../../../src/events/store.js';
 
 // ─── Mock Dependencies ──────────────────────────────────────────────────────
 
@@ -2489,11 +2490,9 @@ describe('handlePrepareDelegation', () => {
       const state = readyWorkflowState();
       setupMaterializer(state);
       vi.mocked(generateQualityHints).mockReturnValue([]);
-      mockStore.query.mockImplementation(async (_stream: string, opts?: { type?: string }) =>
-        opts?.type === 'task.assigned'
-          ? [{ type: 'task.assigned', data: { taskId: 'task-1', title: 'by hand' } }]
-          : [],
-      );
+      mockStore.query.mockResolvedValue([
+        { sequence: 7, type: 'task.assigned', data: { taskId: 'task-1', title: 'by hand' } },
+      ]);
       const args = {
         featureId: 'test-feature',
         tasks: [
@@ -2509,15 +2508,61 @@ describe('handlePrepareDelegation', () => {
           .map(([, event, opts]) => ({
             data: (event as { data: unknown }).data,
             key: (opts as { idempotencyKey?: string } | undefined)?.idempotencyKey,
+            guard: (opts as { expectedSequence?: number } | undefined)?.expectedSequence,
           }));
         // The plan's title, not the wave's: the workflow state lists the second
         // task as 'Add tests', and the plan is the authority on what a task is.
+        // The append is guarded by the tail the read saw.
         expect(announced).toEqual([
-          { data: { taskId: 'task-2', title: 'Add tests' }, key: 'test-feature:task.assigned:task-2' },
+          { data: { taskId: 'task-2', title: 'Add tests' }, key: 'test-feature:task.assigned:task-2', guard: 7 },
         ]);
       } finally {
         mockStore.query.mockReset();
         mockStore.query.mockResolvedValue([]);
+      }
+    });
+
+    it('PrepareDelegation_AnnouncementRacesAnotherWriter_DecidesAgainFromAFreshRead', async () => {
+      // A writer that lands between the read and the append — the capsule
+      // path, a hand append — moves the tail the append is guarded by. The
+      // guard refuses, the stream is read again, and only what that read has
+      // still not heard is announced: the raced task is not announced twice,
+      // and the remaining one is guarded by the tail the fresh read saw.
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      mockStore.query
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          { sequence: 1, type: 'task.assigned', data: { taskId: 'task-1', title: 'by hand' } },
+        ]);
+      mockStore.append.mockImplementation(
+        async (_stream: string, event: { type: string }, opts?: { expectedSequence?: number }) => {
+          if (event.type === 'task.assigned' && opts?.expectedSequence === 0) {
+            throw new SequenceConflictError(0, 1);
+          }
+          return undefined;
+        },
+      );
+      const args = { featureId: 'test-feature' };
+      try {
+        const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+        expect(result.success).toBe(true);
+        const announced = mockStore.append.mock.calls
+          .filter(([, event]) => (event as { type: string }).type === 'task.assigned')
+          .map(([, event, opts]) => ({
+            taskId: (event as { data: { taskId: string } }).data.taskId,
+            guard: (opts as { expectedSequence?: number } | undefined)?.expectedSequence,
+          }));
+        expect(announced).toEqual([
+          { taskId: 'task-1', guard: 0 },
+          { taskId: 'task-2', guard: 1 },
+        ]);
+      } finally {
+        mockStore.query.mockReset();
+        mockStore.query.mockResolvedValue([]);
+        mockStore.append.mockReset();
+        mockStore.append.mockResolvedValue(undefined);
       }
     });
 

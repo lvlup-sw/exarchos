@@ -10,7 +10,7 @@ import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../../format.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
 import { DEFAULTS } from '../../config/resolve.js';
-import type { EventStore } from '../../events/store.js';
+import { SequenceConflictError, type EventStore } from '../../events/store.js';
 import { orchestrateLogger } from '../../logger.js';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { foldToTail } from '../../projections/fold-at-tail.js';
@@ -874,6 +874,9 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** How many reads the announcement makes before it gives the tail up to the writers moving it. */
+const ANNOUNCE_ATTEMPTS = 3;
+
 /** A planned task as the workflow state lists it: an id and a title, nothing assumed. */
 function plannedTask(entry: unknown): { readonly id: string; readonly title: string } | undefined {
   if (!isPlainRecord(entry)) return undefined;
@@ -889,25 +892,43 @@ function plannedTask(entry: unknown): { readonly id: string; readonly title: str
  * an earlier wave, or by hand — is not announced again: the projection reads
  * a second announcement as the task returning to `assigned`. Keyed per task,
  * so a retried dispatch lands on the same row.
+ *
+ * The read and the appends are one decision: each append is guarded by the
+ * tail the read saw, so a writer that announces in the gap — the capsule
+ * path, a hand append — makes the guard refuse, and the announcement is
+ * decided again from a fresh read that hears that task. Bounded, so two
+ * writers trading the tail cannot hold this handler.
  */
 async function announceTasks(
   store: EventStore,
   streamId: string,
   tasks: readonly { readonly id: string; readonly title: string }[],
 ): Promise<void> {
-  const heard = new Set<string>();
-  for (const event of await store.query(streamId, { type: 'task.assigned' })) {
-    const taskId = isPlainRecord(event.data) ? event.data.taskId : undefined;
-    if (typeof taskId === 'string') heard.add(taskId);
-  }
-  for (const task of tasks) {
-    if (heard.has(task.id)) continue;
-    heard.add(task.id);
-    await store.append(
-      streamId,
-      { type: 'task.assigned', data: { taskId: task.id, title: task.title } },
-      { idempotencyKey: `${streamId}:task.assigned:${task.id}` },
-    );
+  for (let attempt = 1; ; attempt++) {
+    const heard = new Set<string>();
+    let tail = 0;
+    for (const event of await store.query(streamId)) {
+      tail = Math.max(tail, event.sequence);
+      if (event.type !== 'task.assigned') continue;
+      const taskId = isPlainRecord(event.data) ? event.data.taskId : undefined;
+      if (typeof taskId === 'string') heard.add(taskId);
+    }
+    try {
+      for (const task of tasks) {
+        if (heard.has(task.id)) continue;
+        heard.add(task.id);
+        await store.append(
+          streamId,
+          { type: 'task.assigned', data: { taskId: task.id, title: task.title } },
+          { idempotencyKey: `${streamId}:task.assigned:${task.id}`, expectedSequence: tail },
+        );
+        // The guard held, so the row landed one past the tail it was guarded by.
+        tail += 1;
+      }
+      return;
+    } catch (err) {
+      if (!(err instanceof SequenceConflictError) || attempt >= ANNOUNCE_ATTEMPTS) throw err;
+    }
   }
 }
 

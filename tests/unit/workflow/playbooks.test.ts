@@ -430,11 +430,12 @@ describe('EventInstruction fields property', () => {
     );
     expect(instructed.map(([phase]) => phase)).toEqual([]);
     for (const phase of ['delegate', 'overhaul-delegate']) {
-      const disclosed = phaseRuntimeEmissions(phase).find((e) => e.type === 'task.assigned');
+      const disclosed = phaseRuntimeEmissions(phase)?.find((e) => e.type === 'task.assigned');
       expect(disclosed, phase).toBeDefined();
-      expect(disclosed?.fields).toContain('taskId');
-      expect(disclosed?.emittedBy).toContain('prepare');
-      expect(disclosed?.emittedBy).toContain('prepare_delegation');
+      expect(disclosed?.fields).toEqual(expect.arrayContaining(['taskId', 'title']));
+      // Each route by its own name: `prepare` alone is a prefix of the other.
+      expect(disclosed?.emittedBy).toContain('prepare (the capsule path)');
+      expect(disclosed?.emittedBy).toContain('prepare_delegation (the primitive path)');
     }
   });
 });
