@@ -594,6 +594,15 @@ export const ACTION_APPEND_OWNERSHIP: readonly ActionAppendOwnership[] = Object.
     event: 'stash.detected',
     wiring: 'the delegation handler calls the stash probe',
   },
+  {
+    action: 'prepare_delegation',
+    declaringTool: 'exarchos_orchestrate',
+    module: 'verbs/team/prepare-delegation.ts',
+    event: 'task.assigned',
+    wiring:
+      'the delegation handler announces each planned task the stream has not yet heard of, ' +
+      'ahead of the readiness fold that counts them',
+  },
 ]);
 
 /**

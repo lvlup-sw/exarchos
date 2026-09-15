@@ -173,9 +173,10 @@ describe('G3 report-coupling census (DR-2, task 013)', () => {
     );
     expect(verdict.ok).toBe(true);
 
-    // The pin covers the whole seed on the landing branch: nothing has been retired yet, so the key
-    // set and the seed coincide.
-    expect(verdict.pin.keySetSize).toBe(REPORT_COUPLING_SEED_IDS.length);
+    // The pin covers the seed AND the retired half: the key set is their union, invariant under
+    // every paydown. `task.assigned` was the first entry to be retired (re-coupled onto `prepare`
+    // and `prepare_delegation`), so the two no longer coincide.
+    expect(verdict.pin.keySetSize).toBe(REPORT_COUPLING_SEED_IDS.length + REPORT_COUPLING_RETIRED_IDS.length);
     expect(verdict.pin.digest).toBe(REPORT_COUPLING_SEED_KEY_SET_DIGEST);
   });
 });

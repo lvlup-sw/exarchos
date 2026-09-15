@@ -224,6 +224,13 @@ function correlation(): ReturnType<typeof mintDispatchContext> {
  */
 async function completeByHand(): Promise<void> {
   const ctx = wiring(baselineDir, baselineStore);
+  // The primitive path announces its tasks before it dispatches — by hand
+  // once, by `prepare_delegation` now — one row per task; the plane's
+  // compilation leaves the same rows, in the same shape, ahead of its record.
+  // So the announcement is a leaf fact both sides leave, and it is compared.
+  for (const taskId of TASK_IDS) {
+    await baselineStore.append(STREAM, { type: 'task.assigned', data: { taskId, title: taskId } });
+  }
   for (const taskId of TASK_IDS) {
     const compiled = compileIntent(
       'task-completion',

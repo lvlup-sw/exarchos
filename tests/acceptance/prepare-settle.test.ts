@@ -171,6 +171,12 @@ describe('prepare then settle, through the dispatcher', () => {
     const receipt = prepared.data as PreparedReceipt;
     expect(receipt.capsuleVersion).toBe(1);
     expect(receipt.capsule.graph.tasks.map((t) => t.taskId)).toEqual(['task-a', 'task-b', 'task-c']);
+    // The compilation announced its tasks; nothing had to before it.
+    expect((await rowsOf('task.assigned')).map((e) => (e as { data: { taskId: string } }).data.taskId)).toEqual([
+      'task-a',
+      'task-b',
+      'task-c',
+    ]);
     // The capsule arrives whole rather than capped: the harness runs the batch
     // from it, and a cut capsule would cost the call this path exists to save.
     // Measured here, against the budget it is declared under.
@@ -207,6 +213,7 @@ describe('prepare then settle, through the dispatcher', () => {
 
     expect(retried.data).toEqual(first.data);
     expect(await rowsOf('execution.settled')).toHaveLength(1);
+    expect(await rowsOf('task.assigned')).toHaveLength(3);
     expect(await rowsOf('task.completed')).toHaveLength(3);
     // Nothing was verified a second time either.
     expect(await rowsOf('orchestrate.intent_executed')).toHaveLength(3);

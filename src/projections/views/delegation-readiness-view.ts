@@ -56,7 +56,7 @@ function computeBlockers(state: Omit<DelegationReadinessState, 'ready' | 'blocke
   }
 
   if (state.plan.taskCount === 0) {
-    blockers.push('no task.assigned events found — emit task.assigned events for each task via exarchos_event before calling prepare_delegation');
+    blockers.push('no task.assigned events found — prepare_delegation announces the plan\'s tasks itself; give the workflow a task list (workflow update with tasks) or pass tasks, so there is something to announce');
   }
 
   const pendingWorktrees = state.worktrees.expected - state.worktrees.ready;
@@ -418,7 +418,7 @@ export const delegationReadinessProjection: ViewProjection<DelegationReadinessSt
     blockers: [
       'plan not approved',
       'Plan artifact is missing',
-      'no task.assigned events found — emit task.assigned events for each task via exarchos_event before calling prepare_delegation',
+      'no task.assigned events found — prepare_delegation announces the plan\'s tasks itself; give the workflow a task list (workflow update with tasks) or pass tasks, so there is something to announce',
     ],
     plan: { approved: false, taskCount: 0, artifactPresent: false },
     quality: { queried: false, gatePassRate: null, regressions: [] },

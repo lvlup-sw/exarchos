@@ -190,6 +190,55 @@ describe('prepare — the compilation endpoint', () => {
     expect(await preparedRows()).toHaveLength(2);
   });
 
+  it('Prepare_ACompiledBatch_AnnouncesItsTasksInTheSameCommit', async () => {
+    // One `task.assigned` per compiled task, ahead of the prepared record, in
+    // the same commit: the delegate phase's event contract is met by the
+    // compilation, not by a call the model has to remember before it.
+    await seedDelegatingFeature(PLAN);
+    const receipt = receiptOf(await prepare({ featureId: STREAM }));
+    const events = await store.query(STREAM);
+    const assigned = events.filter((e) => e.type === 'task.assigned');
+    expect(assigned.map((e) => e.data)).toEqual([
+      { taskId: 'T-2', title: 'title of T-2' },
+      { taskId: 'T-3', title: 'title of T-3' },
+      { taskId: 'T-4', title: 'title of T-4' },
+    ]);
+    const prepared = events.find((e) => e.type === 'workflow.prepared');
+    expect(prepared).toBeDefined();
+    expect(assigned.every((e) => e.sequence < (prepared?.sequence ?? 0))).toBe(true);
+    // The receipt's tail is the record's own sequence, past the announcements.
+    expect(receipt.tailSequence).toBe(prepared?.sequence);
+    // A retry announces nothing further.
+    receiptOf(await prepare({ featureId: STREAM }));
+    expect((await store.query(STREAM)).filter((e) => e.type === 'task.assigned')).toHaveLength(3);
+  });
+
+  it('Prepare_ATaskTheStreamAlreadyHeardOf_IsNotAnnouncedAgain', async () => {
+    // Announced by hand before the compilation, or by an earlier one: a
+    // second row would read to the task projection as the task returning to
+    // `assigned`, so the compilation leaves it alone.
+    await seedDelegatingFeature(PLAN);
+    await store.append(STREAM, { type: 'task.assigned', data: { taskId: 'T-3', title: 'by hand', branch: 'feat/t3' } });
+    receiptOf(await prepare({ featureId: STREAM }));
+    const taskIds = async (): Promise<string[]> =>
+      (await store.query(STREAM))
+        .filter((e) => e.type === 'task.assigned')
+        .map((e) => (e.data as { taskId: string }).taskId);
+    expect(await taskIds()).toEqual(['T-3', 'T-2', 'T-4']);
+
+    // The next version compiles from the tasks the first wave left — every one already announced.
+    await store.append(STREAM, { type: 'state.patched', data: { patch: { 'tasks[1].status': 'complete' } } });
+    expect(receiptOf(await prepare({ featureId: STREAM })).capsuleVersion).toBe(2);
+    expect(await taskIds()).toEqual(['T-3', 'T-2', 'T-4']);
+  });
+
+  it('Prepare_ARefusedCompilation_AnnouncesNothing', async () => {
+    await seedDelegatingFeature(PLAN);
+    const refused = await prepare({ featureId: STREAM }, [], ['fs:read']);
+    expect(refused.success).toBe(false);
+    expect((await store.query(STREAM)).filter((e) => e.type === 'task.assigned')).toEqual([]);
+  });
+
   it('Prepare_AChangedVerificationPolicy_CompilesTheNextVersion', async () => {
     // The verification terms are inputs to the compilation, not a decoration
     // of it: the same plan under a policy that now names another sequence

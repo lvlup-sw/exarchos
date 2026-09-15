@@ -167,7 +167,9 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
   }),
   withContract({
     name: 'prepare_delegation',
-    description: 'Query delegation readiness and prepare quality hints for subagent dispatch',
+    description:
+      'Query delegation readiness and prepare quality hints for subagent dispatch. Announces each ' +
+      'planned task the stream has not yet heard of (`task.assigned`) before reading readiness.',
     schema: z.object({
       featureId: z.string().min(1),
       // #1636: the per-task object accepts the planner's verification-routing
@@ -238,6 +240,15 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
         owner: 'orchestrate',
         role: 'primary',
         description: 'When the pre-dispatch probe finds a stash entry',
+      },
+      {
+        event: 'task.assigned',
+        condition: 'conditional',
+        owner: 'orchestrate',
+        role: 'primary',
+        description:
+          'one per planned task the stream has not yet heard of, ahead of the readiness fold; ' +
+          'none for a task already announced',
       },
     ),
   }),

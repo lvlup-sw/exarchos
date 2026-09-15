@@ -59,12 +59,13 @@ export const prepareActions: readonly BuiltinToolAction[] = [
       'commit one workflow.prepared record pinning its digest. Call it in the delegate phase. The ' +
       'capsule carries the task graph, each task\'s result contract, the admitted evidence kinds, ' +
       'the deviation envelope, the authority the batch will be settled against, each task\'s ' +
-      'verification terms (tier and boundary flag, frozen from the plan), and the execution ' +
+      'verification terms (tier and boundary, from the plan), and the execution ' +
       'profile — the capabilities the plane\'s own calls need, read off the registry; a runtime ' +
-      'lacking one is refused RUNTIME_UNFIT before it fans out. Run the batch from the capsule ' +
-      'with no further governance calls, then submit the results with `settle` (`capsuleVersion` ' +
-      'plus a `batchId`). A retry with unchanged inputs returns the recorded capsule; changed ' +
-      'inputs compile the next version. Refused before any effect: WORKFLOW_NOT_FOUND, ' +
+      'lacking one is refused RUNTIME_UNFIT before it fans out. It announces each compiled task the ' +
+      'stream has not yet heard of (`task.assigned`). Run the batch from the capsule with no further ' +
+      'governance calls, then submit the results with `settle` (`capsuleVersion` plus a `batchId`). ' +
+      'A retry with unchanged inputs returns the recorded capsule; changed inputs compile the next ' +
+      'version. Refused before any effect: WORKFLOW_NOT_FOUND, ' +
       'WORKFLOW_TYPE_UNSUPPORTED, PHASE_NOT_PREPARABLE, NOTHING_TO_PREPARE, INVALID_TASK_ID, ' +
       'INVALID_TASK_STAMP, UNKNOWN_DEPENDENCY, CAPSULE_UNSOUND, RUNTIME_UNFIT.',
     schema: z
@@ -104,14 +105,25 @@ export const prepareActions: readonly BuiltinToolAction[] = [
     needs: declared('fs:read', 'fs:write'),
     resources: declared({ kind: 'stream', selector: 'featureId' }),
     replay: { kind: 'claim-required', scope: 'stream-subject-request' },
-    emissions: declared({
-      event: 'workflow.prepared',
-      condition: 'conditional',
-      owner: 'orchestrate',
-      role: 'primary',
-      description:
-        'appended when a compilation is recorded; a retry with unchanged inputs returns the ' +
-        'recorded capsule and appends nothing, and a refusal appends nothing',
-    }),
+    emissions: declared(
+      {
+        event: 'workflow.prepared',
+        condition: 'conditional',
+        owner: 'orchestrate',
+        role: 'primary',
+        description:
+          'appended when a compilation is recorded; a retry with unchanged inputs returns the ' +
+          'recorded capsule and appends nothing, and a refusal appends nothing',
+      },
+      {
+        event: 'task.assigned',
+        condition: 'conditional',
+        owner: 'orchestrate',
+        role: 'primary',
+        description:
+          'one per compiled task the stream has not yet heard of, in the same commit as the record ' +
+          'and ahead of it; none for a task already announced, on a replay, or on a refusal',
+      },
+    ),
   }),
 ];

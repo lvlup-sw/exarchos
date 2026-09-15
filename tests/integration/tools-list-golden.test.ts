@@ -251,6 +251,18 @@
 // one batch of returned claims against the capsule pinned when the work was
 // compiled and commits one `execution.settled` record. It runs nothing.
 //
+// ── `task.assigned` becomes the runtime's: two descriptions, two digests ───
+//
+// The announcement the delegate skill used to make by hand is appended by the
+// runtime now — `prepare` in the same commit as its record, `prepare_delegation`
+// ahead of its readiness read — and both actions declare the emission. MEASURED
+// by parsing both goldens and comparing per tool and per field: ONE changed
+// tool (`exarchos_orchestrate`), ONE changed field (`description`), FOUR lines
+// in it — the two actions' signature lines (each gains the sentence saying it
+// announces) and their two contract-digest rows (each gains an emission edge).
+// No `inputSchema` moved, no tool was added or removed, no order changed, and
+// the other three tools are byte-identical.
+//
 // Regenerate deliberately (and review the diff) with:
 //   UPDATE_TOOLS_LIST_GOLDEN=1 npx vitest run --project core tests/integration/tools-list-golden.test.ts
 //

@@ -52,9 +52,12 @@ describe('the gate table projects the contract', () => {
     // row may change only by a deliberate edit here in the same commit — a
     // charter act for a type leaving governance, or a phase gaining an
     // expectation — never by the derivation drifting.
+    // Deliberate edit, 2026-09-14: `task.assigned` left both delegation rows
+    // when the runtime took its append — `prepare` on the capsule path,
+    // `prepare_delegation` on the primitive path — and the row moved to the
+    // phases' `runtimeEmits`. The event is disclosed, no longer expected.
     const BEFORE_THE_CONTRACT: Readonly<Record<string, readonly string[]>> = {
       delegate: [
-        'task.assigned',
         'team.spawned',
         'team.task.planned',
         'team.teammate.dispatched',
@@ -62,7 +65,6 @@ describe('the gate table projects the contract', () => {
         'task.progressed',
       ],
       'overhaul-delegate': [
-        'task.assigned',
         'team.spawned',
         'team.task.planned',
         'team.teammate.dispatched',

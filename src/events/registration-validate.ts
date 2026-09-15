@@ -223,8 +223,13 @@ export const MULTI_PRIMARY_OWNER_CODE = 'MULTI_PRIMARY_OWNER';
  * `exarchos_orchestrate.settle`. One type, one edge — the population grew by exactly the arrival.
  *
  * 72 -> 73: `workflow.prepared`, the same shape of arrival, from `exarchos_orchestrate.prepare`.
+ *
+ * 73 -> 74: `task.assigned` gained its first declared edges — two, both primary, both owned by
+ * `orchestrate`: `prepare` announces on the capsule path, `prepare_delegation` on the primitive
+ * path. Not an arrival of a type but of ownership: the model appended it before, and nothing
+ * declared it.
  */
-export const PRIMARY_OWNER_POPULATION_FLOOR = 73;
+export const PRIMARY_OWNER_POPULATION_FLOOR = 74;
 
 /**
  * The measured size of the set the provider comparison ranges over: declared emission edges whose

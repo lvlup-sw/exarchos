@@ -529,6 +529,27 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_orchestrate',
     consumedBy: ['task-store@v1'],
   },
+  // Left the workflow-local tier with the semantic plane's runtime adapter: the
+  // announcement is appended by `prepare` in the same commit as the prepared
+  // record, and by `prepare_delegation` ahead of the readiness fold it counts
+  // in — one per planned task the stream has not yet heard of. Nothing on the
+  // delegate path has to remember the append any more. `consumedBy` is the
+  // measured fold set: the two reducers and the views that read the row.
+  'task.assigned': {
+    lifecycle: 'active',
+    tier: 'capability',
+    provider: 'exarchos_orchestrate',
+    consumedBy: [
+      'rehydration@v1',
+      'task-store@v1',
+      'workflow-state@v1',
+      'pipeline',
+      'synthesis-readiness',
+      'workflow-status',
+      'delegation-readiness',
+      'delegation-timeline',
+    ],
+  },
   'task.completed': {
     lifecycle: 'active',
     tier: 'capability',
@@ -973,16 +994,17 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
 
   // ── Workflow-local — a workflow definition's model-walked runbook step composes it ──
   //
-  // The other eighteen report-coupled registrations. `PHASE_EVENT_CONTRACTS`
+  // The other report-coupled registrations — eighteen when this table was first
+  // measured, seventeen since `task.assigned` gained a handler seam (see its
+  // capability entry above). `PHASE_EVENT_CONTRACTS`
   // (`workflow/topology/phase-events.ts`) is the independent authority: it maps model-emitted
   // events to the phase that owns them, and the gate's header records the reason they stay model-emitted
   // — "their transition site is a model-walked runbook step bracketing a `native:` harness tool
   // (runbooks/definitions.ts) — there is no in-process handler seam to move the append into yet."
   //
-  // `workflow: 'feature'` for all eighteen: every owning phase (delegate / review / synthesize /
+  // `workflow: 'feature'` for all of them: every owning phase (delegate / review / synthesize /
   // overhaul-*) belongs to the `feature` definition (`BUILT_IN_WORKFLOW_TYPES`). This is the weld
   // G3 shrinks — each one leaves this tier when a handler seam takes the append.
-  'task.assigned': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
   'task.progressed': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
   'workflow.handoff_summarized': {
     lifecycle: 'active',

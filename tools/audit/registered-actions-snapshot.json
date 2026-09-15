@@ -837,7 +837,7 @@
     {
       "type": "task.assigned",
       "lifecycle": "active",
-      "tier": "workflow-local"
+      "tier": "capability"
     },
     {
       "type": "task.cancelled",

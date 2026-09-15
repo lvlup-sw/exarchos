@@ -1,20 +1,20 @@
 {
   "totals": {
-    "emissionEdges": 104,
-    "edgesCarryingRole": 104,
-    "edgesCarryingOwner": 104,
-    "distinctEventsWithEdges": 73,
+    "emissionEdges": 106,
+    "edgesCarryingRole": 106,
+    "edgesCarryingOwner": 106,
+    "distinctEventsWithEdges": 74,
     "distinctOwners": 3,
     "registeredEvents": 182,
     "moduleEmitterRows": 24
   },
   "keys": {
     "per-event-type/primary-edges": {
-      "populationSize": 73,
+      "populationSize": 74,
       "satisfyingCount": 69,
       "zeroPrimaryCount": 0,
       "unownedPrimaryCount": 0,
-      "multiPrimaryCount": 4,
+      "multiPrimaryCount": 5,
       "zeroPrimary": [],
       "unownedPrimary": [],
       "multiPrimary": [
@@ -66,6 +66,19 @@
             "exarchos_orchestrate.post_delegation_check",
             "exarchos_orchestrate.pre_synthesis_check",
             "exarchos_orchestrate.prepare_synthesis"
+          ]
+        },
+        {
+          "key": "task.assigned",
+          "primaryEdges": 2,
+          "primaryOwners": [
+            "orchestrate"
+          ],
+          "unattributedPrimaryEdges": 0,
+          "declaringEdges": 2,
+          "declaredBy": [
+            "exarchos_orchestrate.prepare",
+            "exarchos_orchestrate.prepare_delegation"
           ]
         },
         {
@@ -176,8 +189,8 @@
       }
     },
     "per-event-type/primary-owners": {
-      "populationSize": 73,
-      "satisfyingCount": 73,
+      "populationSize": 74,
+      "satisfyingCount": 74,
       "zeroPrimaryCount": 0,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -236,6 +249,7 @@
         "stash.detected",
         "state.patched",
         "synthesize.requested",
+        "task.assigned",
         "task.claimed",
         "task.completed",
         "task.failed",
@@ -269,8 +283,8 @@
       }
     },
     "per-emission-site/primary-edges": {
-      "populationSize": 104,
-      "satisfyingCount": 101,
+      "populationSize": 106,
+      "satisfyingCount": 103,
       "zeroPrimaryCount": 3,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -386,6 +400,8 @@
         "stash.detected@exarchos_orchestrate.prepare_delegation",
         "state.patched@exarchos_workflow.update",
         "synthesize.requested@exarchos_orchestrate.request_synthesize",
+        "task.assigned@exarchos_orchestrate.prepare",
+        "task.assigned@exarchos_orchestrate.prepare_delegation",
         "task.claimed@exarchos_orchestrate.task_claim",
         "task.completed@exarchos_orchestrate.task_complete",
         "task.failed@exarchos_orchestrate.task_fail",
@@ -421,8 +437,8 @@
       }
     },
     "per-event-and-tool/primary-owners": {
-      "populationSize": 74,
-      "satisfyingCount": 73,
+      "populationSize": 75,
+      "satisfyingCount": 74,
       "zeroPrimaryCount": 1,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -492,6 +508,7 @@
         "stash.detected@exarchos_orchestrate",
         "state.patched@exarchos_workflow",
         "synthesize.requested@exarchos_orchestrate",
+        "task.assigned@exarchos_orchestrate",
         "task.claimed@exarchos_orchestrate",
         "task.completed@exarchos_orchestrate",
         "task.failed@exarchos_orchestrate",
@@ -528,7 +545,7 @@
   "perTier": [
     {
       "tier": "capability",
-      "eventCount": 30,
+      "eventCount": 31,
       "events": [
         "admission.enforcement-enabled",
         "admission.evidence-recorded",
@@ -549,6 +566,7 @@
         "shepherd.escalated",
         "shepherd.started",
         "stack.position-filled",
+        "task.assigned",
         "task.claimed",
         "task.completed",
         "task.failed",

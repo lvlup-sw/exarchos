@@ -84,6 +84,15 @@ const TEAM_DISBANDED: PhaseEventRow = {
   fields: ['totalDurationMs', 'tasksCompleted', 'tasksFailed'],
 };
 
+const TASK_ASSIGNED_BY_RUNTIME: PhaseRuntimeEmissionRow = {
+  type: 'task.assigned',
+  when:
+    'When the batch is compiled — one per planned task the stream has not yet heard of, in the ' +
+    'same commit as the prepared record; on the primitive path, when prepare_delegation reads ' +
+    'readiness',
+  emittedBy: 'exarchos_orchestrate prepare (the capsule path) and prepare_delegation (the primitive path)',
+  fields: ['taskId', 'title'],
+};
 const TASK_COMPLETED_BY_RUNTIME: PhaseRuntimeEmissionRow = {
   type: 'task.completed',
   when: 'After task_complete orchestrate action succeeds — called directly, or as the terminal leaf of the task-completion segment settle runs per accepted task',
@@ -103,12 +112,9 @@ const REVIEW_GATE_EXECUTED: PhaseRuntimeEmissionRow = {
   fields: ['gateName', 'layer', 'passed'],
 };
 
+// `task.assigned` left this list when the runtime took its append — see
+// TASK_ASSIGNED_BY_RUNTIME.
 const DELEGATE_EXPECTS: readonly PhaseEventRow[] = [
-  {
-    type: 'task.assigned',
-    when: 'On dispatch of each task',
-    fields: ['taskId', 'title', 'worktree'],
-  },
   TEAM_SPAWNED,
   TEAM_TASK_PLANNED,
   TEAM_TEAMMATE_DISPATCHED,
@@ -132,12 +138,12 @@ export const PHASE_EVENT_CONTRACTS: Readonly<Record<string, PhaseEventContract>>
         emitter: 'subagent',
       },
     ],
-    runtimeEmits: [TASK_COMPLETED_BY_RUNTIME, TASK_FAILED_BY_RUNTIME],
+    runtimeEmits: [TASK_ASSIGNED_BY_RUNTIME, TASK_COMPLETED_BY_RUNTIME, TASK_FAILED_BY_RUNTIME],
   },
   // The refactor track's delegation does not run TDD, so no progression beats.
   'overhaul-delegate': {
     expects: DELEGATE_EXPECTS,
-    runtimeEmits: [TASK_COMPLETED_BY_RUNTIME, TASK_FAILED_BY_RUNTIME],
+    runtimeEmits: [TASK_ASSIGNED_BY_RUNTIME, TASK_COMPLETED_BY_RUNTIME, TASK_FAILED_BY_RUNTIME],
   },
   review: {
     expects: [TEAM_SPAWNED, TEAM_TASK_PLANNED, TEAM_TEAMMATE_DISPATCHED, TEAM_DISBANDED],

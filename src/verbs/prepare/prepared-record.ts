@@ -35,7 +35,7 @@ import { outerCorrelation, stampFromAmbient } from '../../dispatch/core/outer-co
 import { runWithDispatchContext } from '../../dispatch/dispatch-context.js';
 import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
-import { WorkflowPreparedData, type WorkflowPrepared } from '../../events/schemas.js';
+import { TaskAssignedData, WorkflowPreparedData, type WorkflowPrepared } from '../../events/schemas.js';
 import { ArtifactIdSchema, type ArtifactId } from '../../workflow/admission/types.js';
 import type { PreparedCapsuleReceipt } from './types.js';
 
@@ -49,6 +49,7 @@ export const PREPARED_BUNDLE_VERSION = '1.0';
 export const WORKFLOW_PREPARED_SCHEMA_VERSION = '1.0';
 
 const WORKFLOW_PREPARED_TYPE = 'workflow.prepared';
+const TASK_ASSIGNED_TYPE = 'task.assigned';
 
 export const PreparedBundleV1Schema = z
   .object({
@@ -100,6 +101,15 @@ export interface PreparedCommit {
    * one version cannot both record it.
    */
   readonly expectedSequence?: number;
+  /**
+   * The compiled tasks the stream has not yet heard of, announced in the same
+   * commit as the record — one `task.assigned` per task, ahead of the record —
+   * so the delegate phase's event contract is met by the compilation rather
+   * than by a call before it. The caller decides the set: a task the stream
+   * already shows assigned is left out, because the projection reads a second
+   * announcement as the task returning to `assigned`.
+   */
+  readonly announce?: readonly { readonly taskId: string; readonly title: string }[];
 }
 
 /**
@@ -141,17 +151,27 @@ export async function commitPreparedCapsule(
       // Appended through `decideOnce`, which the emitter-closure census does
       // not read — the same route the settlement record takes, covered by the
       // same allowance row.
-      const event = stampFromAmbient({
+      const announcements = (commit.announce ?? []).map((task) =>
+        stampFromAmbient({
+          type: TASK_ASSIGNED_TYPE,
+          data: TaskAssignedData.parse({ taskId: task.taskId, title: task.title }),
+          timestamp: capsule.provenance.compiledAt,
+        }),
+      );
+      const record = stampFromAmbient({
         type: WORKFLOW_PREPARED_TYPE,
         data,
         timestamp: capsule.provenance.compiledAt,
         schemaVersion: WORKFLOW_PREPARED_SCHEMA_VERSION,
       });
+      // The announcements first, the record last: the record closes the
+      // compilation, and its sequence is the receipt's tail.
+      const events = [...announcements, record];
       return ctx.eventStore
         .getAppender()
         .decideOnce<PreparedCapsuleReceipt>(operationId, requestDigest, (tx) => ({
           streamId,
-          events: [event],
+          events,
           ...(commit.expectedSequence !== undefined ? { expectedSequence: commit.expectedSequence } : {}),
           result: {
             operationId,
@@ -161,8 +181,8 @@ export async function commitPreparedCapsule(
             capsuleDigest: digest,
             definitionVersion: capsule.identity.definitionVersion,
             capsule,
-            // Read inside the write lock: the sequence this append lands on.
-            tailSequence: tx.readStream(streamId).version + 1,
+            // Read inside the write lock: the sequence the record lands on.
+            tailSequence: tx.readStream(streamId).version + events.length,
             bundleRefs: [ref],
           },
         }));
