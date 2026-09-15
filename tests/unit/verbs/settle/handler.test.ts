@@ -49,7 +49,11 @@ import {
   type BundleRefV1,
 } from '../../../../src/events/bundle/digest-references.js';
 import { EventStore } from '../../../../src/events/store.js';
-import { ExecutionSettledData } from '../../../../src/events/schemas.js';
+import {
+  DeviationDecidedData,
+  DeviationProposedData,
+  ExecutionSettledData,
+} from '../../../../src/events/schemas.js';
 import type { ToolResult } from '../../../../src/format.js';
 import { findActionInRegistry } from '../../../../src/registry.js';
 import { settleActions } from '../../../../src/registry/actions/orchestrate/settle.js';
@@ -1008,5 +1012,244 @@ describe('settle — the verification a settled batch runs', () => {
     expect((state.tasks as { id: string; status: string }[]).map((t) => [t.id, t.status])).toEqual([
       ['task-verify', 'complete'],
     ]);
+  });
+});
+
+// The decision round: a held batch waits on its deviations, and the settle
+// call that carries the decisions is the same batch's second round — its own
+// claim on the same key, adjudicating the claims the batch was held with,
+// read back from custody rather than resubmitted.
+describe('settle — the decision round', () => {
+  const DEVIATION = { deviationKind: 'invalidated-assumption', statement: 'the store was not SQLite' };
+  const ACTOR = 'human:reviewer';
+  const RATIONALE = 'the assumption was wrong and the workaround is sound';
+
+  async function hold(
+    batchId: string,
+    deviations: readonly { deviationKind: string; statement: string }[] = [DEVIATION],
+  ): Promise<SettlementReceipt> {
+    const receipt = receiptOf(
+      await settle({ featureId: STREAM, capsuleVersion: 7, batchId, claims: [passingClaim()], deviations }),
+    );
+    expect(receipt.outcome).toBe('deviation-pending');
+    return receipt;
+  }
+
+  function decisionsFor(
+    held: SettlementReceipt,
+    decision: 'accepted' | 'rejected',
+  ): { deviationId: string; decision: 'accepted' | 'rejected'; actor: string; rationale: string }[] {
+    return (held.pendingDeviations ?? []).map((pending) => ({
+      deviationId: pending.deviationId,
+      decision,
+      actor: ACTOR,
+      rationale: RATIONALE,
+    }));
+  }
+
+  async function decide(batchId: string, decisions: unknown): Promise<ToolResult> {
+    return settle({ featureId: STREAM, capsuleVersion: 7, batchId, decisions });
+  }
+
+  it('Settle_AHeldBatch_ProposesWhatItWaitsOn_AheadOfTheRecordThatHoldsIt', async () => {
+    const held = await hold('batch-held');
+    expect(held.round).toBe(0);
+
+    const proposed = await rowsOf('deviation.proposed');
+    expect(proposed).toHaveLength(1);
+    const data = DeviationProposedData.parse(proposed[0]?.data);
+    expect(data.deviationId).toMatch(/^dev:[0-9a-f]{24}$/);
+    expect(data).toMatchObject({
+      operationId: held.operationId,
+      workflowId: held.capsule.workflowId,
+      capsuleVersion: 7,
+      batchId: 'batch-held',
+      ...DEVIATION,
+    });
+    // The receipt names the same deviation under the same id: what a decision
+    // has to answer, without restating it.
+    expect(held.pendingDeviations).toEqual([{ deviationId: data.deviationId, ...DEVIATION }]);
+    // Ahead of the record, and the record is the receipt's tail.
+    const records = await rowsOf('execution.settled');
+    const recordSequence = records[0]?.sequence ?? Number.NaN;
+    expect(proposed[0]?.sequence ?? Number.NaN).toBeLessThan(recordSequence);
+    expect(held.tailSequence).toBe(recordSequence);
+  });
+
+  it('Settle_AnAcceptedDecision_RecordsIt_VerifiesTheHeldWork_AndSettles', async () => {
+    const held = await hold('batch-decided');
+    const blobsWhileHeld = await bundleBlobCount();
+    const decisions = decisionsFor(held, 'accepted');
+
+    const decided = receiptOf(await decide('batch-decided', decisions));
+    expect(decided.outcome).toBe('settled');
+    expect(decided.round).toBe(1);
+    expect(decided.acceptedTasks).toEqual(['task-verify']);
+    expect(decided.adjudicated.decisions).toBe(1);
+    expect(decided.decisions).toEqual(decisions);
+    expect(decided.pendingDeviations).toBeUndefined();
+
+    // The work the deviation stood on is verified now, not when it was held:
+    // one segment, run on this round, leaving the completion the primitive
+    // path leaves.
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toHaveLength(1);
+    expect(await completionRows()).toHaveLength(1);
+
+    // The decision is a fact beside the proposal, under the proposal's id,
+    // ahead of the record that closes the batch.
+    const rows = await rowsOf('deviation.decided');
+    expect(rows).toHaveLength(1);
+    expect(DeviationDecidedData.parse(rows[0]?.data)).toEqual({
+      operationId: decided.operationId,
+      workflowId: held.capsule.workflowId,
+      capsuleVersion: 7,
+      batchId: 'batch-decided',
+      deviationId: held.pendingDeviations?.[0]?.deviationId,
+      decision: 'accepted',
+      actor: ACTOR,
+      rationale: RATIONALE,
+    });
+    const records = await settledRows();
+    expect(records.map((row) => [row.data.outcome, row.data.round])).toEqual([
+      ['deviation-pending', undefined],
+      ['settled', 1],
+    ]);
+    expect(decided.tailSequence).toBe((await rowsOf('execution.settled'))[1]?.sequence);
+    // Two bundles more than the held round left: the segment's own, and this round's.
+    expect(await bundleBlobCount()).toBe(blobsWhileHeld + 2);
+
+    // The decision round is its own claim: the round that held the batch still
+    // replays as itself, and neither decides anything again.
+    const heldAgain = receiptOf(
+      await settle({
+        featureId: STREAM,
+        capsuleVersion: 7,
+        batchId: 'batch-decided',
+        claims: [passingClaim()],
+        deviations: [DEVIATION],
+      }),
+    );
+    expect(heldAgain).toEqual(held);
+    expect(await settledRows()).toHaveLength(2);
+  });
+
+  it('Settle_ARejectedDecision_RecordsIt_AndRejectsTheBatchWithNothingRun', async () => {
+    const held = await hold('batch-refused');
+    const decided = receiptOf(await decide('batch-refused', decisionsFor(held, 'rejected')));
+    expect(decided.outcome).toBe('rejected');
+    expect(decided.round).toBe(1);
+    expect(decided.findings.map((f) => f.kind)).toEqual(['deviation-rejected']);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toEqual([]);
+    expect(await completionRows()).toEqual([]);
+    const rows = await rowsOf('deviation.decided');
+    expect(rows.map((row) => DeviationDecidedData.parse(row.data).decision)).toEqual(['rejected']);
+    expect((await settledRows()).map((row) => row.data.outcome)).toEqual(['deviation-pending', 'rejected']);
+  });
+
+  it('Settle_AReplayedDecision_ReturnsThePersistedVerdictAndAppendsNothing', async () => {
+    const held = await hold('batch-replayed-decision');
+    const decisions = decisionsFor(held, 'accepted');
+    const first = receiptOf(await decide('batch-replayed-decision', decisions));
+    const blobs = await bundleBlobCount();
+
+    const replayed = receiptOf(await decide('batch-replayed-decision', decisions));
+    expect(replayed).toEqual(first);
+    expect(await rowsOf('deviation.decided')).toHaveLength(1);
+    expect(await settledRows()).toHaveLength(2);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toHaveLength(1);
+    expect(await bundleBlobCount()).toBe(blobs);
+  });
+
+  it('Settle_ADifferentDecisionOnADecidedBatch_IsRefused_AndTheFirstStands', async () => {
+    const held = await hold('batch-decided-twice');
+    receiptOf(await decide('batch-decided-twice', decisionsFor(held, 'accepted')));
+    const again = await decide('batch-decided-twice', decisionsFor(held, 'rejected'));
+    expect(again.success).toBe(false);
+    expect(again.error?.code).toBe('OPERATION_DIGEST_MISMATCH');
+    expect(again.error?.message).toContain('already decided');
+    expect((await rowsOf('deviation.decided')).map((row) => DeviationDecidedData.parse(row.data).decision)).toEqual([
+      'accepted',
+    ]);
+  });
+
+  it('Settle_ADecisionOnABatchThatIsNotHeld_IsRefusedBeforeAnyEffect', async () => {
+    const decision = [{ deviationId: 'dev:000000000000000000000000', decision: 'accepted', actor: ACTOR, rationale: RATIONALE }];
+    // Never submitted: nothing to decide.
+    const unknown = await decide('batch-never-submitted', decision);
+    expect(unknown.success).toBe(false);
+    expect(unknown.error?.code).toBe('BATCH_NOT_HELD');
+    expect(unknown.error?.message).toContain('has not been settled');
+
+    // Settled: nothing waits, and the batch is closed.
+    receiptOf(await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-closed', claims: [passingClaim()] }));
+    const blobs = await bundleBlobCount();
+    const closed = await decide('batch-closed', decision);
+    expect(closed.success).toBe(false);
+    expect(closed.error?.code).toBe('BATCH_NOT_HELD');
+    expect(closed.error?.message).toContain('is settled');
+    expect(await settledRows()).toHaveLength(1);
+    expect(await rowsOf('deviation.decided')).toEqual([]);
+    expect(await bundleBlobCount()).toBe(blobs);
+  });
+
+  it('Settle_ADecisionThatAnswersLessThanTheBatchWaitsOn_IsRefused', async () => {
+    const held = await hold('batch-two-deviations', [
+      DEVIATION,
+      { deviationKind: 'invalidated-assumption', statement: 'the branch was not main' },
+    ]);
+    expect(held.pendingDeviations).toHaveLength(2);
+    const undecided = held.pendingDeviations?.[1]?.deviationId ?? '<missing>';
+
+    const partial = await decide('batch-two-deviations', decisionsFor(held, 'accepted').slice(0, 1));
+    expect(partial.success).toBe(false);
+    expect(partial.error?.code).toBe('DECISION_INCOMPLETE');
+    expect(partial.error?.message).toContain(undecided);
+    expect(await rowsOf('deviation.decided')).toEqual([]);
+    expect(await settledRows()).toHaveLength(1);
+  });
+
+  it('Settle_ADecisionNamingNoPendingDeviation_IsRefused', async () => {
+    await hold('batch-misnamed');
+    const result = await decide('batch-misnamed', [
+      { deviationId: 'dev:not-this-one', decision: 'accepted', actor: ACTOR, rationale: RATIONALE },
+    ]);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('dev:not-this-one');
+    expect(await rowsOf('deviation.decided')).toEqual([]);
+  });
+
+  it('Settle_ADecisionCarryingClaims_IsRefused', async () => {
+    const held = await hold('batch-decision-with-claims');
+    const result = await settle({
+      featureId: STREAM,
+      capsuleVersion: 7,
+      batchId: 'batch-decision-with-claims',
+      claims: [passingClaim()],
+      decisions: decisionsFor(held, 'accepted'),
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('decisions only');
+    expect(await settledRows()).toHaveLength(1);
+  });
+
+  it('Settle_AMalformedDecision_IsRefusedWithoutAdjudicating', async () => {
+    await hold('batch-malformed-decision');
+    const malformed: unknown[] = [
+      'yes',
+      [{ deviationId: 'dev:x' }],
+      [{ deviationId: 'dev:x', decision: 'maybe', actor: ACTOR, rationale: RATIONALE }],
+      [
+        { deviationId: 'dev:x', decision: 'accepted', actor: ACTOR, rationale: RATIONALE },
+        { deviationId: 'dev:x', decision: 'rejected', actor: ACTOR, rationale: RATIONALE },
+      ],
+    ];
+    for (const decisions of malformed) {
+      const result = await decide('batch-malformed-decision', decisions);
+      expect(result.success, JSON.stringify(decisions)).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+    }
+    expect(await settledRows()).toHaveLength(1);
   });
 });

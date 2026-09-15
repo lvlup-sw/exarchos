@@ -509,6 +509,12 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     tier: 'substrate',
     rationale: 'operation-record',
   },
+  // The divergence loop's decision facts. `settle` leaves one proposal per
+  // deviation it holds a batch for, and one decision per proposal when the
+  // batch is settled again with the decisions. Their one reader is `settle`,
+  // which reads them back to know what a batch waits on; nothing folds them.
+  'deviation.proposed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  'deviation.decided': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
 
   // ── Capability — an effect provider appends it, and named consumers fold it ──
   //

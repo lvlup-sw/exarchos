@@ -251,9 +251,26 @@ exarchos_orchestrate({
 })
 ```
 
-**`deviation-pending`** — a worker proposed a deviation inside the envelope and the envelope requires approval. Nothing was verified; no task is complete. **Human checkpoint**: present the deviation. On approval the work stands as done — resubmit the batch without the deviation under a new id; on refusal, revise the plan and `prepare` again. (Recording the decision as its own fact is the divergence loop, not yet wired.)
+**`deviation-pending`** — a worker proposed a deviation inside the envelope and the envelope requires approval. Nothing was verified; no task is complete. The receipt's `pendingDeviations` names each deviation by `deviationId`, and the stream carries one `deviation.proposed` per entry. **Human checkpoint**: present them. Then settle the **same** batch again with the decisions and **no claims** — the batch decided is the batch held, read back from its record:
 
-**Errors** (nothing adjudicated): `CAPSULE_NOT_PREPARED` — the version was never prepared here; `CAPSULE_DIGEST_MISMATCH` — a submitted capsule is not the recorded one; `CAPSULE_UNRESOLVED` — the recorded capsule cannot be applied (a task without verification terms: `prepare` again); `OPERATION_DIGEST_MISMATCH` — the batch id was already settled under different claims: use a new id; `INVALID_INPUT` — a claim the segment cannot be built from (typically no `worktreePath`), corrected under the **same** id.
+```typescript
+exarchos_orchestrate({
+  action: "settle",
+  featureId: "<featureId>",
+  capsuleVersion: <capsuleVersion>,
+  batchId: heldBatchId,            // the batch the held receipt names, not a new one
+  decisions: pendingDeviations.map(({ deviationId }) => ({
+    deviationId,
+    decision: "accepted",          // or "rejected"
+    actor: "human:<who decided>",
+    rationale: "<why>",
+  })),
+})
+```
+
+Every pending deviation is decided in that one call (`DECISION_INCOMPLETE` otherwise). `accepted` records the decision (`deviation.decided`) and verifies the work the deviation stood on: the batch settles, or is rejected on verification like any other. `rejected` records it and rejects the batch: revise the plan and `prepare` again (recording the revision as its own fact is the next slice of the divergence loop). A decision is recorded once — resubmitting it returns the verdict; a different decision on a decided batch is refused.
+
+**Errors** (nothing adjudicated): `CAPSULE_NOT_PREPARED` — the version was never prepared here; `CAPSULE_DIGEST_MISMATCH` — a submitted capsule is not the recorded one; `CAPSULE_UNRESOLVED` — the recorded capsule cannot be applied (a task without verification terms: `prepare` again); `OPERATION_DIGEST_MISMATCH` — the batch id was already settled under different claims, or decided under a different decision: use a new id, or the decision that stands; `BATCH_NOT_HELD` — decisions for a batch that was never settled, or is settled or rejected already: nothing waits on a decision; `DECISION_INCOMPLETE` — the decision answers fewer deviations than the batch waits on; `INVALID_INPUT` — a claim the segment cannot be built from (typically no `worktreePath`), corrected under the **same** id, or a decision that carries claims or names no pending deviation.
 
 
 ### Failure Recovery

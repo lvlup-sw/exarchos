@@ -77,7 +77,13 @@ import { runWithDispatchContext } from '../../dispatch/dispatch-context.js';
 import { OperationDigestMismatchError } from '../../events/atomic-appender.js';
 import { EXECUTION_SETTLED_SETTLEMENT, type BundleRefV1 } from '../../events/bundle/digest-references.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
-import { AdmissionEvidenceRecordedData, ExecutionSettledData } from '../../events/schemas.js';
+import {
+  AdmissionEvidenceRecordedData,
+  DeviationDecidedData,
+  DeviationProposedData,
+  ExecutionSettledData,
+  type ExecutionSettled,
+} from '../../events/schemas.js';
 import type { ToolResult } from '../../format.js';
 import { orchestrateLogger } from '../../logger.js';
 import { evidenceArtifactResolver } from '../../workflow/admission/evidence-artifact.js';
@@ -95,19 +101,34 @@ import {
   type TaskVerificationOutcome,
 } from './adjudicate.js';
 import {
+  decodeSettlementBundle,
   encodeSettlementBundle,
   settlementBundleArtifactId,
   SETTLEMENT_BUNDLE_KIND,
   SETTLEMENT_BUNDLE_VERSION,
 } from './settlement-bundle.js';
 import type {
+  PendingDeviation,
   SettledCapsuleIdentity,
+  SettlementDecision,
   SettlementReceipt,
   SettlementVerificationTrace,
 } from './types.js';
 
 /** The runbook every accepted task's verification is compiled from. */
 const TASK_COMPLETION_INTENT = 'task-completion';
+
+/** The divergence facts a settlement leaves, stamped from one place. */
+const DEVIATION_PROPOSED_TYPE = 'deviation.proposed';
+const DEVIATION_DECIDED_TYPE = 'deviation.decided';
+
+/**
+ * The round that decides a held batch's deviations. There is one, because a
+ * decision covers every deviation the batch waits on: a batch decided is
+ * settled or rejected, and a batch not yet decided is held, with nothing to
+ * record for the waiting.
+ */
+const DECISION_ROUND = 1;
 
 /**
  * What settlement is wired with. `execute` is the executor's own collaborator
@@ -147,13 +168,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * request digest instead: a submission reusing the key against different terms
  * has to meet the persisted claim and be refused, not mint a key of its own and
  * adjudicate the same batch a second time.
+ *
+ * The round that decides a held batch is its own claim on the same key, named
+ * by the round: the submission's claim is the verdict that held the batch, and
+ * the decision's claim is the verdict that closed it. The submitting round
+ * keeps the key every settlement so far was claimed under.
  */
-function settlementClaimKey(streamId: string, identity: SettledCapsuleIdentity): string {
+function settlementClaimKey(streamId: string, identity: SettledCapsuleIdentity, round = 0): string {
   const key = canonicalJson({
     streamId,
     workflowId: identity.workflowId,
     capsuleVersion: identity.capsuleVersion,
     batchId: identity.batchId,
+    ...(round > 0 ? { round } : {}),
   });
   return `settle:${createHash('sha256').update(key, 'utf8').digest('hex')}`;
 }
@@ -173,6 +200,105 @@ function requestDigestOf(
   deviations: readonly ProposedDeviation[],
 ): string {
   return canonicalRequestDigest({ streamId, identity, claims, deviations });
+}
+
+/** The decision round's replay comparison key: the decisions, over the same identity. */
+function decisionDigestOf(
+  streamId: string,
+  identity: SettledCapsuleIdentity,
+  decisions: readonly SettlementDecision[],
+): string {
+  return canonicalRequestDigest({ streamId, identity, round: DECISION_ROUND, decisions });
+}
+
+/**
+ * The id a deviation is proposed and decided under: derived from the batch it
+ * belongs to and its own content, so the decision round can name it without
+ * restating it, and the same deviation resubmitted in a new batch is a new
+ * proposal rather than a decided one.
+ */
+function deviationIdOf(identity: SettledCapsuleIdentity, deviation: ProposedDeviation): string {
+  const key = canonicalJson({
+    workflowId: identity.workflowId,
+    capsuleVersion: identity.capsuleVersion,
+    batchId: identity.batchId,
+    deviationKind: deviation.deviationKind,
+    statement: deviation.statement,
+  });
+  return `dev:${createHash('sha256').update(key, 'utf8').digest('hex').slice(0, 24)}`;
+}
+
+/** What a held batch waits on, as the decision round is asked to answer it. */
+function pendingDeviationsOf(
+  identity: SettledCapsuleIdentity,
+  deviations: readonly ProposedDeviation[],
+): PendingDeviation[] {
+  return deviations.map((deviation) => ({
+    deviationId: deviationIdOf(identity, deviation),
+    deviationKind: deviation.deviationKind,
+    statement: deviation.statement,
+  }));
+}
+
+type HeldBatchLookup =
+  | {
+      readonly kind: 'held';
+      readonly claims: SettlementClaim[];
+      readonly deviations: ProposedDeviation[];
+    }
+  | { readonly kind: 'not-settled' }
+  | { readonly kind: 'not-held'; readonly outcome: string };
+
+/**
+ * The batch a decision round adjudicates: the one the submitting round held,
+ * read back from the record it left and the bundle that record references.
+ * A decision carries no claims, so the claims decided are the claims held —
+ * nothing can be substituted under a decision. The submitting round's record
+ * is the one with no round; a later record for the batch is a decision
+ * already made, which the claim pre-flight has answered before this runs.
+ */
+async function heldBatch(
+  ctx: DispatchContext,
+  streamId: string,
+  identity: SettledCapsuleIdentity,
+  bundleStore?: RunBundleStore,
+): Promise<HeldBatchLookup> {
+  const rows = await ctx.eventStore.query(streamId, { type: EXECUTION_SETTLED_SETTLEMENT.type });
+  let record: ExecutionSettled | undefined;
+  for (const row of rows) {
+    const parsed = ExecutionSettledData.safeParse(row.data);
+    if (!parsed.success) continue;
+    const settled = parsed.data;
+    if (
+      settled.workflowId !== identity.workflowId ||
+      settled.capsuleVersion !== identity.capsuleVersion ||
+      settled.batchId !== identity.batchId ||
+      settled.round !== undefined
+    ) {
+      continue;
+    }
+    record = settled;
+  }
+  if (record === undefined) return { kind: 'not-settled' };
+  if (record.outcome !== 'deviation-pending') return { kind: 'not-held', outcome: record.outcome };
+  const ref = record.bundleRefs[0];
+  if (ref === undefined) {
+    throw new Error(
+      `the held record for batch '${identity.batchId}' of capsule v${identity.capsuleVersion} on ` +
+        `'${streamId}' references no bundle, so the batch it held cannot be read back`,
+    );
+  }
+  const bundles = bundleStore ?? ctx.eventStore.bundleStore;
+  const bundle = decodeSettlementBundle(await bundles.resolve(ref.digest));
+  return {
+    kind: 'held',
+    claims: bundle.claims.map((claim) => ({
+      taskId: claim.taskId,
+      fields: claim.fields,
+      evidence: claim.evidence,
+    })),
+    deviations: bundle.deviations,
+  };
 }
 
 function receiptResult(receipt: SettlementReceipt): ToolResult {
@@ -486,6 +612,31 @@ function readDeviations(raw: unknown): ProposedDeviation[] | string {
   return deviations;
 }
 
+/** Decisions as the request carries them, refused as a whole if any is malformed. */
+function readDecisions(raw: unknown): SettlementDecision[] | string {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) return 'decisions must be an array of { deviationId, decision, actor, rationale }';
+  const decisions: SettlementDecision[] = [];
+  const named = new Set<string>();
+  for (const [i, entry] of raw.entries()) {
+    if (!isRecord(entry)) return `decisions[${i}] must be an object`;
+    const deviationId = readString(entry, 'deviationId');
+    const actor = readString(entry, 'actor');
+    const rationale = readString(entry, 'rationale');
+    const decision = entry.decision;
+    if (deviationId === undefined || actor === undefined || rationale === undefined) {
+      return `decisions[${i}] requires deviationId, actor and rationale`;
+    }
+    if (decision !== 'accepted' && decision !== 'rejected') {
+      return `decisions[${i}].decision must be 'accepted' or 'rejected'`;
+    }
+    if (named.has(deviationId)) return `decisions[${i}] decides ${JSON.stringify(deviationId)} a second time`;
+    named.add(deviationId);
+    decisions.push({ deviationId, decision, actor, rationale });
+  }
+  return decisions;
+}
+
 export async function handleSettle(
   raw: Record<string, unknown>,
   stateDir: string,
@@ -596,16 +747,22 @@ export async function handleSettle(
     );
   }
 
-  const claims = readClaims(raw.claims);
-  if (typeof claims === 'string') return invalid(claims);
-  const deviations = readDeviations(raw.deviations);
-  if (typeof deviations === 'string') return invalid(deviations);
-
-  // Cited evidence is resolved once, here, and adjudicated as a predicate. Read
-  // before the claim pre-flight for the same reason the capsule is: it is an
-  // input to the verdict, not an effect.
-  const resolved = await resolvedEvidence(ctx, stateDir, streamId, claims);
-  const evidenceResolves = (evidence: SettlementEvidence): boolean => resolved.has(evidenceKey(evidence));
+  // A request carrying decisions is the round that decides a held batch. It
+  // carries the decisions and nothing else: the claims it decides are the
+  // ones the batch was held with, read back from the record below.
+  const decisions = readDecisions(raw.decisions);
+  if (typeof decisions === 'string') return invalid(decisions);
+  const deciding = decisions.length > 0;
+  if (deciding && (raw.claims !== undefined || raw.deviations !== undefined)) {
+    return invalid(
+      'a decision round carries decisions only: the claims and deviations it decides are the ' +
+        'ones the batch was held with, read back from its record',
+    );
+  }
+  const submittedClaims = deciding ? [] : readClaims(raw.claims);
+  if (typeof submittedClaims === 'string') return invalid(submittedClaims);
+  const submittedDeviations = deciding ? [] : readDeviations(raw.deviations);
+  if (typeof submittedDeviations === 'string') return invalid(submittedDeviations);
 
   const identity: SettledCapsuleIdentity = {
     workflowId: capsule.identity.workflowId,
@@ -614,8 +771,11 @@ export async function handleSettle(
     capsuleVersion: capsule.identity.capsuleVersion,
     batchId: batch.data,
   };
-  const operationId = settlementClaimKey(streamId, identity);
-  const requestDigest = requestDigestOf(streamId, identity, claims, deviations);
+  const round = deciding ? DECISION_ROUND : 0;
+  const operationId = settlementClaimKey(streamId, identity, round);
+  const requestDigest = deciding
+    ? decisionDigestOf(streamId, identity, decisions)
+    : requestDigestOf(streamId, identity, submittedClaims, submittedDeviations);
   const batchLabel = `batch '${identity.batchId}' of capsule v${identity.capsuleVersion}`;
 
   // Serialized per batch so a concurrent resubmission waits and then finds the
@@ -633,9 +793,12 @@ export async function handleSettle(
       if (claim.requestDigest !== requestDigest) {
         return refused(
           'OPERATION_DIGEST_MISMATCH',
-          `${batchLabel} is already settled under a different request. Nothing was ` +
-            'adjudicated. Resubmitting the same batch returns its verdict; a correction goes ' +
-            'back under a new batchId.',
+          deciding
+            ? `${batchLabel} was already decided, under a different decision. Nothing was ` +
+                'adjudicated; the decision that stands is returned by resubmitting it.'
+            : `${batchLabel} is already settled under a different request. Nothing was ` +
+                'adjudicated. Resubmitting the same batch returns its verdict; a correction goes ' +
+                'back under a new batchId.',
         );
       }
       // A settled batch's replay brings the document level with the facts
@@ -655,10 +818,63 @@ export async function handleSettle(
       return receiptResult(claim.result);
     }
 
+    let claims: SettlementClaim[] = submittedClaims;
+    let deviations: ProposedDeviation[] = submittedDeviations;
+    if (deciding) {
+      const held = await heldBatch(ctx, streamId, identity, deps.bundleStore);
+      if (held.kind === 'not-settled') {
+        return refused(
+          'BATCH_NOT_HELD',
+          `${batchLabel} has not been settled, so there is nothing to decide. A decision ` +
+            'follows a submission the settlement held for a deviation; submit the batch first.',
+        );
+      }
+      if (held.kind === 'not-held') {
+        return refused(
+          'BATCH_NOT_HELD',
+          `${batchLabel} is ${held.outcome}, not held, so there is no deviation to decide. ` +
+            'A correction goes back under a new batchId.',
+        );
+      }
+      claims = held.claims;
+      deviations = held.deviations;
+      // The decision answers what the batch waits on: every pending deviation,
+      // by the id the held receipt named, and nothing the batch never proposed.
+      const pending = new Map(pendingDeviationsOf(identity, deviations).map((p) => [p.deviationId, p]));
+      const unknown = decisions.filter((decision) => !pending.has(decision.deviationId));
+      if (unknown.length > 0) {
+        return invalid(
+          `decisions name no pending deviation of ${batchLabel}: ` +
+            `${unknown.map((decision) => JSON.stringify(decision.deviationId)).join(', ')}. ` +
+            "The held receipt's pendingDeviations lists the ids a decision can answer.",
+        );
+      }
+      const undecided = [...pending.keys()].filter(
+        (deviationId) => !decisions.some((decision) => decision.deviationId === deviationId),
+      );
+      if (undecided.length > 0) {
+        return refused(
+          'DECISION_INCOMPLETE',
+          `${batchLabel} waits on ${pending.size} deviation(s) and the decision answers ` +
+            `${decisions.length}; undecided: ${undecided.map((id) => JSON.stringify(id)).join(', ')}. ` +
+            'A decision covers every pending deviation; decide them together.',
+        );
+      }
+    }
+    const decidedOf = new Map(decisions.map((decision) => [decision.deviationId, decision.decision]));
+    const decided = (deviation: ProposedDeviation): 'accepted' | 'rejected' | undefined =>
+      decidedOf.get(deviationIdOf(identity, deviation));
+
+    // Cited evidence is resolved once, here, and adjudicated as a predicate: an
+    // input to the verdict, not an effect, read after the pre-flight because a
+    // replay needs none of it.
+    const resolved = await resolvedEvidence(ctx, stateDir, streamId, claims);
+    const evidenceResolves = (evidence: SettlementEvidence): boolean => resolved.has(evidenceKey(evidence));
+
     // The shape pass: is every claim one the capsule admits? Only a batch this
     // pass would settle is verified; a batch it refuses or holds is recorded
     // as such, with nothing run, so the caller sees the findings first.
-    const shape = adjudicateSettlement(capsule, claims, deviations, { evidenceResolves });
+    const shape = adjudicateSettlement(capsule, claims, deviations, { evidenceResolves, decided });
     let verdict = shape;
     const traces: SettlementVerificationTrace[] = [];
 
@@ -719,7 +935,11 @@ export async function handleSettle(
       // The final pass: the same adjudication, now with every accepted claim's
       // verification beside it. A halted segment is a finding; the accepted
       // set is what passed both.
-      verdict = adjudicateSettlement(capsule, claims, deviations, { evidenceResolves, verification: outcomes });
+      verdict = adjudicateSettlement(capsule, claims, deviations, {
+        evidenceResolves,
+        decided,
+        verification: outcomes,
+      });
     }
 
     const settledAt = new Date().toISOString();
@@ -736,6 +956,8 @@ export async function handleSettle(
       findings: [...verdict.findings],
       claims: claims.map((c) => ({ taskId: c.taskId, fields: c.fields, evidence: [...c.evidence] })),
       deviations: [...deviations],
+      decisions: [...decisions],
+      ...(round > 0 ? { round } : {}),
       adjudicated: verdict.adjudicated,
       // The bundle schema types the reference list as the plain array it
       // parses to; the trace holds the executor's readonly tuple.
@@ -769,6 +991,7 @@ export async function handleSettle(
         batchId: identity.batchId,
         definitionVersion: identity.definitionVersion,
         outcome: verdict.outcome,
+        ...(round > 0 ? { round } : {}),
         acceptedTasks: verdict.acceptedTasks,
         findingCounts,
         adjudicated: verdict.adjudicated,
@@ -791,12 +1014,42 @@ export async function handleSettle(
         // the literal bought nothing and cost the constant's guarantee. The
         // invisibility is covered by an allowance row instead, which is the
         // same route `orchestrate.intent_executed` takes for the same reason.
-        const event = stampFromAmbient({
+        const record = stampFromAmbient({
           type: EXECUTION_SETTLED_SETTLEMENT.type,
           data,
           timestamp: settledAt,
           schemaVersion: EXECUTION_SETTLED_SETTLEMENT.custodyFromSchemaVersion,
         });
+        // A held batch leaves what it waits on, one proposal per deviation,
+        // ahead of the record that holds it; a decision round leaves one
+        // decision per proposal ahead of the record that closes it. The
+        // record is last on either round, so its sequence is the receipt's
+        // tail. Only the submitting round proposes: a decision names
+        // proposals, it does not make them.
+        const pending = verdict.outcome === 'deviation-pending' && !deciding
+          ? pendingDeviationsOf(identity, deviations)
+          : [];
+        const settlement = {
+          operationId,
+          workflowId: identity.workflowId,
+          capsuleVersion: identity.capsuleVersion,
+          batchId: identity.batchId,
+        };
+        const proposals = pending.map((proposal) =>
+          stampFromAmbient({
+            type: DEVIATION_PROPOSED_TYPE,
+            data: DeviationProposedData.parse({ ...settlement, ...proposal }),
+            timestamp: settledAt,
+          }),
+        );
+        const decidedRows = decisions.map((decision) =>
+          stampFromAmbient({
+            type: DEVIATION_DECIDED_TYPE,
+            data: DeviationDecidedData.parse({ ...settlement, ...decision }),
+            timestamp: settledAt,
+          }),
+        );
+        const events = [...proposals, ...decidedRows, record];
 
         try {
           // `decideOnce` RETURNS the claim's canonical result, which on a race is
@@ -812,19 +1065,22 @@ export async function handleSettle(
               const snapshot = tx.readStream(streamId);
               return {
                 streamId,
-                events: [event],
+                events,
                 result: {
                   operationId,
                   streamId,
                   capsule: identity,
                   outcome: verdict.outcome,
+                  round,
                   acceptedTasks: verdict.acceptedTasks,
                   findings: verdict.findings,
                   adjudicated: verdict.adjudicated,
                   requestDigest,
-                  tailSequence: snapshot.version + 1,
+                  tailSequence: snapshot.version + events.length,
                   verification: traces,
                   bundleRefs: [ref],
+                  ...(pending.length > 0 ? { pendingDeviations: pending } : {}),
+                  ...(deciding ? { decisions } : {}),
                 },
               };
             });
