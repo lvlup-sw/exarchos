@@ -98,11 +98,13 @@ describe('ManifestSet_EveryTrackedPackageJson_IsClassifiedRetainedOrRetired', ()
    * never fires reads as green.
    */
   it('a retired package leaves no CI paths-filter behind', () => {
-    const ci = readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8');
+    const lanes = readFileSync(path.join(REPO_ROOT, '.github/ci-lanes.toml'), 'utf8');
     for (const [manifest, meta] of Object.entries(DECLARED_PACKAGES)) {
       if (meta.disposition !== 'retired') continue;
       const dir = path.dirname(manifest);
-      expect(ci, `${manifest} is retired but ci.yml still filters on ${dir}`).not.toContain(dir);
+      expect(lanes, `${manifest} is retired but ci-lanes.toml still filters on ${dir}`).not.toContain(
+        dir,
+      );
     }
   });
 
@@ -115,8 +117,8 @@ describe('ManifestSet_EveryTrackedPackageJson_IsClassifiedRetainedOrRetired', ()
   it('evals-pkg is retained, and the CI filter that depends on it still exists', () => {
     const meta = DECLARED_PACKAGES['tools/evals-pkg/package.json'];
     expect(meta?.disposition).toBe('retained');
-    const ci = readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8');
-    expect(ci).toContain('tools/evals-pkg/**');
+    const lanes = readFileSync(path.join(REPO_ROOT, '.github/ci-lanes.toml'), 'utf8');
+    expect(lanes).toContain('tools/evals-pkg/**');
 
     const manifest = JSON.parse(
       readFileSync(path.join(REPO_ROOT, 'tools/evals-pkg/package.json'), 'utf8'),

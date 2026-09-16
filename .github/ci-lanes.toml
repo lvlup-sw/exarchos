@@ -1,0 +1,73 @@
+schema_version = 1
+
+# Root package tests (Linux + Windows). Globs match the former dorny `root`
+# filter, including the DR-22 projection roots a docs-only PR must not skip.
+[lanes.root]
+workflows = ["ci.yml"]
+description = "Root package tests (Linux + Windows)"
+paths = [
+  "src/**",
+  "tests/**",
+  "content/**",
+  "content/harness/runtimes/**",
+  "rendered/**",
+  "hooks/**",
+  "content/harness/hooks/**",
+  "binding/**",
+  "content/harness/binding/**",
+  ".claude-plugin/**",
+  "src/runtime/agents/**",
+  "AGENTS.md",
+  "package.json",
+  "package-lock.json",
+  "tsconfig.json",
+  ".github/workflows/release.yml",
+  "tools/**",
+  ".github/CODEOWNERS",
+  "knip.json",
+  ".exarchos/**",
+  "manifest.json",
+  "eslint.config.js",
+  "CLAUDE.md",
+  ".claude/**",
+  ".agents/**",
+]
+
+# MCP server tests (Linux + Windows). Former `mcp` filter plus former `prompts`
+# paths, so test-mcp belongs to exactly one lane. RUN_EVALS is always on when
+# this job runs.
+[lanes.mcp]
+workflows = ["ci.yml"]
+description = "MCP server tests (Linux + Windows), including eval sources"
+paths = [
+  "src/**",
+  "tests/**",
+  "tools/**",
+  "tools/test-helpers/**",
+  "vitest.config.ts",
+  "package.json",
+  "package-lock.json",
+  "content/**",
+  "rendered/**",
+  "tests/evals/**",
+  "tools/evals/evals/**",
+  "tools/evals-pkg/**",
+  "src/workflow/playbooks.ts",
+]
+
+# Always-on jobs that CI Gate still aggregates. `**` keeps the lane true on
+# virtually every PR (including README.md / docs) so a skip cannot hide a
+# failure of validate-no-legacy, manifest-gate, grep-gates, or outcome-tests.
+[lanes.always]
+workflows = ["ci.yml"]
+description = "Jobs CI Gate must still aggregate on every PR"
+paths = ["**"]
+
+[gates.ci-gate]
+workflow = "ci.yml"
+jobs = { test-root = "root", test-windows-root = "root", test-mcp = "mcp", test-windows = "mcp", validate-no-legacy = "always", manifest-gate = "always", grep-gates = "always", outcome-tests = "always" }
+
+[[fixtures]]
+name = "docs-only"
+files = ["README.md"]
+expect = { root = false, mcp = false, always = true }

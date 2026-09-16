@@ -2,28 +2,26 @@
  * Conformance tests for the CI topology in `.github/workflows/ci.yml`. They parse
  * the workflow with `js-yaml`.
  *
- *   1. Path filters and hosts. The `changes` filters must cover the projection
- *      roots, and `ci-gate` dependencies must run the `core` and `unit` projects.
+ *   1. Path filters and hosts. The lane globs in `.github/ci-lanes.toml` must cover
+ *      the projection roots, and `ci-gate` dependencies must run the `core` and
+ *      `unit` projects.
  *   2. Completeness. Each top-level job is in `ci-gate.needs` or in the
  *      non-blocking allowlist. A job outside `ci-gate.needs` can never fail a PR.
- *   3. Execution policy. The tests run the `Evaluate results` script of the
- *      aggregator verbatim on synthetic `needs` contexts and check its exit status.
+ *   3. Execution policy. `ci-gate` is the verdict job of the org `ci-lanes` action.
+ *      The manifest and the `if:` text of each job hold the skip licences.
  *
- * Execution replaces text matching on the script. A script that lost a guard
- * exits 0 on a context that it must reject. A comment or an `echo` cannot stand
- * in for the guard.
- * `globMatches` comes from the guard inventory, so both read the workflow globs
- * the same way.
- * The `grep-gates` lane has no path filter and also runs this file. A PR that
- * the `root` filter does not match thus still runs these tests.
+ * The `check` mode of the action proves on each PR that the manifest and the
+ * workflow agree, so these tests pin only the wiring.
+ * The guard inventory supplies the glob and lane readers, so both read the same way.
+ * The `grep-gates` job is on lane `always`, so a PR outside lane `root` still runs this file.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
-import { globMatches } from '../../tools/audit/gates/guard-inventory.js';
-import { execFileAsync, spawnAsync } from '../../tools/test-helpers/spawn.js';
+import { globMatches, pathFilterGlobs, pathFilterKeys } from '../../tools/audit/gates/guard-inventory.js';
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -33,9 +31,10 @@ const FIXTURES_DIR = join(__dirname, '__fixtures__', 'ci-topology');
 
 /** The aggregator job. The completeness scan skips it, because it cannot be in its own `needs:` list. */
 const AGGREGATOR_JOB = 'ci-gate';
-
-/** The aggregator step whose script the tests run. */
-const EVALUATE_STEP_NAME = 'Evaluate results';
+/** The job that computes the lanes. Each targeted job needs it. */
+const PLANNER_JOB = 'plan';
+/** The org action that plans the lanes, gives the verdict and checks the manifest. */
+const CI_LANES_ACTION = 'lvlup-sw/.github/actions/ci-lanes@v1';
 
 interface WorkflowStep {
   readonly name?: string;
@@ -52,6 +51,7 @@ interface WorkflowJob {
   readonly if?: string;
   readonly 'runs-on'?: string;
   readonly steps?: readonly WorkflowStep[];
+  readonly outputs?: Record<string, string>;
 }
 
 interface Workflow {
@@ -80,6 +80,11 @@ const NON_BLOCKING_ALLOWLIST: Record<string, AllowlistEntry> = {
       'Release-lane compile evidence, not a per-PR gate (standing reason the --minify A/B was dropped).',
     issue: '#1703',
   },
+  'lanes-check': {
+    rationale:
+      'Org ci-lanes contract check (mode: check). Failure fails the workflow run; it is not part of the required CI Gate aggregator because the gate may only cover jobs that need the planner.',
+    issue: '#1921',
+  },
 };
 
 function loadWorkflow(filePath: string): Workflow {
@@ -98,25 +103,6 @@ function loadWorkflow(filePath: string): Workflow {
 function needsList(job: WorkflowJob | undefined): string[] {
   if (!job || !job.needs) return [];
   return typeof job.needs === 'string' ? [job.needs] : [...job.needs];
-}
-
-/**
- * Returns the evaluate step of the aggregator, with its script and its `env:` block.
- * Without a step of that name, it returns the first step that has a `run` script.
- */
-function evaluateStep(workflow: Workflow): WorkflowStep {
-  const gate = workflow.jobs[AGGREGATOR_JOB];
-  if (!gate) {
-    throw new Error(`aggregator job "${AGGREGATOR_JOB}" not found in workflow`);
-  }
-  const steps = gate.steps ?? [];
-  const step =
-    steps.find((s) => s.name === EVALUATE_STEP_NAME && typeof s.run === 'string') ??
-    steps.find((s) => typeof s.run === 'string');
-  if (!step?.run) {
-    throw new Error(`aggregator job "${AGGREGATOR_JOB}" has no step with a "run" script`);
-  }
-  return step;
 }
 
 interface CheckResult {
@@ -139,204 +125,9 @@ function checkCompleteness(workflow: Workflow): CheckResult {
 }
 
 /**
- * Returns the `changes` output keys that gate a job. It reads each
- * `needs.changes.outputs.<key>` in the raw `if:` text, and uses no hardcoded
- * table of jobs and keys.
- */
-function pathFilterKeys(job: WorkflowJob | undefined): string[] {
-  const ifText = job?.if ?? '';
-  const pattern = /needs\.changes\.outputs\.([A-Za-z0-9_-]+)/g;
-  const keys = new Set<string>();
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(ifText)) !== null) {
-    keys.add(match[1] as string);
-  }
-  return [...keys];
-}
-
-/**
- * Parses the `LICENSED_SKIPS` declaration of the aggregator into a map from lane
- * to `changes` output key. The `lane=key` entries name the only lanes that can
- * report `skipped`. Each other lane is strict: a skip is a failure.
- */
-function declaredLicensedSkips(step: WorkflowStep): Map<string, string> {
-  const raw = step.env?.LICENSED_SKIPS;
-  const map = new Map<string, string>();
-  if (typeof raw !== 'string') return map;
-  for (const line of raw.split('\n')) {
-    const entry = line.replace(/#.*$/, '').replace(/\s+/g, '');
-    if (entry === '') continue;
-    const eq = entry.indexOf('=');
-    if (eq <= 0) continue;
-    map.set(entry.slice(0, eq), entry.slice(eq + 1));
-  }
-  return map;
-}
-
-/**
- * Derives the same map from the `if:` expression of each lane. A lane that gates
- * on `needs.changes.outputs.<key>` can skip when that key is not 'true'. A lane
- * with no gate cannot skip.
- * `multiKeyLanes` collects each lane that gates on more than one key. The
- * `lane=key` format cannot express such a lane, so the conformance test fails.
- */
-function derivedLicensedSkips(workflow: Workflow): {
-  map: Map<string, string>;
-  multiKeyLanes: string[];
-} {
-  const map = new Map<string, string>();
-  const multiKeyLanes: string[] = [];
-  for (const lane of needsList(workflow.jobs[AGGREGATOR_JOB])) {
-    if (lane === AGGREGATOR_JOB) continue;
-    const keys = pathFilterKeys(workflow.jobs[lane]);
-    if (keys.length === 0) continue;
-    if (keys.length > 1) {
-      multiKeyLanes.push(`${lane} (keys: ${keys.join(', ')})`);
-      continue;
-    }
-    map.set(lane, keys[0] as string);
-  }
-  return { map, multiKeyLanes };
-}
-
-/**
- * Returns whether the declared map equals the derived map. The declaration is
- * data and can drift from the path filters, so the `if:` text stays the source.
- * The live check and the path-filter kill test both call this one comparison.
- */
-function licensedSkipsMatchPathFilters(workflow: Workflow, step: WorkflowStep): boolean {
-  const { map: derived, multiKeyLanes } = derivedLicensedSkips(workflow);
-  if (multiKeyLanes.length > 0) return false;
-  const flatten = (m: Map<string, string>): string =>
-    [...m.entries()]
-      .map(([lane, key]) => `${lane}=${key}`)
-      .sort()
-      .join('|');
-  return flatten(declaredLicensedSkips(step)) === flatten(derived);
-}
-
-/** A synthetic `needs` context, in the shape that `toJSON(needs)` gives the aggregator. */
-type NeedsContext = Record<string, { result: string; outputs?: Record<string, string> }>;
-
-/** Returns each `changes` output key that a lane gates on, set to 'true', as for a PR that touches each area. */
-function changesOutputsAllTrue(workflow: Workflow): Record<string, string> {
-  const outputs: Record<string, string> = {};
-  for (const lane of needsList(workflow.jobs[AGGREGATOR_JOB])) {
-    for (const key of pathFilterKeys(workflow.jobs[lane])) outputs[key] = 'true';
-  }
-  return outputs;
-}
-
-/**
- * Builds a green `needs` context and then applies the overrides. In a green
- * context each lane is `success` and each gated `changes` output is 'true'.
- * The lanes come from the `needs:` list of the workflow, so the cases pin no
- * copy of the lane names.
- */
-function synthesizeNeeds(
-  workflow: Workflow,
-  overrides: {
-    results?: Record<string, string>;
-    changesOutputs?: Record<string, string>;
-    /** The keys to remove from `changes.outputs`, as a rename or a deletion upstream does. */
-    dropChangesOutputs?: readonly string[];
-    extraLanes?: Record<string, string>;
-  } = {},
-): NeedsContext {
-  const context: NeedsContext = {};
-  for (const lane of needsList(workflow.jobs[AGGREGATOR_JOB])) {
-    context[lane] = { result: 'success', outputs: {} };
-  }
-  const changes = context['changes'];
-  if (changes) {
-    changes.outputs = { ...changesOutputsAllTrue(workflow), ...(overrides.changesOutputs ?? {}) };
-    for (const key of overrides.dropChangesOutputs ?? []) {
-      delete changes.outputs[key];
-    }
-  }
-  for (const [lane, result] of Object.entries(overrides.results ?? {})) {
-    context[lane] = { ...(context[lane] ?? { outputs: {} }), result };
-  }
-  for (const [lane, result] of Object.entries(overrides.extraLanes ?? {})) {
-    context[lane] = { result, outputs: {} };
-  }
-  return context;
-}
-
-interface AggregatorRun {
-  status: number;
-  output: string;
-}
-
-/**
- * Runs the shipped script of the aggregator verbatim on a synthetic `needs`
- * context. So the script must hold no `${{ }}` interpolation, and must take each
- * GitHub value through `env:`.
- */
-async function runAggregator(
-  workflow: Workflow,
-  needs: NeedsContext | string,
-  licensedSkipsOverride?: string,
-): Promise<AggregatorRun> {
-  const step = evaluateStep(workflow);
-  const licensed = licensedSkipsOverride ?? String(step.env?.LICENSED_SKIPS ?? '');
-  const result = await spawnAsync('bash', ['-c', step.run as string], {
-    env: {
-      ...process.env,
-      NEEDS_JSON: typeof needs === 'string' ? needs : JSON.stringify(needs),
-      LICENSED_SKIPS: licensed,
-    },
-  });
-  if (result.error) throw result.error;
-  return {
-    status: result.status ?? -1,
-    output: `${result.stdout ?? ''}${result.stderr ?? ''}`,
-  };
-}
-
-const PATHS_FILTER_JOB = 'changes';
-
-/**
- * Returns the filters of the `dorny/paths-filter` step. `with.filters` is one
- * YAML block scalar, so the first `js-yaml` pass leaves it as a string. This
- * function parses that string as YAML, so the tests read the real glob arrays.
- */
-function getPathsFilters(workflow: Workflow): Record<string, unknown> {
-  const job = workflow.jobs[PATHS_FILTER_JOB];
-  if (!job) {
-    throw new Error(`"${PATHS_FILTER_JOB}" job not found in workflow`);
-  }
-  const steps = job.steps ?? [];
-  const filterStep = steps.find(
-    (s) => typeof s.uses === 'string' && s.uses.startsWith('dorny/paths-filter'),
-  );
-  if (!filterStep) {
-    throw new Error(`"${PATHS_FILTER_JOB}" job has no "dorny/paths-filter" step`);
-  }
-  const filtersRaw = filterStep.with?.filters;
-  if (typeof filtersRaw !== 'string') {
-    throw new Error(
-      `"${PATHS_FILTER_JOB}" job's paths-filter step has no string "with.filters"`,
-    );
-  }
-  const parsed = yaml.load(filtersRaw);
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error(`"${PATHS_FILTER_JOB}" job's "with.filters" did not parse to an object`);
-  }
-  return parsed as Record<string, unknown>;
-}
-
-/** Returns the globs of one named filter, such as `root`. An absent or malformed filter gives `[]`. */
-function filterGlobs(filters: Record<string, unknown>, filterName: string): string[] {
-  const value = filters[filterName];
-  if (!Array.isArray(value)) return [];
-  return value.filter((v): v is string => typeof v === 'string');
-}
-
-/**
- * The globs that the `root` path filter must hold. Without one of them, a PR
- * that changes only that path does not set `needs.changes.outputs.root` to
- * 'true'. Then `test-root` and the drift guards that it hosts do not run.
+ * The globs that lane `root` must hold. Without one of them, a PR that changes
+ * only that path does not set lane `root`. Then `test-root` and the drift guards
+ * that it hosts do not run.
  */
 const REQUIRED_ROOT_PROJECTION_GLOBS = [
   /** The generated tree that holds the agents, command aliases, commands, rules and skills. */
@@ -435,11 +226,11 @@ function isUnitProjectScript(scripts: Record<string, string>, name: string, hops
 describe('CI path-filter & guard coverage (DR-22)', () => {
   it('Filters_RootFilter_IncludesProjectionRootGlobs', () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const filters = getPathsFilters(workflow);
-    const rootGlobs = filterGlobs(filters, 'root');
+    const filters = pathFilterGlobs(workflow);
+    const rootGlobs = filters.root ?? [];
 
     const missing = REQUIRED_ROOT_PROJECTION_GLOBS.filter((glob) => !rootGlobs.includes(glob));
-    expect(missing, `changes.root filter missing required glob(s): ${missing.join(', ')}`).toEqual(
+    expect(missing, `lane root missing required glob(s): ${missing.join(', ')}`).toEqual(
       [],
     );
   });
@@ -453,15 +244,15 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
    */
   it('Filters_EveryGlob_MatchesAtLeastOneTrackedFile', async () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const filters = getPathsFilters(workflow);
+    const filters = pathFilterGlobs(workflow);
     const tracked = (await execFileAsync('git', ['ls-files'], { cwd: REPO_ROOT }))
       .split('\n')
       .filter(Boolean);
 
     const dead: string[] = [];
     let checked = 0;
-    for (const name of Object.keys(filters)) {
-      for (const glob of filterGlobs(filters, name)) {
+    for (const [name, globs] of Object.entries(filters)) {
+      for (const glob of globs) {
         if (glob.startsWith('!')) continue;
         checked += 1;
         if (!tracked.some((f) => globMatches(glob, f))) dead.push(`${name}: ${glob}`);
@@ -607,9 +398,8 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
 
   /**
    * `hooks:guard` is an alias of `render:guard`. A CI job must run
-   * `npm run render:guard`, and each such job must gate on the `root` output of
-   * `changes`. The `root` filter holds the projection roots, so the guard then
-   * runs on a PR that changes one of them.
+   * `npm run render:guard`, and each such job must gate on lane `root`. Lane `root`
+   * holds the projection roots, so the guard then runs on a PR that changes one of them.
    */
   it('Guards_HooksGuardRunsInCI_AndIsRootFiltered', () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
@@ -666,69 +456,86 @@ describe('CI-topology conformance (DR-2)', () => {
   });
 });
 
-/**
- * The tests that do not run the script are structural preconditions for the
- * tests that run it. The script must run outside GitHub, its lane list must be
- * the `needs` context itself, and its skip licences must match the path filters.
- */
 describe('CI-gate execution policy (DR-10)', () => {
-  /**
-   * GitHub substitutes a `${{ }}` in the script body before bash reads it. These
-   * tests cannot run such a script, and the substitution is a shell-injection surface.
-   */
-  it('Aggregator_EvaluateScript_TakesEveryGitHubValueThroughEnv', () => {
+  it('Aggregator_IsTheOrgCiLanesVerdict', () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const step = evaluateStep(workflow);
-    expect(
-      (step.run as string).includes('${{'),
-      'the evaluate script interpolates ${{ }}; move that value into the step\'s env: block so the script stays executable verbatim',
-    ).toBe(false);
-  });
+    const gate = workflow.jobs[AGGREGATOR_JOB];
+    expect(gate, 'ci-gate job missing').toBeDefined();
+    expect(String(gate?.if ?? '').trim()).toMatch(/^(?:\$\{\{\s*)?always\(\)(?:\s*\}\})?$/);
 
-  /**
-   * With `toJSON(needs)`, a lane that joins `needs:` appears in the context with
-   * no edit to the policy. So the policy cannot omit a lane.
-   */
-  it('Aggregator_LaneList_IsTheNeedsContextItself', () => {
-    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const step = evaluateStep(workflow);
-    expect(String(step.env?.NEEDS_JSON ?? '').trim()).toBe('${{ toJSON(needs) }}');
-  });
-
-  /** The size check stops a vacuous pass when both maps are empty, as when each path filter is gone. */
-  it('Aggregator_LicensedSkips_RestateThePathFiltersExactly', () => {
-    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const step = evaluateStep(workflow);
-    const declared = declaredLicensedSkips(step);
-    const { map: derived, multiKeyLanes } = derivedLicensedSkips(workflow);
-
-    expect(
-      multiKeyLanes,
-      'lane(s) gate on multiple changes.outputs keys; the LICENSED_SKIPS "lane=key" format cannot express that',
-    ).toEqual([]);
-
-    expect(derived.size, 'no path-filtered lane found — the comparison below would be vacuous').toBeGreaterThan(0);
-
-    const asSorted = (m: Map<string, string>): string[] =>
-      [...m.entries()].map(([lane, key]) => `${lane}=${key}`).sort();
-    expect(asSorted(declared), 'LICENSED_SKIPS does not match the lanes\' own if: expressions').toEqual(
-      asSorted(derived),
+    const step = (gate?.steps ?? []).find(
+      (s) => typeof s.uses === 'string' && s.uses === CI_LANES_ACTION,
     );
-    expect(licensedSkipsMatchPathFilters(workflow, step)).toBe(true);
+    expect(step, 'ci-gate must run ci-lanes@v1').toBeDefined();
+    expect(step?.with?.mode).toBe('verdict');
+    expect(step?.with?.gate).toBe(AGGREGATOR_JOB);
+    expect(String(step?.with?.needs ?? '').trim()).toBe('${{ toJSON(needs) }}');
+    expect(step?.['continue-on-error']).toBeUndefined();
+  });
+
+  it('Aggregator_NeedsPlannerPlusMappedJobs', () => {
+    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
+    const needs = needsList(workflow.jobs[AGGREGATOR_JOB]);
+    expect(needs).toEqual(
+      expect.arrayContaining([
+        PLANNER_JOB,
+        'test-root',
+        'test-mcp',
+        'test-windows',
+        'test-windows-root',
+        'validate-no-legacy',
+        'manifest-gate',
+        'grep-gates',
+        'outcome-tests',
+      ]),
+    );
+    expect(needs).toHaveLength(9);
+  });
+
+  it('Planner_IsUnconditionalFullHistoryPlan', () => {
+    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
+    const plan = workflow.jobs[PLANNER_JOB];
+    expect(plan, 'planner job missing').toBeDefined();
+    expect(plan?.if, 'planner must not be conditional').toBeUndefined();
+    const checkout = (plan?.steps ?? []).find(
+      (s) => typeof s.uses === 'string' && s.uses.startsWith('actions/checkout@'),
+    );
+    expect(checkout?.with?.['fetch-depth']).toBe(0);
+    const lanes = plan?.outputs?.lanes;
+    expect(String(lanes ?? '').trim()).toBe('${{ steps.plan.outputs.lanes }}');
+  });
+
+  it('TargetedJobs_CarryTheCanonicalSkip', () => {
+    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
+    const expected = (lane: string): string =>
+      `\${{ always() && (needs.${PLANNER_JOB}.result != 'success' || fromJSON(needs.${PLANNER_JOB}.outputs.lanes).${lane} != 'false') }}`;
+    const mapped: Record<string, string> = {
+      'test-root': 'root',
+      'test-windows-root': 'root',
+      'test-mcp': 'mcp',
+      'test-windows': 'mcp',
+      'validate-no-legacy': 'always',
+      'manifest-gate': 'always',
+      'grep-gates': 'always',
+      'outcome-tests': 'always',
+    };
+    for (const [jobName, lane] of Object.entries(mapped)) {
+      const job = workflow.jobs[jobName];
+      expect(needsList(job), `${jobName} must need ${PLANNER_JOB}`).toContain(PLANNER_JOB);
+      expect(String(job?.if ?? '').trim(), `${jobName} skip expression`).toBe(expected(lane));
+    }
   });
 
   /**
-   * A path filter on `grep-gates` makes the host lane of the enforcement gates
-   * skippable. The derived map picks up the new filter, the declaration does not
-   * restate it, and the conformance check fails until someone declares the licence.
-   * `Aggregator_GrepGatesSkipped_Reddens` covers the skip at run time. This check fails earlier.
+   * `grep-gates` is on lane `always`, which `pathFilterKeys` reads as unfiltered.
+   * A narrowing `root` key on that job must show in its keys. Without that, the host
+   * of the enforcement gates can skip on the PRs that it polices, and the skip reads as passed.
    */
-  it('Aggregator_LaneGainsAPathFilterWithoutALicence_Reddens', () => {
+  it('Aggregator_LaneGainsANarrowingFilter_IsDetected', () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const step = evaluateStep(workflow);
     const grepGates = workflow.jobs['grep-gates'];
     expect(grepGates, 'grep-gates lane not found').toBeDefined();
-    expect(pathFilterKeys(grepGates), 'grep-gates already has a path filter').toEqual([]);
+    expect(pathFilterKeys(grepGates), 'grep-gates already has a narrowing path filter').toEqual([]);
 
     const withFilter: Workflow = {
       ...workflow,
@@ -736,178 +543,11 @@ describe('CI-gate execution policy (DR-10)', () => {
         ...workflow.jobs,
         'grep-gates': {
           ...grepGates,
-          if: `${grepGates?.if ?? ''} && needs.changes.outputs.root == 'true'`,
+          if: `${grepGates?.if ?? ''} && fromJSON(needs.plan.outputs.lanes).root != 'false'`,
         },
       },
     };
 
-    expect(derivedLicensedSkips(withFilter).map.get('grep-gates')).toBe('root');
-    expect(
-      licensedSkipsMatchPathFilters(withFilter, step),
-      'a path filter was added to grep-gates and the conformance check still passed',
-    ).toBe(false);
-  });
-
-  it('Aggregator_AllLanesSucceed_Passes', async () => {
-    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const run = await runAggregator(workflow, synthesizeNeeds(workflow));
-    expect(run.status, run.output).toBe(0);
-  });
-
-  /** The lanes come from the real `needs:` list. The exit status is the proof, not a text match on the script. */
-  it('Aggregator_AnyLaneFailingOrCancelled_Reddens', async () => {
-    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const lanes = needsList(workflow.jobs[AGGREGATOR_JOB]);
-    expect(lanes.length).toBeGreaterThan(0);
-
-    for (const lane of lanes) {
-      for (const result of ['failure', 'cancelled']) {
-        const run = await runAggregator(workflow, synthesizeNeeds(workflow, { results: { [lane]: result } }));
-        expect(run.status, `lane "${lane}" reporting "${result}" did not fail the gate:\n${run.output}`).not.toBe(0);
-        expect(run.output).toContain(lane);
-      }
-    }
-  });
-
-  /** Each lane with no declared licence must fail the gate when it reports `skipped`. */
-  it('Aggregator_UnlicensedLaneSkipped_Reddens', async () => {
-    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const licensed = declaredLicensedSkips(evaluateStep(workflow));
-    const unlicensed = needsList(workflow.jobs[AGGREGATOR_JOB]).filter((l) => !licensed.has(l));
-    expect(unlicensed.length, 'expected at least one lane with no licensed skip').toBeGreaterThan(0);
-
-    for (const lane of unlicensed) {
-      const run = await runAggregator(workflow, synthesizeNeeds(workflow, { results: { [lane]: 'skipped' } }));
-      expect(run.status, `skipped lane "${lane}" was treated as passing:\n${run.output}`).not.toBe(0);
-      expect(run.output).toContain(lane);
-    }
-  });
-
-  /**
-   * The derived loop above covers `grep-gates`, and this test names the lane
-   * explicitly. The lane hosts the enforcement gates. If a path filter makes it
-   * skip, CI Gate must fail.
-   */
-  it('Aggregator_GrepGatesSkipped_Reddens', async () => {
-    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const run = await runAggregator(workflow, synthesizeNeeds(workflow, { results: { 'grep-gates': 'skipped' } }));
-    expect(run.status, `grep-gates skipped but the gate passed:\n${run.output}`).not.toBe(0);
-    expect(run.output).toContain('grep-gates');
-  });
-
-  /**
-   * The policy is total over the `needs` context. A new lane with no licence is
-   * strict from the moment it joins, so an omission fails closed.
-   */
-  it('Aggregator_LaneAddedToNeedsWithoutPolicyEdit_Reddens', async () => {
-    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const run = await runAggregator(
-      workflow,
-      synthesizeNeeds(workflow, { extraLanes: { 'future-lane': 'skipped' } }),
-    );
-    expect(run.status, `an unlicensed new lane skipped without failing the gate:\n${run.output}`).not.toBe(0);
-    expect(run.output).toContain('future-lane');
-  });
-
-  /** A licensed skip must pass. If it fails, the gate is noise and someone weakens it. */
-  it('Aggregator_LicensedLaneSkippedUnderItsFilter_Passes', async () => {
-    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const licensed = declaredLicensedSkips(evaluateStep(workflow));
-    expect(licensed.size).toBeGreaterThan(0);
-
-    for (const [lane, key] of licensed) {
-      const run = await runAggregator(
-        workflow,
-        synthesizeNeeds(workflow, {
-          results: { [lane]: 'skipped' },
-          changesOutputs: { [key]: 'false' },
-        }),
-      );
-      expect(run.status, `licensed skip of "${lane}" (${key}=false) was rejected:\n${run.output}`).toBe(0);
-    }
-  });
-
-  /**
-   * A licence names a `changes` output. A key that `changes` does not declare
-   * reads as not 'true', the same as a declared 'false'. So the script must also
-   * check that `changes` declares the key. If not, a renamed or deleted output
-   * lets each lane on that key skip while CI Gate reports success.
-   */
-  it('Aggregator_LicenceKeyNotDeclaredByChanges_Reddens', async () => {
-    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const licensed = declaredLicensedSkips(evaluateStep(workflow));
-    expect(licensed.size).toBeGreaterThan(0);
-
-    for (const [lane, key] of licensed) {
-      const run = await runAggregator(
-        workflow,
-        synthesizeNeeds(workflow, {
-          results: { [lane]: 'skipped' },
-          dropChangesOutputs: [key],
-        }),
-      );
-      expect(
-        run.status,
-        `skip of "${lane}" was licensed by an UNDECLARED changes output "${key}":\n${run.output}`,
-      ).not.toBe(0);
-      expect(run.output).toContain(key);
-    }
-  });
-
-  /**
-   * A filtered lane that skips while its own filter key is 'true' is a
-   * regression of the path filter or the matrix. It is not a licensed skip.
-   */
-  it('Aggregator_LicensedLaneSkippedDespiteItsFilterFiring_Reddens', async () => {
-    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const licensed = declaredLicensedSkips(evaluateStep(workflow));
-    expect(licensed.size).toBeGreaterThan(0);
-
-    for (const [lane, key] of licensed) {
-      const run = await runAggregator(
-        workflow,
-        synthesizeNeeds(workflow, {
-          results: { [lane]: 'skipped' },
-          changesOutputs: { [key]: 'true' },
-        }),
-      );
-      expect(run.status, `"${lane}" skipped with ${key}=true but the gate passed:\n${run.output}`).not.toBe(0);
-      expect(run.output).toContain(lane);
-    }
-  });
-
-  /**
-   * A licence reads the `changes` outputs. When `changes` does not succeed, its
-   * outputs are empty. Empty outputs must not read as "nothing changed" and
-   * license each skip.
-   */
-  it('Aggregator_LicensedSkipWhileChangeDetectionDidNotSucceed_Reddens', async () => {
-    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const licensed = declaredLicensedSkips(evaluateStep(workflow));
-    const [lane] = [...licensed.keys()];
-    expect(lane).toBeDefined();
-
-    const needs = synthesizeNeeds(workflow, { results: { [lane as string]: 'skipped' } });
-    needs['changes'] = { result: 'failure', outputs: {} };
-    const run = await runAggregator(workflow, needs);
-    expect(run.status, `licensed skip honoured while changes failed:\n${run.output}`).not.toBe(0);
-  });
-
-  it('Aggregator_UnrecognisedLaneResult_Reddens', async () => {
-    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    const run = await runAggregator(
-      workflow,
-      synthesizeNeeds(workflow, { results: { 'grep-gates': 'mystery-state' } }),
-    );
-    expect(run.status, `an unclassifiable result was treated as passing:\n${run.output}`).not.toBe(0);
-  });
-
-  /** An aggregator that cannot read the context cannot prove that a lane ran, so it must fail. */
-  it('Aggregator_UnreadableNeedsContext_Reddens', async () => {
-    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    for (const malformed of ['', 'not json', '[]', 'null', '{}']) {
-      const run = await runAggregator(workflow, malformed);
-      expect(run.status, `malformed needs context ${JSON.stringify(malformed)} passed:\n${run.output}`).not.toBe(0);
-    }
+    expect(pathFilterKeys(withFilter.jobs['grep-gates'])).toContain('root');
   });
 });
