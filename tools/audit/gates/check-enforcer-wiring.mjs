@@ -485,15 +485,23 @@ const FORK_GUARD_RE =
 const STATUS_FUNCTION_RE = /\b(?:always|success|cancelled|failure)\s*\(\s*\)/g;
 
 /**
+ * Canonical ci-lanes skip on lane `always` (paths: **). That lane fires on
+ * virtually every PR, so it is not a skip-as-passed path filter.
+ */
+const ALWAYS_LANE_SKIP_RE =
+  /needs\.plan\.result\s*!=\s*'success'\s*\|\|\s*fromJSON\(\s*needs\.plan\.outputs\.lanes\s*\)\.always\s*!=\s*'false'/g;
+
+/**
  * True when an `if:` expression does NOT narrow the set of pull requests the
  * step/job runs on. Recognized non-filtering shapes: empty/absent, the fork
- * guard above, and the status functions `always()/success()/cancelled()/
- * failure()` (optionally negated), in any `&&`/`||`/paren combination.
+ * guard, status functions `always()/success()/cancelled()/failure()`
+ * (optionally negated), and the ci-lanes skip on lane `always`, in any
+ * `&&`/`||`/paren combination.
  *
- * ANY other expression — notably `needs.changes.outputs.<x> == 'true'`, the
- * `dorny/paths-filter` idiom this repo uses to path-filter a job — is treated
- * as FILTERING. That is deliberately conservative: an unrecognized guard fails
- * the "unfiltered" claim rather than silently passing it.
+ * ANY other expression — notably a ci-lanes skip on a named lane other than
+ * `always`, or the retired `needs.changes.outputs.<x> == 'true'` idiom — is
+ * treated as FILTERING. That is deliberately conservative: an unrecognized
+ * guard fails the "unfiltered" claim rather than silently passing it.
  *
  * @param {string | null | undefined} expr
  * @returns {boolean}
@@ -505,6 +513,7 @@ export function isNonFilteringIf(expr) {
   s = s.replace(/\$\{\{/g, ' ').replace(/\}\}/g, ' ');
   s = s.replace(FORK_GUARD_RE, ' ');
   s = s.replace(STATUS_FUNCTION_RE, ' ');
+  s = s.replace(ALWAYS_LANE_SKIP_RE, ' ');
   s = s.replace(/[()!\s]/g, '');
   s = s.replace(/&&/g, '').replace(/\|\|/g, '');
   return s === '';

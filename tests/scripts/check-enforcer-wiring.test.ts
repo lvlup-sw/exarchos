@@ -448,8 +448,8 @@ describe('enforcer-wiring gate — the unfiltered-CI-path claim has live subject
     const ci = live.workflows['.github/workflows/ci.yml'];
     expect(ci, 'ci.yml must be among the live workflows').toBeDefined();
     const filtered = ci!.replace(
-      '  grep-gates:\n    name: Grep Gates (idempotency + substrate)\n    if: ',
-      "  grep-gates:\n    name: Grep Gates (idempotency + substrate)\n    if: needs.changes.outputs.mcp == 'true' && ",
+      "fromJSON(needs.plan.outputs.lanes).always != 'false') }}\n    needs: plan\n    runs-on: ubuntu-latest",
+      "fromJSON(needs.plan.outputs.lanes).mcp != 'false') }}\n    needs: plan\n    runs-on: ubuntu-latest",
     );
     expect(filtered, 'the probe must actually change the workflow').not.toBe(ci);
 
