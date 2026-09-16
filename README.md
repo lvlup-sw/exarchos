@@ -204,3 +204,5 @@ npm run validate       # validate plugin structure
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
+
+<!-- ci-lanes scratch proof: docs-only PR for targeting. -->
