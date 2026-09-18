@@ -68,3 +68,10 @@ there and nowhere else is correct and sufficient.
 - **Ignore patterns:** `node_modules/`, `.git/`, `dist/`, `coverage/`, `rendered/` (generated), `.worktrees/`, `.serena/`, `.terraform/`, `*.tfstate*`, `*.local.json`
 - **Severity threshold:** report Medium and above
 - **Special files:** `*.md` under `content/` is structured content, not prose documentation — treat frontmatter as configuration
+
+## Pull requests
+
+When you create or update a pull request, follow `.agents/skills/write-pr/SKILL.md`.
+Use only the five headings in `.github/PULL_REQUEST_TEMPLATE.md`.
+Write the body in Simple English.
+Keep the body short.
