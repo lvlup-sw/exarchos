@@ -233,18 +233,18 @@ const DELEGATION: IntentModel = {
     },
     {
       id: 'deviation-pending',
-      label: 'a worker proposed a deviation, so the batch is held for a decision and resubmitted',
+      label: 'a worker proposed a deviation, so the batch is held for a decision and settled again with it',
       trigger: { source: 'delegate', needle: '**`deviation-pending`** — a worker proposed a deviation' },
       through: `${O}.settle`,
       extra: [
         {
           kind: 'site',
-          ref: at('delegate', `${O}.settle`, 'batchId: "<featureId>:wave-1:retry-1",'),
-          why: 'the batch resubmitted without the deviation once the human approves it',
+          ref: at('delegate', `${O}.settle`, 'decisions: pendingDeviations.map'),
+          why: 'the same batch settled again with the decisions and no claims: the one call the plane budgets for a decision',
         },
       ],
       reentersNormalPath: false,
-      why: 'The decision itself names no call; recording it as a fact is the divergence loop, not yet wired. A refusal revises the plan and re-prepares, which is the normal path again.',
+      why: 'The decision is recorded as its own fact on that call, and an accepted one verifies the held work and settles the batch, after which landing and the transition follow as on the normal path. A rejected one rejects the batch; revising the plan and preparing again is the normal path, and recording the revision is the next slice of the divergence loop.',
     },
     {
       id: 'context-compaction',

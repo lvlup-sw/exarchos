@@ -39,6 +39,12 @@ The accumulated designs, plans, guides and RCAs now live in the `lvlup-sw/docs`
 repository; `npm run docs:mount` symlinks them back into `docs/` if you want
 them locally.
 
+- **Semantic workflow plane (the adopted target)** — `prepare` compiles one immutable capsule per
+  workflow, the harness executes it with zero Exarchos calls, and `settle` judges the evidence.
+  Before planning or changing prepare/settle, phases, gates, events, knowledge binding, runtime
+  adapters or the roadmap trackers, read `.exarchos/knowledge/semantic-plane.context.yaml`. It holds
+  the design, the dated decisions, the design-vs-built drift, re-checkable facts and the issue map.
+  Update it in the same PR as any leg or decision.
 - **Installer** — `tools/release/get-exarchos.{sh,ps1}` download the single-file binary from GitHub
   Releases; `.claude-plugin/` packaging registers commands/skills/rules/agents + the `exarchos`
   MCP server.

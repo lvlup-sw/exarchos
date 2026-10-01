@@ -116,6 +116,8 @@ export interface UnverifiableActionEmission {
  * closes.
  */
 export const UNRESOLVED_ACTION_EVENT_ALLOWANCE: readonly string[] = Object.freeze([
+  'deviation.decided',
+  'deviation.proposed',
   'execution.settled',
   'mutation.executed',
   'mutation.executing_started',

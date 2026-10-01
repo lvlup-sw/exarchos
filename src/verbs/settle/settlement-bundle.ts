@@ -56,6 +56,16 @@ const DeviationSchema = z
   .object({ deviationKind: z.string().min(1), statement: z.string().min(1) })
   .strict();
 
+/** One decision a decision round carried, as it was applied. */
+const DecisionSchema = z
+  .object({
+    deviationId: z.string().min(1),
+    decision: z.enum(['accepted', 'rejected']),
+    actor: z.string().min(1),
+    rationale: z.string().min(1),
+  })
+  .strict();
+
 /**
  * The denominator, persisted. A bundle recording zero findings over zero claims
  * and one recording zero findings over forty are different facts, and only the
@@ -70,6 +80,8 @@ const CensusSchema = z
     deviations: z.number().int().nonnegative(),
     /** Absent only on a bundle written before settlement verified anything. */
     verification: z.number().int().nonnegative().optional(),
+    /** Absent only on a bundle written before a held batch could be decided. */
+    decisions: z.number().int().nonnegative().optional(),
   })
   .strict();
 
@@ -111,6 +123,13 @@ export const SettlementBundleV1Schema = z
     findings: z.array(FindingSchema),
     claims: z.array(ClaimTraceSchema),
     deviations: z.array(DeviationSchema),
+    /**
+     * The decisions this round applied, empty on the round that submitted the
+     * batch; absent only on a bundle written before a batch could be decided.
+     */
+    decisions: z.array(DecisionSchema).optional(),
+    /** The decision round, present on that round's bundle alone. */
+    round: z.number().int().positive().optional(),
     adjudicated: CensusSchema,
     /**
      * Optional only for a bundle written before settlement verified anything;

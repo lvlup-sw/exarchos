@@ -229,7 +229,9 @@ export const MULTI_PRIMARY_OWNER_CODE = 'MULTI_PRIMARY_OWNER';
  * path. Not an arrival of a type but of ownership: the model appended it before, and nothing
  * declared it.
  */
-export const PRIMARY_OWNER_POPULATION_FLOOR = 74;
+// 74 → 76: `settle` owns the divergence loop's two decision facts,
+// `deviation.proposed` and `deviation.decided`, beside its settlement record.
+export const PRIMARY_OWNER_POPULATION_FLOOR = 76;
 
 /**
  * The measured size of the set the provider comparison ranges over: declared emission edges whose

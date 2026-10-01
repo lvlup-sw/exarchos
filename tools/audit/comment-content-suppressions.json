@@ -1916,7 +1916,7 @@
   },
   "src/verbs/worktree/pure/probe.ts": {
     "comments/comment-content": {
-      "count": 18
+      "count": 12
     }
   },
   "src/verbs/worktree/pure/process-identity.ts": {

@@ -595,7 +595,11 @@ describe('EventTypes', () => {
     // its emitter rather than ahead of it, which is the rule the semantic kinds
     // are held to: a registered name nothing writes is a catalog entry that
     // cannot be told apart from a declaration nobody finished.
-    expect(EventTypes).toHaveLength(182);
+    // Bumped 182 → 184 by `deviation.proposed` and `deviation.decided` — the
+    // divergence loop's decision facts, appended by `settle`: one proposal per
+    // deviation a held batch waits on, one decision per proposal when the
+    // batch is settled again with the decisions. Both land with their emitter.
+    expect(EventTypes).toHaveLength(184);
     expect(EventTypes).toContain('tool.budget_exceeded');
     expect(EventTypes).toContain('ci.check_observed');
     expect(EventTypes).toContain('merge.recovered');

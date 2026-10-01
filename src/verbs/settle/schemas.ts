@@ -80,6 +80,30 @@ const SettlementReceiptData = z
     tailSequence: z.number().int().nonnegative(),
     verification: z.array(ReceiptVerificationSchema).optional(),
     bundleRefs: z.array(ReceiptBundleRefSchema).min(1).optional(),
+    round: z.number().int().nonnegative().optional(),
+    pendingDeviations: z
+      .array(
+        z
+          .object({
+            deviationId: z.string().min(1),
+            deviationKind: z.string().min(1),
+            statement: z.string().min(1),
+          })
+          .passthrough(),
+      )
+      .optional(),
+    decisions: z
+      .array(
+        z
+          .object({
+            deviationId: z.string().min(1),
+            decision: z.enum(['accepted', 'rejected']),
+            actor: z.string().min(1),
+            rationale: z.string().min(1),
+          })
+          .passthrough(),
+      )
+      .optional(),
   })
   .passthrough();
 
