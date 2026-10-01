@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1283,
-    "parsedFiles": 1238,
+    "testFiles": 1284,
+    "parsedFiles": 1239,
     "shellFiles": 45,
-    "cases": 14162,
-    "dynamicTitles": 169,
+    "cases": 14173,
+    "dynamicTitles": 170,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -12892,6 +12892,67 @@
           "suite": "MigrationFollowups_EachDeferredComponent_HasIssue",
           "name": "<dynamic-case-2>",
           "dynamic": true
+        }
+      ]
+    },
+    "tests/scripts/pin-trust-root.test.ts": {
+      "file": "tests/scripts/pin-trust-root.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "pin-trust-root.mjs",
+          "name": "PinTrustRoot_SeededSentinel_CheckRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "pin-trust-root.mjs",
+          "name": "PinTrustRoot_RuntimeEd25519Key_ReplacesOnlyTheSentinelAndCheckAccepts",
+          "dynamic": false
+        },
+        {
+          "suite": "pin-trust-root.mjs",
+          "name": "PinTrustRoot_PinnedShInstaller_MaterializesThePinnedKey",
+          "dynamic": false
+        },
+        {
+          "suite": "pin-trust-root.mjs",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "pin-trust-root.mjs",
+          "name": "PinTrustRoot_PinnedPs1Installer_MaterializesThePinnedKey",
+          "dynamic": false
+        },
+        {
+          "suite": "pin-trust-root.mjs",
+          "name": "PinTrustRoot_NonEd25519Key_RefusedAndNothingWritten",
+          "dynamic": false
+        },
+        {
+          "suite": "pin-trust-root.mjs",
+          "name": "PinTrustRoot_PrivateKey_RefusedWithoutEchoingIt",
+          "dynamic": false
+        },
+        {
+          "suite": "pin-trust-root.mjs",
+          "name": "PinTrustRoot_OneInstallerAlreadyPinned_RefusesAndWritesNeither",
+          "dynamic": false
+        },
+        {
+          "suite": "pin-trust-root.mjs",
+          "name": "PinTrustRoot_InstallersPinDifferentKeys_CheckRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "release gate on the unpinned trust root",
+          "name": "ReleaseWorkflow_TrustRootGate_PrecedesEveryPublishingJob",
+          "dynamic": false
+        },
+        {
+          "suite": "release gate on the unpinned trust root",
+          "name": "Workflows_OnlyTheReleaseWorkflowRunsTheTrustRootGate",
+          "dynamic": false
         }
       ]
     },
