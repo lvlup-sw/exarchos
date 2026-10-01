@@ -347,8 +347,8 @@ describe('prepare then settle, through the dispatcher', () => {
   it('PrepareSettle_ABatchWhoseVerificationFails_IsRejectedWithTheHaltNamed', async () => {
     // The negative twin of the normal path: the same call against a project
     // whose lint really fails. The production gate records its failing
-    // verdict, the completion leaf refuses for the gate it demands, and the
-    // batch is rejected with every task's halt named — one call, every reason.
+    // verdict and halts the segment, and the batch is rejected with every
+    // task's halt named — one call, every reason.
     await seedDelegatingFeature();
     const redWorktree = await makeNodeFixture({ lint: FAIL, typecheck: OK, 'quality-check': OK });
     const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
@@ -374,11 +374,11 @@ describe('prepare then settle, through the dispatcher', () => {
       ['verification-failed', 'task-b'],
       ['verification-failed', 'task-c'],
     ]);
-    expect(receipt.findings.every((f) => f.message.includes('static-analysis'))).toBe(true);
+    expect(receipt.findings.every((f) => f.message.includes('check_static_analysis'))).toBe(true);
     expect(receipt.verification.map((v) => [v.taskId, v.outcome, v.failedLeaf])).toEqual([
-      ['task-a', 'failed', 'task_complete'],
-      ['task-b', 'failed', 'task_complete'],
-      ['task-c', 'failed', 'task_complete'],
+      ['task-a', 'failed', 'check_static_analysis'],
+      ['task-b', 'failed', 'check_static_analysis'],
+      ['task-c', 'failed', 'check_static_analysis'],
     ]);
     // The gate's own failing verdict is durable, once per task; no completion is.
     const gates = (await rowsOf('gate.executed')) as { data: { gateName: string; passed: boolean } }[];

@@ -32,6 +32,7 @@ import {
   none,
   withActionContract,
   type ActionContract,
+  type GateMetadata,
   type ToolAction,
 } from '../../../../src/registry.js';
 import type { RunbookDefinition, RunbookStep } from '../../../../src/runbooks/types.js';
@@ -76,6 +77,8 @@ export interface FixtureActionInput {
    * annotation supports.
    */
   readonly replay?: ActionContract['replay'];
+  /** The gate registration, for a leaf that stands in for a shipped gate. */
+  readonly gate?: GateMetadata;
 }
 
 /**
@@ -98,6 +101,7 @@ export function fixtureAction(input: FixtureActionInput): ToolAction {
       roles: new Set<string>(['lead']),
       outputSchema: fixtureOutputSchema,
       annotations: LOCAL_MUTATION,
+      ...(input.gate !== undefined ? { gate: input.gate } : {}),
     },
     {
       requires:
@@ -291,6 +295,11 @@ export function gateEvidenceHandler(input: {
 /** A leaf that reports success and appends nothing. */
 export function silentHandler(): LeafHandler {
   return async () => ({ success: true, data: { appended: null } });
+}
+
+/** A gate leaf that reports its verdict on a success carrier, the way a shipped ladder gate does. */
+export function verdictHandler(data: Record<string, unknown>): LeafHandler {
+  return async () => ({ success: true, data });
 }
 
 /** A leaf that refuses. */
