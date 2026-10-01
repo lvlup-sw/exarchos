@@ -1,61 +1,24 @@
-// ─── Shared admission IR — authored wire model (P03-06) ──────────────────────
-//
-// PROGRAM-03, API-007. The SHARED admission IR is the cross-product wire model
-// that `Strategos.Contracts` / `WorkflowDefinitionV1` own: admission-policy
-// definitions and references, the CLOSED edge-condition node set, evidence
-// requirement models, waiver + approval wire models, and ACTION REFERENCES.
-//
-// ## Single authored source (no TypeSpec toolchain offline)
-//
-// The program's design authority names `Strategos.Contracts` TypeSpec as the
-// generative source. There is NO TypeSpec compiler vendored in this offline
-// environment (no `.tsp` files, no `@typespec/*` packages resolve). Rather than
-// fake a TypeSpec build, this module is the SINGLE AUTHORED SOURCE: a set of
-// Zod schemas from which the checked-in JSON Schema is DERIVED deterministically
-// (`admission-ir-schema.ts`, via the `zodToJsonSchema` chokepoint). The Zod
-// schemas here ARE the Exarchos runtime validators; the generated JSON Schema is
-// the portable, cross-product artifact. The round-trip harness proves the two
-// accept/reject the same fixtures (`roundtrip.test.ts`).
-//
-// ## Closed by construction (no shell / closure / harness syntax / binding)
-//
-// Every object below is `.strict()` and every leaf is a scalar, a closed enum,
-// a stable-id string, or the closed 7-node edge-condition union. There is NO
-// `z.any()`, `z.unknown()`, `z.function()`, or open-value field anywhere — so a
-// document is STRUCTURALLY INCAPABLE of carrying a shell command, an arbitrary
-// closure, harness-specific syntax, or an Exarchos implementation binding. An
-// `expression`/`command`/`script`/`exec` escape hatch is rejected as an unknown
-// property; an unknown node kind is rejected by the closed union. This mirrors
-// the no-escape-hatch property of the runtime edge-condition compiler
-// (`workflow/admission/edge-condition.ts`, P06-02) and the `.strict()` sandbox
-// of `architecture/invariant-schema.ts`.
-//
-// ## References vs bindings (the closure seam)
-//
-// The IR carries action / policy / requirement REFERENCES — stable string ids,
-// never handlers, closures, or serializable descriptors. Resolving a reference
-// to a real Exarchos binding is the CONSUMER's job (`references.ts` resolves
-// action refs against the P03-04 ActionId source); the wire never carries the
-// binding itself. Dangling references are rejected by `references.ts`, not by
-// this structural schema (JSON Schema cannot express cross-object resolution).
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The shared admission IR: the cross-product wire model for admission policies, the closed
+ * edge-condition nodes, evidence requirements, waivers, approvals and action references.
+ * These Zod schemas are the one authored source and the Exarchos runtime validators.
+ * `admission-ir-schema.ts` derives the checked-in JSON Schema from them.
+ *
+ * Every object is `.strict()`, and every leaf is a scalar, a closed enum, a stable id or a closed
+ * edge-condition node. No field holds an open value, so a document cannot carry a shell command,
+ * a closure or an implementation binding. The IR carries references as stable ids.
+ * `references.ts` resolves them and rejects a dangling reference.
+ */
 
 import { z } from 'zod';
 import { zodToJsonSchema } from '../../utils/json-schema.js';
 
-/** The shared admission IR wire-contract version (append-only successors later). */
+/** The shared admission IR wire-contract version. */
 export const SHARED_ADMISSION_IR_VERSION = '1' as const;
 
-// ─── Stable ids and references ───────────────────────────────────────────────
-
 /**
- * A provider-neutral stable id. Deliberately the SAME character class as the
- * runtime `StableIdValueSchema` (`workflow/admission/types.ts`) — letters,
- * digits, dot, underscore, colon, hyphen, non-empty, no leading punctuation —
- * so a shell fragment (`; rm -rf /`), a path, or an arbitrary expression fails
- * the pattern. The equality of the two id vocabularies is asserted in
- * `roundtrip.test.ts` so a runtime drift trips a test rather than silently
- * widening the shared surface.
+ * A provider-neutral stable id, with the same character class as the runtime `StableIdValueSchema`.
+ * A shell fragment, a path or an expression fails the pattern. `roundtrip.test.ts` compares the two.
  */
 export const SharedStableIdSchema = z
   .string()
@@ -72,18 +35,14 @@ export const PolicyRefSchema = SharedStableIdSchema;
 /** A reference to a requirement DEFINED in the same document. */
 export const RequirementRefSchema = SharedStableIdSchema;
 /**
- * A reference to an Exarchos action by its stable `<tool>.<action>` ActionId.
- * Structurally just a stable id; resolution against the REAL ActionId set
- * (P03-04) is done by `references.ts`, never carried on the wire as a binding.
+ * A reference to an Exarchos action by its `<tool>.<action>` ActionId. It is a stable id.
+ * `references.ts` resolves it against the real ActionId set.
  */
 export const ActionRefSchema = SharedStableIdSchema;
 
-// ─── Evidence subject kinds (mirror of runtime EvidenceSubjectV1) ────────────
-
 /**
- * The closed evidence-subject kinds an evidence-requirement model may target.
- * Mirrors the runtime `EvidenceSubjectV1` discriminant set; equality asserted
- * in `roundtrip.test.ts`.
+ * The closed evidence-subject kinds that an evidence requirement can target.
+ * They mirror the runtime `EvidenceSubjectV1` discriminants, and `roundtrip.test.ts` compares them.
  */
 export const IR_SUBJECT_KINDS = [
   'workflow',
@@ -97,13 +56,9 @@ export const IR_SUBJECT_KINDS = [
 export type IrSubjectKind = (typeof IR_SUBJECT_KINDS)[number];
 const SubjectKindSchema = z.enum(IR_SUBJECT_KINDS);
 
-// ─── Closed edge-condition node set (mirror of P06-02) ───────────────────────
-
 /**
- * The exhaustive, closed edge-condition node kinds — the SHARED expression of
- * the runtime closed AST (`EDGE_CONDITION_NODE_KINDS`, P06-02). Equality with
- * the runtime constant is asserted in `roundtrip.test.ts`, so adding a node
- * kind to one side without the other trips a test.
+ * The closed edge-condition node kinds. They mirror the runtime `EDGE_CONDITION_NODE_KINDS`,
+ * and `roundtrip.test.ts` fails when the two differ.
  */
 export const IR_EDGE_CONDITION_KINDS = [
   'eventObserved',
@@ -123,14 +78,13 @@ export type IrEdgeCompareOp = (typeof IR_EDGE_COMPARE_OPS)[number];
 /** Declared fact-field scalar types (mirror of runtime `FactType`). */
 export const IR_FACT_TYPES = ['string', 'number', 'boolean'] as const;
 
-/** The closed scalar leaf: string, number, or boolean — never an object/closure. */
+/** The closed scalar leaf: a string, a number or a boolean. */
 const FactScalarSchema = z.union([z.string(), z.number(), z.boolean()]);
 const NonEmptyStringSchema = z.string().min(1);
 
 /**
- * Static shape of the closed edge-condition AST. Declared explicitly because
- * `z.lazy` cannot infer a recursive type; kept in lockstep with
- * {@link EdgeConditionNodeSchema}.
+ * The static shape of the closed edge-condition AST. It is explicit because `z.lazy` cannot infer a
+ * recursive type. It must match {@link EdgeConditionNodeSchema}.
  */
 export type IrEdgeConditionNode =
   | { readonly kind: 'eventObserved'; readonly event: string }
@@ -151,10 +105,8 @@ export type IrEdgeConditionNode =
   | { readonly kind: 'not'; readonly operand: IrEdgeConditionNode };
 
 /**
- * The closed edge-condition AST as a Zod schema. Each arm is `.strict()`, so an
- * escape-hatch property (`expression`, `command`, `script`, …) is rejected; a
- * node whose `kind` is not one of the seven fails the union. Recursion is via
- * `z.lazy` for the `all`/`any`/`not` combinators.
+ * The closed edge-condition AST as a Zod schema. Each arm is `.strict()`, so the schema rejects an
+ * unknown property such as `command`. A node with an unknown `kind` fails the union.
  */
 export const EdgeConditionNodeSchema: z.ZodType<IrEdgeConditionNode> = z.lazy(() =>
   z.union([
@@ -178,9 +130,8 @@ export const EdgeConditionNodeSchema: z.ZodType<IrEdgeConditionNode> = z.lazy(()
 );
 
 /**
- * The reference declaration carried alongside a condition so the CONSUMER can
- * compile it with the runtime `compileEdgeCondition`. Fields map a declared
- * fact name to its scalar type; events are declared observable identities.
+ * The declaration that goes with a condition, so the consumer can compile it with `compileEdgeCondition`.
+ * `fields` maps each fact name to its scalar type. `events` lists the observable event names.
  */
 export const EdgeConditionDeclarationSchema = z
   .object({
@@ -190,12 +141,9 @@ export const EdgeConditionDeclarationSchema = z
   .strict();
 export type EdgeConditionDeclaration = z.infer<typeof EdgeConditionDeclarationSchema>;
 
-// ─── Admission policy definitions and references ─────────────────────────────
-
 /**
- * An admission-policy DEFINITION. `requires` references requirement definitions
- * (by id) in the same document; `onDeny` references Exarchos ActionIds that may
- * remediate a denial. Both are references — never inline handlers or commands.
+ * An admission-policy definition. `requires` holds requirement ids from the same document.
+ * `onDeny` holds the ActionIds that can remediate a denial.
  */
 export const PolicyDefinitionSchema = z
   .object({
@@ -205,8 +153,6 @@ export const PolicyDefinitionSchema = z
   })
   .strict();
 export type PolicyDefinition = z.infer<typeof PolicyDefinitionSchema>;
-
-// ─── Evidence requirement models (mirror of runtime AdmissionRequirementV1) ──
 
 const GateEvidenceRequirementSchema = z
   .object({
@@ -238,18 +184,15 @@ const CorroborationRequirementSchema = z
   .strict();
 
 /**
- * The closed evidence-requirement kinds — mirror of the runtime
- * `AdmissionRequirementV1` discriminant set. Set-equality with the runtime union
- * is asserted in `roundtrip.test.ts`.
+ * The closed evidence-requirement kinds. They mirror the runtime `AdmissionRequirementV1`
+ * discriminants, and `roundtrip.test.ts` compares the two sets.
  */
 export const IR_REQUIREMENT_KINDS = ['gate-evidence', 'approval', 'corroboration'] as const;
 export type IrRequirementKind = (typeof IR_REQUIREMENT_KINDS)[number];
 
 /**
- * The closed evidence-requirement model. Kinds mirror the runtime
- * `AdmissionRequirementV1` discriminants (`gate-evidence` / `approval` /
- * `corroboration`); `corroboration.sourceRequirementId` is a requirement
- * reference (a dangling-reference surface).
+ * The closed evidence-requirement model. `corroboration.sourceRequirementId` is a requirement
+ * reference, so it can dangle.
  */
 export const RequirementDefinitionSchema = z.discriminatedUnion('kind', [
   GateEvidenceRequirementSchema,
@@ -258,15 +201,12 @@ export const RequirementDefinitionSchema = z.discriminatedUnion('kind', [
 ]);
 export type RequirementDefinition = z.infer<typeof RequirementDefinitionSchema>;
 
-// ─── Edge definitions (closed condition + policy ref + action ref) ───────────
-
-/** The Exarchos action that EFFECTS a transition — a reference, never a binding. */
+/** A reference to the Exarchos action that effects a transition. */
 const EdgeEffectSchema = z.object({ actionRef: ActionRefSchema }).strict();
 
 /**
- * A workflow edge: a closed condition + its reference declaration, the
- * admission policy that gates it (`admits` — a policy reference), and the action
- * that effects it (`effect.actionRef` — an action reference).
+ * A workflow edge: a closed condition with its declaration, the policy reference that gates it
+ * (`admits`), and the action reference that effects it (`effect.actionRef`).
  */
 export const EdgeDefinitionSchema = z
   .object({
@@ -280,8 +220,6 @@ export const EdgeDefinitionSchema = z
   })
   .strict();
 export type EdgeDefinition = z.infer<typeof EdgeDefinitionSchema>;
-
-// ─── Waiver + approval wire models (mirror of runtime WaiverScopeV1) ─────────
 
 const WorkflowWaiverScopeSchema = z
   .object({ kind: z.literal('workflow'), workflowId: SharedStableIdSchema })
@@ -314,9 +252,8 @@ const ApprovalAuthorizationSchema = z
   .strict();
 
 /**
- * A waiver DEFINITION: its scope, the requirements it waives (references), an
- * ISO expiry, and the approval authorization required to issue it. `waives`
- * references requirement definitions (a dangling-reference surface).
+ * A waiver definition: its scope, the requirement references it waives, an ISO expiry, and the
+ * approval that a waiver needs. A `waives` reference can dangle.
  */
 export const WaiverDefinitionSchema = z
   .object({
@@ -329,13 +266,7 @@ export const WaiverDefinitionSchema = z
   .strict();
 export type WaiverDefinition = z.infer<typeof WaiverDefinitionSchema>;
 
-// ─── The whole document ──────────────────────────────────────────────────────
-
-/**
- * The shared admission IR document (V1). A closed, wire-serializable model of a
- * workflow's admission surface — policies, requirements, gated edges, and
- * waivers — carrying only data and references.
- */
+/** The shared admission IR document (V1). It holds only data and references. */
 export const AdmissionIrDocumentV1Schema = z
   .object({
     irVersion: z.literal(SHARED_ADMISSION_IR_VERSION),
@@ -348,16 +279,14 @@ export const AdmissionIrDocumentV1Schema = z
   .strict();
 export type AdmissionIrDocumentV1 = z.infer<typeof AdmissionIrDocumentV1Schema>;
 
-/** Structural parse result (does NOT resolve references — see `references.ts`). */
+/** The structural parse result. It does not resolve references. */
 export type AdmissionIrParseResult =
   | { readonly ok: true; readonly document: AdmissionIrDocumentV1 }
   | { readonly ok: false; readonly error: z.ZodError };
 
 /**
- * Structurally validate an untrusted value against the shared IR schema. This
- * is the Exarchos runtime validator half of the round-trip; it enforces the
- * closure property (strict objects, closed unions) but NOT reference
- * resolution.
+ * Validates the structure of an untrusted value against the shared IR schema.
+ * It enforces strict objects and closed unions, but it does not resolve references.
  */
 export function parseAdmissionIrDocument(input: unknown): AdmissionIrParseResult {
   const result = AdmissionIrDocumentV1Schema.safeParse(input);
@@ -366,11 +295,7 @@ export function parseAdmissionIrDocument(input: unknown): AdmissionIrParseResult
     : { ok: false, error: result.error };
 }
 
-/**
- * The generated JSON Schema for the shared IR document, emitted through the
- * `zodToJsonSchema` draft-2020-12 chokepoint. Deterministic: the same schema
- * source yields a byte-identical object on any machine.
- */
+/** The JSON Schema for the shared IR document, from the `zodToJsonSchema` draft 2020-12 chokepoint. */
 export function admissionIrJsonSchema(): Record<string, unknown> {
   return zodToJsonSchema(AdmissionIrDocumentV1Schema) as Record<string, unknown>;
 }

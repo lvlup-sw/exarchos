@@ -19,13 +19,11 @@ const READ_ONLY_VIEW_CONTRACT = {
   emissions: none('read-only view emits no catalog events'),
 };
 
+/**
+ * The telemetry and quality view actions. The registry entry of each action gives it per-action
+ * schema validation at dispatch, and `describe` shows its schema.
+ */
 const QUALITY_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
-  // Wave 5 (#1437) — Group B telemetry view actions. These actions were
-  // previously dispatched via `exarchos_view` through composite.ts but had
-  // no entry in TOOL_REGISTRY's `viewActions`, so per-action schema
-  // validation (DR-5) and describe-handler introspection both skipped them.
-  // Registering them here brings them under the dispatch-validation contract
-  // AND surfaces their correlation-filter slots through `describe(actions)`.
   {
     name: 'eval_results',
     description: 'Evaluation suite results with per-skill pass/fail rates and regression flags',
@@ -33,12 +31,8 @@ const QUALITY_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
       workflowId: z.string().optional(),
       skill: z.string().optional(),
       limit: coercedPositiveInt().optional(),
-      // DR-8 (Task 024) — offset paging + detail on the analytic view batch;
-      // handler rides Task 024.
       offset: coercedNonnegativeInt().optional(),
       detail: z.boolean().optional(),
-      // Wave 5 (#1437) — correlation tuple filters scope the projection
-      // fold to a single dispatch boundary.
       ...CORRELATION_TUPLE_FILTER_SHAPE,
     }),
     phases: ALL_PHASES,
@@ -46,19 +40,18 @@ const QUALITY_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
     outputSchema: vacuityWaiver('exarchos_view.eval_results'),
     annotations: READ_ONLY_LOCAL,
   },
+  /**
+   * The correlation-tuple filters scope both projection folds, code quality and eval results, to one
+   * dispatch boundary. The joined output thus stays consistent.
+   */
   {
     name: 'quality_correlation',
     description: 'Per-skill correlation of code-quality gate pass rates with eval scores',
     schema: z.object({
       workflowId: z.string().optional(),
-      // DR-8 (Task 024) — paging + detail on the analytic view batch;
-      // handler rides Task 024.
       limit: coercedPositiveInt().optional(),
       offset: coercedNonnegativeInt().optional(),
       detail: z.boolean().optional(),
-      // Wave 5 (#1437) — correlation tuple filters scope BOTH underlying
-      // projection folds (CQ + ER) to a single dispatch boundary so the
-      // joined output stays internally consistent.
       ...CORRELATION_TUPLE_FILTER_SHAPE,
     }),
     phases: ALL_PHASES,
@@ -79,13 +72,9 @@ const QUALITY_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
           end: z.string(),
         })
         .optional(),
-      // DR-8 (Task 024) — paging + detail on the analytic view batch;
-      // handler rides Task 024.
       limit: coercedPositiveInt().optional(),
       offset: coercedNonnegativeInt().optional(),
       detail: z.boolean().optional(),
-      // Wave 5 (#1437) — correlation tuple filters scope BOTH underlying
-      // projection folds (CQ + ER) to a single dispatch boundary.
       ...CORRELATION_TUPLE_FILTER_SHAPE,
     }),
     phases: ALL_PHASES,
@@ -108,13 +97,10 @@ const QUALITY_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
     outputSchema: vacuityWaiver('exarchos_view.delegation_readiness'),
     annotations: READ_ONLY_LOCAL,
   },
-  // T1 (#1446 residue) — three view actions dispatched through
-  // `projections/views/composite.ts` but previously absent from TOOL_REGISTRY.viewActions.
-  // Without the registry entry, per-action Zod validation at
-  // `dispatch/core/dispatch.ts:801` is silently skipped (DR-5 hole) and
-  // `exarchos_view describe` cannot surface their schemas. Registering them
-  // here closes both gaps. Schemas mirror the args the composite.ts handlers
-  // route today (see `projections/views/composite.ts` cases for each action).
+  /**
+   * The schema has no correlation-tuple filters. The handler reads only `stateDir` and gets no
+   * event store, so there is no event query for the filters to scope.
+   */
   {
     name: 'session_provenance',
     description: 'Per-session provenance roll-up (tokens, tools, cost attribution) — query by sessionId or workflowId, optionally narrowed by metric',
@@ -122,10 +108,6 @@ const QUALITY_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
       sessionId: z.string().optional(),
       workflowId: z.string().optional(),
       metric: z.string().optional(),
-      // No correlation-tuple filter slots: the underlying handler
-      // (`handleViewSessionProvenance`) does not receive the event store.
-      // The session-provenance projection reads `stateDir` only, so there
-      // is no event-store query for the tuple filters to scope.
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -137,11 +119,6 @@ const QUALITY_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
     description: 'Design-to-task provenance: per-requirement coverage and orphan-task detection from the design.linked / task.assigned event chain',
     schema: z.object({
       workflowId: z.string().optional(),
-      // Underlying handler (`handleViewProvenance`) queries the event store
-      // via `queryDeltaEvents`, so the correlation-tuple filter surface
-      // mirrors the Wave 5 (#1437) telemetry-view contract — slots are
-      // optional and pass through the cache-bypassing filtered fold path
-      // when present.
       ...CORRELATION_TUPLE_FILTER_SHAPE,
     }),
     phases: ALL_PHASES,
@@ -176,8 +153,6 @@ const QUALITY_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
     description: 'Per-dimension gate convergence status (D1-D5) from gate.executed events',
     schema: z.object({
       workflowId: z.string().optional(),
-      // DR-8 (Task 024) — paging + detail on the analytic view batch;
-      // handler rides Task 024.
       limit: coercedPositiveInt().optional(),
       offset: coercedNonnegativeInt().optional(),
       detail: z.boolean().optional(),
@@ -212,13 +187,12 @@ const QUALITY_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
     outputSchema: vacuityWaiver('exarchos_view.quality_hints'),
     annotations: READ_ONLY_LOCAL,
   },
-  // DR-7 (T-20) — effective invariant catalog export. Surfaces the merged +
-  // override-clamped + projected invariant set for a given SDLC context via
-  // the single core fn `resolveEffectiveCatalog` (INV-2: one payload, many
-  // facades). The CLI `--json` form routes the same handler.
-  // SEAM (#1275): expose this same payload as
-  // resources/exarchos-invariants/effective when MCP Resources land. Register
-  // NO `resources/*` today.
+  /**
+   * The effective invariant catalog for an SDLC context, from the one core function
+   * `resolveEffectiveCatalog`. The CLI `--json` form uses the same handler. When MCP Resources
+   * exist, expose this payload as `resources/exarchos-invariants/effective` (lvlup-sw/exarchos#1275).
+   * Register no `resources/*` now.
+   */
   {
     name: 'invariants_effective',
     description:

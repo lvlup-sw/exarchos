@@ -5,51 +5,40 @@ import { z } from 'zod';
 import type { ActionContract } from './action-contract.js';
 import type { BuiltinCompositeTool, BuiltinToolAction, CompositeTool, ContractedToolAction, ExtensionCompositeTool, ExtensionToolAction, ToolAction } from './types.js';
 
-// ─── DR-4: vacuity is unconstructible at the ToolAction boundary ─────────────
-//
-// `OutputSchema_NewActionDeclaringVacuous_FailsCompile`, stated where it is
-// enforced. These aliases live in a NON-TEST source file deliberately: the
-// package tsconfig excludes `*.test.ts`, so the same claim written as a
-// `@ts-expect-error` in a spec would never be checked by `npm run typecheck`.
-// The `_Pola*` aliases in `capabilities/resolver.ts` are the precedent.
-// `Expect<T extends true>` is a compile error unless T is exactly `true`.
+/**
+ * Compiles only when `T` is exactly `true`. The proof aliases in this file live in a source file,
+ * because the package tsconfig excludes `*.test.ts`, so `npm run typecheck` does not check a spec.
+ */
 type ExpectTrue<T extends true> = T;
 type NotAssignableTo<A, B> = A extends B ? false : true;
 
 /**
- * THE ACCEPTANCE CRITERION. `EnvelopeSchema(z.unknown())` — the expression 109
- * declaration sites used to write — cannot be assigned to the field. A new
- * action that reaches for it does not compile.
+ * A vacuous `EnvelopeSchema(z.unknown())` is not assignable to the `outputSchema` of a built-in
+ * action. A new action that uses it does not compile.
  * @proof
  */
 export type _OutputSchemaNewActionDeclaringVacuousFailsCompile = ExpectTrue<
   NotAssignableTo<ReturnType<typeof EnvelopeSchema<z.ZodUnknown>>, BuiltinToolAction['outputSchema']>
 >;
 /**
- * …and it is not assignable to the CONSUMER union either, so nothing widened.
+ * The vacuous envelope is not assignable to the consumer union either, so nothing widened.
  * @proof
  */
 export type _OutputSchemaNewActionDeclaringVacuousIsNotRegistered = ExpectTrue<
   NotAssignableTo<ReturnType<typeof EnvelopeSchema<z.ZodUnknown>>, ToolAction['outputSchema']>
 >;
 /**
- * The escape is closed too: an id that is not already seeded in the shrink-only
- * allowlist is not a `VacuityWaiverId`, so `vacuityWaiver('<new id>')` is also
- * a compile error. Waiving a NEW declaration requires editing the generated
- * seed file, which is exactly the reviewable act DR-4 wants it to be.
+ * An id that is not in the shrink-only allowlist is not a `VacuityWaiverId`. So a waiver for a new
+ * action needs an edit to the generated seed file, which a reviewer sees.
  * @proof
  */
 export type _OutputSchemaNewActionCannotBeWaived = ExpectTrue<
   NotAssignableTo<'exarchos_view.a_brand_new_action', VacuityWaiverId>
 >;
 /**
- * TASK 060, HOLE 1 — THE ACCEPTANCE CRITERION.
- * `OutputSchema_RegistryActionUsingExtensionEscape_FailsCompile`, stated where
- * it is enforced. The out-of-registry escape returns `ExtensionOutputSchema`
- * (proved in `output-schema-declaration.ts`), and that type does not satisfy a
- * built-in declaration's `outputSchema`. A new action in this file that reaches
- * for `unregisteredActionOutputSchema()` does not compile — it no longer merely
- * reddens the runtime audit.
+ * The out-of-registry escape returns `ExtensionOutputSchema`, which does not satisfy the
+ * `outputSchema` of a built-in action. A registry action that uses
+ * `unregisteredActionOutputSchema()` does not compile.
  * @proof
  */
 export type _OutputSchemaRegistryActionUsingExtensionEscapeFailsCompile = ExpectTrue<
@@ -63,21 +52,16 @@ export type _OutputSchemaExtensionActionIsNotABuiltinDeclaration = ExpectTrue<
   NotAssignableTo<ExtensionToolAction, BuiltinToolAction>
 >;
 /**
- * …and the DOOR is the registry constant, not a per-array annotation: a plain
- * `CompositeTool` (whose actions carry the consumer-facing union) is not a legal
- * `TOOL_REGISTRY` entry, so a new `readonly ToolAction[]` array cannot be
- * smuggled in beside the five that exist.
+ * The registry constant enforces the type, not each action array. A plain `CompositeTool` is not a
+ * legal `TOOL_REGISTRY` entry, so a new `readonly ToolAction[]` array cannot enter the registry.
  * @proof
  */
 export type _OutputSchemaRegistryDoorRejectsUnnarrowedTools = ExpectTrue<
   NotAssignableTo<CompositeTool, BuiltinCompositeTool>
 >;
 /**
- * And the guarantee is not vacuous — the two blessed constructors DO satisfy
- * a built-in declaration's field, and the escape DOES satisfy an extension
- * declaration's. Without these lines the aliases above would still pass if a
- * field had been narrowed to something nothing at all can produce, and the
- * `.exarchos.yml` surface could have been "closed" by breaking it.
+ * The two approved constructors satisfy the built-in field, and the escape satisfies the extension
+ * field. These aliases keep the checks above from passing on a field that nothing can produce.
  * @proof
  */
 export type _OutputSchemaCappedShapeSatisfiesTheField = ExpectTrue<

@@ -1,60 +1,26 @@
-// ─── Total failure-origin families + stable error/exit registry (P03-02) ─────
-//
-// PROGRAM-03, API-006. Defines the CLOSED, enumerated mapping from every
-// failure ORIGIN to a stable contract error code and a stable CLI exit code.
-// "Total" is the operative word: every failure in every layer — protocol,
-// authorization, task, handler, output, presenter — maps to exactly one stable
-// contract error and one CLI exit. No failure may fall through to an unmapped
-// generic case.
-//
-// ## The six failure layers
-//
-//   protocol       transport / JSON-RPC / method / version / schema admission
-//   authorization  principal + capability + reserved-event + idempotency-scope
-//   task            durable Task identity / ownership / lease / cancellation
-//   handler         the action handler's own decision (business failure)
-//   output          the handler's result violates its declared output contract
-//   presenter       the presentation projection (CLI/MCP render) failed
-//
-// ## Totality (two independent compile-time proofs + one runtime proof)
-//
-//   1. `FAMILY_DEFAULTS: Record<FailureLayer, …>` — a `Record` keyed by the
-//      finite union REQUIRES every layer as a property. Adding a 7th
-//      `FailureLayer` without a family descriptor is a COMPILE error (TS2741
-//      missing property). This is the primary "an unmapped family cannot
-//      exist" proof.
-//   2. `layerSeverity` switches over the layer union with an `assertNever`
-//      default (a `never` assertion over the family union, as mandated). A new
-//      unmapped layer makes the default arm's `layer` non-`never`, so
-//      `assertNever(layer)` fails to compile (TS2345).
-//   3. `assertNever` throws at runtime if control ever reaches it via an
-//      unsound cast — the belt to the compile-time braces.
-//
-// This module is PURE (no I/O, no clock) so the mapping is unit-testable in
-// isolation and safe to digest as a frozen contract authority (see
-// `contract-surface.ts` → the `contract-surface` pin in `authority-pin.ts`).
-// ────────────────────────────────────────────────────────────────────────────
-
-// ─── The totality primitive ─────────────────────────────────────────────────
+// The closed mapping from each failure origin to one stable contract error code and one CLI exit code.
+// Every failure in every layer maps, and no failure falls through to an unmapped generic case.
+// - `protocol`: transport, JSON-RPC, method, version, or schema admission.
+// - `authorization`: principal, capability, reserved event, or idempotency scope.
+// - `task`: durable Task identity, ownership, lease, or cancellation.
+// - `handler`: the decision of the action handler, which is a business failure.
+// - `output`: the result violates its declared output contract.
+// - `presenter`: the CLI or MCP render failed.
+// Totality has two compile-time proofs and one runtime proof.
+// `FAMILY_DEFAULTS` is a `Record<FailureLayer, …>`, so a new layer without a descriptor does not compile.
+// `layerSeverity` ends in `assertNever`, so a new unhandled layer does not compile.
+// At runtime, `assertNever` throws when an unsound cast reaches it.
+// The module has no I/O and no clock, so the contract authority can digest it.
 
 /**
- * Compile-time exhaustiveness guard. In a `switch`/`if` chain that has
- * narrowed a union to nothing, the residual value has type `never`; passing it
- * here type-checks. If a new union member is added without a handling arm the
- * residual is that member (not `never`) and this call fails to compile
- * (TS2345). At runtime it throws — an unsound cast that reaches it is loud, not
- * silent.
+ * Compile-time exhaustiveness guard. After a chain narrows a union to nothing, the residual value is `never`.
+ * A new union member without an arm does not compile here. At runtime the call throws.
  */
 export function assertNever(value: never, context = 'value'): never {
   throw new Error(`Non-exhaustive ${context}: ${JSON.stringify(value)}`);
 }
 
-// ─── Failure-origin layers ──────────────────────────────────────────────────
-
-/**
- * The six failure ORIGINS, in pipeline order. This union is the axis over which
- * totality is proven — every member maps to a stable code + CLI exit.
- */
+/** The failure origins, in pipeline order. Each member maps to a stable code and a CLI exit. */
 export const FAILURE_LAYERS = [
   'protocol',
   'authorization',
@@ -66,17 +32,9 @@ export const FAILURE_LAYERS = [
 
 export type FailureLayer = (typeof FAILURE_LAYERS)[number];
 
-// ─── Stable CLI exit-code table (contract authority) ────────────────────────
-
 /**
- * Canonical CLI exit codes. This is the CONTRACT authority for exit behavior;
- * `adapters/cli.ts`'s `CLI_EXIT_CODES` + `ERROR_CODE_EXIT_CODES` are a faithful
- * projection of this table (proven by `error-families.test.ts`) until P03-05
- * generates the CLI directly from this contract.
- *
- * The 0–3 band is the generic success/input/handler/uncaught spine; the
- * 17/18 band carries the two bounded-`wait` outcomes, kept above the spine so
- * they never alias it.
+ * The contract authority for CLI exit codes. Codes 0 to 3 are success, input, handler, and uncaught.
+ * Codes 17 and 18 are the two bounded-`wait` outcomes, above the low band so they never alias it.
  */
 export const CONTRACT_EXIT_CODES = {
   SUCCESS: 0,
@@ -89,35 +47,25 @@ export const CONTRACT_EXIT_CODES = {
 
 export type ContractExitCode = (typeof CONTRACT_EXIT_CODES)[keyof typeof CONTRACT_EXIT_CODES];
 
-// ─── Retry policy ───────────────────────────────────────────────────────────
-
 /**
- * How a caller should react to a failure code.
- *
- * - `none`           — the request cannot succeed as-is; do not retry.
- * - `after-backoff`  — retry the SAME request after a delay (transient
- *                      contention, e.g. `STORAGE_BUSY`).
- * - `after-refetch`  — re-read state and re-decide before retrying; the prior
- *                      read is stale (e.g. `CONCURRENCY_CONFLICT`).
+ * How a caller reacts to a failure code.
+ * - `none`: the request cannot succeed as it is. Do not retry.
+ * - `after-backoff`: retry the same request after a delay, as for `STORAGE_BUSY`.
+ * - `after-refetch`: the prior read is stale. Read the state again and decide again, as for `CONCURRENCY_CONFLICT`.
  */
 export type RetryPolicy = 'none' | 'after-backoff' | 'after-refetch';
 
-// ─── Family descriptor ──────────────────────────────────────────────────────
-
 export interface FailureFamilyDescriptor {
   readonly layer: FailureLayer;
-  /** The family's DEFAULT stable contract error code. */
+  /** The default stable contract error code of the family. */
   readonly code: string;
-  /** The family's DEFAULT stable CLI exit code. */
+  /** The default stable CLI exit code of the family. */
   readonly exitCode: ContractExitCode;
   readonly retry: RetryPolicy;
   readonly description: string;
 }
 
-/**
- * The TOTAL family map. `Record<FailureLayer, …>` forces every layer to be
- * present — the primary compile-time totality proof (see file header §1).
- */
+/** The total family map. `Record<FailureLayer, …>` requires every layer. */
 export const FAMILY_DEFAULTS: Readonly<Record<FailureLayer, FailureFamilyDescriptor>> = {
   protocol: {
     layer: 'protocol',
@@ -175,16 +123,12 @@ export const FAMILY_DEFAULTS: Readonly<Record<FailureLayer, FailureFamilyDescrip
   },
 };
 
-/** Total lookup of a family descriptor by layer (never `undefined`). */
+/** Look up the family descriptor of a layer. The result is never `undefined`. */
 export function failureFamily(layer: FailureLayer): FailureFamilyDescriptor {
   return FAMILY_DEFAULTS[layer];
 }
 
-/**
- * Coarse client-vs-server attribution of a failure layer. Live use-site for the
- * mandated `never` exhaustiveness proof (file header §2): a new unmapped layer
- * makes the `default` arm's `layer` non-`never`, breaking the build.
- */
+/** Attribute a failure layer to the client or the server. The `assertNever` default breaks the build for a new layer. */
 export function layerSeverity(layer: FailureLayer): 'client' | 'server' {
   switch (layer) {
     case 'protocol':
@@ -204,33 +148,23 @@ export function layerSeverity(layer: FailureLayer): 'client' | 'server' {
   }
 }
 
-// ─── Stable error-code registry ─────────────────────────────────────────────
-
 /**
- * Per-code override of the family default. A concrete stable code always
- * belongs to exactly one family; its exit code / retry policy default to the
- * family's but MAY be specialised (e.g. the bounded-`wait` codes carry the
- * 17/18 exits while still belonging to the `task` family).
+ * The spec of one stable code, which belongs to exactly one family.
+ * Its exit code and retry policy can differ from the family defaults. The bounded-`wait` codes exit with 17 and 18 in the `task` family.
  */
 export interface StableErrorSpec {
   readonly layer: FailureLayer;
   readonly exitCode: ContractExitCode;
   readonly retry: RetryPolicy;
-  /** Short human description of when the code is emitted. */
+  /** A short description of when the code occurs. */
   readonly description: string;
 }
 
 /**
- * The enumerated registry of stable contract error codes. Every code has a
- * family, a CLI exit code, and a retry policy. Downstream generators (P03-03/04/05)
- * build their error tables from this authority; the CLI's per-code exit map is
- * a projection of the `exitCode` column.
- *
- * The family-default codes are registered here too, so `layerCodes(layer)` and
- * the coverage test can prove every family is represented.
+ * The registry of stable contract error codes. Each code has a family, a CLI exit code, and a retry policy.
+ * The family-default codes are here too, so `layerCodes(layer)` shows each family.
  */
 export const STABLE_ERROR_REGISTRY = {
-  // ── protocol ──────────────────────────────────────────────────────────────
   PROTOCOL_ERROR: {
     layer: 'protocol',
     exitCode: CONTRACT_EXIT_CODES.INVALID_INPUT,
@@ -256,7 +190,6 @@ export const STABLE_ERROR_REGISTRY = {
     description:
       'A negotiated result version cannot be produced or migrated for this caller.',
   },
-  // ── authorization ─────────────────────────────────────────────────────────
   AUTHORIZATION_DENIED: {
     layer: 'authorization',
     exitCode: CONTRACT_EXIT_CODES.HANDLER_ERROR,
@@ -275,7 +208,6 @@ export const STABLE_ERROR_REGISTRY = {
     retry: 'none',
     description: 'A privileged action was invoked without a trusted caller identity.',
   },
-  // ── task ──────────────────────────────────────────────────────────────────
   TASK_FAILED: {
     layer: 'task',
     exitCode: CONTRACT_EXIT_CODES.HANDLER_ERROR,
@@ -316,7 +248,6 @@ export const STABLE_ERROR_REGISTRY = {
     retry: 'none',
     description: 'A terminal that can never satisfy the wait predicate arrived first.',
   },
-  // ── handler ───────────────────────────────────────────────────────────────
   HANDLER_ERROR: {
     layer: 'handler',
     exitCode: CONTRACT_EXIT_CODES.HANDLER_ERROR,
@@ -341,14 +272,12 @@ export const STABLE_ERROR_REGISTRY = {
     retry: 'after-backoff',
     description: 'The storage substrate is under cross-process write contention.',
   },
-  // ── output ────────────────────────────────────────────────────────────────
   OUTPUT_CONTRACT_VIOLATION: {
     layer: 'output',
     exitCode: CONTRACT_EXIT_CODES.HANDLER_ERROR,
     retry: 'none',
     description: "A handler result failed its declared output-schema contract.",
   },
-  // ── presenter ─────────────────────────────────────────────────────────────
   PRESENTER_ERROR: {
     layer: 'presenter',
     exitCode: CONTRACT_EXIT_CODES.UNCAUGHT_EXCEPTION,
@@ -359,7 +288,7 @@ export const STABLE_ERROR_REGISTRY = {
 
 export type StableErrorCode = keyof typeof STABLE_ERROR_REGISTRY;
 
-/** All registered stable error codes, sorted (deterministic for digesting). */
+/** All registered stable error codes, sorted for a deterministic digest. */
 export function stableErrorCodes(): StableErrorCode[] {
   return (Object.keys(STABLE_ERROR_REGISTRY) as StableErrorCode[]).sort();
 }
@@ -369,37 +298,24 @@ export function layerCodes(layer: FailureLayer): StableErrorCode[] {
   return stableErrorCodes().filter((code) => STABLE_ERROR_REGISTRY[code].layer === layer);
 }
 
-// ─── Contract error carrier ─────────────────────────────────────────────────
-
-/**
- * The TOTAL error carrier. Every mapped failure produces one of these; the
- * shape is a structural superset of the live `ToolResult.error` block, so
- * {@link toErrorEnvelope} yields the canonical failure envelope unchanged.
- */
+/** The error carrier of every mapped failure. Its shape is a superset of `ToolResult.error`. */
 export interface ContractError {
   readonly code: string;
   readonly message: string;
   readonly layer: FailureLayer;
   readonly exitCode: ContractExitCode;
   readonly retry: RetryPolicy;
-  /** Optional structured discriminators (validTargets, streamId, …). */
+  /** Optional structured discriminators, such as `validTargets` or `streamId`. */
   readonly detail?: Readonly<Record<string, unknown>>;
 }
 
 export interface ContractErrorOptions {
-  /**
-   * An explicit stable code. When it is registered its exit/retry win over the
-   * family defaults; when omitted the family default code is used.
-   */
+  /** An explicit stable code. A registered code overrides the family exit and retry defaults. Without it, the family code applies. */
   readonly code?: StableErrorCode;
   readonly detail?: Readonly<Record<string, unknown>>;
 }
 
-/**
- * Build a {@link ContractError} for a failure at `layer`. Totality holds by
- * construction: `layer` is a `FailureLayer`, so `failureFamily(layer)` always
- * resolves and there is no unmapped branch.
- */
+/** Build a {@link ContractError} for a failure at `layer`. `failureFamily(layer)` always resolves. */
 export function contractError(
   layer: FailureLayer,
   message: string,
@@ -421,15 +337,9 @@ export function contractError(
 }
 
 /**
- * Resolve a stable CLI exit code from an error code. A registered code uses its
- * table entry; an unmapped/absent code falls to `HANDLER_ERROR` (the same
- * conservative fallback `adapters/cli.ts` uses today), and `undefined` (no
- * error) is `SUCCESS`.
- *
- * NOTE: this maps a CODE, not a RESULT. `undefined` here means "no error was
- * raised", which is why it is SUCCESS. A failure envelope that happens to carry
- * no code is a different question and must not reuse this entry point — see
- * {@link exitCodeForResult}, which is the authority for a dispatched result.
+ * Resolve a CLI exit code from an error code. An unregistered code gives `HANDLER_ERROR`.
+ * `undefined` means no error, so it gives `SUCCESS`.
+ * This maps a code, not a result. For a dispatched result, use {@link exitCodeForResult}.
  */
 export function exitCodeForError(code: string | undefined): ContractExitCode {
   if (code === undefined) return CONTRACT_EXIT_CODES.SUCCESS;
@@ -439,12 +349,7 @@ export function exitCodeForError(code: string | undefined): ContractExitCode {
   return CONTRACT_EXIT_CODES.HANDLER_ERROR;
 }
 
-/**
- * The stable code a failure envelope assumes when the result carries none.
- * `format.toEnvelope` substitutes this on the failure path, so both surfaces
- * describe an error-less failure with the same code rather than each inventing
- * its own default.
- */
+/** The code of a failure envelope whose result carries no code. `format.toEnvelope` uses it, so both surfaces agree. */
 export const UNSPECIFIED_FAILURE_CODE = 'INTERNAL_ERROR';
 
 /** The minimal result shape the exit-code authority reads. */
@@ -454,24 +359,10 @@ export interface ExitCodeSubject {
 }
 
 /**
- * THE authority mapping a dispatched result to its process exit code. Both the
- * generated CLI (`adapters/cli.resolveExitCode`) and the contract's own
- * differential witness resolve through this one function, so the surfaces agree
- * by construction rather than by two transcriptions staying in step.
- *
- * Two rules, in order:
- *  1. `success: true` → SUCCESS (0).
- *  2. otherwise the code is resolved through {@link exitCodeForError}, with a
- *     missing code standing in as {@link UNSPECIFIED_FAILURE_CODE} — the same
- *     substitution the failure envelope makes.
- *
- * **Failure floor.** A result with `success: false` never resolves to 0. The
- * floor is applied to the resolved code, not just to the absent-code branch, so
- * a registry entry mistakenly carrying `exitCode: 0` still cannot make a failure
- * exit successfully. `ToolResult` is not a discriminated union, so `success:
- * false` with no `error` is type-legal for every handler; the MCP wire renders
- * that value as `isError: true`, and without this floor the CLI rendered it as
- * exit 0 — the two surfaces disagreeing about the same result.
+ * The authority that maps a dispatched result to its process exit code. `adapters/cli.resolveExitCode` delegates to it.
+ * `success: true` gives 0. Otherwise {@link exitCodeForError} resolves the code, with {@link UNSPECIFIED_FAILURE_CODE} for a missing code.
+ * A failure never resolves to 0, even when a registry entry carries `exitCode: 0`.
+ * The MCP wire renders `success: false` with no `error` as `isError: true`, so the CLI must fail too.
  */
 export function exitCodeForResult(result: ExitCodeSubject): ContractExitCode {
   if (result.success) return CONTRACT_EXIT_CODES.SUCCESS;
@@ -489,11 +380,7 @@ export interface ContractErrorEnvelope {
   };
 }
 
-/**
- * Project a {@link ContractError} onto the live failure-envelope shape
- * (`{ success:false, error:{ code, message, …detail } }`) so the contract
- * layer and the runtime `ToolResult` failure branch agree byte-for-byte.
- */
+/** Project a {@link ContractError} onto the `ToolResult` failure-envelope shape. */
 export function toErrorEnvelope(err: ContractError): ContractErrorEnvelope {
   return {
     success: false,

@@ -1,50 +1,21 @@
-// ─── Schema totality — "does this accept every value?" ───────────────────────
-//
-// A leaf module (zod only). Both the DR-4 census and the `withCappedShape`
-// constructor need this predicate, and the constructor cannot reach the census:
-// `output-schema-census` imports the registry, which imports
-// `output-schema-declaration`, so a census import there would close an import
-// cycle. Rather than let the two ends carry separate copies — one authority
-// wearing two names, which is how they drift — the definition lives here and
-// both import it.
-// ─────────────────────────────────────────────────────────────────────────────
+// Decides whether a schema accepts every value. This leaf module imports only zod.
+// `withCappedShape` and the output-schema census both use this one definition, so they cannot drift.
 
 import { z } from 'zod';
 
 /**
- * Depth ceiling for the totality walk.
- *
- * Envelope `data` schemas nest a handful of wrappers at most; the bound exists
- * so a pathological or self-referential composite terminates. Falling off it
- * answers "not total", the conservative direction — an unproven schema is
- * treated as constraining something rather than as vacuous.
+ * Depth limit for the totality walk, so a self-referential schema terminates.
+ * Past the limit the answer is "not total", which is the conservative answer.
  */
 const MAX_TOTALITY_DEPTH = 12;
 
 /**
- * Does this sub-schema accept every value?
- *
- * `z.unknown()` and `z.any()` are the structural escape hatches, but testing
- * only for those two made the predicate a check on SPELLING rather than on
- * meaning: `withCappedShape` — DR-4's own sanctioned constructor — rewrites
- * `data` to `z.union([baseData, CappedDataSchema])`, so
- * `withCappedShape(EnvelopeSchema(z.unknown()))` produced a `ZodUnion` that is
- * neither `ZodUnknown` nor `ZodAny`, classified `substantive`, and still accepted
- * every payload. That defeated BOTH DR-4 teeth at once (the compile-time brand
- * and the runtime allowlist audit), and made the cheapest fake paydown available:
- * swap a `vacuityWaiver` for that call and every arm reads green while the
- * response contract is unchanged.
- *
- * So this is a semantic totality test, not an `instanceof` on the outermost node:
- *   - a union is total when ANY member is (one open branch admits everything);
- *   - an intersection is total only when BOTH sides are;
- *   - a pipe is total only when both ends are;
- *   - optional / nullable / default / readonly widen or pass through, so they
- *     inherit their inner type's verdict;
- *   - `catch` is unconditionally total — it swallows every parse failure and
- *     yields its fallback, so `z.string().catch('x')` accepts `42`.
- *
- * A predicate that cannot see through a wrapper is a tautology dressed as a gate.
+ * Return true when the schema accepts every value. The test reads meaning, not only the outermost class.
+ * `withCappedShape(EnvelopeSchema(z.unknown()))` is a `ZodUnion` that accepts every payload.
+ * - A union is total when any member is total.
+ * - An intersection and a pipe are total only when both sides are total.
+ * - Optional, nullable, default, and readonly take the verdict of their inner type.
+ * - `catch` is always total, because it replaces every parse failure with its fallback.
  */
 export function acceptsEveryValue(schema: z.ZodType, depth = 0): boolean {
   return schemaIsTotal(schema, depth);
@@ -52,13 +23,8 @@ export function acceptsEveryValue(schema: z.ZodType, depth = 0): boolean {
 
 /**
  * The walk behind {@link acceptsEveryValue}.
- *
- * Takes `unknown` rather than `z.ZodType` on purpose: a union's `options` and an
- * intersection's / pipe's operands are typed as zod's lower-level core node, not
- * the user-facing `ZodType`. Narrowing each one with `instanceof` recovers the
- * concrete class without a cast — and the cast is the thing worth avoiding here,
- * since an assertion would let a shape through unchecked in the very predicate
- * whose job is to decide whether anything is checked at all.
+ * It takes `unknown` because zod types union options and pipe operands as core nodes, not as `ZodType`.
+ * The `instanceof` checks recover the class without a cast, which can hide an unchecked shape.
  */
 function schemaIsTotal(schema: unknown, depth: number): boolean {
   if (depth >= MAX_TOTALITY_DEPTH) return false;
@@ -66,7 +32,6 @@ function schemaIsTotal(schema: unknown, depth: number): boolean {
 
   if (schema instanceof z.ZodUnknown || schema instanceof z.ZodAny) return true;
 
-  // Every failure is caught and replaced, so nothing is rejected.
   if (schema instanceof z.ZodCatch) return true;
 
   if (

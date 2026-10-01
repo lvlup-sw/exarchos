@@ -1,33 +1,13 @@
-// ─── The Exarchos workflow capsule — authored contract ───────────────────────
+// The authored contract of the Exarchos workflow capsule.
+// A capsule compiles intent, bound knowledge, and authority into one immutable, version-pinned artifact.
+// The harness executes it with no governance callbacks. Settlement judges the returned claims against the pinned capsule.
+// `authority` and the digest vocabulary derive from the workflow-definition kernel package (see `kernel-derivation.ts`).
 //
-// A capsule is what a workflow becomes once intent, bound knowledge and
-// authority are compiled into one immutable, version-pinned artifact. The
-// harness executes it without calling back for governance, and settlement
-// adjudicates the returned claims against the capsule that was pinned when the
-// work was compiled — not against whatever the design says now.
-//
-// The workflow-definition kernel is a published, versioned contract, and this
-// schema borrows from it rather than restating it. `authority` and the digest
-// vocabulary are DERIVED from the package (see `kernel-derivation.ts`); a
-// re-typed copy of either would drift silently, which the charter calls a
-// defect.
-//
-// `graph` names kernel steps by id and does not restate their structure. That
-// is not only a size argument. The kernel enforces its own graph integrity
-// through a refinement, and a refinement does not survive into JSON Schema:
-// embedding the kernel definition here would produce a contract whose Ajv
-// projection accepts documents its Zod source rejects. Measured on 0.14.0
-// against a transition naming a step that does not exist — Zod refuses it, the
-// emitted JSON Schema does not. So structure stays referential, and integrity
-// is a separate pass (`capsule-references.ts`), which is how the admission
-// contract in this tree already splits the same problem.
-//
-// Every constraint here is therefore STRUCTURAL — a required key, a `.min(1)`,
-// a discriminated union. Nothing is expressed as a refinement, because the
-// round-trip guard compares this schema against its own JSON Schema projection
-// and a rule Ajv cannot see reads as a contradiction rather than as the missing
-// projection it is.
-// ────────────────────────────────────────────────────────────────────────────
+// `graph` names kernel steps by id and does not restate their structure.
+// The kernel enforces graph integrity with a refinement, and a refinement does not survive into JSON Schema.
+// So integrity is a separate pass in `capsule-references.ts`.
+// Each constraint here is structural: a required key, a `.min(1)`, or a discriminated union.
+// The round-trip guard compares this schema with its JSON Schema projection, and Ajv cannot see a refinement.
 
 import { z } from 'zod';
 import {
@@ -44,19 +24,13 @@ import {
 } from '../ir/admission-ir.js';
 import { deepStrictify, requireNonEmptyArrayFields, unwrapOptional } from './kernel-derivation.js';
 
-/** The capsule FORMAT version — this file's shape, not a compilation's number. */
+/** The capsule format version. It versions the shape of this file, not one compilation. */
 export const CAPSULE_FORMAT_VERSION: '1' = '1';
 
 /**
- * The authority categories a capsule must carry, and carry non-empty.
- *
- * The kernel leaves all five optional because it serializes the frame and
- * proves none of it. A capsule is adjudicated against its authority, so an
- * empty block is not a permissive capsule — it is one that cannot be settled
- * against anything. `goals` is deliberately absent for a reason of its own: the
- * kernel keeps goals here, this contract keeps a capsule's goals under `intent`,
- * and requiring a category this contract does not use would be inventing an
- * obligation rather than tightening one.
+ * The authority categories that a capsule must carry, each one non-empty.
+ * The kernel makes them optional, but settlement judges against authority, so an empty block cannot settle.
+ * `goals` is not in the list, because this contract keeps goals under `intent`.
  */
 export const CAPSULE_REQUIRED_AUTHORITY_CATEGORIES: readonly string[] = [
   'invariants',
@@ -65,27 +39,18 @@ export const CAPSULE_REQUIRED_AUTHORITY_CATEGORIES: readonly string[] = [
   'escalationBoundaries',
 ];
 /**
- * One authority or intent statement, closed — the kernel's shape, our strictness.
- *
- * Annotated with the kernel's statement type, not left to inference, so every
- * array built from it carries typed statements rather than `unknown[]`. No cast
- * is involved: `deepStrictify` preserves its source's output type.
+ * One authority or intent statement: the kernel shape, closed.
+ * The annotation gives arrays a typed statement instead of `unknown[]`. `deepStrictify` keeps the source type, so no cast occurs.
  */
 const CapsuleStatementSchema: z.ZodType<CapsuleAuthorityStatement> = deepStrictify(
   WorkflowAuthorityStatementV1Schema,
 );
 
-/** The kernel's content-digest vocabulary, borrowed rather than re-typed. */
+/** The content-digest vocabulary of the kernel. */
 const KernelDigestSchema = unwrapOptional(WorkflowDefinitionV1Schema.shape.contentHash);
-/** One statement, as the kernel types it. Borrowed, so a kernel change lands here. */
+/** One statement, as the kernel types it. */
 type CapsuleAuthorityStatement = NonNullable<WorkflowAuthorityV1['invariants']>[number];
-/**
- * The authority block a capsule carries.
- *
- * The SHAPE is derived; this declares only which categories are required, which
- * is the one thing this contract adds. The statement type itself is the
- * kernel's, so a kernel change to it arrives here rather than being mirrored.
- */
+/** The authority block of a capsule. The shape derives from the kernel. This contract adds only the required categories. */
 export interface ExarchosCapsuleAuthorityV1 {
   readonly invariants: readonly CapsuleAuthorityStatement[];
   readonly assumptions: readonly CapsuleAuthorityStatement[];
@@ -95,31 +60,22 @@ export interface ExarchosCapsuleAuthorityV1 {
 }
 
 /**
- * The authority block: the kernel's shape, closed, with the empty case refused.
- *
- * The annotation is asserted rather than inferred, because the derivation
- * builds the schema at runtime and cannot carry a static shape out with it.
- * What keeps the assertion honest is not the compiler: the derivation tests
- * compare this schema's emitted JSON Schema against the kernel's own, and the
- * fixture corpus exercises every category through both validators.
+ * The authority block schema: the kernel shape, closed, with empty categories refused.
+ * The type is asserted, because the derivation builds the schema at runtime.
+ * The derivation tests compare its JSON Schema with the kernel JSON Schema to keep the assertion true.
  */
 export const ExarchosCapsuleAuthorityV1Schema = requireNonEmptyArrayFields(
   deepStrictify(WorkflowAuthorityV1Schema),
   CAPSULE_REQUIRED_AUTHORITY_CATEGORIES,
 ) as z.ZodType<ExarchosCapsuleAuthorityV1>;
 
-/** The compile-time assertion helpers, per this repository's `@proof` idiom. */
+/** The compile-time assertion helpers for `@proof` types. */
 type Expect<T extends true> = T;
 type IsNotAssignable<A, B> = A extends B ? false : true;
 
 /**
- * The capsule's authority is a NARROWING of the kernel's, never a widening.
- *
- * Wrapped in `Expect<…>` rather than left as a bare conditional. A bare
- * `A extends B ? true : never` alias resolves to `never` when the relation
- * fails and compiles perfectly well — it records the question without ever
- * demanding an answer. `Expect` constrains its parameter to `true`, so the day
- * this narrowing stops holding the compiler says so.
+ * The capsule authority narrows the kernel authority and adds no category.
+ * `Expect` requires `true`, so the compiler fails when the narrowing stops.
  * @proof
  */
 export type _CapsuleAuthorityInventsNoCategory = Expect<
@@ -127,24 +83,21 @@ export type _CapsuleAuthorityInventsNoCategory = Expect<
 >;
 
 /**
- * And the narrowing has TEETH: the kernel's own authority does not satisfy this
- * contract. The kernel leaves every category optional, so `{}` is a valid
- * `WorkflowAuthorityV1`; if that were also a valid capsule authority, the four
- * required categories would be decoration. This is the assertion that fails the
- * day someone relaxes them.
+ * The kernel authority does not satisfy the capsule authority. In the kernel, `{}` is a valid authority.
+ * This assertion fails when the required categories become optional.
  * @proof
  */
 export type _KernelAuthorityDoesNotSatisfyTheCapsule = Expect<
   IsNotAssignable<WorkflowAuthorityV1, ExarchosCapsuleAuthorityV1>
 >;
-/** What this capsule is a compilation OF, and which compilation it is. */
+/** The source of this capsule, and which compilation it is. */
 export const CapsuleIdentitySchema = z
   .object({
     workflowId: SharedStableIdSchema,
-    /** The digest of the workflow definition this capsule compiled from. */
+    /** The digest of the source workflow definition. */
     definitionVersion: KernelDigestSchema,
     designVersion: SharedStableIdSchema,
-    /** Which compilation of that design this is. Monotonic per workflow. */
+    /** The compilation number of that design. It increases per workflow. */
     capsuleVersion: z.number().int().min(1),
   })
   .strict();
@@ -158,16 +111,10 @@ export const CapsuleIntentSchema = z
   })
   .strict();
 
-/**
- * How the work fans out and rejoins: the modes a join may wait under.
- *
- * The vocabulary is the schema, and a consumer that wants the bare list reads
- * `.options` off it. Pinning the list separately and deriving the schema back
- * from it says the same thing twice and leaves two places to change.
- */
+/** The wait modes of a join. A consumer that needs the bare list reads `.options`. */
 export const CapsuleJoinModeSchema = z.enum(['all', 'any', 'quorum']);
 
-/** One unit of work, named by id and pointing at the kernel step it compiled from. */
+/** One unit of work, named by id. */
 export const CapsuleTaskSchema = z
   .object({
     taskId: SharedStableIdSchema,
@@ -189,23 +136,20 @@ export const CapsuleJoinSchema = z
   })
   .strict();
 
-/**
- * The semantic task graph and the test for having finished it.
- *
- * Acyclicity and the resolvability of every id named here are NOT expressed:
- * neither is structural, so neither survives into JSON Schema. Both are
- * resolved by `capsule-references.ts`, which runs over an already
- * structurally-valid document.
- */
+/** The test for a finished graph. */
 export const CapsuleCompletionPredicateSchema = z
   .object({
-    /** The closed condition AST — no expression, no command, no closure. */
+    /** The closed condition AST. It holds no expression, command, or closure. */
     condition: EdgeConditionNodeSchema,
-    /** The facts and events the condition may name, so a consumer can compile it. */
+    /** The facts and events that the condition can name, so a consumer can compile it. */
     declares: EdgeConditionDeclarationSchema,
   })
   .strict();
 
+/**
+ * The semantic task graph. Acyclicity and id resolution are not structural, so this schema does not express them.
+ * `capsule-references.ts` checks both over a structurally valid document.
+ */
 export const CapsuleGraphSchema = z
   .object({
     tasks: z.array(CapsuleTaskSchema).min(1),
@@ -215,7 +159,7 @@ export const CapsuleGraphSchema = z
   })
   .strict();
 
-/** The scalar kinds a task input or result field may carry. */
+/** The kinds of a task input or result field. */
 export const CapsuleFieldTypeSchema = z.enum([
   'string',
   'number',
@@ -224,13 +168,7 @@ export const CapsuleFieldTypeSchema = z.enum([
   'object',
 ]);
 
-/**
- * One field of a task's input or result.
- *
- * Deliberately flat. A recursive descriptor would be a second, worse JSON
- * Schema living inside this one, and a capsule that needs nested payload shapes
- * should name a schema rather than inline it.
- */
+/** One field of a task input or result. It is flat, so a nested payload must name a schema. */
 export const CapsuleFieldDescriptorSchema = z
   .object({
     name: SharedStableIdSchema,
@@ -239,7 +177,7 @@ export const CapsuleFieldDescriptorSchema = z
   })
   .strict();
 
-/** What a worker may propose when it finds the capsule's assumptions wrong. */
+/** What a worker can propose when the capsule assumptions are wrong. */
 export const CapsuleDeviationEnvelopeSchema = z
   .object({
     allowedDeviationKinds: z.array(SharedStableIdSchema).min(1),
@@ -247,7 +185,7 @@ export const CapsuleDeviationEnvelopeSchema = z
   })
   .strict();
 
-/** The typed shapes settlement adjudicates a returned claim against. */
+/** The typed shapes that settlement judges a returned claim against. */
 export const CapsuleContractsSchema = z
   .object({
     taskInputs: z.record(SharedStableIdSchema, z.array(CapsuleFieldDescriptorSchema)),
@@ -258,13 +196,8 @@ export const CapsuleContractsSchema = z
   .strict();
 
 /**
- * The bound design knowledge, as a discriminated union rather than an object
- * with a mode field.
- *
- * `eager` declares no supplement keys at all, so closing the object is what
- * refuses them; `hybrid` requires a budget. Expressed as a union because that
- * is the only form in which the distinction survives into JSON Schema — as an
- * enum plus a refinement it would vanish at the Ajv boundary.
+ * The bound design knowledge. `eager` is closed and refuses supplement keys. `hybrid` requires a budget.
+ * It is a discriminated union, because a refinement does not survive into JSON Schema.
  */
 export const CapsuleKnowledgeSchema = z.discriminatedUnion('mode', [
   z
@@ -282,7 +215,7 @@ export const CapsuleKnowledgeSchema = z.discriminatedUnion('mode', [
       patterns: z.array(CapsuleStatementSchema),
       glossary: z.array(CapsuleStatementSchema),
       unresolvedRefs: z.array(SharedStableIdSchema),
-      /** The byte budget a runtime may spend fetching what was not bound. */
+      /** The byte budget that a runtime can spend to fetch unbound knowledge. */
       supplementBudget: z.number().int().min(1),
     })
     .strict(),
@@ -310,15 +243,14 @@ export const CapsuleProvenanceSchema = z
   })
   .strict();
 
-/** The risk tiers a task's verification is routed by. */
+/** The risk tiers that route task verification. */
 export const CapsuleRiskTierSchema = z.enum(['low', 'medium', 'high']);
 
 /**
- * A git ref a task's diff is measured against. A safe subset of git's ref
- * names: it starts with a letter, a digit or an underscore, so it can never be
- * read as an option, and it holds no whitespace and no `..`, so it can never
- * name a range. A pattern rather than a refinement, so the JSON Schema
- * projection carries the same rule.
+ * A git ref that a task diff is measured against, in a safe subset of git ref names. It starts with a
+ * letter, a digit or an underscore, so git never reads it as an option. It holds no whitespace and no
+ * `..`, so it never names a range. It is a pattern, not a refinement, so the JSON Schema projection
+ * carries the same rule.
  */
 export const CapsuleBaseRefSchema = z
   .string()
@@ -330,14 +262,10 @@ export const CapsuleBaseRefSchema = z
   );
 
 /**
- * The verification terms one task settles under, frozen when the capsule is
- * compiled.
- *
- * The tier and the boundary flag route which gates a task's completion must
- * pass, and the base names what its diff is measured against. They are terms
- * of settlement, not facts about the runtime: a task that could name its own
- * tier or base at claim time could choose what it is judged by, so they are
- * compiled here and read back out of the pinned capsule at settlement.
+ * The verification terms of one task, fixed when the capsule is compiled.
+ * The tier and the boundary flag select the gates of the task, and the base names the start of its diff.
+ * A task that names its own tier or base at claim time chooses what judges it.
+ * Thus settlement reads the terms from the pinned capsule.
  */
 export const CapsuleTaskVerificationSchema = z
   .object({
@@ -348,25 +276,16 @@ export const CapsuleTaskVerificationSchema = z
   .strict();
 
 /**
- * The terms every batch of this capsule is settled under.
- *
- * The batch identity is deliberately NOT here. Settlement is idempotent on the
- * pair `(capsuleVersion, batchId)`, and a pair only means something if one
- * capsule can be settled over more than one batch: a rejected batch is
- * corrected and resubmitted under the same pinned terms, as a new batch. A
- * `batchId` compiled into the capsule would make that second submission the
- * same key with a different request, which the claim refuses — so correcting a
- * rejection would need a fresh compilation, one call more than the exception
- * path is budgeted.
+ * The settlement terms for each batch of this capsule. The batch id is not here.
+ * Settlement is idempotent on `(capsuleVersion, batchId)`, and a rejected batch resubmits as a new batch under the same terms.
+ * A compiled `batchId` makes that resubmission the same key with a different request, which the claim refuses.
  */
 export const CapsuleSettlementContractSchema = z
   .object({
     requiredResults: z.array(SharedStableIdSchema).min(1),
     /**
-     * Per-task verification terms, keyed by task id. Optional at the contract
-     * level because the contract is derived for any kernel step; a settlement
-     * that composes a task's verification refuses a task that has no terms,
-     * rather than inventing a tier for it.
+     * Per-task verification terms, keyed by task id. The field is optional, because the contract derives for any kernel step.
+     * A settlement that needs the terms of a task refuses a task without terms.
      */
     taskVerification: z.record(SharedStableIdSchema, CapsuleTaskVerificationSchema).optional(),
   })
@@ -390,15 +309,12 @@ export const ExarchosCapsuleV1Schema = z
 
 export type ExarchosCapsuleV1 = z.infer<typeof ExarchosCapsuleV1Schema>;
 
-/** The JSON Schema projection of this contract, exactly as the chokepoint types it. */
+/** The JSON Schema projection of this contract, as the chokepoint types it. */
 export type ExarchosCapsuleJsonSchema = ReturnType<
   typeof zodToJsonSchema<typeof ExarchosCapsuleV1Schema>
 >;
 
-/**
- * The generated JSON Schema for a capsule, through the draft-2020-12
- * chokepoint. Deterministic: the same source yields identical bytes anywhere.
- */
+/** The generated draft-2020-12 JSON Schema for a capsule. The same source gives identical bytes. */
 export function exarchosCapsuleJsonSchema(): ExarchosCapsuleJsonSchema {
   return zodToJsonSchema(ExarchosCapsuleV1Schema);
 }

@@ -36,12 +36,11 @@ function withContract(
 }
 
 export const invariantActions: readonly BuiltinToolAction[] = [
-  // ─── Invariant Authoring Actions (invariants-catalog-wizard, P2) ───────────
+  /**
+   * Creates a starter invariant catalog file for a tier and registers it in `.exarchos.yml`. It is an
+   * action on `exarchos_orchestrate`, not a separate visible tool. It does not overwrite a file.
+   */
   withContract({
-    // P2/T7: create a starter invariant catalog file for a tier and
-    // idempotently register it in `.exarchos.yml`. INV-5d: this is an ACTION on
-    // exarchos_orchestrate, NOT a fifth visible tool. Never overwrites an
-    // existing file (mirrors seedExarchosConfig).
     name: 'invariants_scaffold',
     description:
       'Create a starter invariant catalog file for a tier (dev | user) and idempotently register it in .exarchos.yml. Emits no events; never overwrites an existing catalog file. Do not use when the catalog file already exists, or to add an entry to an existing catalog — use invariants_add for that. After scaffolding, run doctor and inspect the resolved catalog via the invariants_effective view.',
@@ -49,8 +48,10 @@ export const invariantActions: readonly BuiltinToolAction[] = [
       tier: z.enum(['dev', 'user']).optional(),
       path: z.string().optional(),
       repoRoot: z.string().optional(),
-      // #1489: `dev`/`INV-N` is exarchos's reserved substrate namespace. Outside
-      // the exarchos repo, tier:dev is rejected unless this override is set.
+      /**
+       * The `dev` tier is the reserved Exarchos namespace. Outside the Exarchos repo, `tier: dev`
+       * fails unless this flag is set.
+       */
       allowReservedTier: z.boolean().optional(),
     }),
     phases: ALL_PHASES,
@@ -63,13 +64,13 @@ export const invariantActions: readonly BuiltinToolAction[] = [
     resources: declared({ kind: 'path', selector: 'path' }),
     replay: { kind: 'claim-required', scope: 'stream-subject-request' },
   }),
+  /**
+   * Validates one entry against `InvariantEntryV3Schema`, with the strict enforcement DSL, and
+   * appends it to a registered catalog. A dry run is the default: it returns the rendered entry and
+   * a file diff, and writes nothing. A commit assigns the next free id in the namespace and emits
+   * `invariant.authored`, plus `catalog.registered` on the first registration.
+   */
   withContract({
-    // P2/T11: validate one entry against InvariantEntryV3Schema (incl. the
-    // .strict() enforcement DSL) and append it to a registered catalog.
-    // `dryRun` defaults true (INV-5c): the dry run returns the rendered entry +
-    // a file diff and writes nothing. On commit it auto-assigns the next free
-    // id in the target namespace and emits invariant.authored (+ catalog.registered
-    // on first registration). INV-5d: ACTION, not a fifth visible tool.
     name: 'invariants_add',
     description:
       'Validate one invariant entry against the v3 schema (including the sandbox-safe .strict() enforcement DSL) and append it to a registered catalog. Defaults to dryRun:true — returns the rendered YAML entry + a file diff without writing; pass dryRun:false to commit (auto-assigns the next free id, emits invariant.authored). Do not use to create a new catalog file — use invariants_scaffold first. Do not embed script/exec/code in enforcement; the DSL is declarative-only and rejects executable escape hatches. After committing, run doctor and inspect the result via the invariants_effective view.',
@@ -78,19 +79,17 @@ export const invariantActions: readonly BuiltinToolAction[] = [
       catalog: z.string().optional(),
       tier: z.enum(['dev', 'user']).optional(),
       id: z.string().optional(),
-      // INV-5c: this mutating verb defaults to dry-run. The default lives in
-      // the handler/dispatch boundary (composite.ts: `dryRun === undefined ?
-      // true`) rather than as a Zod `.default(true)` here, because the
-      // MCP-registration flattener (`buildRegistrationSchema`) forbids two
-      // actions declaring the same field with divergent defaults — and
-      // `merge_orchestrate` / `prune_stale_workflows` already declare
-      // `dryRun` as `.optional()` with no default. Keeping the field
-      // `.optional()` here aligns the registration contract; the safe
-      // dry-run default is enforced where the value is actually consumed.
+      /**
+       * The handler applies the dry-run default, not a Zod `.default(true)`. `buildRegistrationSchema`
+       * forbids two actions that declare one field with different defaults. Other actions on this
+       * tool declare `dryRun` as optional with no default.
+       */
       dryRun: z.boolean().optional(),
       repoRoot: z.string().optional(),
-      // #1489: `dev`/`INV-N` is exarchos's reserved substrate namespace. Outside
-      // the exarchos repo, tier:dev is rejected unless this override is set.
+      /**
+       * The `dev` tier is the reserved Exarchos namespace. Outside the Exarchos repo, `tier: dev`
+       * fails unless this flag is set.
+       */
       allowReservedTier: z.boolean().optional(),
     }),
     phases: ALL_PHASES,
@@ -110,24 +109,16 @@ export const invariantActions: readonly BuiltinToolAction[] = [
       { event: 'invariant.authored', condition: 'conditional', owner: 'orchestrate', role: 'primary', description: 'On commit (dryRun:false)' },
     ),
   }),
+  /**
+   * Amends one existing catalog entry in place. `id` names the entry and is not patchable. `patch`
+   * names the top-level fields to replace, and each omitted field stays as it is. A dry run is the
+   * default, and a commit emits `invariant.amended`.
+   *
+   * The shared fields reuse the base types of `invariants_add`, as `buildRegistrationSchema`
+   * requires. The field is `patch`, not `fields`, because this tool already declares `fields` as an
+   * array. A record there collides and throws at registration.
+   */
   withContract({
-    // Task 068 / DR-23: the catalog had no sanctioned amend path. `invariants_add`
-    // is append-only and the `/exarchos:invariants` skill forbids hand-writing
-    // catalog YAML, so entries were effectively IMMUTABLE once committed —
-    // every correction to a shipped invariant was unreachable.
-    //
-    // This verb is id-targeted and field-scoped: `id` names an existing entry
-    // (identity is NOT patchable), `patch` names the top-level fields to
-    // replace, and every field the patch omits survives verbatim. Amending is
-    // not re-scaffolding. `dryRun` defaults true (INV-5c); a commit emits
-    // `invariant.amended`. INV-5d: ACTION, not a fifth visible tool.
-    //
-    // Field-name contract (`buildRegistrationSchema`): `id` / `catalog` /
-    // `tier` / `dryRun` / `repoRoot` / `allowReservedTier` reuse the exact base
-    // types `invariants_add` already declares. The patch field is named `patch`
-    // rather than the more obvious `fields` BECAUSE `fields` is already
-    // declared on this tool as `coercedStringArray()` (an array) — a record
-    // there would be a base-type collision and would throw at registration.
     name: 'invariants_amend',
     description:
       "Amend one EXISTING invariant entry in a registered catalog, in place. `id` names the entry to correct and is not itself patchable; `patch` names the top-level fields to replace, and any field the patch omits is carried through unchanged. The merged entry is re-validated against the full v3 schema (including the sandbox-safe .strict() enforcement DSL). Defaults to dryRun:true — returns the amended YAML entry + a before/after diff without writing; pass dryRun:false to commit (emits invariant.amended). Use this, NOT invariants_add, to correct a shipped invariant: invariants_add only appends, and re-using an existing id there is rejected. Do not hand-edit catalog YAML. After committing, run doctor and inspect the result via the invariants_effective view.",
@@ -136,19 +127,17 @@ export const invariantActions: readonly BuiltinToolAction[] = [
       patch: z.record(z.string(), z.unknown()),
       catalog: z.string().optional(),
       tier: z.enum(['dev', 'user']).optional(),
-      // INV-5c: dry-run default lives at the handler/dispatch boundary, not as
-      // a Zod `.default(true)` — see the note on `invariants_add.dryRun`.
+      /** The handler applies the dry-run default, for the reason on `invariants_add.dryRun`. */
       dryRun: z.boolean().optional(),
       repoRoot: z.string().optional(),
       allowReservedTier: z.boolean().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    // DR-4: declared SUBSTANTIVELY via the sole substantive constructor. A new
-    // action has no seeded `vacuityWaiver` entry, and the waiver allowlist is
-    // shrink-only — acquiring one would be a ratchet violation, so the shape is
-    // stated instead. (`vacuityWaiver`'s `id` is typed as the literal union of
-    // seeded ids, so this is enforced at compile time, not by convention.)
+    /**
+     * A real output shape, because the waiver allowlist only shrinks. The `id` of `vacuityWaiver` is
+     * a literal union of the seeded ids, so the compiler refuses a new waiver.
+     */
     outputSchema: withCappedShape(AmendInvariantOutputSchema),
     annotations: LOCAL_MUTATION,
   }, {

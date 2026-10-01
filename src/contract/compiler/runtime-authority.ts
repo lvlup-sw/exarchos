@@ -1,100 +1,16 @@
-// ─── The runtime-surface authority + meta-model audit (DR-11) ────────────────
-//
-// WHY THIS MODULE EXISTS (DR-11, Class B).
-//
-// `registry.ts` is the DECLARATION authority: the hand-written `TOOL_REGISTRY`
-// is the single place an Exarchos action is declared, and the running server
-// reads it directly. `contract/compiler/meta-model.ts` does NOT introduce a
-// second declaration — it is a PROJECTION of those declarations into the
-// compiler's input model. That is the resolved authority direction; it is
-// stated verbatim at the head of `registry.ts` so a reader of either file
-// finds the same answer.
-//
-// The hazard DR-11 names is what that direction costs. If the drift guard
-// compares the meta-model against `TOOL_REGISTRY` the way the meta-model was
-// derived from `TOOL_REGISTRY`, the comparison is a tautology: baseline and
-// checker are the same function of one source, so a WRONG meta-model — a
-// `derive*Policy` that reads the wrong field, sorts the wrong list, or binds
-// the wrong action — passes by construction. That is the "single-source
-// comparison" defect, and it is the thing to remove.
-//
-// This module removes it by auditing the meta-model against an authority that
-// is NOT `meta-model.ts`: the SHIPPED RUNTIME SURFACE. Every observation below
-// is taken by calling a function the running server itself calls —
-//
-//   • `buildRegistrationSchema(tool.actions)` — the STRICT Zod object the MCP
-//     adapter registers (`adapters/mcp.ts:517`). Its `action` discriminator is
-//     the set of action names the wire actually accepts, and its strictness is
-//     the reason a field the contract advertises but the wire rejects is an
-//     observably broken runtime surface, not a paper disagreement.
-//   • `buildToolDescription(tool)` — the exact description string `tools/list`
-//     carries (`adapters/mcp.ts:518`), including one `- name(params): text`
-//     signature line per action.
-//   • `handleDescribe(...)` — the shipped `describe` action that every
-//     composite handler routes (`projections/views/composite.ts:626`,
-//     `workflow/composite.ts:268`, `verbs/composite.ts:701`). It is what
-//     a model-facing agent is told about roles, phases, gates, auto-emissions,
-//     deprecation, task-suitability and the effective economy budget.
-//
-// So the audit is a DIFFERENTIAL BETWEEN TWO INDEPENDENT PROJECTIONS of the
-// same declarations, not a comparison of one projection with itself.
-//
-// ─── What this guard CAN and CANNOT catch (stated limits) ────────────────────
-//
-// CAN — a wrong meta-model PROJECTION. Three provenances of check:
-//
-//   1. Differential, two genuinely different functions on each side. The
-//      strict-wire acceptance probe, the advertised-action enum, the
-//      `tools/list` signature line (Zod `isOptional()` + declaration order vs.
-//      JSON-Schema `required` + `default`), roles/phases/gate/auto-emission/
-//      deprecation/task projections through `describe`. A `derive*Policy` that
-//      reads the wrong field or drops a value diverges here.
-//   2. Differential, same function on each side but INDEPENDENT ACTION
-//      BINDING: `inputSchema`, `outputSchema` and `economyBudgetTokens` are
-//      computed identically on both sides, so these catch a meta-model that
-//      binds an entry to the WRONG action (a swap, an off-by-one over
-//      `tool.actions`) but not a mis-projection of the right one.
-//   3. Coherence — hand-authored invariants over the meta-model's own
-//      documented semantics, for the dimensions with no independent runtime
-//      consumer (`effect`, `cache`, `cancellation`, and the task-layer error
-//      gating). These are internal, therefore the weakest class here; they are
-//      reported with `provenance: 'internal-coherence'` so nobody mistakes
-//      them for the differential.
-//
-// CANNOT — a wrong DECLARATION. Both sides read the same `ToolAction`, so an
-// action annotated `readOnly: true` whose handler mutates the tree is invisible
-// to every check in this file. Detecting that needs DR-11's first acceptance
-// criterion (the server consuming compiler descriptors, so the descriptor IS
-// the runtime surface rather than a description of it); that inversion is NOT
-// done here and stays open. Likewise uncovered, for want of an independent
-// runtime consumer to differentiate against: `authorization.safety/readOnly/
-// destructive/idempotent/openWorld/posture` (the MCP wire only carries the
-// TOOL-level aggregate), `execution.longRunning/surface`, `presentation.*`
-// (the CLI builds its verb tree in `adapters/cli.ts` behind Commander), and
-// the `errorCodes` / `outputKinds` sets (the compiler validates membership in
-// the frozen surface, but nothing observes which codes an action can really
-// raise).
-//
-// ─── Wrong meta-model vs. stale baseline ─────────────────────────────────────
-//
-// `classifyContractDrift` keeps the two conditions separable, which the raw
-// baseline diff cannot do on its own:
-//
-//   • A merely STALE baseline — the checked-in `generated/proof-fixtures.json`
-//     no longer matches a fresh compile — produces NO findings here, so the
-//     verdict is `['stale-baseline']` and the remedy is "regenerate".
-//   • A WRONG meta-model produces findings, and it produces them EVEN WHEN THE
-//     BASELINE HAS JUST BEEN REGENERATED FROM IT. Regeneration launders a
-//     stale baseline; it cannot launder a wrong model. So a fresh baseline
-//     plus findings is unambiguously `['wrong-meta-model']`.
-//
-// The asymmetry is the point: the baseline signal is NOT specific (a wrong
-// meta-model usually makes the baseline stale too), the differential signal IS.
-// Reading them together tells "regenerate the artifact" apart from "the model
-// is wrong", which one signal alone cannot.
-//
-// Determinism: findings are sorted; no clock, path, or locale leaks in.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Audits the compiler meta-model against the shipped runtime surface. `TOOL_REGISTRY` declares
+ * each action, and `meta-model.ts` projects it. A guard that compares the meta-model with the
+ * registry in the same way that it derives it always passes.
+ *
+ * So this module observes the functions that the running server calls: `buildRegistrationSchema`,
+ * `buildToolDescription`, and `handleDescribe`. A wrong projection or a wrong action binding shows
+ * as a finding. Coherence findings check the meta-model only against its own rules, and are weaker.
+ *
+ * The audit cannot catch a wrong declaration, because both sides read the same `ToolAction`. It
+ * also does not cover dimensions that no runtime consumer reads, such as the authorization hints
+ * and `presentation`. Findings are sorted, and no clock, path, or locale affects them.
+ */
 
 import {
   TOOL_REGISTRY,
@@ -110,8 +26,6 @@ import { canonicalizeText } from '../authority-digest.js';
 import { canonicalJson } from '../request-context.js';
 import { sortedUnique, type ActionMetaModel, type MetaModel } from './meta-model.js';
 
-// ─── Small total guards (no `any`; every unknown is narrowed) ────────────────
-
 function asRecord(value: unknown): Readonly<Record<string, unknown>> | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
   return value as Readonly<Record<string, unknown>>;
@@ -123,8 +37,6 @@ function asStringArray(value: unknown): readonly string[] | null {
 }
 
 const byString = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
-
-// ─── Observed runtime surface ────────────────────────────────────────────────
 
 /** A gate, normalized to the shape the meta-model's authorization policy uses. */
 export interface ObservedGate {
@@ -140,11 +52,8 @@ export interface ObservedAutoEmit {
 }
 
 /**
- * What the shipped `describe` surface says about ONE action. Every field is
- * read out of a real `handleDescribe` response — the same bytes a model-facing
- * agent receives — and normalized to the shape the meta-model claims, so the
- * audit compares like with like without either side reaching into the other's
- * derivation.
+ * What the shipped `describe` surface says about one action. Each field comes from a real
+ * `handleDescribe` response and has the shape of the meta-model claim.
  */
 export interface ObservedAction {
   readonly tool: string;
@@ -166,7 +75,7 @@ export interface ObservedAction {
   readonly actionContract: Readonly<Record<string, unknown>> | null;
   /** Canonical bytes digest describe published alongside the contract. */
   readonly actionContractDigest: string | null;
-  /** Compact contract view; may omit prose but must keep every dimension + digest. */
+  /** The compact contract view. It can omit prose, but it must keep each dimension and the digest. */
   readonly actionContractCompact: Readonly<Record<string, unknown>> | null;
 }
 
@@ -251,10 +160,9 @@ function observeAction(
 const ENUM_PROBE_ACTION = '\u0000__runtime_authority_enum_probe__';
 
 /**
- * Ask the STRICT registration schema which action names it accepts, by feeding
- * it a name that cannot exist and reading the enum back out of the resulting
- * `invalid_value` issue. Behavioral on purpose: the answer comes from the
- * schema the MCP adapter actually registers, not from re-reading the registry.
+ * Asks the strict registration schema which action names it accepts. It sends a name that cannot
+ * exist and reads the enum from the `invalid_value` issue. Thus the answer comes from the schema
+ * that the MCP adapter registers, not from the registry.
  */
 function readAdvertisedActions(
   parseAction: (action: string) => { readonly issues: readonly unknown[] } | null,
@@ -273,9 +181,8 @@ function readAdvertisedActions(
 }
 
 /**
- * Observe the live runtime surface. Async because the shipped `describe`
- * handler is async — the observation goes through the real handler rather
- * than re-deriving what it would have said.
+ * Observes the live runtime surface. It is async because it calls the shipped `describe` handler,
+ * which is async.
  */
 export async function observeRuntimeSurface(
   registry: readonly CompositeTool[] = TOOL_REGISTRY,
@@ -350,8 +257,6 @@ export async function observeRuntimeSurface(
   return { tools };
 }
 
-// ─── Findings ────────────────────────────────────────────────────────────────
-
 export const META_MODEL_FINDING_KINDS = [
   'wire-action-unadvertised',
   'wire-action-unmodelled',
@@ -365,10 +270,9 @@ export const META_MODEL_FINDING_KINDS = [
 export type MetaModelFindingKind = (typeof META_MODEL_FINDING_KINDS)[number];
 
 /**
- * How much a finding is worth. `runtime-differential` findings come from a
- * projection authored outside `meta-model.ts`; `internal-coherence` findings
- * come from hand-authored invariants over the meta-model's own semantics and
- * are the weaker class (see the header).
+ * The weight of a finding. A `runtime-differential` finding comes from a projection outside
+ * `meta-model.ts`. An `internal-coherence` finding comes from hand-authored rules over the
+ * meta-model, and is weaker.
  */
 export type FindingProvenance = 'runtime-differential' | 'internal-coherence';
 
@@ -406,8 +310,6 @@ function sortFindings(findings: readonly MetaModelFinding[]): readonly MetaModel
   return [...findings].sort((a, b) => byString(key(a), key(b)));
 }
 
-// ─── Signature reconstruction ────────────────────────────────────────────────
-
 interface SchemaFacts {
   readonly properties: readonly string[];
   readonly required: ReadonlySet<string>;
@@ -430,13 +332,10 @@ function schemaFacts(schema: unknown): SchemaFacts {
 }
 
 /**
- * Rebuild the `- name(params): description` line `buildToolDescription` would
- * publish for this entry, using ONLY what the meta-model claims. The wire
- * marks a parameter optional from Zod's `isOptional()`; JSON Schema marks it
- * required unless it is absent from `required` OR carries a `default` (a
- * defaulted field is caller-optional but JSON-Schema-required). Reconciling
- * the two encodings is exactly what makes this a differential rather than a
- * restatement.
+ * Rebuilds the `- name(params): description` line of `buildToolDescription` from the meta-model
+ * claims only. The wire marks a parameter optional from Zod `isOptional()`. Here a parameter is
+ * optional when it is absent from JSON Schema `required` or has a `default`. The two encodings
+ * differ, so the check is a real differential.
  */
 export function expectedSignatureLine(entry: ActionMetaModel): string {
   const facts = schemaFacts(entry.inputSchema);
@@ -445,8 +344,6 @@ export function expectedSignatureLine(entry: ActionMetaModel): string {
   );
   return `- ${entry.action}(${params.join(', ')}): ${entry.description}`;
 }
-
-// ─── Differential audit ──────────────────────────────────────────────────────
 
 const OBSERVED_CONTRACT_DIMENSIONS = [
   'requires',
@@ -698,15 +595,10 @@ function auditAgainstDescribe(
   return findings;
 }
 
-// ─── Coherence invariants (internal, weaker — see the header) ────────────────
-
 /**
- * The meta-model's own documented semantics for the dimensions with no
- * independent runtime consumer. Each entry is a hand-authored rule, not a
- * restatement of the derivation: `cache.cacheable` is DEFINED as "read-only and
- * idempotent", `cancellation.cancellable` as "long-running or task-augmentable",
- * and the task-layer error codes are DEFINED to appear exactly when the action
- * is task-bound. A `derive*Policy` that reads a different field breaks one.
+ * Checks hand-authored rules for the dimensions that no runtime consumer reads. For example,
+ * `cache.cacheable` means read-only and idempotent, and `WAIT_TIMEOUT` appears exactly when the
+ * action is task-bound. A `derive*Policy` that reads a different field breaks a rule.
  */
 function auditCoherence(entry: ActionMetaModel): readonly MetaModelFinding[] {
   const findings: MetaModelFinding[] = [];
@@ -776,14 +668,13 @@ function auditCoherence(entry: ActionMetaModel): readonly MetaModelFinding[] {
   return findings;
 }
 
-// ─── The audit ───────────────────────────────────────────────────────────────
-
 /**
- * Audit a meta-model against the observed runtime surface. Pure and total:
- * returns every finding, sorted, and never throws. An empty result means the
- * meta-model's projection agrees with what the shipped server advertises and
- * with its own declared semantics — NOT that the underlying declarations are
- * right (see the header's limits).
+ * Audits a meta-model against the observed runtime surface. It is pure, returns the findings
+ * sorted, and does not throw.
+ *
+ * For each entry it checks the wire discriminator, the strict field schema, the `tools/list`
+ * signature line, the `describe` policy, and coherence. Then it reports actions and fields that the
+ * wire publishes but the meta-model omits. An empty result does not prove the declarations correct.
  */
 export function auditMetaModel(
   metaModel: MetaModel,
@@ -820,7 +711,6 @@ export function auditMetaModel(
     for (const property of facts.properties) fields.add(property);
     modelledFieldsByTool.set(entry.tool, fields);
 
-    // 1. The strict wire discriminator must accept the action name.
     if (!tool.acceptsAction(entry.action)) {
       findings.push(
         finding(
@@ -835,7 +725,6 @@ export function auditMetaModel(
       continue;
     }
 
-    // 2. Every advertised input field must survive the STRICT wire schema.
     for (const rejected of tool.rejectsFields(entry.action, facts.properties)) {
       findings.push(
         finding(
@@ -849,7 +738,6 @@ export function auditMetaModel(
       );
     }
 
-    // 3. The `tools/list` signature line must match what the entry claims.
     const expectedLine = expectedSignatureLine(entry);
     if (!tool.wireDescription.includes(expectedLine)) {
       findings.push(
@@ -864,7 +752,6 @@ export function auditMetaModel(
       );
     }
 
-    // 4. Policy dimensions, against the shipped `describe` surface.
     const observed = tool.actions.get(entry.action);
     if (observed === undefined) {
       findings.push(
@@ -881,11 +768,9 @@ export function auditMetaModel(
       findings.push(...auditAgainstDescribe(entry, observed));
     }
 
-    // 5. Internal semantics.
     findings.push(...auditCoherence(entry));
   }
 
-  // 6. Coverage — anything the runtime advertises but the contract omits.
   for (const tool of surface.tools.values()) {
     const modelled = modelledByTool.get(tool.tool) ?? new Set<string>();
     for (const advertised of tool.advertisedActions) {
@@ -928,8 +813,6 @@ export async function auditMetaModelAgainstRuntime(
   return auditMetaModel(metaModel, await observeRuntimeSurface(registry));
 }
 
-// ─── Drift classification ────────────────────────────────────────────────────
-
 export const CONTRACT_DRIFT_KINDS = ['wrong-meta-model', 'stale-baseline'] as const;
 export type ContractDriftKind = (typeof CONTRACT_DRIFT_KINDS)[number];
 
@@ -943,7 +826,7 @@ export const FIX_META_MODEL_REMEDY =
 
 export interface ContractDriftVerdict {
   readonly ok: boolean;
-  /** Empty when clean; otherwise the conditions that actually hold. */
+  /** The conditions that hold. It is empty when the contract is clean. */
   readonly kinds: readonly ContractDriftKind[];
   readonly findings: readonly MetaModelFinding[];
   readonly baselineMatchesFreshCompile: boolean;
@@ -953,10 +836,9 @@ export interface ContractDriftVerdict {
 }
 
 /**
- * Separate "the artifact is stale" from "the model is wrong". The baseline
- * comparison alone cannot: a wrong meta-model usually makes the baseline stale
- * too, so a bare mismatch is ambiguous. The findings resolve it — they are
- * produced by the runtime differential, which regeneration cannot silence.
+ * Separates a stale baseline from a wrong meta-model. A wrong meta-model usually makes the
+ * baseline stale too, so a baseline mismatch alone is ambiguous. The findings resolve it, because a
+ * regenerated baseline does not clear them.
  */
 export function classifyContractDrift(input: {
   readonly findings: readonly MetaModelFinding[];

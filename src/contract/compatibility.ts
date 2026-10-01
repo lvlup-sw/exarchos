@@ -1,34 +1,22 @@
-// ─── Version negotiation, directional migration, compatibility (P03-02) ──────
-//
-// PROGRAM-03, API-006. The compatibility half of the closed contract:
-//
-//   • version negotiation — explicit, testable selection of a shared version
-//     from a client's requested range and the server's supported set
-//     (old-client/new-server, new-client/old-server, unsupported-range).
-//   • directional migration — a migration that DECLARES its direction
-//     (`forward` = upcast an older payload to a newer version; `backward` =
-//     downcast a newer payload to an older one) rather than assuming, plus an
-//     explicit `incompatible` outcome for cross-major changes.
-//   • compatibility classes — the semver-relationship classification and the
-//     change-class taxonomy (authorization/effect/safety/… changes) that force
-//     explicit classification and mixed-version refusal/migration.
-//
-// Reuses `lib/plugin-compat.ts`'s `compareSemver` — the single semver
-// precedence authority — rather than forking version comparison. Pure;
-// digested as part of the frozen `contract-surface` authority.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The compatibility half of the closed contract. It holds three parts:
+ *   - version negotiation: select a shared version from the client range and the server set.
+ *   - directional migration: each plan declares `forward` or `backward`, or is `incompatible`
+ *     across a major boundary.
+ *   - compatibility classes: classify a semver change and a contract change class.
+ *
+ * Version comparison uses `compareSemver` from `lib/plugin-compat.ts`. The module is pure.
+ */
 
 import { compareSemver } from '../runtime/lib/plugin-compat.js';
 import { assertNever, contractError, type ContractError } from './error-families.js';
 
 /**
- * The version of the P03-02 closed contract surface (envelope + error families
- * + request context + compatibility). Bumped when the contract surface changes
- * meaning; also the `version` of the frozen `contract-surface` authority pin.
+ * The version of the closed contract surface: envelope, error families, request context, and
+ * compatibility. Increase it when the surface changes meaning. It is also the `version` of the
+ * frozen `contract-surface` authority pin.
  */
 export const CONTRACT_SURFACE_VERSION = '1.0.0';
-
-// ─── Semver segment helpers ─────────────────────────────────────────────────
 
 function coreSegments(version: string): readonly [number, number, number] {
   const core = version.replace(/^v/, '').split('+')[0]?.split('-')[0] ?? '';
@@ -51,8 +39,6 @@ export function minorVersion(version: string): number {
   return coreSegments(version)[1];
 }
 
-// ─── Version negotiation ────────────────────────────────────────────────────
-
 /** A client's acceptable version window (inclusive). */
 export interface VersionRange {
   readonly min: string;
@@ -64,15 +50,9 @@ export type NegotiationOutcome =
   | { readonly ok: false; readonly reason: 'unsupported-range'; readonly error: ContractError };
 
 /**
- * Negotiate the highest server-supported version that falls within the client's
- * requested `[min, max]` window. Explicit and total:
- *
- *   - overlap exists → `{ ok:true, version }` (the newest shared version).
- *   - no overlap     → `{ ok:false, reason:'unsupported-range', error }`
- *     (`UNSUPPORTED_PROTOCOL_VERSION`, exit 1) — never a silent fallback.
- *
- * Works symmetrically for old-client/new-server and new-client/old-server: the
- * outcome depends only on window overlap, not on which side is newer.
+ * Select the highest server version in the client `[min, max]` window. With no overlap, it returns
+ * `unsupported-range` with `UNSUPPORTED_PROTOCOL_VERSION` and does not fall back. The result depends
+ * only on the overlap, not on which side is newer.
  */
 export function negotiateVersion(
   clientRange: VersionRange,
@@ -100,15 +80,9 @@ export function negotiateVersion(
   return { ok: true, version: best };
 }
 
-// ─── Directional migration ──────────────────────────────────────────────────
-
 /**
- * The direction a payload is migrated.
- *
- * - `forward`  — UPCAST an older payload to a newer version (new server reading
- *   an old client's request).
- * - `backward` — DOWNCAST a newer payload to an older version (new server
- *   answering an old client).
+ * The direction of a payload migration. `forward` upcasts an older payload to a newer version.
+ * `backward` downcasts a newer payload to an older version.
  */
 export type MigrationDirection = 'forward' | 'backward';
 
@@ -129,15 +103,9 @@ export type MigrationPlan =
     };
 
 /**
- * Plan the migration from `from` to `to`, DECLARING direction rather than
- * assuming it:
- *
- *   - equal versions          → `identity` (no migration).
- *   - same major, different    → `migrate` with `direction` derived from semver
- *     precedence (older→newer = `forward`, newer→older = `backward`).
- *   - different major          → `incompatible` (`VERSION_INCOMPATIBLE`, exit 1):
- *     a breaking boundary requires explicit conflict/migration, never an
- *     invalid same-shape replay.
+ * Plan the migration from `from` to `to`. Equal versions give `identity`. The same major gives
+ * `migrate`, with the direction from semver precedence. A different major gives `incompatible` with
+ * `VERSION_INCOMPATIBLE`.
  */
 export function planMigration(from: string, to: string): MigrationPlan {
   const cmp = compareSemver(from, to);
@@ -160,15 +128,10 @@ export function planMigration(from: string, to: string): MigrationPlan {
   return { kind: 'migrate', direction, from, to };
 }
 
-// ─── Compatibility classes ──────────────────────────────────────────────────
-
 /**
- * The compatibility relationship between two contract versions.
- *
- * - `compatible` — identical versions.
- * - `additive`   — same major, different minor (new optional surface).
- * - `behavioral` — same major/minor, different patch (behavior fix, shape stable).
- * - `breaking`   — different major (requires migration/refusal).
+ * The compatibility relationship between two contract versions. `compatible` is identical,
+ * `additive` is a different minor, `behavioral` is a different patch or prerelease, and `breaking`
+ * is a different major.
  */
 export type CompatibilityClass = 'compatible' | 'additive' | 'behavioral' | 'breaking';
 
@@ -179,12 +142,9 @@ export function classifyVersionChange(from: string, to: string): CompatibilityCl
   return 'behavioral';
 }
 
-// ─── Change-class taxonomy ──────────────────────────────────────────────────
-
 /**
- * The kinds of contract change that must trigger explicit compatibility
- * classification (API-006). Security-sensitive classes (authorization, effect,
- * safety, idempotency) never downgrade to a silent compatible change.
+ * The kinds of contract change that need an explicit compatibility class. The security-sensitive
+ * classes are authorization, effect, safety, and idempotency.
  */
 export const CONTRACT_CHANGE_CLASSES = [
   'schema',
@@ -207,10 +167,8 @@ export type ChangeClass = (typeof CONTRACT_CHANGE_CLASSES)[number];
 export type ChangeSeverity = 'presentation-only' | 'compat-review' | 'security-sensitive';
 
 /**
- * Total severity classification of a change class. The `default` arm's
- * `assertNever(cls)` is the mandated `never` exhaustiveness proof over the
- * {@link ChangeClass} union — adding a change class without a severity fails the
- * build, so a new policy dimension can never silently ship unclassified.
+ * The severity of a change class. The `assertNever` arm makes the switch exhaustive, so a new
+ * change class without a severity fails the build.
  */
 export function changeClassSeverity(cls: ChangeClass): ChangeSeverity {
   switch (cls) {
@@ -235,10 +193,8 @@ export function changeClassSeverity(cls: ChangeClass): ChangeSeverity {
 }
 
 /**
- * Whether a change of the given class at the given compatibility relationship
- * must REFUSE a mixed-version peer rather than silently interoperate. Security-
- * sensitive changes refuse on anything but an identical version; other classes
- * refuse only on a breaking (major) change.
+ * Whether a change must refuse a mixed-version peer. A security-sensitive change refuses on any
+ * version difference. Other classes refuse only on a breaking change.
  */
 export function requiresMixedVersionRefusal(cls: ChangeClass, change: CompatibilityClass): boolean {
   if (change === 'compatible') return false;

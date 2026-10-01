@@ -1,38 +1,17 @@
-// ─── Authenticated request context + replay identity (P03-02) ────────────────
-//
-// PROGRAM-03, API-002/API-006 (consumes P01-07). Two closely-related contracts:
-//
-//  1. AuthenticatedRequestContext — a typed, per-request context that carries
-//     the principal + capabilities DERIVED from transport/dispatch. It is built
-//     ONLY from a {@link CallerAuthorizationSnapshot} (which `caller-identity.ts`
-//     mints from adapter-owned runtime inputs — session id, state dir — never
-//     from the caller's payload). Any caller-supplied `_meta` hints are treated
-//     as UNTRUSTED and sanitised: a caller cannot self-assert issuer, role,
-//     subject, posture, capabilities, policy, or timestamp. This module does
-//     NOT re-derive identity — it consumes P01-07's frozen snapshot.
-//
-//  2. Replay identity / idempotency — a replayed request returns the canonical
-//     STORED result or a typed conflict; it never silently runs a different
-//     second execution. The replay identity binds the idempotency key to the
-//     authenticated SUBJECT and the canonical request digest, so key reuse by a
-//     different subject or with a different payload is a conflict rather than a
-//     stored-result disclosure / duplicate effect.
-//
-// Pure (the only impurity is `createHash`, deterministic). Digested as part of
-// the frozen `contract-surface` authority (`contract-surface.ts`).
-// ────────────────────────────────────────────────────────────────────────────
+// The authenticated request context and the replay identity.
+// The context carries the principal and capabilities from a `CallerAuthorizationSnapshot` only.
+// The module strips protected fields from the caller `_meta` hints, so a caller cannot assert identity or authority.
+// A replay returns the stored result or a typed conflict, and never runs a different second execution.
+// The replay identity binds the idempotency key to the subject and the request digest.
+// The only impurity is the deterministic `createHash`.
 
 import { createHash } from 'node:crypto';
 import type { CallerAuthorizationSnapshot } from '../dispatch/caller-identity.js';
 import { contractError, type ContractError } from './error-families.js';
 
-// ─── Untrusted-hint sanitisation ────────────────────────────────────────────
-
 /**
- * `_meta` keys a caller must NOT be able to assert. They are derived
- * exclusively from the authenticated {@link CallerAuthorizationSnapshot}; a
- * caller-supplied value for any of them is stripped before the hints reach a
- * handler. (P01-07: callers cannot self-assert issuer, role, or timestamp.)
+ * The `_meta` keys that a caller cannot assert. Their values come from the {@link CallerAuthorizationSnapshot}.
+ * The sanitizer strips a caller-supplied value for any of them.
  */
 export const PROTECTED_CONTEXT_FIELDS = [
   'subjectId',
@@ -76,24 +55,13 @@ export function sanitizeUntrustedHints(
   return Object.freeze(out);
 }
 
-// ─── Authenticated request context ──────────────────────────────────────────
-
-/**
- * The per-request context handed to a handler. `authorization` is the frozen
- * P01-07 snapshot (the sole source of principal + capabilities); `hints` are
- * the sanitised, non-authoritative caller `_meta`.
- */
+/** The per-request context for a handler. `authorization` is the only source of identity, and `hints` are the sanitized caller `_meta`. */
 export interface AuthenticatedRequestContext {
   readonly authorization: CallerAuthorizationSnapshot;
   readonly hints: Readonly<Record<string, unknown>>;
 }
 
-/**
- * Build an {@link AuthenticatedRequestContext} from a frozen authorization
- * snapshot and (optionally) the caller's untrusted `_meta`. The snapshot is the
- * ONLY identity source; the hints are sanitised so no protected field survives.
- * Callers therefore cannot override subject/role/issuer/timestamp/capabilities.
- */
+/** Build an {@link AuthenticatedRequestContext}. No protected field of the untrusted `_meta` survives. */
 export function deriveRequestContext(
   authorization: CallerAuthorizationSnapshot,
   untrustedMeta?: Readonly<Record<string, unknown>>,
@@ -104,18 +72,14 @@ export function deriveRequestContext(
   });
 }
 
-/** The authenticated subject id — the only identity a replay claim may bind to. */
+/** The authenticated subject id, which is the only identity that a replay claim binds to. */
 export function contextSubjectId(ctx: AuthenticatedRequestContext): string {
   return ctx.authorization.identity.subjectId;
 }
 
-// ─── Canonical request digest ───────────────────────────────────────────────
-
 /**
- * Deterministic JSON with recursively sorted object keys, so two structurally
- * equal request payloads (regardless of key order) digest identically. Arrays
- * preserve order (semantically significant); `undefined` object properties are
- * dropped (JSON has no `undefined`).
+ * Deterministic JSON with recursively sorted object keys, so key order does not change the digest.
+ * Arrays keep their order. The function drops object properties that are `undefined`.
  */
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(canonicalize(value));
@@ -140,25 +104,14 @@ export function requestDigest(payload: unknown): string {
   return `sha256:${hex}`;
 }
 
-// ─── Replay identity / idempotency ──────────────────────────────────────────
-
-/**
- * The identity a request is replayed under. The idempotency key is bound to the
- * authenticated `subjectId` and the canonical `requestDigest` so key reuse by a
- * different subject or with a different payload is detectable.
- */
+/** The replay identity of a request. It binds the idempotency key to the subject and the request digest. */
 export interface ReplayIdentity {
   readonly idempotencyKey: string;
   readonly subjectId: string;
   readonly requestDigest: string;
 }
 
-/**
- * Derive a {@link ReplayIdentity} from the authenticated context, the caller's
- * idempotency key, and the request payload. The subject is taken from the
- * context (never the caller's `_meta`), closing the "reuse a key under a
- * different subject" hole.
- */
+/** Derive a {@link ReplayIdentity}. The subject comes from the context, never from the caller `_meta`. */
 export function deriveReplayIdentity(
   ctx: AuthenticatedRequestContext,
   idempotencyKey: string,
@@ -187,23 +140,11 @@ interface ReplayRecord<R> {
 }
 
 /**
- * An in-memory replay/idempotency ledger. This is the CONTRACT model of the
- * durable claim ledger (API-002): it fixes the semantics a persistent
- * implementation must honour, and is directly unit-testable.
- *
- * Semantics of {@link ReplayLedger.claim}:
- *
- *   - first claim for a key     → executes once, stores, `status:'executed'`.
- *   - same key, same subject,
- *     same request digest        → `status:'replayed'` with the STORED result;
- *                                   the executor is NOT run again (no silently
- *                                   different second execution).
- *   - same key, DIFFERENT subject → `status:'conflict'`
- *                                   (`IDEMPOTENCY_SUBJECT_CONFLICT`); the stored
- *                                   result is NOT disclosed and nothing runs.
- *   - same key, same subject,
- *     DIFFERENT request digest    → `status:'conflict'`
- *                                   (`IDEMPOTENCY_PAYLOAD_CONFLICT`); nothing runs.
+ * An in-memory model of the durable claim ledger. It fixes the semantics that a persistent ledger must keep.
+ * - The first claim for a key runs the executor once and returns `executed`.
+ * - The same key, subject, and digest return `replayed` with the stored result, and nothing runs.
+ * - A different subject returns `IDEMPOTENCY_SUBJECT_CONFLICT`. The stored result stays hidden.
+ * - The same subject with a different digest returns `IDEMPOTENCY_PAYLOAD_CONFLICT`.
  */
 export class ReplayLedger<R> {
   private readonly store = new Map<string, ReplayRecord<R>>();
@@ -248,18 +189,15 @@ export class ReplayLedger<R> {
     return { status: 'replayed', result: existing.result };
   }
 
-  /** Whether a key has an outstanding claim (test/introspection helper). */
+  /** Return true when a key has a claim. */
   has(idempotencyKey: string): boolean {
     return this.store.has(idempotencyKey);
   }
 }
 
 /**
- * Replay decision bound to the existing {@link ReplayIdentity} keys.
- *
- * Structurally the action-contract replay policy. Kept as a local shape so this
- * module does not grow a registry import — the identity keys stay the ones
- * already claimed here (idempotency key, subject, request digest).
+ * A replay policy bound to the {@link ReplayIdentity} keys.
+ * It has the shape of the action-contract replay policy, but stays local so this module does not import the registry.
  */
 export type BoundReplayPolicy =
   | { readonly kind: 'safe-repeat' }
@@ -267,18 +205,10 @@ export type BoundReplayPolicy =
   | { readonly kind: 'reject-replay'; readonly because: string };
 
 /**
- * Apply a replay policy against the existing claim ledger.
- *
- * Absent policy (live actions may lack a contract) and `safe-repeat` execute
- * without claiming. `claim-required` is {@link ReplayLedger.claim} on the
- * existing identity. `reject-replay` executes the first claim and refuses a
- * second without running the executor.
- *
- * This is the in-memory ledger primitive — it answers within one process,
- * against keys this module claims itself. A compiled leaf's own `reject-replay`
- * declaration is enforced separately and durably, in the bounded action
- * executor, by reading the leaf's own rows back from the event store under its
- * derived operation identity rather than by consulting a ledger here.
+ * Apply a replay policy to the claim ledger within one process.
+ * No policy and `safe-repeat` run without a claim. `claim-required` calls {@link ReplayLedger.claim}.
+ * `reject-replay` runs the first claim and refuses a second claim without running the executor.
+ * The bounded action executor enforces the `reject-replay` of a compiled leaf separately, from the event store.
  */
 export function applyReplayPolicy<R>(
   replay: BoundReplayPolicy | undefined,

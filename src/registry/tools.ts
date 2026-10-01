@@ -6,14 +6,13 @@ import { workflowActions } from './actions/workflow.js';
 import { validateAction } from './annotations.js';
 import type { BuiltinCompositeTool } from './types.js';
 
-// ─── Tool Registry ──────────────────────────────────────────────────────────
-
-// The type on THIS constant is the registry's door. Declared `readonly
-// BuiltinCompositeTool[]`, so every action reaching the registry must carry a
-// `DeclaredOutputSchema`: the out-of-registry escape does not typecheck here,
-// and neither does a `readonly ToolAction[]` array smuggled in beside the five
-// below. It stays assignable to `readonly CompositeTool[]`, so consumers that
-// only read the registry are unaffected by the narrower door.
+/**
+ * The built-in tool registry. Its type requires a `DeclaredOutputSchema` on every action, so a
+ * `readonly ToolAction[]` array does not typecheck here. It stays assignable to
+ * `readonly CompositeTool[]` for consumers that only read it.
+ * A loop at module load validates each built-in action, so a drifted action fails the import and
+ * names itself. Custom tools are validated per action at call time.
+ */
 export const TOOL_REGISTRY: readonly BuiltinCompositeTool[] = [
   {
     name: 'exarchos_workflow',
@@ -53,21 +52,11 @@ export const TOOL_REGISTRY: readonly BuiltinCompositeTool[] = [
   },
 ];
 
-// ─── Registration-time invariant loop ───────────────────────────────────────
-//
-// Runs at module load so any built-in action that drifts away from the
-// `outputSchema` + `annotations` contract fails the IMPORT rather than a later
-// call — a startup failure names the offending action, where the same defect
-// found at dispatch time surfaces far from its declaration. Custom tools
-// registered through `registerCustomTool` are not covered here; that path
-// validates per-action at call time through `validateAction`.
 for (const tool of TOOL_REGISTRY) {
   for (const action of tool.actions) {
     validateAction(action, tool.name, 'load');
   }
 }
-
-// ─── Built-in Tool Names ────────────────────────────────────────────────────
 
 export const BUILTIN_TOOL_NAMES: ReadonlySet<string> = new Set(
   TOOL_REGISTRY.map((t) => t.name),

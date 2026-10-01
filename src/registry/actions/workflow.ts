@@ -1,3 +1,11 @@
+/**
+ * The actions of the `exarchos_workflow` composite tool.
+ *
+ * Every emission here names `owner: 'workflow'`. The owner of an edge is the action area that
+ * declares it, and this file is the whole `workflow` area. The modules under `actions/orchestrate/`
+ * name `orchestrate`. An event that both areas declare is a cross-area coupling. `update` is the
+ * canonical emitter of `state.patched`, and `discover_bridge` declares a second edge onto it.
+ */
 import { coercedStringArray } from '../../coerce.js';
 import { vacuityWaiver } from '../../output-schema-declaration.js';
 import { AsOfSchema, CheckpointHandoffSchema, WorkflowTypeSchema } from '../../workflow/schemas.js';
@@ -8,20 +16,6 @@ import { makeWorkflowDescribeAction } from '../describe-actions.js';
 import { WorkflowTransitionOutputSchema, WorkflowUpdateOutputSchema } from '../output-schemas.js';
 import { ALL_PHASES, ROLE_ANY, ROLE_LEAD, featureIdSchema } from '../phases.js';
 import type { BuiltinToolAction } from '../types.js';
-
-// ─── Composite Tool: exarchos_workflow ───────────────────────────────────────
-//
-// EMISSION OWNERSHIP. Every contract emission below names `owner: 'workflow'`.
-// An edge's owner is the action-declaration AREA it is declared in — the module
-// group under `src/registry/actions/` that exports the declaring action list —
-// and this file is the whole of the `workflow` area. Everything under
-// `actions/orchestrate/` names `orchestrate` instead. The area is the honest
-// accountability signal available at declaration time: it is a property of
-// WHERE the action lives, never of WHICH event it emits, so an event declared
-// from both areas is visibly a cross-area coupling rather than a single owner's
-// business. `state.patched` is exactly that case — `update` below is its
-// canonical emitter, and the `orchestrate` area's `discover_bridge` declares a
-// second, time-boxed edge onto the same event.
 
 const INIT_EMISSIONS: readonly [ActionEmission, ...ActionEmission[]] = [
   { event: 'workflow.started', condition: 'always', role: 'primary', owner: 'workflow' },
@@ -57,10 +51,10 @@ const CANCEL_EMISSIONS: readonly [ActionEmission, ...ActionEmission[]] = [
     role: 'primary',
     owner: 'workflow',
   },
-  // The destructive branch-deletion compensator journals intent then result.
-  // Both are conditional on the saga reaching that action with an event store
-  // wired: a dry run, an earlier failure, or a phase whose ladder never orders
-  // the deletion leaves the pair absent.
+  /**
+   * The branch-deletion compensator records its intent and then its result. A dry run, an earlier
+   * failure, or a phase that never orders the deletion leaves both events absent.
+   */
   {
     event: 'branch.delete.requested',
     condition: 'conditional',
@@ -143,9 +137,10 @@ export const workflowActions: readonly BuiltinToolAction[] = [
         featureId: featureIdSchema,
         query: z.string().optional(),
         fields: coercedStringArray().optional(),
-        // #1555 — optional bounded-fold (as-of/time-travel) read. Shares the
-        // single-source `AsOfSchema`; mutually-exclusive untilSequence /
-        // untilTimestamp enforced at the schema. Omitted ⇒ live tip.
+        /**
+         * Optional bounded-fold read at a sequence or a timestamp. `AsOfSchema` accepts only one of
+         * the two. When it is absent, the read uses the live tip.
+         */
         asOf: AsOfSchema.optional(),
       }),
       phases: ALL_PHASES,
@@ -209,52 +204,32 @@ export const workflowActions: readonly BuiltinToolAction[] = [
   ),
   withActionContract(
     {
-      // Wave 0 (#1340, v2.10.0-preview.2): canonical state-mutation surface.
-      // Replaces the deprecated v2.10 `set({updates})` rerouting path that
-      // was removed alongside `set({phase})` in v2.11. Phase mutation lives
-      // on `transition`; non-phase fields (artifacts, planReview, task
-      // results, etc.) flow through this action so callers see a single
-      // validated, output-enveloped surface instead of being told to emit
-      // `state.patched` directly via `event.append` (which bypasses input
-      // validation, output enveloping, idempotency, and `next_actions`).
-      //
-      // Handler delegates to the existing internal `workflow.update()`
-      // helper (`handleSet` with `updates` only, no `phase`). The phase
-      // field is rejected at the input boundary with a structured
-      // `INVALID_INPUT` + `suggestedFix` pointing callers at `transition`
-      // (Task 0.2). `updates` is `Record<string, unknown>` so dot-paths
-      // (`'artifacts.design'`) and nested objects both resolve through
-      // `applyDotPath` in `handleSet`.
+      /**
+       * The canonical surface for non-phase state changes. It gives input validation, output
+       * envelopes, idempotency, and `next_actions`, which a direct `state.patched` append skips.
+       * The handler rejects a `phase` key with `INVALID_INPUT` and a `suggestedFix` that names
+       * `transition`. Dot-paths and nested objects in `updates` both resolve through `applyDotPath`.
+       */
       name: 'update',
       description: 'Mutate non-phase workflow state fields (artifacts, planReview, task results, etc.). Canonical state-mutation surface. Emits exactly one state.patched event on success. For phase changes use action: transition.',
       schema: z.object({
         featureId: featureIdSchema,
         updates: z.record(z.string(), z.unknown()),
       }),
-      // Wave 0 judgment call: the plan literally specified `new Set<string>()`
-      // (no phases) but the registry has an existing invariant — enforced by
-      // `registry.test.ts:should have non-empty phases for every action except
-      // init` — that every non-init action declares at least one phase. Using
-      // `ALL_PHASES` honors both the plan's intent (phase-agnostic mutation
-      // surface, parallel to `transition`) and the existing invariant. The
-      // semantically equivalent alternative would be to widen the test's
-      // exception list, but adding `update` to the empty-phase exception
-      // bucket would couple a foundational action to an `init`-only escape
-      // hatch — fragile against future audits.
+      /**
+       * `update` does not depend on the phase. The registry requires at least one phase for every
+       * action except `init`, so `update` declares every phase.
+       */
       phases: ALL_PHASES,
       roles: ROLE_LEAD,
       cli: {
         flags: { featureId: { alias: 'f' } },
         examples: ['exarchos wf update -f my-feature --updates \'{"artifacts":{"spec":"docs/specs/foo.md"}}\''],
       },
-      // Wave 0 (#1340) — register WorkflowUpdateOutputSchema for envelope-
-      // version discipline (#1266 prep). The schema mirrors the transition
-      // surface's contract minus the `_meta.deprecation` slot (`update` is
-      // not on a deprecation track) so a future contract-introspection
-      // consumer can decode both surfaces with the same envelope shape.
-      // `describe/handler.ts` exposes the schema via `outputSchema` in
-      // action descriptions; callers reach it through
-      // `exarchos_workflow.describe({actions: ['update']})`.
+      /**
+       * The `transition` output contract without the `_meta.deprecation` slot. The `describe`
+       * action shows it as `outputSchema`.
+       */
       outputSchema: vacuityWaiver('exarchos_workflow.update', WorkflowUpdateOutputSchema),
       annotations: LOCAL_MUTATION,
     },
@@ -313,11 +288,10 @@ export const workflowActions: readonly BuiltinToolAction[] = [
       }),
       phases: ALL_PHASES,
       roles: ROLE_LEAD,
-      // T9 (#1440 Op 2, preview-4 design §4.3): post-merge cleanup is a
-      // long-running multi-step verb (merge verification, synthesis
-      // metadata backfill, review force-resolve, transition) that benefits
-      // from Tasks-augmented dispatch. The annotation is advisory — the
-      // binding opt-in gate stays at `dispatch/core/dispatch.ts:927-954`.
+      /**
+       * Cleanup is a long multi-step verb, so it suits task-augmented dispatch. This hint is
+       * advisory. The opt-in gate is in `dispatch/core/dispatch.ts`.
+       */
       dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
       outputSchema: vacuityWaiver('exarchos_workflow.cleanup'),
       annotations: COMPENSABLE_LOCAL,
@@ -368,21 +342,19 @@ export const workflowActions: readonly BuiltinToolAction[] = [
       description: 'Rehydrate the canonical workflow document for a feature via the rehydration@v1 projection. Loads the latest snapshot and folds events written since, returning the full RehydrationDocument. Emits workflow.rehydrated on successful hydration (T032, DR-4) — the event records the deliveryPath used so downstream observers can correlate cache hints. Optional deliveryPath ∈ {direct, ndjson, snapshot}; defaults to "direct".',
       schema: z.object({
         featureId: featureIdSchema,
-        // Closed enum mirrors `WorkflowRehydratedData.deliveryPath` so an
-        // invalid value can't reach the workflow.rehydrated event payload.
-        // Without this, registry validation accepted any string and let the
-        // bad value bubble all the way to event-store append, where Zod
-        // would reject it AFTER the read had already produced a document —
-        // surfacing as a confusing "rehydrate succeeded but emit failed"
-        // call. (CodeRabbit on PR #1178.)
+        /**
+         * The closed enum matches `WorkflowRehydratedData.deliveryPath`. A bad value then fails at
+         * input, not at the event append after the read.
+         */
         deliveryPath: z.enum(['direct', 'ndjson', 'snapshot']).optional(),
       }),
       phases: ALL_PHASES,
       roles: ROLE_ANY,
-      // T9 (#1440 Op 2, preview-4 design §4.3): full state rebuild is a
-      // long-running projection fold (latest snapshot + every event since)
-      // that benefits from Tasks-augmented dispatch. Advisory — the
-      // binding opt-in gate stays at `dispatch/core/dispatch.ts:927-954`.
+      /**
+       * A full state rebuild folds the latest snapshot and every later event, so it suits
+       * task-augmented dispatch. This hint is advisory. The opt-in gate is in
+       * `dispatch/core/dispatch.ts`.
+       */
       dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
       outputSchema: vacuityWaiver('exarchos_workflow.rehydrate'),
       annotations: LOCAL_MUTATION_IDEMPOTENT,
@@ -408,22 +380,11 @@ export const workflowActions: readonly BuiltinToolAction[] = [
       schema: z.object({
         featureId: featureIdSchema,
         summary: z.string().optional(),
-        // T5 (#1240): formal `handoff` field on the dispatch surface so the
-        // MCP arm validates the same shape `handleCheckpoint` re-validates
-        // internally via `CheckpointInputSchema`. Without this, dispatch
-        // silently strips `handoff` (registry per-action schemas are
-        // non-strict) and an MCP caller passing `handoff` would observe a
-        // successful checkpoint with no persisted handoff payload — the
-        // CLI would honour the convenience flags while MCP would not,
-        // breaking DR-3 surface parity.
-        //
-        // CodeRabbit nitpick on PR #1297: reuse the canonical
-        // `CheckpointHandoffSchema` rather than redefining the shape inline.
-        // The handler re-parses against `CheckpointInputSchema` so the
-        // strictObject cap is ultimately enforced on a single line of code;
-        // composing the canonical schema here keeps schema introspection
-        // (`exarchos schema describe wf.checkpoint`) and the auto-gen CLI
-        // flag table aligned with the handler's contract.
+        /**
+         * The per-action schemas are not strict, so dispatch strips an undeclared field. This
+         * declaration keeps the handoff payload of an MCP checkpoint. It reuses
+         * `CheckpointHandoffSchema`, which the handler parses again.
+         */
         handoff: CheckpointHandoffSchema.optional(),
       }),
       phases: ALL_PHASES,
@@ -447,23 +408,20 @@ export const workflowActions: readonly BuiltinToolAction[] = [
   ),
   withActionContract(
     {
-      // #1319 — agent→runtime friction back-channel (Trevin Principle 10b).
-      // Deliberately on `exarchos_workflow` (INV-5d collapses to 4 visible
-      // tools) yet NOT feature-scoped: it takes no featureId and lands on the
-      // shared `meta/feedback` stream so reports are queryable across every
-      // workflow. The handler owns the local write (offline-first, INV-15) and
-      // the optional best-effort upstream POST; `/exarchos:dogfood` reads the
-      // stream back as triage input.
+      /**
+       * The friction channel from an agent to the runtime. It takes no `featureId` and writes to the
+       * shared `meta/feedback` stream, so reports are queryable across workflows. The handler writes
+       * locally first, then makes an optional upstream POST. `/exarchos:dogfood` reads the stream.
+       */
       name: 'feedback',
       description:
         'File an agent→runtime friction report onto the shared meta/feedback stream (cross-workflow, queryable). Emits feedback.recorded; optionally POSTs upstream when .exarchos.yml sets feedback.upstream. No featureId — feedback is not feature-scoped.',
       schema: z.object({
         message: z.string().min(1).describe('The friction report (required, non-empty).'),
-        // ZodObject (not a union) so the CLI flag classifies as `object` and
-        // `coerceFlags` JSON-parses `--sessionContext '{...}'` into the same
-        // shape the MCP wire receives (governing INV-2 — one registered schema
-        // is the contract every client derives from; #1127
-        // object-classification).
+        /**
+         * A `ZodObject`, not a union, so the CLI flag classifies as `object`. `coerceFlags` then
+         * parses the `--sessionContext` JSON into the same shape that the MCP wire receives.
+         */
         sessionContext: z
           .object({
             workflow: z.string().optional(),

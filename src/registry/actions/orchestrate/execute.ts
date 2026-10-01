@@ -1,10 +1,6 @@
-// ─── The bounded action executor's public action ─────────────────────────────
-//
-// `execute_intent` compiles a NAMED intent into a segment of already-registered
-// local actions and runs it leaf by leaf, committing one operation record on
-// both the committed and the failed path. The compiler and the run loop live
-// in `verbs/execute/`; this file is only the registration — schema, contract,
-// economy — that makes the action reachable.
+// Registers `execute_intent`, which compiles a named intent into a segment of registered local actions.
+// The action runs the segment leaf by leaf and commits one operation record on either outcome.
+// The compiler and the run loop live in `verbs/execute/`.
 
 import { coercedRecord } from '../../../coerce.js';
 import { withCappedShape } from '../../../output-schema-declaration.js';
@@ -48,10 +44,7 @@ function withContract(
 export const executeActions: readonly BuiltinToolAction[] = [
   withContract({
     name: 'execute_intent',
-    // Trimmed to the per-action description budget: the shipped intents, their
-    // args, the one precondition a caller cannot discover from a schema, and
-    // the one obligation a committed receipt leaves behind. The reasons behind
-    // each required field live on the argument schemas.
+    /** Kept within the per-action description budget. The argument schemas give the reason for each required field. */
     description:
       'Compile a NAMED intent (a runbook id) into a segment of already-registered local ' +
       'actions and run it leaf by leaf, committing one orchestrate.intent_executed record ' +
@@ -71,19 +64,17 @@ export const executeActions: readonly BuiltinToolAction[] = [
       .object({
         intent: z.string().min(1),
         args: coercedRecord().optional(),
-        // Alias, matching task_complete: `streamId` IS the bare featureId;
-        // either spelling is accepted and exactly one is required.
+        /** An alias of `featureId`, as in `task_complete`, because the stream id is the bare featureId. */
         streamId: z.string().min(1).optional(),
         featureId: z.string().min(1).optional(),
         operationId: z.string().optional(),
       })
       .strict(),
-    // The union of the shipped intents' phase families. Advisory — only the
-    // next-actions computer reads it — but it must not EQUAL the plan binding:
-    // an action whose phase set is exactly that set is treated as a canonical
-    // plan gate, and this one is an executor, not a gate. The synthesize member
-    // is the literal set the PR-stack gate binds to; there is no exported
-    // constant for that phase alone.
+    /**
+     * The union of the phase families of the shipped intents. Only the next-actions computer reads it.
+     * It must not equal the plan phase set, because an action with exactly that set counts as a plan gate.
+     * No exported constant holds `synthesize` alone, so it is a literal.
+     */
     phases: new Set<string>([
       ...DELEGATE_PHASES,
       ...REVIEW_PHASES,
@@ -91,10 +82,7 @@ export const executeActions: readonly BuiltinToolAction[] = [
       'synthesize',
     ]),
     roles: ROLE_ANY,
-    // Runs the compiled segment's leaves in-process, including gates that
-    // shell out to lint/typecheck/test commands (check_static_analysis,
-    // check_test_adequacy, check_contract_drift) — each of which already
-    // carries its own `longRunning: true` for the same reason.
+    /** The leaves run in-process, and some gates run lint, typecheck, or test commands. */
     longRunning: true,
     outputSchema: withCappedShape(IntentExecutedOutputSchema),
     economy: {
@@ -107,55 +95,42 @@ export const executeActions: readonly BuiltinToolAction[] = [
       'leaf admission is evaluated per leaf in execution order; the shipped leaves ' +
         'declare no gate requirements — their evidence dependencies live in handler reads',
     ),
-    // No declared postcondition, and the reason is the replay contract rather
-    // than an absence of durable effect. The dispatch-level ensures observation
-    // asks the store for a `orchestrate.intent_executed` row carrying the
-    // CURRENT dispatch's operation id. A replay — the same caller key with the
-    // same request — is answered from the persisted claim before any effect,
-    // appends nothing, and returns `success: true`. An event-append ensure
-    // would therefore refuse every replay for the absence of a row the replay
-    // is defined not to write. The first-commit append is not unchecked: the
-    // executor's own suite asserts the operation event exists after a commit
-    // and is absent after a crash, which is the property this declaration
-    // could not state without also condemning replays.
+    /**
+     * No postcondition is declared, because of the replay contract.
+     * The ensures observation looks for an `orchestrate.intent_executed` row with the operation id of the current dispatch.
+     * A replay appends nothing and returns `success: true`, so an event-append ensure refuses every replay.
+     * The executor tests check the first-commit append instead.
+     */
     ensures: none(
       'the operation record is appended once, on the call that commits; a replay ' +
         'returns the persisted receipt without appending, so a per-dispatch ' +
         'append observation would refuse the replay path by construction',
     ),
-    // `fs:write` is the executor's OWN write, not a leaf's: the run's interior
-    // is put in the run-bundle store under the state directory before the
-    // operation record commits. A posture that denies filesystem writes must
-    // deny this action rather than admit an action that writes.
+    /**
+     * `fs:write` is the write of the executor itself. It puts the run interior in the run-bundle store before the record commits.
+     * A posture that denies filesystem writes must deny this action.
+     */
     needs: declared('fs:read', 'fs:write', 'mcp:exarchos', 'shell:exec'),
+    /**
+     * The leaves address paths, worktrees, and git refs through the typed args of the intent, not top-level request fields.
+     * The plan-closeout intent binds its four document spellings from `args.specPath`.
+     * There is no `vcs` stream entry. A declared infrastructure stream wins over the arg-derived stream.
+     * So that entry moves the post-dispatch observation of this action to the vcs stream, where it declares no unconditional emission.
+     */
     resources: declared(
       { kind: 'stream', selector: 'featureId' },
-      // The compiled leaves address a path/worktree/git-ref triple through
-      // the intent's OWN typed args, not a top-level request field — the
-      // request schema above carries `intent`/`args`/subject identity only.
       { kind: 'path', selector: 'args.worktreePath' },
       { kind: 'worktree', selector: 'args.worktreePath' },
       { kind: 'git-ref', selector: 'args.branch' },
-      // The plan-closeout leaves read one document under four spellings; the
-      // intent binds all four from this single argument.
       { kind: 'path', selector: 'args.specPath' },
-      // The synthesis-closeout leaves address a branch pair. Deliberately NOT
-      // a `{ kind: 'stream', selector: 'vcs' }` entry: a declared
-      // infrastructure stream WINS over the arg-derived one, so naming it here
-      // would re-point this action's own post-dispatch observation at the vcs
-      // stream — where it declares no unconditional emission to observe. The
-      // leaf that writes there declares it for itself.
       { kind: 'git-ref', selector: 'args.baseBranch' },
       { kind: 'git-ref', selector: 'args.headBranch' },
     ),
     replay: { kind: 'claim-required', scope: 'stream-subject-request' },
-    // `conditional`, not `always`. The post-dispatch emission verifier queries
-    // by the operation id of the dispatch that is returning, and a replay
-    // returns the persisted receipt without appending anything under that id.
-    // Declared unconditionally, every replay would be reported as drift
-    // between the declaration and the handler — and recorded as an
-    // `emission.violated` row — for doing exactly what the replay contract
-    // says it does. The condition is named here rather than left implicit.
+    /**
+     * The emission is `conditional`, because the verifier queries by the operation id of the returning dispatch.
+     * A replay appends nothing under that id. With `always`, every replay records an `emission.violated` row.
+     */
     emissions: declared({
       event: 'orchestrate.intent_executed',
       condition: 'conditional',
