@@ -1,8 +1,4 @@
-// ─── Validate PR Stack Handler ──────────────────────────────────────────────
-//
-// Validates that open PRs form a proper linear chain (stack).
-// Uses VcsProvider to query open PRs instead of direct gh CLI calls.
-// ────────────────────────────────────────────────────────────────────────────
+/** The PR stack gate. It checks through the `VcsProvider` that the open PRs form one linear chain. */
 
 import type { VcsProvider, PrSummary } from '../../vcs/provider.js';
 import { requiresGitHub } from '../../vcs/require-github.js';
@@ -11,8 +7,6 @@ import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from '../gates/gate-runner.js';
-
-// ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface ValidatePrStackArgs {
   /** The stream the gate's durable evidence is recorded against. */
@@ -34,15 +28,16 @@ interface ValidatePrStackResult {
   readonly errors: readonly string[];
 }
 
-// ─── Handler ────────────────────────────────────────────────────────────────
-
+/**
+ * Runs the gate through the shared phase-gate runner, which records durable gate evidence before a
+ * success carrier returns. The action declares no catalog emission, so the gate appends no `gate.executed` row.
+ */
 export async function handleValidatePrStack(
   args: ValidatePrStackArgs,
   stateDir: string,
   eventStore: EventStore,
   provider?: VcsProvider,
 ): Promise<ToolResult> {
-  // 1. Validate args
   if (!args.featureId) {
     return {
       success: false,
@@ -57,13 +52,6 @@ export async function handleValidatePrStack(
     };
   }
 
-  // The gate declares durable gate evidence as a postcondition and appended
-  // nothing, so a caller that observes postconditions read a success carrier
-  // that had broken its own contract — and inside a compiled segment that halts
-  // the segment whatever the step's failure policy says. Routing through the
-  // shared phase-gate runner records the evidence before any success carrier
-  // escapes; the action declares no catalog emission, so no `gate.executed` row
-  // is minted here.
   return runPhaseGateWithEvidence({
     streamId: args.featureId,
     gateClass: 'pr-stack',
@@ -80,20 +68,21 @@ export async function handleValidatePrStack(
   });
 }
 
+/**
+ * Lists the open PRs and checks three rules. The base of each PR is the stack base or the head of
+ * another open PR. Exactly one PR targets the stack base. No branch is the base of more than one PR.
+ * The GitHub check runs here, inside the runner, so an early return also carries the durable evidence.
+ */
 async function executeValidatePrStack(
   args: ValidatePrStackArgs,
   provider?: VcsProvider,
 ): Promise<ToolResult> {
-  // Inside the provider, not ahead of the runner: an early return taken before
-  // the runner runs is a carrier that escapes without the durable evidence this
-  // action declares, which is the defect the wrapping exists to close.
   const vcsGuard = requiresGitHub(provider, 'validate_pr_stack');
   if (vcsGuard) return vcsGuard;
 
   const { baseBranch } = args;
   const vcs = provider ?? await createVcsProvider();
 
-  // 2. Query open PRs via VcsProvider
   let prSummaries: PrSummary[];
   try {
     prSummaries = await vcs.listPrs({ state: 'open' });
@@ -107,7 +96,6 @@ async function executeValidatePrStack(
     };
   }
 
-  // 3. Map to PrEntry shape
   const prs: PrEntry[] = prSummaries.map(pr => ({
     number: pr.number,
     baseRefName: pr.baseRefName,
@@ -115,7 +103,6 @@ async function executeValidatePrStack(
     state: pr.state,
   }));
 
-  // No open PRs
   if (prs.length === 0) {
     const result: ValidatePrStackResult = {
       passed: true,
@@ -126,11 +113,9 @@ async function executeValidatePrStack(
     return { success: true, data: result };
   }
 
-  // 4. Run 3 validation checks
   const headBranches = new Set(prs.map((pr) => pr.headRefName));
   const errors: string[] = [];
 
-  // Check 1: Each PR's base must be the stack base or another PR's head
   for (const pr of prs) {
     if (pr.baseRefName === baseBranch) continue;
     if (headBranches.has(pr.baseRefName)) continue;
@@ -139,7 +124,6 @@ async function executeValidatePrStack(
     );
   }
 
-  // Check 2: Exactly one PR should target the base branch (linear chain root)
   const rootCount = prs.filter((pr) => pr.baseRefName === baseBranch).length;
   if (rootCount === 0) {
     errors.push(
@@ -151,7 +135,6 @@ async function executeValidatePrStack(
     );
   }
 
-  // Check 3: No branch should be used as a base by more than one PR (no forks)
   for (const head of headBranches) {
     const depCount = prs.filter((pr) => pr.baseRefName === head).length;
     if (depCount > 1) {
@@ -159,7 +142,6 @@ async function executeValidatePrStack(
     }
   }
 
-  // 5. Build markdown report
   const passed = errors.length === 0;
   const lines: string[] = [];
 
@@ -189,6 +171,5 @@ async function executeValidatePrStack(
     errors,
   };
 
-  // 6. Return ToolResult
   return { success: true, data: result };
 }

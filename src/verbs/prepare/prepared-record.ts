@@ -1,22 +1,13 @@
-// ─── The prepared record: a capsule in custody, pinned by digest ─────────────
-//
-// `prepare` compiles; this module makes a compilation durable and findable.
-// The capsule and the definition it pins go to the run-bundle store as one
-// content-addressed document FIRST, and only then is the `workflow.prepared`
-// record that names those bytes committed. A custody write that fails therefore
-// fails the whole preparation — no record, no claim — rather than leaving a pin
-// on bytes nobody can read back.
-//
-// The record is also what settlement trusts. `settle` adjudicates only the
-// capsule a record for its version pinned, read back out of custody, and a
-// capsule a caller submits must match that record's digest, so the terms a
-// batch is judged by are the terms it was compiled under and not whatever a
-// caller submits.
-//
-// Both directions live here so the writer and the reader cannot disagree about
-// the document's shape: settlement's tests seed through `commitPreparedCapsule`
-// itself, never through a bypass that writes a record the production path
-// would not.
+/**
+ * Makes a compiled capsule durable and findable. `commitPreparedCapsule` puts the capsule and its
+ * definition in the run-bundle store as one content-addressed document. Then it commits the
+ * `workflow.prepared` record that names those bytes. A failed custody write fails the whole
+ * preparation, so no record pins bytes that nobody can read back.
+ *
+ * `settle` judges the capsule that a record pins, read back from custody. A submitted capsule must
+ * match the digest of that record. The writer and the reader live in one module, so they agree on
+ * the document shape.
+ */
 
 import {
   WorkflowDefinitionV1Schema,
@@ -42,7 +33,7 @@ import type { PreparedCapsuleReceipt } from './types.js';
 /** The `kind` discriminator every prepared bundle carries. */
 export const PREPARED_BUNDLE_KIND = 'prepared-capsule';
 
-/** The document version. Bumped when a reader of this shape could misread the next. */
+/** The document version. A change that an old reader can misread needs a new version. */
 export const PREPARED_BUNDLE_VERSION = '1.0';
 
 /** The payload version `workflow.prepared` rows are stamped with. */
@@ -102,23 +93,23 @@ export interface PreparedCommit {
    */
   readonly expectedSequence?: number;
   /**
-   * The compiled tasks the stream has not yet heard of, announced in the same
-   * commit as the record — one `task.assigned` per task, ahead of the record —
-   * so the delegate phase's event contract is met by the compilation rather
-   * than by a call before it. The caller decides the set: a task the stream
-   * already shows assigned is left out, because the projection reads a second
-   * announcement as the task returning to `assigned`.
+   * The compiled tasks that the stream does not know yet. The commit appends one `task.assigned`
+   * for each task before the record, so the compilation meets the event contract of the delegate phase.
+   * The caller leaves out a task that the stream already shows as assigned, because the projection
+   * reads a second announcement as a return to `assigned`.
    */
   readonly announce?: readonly { readonly taskId: string; readonly title: string }[];
 }
 
 /**
- * Put a compiled capsule in custody and commit the record that pins it.
+ * Puts a compiled capsule in custody and commits the record that pins it.
+ * The `task.assigned` announcements come first and the record comes last. The sequence of the
+ * record, read inside the write lock, is the tail of the receipt.
+ * The append goes through `decideOnce`, which the emitter-closure census does not read. The
+ * allowance row of the settlement record also covers this route.
  *
- * Throws what the appender throws — a lost race on the stream tail, or the
- * operation claim held by a different request — and the caller decides how to
- * answer. Returns the claim's canonical receipt, which on a race is the
- * winner's, never a locally built one no claim records.
+ * It throws what the appender throws: a lost race on the stream tail, or an operation claim held by
+ * a different request. It returns the canonical receipt of the claim, which is the receipt of the winner on a race.
  */
 export async function commitPreparedCapsule(
   ctx: DispatchContext,
@@ -148,9 +139,6 @@ export async function commitPreparedCapsule(
     });
 
     return runWithDispatchContext(outer, async () => {
-      // Appended through `decideOnce`, which the emitter-closure census does
-      // not read — the same route the settlement record takes, covered by the
-      // same allowance row.
       const announcements = (commit.announce ?? []).map((task) =>
         stampFromAmbient({
           type: TASK_ASSIGNED_TYPE,
@@ -164,8 +152,6 @@ export async function commitPreparedCapsule(
         timestamp: capsule.provenance.compiledAt,
         schemaVersion: WORKFLOW_PREPARED_SCHEMA_VERSION,
       });
-      // The announcements first, the record last: the record closes the
-      // compilation, and its sequence is the receipt's tail.
       const events = [...announcements, record];
       return ctx.eventStore
         .getAppender()
@@ -181,7 +167,6 @@ export async function commitPreparedCapsule(
             capsuleDigest: digest,
             definitionVersion: capsule.identity.definitionVersion,
             capsule,
-            // Read inside the write lock: the sequence the record lands on.
             tailSequence: tx.readStream(streamId).version + events.length,
             bundleRefs: [ref],
           },
@@ -200,17 +185,12 @@ export type PreparedLookup =
   | { readonly found: false };
 
 /**
- * The prepared record for one compilation on one workflow stream, with the
- * capsule and definition read back out of custody.
- *
- * Matched by version alone: a stream is one workflow, and versions are
- * allocated per stream. Which workflow a submitted capsule claims to be is not
- * trusted here — it is part of what the digest comparison checks.
- *
- * `found: false` means no record exists — a caller question. Bytes in custody
- * that no longer match what their record pinned are not a caller question, and
- * throw: that is corruption, and answering "not prepared" would send the caller
- * off to recompile over it.
+ * Finds the prepared record for one capsule version on one workflow stream, and reads the capsule
+ * and definition back from custody. It matches by version alone, because versions are per stream.
+ * The digest comparison checks which workflow a submitted capsule claims to be.
+ * `found: false` means that no record exists. Custody bytes that do not match their record throw,
+ * because that is corruption and a "not prepared" answer sends the caller to compile again.
+ * A capsule that names a definition digest other than the definition in its bundle also throws.
  */
 export async function findPreparedCapsule(
   ctx: DispatchContext,
@@ -238,9 +218,6 @@ export async function findPreparedCapsule(
         `record did not pin (record ${record.capsuleDigest}, bytes ${actual})`,
     );
   }
-  // The capsule names its definition by digest, and the definition it names is
-  // in the same bundle. A bundle where the two disagree pins terms against a
-  // definition other than the one it carries.
   const definitionDigest = contentDigest(decoded.definition);
   if (definitionDigest !== decoded.capsule.identity.definitionVersion) {
     throw new Error(

@@ -1,28 +1,20 @@
-// ─── Built-in workflows, lowered into the published kernel ───────────────────
-//
-// A capsule names the workflow definition it compiled from by digest, so that
-// settlement can tell which definition the work ran under. The built-in
-// workflows have no serialized definition of their own — their topology lives
-// in the state machine — so the definition is lowered from that machine at
-// compile time rather than written down a second time. A hand-authored copy
-// would be one more place the topology could disagree with the machine that
-// actually enforces it.
-//
-// What survives the lowering is topology, and only topology:
-//
-//   • every atomic and final state becomes a `skill` step typed by its phase
-//     kind. A compound state has no step of its own and is flattened into its
-//     children;
-//   • every transition becomes a kernel transition. One leaving a compound
-//     state leaves from each of its leaves, and one entering it enters at its
-//     declared initial child;
-//   • guards do not survive. The kernel's gate vocabulary has no slot for this
-//     repository's obligations, and a guard lowered into a shape that means
-//     something else would be worse than none. Obligations reach a capsule
-//     through its completion predicate, in this repository's own condition
-//     language.
-//
-// A custom workflow type has no machine here to lower, and is not lowered.
+/**
+ * Lowers a built-in workflow from its state machine into a published kernel
+ * definition at compile time.
+ *
+ * A capsule names its definition by digest, so settlement knows the definition
+ * that the work ran under. The topology comes only from the state machine, so
+ * no second copy can disagree with it. Only topology survives the lowering:
+ *
+ * - An atomic state becomes a `skill` step typed by its phase kind. A final
+ *   state becomes a terminal step. A compound state flattens into its children.
+ * - A transition from a compound state leaves from each of its leaves. A
+ *   transition into a compound state enters at its initial child.
+ * - Guards do not survive. Obligations reach a capsule through its completion
+ *   predicate.
+ *
+ * A custom workflow type has no machine here, so it is not lowered.
+ */
 
 import {
   WorkflowDefinitionV1Schema,
@@ -52,10 +44,11 @@ type KernelTransition = WorkflowDefinitionV1['transitions'][number];
  * Lower one built-in workflow into a kernel definition, or return `undefined`
  * for a type with no built-in machine.
  *
- * Throws only on a machine that cannot be lowered at all — a transition naming
- * an undeclared state, a compound state with no initial child. Those are
- * defects in the machine, and a definition that papered over them would pin a
- * topology the runtime does not have.
+ * Two guarded transitions between the same two states become one edge. A
+ * workflow without exactly one final state gets no `terminalStepId`.
+ *
+ * @throws When a transition names an undeclared state, a compound state has no
+ * initial child, or the result fails the kernel contract.
  */
 export function lowerBuiltInDefinition(workflowType: string): LoweredBuiltInDefinition | undefined {
   if (!isBuiltInWorkflowType(workflowType)) return undefined;
@@ -96,8 +89,6 @@ export function lowerBuiltInDefinition(workflowType: string): LoweredBuiltInDefi
       stepType: state.type === 'atomic' ? state.kind : 'final',
     }));
 
-  // Two guarded transitions between the same pair of states are one edge of
-  // topology; the guards that told them apart did not survive the lowering.
   const transitions: KernelTransition[] = [];
   const seen = new Set<string>();
   for (const transition of hsm.transitions) {
@@ -124,7 +115,6 @@ export function lowerBuiltInDefinition(workflowType: string): LoweredBuiltInDefi
     approvalPoints: [],
     authority: builtInWorkflowAuthority(),
     entryStepId: entryOf(getInitialPhase(workflowType)),
-    // A workflow with two ways to end has no single terminal step to name.
     ...(onlyTerminal !== undefined ? { terminalStepId: onlyTerminal.stepId } : {}),
   });
   if (!parsed.success) {

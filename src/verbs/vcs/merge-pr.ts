@@ -1,11 +1,7 @@
-// ─── VCS Action: merge_pr ───────────────────────────────────────────────────
-//
-// Merges a pull/merge request via the VCS provider abstraction. Appends
-// `pr.merged` only when the merge succeeds — a declined merge (the remote
-// reports no merge, e.g. blocked by a required check) is a successful call
-// with nothing to record. A merge that DID land but whose append then fails
-// is a different case: the handler refuses to report success rather than let
-// the durable record silently go missing. See the handler for why.
+/**
+ * Handler for the `merge_pr` action. It merges a pull request through the VCS provider.
+ * It appends `pr.merged` only when the merge succeeds. A declined merge, such as one that a required check blocks, is a successful call with no event.
+ */
 
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
@@ -16,6 +12,12 @@ export interface HandleMergePrArgs {
   readonly strategy: 'squash' | 'rebase' | 'merge';
 }
 
+/**
+ * Merges the PR and records `pr.merged`.
+ * When the merge lands but the append fails, it returns `PR_MERGED_EVENT_UNRECORDED` and not success.
+ * A remote merge with no durable record is the most destructive failure, so the handler does not swallow the append error.
+ * The merge result stays on `error.mergeResult`, because a failed envelope has no top-level `data`.
+ */
 export async function handleMergePr(
   args: HandleMergePrArgs,
   ctx: DispatchContext,
@@ -34,15 +36,6 @@ export async function handleMergePr(
   }
 
   if (result.merged) {
-    // The append is NOT swallowed. A merge nobody can find a durable record
-    // of is the family's most destructive failure shape — a remote mutation
-    // already committed, with no row anywhere to say so and no signal to any
-    // observer that the drift happened. Withholding the success carrier on a
-    // failed append (rather than reporting success with a silently missing
-    // row) mirrors `requireGateEvent`'s shape elsewhere in this lane: the
-    // merge's own result still rides on `error.mergeResult`, because the
-    // effect happened and is worth reading, but the failed envelope variant
-    // admits no top-level `data` — the same rule `intentReceipt` follows.
     try {
       await ctx.eventStore.append('vcs', {
         type: 'pr.merged',

@@ -1,42 +1,20 @@
-// ─── Shared Escalation Policy (DR-3, #1595) ─────────────────────────────────
-//
-// One escalation policy, consumed by the three fix-loops of the ship-gate
-// methodology: review and the shepherd loop (tasks
-// 016–019 are the consumers). The policy is two primitives:
-//
-//   1. A bounded `maxIterations` per loop — how many times a loop may auto-fix
-//      a mechanical finding before it must escalate to the user.
-//   2. An explicit ask-user escalation when the bound is hit OR a finding is
-//      INTENT-TOUCHING (a spec/intent finding the loop must not silently
-//      "fix" — it changes what was asked for, so a human decides).
-//
-// Defaults are config-resolvable (mirror the `synthesis` precedent, task 003):
-// a uniform default of `5` with a per-loop override. Consumers read
-// `projectConfig.escalation.maxIterations` and pass it as `configMaxIterations`.
-//
-// Every function here is pure and total — the load-bearing testable unit is
-// `decideEscalation`. `classifyFinding` and `countShepherdIterations` are the
-// thin, explicit feeders around it.
+/**
+ * The escalation policy that the review loop and the shepherd loop share.
+ * A loop auto-fixes a mechanical finding until it reaches `maxIterations`, and then asks the user.
+ * An intent-touching finding goes to the user at once, because it changes what the user asked for.
+ * The default bound is 5. A caller passes `projectConfig.escalation.maxIterations` as `configMaxIterations`, and a loop can override it.
+ * Each function here is pure and total.
+ */
 
 /**
- * Uniform default auto-fix bound for every fix-loop. A loop may auto-fix a
- * mechanical finding while `iteration < maxIterations`; on hitting the bound it
- * escalates to the user. Overridable per-loop and via config.
+ * The default auto-fix bound for each fix loop. A loop auto-fixes a mechanical finding while `iteration < maxIterations`.
  */
 export const DEFAULT_MAX_ITERATIONS = 5;
 
 /**
- * The durable, machine-checkable mirror of the Workflow SDK (#1258) combinator
- * semantics that this interim escalation policy is authored to lower onto. The
- * prose source-of-truth is `docs/designs/archive/2026-06-23-ship-gate-sdk-migration.md`
- * ("SDK-contract values"); this constant is the anchor that the DR-6 divergence
- * guard test asserts the live policy against, so the as-shipped defaults and
- * the documented SDK semantics cannot silently fork before consolidation.
- *
- * On consolidation each interim symbol is a rename of a call site, not a
- * re-derivation: the bounded auto-fix becomes
- * `repeatUntil(cond, body, { maxIterations })` and the ask-user escalation
- * becomes `awaitApproval(approver)`.
+ * The Workflow SDK combinator semantics that this interim policy maps onto.
+ * A divergence test compares the live policy with this constant, so the policy and the SDK semantics cannot fork.
+ * The bounded auto-fix becomes `repeatUntil(cond, body, { maxIterations })`, and the escalation becomes `awaitApproval(approver)`.
  */
 export const SDK_MIGRATION_CONTRACT = {
   /** The interim bound re-uses the SDK `repeatUntil(cond, body, { maxIterations })` option name verbatim. */
@@ -45,7 +23,7 @@ export const SDK_MIGRATION_CONTRACT = {
   defaultMaxIterations: DEFAULT_MAX_ITERATIONS,
   /** The ask-user escalation maps onto the SDK `awaitApproval(...)` combinator. */
   approvalCombinator: 'awaitApproval',
-  /** decideEscalation escalates in EXACTLY these cases (awaitApproval triggers): bound reached OR an intent-touching finding. */
+  /** The two cases in which `decideEscalation` escalates: the bound is reached, or a finding is intent-touching. */
   escalationTriggers: ['bound-reached', 'intent-touching'],
 } as const;
 
@@ -55,11 +33,9 @@ export interface EscalationPolicy {
 }
 
 /**
- * Resolves an {@link EscalationPolicy}, applying precedence
- * `perLoopOverride > configMaxIterations > DEFAULT_MAX_ITERATIONS`. At each
- * layer a value that is not a positive integer (non-positive, non-integer, or
- * `undefined`) is ignored and resolution falls through to the next layer — so a
- * garbage override can never weaken the bound below the resolvable default.
+ * Resolves an {@link EscalationPolicy} with the precedence `perLoopOverride > configMaxIterations > DEFAULT_MAX_ITERATIONS`.
+ * A layer that does not hold a positive integer is skipped.
+ * The last return is unreachable and keeps the function total.
  */
 export function resolveEscalationPolicy(opts?: {
   readonly configMaxIterations?: number | undefined;
@@ -71,8 +47,6 @@ export function resolveEscalationPolicy(opts?: {
       return { maxIterations: candidate };
     }
   }
-  // DEFAULT_MAX_ITERATIONS is a positive integer, so the loop above always
-  // returns; this is unreachable and exists only to satisfy totality.
   return { maxIterations: DEFAULT_MAX_ITERATIONS };
 }
 
@@ -90,13 +64,9 @@ export interface EscalationDecision {
 }
 
 /**
- * Decides whether a fix-loop should auto-fix a finding or escalate to the user.
- * Pure and total:
- *   - An `intent-touching` finding ALWAYS escalates immediately, regardless of
- *     iteration — the loop never silently "fixes" something that changes intent.
- *   - A `mechanical` finding is auto-fixed while `iteration < maxIterations`;
- *     once `iteration >= maxIterations` the auto-fix bound is hit and the loop
- *     escalates.
+ * Decides whether a fix loop auto-fixes a finding or escalates it to the user.
+ * An `intent-touching` finding escalates at once, at any iteration.
+ * A `mechanical` finding escalates when `iteration >= maxIterations`.
  */
 export function decideEscalation(args: {
   readonly findingClass: FindingClass;
@@ -113,13 +83,8 @@ export function decideEscalation(args: {
 }
 
 /**
- * Classifies a review finding into a {@link FindingClass}. Minimal and
- * explicit: a finding is `intent-touching` when it is flagged as such
- * (`intentTouching === true`) OR it is a spec finding (`category === 'spec'`) —
- * both change what was asked for and need a human. Everything else (lint,
- * format, style, coverage, …) is `mechanical` and may be auto-fixed within the
- * bound. The load-bearing decision lives in {@link decideEscalation}; this is
- * just the feeder that maps a finding's shape onto its class.
+ * Classifies a review finding into a {@link FindingClass}.
+ * A finding is `intent-touching` when `intentTouching === true` or `category === 'spec'`. Each other finding is `mechanical`.
  */
 export function classifyFinding(finding: {
   readonly intentTouching?: boolean;
@@ -132,11 +97,8 @@ export function classifyFinding(finding: {
 }
 
 /**
- * The SINGLE event-sourced iteration-count authority: the number of
- * `shepherd.iteration` events in a stream. Task 017 reconciles BOTH the
- * `assess_stack` loop and the shepherd-status view onto THIS rule so they can
- * never disagree about how many iterations a loop has run. Pure and total over
- * any event array — only the `type` discriminant is read.
+ * The iteration count of a loop: the number of `shepherd.iteration` events in a stream.
+ * The `assess_stack` loop and the shepherd-status view count by this rule, so they agree.
  */
 export function countShepherdIterations(
   events: ReadonlyArray<{ readonly type: string }>,

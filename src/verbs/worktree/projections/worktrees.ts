@@ -1,83 +1,16 @@
 /**
- * `worktrees@v1` projection reducer (WLM foundation, DR-1).
+ * The `worktrees@v1` projection reducer.
  *
- * Folds the worktree-lifecycle event family on the dedicated singleton
- * `worktrees` stream into a {@link WorktreesProjection} — a map of
- * {@link WorktreeEntry} records keyed by `worktreeId` (the canonical,
- * symlink-resolved worktree path) PLUS an `inFlightMerges` map keyed by
- * `integrationRef`. This is the single canonical left-fold that derives the live
- * set of governed worktrees AND the live set of in-flight serialized merges from
- * the event log alone (INV-1).
+ * It folds the events of the singleton `worktrees` stream into three maps:
+ * worktree entries by `worktreeId`, in-flight merges by `integrationRef`, and
+ * in-flight prunes by `operationId`. The fold reads only the event log.
  *
- * ## Fold rules
- *
- *   - `worktree.adopted`        → upsert, state `adopted`,  owner cleared
- *   - `worktree.reserved`       → upsert, state `reserved`, owner set from event
- *   - `worktree.released`       → upsert, state `released`, owner cleared
- *   - `worktree.orphan_detected`→ upsert, state `orphan`,   owner cleared
- *   - `worktree.remove.executed`→ DROP the entry from the map (absence is the
- *                                 terminal state — there is NO `removed` state)
- *   - `worktree.merge_requested`→ upsert an {@link InFlightMerge} under its
- *                                 `integrationRef` (the CLAIM half of the lease)
- *   - `worktree.merge_executed` → CLEAR the in-flight merge for that
- *                                 `integrationRef` (the RELEASE half)
- *   - `launch.executing_started`→ MARK the launcher worktree entry (keyed by
- *                                 `worktreeId`) launch-in-flight (DR-2 CLAIM)
- *   - `launch.executed`         → CLEAR the launch-in-flight marker on that
- *                                 entry (DR-2 terminal — kills the phantom)
- *   - `prune.executing_started` → upsert an {@link InFlightPrune} under its
- *                                 `operationId` (DR-3 CLAIM — a live GC pass)
- *   - `prune.executed`          → CLEAR the in-flight prune for that
- *                                 `operationId` (DR-3 terminal — kills the phantom)
- *
- * `worktree.remove.requested` is durable intent only and is a no-op here; the
- * entry is dropped on `worktree.remove.executed`. Every lifecycle event carries
- * the full payload (`worktreeId`, `path`, `featureId`, owner fields), so each
- * upsert is self-describing and the fold reproduces state from the log alone.
- *
- * ## In-flight merges (DR-4)
- *
- * The serialized-merge lease pair rides the SAME singleton `worktrees` stream as
- * the lifecycle family but folds into a SEPARATE `inFlightMerges` map keyed by
- * `integrationRef`, NOT by `worktreeId`. An integration-branch merge typically
- * maps to NO adopted worktree entry (the integration branch is the main
- * worktree), so it must have a home keyed by the branch it targets. The CLAIM
- * (`worktree.merge_requested`) records which live process holds the right to
- * merge `sourceBranch` into `integrationRef`; the RELEASE
- * (`worktree.merge_executed`) clears it. The `ps` / `wait` read paths read
- * `inFlightMerges` to surface and block on live merges. Per-branch serialization
- * means at most one in-flight merge exists per `integrationRef` at a time.
- *
- * ## Owner discipline
- *
- * Per the {@link WorktreeEntry} contract, `ownerStartedAt` (and, for symmetry,
- * `ownerPid`) is non-null ONLY while the entry is `reserved` — a reservation is
- * the sole state that records a live holding process. Every other transition
- * clears the owner fields to `null`.
- *
- * ## Remove correlation
- *
- * The remove pair carries the already-canonical `worktreeId` (stamped by the
- * emitting {@link WorktreeManager}); the reducer drops the entry under that
- * STORED key with NO filesystem call, so the fold is deterministic from the
- * event log alone — the same log re-folds identically after the worktree is gone
- * or on a host with a different symlink topology (INV-1 cold rebuild).
- *
- * For backward compatibility a legacy remove event that carries only
- * `worktreePath` (no `worktreeId`) is handled via a fallback: canonicalize the
- * `worktreePath` through the injected {@link RealpathResolver} (defaulting to
- * {@link defaultRealpath}). That fallback is the ONLY path that touches the
- * filesystem, and only for pre-stamp events — mirroring the Task-001
- * `isPathWithin` primitive's injectable resolver for deterministic tests.
- *
- * ## Purity contract
- *
- * Per DR-1, `apply` is deterministic (over its injected resolver),
- * side-effect-free, and never mutates its `state` argument — every transition
- * constructs a fresh {@link WorktreesProjection} via structural sharing.
- * Unhandled / malformed events return the input `state` by identity (no
- * `projectionSequence` bump), preserving change-detection semantics. Enforced by
- * `assertReducerImmutable` in the co-located test.
+ * A lifecycle event upserts an entry with its state. `worktree.remove.executed`
+ * drops the entry, because a removed worktree has no state. Each start event
+ * (`worktree.merge_requested`, `launch.executing_started`,
+ * `prune.executing_started`) records a claim, and its paired terminal event
+ * clears the claim. `apply` never changes its `state` argument. An unknown or
+ * malformed event returns `state` by identity, with no `projectionSequence` bump.
  */
 import type { ProjectionReducer } from '../../../projections/types.js';
 import type { WorkflowEvent } from '../../../events/schemas.js';
@@ -87,10 +20,10 @@ import {
   type RealpathResolver,
 } from '../pure/path-containment.js';
 
-// ─── Projection state types ─────────────────────────────────────────────────
-
-/** Lifecycle state of a governed worktree. There is no `removed` state — a
- * removed worktree is absent from the projection map (absence is terminal). */
+/**
+ * Lifecycle state of a governed worktree. There is no `removed` state. A
+ * removed worktree is absent from the projection map.
+ */
 export type WorktreeState = 'adopted' | 'reserved' | 'released' | 'orphan';
 
 /**
@@ -113,25 +46,17 @@ export interface WorktreeEntry {
   /** Holder process start time (ISO 8601) — non-null only while `state === 'reserved'`. */
   readonly ownerStartedAt: string | null;
   /**
-   * Launcher liveness marker (DR-2) — PRESENT only while a launcher child
-   * process is executing in this (task-less, top-level) worktree: SET by
-   * `launch.executing_started`, CLEARED (field removed) by the paired
-   * `launch.executed` terminal. Absent on every non-launch worktree and after
-   * the launch terminates, so a permanent launch phantom cannot survive the
-   * terminal. Orthogonal to `state`: a lifecycle transition (reserve / release /
-   * orphan / adopt) carries this marker forward untouched — the launch child's
-   * liveness is independent of the reservation lifecycle.
+   * The launcher liveness marker. `launch.executing_started` sets it, and the
+   * paired `launch.executed` removes it. A lifecycle event keeps it unchanged,
+   * because the launch is independent of the reservation.
    */
   readonly launch?: LaunchInFlight;
 }
 
 /**
- * The liveness ground truth of an in-flight launcher child process (DR-2),
- * carried on a {@link WorktreeEntry} while its launch is executing. Mirrors the
- * `holderPid` / `holderStartedAt` pair on {@link InFlightMerge}: a later
- * dead-holder reconciler can probe whether `holderPid` (with matching
- * `holderStartedAt`, to defeat PID reuse) is still alive and reclaim an
- * abandoned launch. `null` fields mean the emitter could not capture the value.
+ * The liveness data of a running launcher child process, on its
+ * {@link WorktreeEntry}. A reconciler can check that `holderPid` with the same
+ * `holderStartedAt` is alive. A `null` field means the emitter did not capture it.
  */
 export interface LaunchInFlight {
   /** PID of the launcher/supervisor process holding the launch, or `null`. */
@@ -141,15 +66,10 @@ export interface LaunchInFlight {
 }
 
 /**
- * A single in-flight serialized merge — the CLAIM half of the
- * `worktree.merge_requested` / `worktree.merge_executed` lease pair (DR-4).
- *
- * Keyed in {@link WorktreesProjection.inFlightMerges} by `integrationRef` (the
- * per-branch serialization key), NOT by `worktreeId`: an integration-branch
- * merge typically maps to no adopted worktree entry. `holderPid` /
- * `holderStartedAt` identify the live process holding the merge lease (liveness
- * ground truth for orphan reclamation); `worktreeId` is the optional canonical
- * `worktrees@v1` key when the merge is attributable to a specific worktree.
+ * An in-flight serialized merge: the claim of the `worktree.merge_requested`
+ * and `worktree.merge_executed` pair. The key is `integrationRef`, not
+ * `worktreeId`, because an integration branch merge usually has no worktree
+ * entry. `ps` and `wait` read these claims to show and wait for live merges.
  */
 export interface InFlightMerge {
   /** Integration ref the merge targets — the map key / per-branch serialization key. */
@@ -167,17 +87,10 @@ export interface InFlightMerge {
 }
 
 /**
- * A single in-flight `prune_worktrees` GC pass — the CLAIM half of the
- * `prune.executing_started` / `prune.executed` liveness pair (WLM slice 3,
- * DR-3 / INV-10).
- *
- * Keyed in {@link WorktreesProjection.inFlightPrunes} by `operationId` (one per
- * prune pass, minted by the emitting {@link WorktreeManager}). `holderPid` /
- * `holderStartedAt` identify the live process running the pass (liveness ground
- * truth for a later dead-holder reconciler, mirroring {@link InFlightMerge}); a
- * long GC pass is thus observable as "started but not yet terminated" so an
- * in-flight prune is `ps`/`wait`-visible. Cleared on the paired `prune.executed`
- * terminal, so it can never become a permanent phantom.
+ * An in-flight `prune_worktrees` pass: the claim of the
+ * `prune.executing_started` and `prune.executed` pair. The key is the
+ * `operationId` of the pass. `ps` and `wait` can see a long pass until its
+ * terminal event clears the claim.
  */
 export interface InFlightPrune {
   /** Correlation key — the map key / sole per-pass discriminator. */
@@ -191,18 +104,15 @@ export interface InFlightPrune {
 }
 
 /**
- * The full projected state: a map of {@link WorktreeEntry} keyed by
- * `worktreeId`, a map of {@link InFlightMerge} keyed by `integrationRef`, a map
- * of {@link InFlightPrune} keyed by `operationId`, plus the monotone
- * `projectionSequence` stale-snapshot detector (bumped only on handled,
- * state-changing events — matching the sibling `task-store@v1` convention).
+ * The full projected state. `projectionSequence` detects a stale snapshot. It
+ * increases only on a handled event that changes the state.
  */
 export interface WorktreesProjection {
   readonly projectionSequence: number;
   readonly worktrees: Readonly<Record<string, WorktreeEntry>>;
-  /** Live serialized merges keyed by `integrationRef` (DR-4). */
+  /** Live serialized merges keyed by `integrationRef`. */
   readonly inFlightMerges: Readonly<Record<string, InFlightMerge>>;
-  /** Live `prune_worktrees` GC passes keyed by `operationId` (DR-3 / INV-10). */
+  /** Live `prune_worktrees` passes keyed by `operationId`. */
   readonly inFlightPrunes: Readonly<Record<string, InFlightPrune>>;
 }
 
@@ -214,12 +124,7 @@ export const initialWorktreesProjection: WorktreesProjection = {
   inFlightPrunes: {},
 };
 
-// ─── Typed field extractors over the opaque event payload ───────────────────
-//
-// The event-store base schema types `data` as `Record<string, unknown> | undefined`;
-// these do the runtime checks the type system cannot. Mirrors the pattern in
-// the sibling `taskstore` / `merge-orchestrator` reducers.
-
+/** Returns a non-empty string field of the event data, or `undefined`. */
 function extractString(
   data: WorkflowEvent['data'],
   key: string,
@@ -243,13 +148,13 @@ function extractFeatureId(data: WorkflowEvent['data']): string | null {
   return extractString(data, 'featureId') ?? null;
 }
 
-// ─── Upsert helper ──────────────────────────────────────────────────────────
-
 /**
- * Build the {@link WorktreeEntry} for a lifecycle event and upsert it under its
- * `worktreeId`. Returns `state` by identity when the event is missing a usable
- * `worktreeId` (lax replay tolerance, DR-1). Owner fields are populated only for
- * the `reserved` state; every other state clears them to `null`.
+ * Upserts the {@link WorktreeEntry} for a lifecycle event under its
+ * `worktreeId`. Without a `worktreeId`, it returns `state` by identity.
+ *
+ * Only the `reserved` state keeps the owner fields, because only a reservation
+ * has a live holder. `path` defaults to `worktreeId`. The entry keeps any
+ * launch marker, so only `launch.executed` can clear it.
  */
 function upsertLifecycle(
   state: WorktreesProjection,
@@ -258,13 +163,8 @@ function upsertLifecycle(
 ): WorktreesProjection {
   const worktreeId = extractString(event.data, 'worktreeId');
   if (!worktreeId) return state;
-  // `path` defaults to the worktreeId (the canonical path) when absent.
   const entryPath = extractString(event.data, 'path') ?? worktreeId;
   const reserved = next === 'reserved';
-  // A launcher child's liveness is orthogonal to the reservation lifecycle:
-  // carry any in-flight launch marker forward across a reserve/release/orphan/
-  // adopt so an interleaved lifecycle event can never silently drop a live
-  // launch (the terminal `launch.executed` is the ONLY thing that clears it).
   const carriedLaunch = state.worktrees[worktreeId]?.launch;
   const entry: WorktreeEntry = {
     worktreeId,
@@ -280,29 +180,25 @@ function upsertLifecycle(
   return {
     projectionSequence: state.projectionSequence + 1,
     worktrees: { ...state.worktrees, [worktreeId]: entry },
-    // Lifecycle events never touch the merge / prune maps — structural-share them.
     inFlightMerges: state.inFlightMerges,
     inFlightPrunes: state.inFlightPrunes,
   };
 }
 
 /**
- * Drop the entry targeted by a `worktree.remove.executed` event.
+ * Drops the entry of a `worktree.remove.executed` event.
  *
- * Prefers the STORED canonical `worktreeId` the emitter stamped onto the event
- * (no filesystem access — the deterministic, cold-rebuildable path). Only when
- * that is absent (a legacy pre-stamp event) does it fall back to canonicalizing
- * the event's `worktreePath` through `realpath`. Returns `state` by identity
- * when neither key is present or no entry is keyed under the resolved id
- * (idempotent — a remove for an already-absent worktree is a no-op).
+ * The function uses the `worktreeId` in the event, with no file system call.
+ * Thus a rebuild from the log gives the same result after the worktree is gone.
+ * An old event without `worktreeId` falls back to `canonicalWorktreeId` over
+ * its `worktreePath`, in the same form the emitter uses on Windows too. A
+ * remove for an absent entry returns `state` by identity.
  */
 function dropRemoved(
   state: WorktreesProjection,
   event: WorkflowEvent,
   realpath: RealpathResolver,
 ): WorktreesProjection {
-  // Stamped canonical key wins — drop by it with NO realpath() call so the fold
-  // is deterministic from the log alone, even after the worktree is gone (INV-1).
   const storedId = extractString(event.data, 'worktreeId');
   let worktreeId: string;
   if (storedId) {
@@ -310,10 +206,6 @@ function dropRemoved(
   } else {
     const worktreePath = extractString(event.data, 'worktreePath');
     if (!worktreePath) return state;
-    // Legacy fallback (pre-stamp events only): canonicalize through the SAME
-    // `toPosix(realpath(resolve(...)))` form the emitter keys its entries under,
-    // so a remove event folds onto the adopted entry's key on Windows too
-    // (#1620), not a backslash-vs-forward-slash sibling that would miss.
     worktreeId = canonicalWorktreeId(worktreePath, realpath);
   }
   if (!Object.prototype.hasOwnProperty.call(state.worktrees, worktreeId)) {
@@ -326,20 +218,15 @@ function dropRemoved(
   return {
     projectionSequence: state.projectionSequence + 1,
     worktrees: nextWorktrees,
-    // Removal never touches the merge / prune maps — structural-share them.
     inFlightMerges: state.inFlightMerges,
     inFlightPrunes: state.inFlightPrunes,
   };
 }
 
-// ─── In-flight merge fold helpers (DR-4) ────────────────────────────────────
-
 /**
- * Upsert the {@link InFlightMerge} for a `worktree.merge_requested` event under
- * its `integrationRef`. Returns `state` by identity when the event is missing a
- * usable `integrationRef`, `operationId`, or `sourceBranch` (lax replay
- * tolerance, mirroring {@link upsertLifecycle}). The worktree-entry map is left
- * untouched — a merge claim folds ONLY into `inFlightMerges`.
+ * Upserts the {@link InFlightMerge} of a `worktree.merge_requested` event
+ * under its `integrationRef`. Without `integrationRef`, `operationId`, or
+ * `sourceBranch`, it returns `state` by identity.
  */
 function upsertInFlightMerge(
   state: WorktreesProjection,
@@ -366,16 +253,12 @@ function upsertInFlightMerge(
 }
 
 /**
- * Clear the in-flight merge targeted by a `worktree.merge_executed` event.
+ * Clears the in-flight merge of a `worktree.merge_executed` event.
  *
- * Removes the entry keyed under the event's `integrationRef`. Returns `state` by
- * identity when no `integrationRef` is present, no entry is keyed under it
- * (idempotent — a release for an already-cleared merge is a no-op), or the
- * stored claim's `operationId` does not match this release's `operationId`. The
- * `operationId` guard correlates the RELEASE to the exact CLAIM it terminates
- * (the documented correlation, even for dead-holder recovery releases) so a
- * stale release can never clobber a newer concurrent claim under the same
- * `integrationRef`.
+ * Only a release with the same `operationId` as the claim clears it. A
+ * release without an `operationId` clears nothing. Thus a stale release cannot
+ * remove a newer claim on the same `integrationRef`. A release for an absent
+ * claim returns `state` by identity.
  */
 function clearInFlightMerge(
   state: WorktreesProjection,
@@ -386,11 +269,6 @@ function clearInFlightMerge(
   if (!Object.prototype.hasOwnProperty.call(state.inFlightMerges, integrationRef)) {
     return state;
   }
-  // Fail closed: only the lease holder — proven by a MATCHING operationId — may
-  // clear it. A missing operationId cannot establish ownership, so it clears
-  // nothing (symmetric with upsertInFlightMerge, which no-ops without one),
-  // upholding the DR-7 merge-serialization guarantee even against a malformed
-  // `worktree.merge_executed` event a future change might introduce.
   const operationId = extractString(event.data, 'operationId');
   if (!operationId) return state;
   const existing = state.inFlightMerges[integrationRef];
@@ -407,17 +285,10 @@ function clearInFlightMerge(
   };
 }
 
-// ─── Launch liveness fold helpers (DR-2) ────────────────────────────────────
-
 /**
- * Fold a `launch.executing_started` onto the launcher worktree entry keyed by
- * `worktreeId`: mark it launch-in-flight by attaching the {@link LaunchInFlight}
- * liveness ground truth (`holderPid` / `holderStartedAt`). The launcher reserves
- * FIRST (`create-worktree.ts`), so the entry already exists by the time this
- * fires; a launch event for an absent entry returns `state` by identity (lax
- * replay tolerance — a launch event carries no `path` / `featureId` to construct
- * a full entry, mirroring {@link upsertInFlightMerge}). Only the targeted entry
- * is rebuilt; every other entry and the merge map structural-share through.
+ * Attaches the {@link LaunchInFlight} marker of a `launch.executing_started`
+ * event to the entry with its `worktreeId`. For an absent entry, it returns
+ * `state` by identity. The event has no `path` or `featureId` to build an entry.
  */
 function markLaunchInFlight(
   state: WorktreesProjection,
@@ -441,13 +312,10 @@ function markLaunchInFlight(
 }
 
 /**
- * Fold a `launch.executed` terminal onto the launcher worktree entry keyed by
- * `worktreeId`: CLEAR the in-flight marker (remove the `launch` field). Returns
- * `state` by identity when the entry is absent OR carries no in-flight launch
- * (idempotent — a terminal for an already-cleared / never-launched worktree is a
- * no-op). Clearing on the terminal is what guarantees a launch-in-flight marker
- * cannot become a permanent phantom (DR-2). The entry's lifecycle `state` and
- * every other field are preserved untouched.
+ * Removes the `launch` field of the entry for a `launch.executed` event. Other
+ * fields stay the same. The field is removed, not set to `undefined`, so a
+ * cleared entry equals an entry that never launched. Without a marker, the
+ * function returns `state` by identity.
  */
 function clearLaunchInFlight(
   state: WorktreesProjection,
@@ -457,8 +325,6 @@ function clearLaunchInFlight(
   if (!worktreeId) return state;
   const existing = state.worktrees[worktreeId];
   if (existing === undefined || existing.launch === undefined) return state;
-  // Rebuild the entry WITHOUT the `launch` field (drop, not set-to-undefined,
-  // so a cleared entry deep-equals a never-launched one — no phantom key).
   const { launch: _cleared, ...rest } = existing;
   const entry: WorktreeEntry = rest;
   return {
@@ -469,14 +335,10 @@ function clearLaunchInFlight(
   };
 }
 
-// ─── In-flight prune fold helpers (DR-3 / INV-10) ───────────────────────────
-
 /**
- * Upsert the {@link InFlightPrune} for a `prune.executing_started` event under
- * its `operationId` — the CLAIM half of the prune liveness pair. Returns `state`
- * by identity when the event is missing a usable `operationId` or `repoRoot`
- * (lax replay tolerance, mirroring {@link upsertInFlightMerge}). The worktree and
- * merge maps are left untouched — a prune claim folds ONLY into `inFlightPrunes`.
+ * Upserts the {@link InFlightPrune} of a `prune.executing_started` event under
+ * its `operationId`. Without `operationId` or `repoRoot`, it returns `state` by
+ * identity.
  */
 function markInFlightPrune(
   state: WorktreesProjection,
@@ -500,13 +362,8 @@ function markInFlightPrune(
 }
 
 /**
- * Clear the in-flight prune targeted by a `prune.executed` terminal event.
- *
- * Removes the entry keyed under the event's `operationId`. Returns `state` by
- * identity when no `operationId` is present or no entry is keyed under it
- * (idempotent — a terminal for an already-cleared / never-started prune is a
- * no-op). Clearing on the terminal is what guarantees an in-flight prune marker
- * can never become a permanent phantom (INV-10 1:1 pair).
+ * Clears the in-flight prune of a `prune.executed` event. A terminal event for
+ * an absent prune returns `state` by identity.
  */
 function clearInFlightPrune(
   state: WorktreesProjection,
@@ -529,13 +386,11 @@ function clearInFlightPrune(
   };
 }
 
-// ─── Reducer factory + default instance ─────────────────────────────────────
-
 /**
- * Construct a `worktrees@v1` reducer with an injectable {@link RealpathResolver}
- * for the remove-correlation canonicalization. Production code uses the default
- * (`defaultRealpath`); tests inject a pure symlink-map resolver so the fold is
- * deterministic and filesystem-free.
+ * Creates a `worktrees@v1` reducer. The {@link RealpathResolver} serves the
+ * fallback for an old remove event, and tests inject a resolver with no file
+ * system access. The scope is `stream`, because the reducer folds the singleton
+ * `worktrees` stream.
  */
 export function createWorktreesReducer(
   realpath: RealpathResolver = defaultRealpath,
@@ -543,9 +398,6 @@ export function createWorktreesReducer(
   return {
     id: 'worktrees@v1',
     version: 1,
-    // Folds the singleton `worktrees` stream — consumed by the per-stream
-    // `aggregateStream` / `decide` primitives. Scope must match the state's
-    // key space; see `projections/types.ts` for the rule and its guarantee.
     scope: 'stream' as const,
     initial: initialWorktreesProjection,
     apply(state: WorktreesProjection, event: WorkflowEvent): WorktreesProjection {
@@ -573,8 +425,6 @@ export function createWorktreesReducer(
         case 'prune.executed':
           return clearInFlightPrune(state, event);
         default:
-          // Unknown / intent-only event (e.g. `worktree.remove.requested`) —
-          // return identity to preserve structural-sharing semantics.
           return state;
       }
     },
@@ -582,8 +432,7 @@ export function createWorktreesReducer(
 }
 
 /**
- * Process-wide `worktrees@v1` reducer (default-resolver instance). Registered
- * with `defaultRegistry` by the sibling `./index.ts` barrel at module load
- * (DR-1 — concrete projections self-register).
+ * The process-wide `worktrees@v1` reducer with the default resolver. The
+ * sibling `./index.ts` registers it with `defaultRegistry` at module load.
  */
 export const worktreesReducer = createWorktreesReducer();

@@ -1,17 +1,11 @@
-// ─── Investigation Timer ────────────────────────────────────────────────────
-//
-// Tracks debug investigation time budgets. Parses ISO8601 timestamps,
-// calculates elapsed time, and recommends "continue" or "escalate"
-// based on a configurable budget (default 15 minutes).
-//
-// Ported from scripts/investigation-timer.sh
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Investigation timer for the debug workflow. It measures the time since an ISO8601 start and
+ * returns "continue" or "escalate" against a budget of 15 minutes by default.
+ */
 
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { classifyStateFile, resolveWorkflowState } from '../resolve-state.js';
-
-// ─── Types ─────────────────────────────────────────────────────────────────
 
 interface InvestigationTimerArgs {
   readonly startedAt?: string;
@@ -27,8 +21,12 @@ interface InvestigationTimerResult {
   readonly report: string;
 }
 
-// ─── Helpers ───────────────────────────────────────────────────────────────
-
+/**
+ * Returns `investigation.startedAt` from the arguments or from `resolveWorkflowState`. The event
+ * store is the source of truth, and `.state.json` can be absent. An explicit `stateFile` that is
+ * malformed, or missing with no event-store fallback, returns an error, not the generic
+ * "required" message. It returns null when no source gives a start time.
+ */
 async function resolveStartedAt(
   args: InvestigationTimerArgs,
   eventStore?: EventStore,
@@ -37,18 +35,9 @@ async function resolveStartedAt(
     return args.startedAt;
   }
 
-  // Resolve `investigation.startedAt` via the canonical resolver (file →
-  // event-store fallback). INV-1: the event store is the sole source of
-  // truth; the `.state.json` file is a derived stamp that may be absent for
-  // MCP-only workflows.
   if (args.stateFile || (args.featureId && eventStore)) {
     const hasEventFallback = Boolean(args.featureId && eventStore);
 
-    // An explicitly-provided stateFile that is missing or corrupt is a
-    // configuration error. Surface it directly instead of letting the
-    // resolver's silent fallback collapse to the caller's generic
-    // "startedAt or stateFile is required" message. A missing file WITH an
-    // event-store fallback still resolves from the store below (INV-1).
     const fileStatus = classifyStateFile(args.stateFile);
     if (fileStatus === 'malformed') {
       return {
@@ -69,7 +58,6 @@ async function resolveStartedAt(
       eventStore,
     });
     if ('error' in resolved) {
-      // No resolvable source → caller surfaces the "required" INVALID_INPUT.
       const code = resolved.error.error?.code;
       if (code === 'NO_STATE_SOURCE') {
         return null;
@@ -105,17 +93,13 @@ function isValidIso8601(timestamp: string): boolean {
   return !isNaN(parsed);
 }
 
-// ─── Handler ───────────────────────────────────────────────────────────────
-
 export async function handleInvestigationTimer(
   args: InvestigationTimerArgs,
   _stateDir: string,
   eventStore?: EventStore,
 ): Promise<ToolResult> {
-  // Resolve the startedAt timestamp
   const startedAtResult = await resolveStartedAt(args, eventStore);
 
-  // Propagate ToolResult errors from state file parsing
   if (typeof startedAtResult === 'object' && startedAtResult !== null && 'success' in startedAtResult) {
     return startedAtResult as ToolResult;
   }
@@ -132,7 +116,6 @@ export async function handleInvestigationTimer(
     };
   }
 
-  // Validate timestamp
   if (!isValidIso8601(startedAt)) {
     return {
       success: false,
@@ -171,7 +154,6 @@ export async function handleInvestigationTimer(
     remainingMinutes = 0;
   }
 
-  // Build markdown report matching the bash script output
   const reportLines = [
     '## Investigation Timer',
     `- **Started:** ${startedAt}`,

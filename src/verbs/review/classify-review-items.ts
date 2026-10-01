@@ -1,15 +1,8 @@
-// ─── Classify Review Items Orchestrate Action ───────────────────────────────
-//
-// Wraps review/classifier.ts as an orchestrate action. Consumers
-// (typically the shepherd skill) pass an array of normalized ActionItems
-// returned by assess_stack and receive a ClassificationResult containing
-// per-file groups, each annotated with a dispatch recommendation.
-//
-// Emits one `dispatch.classified` event per invocation so we can later
-// measure classifier accuracy and the realized severity distribution
-// across PR comments. The handler is provider-agnostic — it operates on
-// already-normalized ActionItems regardless of which adapter produced them.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The orchestrate action that wraps `review/classifier.ts`. It takes normalized `ActionItem`s from
+ * `assess_stack` and returns per-file groups, each with a dispatch recommendation.
+ * With an event store, it appends a `dispatch.classified` event to measure classifier accuracy and severity distribution.
+ */
 
 import { createHash } from 'node:crypto';
 import type { ToolResult } from '../../format.js';
@@ -18,10 +11,10 @@ import type { ActionItem, Severity } from '../../review/types.js';
 import { classifyReviewItems } from '../../review/classifier.js';
 import { orchestrateLogger } from '../../logger.js';
 
-// Canonical per-item fingerprint for idempotency. Including all identifying
-// fields (not just threadId) makes the signature stable across equivalent
-// inputs and distinct across genuinely different batches; sorting on the
-// composite key renders order-insensitivity (#1161 PR feedback).
+/**
+ * The idempotency fingerprint of an item batch. It uses each identifying field and sorts the items,
+ * so equal batches match in any order and different batches do not match.
+ */
 function canonicalSignature(items: readonly ActionItem[]): string {
   const canonical = items
     .map((i) => ({
@@ -66,6 +59,10 @@ function severityDistribution(items: readonly ActionItem[]): {
   return { high, medium, low };
 }
 
+/**
+ * Classifies the items. The event key holds the feature id and the batch fingerprint, so a retry
+ * does not append a duplicate event. A failed append logs a warning and does not stop the classification.
+ */
 export async function handleClassifyReviewItems(
   args: ClassifyReviewItemsArgs,
 ): Promise<ToolResult> {
@@ -85,10 +82,6 @@ export async function handleClassifyReviewItems(
   const result = classifyReviewItems(args.actionItems);
 
   if (args.eventStore) {
-    // Idempotency: same featureId + same input ActionItems → same key,
-    // so retries don't accumulate duplicate events on the stream. Telemetry
-    // is best-effort — a failing event store must not abort classification,
-    // which is the shepherd-visible result (#1161).
     const signature = canonicalSignature(args.actionItems);
     try {
       await args.eventStore.append(args.featureId, {

@@ -1,9 +1,7 @@
-// ─── Prepare Synthesis Composite Action ─────────────────────────────────────
-//
-// Orchestrates pre-synthesis readiness checks: task completion, test suite,
-// typecheck, and branch stack health. Emits gate.executed events for both
-// SynthesisReadinessView and CodeQualityView flywheel integration.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Handler for the `prepare_synthesis` action. It runs the readiness checks before synthesis: task completion, test suite, typecheck, document coverage and branch stack.
+ * It emits a `gate.executed` event for the test suite, the typecheck and the document leg.
+ */
 
 import { execSync, execFileSync } from 'node:child_process';
 import type { ToolResult } from '../../format.js';
@@ -17,8 +15,6 @@ import { globToRegExp } from '../../architecture/glob-to-regexp.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from '../gates/gate-runner.js';
 
-// ─── Result Types ──────────────────────────────────────────────────────────
-
 interface SynthesisReadinessState {
   tasksComplete: boolean;
   testsPass: boolean;
@@ -30,7 +26,7 @@ interface SynthesisReadinessState {
 /**
  * The test leg. `passed` is the exit status of the resolved command. The counts
  * are read from its output where the runner prints them, else they are 0.
- * `command` is null when no test command resolved; the leg then fails.
+ * `command` is null when no test command resolved, and then the leg fails.
  */
 interface TestResult {
   passed: boolean;
@@ -43,7 +39,7 @@ interface TestResult {
 
 /**
  * The typecheck leg. `command` is null when the toolchain declares no typecheck
- * command; the leg then does not run and does not block. A typecheck command
+ * command. Then the leg does not run and does not block. A typecheck command
  * that resolves but cannot be parsed fails the leg.
  */
 interface TypecheckResult {
@@ -70,8 +66,6 @@ interface PrepareSynthesisResult {
   stack: StackResult;
 }
 
-// ─── Test Runner ───────────────────────────────────────────────────────────
-
 /** The outcome of one resolved command, decided by its exit status. */
 interface LegRun {
   readonly exitedZero: boolean;
@@ -79,8 +73,8 @@ interface LegRun {
 }
 
 /**
- * Run a resolved command in `repoRoot` in argument form, with no shell. The
- * caller names the tree; the server's own working directory is never used.
+ * Runs a resolved command in `repoRoot` in argument form, with no shell. The caller names the tree,
+ * and the server working directory is never used.
  */
 function runLeg(
   command: Extract<RunnableCommand, { kind: 'runnable' }>,
@@ -131,7 +125,7 @@ function parseTestOutput(output: string): { passCount: number; failCount: number
   };
 }
 
-/** Runs the resolved typecheck command, if the toolchain declares one. */
+/** Runs the resolved typecheck command when the toolchain declares one. */
 function runTypecheck(repoRoot: string): TypecheckResult {
   const resolved = resolveRunnableCommand(repoRoot, 'typecheck');
   if (resolved.kind === 'unresolved') {
@@ -149,8 +143,8 @@ function runTypecheck(repoRoot: string): TypecheckResult {
 }
 
 /**
- * TypeScript error lines when the output has them, else the whole output as
- * one error. A failed run always yields at least one error.
+ * Returns the TypeScript error lines when the output has them, or else the whole output as one error.
+ * A failed run always gives at least one error.
  */
 function parseTypecheckErrors(output: string, command: string): string[] {
   const errorLines = output.split('\n').filter((line) => line.includes('error TS'));
@@ -159,8 +153,7 @@ function parseTypecheckErrors(output: string, command: string): string[] {
   return [trimmed.length > 0 ? trimmed : `${command} exited with a non-zero status`];
 }
 
-// ─── Default Branch Detection ─────────────────────────────────────────────
-
+/** Returns the default branch from `origin/HEAD`, or `'main'`. A branch name with unexpected characters also gives `'main'`, which prevents command injection. */
 function detectDefaultBranch(repoRoot: string): string {
   try {
     const ref = execSync('git symbolic-ref refs/remotes/origin/HEAD', {
@@ -170,14 +163,11 @@ function detectDefaultBranch(repoRoot: string): string {
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
     const branch = ref.replace('refs/remotes/origin/', '');
-    // Sanitize to prevent command injection via crafted ref names
     return /^[a-zA-Z0-9/_.-]+$/.test(branch) ? branch : 'main';
   } catch {
     return 'main';
   }
 }
-
-// ─── Stack Verifier ────────────────────────────────────────────────────────
 
 function verifyStack(repoRoot: string): StackResult {
   try {
@@ -200,16 +190,9 @@ function verifyStack(repoRoot: string): StackResult {
   }
 }
 
-// ─── DR-2: Document-Readiness Leg (#1594) ───────────────────────────────────
-
 export type DocumentLegConfig = ResolvedProjectConfig['synthesis']['documentLeg'];
 
-/**
- * Behavior-neutral default when no resolved config is threaded (e.g. a unit
- * test invoking the handler without `projectConfig`): advisory severity + empty
- * surface globs ⇒ the leg auto-waives, so the absence of config is never a
- * blocker.
- */
+/** Default when the call has no `projectConfig`. The severity is advisory and the surface globs are empty, so the leg waives and is never a blocker. */
 const DEFAULT_DOCUMENT_LEG: DocumentLegConfig = {
   severity: 'advisory',
   surfaceGlobs: [],
@@ -217,9 +200,9 @@ const DEFAULT_DOCUMENT_LEG: DocumentLegConfig = {
 };
 
 export interface DocumentLegResult {
-  /** false ⇒ auto-waived: no doc-bearing surface was touched. */
+  /** False when the leg waived because the changeset touched no doc-bearing surface. */
   readonly evaluated: boolean;
-  /** docs changed (or auto-waived). false ⇒ a doc-bearing surface changed with no doc update. */
+  /** False when a doc-bearing surface changed with no doc update. True when docs changed or the leg waived. */
   readonly covered: boolean;
   readonly severity: 'advisory' | 'blocking';
   readonly surfaceFiles: readonly string[];
@@ -227,13 +210,9 @@ export interface DocumentLegResult {
 }
 
 /**
- * Evaluate the `document` readiness leg structurally: when the changeset touches
- * a configured doc-bearing surface, a configured doc path must also have changed
- * — otherwise the leg is uncovered. Pure: the caller supplies the changed-file
- * list (from `git diff --name-only`), so the rule itself is deterministic and
- * directly testable. No doc-bearing surface touched ⇒ auto-waive (the
- * no-ceremony default for ordinary changes). INV-6: no workflow-type branch —
- * the same rule holds for every workflow type.
+ * Evaluates the `document` readiness leg. When the changeset touches a doc-bearing surface, a doc path must also change, or the leg is uncovered.
+ * When no doc-bearing surface changed, the leg waives.
+ * It is pure over the changed-file list, and the rule is the same for every workflow type.
  */
 export function evaluateDocumentLeg(
   files: readonly string[],
@@ -261,21 +240,17 @@ export function evaluateDocumentLeg(
 }
 
 /**
- * Whether the document leg BLOCKS synthesis readiness. Only a `'blocking'`
- * severity on an evaluated-and-uncovered leg blocks; an advisory uncovered leg
- * still records `gate.executed { passed:false }` (visible) but does not block.
+ * Whether the document leg blocks synthesis readiness. Only an evaluated, uncovered leg with `'blocking'` severity blocks.
+ * An advisory uncovered leg still records a failed `gate.executed`, but does not block.
  */
 export function documentLegBlocks(result: DocumentLegResult): boolean {
   return result.evaluated && !result.covered && result.severity === 'blocking';
 }
 
 /**
- * Changed files between the default base branch and HEAD (name-only). Returns
- * `null` — NOT `[]` — when git detection fails, so the document-leg caller can
- * tell "no surface changed" apart from "couldn't determine" and fail CLOSED on
- * the latter rather than silently auto-waiving a blocking leg. argv-form
- * `execFileSync` (not shell-form `execSync`) eliminates the shell surface even
- * though `baseBranch` is already sanitized by `detectDefaultBranch`.
+ * Returns the names of the files that changed between the default branch and HEAD.
+ * It returns `null`, not `[]`, when git fails, so the caller can fail closed and not waive a blocking leg.
+ * It uses the argv form of `execFileSync`, so no shell runs.
  */
 function changedFilesAgainstBase(repoRoot: string): string[] | null {
   try {
@@ -296,14 +271,13 @@ function changedFilesAgainstBase(repoRoot: string): string[] | null {
   }
 }
 
-// ─── Task Readiness Check ──────────────────────────────────────────────────
-
 /** Minimal shape of a task entry in the canonical workflow-state projection. */
 interface ResolvedTaskEntry {
   readonly id: string;
   readonly status: string;
 }
 
+/** A task is complete only with status `'complete'`, the value of the canonical workflow-state projection that `exarchos_workflow get` reads. */
 function checkTaskCompletion(
   tasks: readonly ResolvedTaskEntry[],
 ): { allComplete: boolean; blockers: string[] } {
@@ -313,10 +287,6 @@ function checkTaskCompletion(
 
   const blockers: string[] = [];
   for (const task of tasks) {
-    // #1536: the canonical workflowStateProjection uses status 'complete' (not
-    // 'completed' — the value the old task-detail materializer used). Matching
-    // the canonical value here is what keeps readiness in lock-step with
-    // exarchos_workflow get and eliminates phantom in-progress blockers.
     if (task.status !== 'complete') {
       blockers.push(`Task '${task.id}' is ${task.status}`);
     }
@@ -325,17 +295,9 @@ function checkTaskCompletion(
   return { allComplete: blockers.length === 0, blockers };
 }
 
-// ─── Handler ───────────────────────────────────────────────────────────────
-
 /**
- * `repoRoot` is REQUIRED, not defaulted (DR-8 / #1756): before this task the
- * handler had no field at all naming the tree a readiness verdict was for,
- * so every subprocess leg silently measured the ambient `process.cwd()` the
- * MCP server happened to be launched in. A required field makes an
- * unrelated-tree verdict a compile-time impossibility for every in-repo
- * caller, and {@link executePrepareSynthesis} additionally refuses at
- * runtime (INVALID_INPUT) rather than falling back to `process.cwd()` for
- * any caller that reaches the handler through an unchecked cast.
+ * `repoRoot` is required and has no default, so no in-repo caller can get a verdict for an unrelated tree.
+ * {@link executePrepareSynthesis} also refuses a missing value at runtime, and never falls back to `process.cwd()`.
  */
 interface PrepareSynthesisArgs {
   readonly featureId: string;
@@ -370,12 +332,20 @@ export async function handlePrepareSynthesis(
   });
 }
 
+/**
+ * Runs the readiness legs. It reads task status from `resolveWorkflowState`, the same projection that `exarchos_workflow get` reads.
+ * It checks `repoRoot` after the task check, because a not-ready verdict on tasks runs no leg.
+ *
+ * `repoRoot` must be absolute, because a relative path resolves against the server cwd. The schema rejects it at dispatch, and this check covers direct callers.
+ * The `typeof` check comes first, because `RegExp.test()` converts an array such as `['/repo']` to a string that passes.
+ * When git cannot list the changed files, the document leg is uncovered, so a blocking leg blocks and does not waive.
+ * Gate emission order does not matter, because the readiness view folds `gate.executed` by name.
+ */
 async function executePrepareSynthesis(
   args: PrepareSynthesisArgs,
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  // 1. Validate input
   if (!args.featureId) {
     return {
       success: false,
@@ -388,18 +358,12 @@ async function executePrepareSynthesis(
   try {
     const store = eventStore;
 
-    // 2. Resolve task status from the CANONICAL source — resolveWorkflowState,
-    //    the same event-store projection exarchos_workflow get reads (#1536).
-    //    The old task-detail materializer could fold a divergent task array
-    //    (phantom in-progress), phantom-blocking synthesis on tasks the
-    //    canonical state showed complete.
     const resolved = await resolveWorkflowState({ featureId: streamId, eventStore: store });
     if ('error' in resolved) {
       return resolved.error;
     }
     const tasks = (resolved.state.tasks as ResolvedTaskEntry[] | undefined) ?? [];
 
-    // 3. Check task completion — early return if tasks not all complete
     const { allComplete, blockers } = checkTaskCompletion(tasks);
     if (!allComplete) {
       const readiness: SynthesisReadinessState = {
@@ -423,12 +387,6 @@ async function executePrepareSynthesis(
       return { success: true, data: result };
     }
 
-    // 3b. DR-8 / #1756: from here on every leg shells out and must be told
-    //     which tree to measure. Refuse rather than silently falling back to
-    //     the server's own ambient `process.cwd()` — a verdict about the
-    //     wrong repo is worse than no verdict. (Deliberately checked AFTER
-    //     the task-completion short-circuit above, so a not-ready-on-tasks
-    //     verdict — which never runs a leg — is unaffected by this guard.)
     if (!args.repoRoot) {
       return {
         success: false,
@@ -442,18 +400,6 @@ async function executePrepareSynthesis(
         },
       };
     }
-    // …and present is not the same as usable. A RELATIVE `repoRoot` resolves
-    // against the server process when it reaches a subprocess as `cwd`, which
-    // is the ambient-cwd fallback this guard just refused, spelled differently:
-    // `repoRoot: '.'` would satisfy the check above and still measure whatever
-    // tree the server is sitting in. The schema rejects these at dispatch; this
-    // is the same rule at the handler, for the direct (non-dispatch) callers.
-    //
-    // The `typeof` half comes first because `RegExp.test()` coerces its
-    // argument: `['/repo']` stringifies to `/repo`, clears the shape check, and
-    // reaches a subprocess as a non-string `cwd` — which surfaces as
-    // PREPARE_SYNTHESIS_FAILED, misreporting a caller's malformed input as a
-    // failure of the run.
     if (
       typeof args.repoRoot !== 'string' ||
       !/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(args.repoRoot)
@@ -495,21 +441,10 @@ async function executePrepareSynthesis(
       });
     }
 
-    // 8. Verify branch stack
     const stack = verifyStack(repoRoot);
 
-    // 9. Evaluate the document-readiness leg (DR-2, #1594) and emit its gate.
-    //    Roster order is task-completion→tests→typecheck→document→stack; gate
-    //    EMISSION order here is immaterial (the readiness view folds
-    //    gate.executed by name), so the leg is evaluated after the stack check.
-    //    `passed` reflects structural coverage; whether an uncovered leg BLOCKS
-    //    readiness is the severity decision (documentLegBlocks).
     const docCfg = args.projectConfig?.synthesis?.documentLeg ?? DEFAULT_DOCUMENT_LEG;
     const changedFiles = changedFilesAgainstBase(repoRoot);
-    // Fail CLOSED when git detection is unavailable: report the leg as
-    // evaluated-but-uncovered so a `blocking` severity blocks readiness instead
-    // of being silently auto-waived (an empty-list waive would bypass the gate).
-    // An `advisory` leg still only records a visible `gate.executed{passed:false}`.
     const documentLeg: DocumentLegResult = changedFiles === null
       ? {
           evaluated: true,
@@ -530,7 +465,6 @@ async function executePrepareSynthesis(
       ...(documentLeg.message !== undefined ? { message: documentLeg.message } : {}),
     });
 
-    // 10. Build readiness state
     const readiness: SynthesisReadinessState = {
       tasksComplete: allComplete,
       testsPass: tests.passed,
