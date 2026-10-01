@@ -1,9 +1,8 @@
 /**
- * agent-config-valid — do all detected agent runtime configs parse as
- * valid? Iterates `probes.detector()` output once. `configPresent:false`
- * runtimes are excluded (absence is not a validity problem); if every
- * remaining env has `configValid:true` we Pass, any `false` yields
- * Warning naming the offending runtime(s), and zero presence Skips.
+ * agent-config-valid: checks that each detected agent runtime configuration is
+ * valid. A runtime with no configuration is not counted. If no runtime has a
+ * configuration, the check is skipped. A configuration that is not valid gives
+ * a warning that names the runtime.
  */
 
 import type { CheckFn } from './__shared__/make-stub-probes.js';

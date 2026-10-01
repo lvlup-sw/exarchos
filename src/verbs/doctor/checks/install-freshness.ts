@@ -1,16 +1,10 @@
 /**
- * install-freshness (P05-04) — read-only visibility into the install-identity
- * freshness gate. Diagnoses exactly the "upgraded the binary but kept a stale
- * plugin / skill / cache directory" case that the dispatch chokepoint BLOCKS at
- * runtime, so an operator can see *which* dimension is stale before hitting the
- * block.
- *
- * Strictly read-only and non-mutating: unlike the dispatch gate it never writes
- * a bootstrap lock and never throws — a missing lock (first run) or a dev
- * checkout is a benign `Pass`, an unreadable install or a confirmed mismatch is
- * a `Warning` carrying per-dimension remediation. It mirrors the gate's
- * comparison (`verifyInstallFreshness`) so doctor and dispatch agree on what
- * "stale" means.
+ * install-freshness: a read-only view of the install-identity freshness gate.
+ * It shows which dimension is stale before the dispatch gate blocks a mutating
+ * action. It writes no bootstrap lock. A dev checkout or a missing lock gives
+ * `Pass`. A mismatch, an unreadable install, or an undetermined result gives
+ * `Warning`. It uses `verifyInstallFreshness`, so doctor and dispatch agree on
+ * what "stale" means.
  */
 
 import type { CheckResult } from '../schema.js';
@@ -60,7 +54,6 @@ export async function installFreshness(
 
     const result = verifyInstallFreshness(recorded, observed);
     if (!result.fresh && 'indeterminate' in result) {
-      // Never claim five dimensions match while two of them are unknown.
       return {
         ...base,
         status: 'Warning',

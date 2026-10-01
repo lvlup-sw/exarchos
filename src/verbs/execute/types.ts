@@ -1,31 +1,20 @@
-// ─── Bounded action executor: the compiled form and its refusals ────────────
-//
-// `execute_intent` takes a NAMED intent and nothing else. The caller can never
-// hand in an action array, so everything the executor will run has to be
-// derived from a runbook the repository already declares. That derivation is
-// the compiler, and `CompiledSegment` is what it produces.
-//
-// CompiledSegment is an INTERIM executable form, and deliberately private to
-// this directory. The shared kernel that owns the representation it would lower
-// into now EXISTS — `@lvlup-sw/strategos-contracts` ships `WorkflowDefinitionV1`
-// with both `authority` and `contentHash`, and `contract/capsule/` derives from
-// it. What is still absent is a compiler with somewhere to put the result: this
-// tree has no `prepare`. So lowering remains deferred, for a reason that has
-// changed from "the target does not exist" to "nothing produces the input yet".
-// Nothing outside `verbs/execute/` should grow a dependency on this shape,
-// because a later lowering would then have to preserve it rather than replace
-// it.
+/**
+ * The compiled form of an intent and its refusals.
+ * `execute_intent` takes only a named intent, so the executor runs only steps that the compiler
+ * derives from a declared runbook. `CompiledSegment` is an interim form, private to
+ * `verbs/execute/`. Code outside this directory must not depend on it, so that a later lowering
+ * to `WorkflowDefinitionV1` can replace it.
+ */
 
 import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
 import type { ActionContract, ToolAction } from '../../registry.js';
 
 /**
- * One runbook step resolved to a registered action, with the arguments it will
- * be invoked with already accepted by that action's own registered schema.
- * A leaf reaching the executor has nothing left to validate.
+ * One runbook step, resolved to a registered action. The registered schema of the action
+ * already accepted its arguments, so the executor has nothing left to validate.
  */
 export interface CompiledLeaf {
-  /** Zero-based position in the segment; part of the leaf's derived operation id. */
+  /** The zero-based position in the segment. The derived operation id of the leaf uses it. */
   readonly index: number;
   /** Composite tool the action is registered under. */
   readonly tool: string;
@@ -36,11 +25,9 @@ export interface CompiledLeaf {
   /** Arguments as the action's registered schema parsed them. */
   readonly args: Record<string, unknown>;
   /**
-   * The stream this leaf's declared emissions and postconditions are OBSERVED
-   * on, resolved at compile time from the leaf's arguments and its contract.
-   * Usually the segment's own stream; not always, because a leaf whose records
-   * land on a shared infrastructure stream cannot be checked against a stream
-   * it never writes to.
+   * The stream where the checks observe the declared emissions and postconditions of this leaf.
+   * The compiler resolves it from the arguments and the contract. It is usually the segment
+   * stream, but a leaf that writes to a shared infrastructure stream is observed there.
    */
   readonly observationStreamId: string;
   /** The registry declaration — the source of the schema, contract and gate metadata. */
@@ -62,61 +49,27 @@ export interface CompiledSegment {
 }
 
 /**
- * Why a named intent could not be turned into a segment. Every code below is a
- * refusal BEFORE any effect: the compiler runs to completion, or nothing runs.
+ * Why a named intent did not compile. Each code is a refusal before any effect.
+ * - `INTENT_NOT_CLOSED`: a step names a `native:` tool, or an action absent from the handler
+ *   table. The refusal comes before the first leaf, so no irreversible step runs before a stop.
+ * - `INTENT_HANDLER_TABLE_UNOWNED`: the compile deps name no owner tool for the handler table.
+ * - `INTENT_HANDLER_TOOL_MISMATCH`: the step tool differs from the table owner. Without this
+ *   check, a colliding action name runs the handler of the wrong tool.
+ * - `INTENT_HOST_OBLIGATION`: a step is a decision point with no tool, and the caller decides.
+ * - `INTENT_TEMPLATE_VAR_UNBOUND`: a step passes a `<var>` that has no binding.
  */
 export type CompileRefusalCode =
-  /** No runbook carries this id. */
   | 'INTENT_UNKNOWN'
-  /** The runbook exists but declares no typed argument schema, so it is not executable here. */
   | 'INTENT_NOT_COMPILABLE'
-  /** The caller's `args` did not satisfy the intent's typed argument schema. */
   | 'INTENT_ARGS_INVALID'
-  /**
-   * A step names something this process cannot invoke: a `native:` tool (an
-   * agent-side tool with no registry schema and no local handler), or a
-   * registered action absent from the handler table the leaves run through.
-   * Either way the segment is not closed over what this process can execute,
-   * and the refusal is owed BEFORE the first leaf rather than mid-flight —
-   * a segment that stops after its irreversible step has already run is the
-   * outcome this code exists to prevent.
-   */
   | 'INTENT_NOT_CLOSED'
-  /**
-   * A step would be checked against a handler table, but the compile deps
-   * name no tool that table belongs to. A table's keys alone cannot say which
-   * tool minted them, and an unnamed owner cannot be trusted to be the step's
-   * own tool — so compilation refuses rather than assuming it.
-   */
   | 'INTENT_HANDLER_TABLE_UNOWNED'
-  /**
-   * A step names a tool that disagrees with the handler table's declared
-   * owner. Registered and local is not the same as invokable through THIS
-   * table: an action name that happens to collide with one in the table would
-   * otherwise resolve the step's declaration correctly and then run the wrong
-   * tool's handler for it.
-   */
   | 'INTENT_HANDLER_TOOL_MISMATCH'
-  /**
-   * A step is a decision point rather than a call — it names no tool and asks
-   * the model or the host to choose. The obligation is the caller's to
-   * discharge; the executor refuses rather than deciding on its behalf.
-   */
   | 'INTENT_HOST_OBLIGATION'
-  /** A step asks for `onFail: 'retry'`, which no execution policy here implements. */
   | 'INTENT_RETRY_UNSUPPORTED'
-  /** A step names an action no registered composite tool declares. */
   | 'INTENT_ACTION_UNREGISTERED'
-  /** A step's action is not locally executable — a host-owned or contract-less action. */
   | 'INTENT_ACTION_NOT_LOCAL'
-  /** The arguments built for a leaf were rejected by that leaf's registered schema. */
   | 'INTENT_LEAF_ARGS_INVALID'
-  /**
-   * A step passes a `<var>` placeholder the validated args have no binding for.
-   * The runbook's reference is what makes the variable required; dropping the
-   * placeholder instead would run the leaf without the value the step exists to
-   * hand it, and a gate routed by that value would then assess nothing.
-   */
   | 'INTENT_TEMPLATE_VAR_UNBOUND';
 
 /** A compile refusal, naming the step it is about wherever a step is at fault. */
@@ -131,17 +84,13 @@ export type CompileOutcome =
   | { readonly ok: true; readonly segment: CompiledSegment }
   | { readonly ok: false; readonly refusal: CompileRefusal };
 
-/** Per-leaf outcome after the runbook failure policy has been applied. */
+/** The outcome of a leaf after the runbook failure policy applies. */
 export type LeafStatus = 'passed' | 'failed' | 'advisory-failed';
 
 /**
- * What one leaf appended, as the store confirmed it.
- *
- * `streamId` is part of the fact, not decoration: a sequence numbers a position
- * within ONE stream, and a leaf whose contract says its records land on a
- * shared infrastructure stream reports positions from that stream while the
- * receipt's `tailSequence` stays the subject stream's. The pair is what a
- * caller can resolve; the number alone is ambiguous across the two.
+ * One event that a leaf appended, as the store confirmed it. A sequence is a position in one
+ * stream, and a leaf can append to a shared infrastructure stream. Thus only the pair of
+ * `streamId` and `sequence` identifies the event.
  */
 export interface ReceiptEvent {
   readonly type: string;
@@ -155,22 +104,17 @@ export interface ReceiptLeaf {
   readonly status: LeafStatus;
   readonly events: readonly ReceiptEvent[];
   /**
-   * Present when this leaf returned success without the events its own
-   * registration promises unconditionally, AND the resolved emission
-   * enforcement mode chose not to halt the segment for it. Carried here so an
-   * advisory mode still reports the finding — suppressing it to keep an
-   * advisory run quiet would lose it entirely, since the segment commits.
+   * Set when the leaf returned success without the events that its registration always
+   * promises, and the emission enforcement mode did not halt the segment. Thus an advisory
+   * mode still reports the finding.
    */
   readonly emissionViolation?: 'INTENT_EMISSION_CONTRACT_VIOLATED';
 }
 
 /**
- * The steering the segment ran under, recorded verbatim with where it came
- * from. `caller-args` is the executor's own public path: no durable per-task
- * risk stamp exists, so the tier the caller passed is recorded as the caller's
- * rather than as a resolved fact the log could be asked for. `capsule` is the
- * settlement path: the tier was compiled into the capsule the batch ran under
- * and read back out of it, never supplied by the runtime that did the work.
+ * The steering of the segment, with its source. `caller-args` is the public executor path.
+ * No durable per-task risk stamp exists, so the tier is the claim of the caller. `capsule` is
+ * the settlement path, and the tier comes from the compiled capsule, not from the runtime.
  */
 export interface ReceiptSteering {
   readonly riskTier?: 'low' | 'medium' | 'high';
@@ -179,9 +123,8 @@ export interface ReceiptSteering {
 }
 
 /**
- * The interaction economy this action can honestly measure. `deferred` names the
- * fields a fuller accounting owes and this one does not attempt, so a reader
- * cannot mistake an absent field for a measured zero.
+ * The interaction economy that this action can measure. `deferred` names the fields that it
+ * does not measure, so that an absent field does not read as a measured zero.
  */
 export interface ReceiptInteraction {
   readonly leavesExecuted: number;
@@ -191,22 +134,10 @@ export interface ReceiptInteraction {
 }
 
 /**
- * What the caller gets back, and what a later replay of the same operation id
- * returns verbatim. Stored as the operation claim's canonical result, so the
- * committing call and every retry after it hand back the same object.
- *
- * A committed receipt advertises NO follow-up verbs, and that is a stated
- * limitation rather than an oversight. The envelope's next-action derivation
- * recognizes exactly two payload shapes, and both are full workflow-STATE
- * reads: the transitions it computes are only as sound as the facts it was
- * handed, and a payload that carries a phase and a workflow type without the
- * artifacts, tasks, reviews and evidence beside them yields topology with no
- * admission behind it — legal-looking moves the log would refuse. Adding those
- * two fields alone would put a receipt into the state-read lane on the strength
- * of two keys; carrying the whole snapshot would make the receipt a state read,
- * which is a different object with a different owner. So a caller reads the
- * receipt for what this operation did and asks the workflow surface what to do
- * next.
+ * The result of an operation. The operation claim stores it, so a replay of the same
+ * operation id returns the same object. A committed receipt advertises no follow-up verbs.
+ * The envelope derives next actions only from full workflow-state reads, and a receipt is not
+ * one. For the next step, the caller asks the workflow surface.
  */
 export interface IntentReceipt {
   readonly operationId: string;
@@ -214,38 +145,30 @@ export interface IntentReceipt {
   readonly outcome: 'committed' | 'failed';
   readonly leaves: readonly ReceiptLeaf[];
   readonly failedLeaf?: string;
-  /** Highest store sequence this segment's leaves reached; 0 when none appended. */
+  /** The highest store sequence that the leaves reached, or 0 when they appended nothing. */
   readonly tailSequence: number;
   readonly requestDigest: string;
   readonly steering?: ReceiptSteering;
-  /**
-   * Why the segment halted, present only when it did. Carried ON the receipt
-   * rather than only in the returned envelope so a replay of a failed
-   * operation reproduces the same refusal it produced the first time — the
-   * claim stores the receipt, and nothing else survives the call.
-   */
+  /** Why the segment halted. It is on the receipt, so a replay of a failed operation returns the same refusal. */
   readonly failure?: { readonly code: ExecuteRefusalCode; readonly message: string };
   readonly interaction: ReceiptInteraction;
   /**
-   * The run bundle this operation's interior was written to — the per-leaf
-   * trace behind the compact `leaves` above — as (artifact id, digest) pairs
-   * the run-bundle store resolves. Written BEFORE the operation record that
-   * names it, so a receipt that carries a reference carries one whose bytes
-   * were durable when the claim committed.
-   *
-   * Optional on the type for exactly one reason: a receipt persisted in an
-   * operation claim before custody existed has no reference, and a replay of
-   * that operation hands the caller that receipt verbatim. When present it is
-   * non-empty by type — a receipt cannot say "in custody, of nothing".
+   * The run bundle that holds the per-leaf trace, as artifact id and digest pairs. The bundle
+   * is written before the operation record, so its bytes are durable when the claim commits.
+   * It is optional because an older stored receipt can lack it, and a replay returns that
+   * receipt verbatim.
    */
   readonly bundleRefs?: readonly [BundleRefV1, ...BundleRefV1[]];
 }
 
-/** Refusals the executor itself raises, after compilation and before or during execution. */
+/**
+ * Refusals that the executor raises after compilation.
+ * - `INTENT_REPLAY_DIGEST_MISMATCH`: the operation id is claimed for a different request.
+ * - `INTENT_SEGMENT_FAILED`: a leaf with the failure policy `stop` reported failure.
+ * - `INTENT_EMISSION_CONTRACT_VIOLATED`: a leaf completed without the events that its
+ *   registration always declares.
+ */
 export type ExecuteRefusalCode =
-  /** The operation id is already claimed for a DIFFERENT request. */
   | 'INTENT_REPLAY_DIGEST_MISMATCH'
-  /** A leaf whose failure policy is `stop` reported failure. */
   | 'INTENT_SEGMENT_FAILED'
-  /** A leaf completed without the events its own registration declares unconditionally. */
   | 'INTENT_EMISSION_CONTRACT_VIOLATED';

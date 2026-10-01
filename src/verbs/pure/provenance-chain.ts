@@ -1,22 +1,14 @@
 /**
- * Provenance Chain Verification
+ * Provenance chain check. It matches the `DR-N` identifiers in a design document against the
+ * `Implements:` fields of the plan tasks. It is pure string analysis.
  *
- * Validates design-to-plan traceability by cross-referencing DR-N identifiers
- * in design documents against Implements: fields in plan tasks.
- *
- * Port of scripts/verify-provenance-chain.sh — pure string analysis, no external tools.
- *
- * Exit code semantics (mapped to status field):
- *   'pass'  = complete traceability (every DR-N maps to >= 1 task)
- *   'fail'  = gaps found (unmapped requirements or orphan references)
- *   'error' = usage error (missing files, no DR-N identifiers)
+ * Status values:
+ * - `pass`: each `DR-N` maps to at least one task.
+ * - `fail`: an unmapped requirement or an orphan reference exists.
+ * - `error`: a file is missing or unreadable, the design has no `DR-N`, or the plan has no tasks.
  */
 
 import * as fs from 'node:fs';
-
-// ============================================================
-// PUBLIC TYPES
-// ============================================================
 
 export interface ProvenanceInput {
   /** Path to the design document markdown file. */
@@ -38,7 +30,7 @@ export interface ProvenanceResult {
   readonly covered: number;
   /** Number of DR-N identifiers not covered by any plan task. */
   readonly gaps: number;
-  /** Number of DR-N references in plan that don't exist in design. */
+  /** Number of DR-N references in the plan that the design does not define. */
   readonly orphanRefs: number;
   /** DR-N identifiers that are gaps (uncovered). */
   readonly gapDetails: readonly string[];
@@ -46,40 +38,24 @@ export interface ProvenanceResult {
   readonly orphanDetails: readonly string[];
 }
 
-// ============================================================
-// INTERNAL TYPES
-// ============================================================
-
 interface TaskEntry {
   readonly title: string;
   readonly implements: readonly string[];
 }
 
-// ============================================================
-// EXTRACTION HELPERS
-// ============================================================
-
 /**
- * The decomposition boundary in a unified `docs/specs/` artifact (#1581 DR-6,
- * task 012): the first `## Decomposition` / `## Tasks` section heading, or the
- * first canonical `### Task <id>:` header. Everything before it is the design
- * region (the DR-N *definition* zone); everything after is the task region
- * (where `**Implements:** DR-N` *references* live).
+ * The decomposition boundary in a unified spec artifact: the first `## Decomposition` or `## Tasks`
+ * heading, or the first `### Task <id>:` header. The design region with the `DR-N` definitions is
+ * before it. The task region with the `**Implements:** DR-N` references is after it.
  */
 const DECOMPOSITION_BOUNDARY = /^(?:##\s+(?:Decomposition|Tasks)\b|###\s+Task\s+[A-Za-z0-9-]+:)/im;
 
 /**
- * The design region of an artifact — content before the decomposition boundary.
+ * The design region of an artifact, which is the content before the decomposition boundary.
  *
- * Load-bearing for the design+plan collapse: when design and plan are ONE
- * document, a task's `**Implements:** DR-99` reference would otherwise be
- * scooped up by the whole-document `DR-\d+` scan and mistaken for a DR-N
- * *definition*, silently defeating forward-dangling/orphan detection. Scoping
- * DR-N extraction to the design region keeps a task's reference to an
- * undefined DR-N flagged as an orphan. For a legacy *separate* design file
- * (no decomposition/task headers) the boundary is never hit, so the whole
- * file is the region — behavior-preserving for in-flight two-artifact
- * workflows (DR-9 / task 020).
+ * When design and plan are one document, a whole-document scan reads the task references as `DR-N`
+ * definitions. A task reference to an undefined `DR-N` then does not show as an orphan. A separate
+ * design file has no boundary, so the whole file is the region.
  */
 export function designRegion(content: string): string {
   const m = DECOMPOSITION_BOUNDARY.exec(content);
@@ -103,9 +79,9 @@ function extractDesignRequirements(content: string): string[] {
 }
 
 /**
- * Parse plan tasks and extract their Implements: DR-N references.
- *
- * Looks for ### Task headers and case-insensitive Implements: lines.
+ * Parses the plan tasks and their `DR-N` references. A task starts at a `### Task` header, and its
+ * title is the text after the first `: `. References come from `Implements` or `implements` lines
+ * inside the task.
  */
 function extractPlanTasks(content: string): TaskEntry[] {
   const lines = content.split('\n');
@@ -115,14 +91,11 @@ function extractPlanTasks(content: string): TaskEntry[] {
   let inTask = false;
 
   for (const line of lines) {
-    // Detect task header: ### Task ...
     const taskMatch = line.match(/^###\s+Task\s/);
     if (taskMatch) {
-      // Save previous task
       if (inTask && currentTitle) {
         tasks.push({ title: currentTitle, implements: currentRefs });
       }
-      // Extract title after "### Task N: "
       const colonIdx = line.indexOf(': ');
       currentTitle = colonIdx !== -1 ? line.slice(colonIdx + 2) : line;
       currentRefs = [];
@@ -130,7 +103,6 @@ function extractPlanTasks(content: string): TaskEntry[] {
       continue;
     }
 
-    // Inside a task block, look for Implements: line (case insensitive)
     if (inTask) {
       const implMatch = line.match(/[Ii]mplements:?\s*(.*)/);
       if (implMatch) {
@@ -143,7 +115,6 @@ function extractPlanTasks(content: string): TaskEntry[] {
     }
   }
 
-  // Save the last task
   if (inTask && currentTitle) {
     tasks.push({ title: currentTitle, implements: currentRefs });
   }
@@ -151,10 +122,13 @@ function extractPlanTasks(content: string): TaskEntry[] {
   return tasks;
 }
 
-// ============================================================
-// MAIN FUNCTION
-// ============================================================
-
+/**
+ * Verifies the provenance chain between a design file and a plan file.
+ *
+ * Requirements come only from the design region, but tasks come from the full plan. A plan with no
+ * `### Task` headers is an error, not a coverage gap, because the usual cause is a task heading at
+ * the wrong level.
+ */
 export function verifyProvenanceChain(input: ProvenanceInput): ProvenanceResult {
   const errorResult = (error: string): ProvenanceResult => ({
     status: 'error',
@@ -168,7 +142,6 @@ export function verifyProvenanceChain(input: ProvenanceInput): ProvenanceResult 
     orphanDetails: [],
   });
 
-  // Validate file existence
   if (!fs.existsSync(input.designFile)) {
     return errorResult(`Design file not found: ${input.designFile}`);
   }
@@ -176,7 +149,6 @@ export function verifyProvenanceChain(input: ProvenanceInput): ProvenanceResult 
     return errorResult(`Plan file not found: ${input.planFile}`);
   }
 
-  // Read files (guard against race between existsSync and readFileSync)
   let designContent: string;
   let planContent: string;
   try {
@@ -192,24 +164,13 @@ export function verifyProvenanceChain(input: ProvenanceInput): ProvenanceResult 
     return errorResult(`Failed to read plan file: ${message}`);
   }
 
-  // Extract design requirements from the design REGION only (#1581 DR-6 task
-  // 012): in a unified artifact the DR-N definitions live in the design
-  // section and DR-N *references* live in task `**Implements:**` lines — only
-  // the former count as requirements, so a task referencing an undefined DR-N
-  // stays an orphan. `extractPlanTasks` below reads the FULL plan content.
   const designReqs = extractDesignRequirements(designRegion(designContent));
   if (designReqs.length === 0) {
     return errorResult('No DR-N identifiers found in design document');
   }
 
-  // Extract plan tasks
   const tasks = extractPlanTasks(planContent);
 
-  // #1543: zero parsed tasks is a PARSE issue (wrong heading level), not a
-  // coverage gap. Without this branch every requirement falls through as a gap
-  // and the report reads "N/N requirements unmapped" — which looks like a
-  // design-coverage failure at a human checkpoint when the real cause is that
-  // tasks were authored at the wrong heading depth. Distinguish the two states.
   if (tasks.length === 0) {
     return errorResult(
       "No '### Task' headers found in plan — 0 tasks parsed. Tasks must be " +
@@ -218,7 +179,6 @@ export function verifyProvenanceChain(input: ProvenanceInput): ProvenanceResult 
     );
   }
 
-  // Cross-reference: design requirements to plan tasks
   const gapDetails: string[] = [];
   const matrixRows: string[] = [];
   let covered = 0;
@@ -241,7 +201,6 @@ export function verifyProvenanceChain(input: ProvenanceInput): ProvenanceResult 
     }
   }
 
-  // Detect orphan references
   const orphanDetails: string[] = [];
   const designReqSet = new Set(designReqs);
 
@@ -256,7 +215,6 @@ export function verifyProvenanceChain(input: ProvenanceInput): ProvenanceResult 
     }
   }
 
-  // Build structured output
   const gapCount = gapDetails.length;
   const orphanCount = orphanDetails.length;
   const total = designReqs.length;

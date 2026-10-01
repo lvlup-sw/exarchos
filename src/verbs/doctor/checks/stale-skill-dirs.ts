@@ -1,26 +1,15 @@
 /**
- * stale-skill-dirs — the read-only `doctor` finding for the Task 011 onboard
- * rename migration (DR-3/DR-8).
+ * stale-skill-dirs: a read-only doctor check for skill directories that still
+ * carry an old skill name after the skill renames.
  *
- * The DR-3 atomic rename wave renamed 9 skills, so a prior-release install can
- * carry STALE OLD-NAME skill dirs (`brainstorming`, `delegation`, …) on disk.
- * `onboard`'s install step removes the ones it can prove are ours (Task 010
- * manifest / Task 023 legacy-render hash) and PRESERVES any it cannot — a
- * modified or unrecognized dir is never deleted. This check surfaces the residue
- * read-only: it reports every renamed-away dir still present in the canonical
- * `.agents/skills` install scopes so an operator can see what remains.
+ * The `onboard` install step removes old-name directories that it can prove it
+ * installed. It keeps a modified or unknown directory. This check reports each
+ * old-name directory that remains in the `.agents/skills` scopes. It gives Pass
+ * when none remain and Warning with a `fix` when some remain.
  *
- *   - no stale old-name dirs present   ⇒ Pass
- *   - one or more present              ⇒ Warning (+ `fix`)
- *   - home unresolvable                ⇒ project scope only (never throws)
- *
- * Classification: the check's `category` is `plugin`, so the reconciler's
- * `classifyByCategory` fallback routes any remediable finding to the cli-only
- * INSTALL step — i.e. the very migration that removes provenance-matched dirs and
- * re-preserves the rest. No dedicated `CHECK_CLASSIFICATION` entry is required:
- * the finding degrades to the sensible install-surface default by construction
- * (a modified dir legitimately persists across re-runs, so this is a Warning the
- * operator resolves by hand, not an auto-fix).
+ * The category is `plugin`, so the reconciler routes the finding to the
+ * cli-only install step. A modified directory stays across re-runs, and the
+ * operator removes it by hand.
  */
 
 import * as fs from 'node:fs';
@@ -40,11 +29,11 @@ export interface StaleSkillDirsDeps {
   readonly home?: string;
   /** Project root for the `<projectRoot>/.agents/skills` scope. Default `process.cwd()`. */
   readonly projectRoot?: string;
-  /** List directory entry names (non-throwing; absent dir ⇒ `[]`). */
+  /** Lists directory entry names. It does not throw, and an absent directory gives `[]`. */
   readonly listDirs?: (dir: string) => string[];
 }
 
-/** Real `node:fs` directory-name lister (only sub-directories; absent ⇒ `[]`). */
+/** Lists the sub-directories and symlinks of `dir` with `node:fs`. An absent directory gives `[]`. */
 function defaultListDirs(dir: string): string[] {
   try {
     return fs
@@ -65,9 +54,8 @@ function scopeDirs(deps: StaleSkillDirsDeps): string[] {
 }
 
 /**
- * Diagnose stale old-name skill dirs across the canonical install scopes. Pure +
- * read-only: it lists directory names and flags any that is a
- * {@link RENAMED_AWAY_SKILL_DIRS} entry. Never mutates the filesystem.
+ * Finds old-name skill directories in the install scopes. It only reads
+ * directory names and flags each {@link RENAMED_AWAY_SKILL_DIRS} entry.
  */
 export function checkStaleSkillDirs(deps: StaleSkillDirsDeps = {}): CheckResult {
   const start = Date.now();
@@ -106,9 +94,8 @@ export function checkStaleSkillDirs(deps: StaleSkillDirsDeps = {}): CheckResult 
 }
 
 /**
- * Roster {@link CheckFn} adapter. Resolves the user home from the probe env
- * (mirroring `retired-hooks-present`) and the project root from `process.cwd()`
- * (mirroring `onramp-block-drift`), then hands off to {@link checkStaleSkillDirs}.
+ * The roster {@link CheckFn} adapter. It reads the user home from the probe env
+ * and the project root from `process.cwd()`.
  */
 export const staleSkillDirs: CheckFn = async (probes): Promise<CheckResult> => {
   const home = probes.env.HOME ?? probes.env.USERPROFILE;

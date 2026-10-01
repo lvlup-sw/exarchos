@@ -1,49 +1,15 @@
-// ─── Response-economy declaration for `execute_intent` ──────────────────────
-//
-// A measured budget, not the registry-wide default. Four intents ship —
-// `task-completion` (five leaves), `quality-evaluation` (five),
-// `plan-closeout` (three) and `synthesis-closeout` (two) — and the budget is
-// measured against the largest of them, which the two-leaf closeout does not
-// move: a five-leaf receipt carrying two events per gate leaf serializes to
-// ~1,500 bytes / ~375 estimated tokens (`estimateOutputTokens`, byte length
-// over 4). Each receipt event carries the stream its sequence belongs to, which
-// is about a third of that figure and is what makes the sequence resolvable at
-// all. `EXECUTE_INTENT_ECONOMY_BUDGET_TOKENS` sits at well over twice that
-// measured shape — enough headroom for a failure receipt's longer refusal
-// message or a runbook with a few more leaves without tripping the cap on
-// ordinary use, while still bounding a genuinely oversized response instead of
-// inheriting the registry-wide default unmeasured.
+/**
+ * Response-economy declaration for `execute_intent`.
+ * The budget is measured, not the registry default. A five-leaf receipt with two events for
+ * each gate leaf serializes to about 375 estimated tokens. The budget is more than twice that
+ * value, so a longer refusal message or a few more leaves stay under the cap.
+ */
 
 import { SUMMARY_FIRST_PAGE_ITEMS } from '../../dispatch/core/economy.js';
 
 export const EXECUTE_INTENT_ECONOMY_BUDGET_TOKENS = 1000;
 
-/**
- * The fields a capped response must keep regardless of budget: the four the
- * caller needs to know what happened without the full per-leaf detail —
- * `operationId` to correlate, `outcome` and `failedLeaf` to know what
- * happened, `tailSequence` to keep querying the log from where this call left
- * off. Declared as a reducer (not the generic list fallback) because the
- * receipt's payload is NOT list-dominant — `leaves` is one property among
- * several structural fields — so the generic fallback would fail open rather
- * than cap it (`response-economy.ts`'s list-dominance guard).
- */
-/**
- * A reducer that mapped EVERY leaf into `firstPage` was not a reducer: a
- * segment with a hundred-odd leaves summarized to well over the budget above,
- * so the cap declared a ceiling its own reducer could not hold to. A page is a
- * page — `counts` says how much was not shown, and the leaves themselves stay
- * retrievable from the log by the derived per-leaf operation id.
- *
- * The page size is the registry-wide one rather than a local number, so this
- * reducer pages the way every generic capped response does.
- */
-/**
- * The capped receipt's shape. Declared rather than inferred so the fields a
- * caller needs to keep following the operation are a compile-time obligation
- * of this reducer: a field added to the receipt and forgotten here is a type
- * error, not a silently narrower response.
- */
+/** The capped receipt shape. As the declared return type, it makes each field a compile-time obligation of the reducer. */
 export interface IntentReceiptSummary {
   readonly summary: string;
   readonly counts: { readonly leaves: number; readonly shown: number; readonly total: number };
@@ -60,6 +26,12 @@ export interface IntentReceiptSummary {
   readonly bundleRefs: unknown;
 }
 
+/**
+ * Reduces an intent receipt to a capped summary. The receipt is not list-dominant, so the
+ * generic list fallback fails open on it. The first page uses the registry page size, and
+ * `counts` reports the omitted leaves. `operationId`, `outcome`, `failedLeaf`, `tailSequence`
+ * and `bundleRefs` stay, because `CappedDataSchema` is `.passthrough()`.
+ */
 export function summarizeIntentReceipt(data: unknown): IntentReceiptSummary {
   const receipt = data as {
     readonly operationId?: unknown;
@@ -84,9 +56,6 @@ export function summarizeIntentReceipt(data: unknown): IntentReceiptSummary {
       (leaves.length > firstPage.length ? `; ${firstPage.length} shown` : ''),
     counts: { leaves: leaves.length, shown: firstPage.length, total: leaves.length },
     firstPage,
-    // Pinned outside the capped shape's `summary`/`counts`/`firstPage` fields —
-    // `CappedDataSchema` is `.passthrough()`, so these ride alongside them
-    // rather than being lost to the cap.
     operationId: receipt.operationId,
     outcome: receipt.outcome,
     failedLeaf: receipt.failedLeaf,

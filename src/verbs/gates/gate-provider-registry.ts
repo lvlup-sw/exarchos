@@ -4,21 +4,9 @@ import {
 } from '../../workflow/admission/types.js';
 
 /**
- * The five mechanical gate classes — the production vocabulary, declared HERE because this is the
- * module that resolves a provider for each one.
- *
- * **Direction corrected by task 011 (DR-2).** This union used to be imported as `GateClass` from
- * `evals/benchmarks/seeded-defects/corpus.ts`, so a production module took its gate vocabulary
- * from an eval fixture loader — which in turn imports `verbs/team/prepare-delegation.ts` and
- * therefore the whole legacy guard graph. The taxonomy is still SHARED and still has exactly one
- * authority; only the direction changed. `corpus.ts` now extends this union with its hidden-oracle
- * class (`dropped-edge-case`) instead of owning it, so neither side can drift.
- *
- * The measurement that forced it: with the old edge in place, the module set reachable from the
- * shared workflow IR was 189 modules and included three legacy guard modules
- * (`built-in-workflow-ir.structure.test.ts`, exit-proof b); with the edge inverted it is 38 and
- * includes none. That edge was the sole reason `events/schemas.ts` could not name the DR-2
- * registration types.
+ * The five mechanical gate classes. This module declares them because it resolves a provider for each one.
+ * The taxonomy has one authority. The seeded-defect `corpus.ts` extends this union with its hidden-oracle class (`dropped-edge-case`).
+ * This direction keeps the legacy guard modules out of the module set that the shared workflow IR reaches.
  */
 export type MechanicalGateClass =
   | 'test-adequacy'
@@ -28,36 +16,20 @@ export type MechanicalGateClass =
   | 'integration-suite';
 
 /**
- * Providers own every mechanical class plus the phase outcome producers migrated onto the durable
- * runner. The seeded-defect corpus's one hidden-oracle class is deliberately ungated and is
- * therefore absent here — it is added by `corpus.ts`, not subtracted here.
+ * The phase outcome producers on the durable runner. The runner resolves a provider by class, so each gate that records durable gate evidence needs its class here.
+ * A bare `gate.executed` row is not that evidence. The postcondition observer reads `admission.evidence-recorded`.
+ * The hidden-oracle class of the seeded-defect corpus is ungated, so it is absent here. `corpus.ts` adds it.
  */
 export type PhaseGateClass =
   | 'plan-coverage'
   | 'provenance-chain'
   | 'review-verdict'
   | 'prepare-synthesis'
-  // The three review gates that declared durable gate evidence and paid for it
-  // with a bare `gate.executed` append. Their handlers now route through the
-  // shared phase-gate runner, and the runner resolves a provider by class — so
-  // each class is declared here or the gate cannot record the evidence its own
-  // contract promises.
   | 'security-scan'
   | 'convergence'
   | 'invariant-conformance'
-  // The two plan gates that declared durable gate evidence and paid it with a
-  // bare `gate.executed` append and with nothing at all respectively. The
-  // runner resolves a provider by class, so the class exists here or the gate
-  // cannot record the evidence its own contract promises.
   | 'task-decomposition'
   | 'spec-coverage'
-  // The remaining gates that declared durable gate evidence and paid it with
-  // either a bare `gate.executed` append or with nothing at all. A
-  // `gate.executed` row is NOT the durable-evidence record the postcondition
-  // observer reads — that reader asks for `admission.evidence-recorded` — so
-  // each of these declared a postcondition no caller could observe. The runner
-  // resolves a provider by class, so the class exists here or the gate cannot
-  // record the evidence its own contract promises.
   | 'context-economy'
   | 'coverage-thresholds'
   | 'debug-review'
@@ -76,10 +48,8 @@ export interface GateProviderRegistration {
 }
 
 /**
- * Workload-neutral provider identity. The action is the existing local
- * implementation seam; commands and execution policy remain behind that action.
- * The existing action identity is also the proof-domain `providerRef`; no second
- * provider namespace is introduced.
+ * Workload-neutral provider identity. The action is the local implementation seam, and commands and execution policy stay behind it.
+ * The action identity is also the proof-domain `providerRef`. No second provider namespace exists.
  */
 export interface GateProvider {
   readonly gateClass: SupportedGateClass;
@@ -230,16 +200,15 @@ const SUPPORTED_GATE_CLASS_SET: ReadonlySet<string> = new Set(
   SUPPORTED_GATE_CLASSES,
 );
 
+/**
+ * Edit distance between two strings, with two typed-array rows.
+ * Under `noUncheckedIndexedAccess`, a typed-array read types as `number | undefined`. An out-of-bounds read throws, so it cannot pass silently.
+ */
 function levenshtein(a: string, b: string): number {
   if (a === b) return 0;
   if (a.length === 0) return b.length;
   if (b.length === 0) return a.length;
 
-  // Dense DP rows kept as typed arrays for compact, fast indexing. Under
-  // `noUncheckedIndexedAccess` even a provably in-bounds typed-array read types
-  // as `number | undefined`; the `0..b.length` DP bounds make an undefined
-  // read impossible, so one surfaces as a hard invariant failure rather than
-  // being asserted away.
   const cell = (row: Int32Array, index: number): number => {
     const value = row[index];
     if (value === undefined) {
@@ -263,8 +232,8 @@ function levenshtein(a: string, b: string): number {
   return cell(previous, b.length);
 }
 
+/** Builds the unknown-class diagnostic. It cuts the class name to 128 characters, which bounds the edit-distance work and the echoed text. */
 function unknownGateClassDiagnostic(gateClass: string): UnknownGateClassDiagnostic {
-  // Bound edit-distance work and diagnostic echo size for untrusted class names.
   const safeGateClass = gateClass.slice(0, 128);
   const suggestions = Object.freeze(
     SUPPORTED_GATE_CLASSES
@@ -299,6 +268,10 @@ function canonicalGateClassOrder(
   );
 }
 
+/**
+ * Builds a registry with exactly one provider for each supported gate class.
+ * If a class has no registration after the missing-class check, the build returns a typed failure, not a crash.
+ */
 export function buildGateProviderRegistry(
   registrations: readonly GateProviderRegistration[],
 ): GateProviderRegistryBuildResult {
@@ -362,9 +335,6 @@ export function buildGateProviderRegistry(
   for (const gateClass of SUPPORTED_GATE_CLASSES) {
     const registration = registrationByClass.get(gateClass);
     if (registration === undefined) {
-      // Unreachable while the missing-class check above holds. Surfacing it as
-      // a typed build failure rather than asserting non-null means a future
-      // change to that check degrades into a diagnostic, not a crash.
       return {
         success: false,
         error: {

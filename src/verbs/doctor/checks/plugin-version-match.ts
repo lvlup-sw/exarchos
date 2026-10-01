@@ -1,9 +1,6 @@
 /**
- * plugin-version-match — compares the installed plugin's package.json
- * version (from the Claude Code plugin cache) against the running
- * version (the repo-root package.json the MCP server was built from).
- * Mismatch warns; absent installation skips rather than fails, since
- * running from source is a legitimate dev-mode configuration.
+ * Compares the installed plugin version with the running version.
+ * A mismatch gives a warning. If no plugin is installed, the check skips, because a run from source is a valid dev mode.
  */
 
 import type { CheckFn } from './__shared__/make-stub-probes.js';

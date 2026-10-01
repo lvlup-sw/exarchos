@@ -1,44 +1,20 @@
-// ─── mock-boundary — mock detection + ownership cross-reference (SIV-4 #1530) ─
-//
-// Verification-ladder slice 1, task 025. Pure core for the mock-boundary gate.
-//
-// EMPIRICAL GROUNDING. Hora & Robbes, "Do Coding Agents Mock Differently?"
-// (MSR '26): coding agents add mocks in 36% of test commits vs 26% for humans,
-// and 95% of those are the brittle `mock` double rather than a real fixture.
-// The failure mode is an LLM mocking its OWN assumption of an API it does not
-// own — it invents a boundary around a dependency it never read, so the test
-// asserts against a fiction. Mocking a FIRST-PARTY module is far less risky:
-// it is authored here, its contract is visible, and the mock can be checked
-// against the real thing. Mocking an UNOWNED dependency (an npm package, a
-// vendored tree) is the high-risk pattern this module surfaces.
-//
-// SCOPE. This module is the PURE core: callers supply the diff, the resolved
-// first-party globs, and (optionally) the test globs. No fs, no git, no config
-// loads — the gate registration (task 026) wires those in. Detection is scoped
-// to TEST-file hunks by reusing `splitHunks` (task 011) so mock calls in real
-// production source are never flagged.
-//
-// IDENTIFIER-BOUNDARY RULE (documented + tested). The detection family is
-// `mock | stub | spy | fake | patch | monkeypatch`, matched case-insensitively
-// but only at an IDENTIFIER boundary, so ordinary prose words that merely
-// contain a family substring are not flagged. Concretely, a family word counts
-// as a hit iff:
-//   • LEADING boundary — it is preceded by a non-lowercase-letter character
-//     (start-of-line, whitespace, `.`, `(`, `'`, etc.) OR it begins with an
-//     uppercase letter (a camelCase hump, e.g. the `Fake` in `createFake`); AND
-//   • TRAILING boundary — the character immediately after it is NOT a lowercase
-//     letter (so `mock(`, `spyOn`, `monkeypatch.` hit, but `stubbornness`,
-//     `fakery`, `patchwork` do not — each continues into another lowercase
-//     letter and is therefore rejected as a longer ordinary word).
-// This is the ~94%-precision heuristic the design calls for; perfection is not
-// required, and the trailing-lowercase rule is the load-bearing false-positive
-// guard (a comment that says "spying" still would not hit because `spy` is
-// followed by lowercase `i`).
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * mock-boundary: the pure core of the mock-boundary gate. It finds the mock
+ * sites that a diff adds to test files. It reports each mock whose target is
+ * outside the first-party scope.
+ *
+ * A mock of an unowned dependency (an npm package, a vendored tree) is the
+ * high-risk case. An agent can mock its own wrong idea of an API that it never
+ * read. A first-party mock is low risk, because its contract is
+ * visible here. The caller supplies the diff, the first-party globs, and the
+ * test globs. This module reads no files, runs no git, and loads no config.
+ *
+ * The detection family is `mock`, `stub`, `spy`, `fake`, `patch`, and
+ * `monkeypatch`, matched case-insensitively at an identifier boundary. See
+ * {@link detectIdentifier} for the boundary rule.
+ */
 
 import { splitHunks } from './test-adequacy.js';
-
-// ─── public types ────────────────────────────────────────────────────────────
 
 /** A single added line of a changed file, with its post-image line number. */
 export interface AddedLine {
@@ -49,11 +25,10 @@ export interface AddedLine {
 }
 
 /**
- * One changed file from the task diff, paired with the lines it ADDS. This is
- * the richer companion to the file-path list `splitHunks` consumes: the path is
- * forwarded to `splitHunks` for test/source classification, and `addedLines`
- * supplies the content the detector scans. Removed/context lines are not
- * carried — a mock the diff DELETES is not a new mock and is never flagged.
+ * One changed file from the task diff and the lines that it adds. The path
+ * goes to `splitHunks` for test or source classification. The detector scans
+ * `addedLines`. A mock that the diff deletes is not a new mock, so removed
+ * lines are not carried.
  */
 export interface FileDiff {
   /** Repo-relative path of the changed file. */
@@ -62,29 +37,25 @@ export interface FileDiff {
   readonly addedLines: readonly AddedLine[];
 }
 
-/** The detection family, in priority order (longest-specific first). */
+/** A detection-family identifier. */
 export type MockIdentifier = 'monkeypatch' | 'mock' | 'stub' | 'spy' | 'fake' | 'patch';
 
 /**
- * A detected mock site. Carries enough to build the steer affordance later
- * (task 026): which file/line, which detection identifier fired, the mocked
- * target as written, and whether that target is UNOWNED (outside the resolved
- * first-party scope) — the high-risk case the gate steers on.
+ * A detected mock site: the file and line, the identifier that fired, the
+ * mocked target, and whether the target is outside the first-party scope.
  */
 export interface MockFinding {
   /** Repo-relative path of the test file the mock was added to. */
   readonly file: string;
   /** 1-based post-image line of the mock site, when known. */
   readonly line?: number;
-  /** The detection-family identifier that fired (e.g. `mock`, `spy`). */
+  /** The detection-family identifier that fired, for example `mock` or `spy`. */
   readonly identifier: MockIdentifier;
   /**
-   * The mocked target as cross-referenced against ownership: a RELATIVE
-   * specifier is resolved against the diff file's directory (`./bar.js` from
-   * `scripts/tools/foo.test.ts` → `scripts/tools/bar.js`); a BARE package
-   * specifier is carried verbatim (`axios`, `@scope/pkg`). This is the exact
-   * string matched against the first-party globs, so the steer affordance can
-   * show the operator what scope the mock fell into.
+   * The mocked target as matched against the first-party globs. A relative
+   * specifier resolves against the directory of the diff file, so `./bar.js`
+   * from `scripts/tools/foo.test.ts` gives `scripts/tools/bar.js`. A bare
+   * package specifier stays as written (`axios`, `@scope/pkg`).
    */
   readonly mockedTarget: string;
   /** True when the target resolves OUTSIDE the first-party glob scope. */
@@ -93,30 +64,24 @@ export interface MockFinding {
 
 export interface DetectMockOptions {
   /**
-   * Resolved `ownership.firstParty` globs (the gate supplies these from config;
-   * the module does NOT load config). A mocked target that resolves to a path
-   * matching any of these globs is OWNED and filtered out of the findings.
+   * Resolved `ownership.firstParty` globs from the gate. A mocked target that
+   * matches one of these globs is owned and is not reported.
    */
   readonly firstPartyGlobs: readonly string[];
   /**
-   * Optional test-glob override forwarded to {@link splitHunks}. When omitted
-   * the co-located defaults are used. Detection only scans files `splitHunks`
+   * Optional test-glob override for {@link splitHunks}. If omitted, the
+   * co-located defaults apply. Detection scans only the files that `splitHunks`
    * classifies as tests.
    */
   readonly testGlobs?: readonly string[];
 }
 
-// ─── glob matching (mirrors splitHunks' minimal engine) ──────────────────────
-//
-// We re-derive a small glob→RegExp here rather than import splitHunks' private
-// `globToRegExp`: that helper is intentionally module-private, and ownership
-// globs may name BARE package specifiers (e.g. `@scope/**`) that never contain
-// a `/`-prefixed repo path, so the matcher must also apply to non-path targets.
-
 /**
- * Translate one glob into a whole-string-anchored RegExp. Supports the same
- * minimal token set as `splitHunks`: `**`/`**​/` (any number of segments), `*`
- * (a run of non-`/` chars), every other character literal.
+ * Translates one glob into a RegExp anchored to the whole string. It supports
+ * the same tokens as `splitHunks`. A double star matches any number of
+ * segments, `*` matches a run of non-`/` characters, and every other character
+ * is literal. This is a local copy because the `splitHunks` helper is
+ * module-private, and because ownership globs can name bare package specifiers.
  */
 function globToRegExp(glob: string): RegExp {
   let out = '^';
@@ -142,19 +107,12 @@ function globToRegExp(glob: string): RegExp {
   return new RegExp(out);
 }
 
-// ─── module-specifier resolution ─────────────────────────────────────────────
-
 /**
- * Resolve a mock's module specifier to the string that ownership globs are
- * matched against.
- *
- *   • RELATIVE specifiers (`./x`, `../x`) resolve against the DIRECTORY of the
- *     diff file, normalizing `.`/`..` segments, so `vi.mock('../../config/x.js')`
- *     in `servers/m/src/verbs/foo.test.ts` becomes
- *     `servers/m/src/config/x.js` before glob matching.
- *   • BARE package specifiers (`axios`, `@scope/pkg`) are returned verbatim —
- *     they only count as owned if a first-party glob is written to match the
- *     specifier itself (e.g. a workspace package glob `@scope/**`).
+ * Resolves a mock module specifier to the string that the ownership globs
+ * match. A relative specifier (`./x`, `../x`) resolves against the directory
+ * of the diff file, with `.` and `..` segments normalized. A bare package
+ * specifier stays as written, so it is owned only when a first-party glob
+ * matches the specifier itself.
  */
 function resolveSpecifier(specifier: string, fromFile: string): string {
   const isRelative = specifier.startsWith('./') || specifier.startsWith('../');
@@ -181,14 +139,7 @@ function resolveSpecifier(specifier: string, fromFile: string): string {
   return baseSegments.join('/');
 }
 
-// ─── mock-site detection ─────────────────────────────────────────────────────
-
-/**
- * Identifier-family detector. Returns the family identifier present at an
- * identifier boundary in `text`, or `undefined`. `monkeypatch` is tried before
- * `patch` so a `monkeypatch` site reports the more specific identifier. See the
- * IDENTIFIER-BOUNDARY RULE in the module header for the boundary semantics.
- */
+/** The detection-family words that {@link detectIdentifier} searches for. */
 const FAMILY: readonly MockIdentifier[] = ['monkeypatch', 'mock', 'stub', 'spy', 'fake', 'patch'];
 
 function isLowerLetter(ch: string | undefined): boolean {
@@ -200,11 +151,15 @@ function isUpperLetter(ch: string | undefined): boolean {
 }
 
 /**
- * Find the first family identifier at an identifier boundary in `text`.
- * Case-insensitive. Boundary rule (see module header):
- *   • leading: preceding char is NOT a lowercase letter, OR the matched word
- *     begins with an uppercase letter (camelCase hump);
- *   • trailing: following char is NOT a lowercase letter.
+ * Finds the family identifier with the earliest position at an identifier
+ * boundary in `text`. The match is case-insensitive.
+ * - Leading boundary: the character before is not a lowercase letter, or the
+ *   word starts with an uppercase letter (the `Fake` in `createFake`).
+ * - Trailing boundary: the character after is not a lowercase letter. So
+ *   `mock(`, `spyOn`, and `monkeypatch.` match, but `stubbornness` and
+ *   `spying` do not.
+ * The heuristic is not exact. The trailing rule is the main guard against
+ * false positives.
  */
 function detectIdentifier(text: string): MockIdentifier | undefined {
   const lower = text.toLowerCase();
@@ -237,35 +192,21 @@ function detectIdentifier(text: string): MockIdentifier | undefined {
 }
 
 /**
- * Extract the mocked target's module specifier from a detected mock site. We
- * pull the FIRST single- or double-quoted string literal on the line — the
- * near-universal shape of `vi.mock('x')`, `jest.mock("x")`, `sinon.stub(net,
- * 'connect')`, `monkeypatch.setattr(os, "getcwd", …)`. When no literal is
- * present the whole trimmed line is returned so the finding still names a
- * target.
+ * Extracts the mocked module specifier from a mock site: the first quoted
+ * string on the line, as in `vi.mock('x')` or `jest.mock("x")`. If the line
+ * has no quoted string, it returns the trimmed line, so the finding still
+ * names a target.
  */
 function extractTarget(text: string): string {
   const match = text.match(/['"]([^'"]+)['"]/);
   return match?.[1] ?? text.trim();
 }
 
-// ─── public entry point ──────────────────────────────────────────────────────
-
 /**
- * Detect mock sites in a task diff and cross-reference each against the
- * resolved first-party ownership scope. Pure: no fs/git/config access — the
- * caller supplies the diff, the first-party globs, and (optionally) the test
- * globs.
- *
- * Pipeline:
- *   1. classify changed files into test vs source via {@link splitHunks};
- *   2. for each TEST file, scan its added lines for a family identifier at an
- *      identifier boundary;
- *   3. extract the mocked target specifier and resolve it (relative → repo
- *      path; bare → verbatim);
- *   4. mark `unowned` when the resolved target matches NO first-party glob;
- *   5. emit ONLY unowned findings — first-party mocks (`unowned:false`) are
- *      filtered out, since mocking owned code is the low-risk case.
+ * Finds the mock sites that a diff adds to test files, and returns the ones
+ * whose resolved target matches no first-party glob. Files that
+ * {@link splitHunks} classifies as source are not scanned. A first-party mock
+ * is low risk, so it is not returned.
  *
  * @returns the unowned mock findings, in diff order.
  */
@@ -282,7 +223,7 @@ export function detectMockFindings(
 
   for (const fileDiff of diff) {
     if (!testFileSet.has(fileDiff.path)) {
-      continue; // source-file hunk — never flagged
+      continue;
     }
 
     for (const added of fileDiff.addedLines) {
@@ -296,7 +237,7 @@ export function detectMockFindings(
       const owned = ownerMatchers.some((re) => re.test(resolved));
 
       if (owned) {
-        continue; // first-party mock — low risk, filtered out
+        continue;
       }
 
       findings.push({

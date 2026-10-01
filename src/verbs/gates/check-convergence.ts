@@ -1,9 +1,7 @@
-// ─── Check Convergence Composite Action ─────────────────────────────────────
-//
-// Queries the ConvergenceView CQRS projection to compute overall convergence
-// across D1-D5 dimensions. Returns a structured pass/fail result and emits
-// a meta gate.executed event for traceability.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The convergence gate. It folds the convergence view and computes convergence across the
+ * dimensions. It returns pass or fail and records a meta gate event.
+ */
 
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
@@ -15,18 +13,15 @@ import { createEvidenceSubject } from '../../workflow/admission/evidence-subject
 import { runPhaseGateWithEvidence } from './gate-runner.js';
 import { requireGateEvent, sameOperationGateKey } from './gate-utils.js';
 
-// ─── Types ─────────────────────────────────────────────────────────────────
-
 interface CheckConvergenceArgs {
   readonly featureId: string;
   readonly workflowId?: string;
   readonly phase?: string;
 }
 
-// ─── Phase Filtering ─────────────────────────────────────────────────────
-
 type DimensionSummary = Record<string, { converged: boolean; gateCount: number; lastChecked: string | null }>;
 
+/** Summarizes each dimension. A dimension converges when it has gate results and each one passed. */
 function applyPhaseFilter(
   dimensions: ConvergenceViewState['dimensions'],
   phase?: string,
@@ -46,14 +41,15 @@ function applyPhaseFilter(
   return result;
 }
 
-// ─── Handler ───────────────────────────────────────────────────────────────
-
+/**
+ * Runs the convergence gate through the shared phase-gate runner. The gate declares durable
+ * gate evidence as a postcondition, and the runner records it before a success carrier returns.
+ */
 export async function handleCheckConvergence(
   args: CheckConvergenceArgs,
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  // Guard clause: validate required inputs
   if (!args.featureId) {
     return {
       success: false,
@@ -61,12 +57,6 @@ export async function handleCheckConvergence(
     };
   }
 
-  // The gate declares durable gate evidence as a postcondition, and a bare
-  // `gate.executed` append never paid it: every caller that observes
-  // postconditions — the dispatch path and the bounded intent executor alike —
-  // read a success carrier that had broken its own contract. Routing through
-  // the shared phase-gate runner records the evidence before any success
-  // carrier escapes, the same way the sibling review gates do.
   return runPhaseGateWithEvidence({
     streamId: args.featureId,
     gateClass: 'convergence',
@@ -83,6 +73,11 @@ export async function handleCheckConvergence(
   });
 }
 
+/**
+ * Computes the convergence verdict from a fold to the durable tail. `workflowId` changes only
+ * the stream that the fold reads. The gate record stays on the subject stream, because the
+ * action declares only that stream.
+ */
 async function executeCheckConvergence(
   args: CheckConvergenceArgs,
   stateDir: string,
@@ -90,15 +85,8 @@ async function executeCheckConvergence(
 ): Promise<ToolResult> {
   const store = eventStore;
   const materializer = getOrCreateMaterializer(stateDir);
-  // `workflowId` re-points the READ at another stream; it never moved the
-  // write, and treating it as if it did put the gate's own row on a stream the
-  // action does not declare it touches. The verdict is folded from wherever
-  // the caller asked; the record that this gate ran belongs on the subject.
   const readStreamId = args.workflowId ?? args.featureId;
 
-  // Fold the convergence view over `gate.executed` up to the durable tail. A
-  // reliability verdict derived from a fold that has not seen the latest gate
-  // is worse than no verdict.
   const { view } = await foldToTail<ConvergenceViewState>(
     store,
     materializer,
@@ -106,10 +94,8 @@ async function executeCheckConvergence(
     CONVERGENCE_VIEW,
   );
 
-  // Apply phase filter if specified — filter gate results per dimension
   const filteredDimensions = applyPhaseFilter(view.dimensions, args.phase);
 
-  // Recompute convergence from filtered data
   const uncheckedDimensions = ALL_DIMENSIONS.filter((d) => {
     const dim = filteredDimensions[d];
     return !dim || dim.gateCount === 0;

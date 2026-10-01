@@ -1,24 +1,14 @@
 /**
- * env-variables — scan the injected env snapshot for EXARCHOS_* keys and
- * warn on any unknown names. The authoritative `KNOWN` list mirrors every
- * `process.env.EXARCHOS_*` lookup in the MCP server source tree; update
- * it when a new variable is introduced so this check stays accurate.
+ * Doctor check that warns on unknown `EXARCHOS_*` names in the environment snapshot.
  */
 
 import type { CheckResult } from '../schema.js';
 import type { DoctorProbes } from '../probes.js';
 
 /**
- * Every `EXARCHOS_*` name the source reads from an environment.
- *
- * Hand-maintained, and it had drifted: seventeen variables the tree actually
- * looks up were absent, so `doctor` reported a SUPPORTED variable as unknown
- * and told the operator to remove it. A diagnostic that flags correct
- * configuration as a fault is worse than one that stays quiet, because the
- * suggested fix breaks a working setup.
- *
- * The list is kept sorted so an addition is a one-line diff at the right place
- * rather than an append that hides a duplicate.
+ * The `EXARCHOS_*` names that the source reads from the environment.
+ * A missing name makes `doctor` tell the operator to remove a supported variable.
+ * Keep the list sorted, so that a duplicate is easy to see.
  */
 const KNOWN: ReadonlySet<string> = new Set([
   'EXARCHOS_ALLOW_STORE_DIVERGENCE',

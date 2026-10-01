@@ -1,25 +1,13 @@
 /**
- * Consumer on-ramp writers (Task 013, DR-5).
+ * Consumer on-ramp writers. They write the runtime-neutral Exarchos orientation block into the
+ * `AGENTS.md` of a consumer, and a `CLAUDE.md` shim whose managed block holds one `@AGENTS.md`
+ * import line. Claude Code follows that import to the same block.
  *
- * Emits the runtime-neutral Exarchos orientation block into a consumer's
- * `AGENTS.md` (every harness reads it) and a `CLAUDE.md` *shim* whose managed
- * block carries a single own-line `@AGENTS.md` import (Claude Code follows the
- * import to reach the same one-source orientation). Both writes route through
- * Task 012's {@link insertManagedBlock} — this module NEVER reimplements block
- * insertion, and it reuses that module's fence constants (which the Task-012
- * equality-guard test pins to the root `src/binding.ts` source), so there is no
- * second copy of the block content nor a second set of fence constants.
+ * Both writes go through {@link insertManagedBlock} and reuse its fence constants. The block
+ * content comes from `binding/standard/block.md` through {@link loadCanonicalBlockBody}.
  *
- * The block CONTENT has a single source of truth: `binding/standard/block.md`
- * (the runtime-neutral block Task 006 produced). {@link loadCanonicalBlockBody}
- * reads it and strips the outer fences; the resulting body is the byte-identical
- * payload {@link insertManagedBlock} re-fences into `AGENTS.md`.
- *
- * DR-5 guards enforced here:
- *   - the `AGENTS.md` block is self-contained — NO `@imports` inside it (the
- *     shim's `@AGENTS.md` lives in `CLAUDE.md`, never in the block itself);
- *   - size guards — the block stays within a 4 KiB budget, and the writer warns
- *     when the target file approaches the Codex 32 KiB instruction-file cap.
+ * The `AGENTS.md` block must be self-contained, with no `@` import inside it. The writers warn
+ * when the block passes 4 KiB or the target file nears the Codex 32 KiB cap.
  */
 
 import * as fs from 'node:fs';
@@ -34,9 +22,7 @@ import {
   type InsertManagedBlockDeps,
 } from '../../../install/onramp/managed-block.js';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-/** Consumer-owned instructions file every harness reads. */
+/** The consumer-owned instructions file that holds the on-ramp block. */
 export const AGENTS_MD_FILENAME = 'AGENTS.md';
 
 /** Claude Code's always-loaded instructions file (holds the import shim). */
@@ -51,7 +37,7 @@ export const CODEX_FILE_CAP_BYTES = 32 * 1024;
 /** Warn once the target file reaches 90% of the Codex cap ("near the cap"). */
 export const CODEX_WARN_BYTES = Math.floor(CODEX_FILE_CAP_BYTES * 0.9);
 
-/** DR-5 budget for the on-ramp block payload itself (4 KiB). */
+/** The size budget for the on-ramp block payload (4 KiB). */
 export const MAX_BLOCK_BYTES = 4 * 1024;
 
 /** Provenance descriptor recorded in the `AGENTS.md` managed block. */
@@ -63,14 +49,10 @@ export const CLAUDE_MD_PROVENANCE = 'exarchos on-ramp shim | imports AGENTS.md';
 /** Leading provenance comment insertManagedBlock renders inside a block. */
 const PROVENANCE_PREFIX = '<!-- exarchos-managed:';
 
-// ─── Pure helpers ─────────────────────────────────────────────────────────────
-
 /**
- * Extract the inner body of a binding-fenced block: everything between
- * {@link BINDING_MARKER_START} and {@link BINDING_MARKER_END}, with a leading
- * `insertManagedBlock` provenance comment (if present) removed, trimmed. Text
- * without a complete fence pair is returned normalized+trimmed as-is. Reuses the
- * Task-012 fence constants — no second fence copy.
+ * Extracts the trimmed body between {@link BINDING_MARKER_START} and {@link BINDING_MARKER_END},
+ * without a leading `insertManagedBlock` provenance comment. Text without a complete fence pair
+ * comes back normalized and trimmed.
  */
 export function stripBindingFences(text: string): string {
   const normalized = text.replace(/\r\n/g, '\n');
@@ -88,10 +70,8 @@ export function stripBindingFences(text: string): string {
 }
 
 /**
- * True when `content` carries an own-line `@import` directive (e.g. `@AGENTS.md`
- * or `@./path`). Used to reject `@imports` inside the self-contained `AGENTS.md`
- * block (the `CLAUDE.md` shim's `@AGENTS.md` is intentional and NOT run through
- * this guard).
+ * True when `content` holds an own-line `@import` directive, for example `@AGENTS.md` or
+ * `@./path`. The `AGENTS.md` writer uses it to refuse an import inside its block.
  */
 export function containsAtImport(content: string): boolean {
   return /^\s*@[^\s]+\s*$/m.test(content);
@@ -126,8 +106,6 @@ export function sizeGuardWarnings(params: {
   return warnings;
 }
 
-// ─── Canonical block source ───────────────────────────────────────────────────
-
 /** Injected reads for the canonical block loader (defaults to real `fs`). */
 export interface CanonicalBlockDeps {
   readonly readFileSync?: (p: string) => string;
@@ -137,19 +115,16 @@ export interface CanonicalBlockDeps {
 }
 
 /**
- * Resolve `binding/standard/block.md`. The block is an Exarchos-bundled asset
- * (never in the consumer repo), so we resolve it relative to this module and the
- * process cwd, trying each candidate and returning the first that exists.
+ * Resolves `binding/standard/block.md`, a bundled asset that is not in the consumer repo. It tries
+ * two paths relative to this module, then the process cwd. It returns the first path that exists,
+ * or the first candidate when none exists.
  */
 export function resolveCanonicalBlockPath(existsSync: (p: string) => boolean = fs.existsSync): string {
   const here = dirname(fileURLToPath(import.meta.url));
   const rel = ['binding', 'standard', 'block.md'];
   const candidates = [
-    // src / dev layout: src/verbs/init/writers → repo root (6 up).
     resolve(here, '..', '..', '..', '..', '..', '..', ...rel),
-    // bundled layout: dist/... one level shallower.
     resolve(here, '..', '..', '..', '..', '..', ...rel),
-    // running from the repo/consumer root.
     resolve(process.cwd(), ...rel),
   ];
   for (const candidate of candidates) {
@@ -159,9 +134,9 @@ export function resolveCanonicalBlockPath(existsSync: (p: string) => boolean = f
 }
 
 /**
- * Load the canonical on-ramp block body from `binding/standard/block.md` (fences
- * stripped). Returns `null` when the asset can't be read — callers fail open
- * (skip the on-ramp write) rather than fabricate a second copy of the content.
+ * Loads the canonical on-ramp block body from `binding/standard/block.md`, without fences. It
+ * returns `null` when the asset cannot be read. Callers then skip the write and make no second
+ * copy of the content.
  */
 export function loadCanonicalBlockBody(deps: CanonicalBlockDeps = {}): string | null {
   const readFileSync = deps.readFileSync ?? ((p: string) => fs.readFileSync(p, 'utf8'));
@@ -173,8 +148,6 @@ export function loadCanonicalBlockBody(deps: CanonicalBlockDeps = {}): string | 
     return null;
   }
 }
-
-// ─── Writers ──────────────────────────────────────────────────────────────────
 
 /** The outcome of a single on-ramp block write. */
 export interface OnrampBlockResult {
@@ -197,11 +170,9 @@ function measureFileBytes(filePath: string, deps: InsertManagedBlockDeps): numbe
 }
 
 /**
- * Write (or update) the runtime-neutral on-ramp block into `<projectRoot>/AGENTS.md`.
- * The `canonicalBody` MUST be the fence-stripped `binding/standard/block.md`
- * content; it is rejected if it carries an `@import` (the block must be
- * self-contained). Size advisories are appended for the block budget and the
- * Codex cap.
+ * Writes or updates the on-ramp block in `<projectRoot>/AGENTS.md`. `canonicalBody` must be the
+ * fence-stripped `binding/standard/block.md` content. A body with an `@import` is refused. The
+ * result adds size warnings for the block budget and the Codex cap.
  */
 export function writeAgentsMdBlock(
   opts: { readonly projectRoot: string; readonly canonicalBody: string },
@@ -238,9 +209,8 @@ export function writeAgentsMdBlock(
 }
 
 /**
- * Write (or update) the `CLAUDE.md` shim: a managed block whose only content is
- * the own-line `@AGENTS.md` import. Claude Code follows the import to the same
- * one-source orientation, so the block content is never duplicated across files.
+ * Writes or updates the `CLAUDE.md` shim, a managed block that holds only the `@AGENTS.md` import
+ * line. Claude Code follows the import, so the block content stays in one file.
  */
 export function writeClaudeMdShim(
   opts: { readonly projectRoot: string },
@@ -272,22 +242,21 @@ export function writeClaudeMdShim(
 export interface DeployOnrampResult {
   readonly wrote: boolean;
   /**
-   * DR-7: the AGENTS.md on-ramp block — the load-bearing replacement on-ramp — was
-   * NOT put in place (a write error, a self-contained-block violation, or a missing
-   * canonical source). Distinct from `wrote`, which is `true` when *either* surface
-   * wrote and so cannot express a failed AGENTS.md write alongside a written shim.
-   * The onboard reconcile gate keeps retired hooks in place while this is `true`.
+   * True when either on-ramp surface did not land: the `AGENTS.md` block or the `CLAUDE.md` shim.
+   * `wrote` is true when either surface wrote, so it cannot show a partial failure. The onboard
+   * reconcile gate keeps the retired hooks in place while this flag is true.
    */
   readonly failed: boolean;
   readonly warnings: readonly string[];
 }
 
 /**
- * Deploy both on-ramp surfaces for a project: the `AGENTS.md` block and the
- * `CLAUDE.md` `@AGENTS.md` shim. The canonical body is loaded from
- * `binding/standard/block.md` unless supplied. When the canonical block can't be
- * resolved the deploy fails open (no write) with an advisory — never a fabricated
- * block.
+ * Deploys the `AGENTS.md` block and the `CLAUDE.md` shim for a project. The body comes from
+ * `binding/standard/block.md` unless the caller supplies it. When the canonical block is missing,
+ * it writes nothing and returns `failed: true` with a warning.
+ *
+ * `failed` is true when either surface fails. Claude Code reaches the `AGENTS.md` block only
+ * through the shim, so a failed shim also leaves Claude Code without an on-ramp.
  */
 export function deployOnrampBlocks(
   opts: { readonly projectRoot: string; readonly canonicalBody?: string | null },
@@ -295,7 +264,6 @@ export function deployOnrampBlocks(
 ): DeployOnrampResult {
   const canonicalBody = opts.canonicalBody ?? loadCanonicalBlockBody(deps);
   if (canonicalBody == null) {
-    // The replacement on-ramp block cannot be written at all — DR-7 failure.
     return {
       wrote: false,
       failed: true,
@@ -314,11 +282,5 @@ export function deployOnrampBlocks(
   warnings.push(...shim.warnings);
   if (shim.error) warnings.push(shim.error);
 
-  // DR-7 anti-stranding: `failed` is true if EITHER on-ramp surface did not land.
-  // The AGENTS.md block is read natively by the non-Claude Tier-1 harnesses, but
-  // Claude Code reaches it ONLY through the CLAUDE.md `@AGENTS.md` shim (the spec
-  // rejects a symlink in favour of the import) — so a written AGENTS.md block with a
-  // failed shim still leaves Claude Code with no reachable on-ramp. Either failure
-  // must keep the retired SessionStart hooks in place, so both gate `failed`.
   return { wrote: agents.ok || shim.ok, failed: !agents.ok || !shim.ok, warnings };
 }

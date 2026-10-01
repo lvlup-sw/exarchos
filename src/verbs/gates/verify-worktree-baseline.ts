@@ -1,11 +1,7 @@
-// ─── Verify Worktree Baseline Orchestrate Action ────────────────────────────
-//
-// Validates a worktree path, delegates project-type/test-command resolution to
-// the unified test runtime resolver (`config/test-runtime-resolver.ts`), runs
-// the resolved test command, and returns a structured markdown report.
-// Ported from scripts/verify-worktree-baseline.sh; migrated to resolver in
-// refactor #1199 T08, intentionally closing the prior Python detection gap.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Baseline check for a worktree. It resolves the test command through `resolveTestRuntime`, runs it, and returns a markdown report.
+ * When the caller supplies `agentBranch`, it also classifies each uncommitted change as a merge-time leak or as dirt.
+ */
 
 import { existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -14,33 +10,22 @@ import type { ToolResult } from '../../format.js';
 import { resolveTestRuntime, type ResolvedRuntime } from '../../config/test-runtime-resolver.js';
 import { splitCommand } from '../../config/tokenize-command.js';
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 interface VerifyWorktreeBaselineArgs {
   readonly worktreePath: string;
   /**
-   * T-08 (#1301): when supplied, the handler inspects the (main) worktree for
-   * uncommitted modifications and classifies each against this agent branch
-   * tip. A working-tree blob byte-identical to the same path already committed
-   * on the agent branch is flagged as a recoverable `leaked-committed` leak
-   * (the #1301 mirroring symptom) — distinct from unrelated local dirt — and a
-   * safe `git checkout -- <path>` remediation is surfaced. Omitting this arg
-   * skips leak inspection entirely (back-compat for non-merge callers).
+   * When supplied, the handler classifies each uncommitted change in `worktreePath` against the tip of this branch.
+   * A tracked file whose working blob equals the committed blob on the branch is a recoverable `leaked-committed` leak.
+   * Its entry names a `git checkout -- <path>` remediation. When absent, the handler skips leak inspection.
    */
   readonly agentBranch?: string;
 }
 
-// ─── T-08 (#1301): Leak Detection ─────────────────────────────────────────────
-//
-// At merge time the orchestrator's MAIN worktree sometimes carries an
-// uncommitted modification that is byte-identical to a change already
-// committed on the agent branch tip (issue #1301 "working-tree mirroring
-// leak"). Such a path FF-blocks the merge but is in fact safe to discard. This
-// backstop classifies each dirty path so the orchestrator can surface the
-// documented `git checkout -- <path>` remediation instead of treating the leak
-// as opaque dirt. INV-15: this is purely local git inspection — no
-// cross-process locking, no distributed primitives.
-
+/**
+ * At merge time, the main worktree can carry an uncommitted change that is byte-identical to a commit on the agent branch tip.
+ * Such a path blocks a fast-forward merge, but it is safe to discard.
+ * The leak check classifies each dirty path, so the orchestrator can show the `git checkout -- <path>` remediation.
+ * The check uses only local git inspection.
+ */
 type LeakClassification = 'leaked-committed' | 'dirty';
 
 interface LeakPathEntry {
@@ -65,9 +50,8 @@ type DetectedProjectType =
   | 'Python';
 
 /**
- * Project type label. Detection paths use the narrow `DetectedProjectType`
- * union; config/override paths fall back to a source-tagged label when the
- * test command isn't in the built-in set.
+ * Project type label. A built-in test command maps to a `DetectedProjectType`.
+ * Any other command gets a label that names its source.
  */
 type ProjectType = DetectedProjectType | 'Configured (.exarchos.yml)' | 'Override';
 
@@ -78,13 +62,7 @@ interface ProjectDetection {
   readonly args: readonly string[];
 }
 
-// ─── Project Detection (delegates to resolver) ──────────────────────────────
-
-/**
- * Map a resolver test-command string to a human-readable project-type label.
- * Discriminates the widened `ProjectType` union from the resolver's
- * package-manager-aware test command.
- */
+/** Maps a resolver test command to a project-type label, or to `undefined` for a command outside the built-in set. */
 function projectTypeFromTestCommand(test: string): DetectedProjectType | undefined {
   if (test === 'npm run test:run') return 'Node.js';
   if (test === 'bun test') return 'Node.js (bun)';
@@ -96,15 +74,13 @@ function projectTypeFromTestCommand(test: string): DetectedProjectType | undefin
   return undefined;
 }
 
+/**
+ * Accepts a test command from any resolver source, because a `.exarchos.yml` or override command is as authoritative as a detected one.
+ * It returns `undefined` for no test command, an empty command, or a command where `splitCommand` throws on an unterminated quote.
+ * A command with no built-in label, such as `make test`, gets a label that names its source.
+ */
 function toProjectDetection(runtime: ResolvedRuntime): ProjectDetection | undefined {
-  // Honor the resolver's output regardless of source (#1109 MCP-parity):
-  // a `.exarchos.yml`-supplied test command is just as authoritative as one
-  // produced by detection, and overrides supplied to setup-worktree should be
-  // runnable too. The only blocking condition is "no test command at all".
   if (runtime.test === null) return undefined;
-  // Quote-aware tokenizer (config/override commands may include quoted args
-  // like `pytest -k "slow api"`). Throws on unterminated quotes — surface
-  // that as an unknown project type rather than crashing the handler.
   let cmd: string;
   let args: readonly string[];
   try {
@@ -113,9 +89,6 @@ function toProjectDetection(runtime: ResolvedRuntime): ProjectDetection | undefi
     return undefined;
   }
   if (cmd === '') return undefined;
-  // For config/override sources we may not have a built-in label for the test
-  // command (e.g., `make test`). Fall back to a source-tagged label so the
-  // report is still informative.
   const projectType =
     projectTypeFromTestCommand(runtime.test) ??
     (runtime.source === 'config' ? 'Configured (.exarchos.yml)' : 'Override');
@@ -141,28 +114,18 @@ function gitCapture(worktreePath: string, args: readonly string[]): string | nul
 }
 
 /**
- * Parse `git status --porcelain` output into the set of tracked, modified
- * paths. We only care about content modifications to tracked files (the leak
- * symptom); untracked (`??`) and deletion entries are reported as dirt without
- * a blob comparison.
+ * Parses `git status --porcelain` output into paths, each with a `tracked` flag.
+ * Each v1 line holds two status columns, then the path.
+ * For a rename or copy (`R` or `C`), the line holds `old -> new`, and the function keeps `new`, because `git hash-object` needs the path on disk.
+ * An untracked (`??`) entry gets `tracked: false`, so the caller reports it as dirt with no blob comparison.
  */
 function parsePorcelainPaths(porcelain: string): { path: string; tracked: boolean }[] {
   const entries: { path: string; tracked: boolean }[] = [];
   for (const rawLine of porcelain.split('\n')) {
     if (rawLine.trim() === '') continue;
-    // Porcelain v1: XY<space>path  (X=index status, Y=worktree status). The
-    // two status columns are fixed-width; the path begins after them and any
-    // separating whitespace. Slicing the leading two columns then trimming is
-    // tolerant of the single-space separator without eating path characters.
     const xy = rawLine.slice(0, 2);
     let path = rawLine.slice(2).trim();
     if (path === '') continue;
-    // Porcelain v1 renders renames/copies (status R or C) as "old -> new".
-    // The blob on disk lives at `new`, so `git hash-object` must resolve the
-    // post-rename path — passing the raw "old -> new" string is not a real
-    // file and silently fails leak detection. Only split on the rename arrow
-    // for R/C entries so a literal " -> " inside an ordinary filename (git
-    // would quote such names) is left intact.
     if (xy.includes('R') || xy.includes('C')) {
       const arrowIdx = path.indexOf(' -> ');
       if (arrowIdx !== -1) {
@@ -177,10 +140,8 @@ function parsePorcelainPaths(porcelain: string): { path: string; tracked: boolea
 }
 
 /**
- * Blob-comparison helper (T-08 REFACTOR): is the working-tree content at
- * `path` byte-identical to the same path committed on `agentBranch`? Git
- * content-addresses blobs by SHA, so equal hashes ⇒ identical bytes. Returns
- * `false` if either side cannot be resolved (e.g. path absent on the branch).
+ * True when the working blob at `path` is byte-identical to the blob at the same path on `agentBranch`.
+ * Git addresses blobs by hash, so equal hashes mean equal bytes. The function returns `false` when either side does not resolve.
  */
 function workingBlobMatchesBranch(
   worktreePath: string,
@@ -195,14 +156,6 @@ function workingBlobMatchesBranch(
 }
 
 /**
- * Inspect the worktree for uncommitted modifications and classify each path
- * against the agent branch tip. A tracked path whose working-tree blob is
- * byte-identical to the agent-branch-committed blob is a recoverable
- * `leaked-committed` leak (#1301); everything else is genuine `dirty` content
- * that must still block the merge. Classification + remediation only — this
- * function never mutates the worktree.
- */
-/**
  * Single-quote a path for safe inclusion in a copy-paste shell remediation.
  * A crafted filename with spaces or shell metacharacters must not turn a
  * suggested `git checkout` into unintended execution.
@@ -211,6 +164,11 @@ function shellQuotePath(path: string): string {
   return `'${path.replace(/'/g, `'\\''`)}'`;
 }
 
+/**
+ * Classifies each uncommitted path in the worktree against the agent branch tip.
+ * A tracked path with a working blob equal to the branch blob is a recoverable `leaked-committed` leak.
+ * Every other path is `dirty` and must still block the merge. The function reads git state and changes nothing.
+ */
 function detectLeakedEdits(worktreePath: string, agentBranch: string): LeakDetection {
   const porcelain = gitCapture(worktreePath, ['status', '--porcelain']);
   if (porcelain === null || porcelain === '') {
@@ -230,8 +188,6 @@ function detectLeakedEdits(worktreePath: string, agentBranch: string): LeakDetec
 
   return { dirty: paths.length > 0, paths };
 }
-
-// ─── Report Formatting ──────────────────────────────────────────────────────
 
 function formatReport(
   worktreePath: string,
@@ -267,15 +223,12 @@ function formatReport(
   return lines.join('\n');
 }
 
-// ─── Handler ────────────────────────────────────────────────────────────────
-
 export async function handleVerifyWorktreeBaseline(
   args: VerifyWorktreeBaselineArgs,
   _stateDir: string,
 ): Promise<ToolResult> {
   const { worktreePath, agentBranch } = args;
 
-  // 1. Validate worktreePath exists
   if (!worktreePath || !existsSync(worktreePath)) {
     return {
       success: false,
@@ -286,7 +239,6 @@ export async function handleVerifyWorktreeBaseline(
     };
   }
 
-  // 2. Verify it's a git worktree
   try {
     execFileSync('git', ['-C', worktreePath, 'rev-parse', '--git-dir'], {
       encoding: 'utf-8',
@@ -302,7 +254,6 @@ export async function handleVerifyWorktreeBaseline(
     };
   }
 
-  // 3. Detect project type via the unified resolver
   const detection = detectProjectType(worktreePath);
   if (!detection) {
     return {
@@ -316,14 +267,10 @@ export async function handleVerifyWorktreeBaseline(
 
   const { projectType, testCommand, cmd, args: cmdArgs } = detection;
 
-  // 3b. T-08 (#1301): merge-time leak backstop. Only runs when the caller
-  // supplies the agent branch tip to compare against — non-merge callers keep
-  // the prior pure-baseline behavior.
   const leakDetection: LeakDetection | undefined = agentBranch
     ? detectLeakedEdits(worktreePath, agentBranch)
     : undefined;
 
-  // 4. Run test command
   let passed = true;
   let output = '';
   let exitCode = 0;
@@ -341,7 +288,6 @@ export async function handleVerifyWorktreeBaseline(
     output = [execError.stdout ?? '', execError.stderr ?? ''].filter(Boolean).join('\n');
   }
 
-  // 5. Build report and return
   const report = formatReport(worktreePath, projectType, testCommand, passed, output, exitCode);
 
   return {

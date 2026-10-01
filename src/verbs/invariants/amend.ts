@@ -1,42 +1,17 @@
 /**
- * `invariants_amend` handler (task 068, DR-23).
+ * The `invariants_amend` handler. It changes the fields of an existing catalog
+ * entry. `invariants_add` only appends, so this is the path to correct an entry.
  *
- * The catalog had no sanctioned amend path. `invariants_add` is append-only
- * (`appendEntryToCatalog` only ever calls `YAMLSeq.add`) and the
- * `/exarchos:invariants` skill forbids hand-writing catalog YAML — so every
- * sanctioned surface was closed and entries were effectively **immutable once
- * committed**. Correcting a shipped invariant was unreachable.
+ *   - `id` names an existing entry. The id is the primary key, and the patch
+ *     cannot change it.
+ *   - `patch` replaces the named top-level fields. Other fields stay as they are.
+ *   - The write splices the new lines of the entry into the original text, so
+ *     sibling entries keep their bytes.
+ *   - `dryRun` is the default. A commit appends an `invariant.amended` event.
  *
- * This verb is the missing one. It is deliberately NOT re-scaffolding:
- *
- *   - **Id-targeted.** `id` names an entry that must already exist. The id is
- *     the catalog's primary key and is NOT amendable — identity survives.
- *   - **Field-scoped.** `patch` names the top-level fields to replace. Every
- *     field the patch does not name is carried through from the existing entry
- *     verbatim, so an amendment cannot silently drop `references`, `severity`
- *     or an affinity list the author never mentioned.
- *   - **Field-scoped IN THE FILE TOO** (DR-3). The write is a SPLICE of the
- *     amended entry's lines into the original text, not a re-serialization of
- *     the document — see `locateCatalogEntry`. Sibling entries keep their
- *     bytes, so the catalog's raw-text digest moves for the amendment and for
- *     nothing else.
- *   - **`dryRun`-first** (INV-5c), like every other mutating verb here.
- *   - **Audited.** A commit emits `invariant.amended` carrying the id and the
- *     field names that changed.
- *
- * The merged entry is re-validated in full against `InvariantEntryV3Schema`,
- * so an amendment cannot produce an entry the schema would have rejected at
- * authoring time. The primary-key rule is then re-checked through the LOADER's
- * own predicate against the post-write id list (task 068 / DR-24): the write
- * path must never be able to author a document the reader refuses.
- *
- * Pure-by-default: fs side effects flow through injected `ScaffoldDeps`.
- *
- * TOTAL in its envelope (#1706 DR-1): every failure this handler can reach —
- * an unlocatable entry, and the commit path's filesystem write, which throws —
- * leaves through a coded `ToolResult.error`. Nothing escapes to
- * dispatch's safety net, which would flatten it to a generic INTERNAL_ERROR
- * and discard the code the caller branches on.
+ * The merged entry must pass `InvariantEntryV3Schema` and the primary-key rule
+ * of the loader. A failure returns a coded `ToolResult.error`, so dispatch does
+ * not change it to a generic INTERNAL_ERROR.
  */
 import * as path from 'node:path';
 import { toPosix } from '../../utils/paths.js';
@@ -47,7 +22,6 @@ import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
 import { EnvelopeSchema } from '../../contract/schemas/envelope.js';
 import { InvariantEntryV3Schema } from '../../architecture/invariant-schema.js';
-// DR-6 — the catalog's primary-key rule has ONE authority, in the loader.
 import {
   findDuplicateInvariantId,
   duplicateInvariantIdMessage,
@@ -64,16 +38,9 @@ import { assertDevTierAllowed } from './reserved-tier-guard.js';
 const NEXT_ACTIONS: readonly string[] = ['doctor', 'view invariants_effective'];
 
 /**
- * The `data` payload `invariants_amend` advertises across the tool boundary.
- *
- * Declared substantively (DR-4): the verb is new, so it has no seeded
- * `vacuityWaiver` entry to inherit — and the waiver allowlist is shrink-only,
- * so acquiring one would be a ratchet violation. `withCappedShape` is the sole
- * substantive constructor, and this is the shape it caps.
- *
- * `renderedEntry`/`diff` are present only on the dry-run branch and `events`
- * only on the commit branch, so both are optional here while `committed` — the
- * discriminant a caller actually branches on — is required.
+ * The `data` payload of `invariants_amend`. `committed` is the discriminant and
+ * is required. `renderedEntry` and `diff` are only on the dry-run branch, and
+ * `events` is only on the commit branch.
  */
 export const AmendInvariantData = z.object({
   committed: z.boolean(),
@@ -85,9 +52,8 @@ export const AmendInvariantData = z.object({
   /** Dry-run only: the amended entry rendered as a YAML list fragment. */
   renderedEntry: z.string().optional(),
   /**
-   * Dry-run only: the exact lines the commit would replace, and replace them
-   * with. Rendered from the same splice the commit writes, so the preview is
-   * the write rather than an approximation of it.
+   * Dry-run only: the lines that the commit replaces, and the new lines. Both
+   * come from the same splice that the commit writes.
    */
   diff: z.string().optional(),
   /** Commit only: the event types actually appended. */
@@ -105,32 +71,30 @@ const DEFAULT_PATH: Record<'dev' | 'user', string> = {
 export interface HandleAmendArgs {
   /** Repo root the catalog resolves against. */
   readonly repoRoot: string;
-  /** Id of the entry to amend. Must already exist; never changed by the patch. */
+  /** Id of the entry to amend. The entry must exist, and the patch cannot change the id. */
   readonly id: string;
   /**
-   * Top-level fields to replace. Fields absent from the patch survive
-   * untouched. A named field is replaced WHOLESALE (patching `enforcement`
-   * swaps the whole enforcement block, it does not deep-merge into it).
+   * Top-level fields to replace. Fields that the patch does not name stay as
+   * they are. The handler replaces a named field whole and does not deep-merge
+   * it, so a patch of `enforcement` replaces the whole block.
    */
   readonly patch: Record<string, unknown>;
   /** Repo-relative path of the target catalog. Defaults per tier. */
   readonly catalog?: string | undefined;
   /** Target tier. Default user. */
   readonly tier?: 'dev' | 'user' | undefined;
-  /** Dry-run (default true, INV-5c): render + diff, write nothing. */
+  /** When true, the default, the handler renders the entry and the diff and writes nothing. */
   readonly dryRun?: boolean;
-  /** Opt-in to amend exarchos's reserved `dev` namespace (#1489). */
+  /** Opt-in to amend the reserved `dev` namespace of exarchos. */
   readonly allowReservedTier?: boolean | undefined;
 }
 
 /**
- * Render a minimal replace diff for the dry-run preview: the entry's lines as
- * they stand on disk as removed lines, the spliced replacement as added lines.
- *
- * Both sides come from the splice, so the preview names exactly the lines the
- * commit touches — which is the point of DR-3 on the review side: a reviewer
- * must be able to see that an amendment is an amendment without re-parsing the
- * file to separate it from collateral reflow.
+ * Renders a replace diff for the dry-run preview. The current lines of the
+ * entry are the removed lines, and the splice is the added lines. Thus the
+ * preview shows only the lines that the commit changes. It drops only the one
+ * empty string after a final newline, because a blank line inside a YAML block
+ * scalar is a real edit.
  */
 function renderAmendDiff(
   relCatalog: string,
@@ -140,11 +104,6 @@ function renderAmendDiff(
 ): string {
   const mark = (text: string, sign: string): string => {
     const lines = text.split('\n');
-    // `split('\n')` on text ending in a newline yields ONE trailing '' that is an
-    // artifact of the terminator, not a line. Drop exactly that. Filtering every
-    // empty line (as this did) also erased blank lines INSIDE an entry, so a
-    // preview whose entire job is showing what changes quietly hid part of it —
-    // and a blank line is a real edit in a YAML block scalar.
     if (lines[lines.length - 1] === '') lines.pop();
     return lines.map((l) => `${sign}${l}`).join('\n');
   };
@@ -155,7 +114,15 @@ function renderAmendDiff(
 }
 
 /**
- * `invariants_amend` handler. See module header for the contract.
+ * The `invariants_amend` handler. It checks the reserved `dev` tier first, also
+ * on a dry run. The catalog read has its own error arm, because the file can
+ * change between `exists` and `read`. An empty catalog gives CATALOG_EMPTY,
+ * because "not found" in zero entries tells the caller nothing.
+ *
+ * An entry with an id but no lines to splice, such as an alias, gives an error,
+ * not a full rewrite. The primary-key check after the merge cannot fail now,
+ * but it proves that the loader accepts the document. The audit event is
+ * best-effort, because the write is already on disk.
  */
 export async function handleAmend(
   args: HandleAmendArgs,
@@ -164,8 +131,6 @@ export async function handleAmend(
 ): Promise<ToolResult> {
   const tier = args.tier ?? 'user';
 
-  // Reject amending exarchos's reserved `dev` namespace from a consumer repo
-  // BEFORE reading anything, and regardless of dryRun (#1489) — mirrors add.
   const reserved = assertDevTierAllowed(
     {
       tier,
@@ -194,13 +159,6 @@ export async function handleAmend(
       },
     };
   }
-  // `exists` and `read` are two syscalls, and the header promises a TOTAL
-  // envelope — every failure a coded result. Between the check above and this
-  // read the path can be removed, replaced by a directory, or lose read
-  // permission, and the ENOENT / EISDIR / EACCES would escape to dispatch and
-  // flatten to a generic INTERNAL_ERROR: exactly the outcome the claim says is
-  // unrepresentable. The existence check cannot be made atomic, so the read
-  // carries its own arm instead.
   let catalogContents: string;
   try {
     catalogContents = deps.read(catalogAbs);
@@ -212,19 +170,12 @@ export async function handleAmend(
     );
   }
 
-  // ── Denominator, proven RESOLVED before anything is concluded from it ──
   const scan = readCatalogIds(catalogContents);
   if (!scan.resolved) {
     return catalogUnreadableResult(relCatalog, tier, scan.reason);
   }
   const existingIds = scan.ids;
 
-  // ── Non-empty denominator (task 068 / DR-24) ──
-  // Unlike `invariants_add`, for which a resolvable-but-empty catalog is the
-  // legitimate first-entry case, an amend against ZERO entries is vacuous:
-  // "the id you asked for is not here" is trivially true of an empty list and
-  // tells the caller nothing about whether they targeted the right catalog.
-  // Refuse rather than report a clean not-found.
   if (existingIds.length === 0) {
     return {
       success: false,
@@ -248,7 +199,6 @@ export async function handleAmend(
     };
   }
 
-  // ── The target must exist. Amending is not authoring. ──
   if (!existingIds.includes(args.id)) {
     return {
       success: false,
@@ -272,7 +222,6 @@ export async function handleAmend(
     };
   }
 
-  // ── The patch must actually name something ──
   const patchedFields = Object.keys(args.patch);
   if (patchedFields.length === 0) {
     return {
@@ -287,10 +236,6 @@ export async function handleAmend(
     };
   }
 
-  // ── Identity is not amendable ──
-  // Renaming an entry is a different operation with different consequences
-  // (every `references:` pointer and audit record naming the old id silently
-  // goes stale). Refuse it explicitly rather than let a patch smuggle it in.
   if (Object.prototype.hasOwnProperty.call(args.patch, 'id')) {
     return {
       success: false,
@@ -307,12 +252,6 @@ export async function handleAmend(
     };
   }
 
-  // ── Locate the entry's LINES, not just its values (DR-3) ──
-  // One locator serves both halves of the amendment: the merge base (what the
-  // entry currently says) and the splice (which bytes of the file it owns).
-  // Locating is strictly narrower than the id scan above — an aliased entry has
-  // a readable id but no node of its own to rewrite — so a resolved id is not
-  // by itself proof that there is anything to splice.
   const location = locateCatalogEntry(catalogContents, args.id);
   if (!location.located) {
     return {
@@ -328,7 +267,6 @@ export async function handleAmend(
     };
   }
 
-  // ── Merge: patch replaces named top-level fields, everything else survives ──
   const merged = { ...location.entry.current, ...args.patch, id: args.id };
 
   let validated;
@@ -338,11 +276,6 @@ export async function handleAmend(
     return validationErrorResult(err, 'invariants_amend');
   }
 
-  // ── Write-time primary-key re-check, through the LOADER's own predicate ──
-  // The patch cannot carry an `id` (refused above), so this cannot fail today.
-  // It is asserted anyway because the guarantee we owe is about the DOCUMENT,
-  // not about one input field: whatever this verb is about to write must be a
-  // document the reader accepts.
   const postWriteIds = existingIds.map((existing) =>
     existing === args.id ? validated.id : existing,
   );
@@ -362,10 +295,6 @@ export async function handleAmend(
 
   const renderedEntry = stringifyYaml([validated]);
 
-  // Built ONCE and shared by both branches, so the dry-run preview shows the
-  // exact lines the commit will write rather than an independently rendered
-  // approximation of them. Only the amended entry's lines are re-serialized;
-  // sibling entries are carried through as bytes and cannot be re-wrapped.
   const splice = location.entry.splice(validated);
 
   if (dryRun) {
@@ -389,13 +318,6 @@ export async function handleAmend(
     };
   }
 
-  // ── Commit path ──
-  // `deps.write` throws on any filesystem failure and must not escape: dispatch's
-  // outer safety net would flatten it to a generic INTERNAL_ERROR, discarding the
-  // coded envelope this handler returns on every OTHER failure path (#1706 DR-1).
-  // `CATALOG_WRITE_FAILED` is what the caller branches on. (The rewrite itself is
-  // no longer inside this try: locating refuses through its own envelope above,
-  // and splicing located text cannot fail, so the filesystem is the last thrower.)
   try {
     deps.write(catalogAbs, splice.contents);
   } catch (err) {
@@ -421,8 +343,6 @@ export async function handleAmend(
     };
   }
 
-  // Emit the audit record (best-effort telemetry — never fail the write that
-  // already landed, mirroring `invariants_add`).
   const emitted: string[] = [];
   try {
     await ctx.eventStore.append(`invariants/${tier}`, {
@@ -436,7 +356,6 @@ export async function handleAmend(
     });
     emitted.push('invariant.amended');
   } catch {
-    /* best-effort: the amendment already landed */
   }
 
   return {

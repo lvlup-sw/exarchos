@@ -1,18 +1,12 @@
-// ─── Generate Traceability Matrix ────────────────────────────────────────────
-//
-// Generates a traceability matrix from design and plan markdown documents.
-// Extracts ## and ### headers from the design file, matches them to
-// ### Task N headers in the plan file, and produces a markdown table
-// showing coverage status.
-//
-// Port of scripts/generate-traceability.sh to pure TypeScript.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Builds a traceability matrix from a design document and a plan document.
+ * Each `##` and `###` header in the design region becomes a row. The row
+ * matches `### Task N` headers in the plan and shows a coverage status.
+ */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { ToolResult } from '../../format.js';
 import { designRegion } from '../pure/provenance-chain.js';
-
-// ─── Types ──────────────────────────────────────────────────────────────────
 
 interface GenerateTraceabilityArgs {
   readonly designFile: string;
@@ -29,8 +23,6 @@ interface PlanTask {
   readonly id: string;
   readonly title: string;
 }
-
-// ─── Extraction Helpers ─────────────────────────────────────────────────────
 
 /** Extract ## and ### headers from a design document. */
 function extractDesignSections(content: string): readonly DesignSection[] {
@@ -63,11 +55,10 @@ function extractPlanTasks(content: string): readonly PlanTask[] {
 }
 
 /**
- * Map each `DR-N` requirement to the plan task ids that declare it via a
- * `**Implements:** DR-N[, DR-M]` annotation. This is the SAME coverage signal
- * `check_provenance_chain` uses (#1544) — wiring it here stops the traceability
- * matrix from contradicting the authoritative provenance gate by flagging
- * `### DR-N` design sections "Uncovered" when a task in fact implements them.
+ * Maps each `DR-N` requirement to the plan task ids that declare it in a
+ * `**Implements:** DR-N[, DR-M]` line. `check_provenance_chain` uses the same
+ * signal, so the matrix does not mark a `### DR-N` section "Uncovered" when a
+ * task implements it.
  */
 function extractImplementsByDr(planContent: string): Map<string, readonly string[]> {
   const byDr = new Map<string, string[]>();
@@ -92,8 +83,12 @@ function extractImplementsByDr(planContent: string): Map<string, readonly string
   return byDr;
 }
 
-// ─── Table Generation ───────────────────────────────────────────────────────
-
+/**
+ * Builds the markdown matrix. For a `DR-N` section, the matches are the
+ * `**Implements:**` task ids. If there is no match, the matches are the tasks
+ * whose title contains the section name (case-insensitive). If there is still
+ * no match, a mention in the plan body gives the id `?`.
+ */
 function generateTable(
   sections: readonly DesignSection[],
   tasks: readonly PlanTask[],
@@ -116,15 +111,11 @@ function generateTable(
   for (const section of sections) {
     const matchedIds: string[] = [];
 
-    // #1544: if the section is (or names) a DR-N requirement, resolve coverage
-    // via the plan's **Implements:** annotations first — the provenance signal —
-    // so this matrix agrees with check_provenance_chain instead of false-flagging.
     const drMatch = section.name.match(/\bDR-\d+\b/i);
     if (drMatch) {
       matchedIds.push(...(implementsByDr.get(drMatch[0].toUpperCase()) ?? []));
     }
 
-    // Otherwise find matching tasks by case-insensitive substring in task title
     if (matchedIds.length === 0) {
       for (const task of tasks) {
         if (task.title.toLowerCase().includes(section.name.toLowerCase())) {
@@ -133,7 +124,6 @@ function generateTable(
       }
     }
 
-    // If still no matches, search plan body content
     if (matchedIds.length === 0) {
       if (planContent.toLowerCase().includes(section.name.toLowerCase())) {
         matchedIds.push('?');
@@ -163,10 +153,13 @@ function generateTable(
   };
 }
 
-// ─── Handler ────────────────────────────────────────────────────────────────
-
+/**
+ * Reads the design and plan files and returns the matrix. Design sections come
+ * from the design region only. So when design and plan are one artifact, the
+ * `### Task` and `## Decomposition` headers stay out of the section column.
+ * Plan tasks come from the full plan.
+ */
 export function handleGenerateTraceability(args: GenerateTraceabilityArgs): ToolResult {
-  // 1. Validate files exist
   if (!existsSync(args.designFile)) {
     return {
       success: false,
@@ -181,15 +174,9 @@ export function handleGenerateTraceability(args: GenerateTraceabilityArgs): Tool
     };
   }
 
-  // 2. Read files
   const designContent = readFileSync(args.designFile, 'utf-8') as string;
   const planContent = readFileSync(args.planFile, 'utf-8') as string;
 
-  // 3. Extract design sections from the design REGION only (#1581 DR-6 task
-  // 012): when design and plan are one unified artifact, scoping to the region
-  // before the decomposition keeps `### Task` / `## Decomposition` headers out
-  // of the design-section column. Plan tasks are still read from the FULL plan
-  // content below.
   const sections = extractDesignSections(designRegion(designContent));
   if (sections.length === 0) {
     return {
@@ -198,18 +185,14 @@ export function handleGenerateTraceability(args: GenerateTraceabilityArgs): Tool
     };
   }
 
-  // 4. Extract plan tasks
   const tasks = extractPlanTasks(planContent);
 
-  // 5. Generate traceability table
   const { report, coveredCount, uncoveredCount } = generateTable(sections, tasks, planContent);
 
-  // 6. Write to outputFile if specified
   if (args.outputFile) {
     writeFileSync(args.outputFile, report, 'utf-8');
   }
 
-  // 7. Return result
   const passed = uncoveredCount === 0;
   return {
     success: true,

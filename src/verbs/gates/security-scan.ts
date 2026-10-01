@@ -1,9 +1,7 @@
-// ─── Security Scan Composite Action ─────────────────────────────────────────
-//
-// Pure TypeScript security scanning — scans diff content for common security
-// anti-patterns (hardcoded secrets, eval(), SQL injection, XSS vectors).
-// No bash script dependency.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Security scan gate. It scans the added lines of a unified diff for common security anti-patterns,
+ * such as hardcoded secrets and `eval()`.
+ */
 
 import { createHash } from 'node:crypto';
 
@@ -12,8 +10,6 @@ import type { EventStore } from '../../events/store.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
 import { requireGateEvent, sameOperationGateKey } from './gate-utils.js';
-
-// ─── Types ─────────────────────────────────────────────────────────────────
 
 interface SecurityScanArgs {
   readonly featureId: string;
@@ -34,8 +30,6 @@ interface SecurityScanResult {
   readonly findings: readonly SecurityFinding[];
   readonly report: string;
 }
-
-// ─── Security Patterns ──────────────────────────────────────────────────────
 
 interface SecurityPattern {
   readonly name: string;
@@ -80,8 +74,6 @@ const SECURITY_PATTERNS: readonly SecurityPattern[] = [
   },
 ];
 
-// ─── Ignored File Patterns ───────────────────────────────────────────────────
-
 const IGNORE_PATTERNS = [
   /^node_modules\//,
   /^\.git\//,
@@ -98,12 +90,10 @@ function isIgnoredFile(filePath: string): boolean {
   return IGNORE_PATTERNS.some((p) => p.test(filePath));
 }
 
-// ─── Diff Scanning ──────────────────────────────────────────────────────────
-
 /**
- * Scan unified diff content for security anti-patterns.
- * Only scans added lines (lines starting with +, excluding +++ headers).
- * Returns an array of structured findings.
+ * Scans the added lines of a unified diff for security anti-patterns.
+ * It skips `+++` header lines and the files that match `IGNORE_PATTERNS`.
+ * Each finding carries the new-file line number from the hunk header, and a context string cut to 120 characters.
  */
 export function scanDiffContent(diffContent: string): SecurityFinding[] {
   if (!diffContent.trim()) {
@@ -115,7 +105,6 @@ export function scanDiffContent(diffContent: string): SecurityFinding[] {
   let diffLineNum = 0;
 
   for (const line of diffContent.split('\n')) {
-    // Track current file from diff headers
     const fileMatch = line.match(/^diff --git a\/(.+) b\//);
     if (fileMatch) {
       currentFile = fileMatch[1] ?? '';
@@ -123,39 +112,31 @@ export function scanDiffContent(diffContent: string): SecurityFinding[] {
       continue;
     }
 
-    // Skip scanning ignored files
     if (isIgnoredFile(currentFile)) {
       continue;
     }
 
-    // Track line numbers from hunk headers
     const hunkMatch = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
     if (hunkMatch) {
       diffLineNum = parseInt(hunkMatch[1] ?? '0', 10);
       continue;
     }
 
-    // Skip non-addition lines
     if (!line.startsWith('+')) {
-      // Context lines (not starting with -) increment the line counter
       if (!line.startsWith('-')) {
         diffLineNum++;
       }
       continue;
     }
 
-    // Skip +++ header lines
     if (line.startsWith('+++')) {
       continue;
     }
 
-    // Strip leading + to get the actual added content
     const addedLine = line.slice(1);
 
-    // Check each security pattern
     for (const pattern of SECURITY_PATTERNS) {
       if (pattern.test(addedLine)) {
-        // Truncate context to 120 chars
         let context = addedLine.trim();
         if (context.length > 120) {
           context = context.slice(0, 117) + '...';
@@ -177,8 +158,6 @@ export function scanDiffContent(diffContent: string): SecurityFinding[] {
   return findings;
 }
 
-// ─── Report Generation ──────────────────────────────────────────────────────
-
 function generateReport(findings: readonly SecurityFinding[]): string {
   const lines: string[] = ['## Security Scan Report', ''];
 
@@ -195,14 +174,15 @@ function generateReport(findings: readonly SecurityFinding[]): string {
   return lines.join('\n');
 }
 
-// ─── Handler ───────────────────────────────────────────────────────────────
-
+/**
+ * Runs the scan through the shared phase-gate runner, which records durable gate evidence before a success carrier returns.
+ * The gate declares that evidence as a postcondition, so a plain event append does not satisfy its contract.
+ */
 export async function handleSecurityScan(
   args: SecurityScanArgs,
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  // Guard clause: validate required inputs
   if (!args.featureId) {
     return {
       success: false,
@@ -217,12 +197,6 @@ export async function handleSecurityScan(
     };
   }
 
-  // The gate declares durable gate evidence as a postcondition, and a bare
-  // `gate.executed` append never paid it: every caller that observes
-  // postconditions — the dispatch path and the bounded intent executor alike —
-  // read a success carrier that had broken its own contract. Routing through
-  // the shared phase-gate runner records the evidence before any success
-  // carrier escapes, the same way the sibling review gates do.
   const diffContent = args.diffContent;
   const featureId = args.featureId;
   const diffDigest = createHash('sha256').update(diffContent, 'utf8').digest('hex');
@@ -247,12 +221,10 @@ async function executeSecurityScan(
   diffContent: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  // Scan the diff content
   const findings = scanDiffContent(diffContent);
   const passed = findings.length === 0;
   const report = generateReport(findings);
 
-  // Return structured result
   const result: SecurityScanResult = {
     passed,
     findingCount: findings.length,

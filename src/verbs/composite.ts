@@ -1,8 +1,6 @@
-// ─── Composite Orchestrate Handler ──────────────────────────────────────────
-//
-// Routes an `action` field to the appropriate task handler function,
-// replacing individual MCP tools with a single `exarchos_orchestrate` tool.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Composite handler for the `exarchos_orchestrate` tool. It routes the `action` field to the matching handler.
+ */
 
 import { type ToolResult } from '../format.js';
 import type { DispatchContext } from '../dispatch/core/dispatch.js';
@@ -14,8 +12,6 @@ import { envelopeWrap } from '../envelope-wrap.js';
 import { orchestrateLogger } from '../logger.js';
 
 const orchestrateActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_orchestrate')!.actions;
-
-// ─── Task Handlers ──────────────────────────────────────────────────────────
 
 import {
   handleTaskClaim,
@@ -115,8 +111,6 @@ import { handleExecuteIntent, productionExecuteDeps } from './execute/executor.j
 import { handlePrepare } from './prepare/handler.js';
 import { handleSettle } from './settle/handler.js';
 
-// ─── Action Router ──────────────────────────────────────────────────────────
-
 type ActionHandler = (args: Record<string, unknown>, stateDir: string, ctx?: DispatchContext) => Promise<ToolResult>;
 
 /** Wraps a typed handler as an ActionHandler, narrowing Record<string, unknown> to T. */
@@ -132,7 +126,7 @@ function adaptCtx<T>(handler: (args: T, ctx: DispatchContext) => Promise<ToolRes
   };
 }
 
-/** Wraps a typed handler that takes only args (no stateDir) and may be sync or async. */
+/** Wraps a typed handler that takes only args (no stateDir) and can be sync or async. */
 function adaptArgs<T>(handler: (args: T) => ToolResult | Promise<ToolResult>): ActionHandler {
   return async (args) => handler(args as unknown as T);
 }
@@ -153,12 +147,9 @@ function adaptArgsWithEventStore<T>(handler: (args: T) => ToolResult | Promise<T
 }
 
 /**
- * Wraps a typed handler that takes `(args, stateDir, eventStore)` — the
- * canonical shape for orchestrate handlers that need to append events.
- * Threads `ctx.eventStore` as the third positional arg so handlers
- * obtain the EventStore from the dispatch context rather than from a
- * module-global registry. See docs/rca/2026-04-26-v29-event-projection-
- * cluster.md (constructor injection refactor).
+ * Wraps a typed handler of shape `(args, stateDir, eventStore)`, the usual shape for a handler that appends events.
+ * It passes `ctx.eventStore` as the third argument, so the handler gets the store from the dispatch context and not from a module-global registry.
+ * It throws when the context has no event store.
  */
 function adaptWithEventStore<T>(
   handler: (args: T, stateDir: string, eventStore: EventStore) => Promise<ToolResult>,
@@ -174,12 +165,9 @@ function adaptWithEventStore<T>(
 }
 
 /**
- * Like {@link adaptWithEventStore}, but ALSO threads the dispatch-time
- * `ctx.projectConfig` into the handler's args (when the args do not already
- * carry one — an explicit arg-level `projectConfig`, e.g. from a test, still
- * wins). Use for handlers that need both the event store AND resolved config —
- * e.g. `prepare_synthesis`'s DR-2 `document`-leg severity. The injection mirrors
- * {@link adaptLadderGate}; the handler reads `args.projectConfig`.
+ * Like {@link adaptWithEventStore}, but it also copies `ctx.projectConfig` into the handler args.
+ * An explicit `projectConfig` in the args, such as from a test, wins.
+ * It serves a handler that needs both the event store and the resolved config, such as `prepare_synthesis`.
  */
 function adaptWithEventStoreAndConfig<T>(
   handler: (args: T, stateDir: string, eventStore: EventStore) => Promise<ToolResult>,
@@ -199,23 +187,9 @@ function adaptWithEventStoreAndConfig<T>(
   };
 }
 
-// ─── Verification-ladder severity dispatch (task 005) ────────────────────────
-//
-// The five verification-ladder gates are INV-5b advisory carriers
-// (`success:true, data.passed`). To apply per-workflow severity (e.g. oneshot
-// → warning) we resolve the ACTUAL workflowType from workflow state ONCE per
-// dispatch and post-process the handler's advisory result with
-// `applyLadderGateSeverity`. The `dimension` per gate mirrors the dimension
-// each handler stamps on its `gate.executed` event; it only matters as the
-// dimension-level severity FALLBACK, which the workflow default takes priority
-// over for these gates.
-
 /**
- * Resolve a featureId's workflow type from workflow state, with the canonical
- * event-store fallback (`resolveWorkflowState`). NEVER reads `.state.json`
- * from disk directly. Returns `'feature'` when the type is absent or state is
- * unreadable — mirrors `check-invariant-conformance`'s `'feature'` default so
- * the non-oneshot path is unchanged on any resolution miss.
+ * Resolves the workflow type of a feature from the event store, through `resolveWorkflowState`.
+ * It returns `'feature'` when the type is absent or the state does not resolve, the same default as `check-invariant-conformance`.
  */
 async function resolveWorkflowTypeForGate(
   featureId: string | undefined,
@@ -233,18 +207,15 @@ async function resolveWorkflowTypeForGate(
 }
 
 /**
- * Adapter for a verification-ladder gate handler. Runs the underlying advisory
- * handler, then resolves the workflow type and applies per-workflow severity
- * AND the IMPLEMENT-phase graduation mode (DR-6) to a failing advisory verdict
- * via {@link applyLadderGateSeverity}. The mode (`audit` | `enforce`) is
- * resolved from the SAME workflow type the severity uses
- * ({@link resolveImplementMode}) — per the DR-6 mode table only `oneshot` is in
- * `audit` (records its `gate.executed` finding without blocking); `feature`,
- * `debug`, and `refactor` are in `enforce`. Without a `projectConfig` an
- * `enforce` gate passes through unchanged (legacy / no-config severity
- * passthrough), while an `audit` gate still downgrades — audit mode is
- * config-INDEPENDENT. The threading is centralized here so all five gates pick
- * it up from one place.
+ * Adapter for a verification-ladder gate. The gate handler returns an advisory result (`success: true` with `data.passed`).
+ * The adapter resolves the workflow type once, then applies {@link applyLadderGateSeverity} with the IMPLEMENT-phase mode from `resolvePhaseMode`.
+ * Only `oneshot` resolves to `audit`, which records a failing finding but does not block. Other workflow types resolve to `enforce`.
+ * Without a `projectConfig`, an `enforce` result passes through unchanged, but an `audit` result still downgrades.
+ *
+ * The adapter copies `ctx.projectConfig` into the args when the args carry none, so the self-skip routing of the handler uses the dispatch config.
+ * Severity reads the same effective config, and mode and severity read the same workflow type.
+ * One dispatch thus never mixes two configs or two workflow types.
+ * `dimension` is only a fallback for severity. For ladder gates, the workflow default takes priority over it.
  */
 function adaptLadderGate<T>(
   gateName: string,
@@ -257,42 +228,17 @@ function adaptLadderGate<T>(
         `${handler.name}: ctx.eventStore required (handler dispatched without DispatchContext)`,
       );
     }
-    // task 004: thread the dispatch-time projectConfig into the handler args so
-    // its `resolvePolicySkip` self-skip routing consumes the SAME config-
-    // resolved policy the delegation stamp used. Without this the skip path
-    // would silently use the built-in table while the stamp honored a
-    // `.exarchos.yml` `verification:` cell — the exact desync this slice closes.
-    // Only inject when the args don't already carry `projectConfig` (an explicit
-    // arg-level override, e.g. from a test, still wins).
     const enrichedArgs =
       ctx.projectConfig !== undefined &&
       (args as { projectConfig?: unknown }).projectConfig === undefined
         ? { ...(args as Record<string, unknown>), projectConfig: ctx.projectConfig }
         : args;
-    // The config the handler actually resolved its self-skip routing against:
-    // an arg-level `projectConfig` override wins, else the injected ctx config.
-    // Severity post-processing MUST read the SAME config so skip routing and
-    // severity adaptation can never resolve against divergent configs in one
-    // dispatch (INV-2: identical DispatchContext + args ⇒ identical ToolResult).
     const effectiveProjectConfig = (enrichedArgs as {
       projectConfig?: DispatchContext['projectConfig'];
     }).projectConfig;
     const result = await handler(enrichedArgs as unknown as T, stateDir, ctx.eventStore);
     const featureId = (args as { featureId?: string }).featureId;
     const workflowType = await resolveWorkflowTypeForGate(featureId, ctx.eventStore);
-    // DR-6: the IMPLEMENT-phase graduation mode is resolved from the SAME
-    // workflow type the severity uses, so mode and severity can never resolve
-    // against divergent workflow types in one dispatch (INV-2). Only `oneshot`
-    // resolves to `audit` (records the finding, never blocks); feature/debug/
-    // refactor are `enforce`. The handler already emitted its `gate.executed`
-    // finding above.
-    // F2 (#1546): resolve through resolvePhaseMode — the kind-keyed
-    // generalisation that is now the single production SoT for phase graduation
-    // (it delegates to resolveImplementMode for IMPLEMENT, and pins
-    // PLAN/REVIEW/SYNTHESIZE to 'enforce'). This ladder-severity wrapper is an
-    // IMPLEMENT-kind boundary (ladder gates are IMPLEMENT obligations), so the
-    // kind is fixed; routing through resolvePhaseMode gives the generalised
-    // resolver a production consumer without altering behaviour.
     const mode = resolvePhaseMode('IMPLEMENT', workflowType);
     return applyLadderGateSeverity(
       gateName,
@@ -306,14 +252,9 @@ function adaptLadderGate<T>(
 }
 
 /**
- * Like {@link adaptWithEventStore}, but for handlers whose third positional
- * `eventStore` parameter is OPTIONAL. These handlers resolve workflow state
- * from EITHER an explicit `stateFile` OR `featureId` + event store, so they
- * degrade to the file-based path when no event store is available (e.g.
- * select-debug-track, investigation-timer). Threads `ctx?.eventStore` through
- * as the third positional arg WITHOUT throwing when it is absent — using the
- * throwing {@link adaptWithEventStore} here would crash a file-based dispatch
- * that the handler is designed to serve.
+ * Like {@link adaptWithEventStore}, but the `eventStore` argument is optional, and the adapter does not throw without it.
+ * These handlers resolve state from `stateFile`, or from `featureId` with the event store, so they can serve a dispatch with no event store.
+ * Examples are `select_debug_track` and `investigation_timer`.
  */
 function adaptWithOptionalEventStore<T>(
   handler: (args: T, stateDir: string, eventStore?: EventStore) => Promise<ToolResult>,
@@ -322,11 +263,8 @@ function adaptWithOptionalEventStore<T>(
 }
 
 /**
- * Wraps a typed handler that needs BOTH `stateDir` and `eventStore` from
- * DispatchContext injected into a single args object. Use this when the
- * underlying handler accepts a single bag of args containing all dependencies
- * (rather than the conventional `(args, stateDir)` positional shape) — e.g.,
- * `handleFinalizeOneshot` whose `FinalizeOneshotArgs` includes both fields.
+ * Wraps a handler that takes one args object, and adds `stateDir` and `ctx.eventStore` to that object.
+ * An example is `handleFinalizeOneshot`, whose `FinalizeOneshotArgs` holds both fields.
  */
 function adaptArgsWithStateDirAndEventStore<T>(
   handler: (args: T) => ToolResult | Promise<ToolResult>,
@@ -342,13 +280,13 @@ function adaptArgsWithStateDirAndEventStore<T>(
 }
 
 /**
- * DR-3 (T-09, #1204): adapter for `setup_worktree` that pre-loads workflow
- * state when `featureId` and `ctx.eventStore` are both supplied. The handler
- * itself stays synchronous and source-of-truth for the resolution priority
- * (args.branch > workflowState.tasks[id].branch > legacy default); this
- * adapter just feeds it the materialized `tasks` list so it can look up the
- * planned branch. Falls back to no workflow state when either prerequisite
- * is missing — preserves the legacy default behavior.
+ * Adapter for `setup_worktree`. With `featureId` and `ctx.eventStore`, it folds the workflow state to the tail and passes `tasks` and `synthesis` to the handler.
+ * The handler owns the branch priority: `args.branch`, then the planned task branch, then the default.
+ * `synthesis.integrationBranch` lets the handler base a managed worktree on the integration tip and not on a stale `main`.
+ *
+ * A coverage failure from the fold returns a refusal, because a fallback to `main` hides an integration tip that the fold cannot prove.
+ * Any other fold error leaves the workflow state undefined, and the handler uses its default.
+ * The handler validates its required fields at runtime, so the adapter casts the args without a check.
  */
 function adaptSetupWorktree(): ActionHandler {
   return async (args, stateDir, ctx) => {
@@ -370,49 +308,32 @@ function adaptSetupWorktree(): ActionHandler {
           tasks: Array<{ id: string; branch?: string }>;
           synthesis?: { integrationBranch?: string };
         }>(ctx.eventStore, materializer, featureId, WORKFLOW_STATE_VIEW);
-        // #1509/#1501: project synthesis.integrationBranch so the handler can
-        // base managed worktrees on the integration tip, not a stale `main`.
         workflowState = { tasks: view.tasks, synthesis: view.synthesis };
       } catch (err) {
-        // A coverage failure is NOT best-effort material. Falling back to the
-        // legacy default branch here would base a managed worktree on `main`
-        // while the integration tip was merely unprovable — the silent
-        // degradation this seam exists to remove.
         const { toCoverageFailure } = await import('../projections/degraded-result.js');
         const refusal = toCoverageFailure(err, {
           tool: 'exarchos_orchestrate',
           action: 'setup_worktree',
         });
         if (refusal) return refusal;
-        // Anything else stays best-effort: missing or unreadable state is not a
-        // setup_worktree failure, and the handler falls back as before.
         workflowState = undefined;
       }
     }
 
-    // fix-005 (review #1213): the previous double-cast
-    // (`args as unknown as Parameters<typeof handleSetupWorktree>[0]`)
-    // defeated the type system. Cast directly to the exported
-    // SetupWorktreeArgs — the registry hands `args` as a generic record,
-    // and handleSetupWorktree validates required fields at runtime, so a
-    // single cast at this adapter boundary is the narrowest sound option.
     return handleSetupWorktree(args as unknown as SetupWorktreeArgs, workflowState);
   };
 }
 
 /**
- * The tool `ACTION_HANDLERS` belongs to. Named so the executor can refuse a
- * leaf whose tool disagrees with this table's owner instead of trusting that
- * every key it finds was minted under `exarchos_orchestrate`.
+ * The tool that owns `ACTION_HANDLERS`.
+ * The executor uses it to refuse a leaf whose tool differs from this owner. It does not assume that every key belongs to `exarchos_orchestrate`.
  */
 const ACTION_HANDLERS_TOOL = 'exarchos_orchestrate';
 
 /**
- * The routing table. The bounded action executor invokes a compiled leaf
- * through the SAME entry this composite would route to — a second copy of the
- * mapping is a second thing that can drift from the registry — but it receives
- * the table as an argument from the `execute_intent` entry below rather than
- * importing it, which is what keeps the two modules off a runtime ring.
+ * The routing table. The bounded action executor calls a compiled leaf through the same entry that this composite routes to.
+ * A second copy of the mapping can drift from the registry, so this table is the only copy.
+ * The executor gets the table as an argument from the `execute_intent` entry and does not import it, so the modules form no runtime import cycle.
  */
 export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   task_claim: adaptWithEventStore(handleTaskClaim),
@@ -424,24 +345,20 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   assess_stack: adaptWithEventStoreAndConfig(handleAssessStack),
   check_design_completeness: adaptWithEventStore(handleDesignCompleteness),
   check_plan_coverage: adaptWithEventStore(handlePlanCoverage),
-  // DR-4 (Gap B): deep-only Exploration-citation gate. Self-skips at
-  // thin/standard depth; at deep it verifies the spec's `### Exploration`
-  // section cites the /exarchos:discover pass by path + correlationId.
+  /**
+   * Exploration-citation gate for the deep depth. At thin and standard depth, it skips itself.
+   * At deep depth, it verifies that the `### Exploration` section of the spec cites the discover pass by path and `correlationId`.
+   */
   check_exploration_depth: adaptWithEventStore(handleCheckExplorationDepth),
-  // Verification-ladder gates (task 005): wrapped in adaptLadderGate so a
-  // failing advisory verdict picks up its per-workflow severity (oneshot →
-  // warning) from the resolved workflowType. The `dimension` mirrors each
-  // handler's stamped gate.executed dimension (fallback only — the workflow
-  // default takes priority for ladder gates).
+  /** Verification-ladder gate. {@link adaptLadderGate} applies the per-workflow severity to a failing advisory verdict. */
   check_test_adequacy: adaptLadderGate('check_test_adequacy', 'D1', handleTestAdequacy),
   check_contract_drift: adaptLadderGate('check_contract_drift', 'D1', handleContractDrift),
   check_mock_boundary: adaptLadderGate('check_mock_boundary', 'D1', handleMockBoundary),
-  // Verification-ladder slice 3, R5 (#1520): the mutation-adequacy review
-  // dimension's action. ADVISORY by default (its seeded gate default is
-  // warning-only, like tdd-compliance/mock-boundary), so a sub-threshold score
-  // surfaces survivor next_actions without blocking — an explicit
-  // review.gates['mutation-adequacy'] override still raises it to blocking. The
-  // 'D1' dimension is only a fallback the seeded gate default always beats.
+  /**
+   * Action of the mutation-adequacy review dimension. It is advisory by default, because its seeded gate default is warning-only.
+   * A score under the threshold shows survivor `next_actions` and does not block.
+   * An explicit `review.gates['mutation-adequacy']` override can make it blocking.
+   */
   [MUTATION_GATE_NAME]: adaptLadderGate(MUTATION_GATE_NAME, 'D1', handleMutationAdequacy),
   check_post_merge: adaptWithEventStore(handlePostMerge),
   check_static_analysis: adaptLadderGate('check_static_analysis', 'D2', handleStaticAnalysis),
@@ -485,44 +402,31 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   prepare_review: adaptWithEventStore(handlePrepareReview),
   discover_bridge: adaptWithOptionalEventStore(handleDiscoverBridge),
   check_invariant_conformance: adaptWithEventStore(handleCheckInvariantConformance),
-  // Oneshot + pruning (T4): handlePruneStaleWorkflows already matches the
-  // ActionHandler `(args, stateDir, ctx?)` shape, so it is registered directly
-  // without an adapter. The other two need their dependencies injected from
-  // DispatchContext into a single args bag.
-  //
-  // The `as ActionHandler` cast is safe because:
-  //   1. The handler's signature is `(args, stateDir, ctx?, deps?)` where
-  //      `deps` has a default (`productionDeps(ctx)`) — meaning at runtime
-  //      the router's 3-arg call `(args, stateDir, ctx)` produces a fully
-  //      wired handler that matches `ActionHandler`'s `(args, stateDir, ctx)`.
-  //   2. The 4th param is a testability seam only; production code never
-  //      passes it, and no ActionHandler caller has reason to.
-  // TypeScript's structural typing sees the extra optional parameter as a
-  // mismatch with the strict `ActionHandler` signature, so the cast is the
-  // minimal bridge. An adapter wrapper would just re-spread the same three
-  // args with no narrowing benefit.
+  /**
+   * `handlePruneStaleWorkflows` takes `(args, stateDir, ctx?, deps?)`, and `deps` defaults to `productionDeps(ctx)`.
+   * The router calls it with three arguments, so at runtime it is a complete `ActionHandler`. The fourth parameter is a test seam only.
+   * TypeScript rejects the extra parameter against the strict `ActionHandler` signature, so a cast bridges the two types.
+   */
   prune_stale_workflows: handlePruneStaleWorkflows as ActionHandler,
   request_synthesize: adaptArgsWithStateDirAndEventStore(handleRequestSynthesize),
   finalize_oneshot: adaptArgsWithStateDirAndEventStore(handleFinalizeOneshot),
-  // VCS actions — route through VcsProvider abstraction
+  /** VCS action, routed through the `VcsProvider` abstraction. */
   create_pr: adaptCtx(handleCreatePr),
   merge_pr: adaptCtx(handleMergePr),
   check_ci: adaptCtx(handleCheckCi),
   list_prs: adaptCtx(handleListPrs),
   get_pr_comments: adaptCtx(handleGetPrComments),
   add_pr_comment: adaptCtx(handleAddPrComment),
-  // create_issue requires a provider-backed listIssuesByMarker for the
-  // two-event-split recovery precheck (CodeRabbit #3224631237). Wire the
-  // GitHub provider's searchIssuesByMarker here so the handler never falls
-  // back to a no-op that would silently mask duplicate-issue bugs.
+  /**
+   * `create_issue` needs a provider-backed `listIssuesByMarker` for its recovery precheck.
+   * The entry wires `searchIssuesByMarker` of the VCS provider, so the handler never uses a no-op that hides duplicate issues.
+   * It creates the provider only when the caller injects no `listIssuesByMarker`.
+   * A provider startup error thus cannot come before the input checks of the handler.
+   */
   create_issue: async (args, _stateDir, ctx) => {
     if (!ctx) throw new Error('DispatchContext required for this handler');
     const typedArgs = args as unknown as Omit<HandleCreateIssueArgs, 'listIssuesByMarker'> &
       Partial<Pick<HandleCreateIssueArgs, 'listIssuesByMarker'>>;
-    // Lazy provider creation: only construct the VCS provider if the
-    // caller hasn't injected a `listIssuesByMarker` (e.g. tests that
-    // stub the recovery probe directly). Avoids surfacing provider
-    // bootstrap errors before the handler's own input guards run.
     const listIssuesByMarker =
       typedArgs.listIssuesByMarker ??
       (async (operationId: string) => {
@@ -531,65 +435,50 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
       });
     return handleCreateIssue({ ...typedArgs, listIssuesByMarker }, ctx);
   },
-  // Merge orchestrator (DR-MO-1) — composes preflight + executor under one
-  // public entry point. The internal `handleExecuteMerge` (T15) is NOT
-  // registered here; only `merge_orchestrate` is the public action verb.
+  /** Merge orchestrator. It composes the preflight and the executor under one public action. The internal `handleExecuteMerge` is not in this table. */
   merge_orchestrate: adaptCtx(handleMergeOrchestrate),
-  // Worktree-lifecycle (WLM foundation, task 008) — each delegates to the
-  // in-process `WorktreeManager` facade over `ctx.eventStore`. The
-  // `(args, ctx) => ToolResult` shape matches `adaptCtx`; the handlers' third
-  // (deps) parameter is a test-only DI seam left at its default here. The read
-  // leg (`worktrees`) rides exarchos_view, not this table.
+  /**
+   * Worktree lifecycle action. Each handler delegates to the in-process `WorktreeManager` over `ctx.eventStore`.
+   * The third handler parameter is a test seam, left at its default. The read action, `worktrees`, is on `exarchos_view`.
+   */
   acquire_worktree: adaptCtx(handleAcquireWorktree),
   release_worktree: adaptCtx(handleReleaseWorktree),
   prune_worktrees: adaptCtx(handlePruneWorktrees),
-  // The three ground-truth reconcile passes, which rode `exarchos_view.ps
-  // probe:true` until a read verb stopped carrying writes. Same handler shape,
-  // and the events it appends are declared by the action that now performs it.
+  /** Runs the three ground-truth reconcile passes. A read verb carries no writes, so this action declares the events that the passes append. */
   reconcile_worktrees: adaptCtx(handleReconcileWorktrees),
-  // Recording a stack position appends `stack.position-filled`. It routed
-  // through the view composite while its registration named this tool as the
-  // effect provider; the handler is unchanged, only its router moved.
+  /** Records a stack position and appends `stack.position-filled`. Its registration names this tool as the effect provider. */
   stack_place: adaptWithEventStore(handleStackPlace),
-  // Integration-branch merge serializer (WLM operational core, DR-7) — the
-  // optimistic per-`integrationRef` lease that composes `merge_orchestrate`
-  // UNCHANGED. Rides exarchos_orchestrate (INV-5d — no new visible tool); the
-  // `(args, ctx) => ToolResult` shape matches `adaptCtx`, with the third (deps)
-  // parameter left at its production default here.
+  /**
+   * Integration-branch merge serializer: an optimistic lease for each `integrationRef` that composes `merge_orchestrate` unchanged.
+   * It adds no visible tool. The third handler parameter keeps its production default.
+   */
   serialize_merge: adaptCtx(handleSerializeMerge),
-  // Cutover promotion path (#1739) — the read leg and the operator-gated
-  // decide leg. Both take the canonical `(args, stateDir, eventStore)` shape;
-  // the 4th (deps) parameter is a test-only seam left at its default here.
+  /**
+   * Cutover promotion: the read action. Its pair, `cutover_decide`, is the decision that an operator gates.
+   * Both handlers take `(args, stateDir, eventStore)`. The fourth parameter is a test seam, left at its default.
+   */
   cutover_readiness: adaptWithEventStore(handleCutoverReadiness),
   cutover_decide: adaptWithEventStore(handleCutoverDecide),
-  // The bounded action executor. `handleExecuteIntent` requires a
-  // DispatchContext (it re-enters admission and the store per leaf), unlike
-  // the other `adaptWithCtx` entries above whose handlers treat ctx as
-  // optional — so this is a direct ActionHandler rather than that adapter.
-  //
-  // The table below is handed IN rather than read back by the executor: this
-  // module owns it, and the executor importing it would close a runtime ring
-  // through the dispatch core. Reading `ACTION_HANDLERS` from inside a closure
-  // that only ever runs after this literal is bound is what makes the
-  // self-reference safe.
+  /**
+   * The bounded action executor. `handleExecuteIntent` requires a `DispatchContext`, because it re-enters admission and the store for each leaf.
+   * The entry hands the table in, because an import of it from the executor makes a runtime cycle through the dispatch core.
+   * The closure reads `ACTION_HANDLERS` only after the literal is bound, so the self-reference is safe.
+   */
   execute_intent: async (args, stateDir, ctx) => {
     if (!ctx) throw new Error('DispatchContext required for execute_intent');
     return handleExecuteIntent(args, stateDir, ctx, productionExecuteDeps(ACTION_HANDLERS, ACTION_HANDLERS_TOOL));
   },
-  // The settlement endpoint. Like the executor above it needs a real
-  // DispatchContext — it reads the operation claim and commits through the
-  // store — so it is a direct ActionHandler rather than an `adaptWithCtx`
-  // entry. And like the executor it takes the handler table: a settled batch
-  // runs each accepted task's task-completion segment through that executor,
-  // so the same table is handed in for the same ring reason.
+  /**
+   * The settlement endpoint. It needs a real `DispatchContext`, because it reads the operation claim and commits through the store.
+   * A settled batch runs the task-completion segment of each accepted task through the executor, so the entry also hands in the table.
+   */
   settle: async (args, stateDir, ctx) => {
     if (!ctx) throw new Error('DispatchContext required for settle');
     return handleSettle(args, stateDir, ctx, {
       execute: productionExecuteDeps(ACTION_HANDLERS, ACTION_HANDLERS_TOOL),
     });
   },
-  // The compilation endpoint, the other half of the pair. It reads the
-  // workflow and commits through the store, so it needs the real context too.
+  /** The compilation endpoint, the pair of `settle`. It reads the workflow and commits through the store, so it needs the real context. */
   prepare: async (args, stateDir, ctx) => {
     if (!ctx) throw new Error('DispatchContext required for prepare');
     return handlePrepare(args, stateDir, ctx);
@@ -599,22 +488,10 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
 /** Exported for sync test — ensures registry.ts stays in sync with handler keys. */
 export const ACTION_HANDLER_KEYS: readonly string[] = Object.keys(ACTION_HANDLERS);
 
-// ─── Envelope Wrapping (T038, DR-7) ─────────────────────────────────────────
-//
-// The composite wraps successful handler results into a HATEOAS `Envelope<T>`
-// via the shared `envelopeWrap` (../envelope-wrap.ts). Orchestrate task
-// handlers generally carry no workflow state (task claims, reviews,
-// diagnostics), so `next_actions` derives to `[]`; the wrap is retained for
-// architectural symmetry across the four composites. Sub-handlers still return
-// raw `ToolResult` for internal callers (tests, parity harness).
-
 /**
- * Guard-clause validation for the fields shared by `invariants_scaffold` and
- * `invariants_add`. Returns an `INVALID_INPUT` `ToolResult` on the first
- * malformed field, or `null` when every present field is well-typed. Runs at
- * the dispatch boundary BEFORE the unchecked `rest.*` casts reach a handler
- * (#1487 review). `repoRoot`/`path`/`catalog`/`id` must be strings when
- * present; `tier` must be `'dev' | 'user'` when present.
+ * Guard-clause validation for the fields that `invariants_scaffold`, `invariants_add`, and `invariants_amend` share.
+ * It returns an `INVALID_INPUT` result for the first bad field, or `null`. It runs before the unchecked `rest.*` casts reach a handler.
+ * When present, `repoRoot`, `path`, `catalog`, and `id` must be strings, `tier` must be `'dev'` or `'user'`, and `allowReservedTier` must be a boolean.
  */
 function validateInvariantsCommonArgs(
   rest: Record<string, unknown>,
@@ -667,10 +544,8 @@ function validateInvariantsCommonArgs(
 }
 
 /**
- * Guard-clause validation for `invariants_add`. Layers the entry/dryRun checks
- * on top of the common string/tier checks: `entry` must be a plain object (the
- * authored invariant), and `dryRun` must coerce cleanly to boolean (defaulting
- * to true downstream). Returns an `INVALID_INPUT` `ToolResult` or `null`.
+ * Guard-clause validation for `invariants_add`. It runs the common checks, then requires `entry` to be a plain object.
+ * It returns an `INVALID_INPUT` result, or `null`.
  */
 function validateInvariantsAddArgs(
   rest: Record<string, unknown>,
@@ -696,12 +571,9 @@ function validateInvariantsAddArgs(
 }
 
 /**
- * Guard-clause validation for `invariants_amend` (task 068). Layers the
- * amend-specific checks on the common string/tier checks: `id` is REQUIRED
- * here (it names the entry to correct, and an amend with no target is
- * meaningless — unlike `invariants_add`, where `id` is an optional override),
- * and `patch` must be a plain object. Runs at the dispatch boundary BEFORE the
- * unchecked `rest.*` casts reach the handler.
+ * Guard-clause validation for `invariants_amend`. It runs the common checks, then requires `id` and a plain-object `patch`.
+ * `id` is required here, because it names the entry to correct. For `invariants_add`, `id` is an optional override.
+ * It builds the handler args from the narrowed values, so the call site needs no `as` cast.
  */
 function validateInvariantsAmendArgs(
   rest: Record<string, unknown>,
@@ -740,10 +612,6 @@ function validateInvariantsAmendArgs(
     };
   }
 
-  // Every field below was proven by a check above (or by
-  // `validateInvariantsCommonArgs`), so the handler args are BUILT from the
-  // narrowed values rather than re-asserted with `as` at the call site. The
-  // validator that establishes a type is the thing that should hand it over.
   return {
     ok: true,
     args: {
@@ -758,38 +626,16 @@ function validateInvariantsAmendArgs(
   };
 }
 
-// ─── Composite Handler ──────────────────────────────────────────────────────
-
-// A `PROJECTION_DERIVED_ORCHESTRATE_ACTIONS` set sat here, naming the four
-// readiness/reliability verbs (prepare_delegation, prepare_synthesis,
-// check_convergence, check_event_emissions) whose verdicts derive from a
-// materialized fold, so that `handleOrchestrate` could refuse them outright
-// whenever a durable `projection.degraded` row existed for the stream.
-//
-// The question it answered is real, and the answer moved rather than went away:
-// a lagging fold is folded forward before any read answers it
-// (`projections/fold-at-tail.ts`), so these four verbs derive their verdicts
-// from the tail and there is nothing left for a pre-dispatch refusal to
-// protect. Keeping the refusal on top of that would wedge them on a marker that
-// is a spent point-in-time observation rather than a current fact about the
-// stream — which is the failure the fold seam exists to remove, and what
-// `tests/unit/projections/degraded-consumers.test.ts >
-// Consumer_StaleFoldAndDurableMarker_IsNotWedged` pins for exactly these four.
-
 /**
- * Routes the `action` field from args to the corresponding task handler.
+ * Routes the `action` field to its handler and strips `action` from the forwarded args.
+ * It wraps a handler result in the HATEOAS envelope through `envelopeWrap`. Sub-handlers return a raw `ToolResult` for internal callers.
  *
- * The `action` field is consumed by this router and stripped from the args
- * forwarded to the underlying handler.
+ * Some actions have their own branch, because they need the full `DispatchContext`, the action list, or no `stateDir`.
+ * A branch action needs both a registry entry and a branch here. Without the branch, it returns `UNKNOWN_ACTION`.
+ * The `invariants_*` branches validate their args before the handler gets them.
  *
- * The special-cased branches below are also the CENSUS the `no-handler-throw`
- * envelope gate scans: it derives which handlers are registered by reading
- * `if (action === '<verb>') ... envelopeWrap(await handleXxx(...), startedAt)`
- * straight out of this function, so a new verb is covered the moment its branch
- * exists (that census used to be a hand-written roster, and `invariants_amend`
- * shipped off it). A branch shape the gate cannot read is reported, not
- * skipped — so restructuring here fails loudly rather than quietly shrinking
- * what the gate covers.
+ * The `no-handler-throw` rule reads these `if (action === '<verb>')` branches to find the registered handlers. It reports a branch shape that it cannot read.
+ * The router does not refuse a projection-derived verb on a `projection.degraded` marker. Such a verb folds a lagging projection forward before it answers.
  */
 export async function handleOrchestrate(
   args: Record<string, unknown>,
@@ -799,7 +645,6 @@ export async function handleOrchestrate(
   const { stateDir } = ctx;
   const { action, ...rest } = args;
 
-  // Handle describe specially — it needs the action list, not stateDir
   if (action === 'describe') {
     if (!Array.isArray(rest.actions) || !rest.actions.every(a => typeof a === 'string')) {
       return {
@@ -814,37 +659,14 @@ export async function handleOrchestrate(
     return envelopeWrap(await handleDescribe(rest as { actions: string[] }, orchestrateActions), startedAt);
   }
 
-  // Handle doctor specially — it needs the full DispatchContext (not
-  // just stateDir) because handleDoctor reads ctx.eventStore to emit
-  // diagnostic.executed and delegates further context access to
-  // buildProbes.
   if (action === 'doctor') {
     return envelopeWrap(await handleDoctor(rest as Parameters<typeof handleDoctor>[0], ctx), startedAt);
   }
 
-  // Handle onboard specially — like doctor, it needs the full DispatchContext
-  // (not just stateDir) because handleOnboard reads ctx.eventStore to build the
-  // two-event seam (`onboard.requested`/`onboard.executed`) and resolves the
-  // repo cwd from ctx. This is what makes `exarchos onboard` (cli.ts) and the
-  // MCP `exarchos_orchestrate {action:'onboard'}` path actually route — without
-  // this branch (and absent from ACTION_HANDLERS) the action falls through to
-  // UNKNOWN_ACTION.
-  //
-  // `onboard` SUPERSEDES the legacy `init` action (whose dispatch branch +
-  // handler were removed in DR-5, task 018): it reuses the SAME writer list
-  // (`getAllWriters()`) via the reconciler's GENERATE step and emits the
-  // two-event contract in place of the retired `init.executed`. The `init` CLI
-  // verb is now a rename stub (cli.ts).
   if (action === 'onboard') {
     return envelopeWrap(await handleOnboard(rest as Parameters<typeof handleOnboard>[0], ctx), startedAt);
   }
 
-  // invariants_scaffold (P2/T7) — writes a starter catalog + registers it in
-  // `.exarchos.yml`. No events; needs real fs hooks (injected so the handler
-  // stays pure-by-default for tests). repoRoot defaults to process.cwd().
-  // Guard-clause validation runs BEFORE constructing the handler args so a
-  // malformed dispatch returns a structured INVALID_INPUT envelope rather than
-  // letting an unchecked cast reach the handler (#1487 review).
   if (action === 'invariants_scaffold') {
     const invalid = validateInvariantsCommonArgs(rest);
     if (invalid) return envelopeWrap(invalid, startedAt);
@@ -857,9 +679,6 @@ export async function handleOrchestrate(
     return envelopeWrap(await handleScaffold(scaffoldArgs, realScaffoldDeps()), startedAt);
   }
 
-  // invariants_add (P2/T11) — validates + (on commit) appends an entry and
-  // emits invariant.authored / catalog.registered. Like init, it needs the
-  // full DispatchContext because it uses ctx.eventStore to emit events.
   if (action === 'invariants_add') {
     const invalid = validateInvariantsAddArgs(rest);
     if (invalid) return envelopeWrap(invalid, startedAt);
@@ -875,13 +694,6 @@ export async function handleOrchestrate(
     return envelopeWrap(await handleAdd(addArgs, ctx, realScaffoldDeps()), startedAt);
   }
 
-  // invariants_amend (task 068 / DR-23) — the amend path the catalog previously
-  // lacked entirely. Like invariants_add it needs the full DispatchContext,
-  // because a commit emits `invariant.amended` via ctx.eventStore.
-  //
-  // Registering the action in registry.ts WITHOUT this branch would return
-  // UNKNOWN_ACTION at runtime (the action is not in ACTION_HANDLERS) — a verb
-  // that documents itself and then refuses every call. Both halves, always.
   if (action === 'invariants_amend') {
     const validated = validateInvariantsAmendArgs(rest);
     if (!validated.ok) return envelopeWrap(validated.result, startedAt);
@@ -891,7 +703,6 @@ export async function handleOrchestrate(
     );
   }
 
-  // Handle runbook specially — it doesn't need stateDir
   if (action === 'runbook') {
     if (rest.phase !== undefined && typeof rest.phase !== 'string') {
       return {
