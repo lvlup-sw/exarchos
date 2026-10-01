@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { extractComments, stripMarkers, CommentExtractionError } from '../../../tools/audit/lib/comment-prose.mjs';
+import {
+  extractComments,
+  extractCommentProse,
+  isQuotedMention,
+  sentenceBefore,
+  stripMarkers,
+  CommentExtractionError,
+} from '../../../tools/audit/lib/comment-prose.mjs';
 
 describe('extractComments', () => {
   it('ExtractComments_LineComment_ReportsOneBasedLineAndColumn', () => {
@@ -118,5 +125,78 @@ describe('stripMarkers', () => {
 
   it('StripMarkers_CollapsesRuns_OfWhitespace', () => {
     expect(stripMarkers('//   padded     text   ')).toBe('padded text');
+  });
+});
+
+describe('extractCommentProse', () => {
+  it('CommentProse_KeepsCommentsAndDropsCode', () => {
+    const source = [
+      '// a leading note',
+      "const title = 'a leading note in a string';",
+      '/* a block note */',
+      'const re = /a leading note/;',
+    ].join('\n');
+
+    const prose = extractCommentProse(source);
+    expect(prose).toContain('a leading note');
+    expect(prose).toContain('a block note');
+    expect(prose).not.toContain('in a string');
+  });
+
+  /** A token scanner cannot resume a template literal after `${…}`, so the tail looked like a comment. */
+  it('CommentProse_TemplateSubstitutionTailIsNotProse', () => {
+    const source = 'const probe = `${self}\\n// invented prose here`;';
+
+    expect(extractCommentProse(source)).not.toContain('invented prose here');
+  });
+
+  /** A `${…}` substitution is code, so a comment inside it is a real comment. */
+  it('CommentProse_CommentInsideATemplateSubstitutionIsProse', () => {
+    const source = 'const probe = `${/* real note */ value}`;';
+
+    expect(extractCommentProse(source)).toContain('real note');
+  });
+
+  it('CommentProse_JoinsWrappedLinesIntoOneSentence', () => {
+    const source = ['/**', ' * a sentence that wraps', ' * across two lines.', ' */'].join('\n');
+
+    expect(extractCommentProse(source)).toContain('a sentence that wraps across two lines.');
+  });
+
+  it('CommentProse_RecoveredParse_ThrowsRatherThanGuessing', () => {
+    expect(() => extractCommentProse('function broken( {')).toThrow(/did not parse cleanly/);
+  });
+});
+
+describe('sentenceBefore', () => {
+  it('SentenceBefore_StopsAtTheEnclosingSentenceBoundary', () => {
+    const prose = 'The old wording is retired. The arm receives parity with the CLI.';
+    const index = prose.indexOf('parity');
+
+    expect(sentenceBefore(prose, index)).toBe(' The arm receives ');
+    expect(sentenceBefore(prose, index)).not.toContain('retired');
+  });
+});
+
+describe('isQuotedMention', () => {
+  it('QuotedMention_DistinguishesUseFromMention', () => {
+    const mentioned = 'Words that turn "parity" into a claim.';
+    const used = 'Words that turn the arm into parity with the CLI.';
+
+    expect(isQuotedMention(mentioned, mentioned.indexOf('parity'))).toBe(true);
+    expect(isQuotedMention(used, used.indexOf('parity'))).toBe(false);
+  });
+
+  /** A bare `'` is usually an apostrophe. Read as a quote, it would silence the rest of the sentence. */
+  it('QuotedMention_ApostropheIsNotAQuote', () => {
+    const prose = "The detector's answer about parity is unchanged.";
+
+    expect(isQuotedMention(prose, prose.indexOf('parity'))).toBe(false);
+  });
+
+  it('QuotedMention_ClosedQuoteEarlierInTheSentenceDoesNotCarryOver', () => {
+    const prose = 'A "quoted aside" then a bare parity claim.';
+
+    expect(isQuotedMention(prose, prose.indexOf('parity'))).toBe(false);
   });
 });

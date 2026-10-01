@@ -24,6 +24,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { codeownersMatcher } from './lib/codeowners-match.mjs';
+import { globsMatch } from './lib/lint-scope.mjs';
 
 const requireConfig = createRequire(import.meta.url);
 const REPO_ROOT = process.cwd();
@@ -223,12 +224,9 @@ function main() {
   if (lintGlobs.length === 0) {
     throw new Error('cannot read the `lint` script\'s CLI globs from package.json — refusing to guess');
   }
-  const lintPrefixes = lintGlobs.map((g) => g.replace(/\*.*$/, ''));
   surfaces['lint:eslint-cli-glob'] = {
     kind: 'lint-scope',
-    matched: tracked.filter(
-      (rel) => rel.endsWith('.ts') && lintPrefixes.some((p) => rel.startsWith(p)),
-    ).length,
+    matched: tracked.filter((rel) => globsMatch(lintGlobs, rel)).length,
     detail: { glob: lintGlobs.join(' ') },
   };
   const inv6Script = String(pkg.scripts?.['lint:inv6'] ?? '');
