@@ -63,8 +63,8 @@ describe('kill fixtures', () => {
 
   it('Fixtures_Directory_IsStructurallyExempt', () => {
     // A guard that flagged its own kill fixtures could not be tested.
-    expect(isExempt(policy, 'tools/audit/__fixtures__/comment-hygiene/offenders.ts')).toBe(true);
-    expect(isExempt(policy, 'tools/audit/__fixtures__/comment-hygiene/permitted.ts')).toBe(true);
+    expect(isExempt(policy, 'tools/audit/__fixtures__/comment-hygiene/offenders.ts', 'comment-content')).toBe(true);
+    expect(isExempt(policy, 'tools/audit/__fixtures__/comment-hygiene/permitted.ts', 'comment-content')).toBe(true);
   });
 
   it('Fixtures_BothCorpora_Parse', () => {

@@ -62,7 +62,7 @@ export function collectMatches(repoRoot, policy) {
   let scanned = 0;
 
   for (const rel of trackedSourceFiles(repoRoot)) {
-    if (isExempt(policy, rel)) continue;
+    if (isExempt(policy, rel, 'comment-content')) continue;
     let source;
     try {
       source = fs.readFileSync(path.join(repoRoot, rel), 'utf8');

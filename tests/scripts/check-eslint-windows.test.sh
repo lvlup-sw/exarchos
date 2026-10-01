@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Self-test for the eslint.config.js Windows-portability rules (#1623).
 #
-# `npm run lint:windows` only proves the config RUNS clean on the (clean) tree —
+# `npm run lint` only proves the config RUNS clean on the (clean) tree —
 # a silently-broken selector would pass that too. This confirms each rule still
 # FIRES on its anti-pattern and stays quiet on the fixed form, using a temp
 # fixture under the config's `files` glob (cleaned up on exit).

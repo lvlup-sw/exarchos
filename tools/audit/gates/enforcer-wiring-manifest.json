@@ -194,7 +194,16 @@
       "diffDependent": false,
       "unfilteredCiPath": true,
       "ciStepMatch": "npm run lint:envelopes",
-      "rationale": "grep-gates deps-tail step (#1706 DR-2, task 002): the error-envelope lint (`eslint --config eslint.envelopes.config.js` over src/verbs/**) runs on the UNFILTERED grep-gates lane, never the filtered test-root lint:windows step, so a registered MCP handler that lets a throw abnormally complete it (discarding a meaningful error.code) fails CI on every PR. Scans the whole verbs/** tree, not a PR diff, so not diffDependent."
+      "rationale": "grep-gates deps-tail step (#1706 DR-2, task 002): the error-envelope lint (`eslint --config eslint.envelopes.config.js` over src/verbs/**) runs on the UNFILTERED grep-gates lane, never the shared configuration that the comment gate runs, so a registered MCP handler that lets a throw abnormally complete it (discarding a meaningful error.code) fails CI on every PR. Scans the whole verbs/** tree, not a PR diff, so not diffDependent."
+    },
+    {
+      "script": "tools/audit/gates/lint-comments.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": true,
+      "unfilteredCiPath": true,
+      "ciStepMatch": "npm run lint:comments",
+      "rationale": "grep-gates deps-tail step: the comment gate runs the shared ESLint configuration (comment rules and Windows-portability rules), the shell/YAML/PowerShell comment scan, baseline integrity, and baseline admission. Admission compares the baseline and the policy with the pull request's base branch, so the gate is diff-dependent and needs the synchronize trigger."
     },
     {
       "script": "tools/audit/gates/lint-inv6.mjs",

@@ -119,6 +119,9 @@ jobs:
               - 'knip.json'
               - '.exarchos/**'
               - 'manifest.json'
+              - 'eslint.config.js'
+              - 'CLAUDE.md'
+              - '.claude/**'
             mcp:
               - 'src/**'
               # `tests/unit/**` and `tests/integration/**` are the core suite's
@@ -199,22 +202,6 @@ jobs:
           echo "installer shells present: bash=$(command -v bash) pwsh=$(command -v pwsh || command -v powershell)"
 
       - run: npm run typecheck
-
-      # The shared ESLint config. Two things ride it, and the script name
-      # predates the second.
-      #
-      # Windows-portability (#1623): editor-first rules, also run here as a
-      # config-rot guard + second enforcement of the spawn-shim /
-      # URL.pathname anti-patterns (the grep-gate is the primary CI enforcer).
-      #
-      # Comment content: `comments/comment-content` enforces
-      # `.exarchos/comment-policy.json` over src, tools and tests. The existing
-      # backlog is suppressed per file in
-      # `tools/audit/comment-content-suppressions.json`; a NEW violation fails
-      # here, and so does a FIXED one whose suppression was not pruned, which
-      # is what keeps that file shrink-only.
-      - run: npm run lint:windows
-      - run: bash tests/scripts/check-eslint-windows.test.sh
 
       - run: npm run test:run
 
@@ -986,17 +973,10 @@ jobs:
       - name: Vocabulary-lint (DR-8)
         run: npm run lint:invariants
 
-      # Error-envelope lint (#1706 DR-2, task 002): scans the registration-set
-      # surface (src/orchestrate/**) via a DEDICATED
-      # type-aware flat config (eslint.envelopes.config.js — never the shared
-      # eslint.config.js the filtered test-root lint:windows step loads),
-      # hosted as a scripts/lint-*.mjs PRIMARY (not a bare eslint invocation)
-      # so check-enforcer-wiring.mjs's manifest walker can see and reconcile
-      # it. Rides this UNFILTERED deps-tail — not the filtered test-root — so
-      # a registered MCP handler that lets a throw abnormally complete it
-      # fails CI on every PR; needs the root eslint/typescript-eslint
-      # devDependencies already installed above. DR-1 host class: deps tail,
-      # unfiltered.
+      # Error-envelope lint: scans the registration surface with a dedicated type-aware flat config
+      # (eslint.envelopes.config.js), never the shared eslint.config.js. It runs as a lint-*.mjs
+      # primary, so the enforcer-wiring checker can see it. It runs on this unfiltered lane, so a
+      # registered MCP handler that lets a throw escape fails CI on every pull request.
       - name: Error-envelope lint (#1706 DR-2)
         run: npm run lint:envelopes
 
@@ -1029,6 +1009,19 @@ jobs:
       # and `tsconfig.scripts.json` includes `scripts/**/*.ts`; neither covers this tree.
       - name: Typecheck tools/eslint-rules/
         run: npx --no-install tsc -p tools/eslint-rules/tsconfig.json
+
+      # The comment gate runs on this unfiltered lane, so a change to any path arms it. It runs the
+      # shared ESLint configuration (comment rules and Windows-portability rules), the comment scan
+      # of shell, YAML and PowerShell files, baseline integrity, and baseline admission against the
+      # base branch of the pull request.
+      - name: Comment gate
+        run: npm run lint:comments
+
+      # The self-tests prove that each check still fails on a seeded violation.
+      - name: Comment gate self-test
+        run: bash tests/scripts/lint-comments.test.sh
+      - name: Windows-portability lint self-test
+        run: bash tests/scripts/check-eslint-windows.test.sh
 
       # DR-15/DR-24 ratchets re-asserted UNFILTERED. Both live in root `src/` and were
       # hosted only by the `root`-path-filtered test-root lane, while the surfaces they

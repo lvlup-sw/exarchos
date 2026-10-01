@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1304,
-    "parsedFiles": 1259,
-    "shellFiles": 45,
-    "cases": 14371,
+    "testFiles": 1310,
+    "parsedFiles": 1264,
+    "shellFiles": 46,
+    "cases": 14432,
     "dynamicTitles": 162,
     "unparseableFiles": 0
   },
@@ -4568,6 +4568,14 @@
     {
       "from": "tests/unit/projections/telemetry/benchmarks/latency.test.ts",
       "to": "tests/unit/projections/telemetry/benchmarks/latency.bench.ts"
+    },
+    {
+      "from": "tools/eslint-rules/comment-content.test.js",
+      "to": "tests/scripts/eslint-rules/comment-content.test.ts"
+    },
+    {
+      "from": "tools/test-helpers/comment-prose.test.ts",
+      "to": "tests/scripts/lib/comment-prose.test.ts"
     }
   ],
   "files": {
@@ -12126,6 +12134,123 @@
         }
       ]
     },
+    "tests/scripts/eslint-rules/comment-baseline.test.ts": {
+      "file": "tests/scripts/eslint-rules/comment-baseline.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "BaselineRule_EntryThatStillMatches_NotReported",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "BaselineRule_FixedBlock_ReportsTheStaleEntry",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "BaselineRule_CountAboveTheViolatingCopies_ReportsTheStaleEntry",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "BaselineRule_EntryForAnExemptFile_IsStale",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/scripts/eslint-rules/comment-content.test.ts": {
+      "file": "tests/scripts/eslint-rules/comment-content.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "Rule_OrdinalInLineComment_Reported",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Rule_Report_NamesTheRemedy",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Rule_Report_CarriesTheCommentLocation",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Rule_BlockComment_Reported",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Rule_CleanComment_NotReported",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Rule_DirectiveComment_Skipped",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Rule_AllowedReference_NotReported",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Rule_ChangelogNarration_Reported",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Rule_MeasuredOffenderFixture_Reported",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Rule_PermittedFixture_NotReported",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Rule_Source_ContainsNoLiteralPolicyPattern",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Rule_ExemptPath_NotReported",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Rule_WrappedLineComments_AreOneBlockAndReportOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Rule_BaselinedBlock_NotReported",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Rule_EditedBaselinedBlock_Reported",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Rule_SecondCopyOfBaselinedBlock_Reported",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Rule_BaselineForAnotherFile_DoesNotSuppress",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/scripts/generate-legacy-skill-hashes.test.ts": {
       "file": "tests/scripts/generate-legacy-skill-hashes.test.ts",
       "runner": "vitest:root",
@@ -12686,6 +12811,148 @@
         }
       ]
     },
+    "tests/scripts/lib/comment-analysis.test.ts": {
+      "file": "tests/scripts/lib/comment-analysis.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "analyzeFile",
+          "name": "AnalyzeFile_ContentViolation_IsAFindingOfTheContentRule",
+          "dynamic": false
+        },
+        {
+          "suite": "analyzeFile",
+          "name": "AnalyzeFile_ExemptPath_HasNoContentFindings",
+          "dynamic": false
+        },
+        {
+          "suite": "analyzeFile",
+          "name": "AnalyzeFile_BaselineCount_SuppressesOnlyThatManyViolatingCopies",
+          "dynamic": false
+        },
+        {
+          "suite": "analyzeFile",
+          "name": "AnalyzeFile_EntryWithoutAViolatingBlock_IsStale",
+          "dynamic": false
+        },
+        {
+          "suite": "analyzeFile",
+          "name": "LiveEntries_CountsViolatingBlocksPerHash",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/scripts/lib/comment-baseline.test.ts": {
+      "file": "tests/scripts/lib/comment-baseline.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "groupBlocks",
+          "name": "GroupBlocks_AdjacentOwnLineComments_MergeIntoOneBlock",
+          "dynamic": false
+        },
+        {
+          "suite": "groupBlocks",
+          "name": "GroupBlocks_BlankLineBetweenComments_StartsANewBlock",
+          "dynamic": false
+        },
+        {
+          "suite": "groupBlocks",
+          "name": "GroupBlocks_TrailingComment_IsItsOwnBlockAndDoesNotMerge",
+          "dynamic": false
+        },
+        {
+          "suite": "groupBlocks",
+          "name": "GroupBlocks_DirectiveBetweenComments_BreaksTheRunAndIsNotABlock",
+          "dynamic": false
+        },
+        {
+          "suite": "groupBlocks",
+          "name": "GroupBlocks_BlockComment_IsOneBlock",
+          "dynamic": false
+        },
+        {
+          "suite": "groupBlocks",
+          "name": "GroupBlocks_TypeOnlyJsdoc_IsNotABlock",
+          "dynamic": false
+        },
+        {
+          "suite": "isTypeAnnotation",
+          "name": "IsTypeAnnotation_TypeTagsWithoutProse_ReturnsTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "isTypeAnnotation",
+          "name": "IsTypeAnnotation_TagWithProse_ReturnsFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "isDirective",
+          "name": "IsDirective_ToolInstruction_ReturnsTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "isDirective",
+          "name": "IsDirective_Prose_ReturnsFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "fingerprint",
+          "name": "Fingerprint_IndentationAndLineEndings_DoNotChangeTheHash",
+          "dynamic": false
+        },
+        {
+          "suite": "fingerprint",
+          "name": "Fingerprint_RewordedOrRewrappedText_ChangesTheHash",
+          "dynamic": false
+        },
+        {
+          "suite": "fingerprint",
+          "name": "Fingerprint_IsTwelveHexCharacters",
+          "dynamic": false
+        },
+        {
+          "suite": "baseline text",
+          "name": "ParseBaseline_ThenSerialize_RoundTripsInCanonicalOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "baseline text",
+          "name": "ParseBaseline_MalformedLine_Throws",
+          "dynamic": false
+        },
+        {
+          "suite": "baseline text",
+          "name": "ParseBaseline_RepeatedEntry_Throws",
+          "dynamic": false
+        },
+        {
+          "suite": "baseline text",
+          "name": "SerializeBaseline_Empty_IsEmptyText",
+          "dynamic": false
+        },
+        {
+          "suite": "isSuppressed",
+          "name": "IsSuppressed_CoversOnlyTheFirstCountViolatingCopies",
+          "dynamic": false
+        },
+        {
+          "suite": "countTextOccurrences",
+          "name": "CountTextOccurrences_CountsCopiesAcrossIndentation",
+          "dynamic": false
+        },
+        {
+          "suite": "countTextOccurrences",
+          "name": "CountTextOccurrences_MultiLineBlock_MatchesOnlyContiguousLines",
+          "dynamic": false
+        },
+        {
+          "suite": "countTextOccurrences",
+          "name": "NormalizeBlock_TrimsEachLine",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/scripts/lib/comment-classifier.precision.test.ts": {
       "file": "tests/scripts/lib/comment-classifier.precision.test.ts",
       "runner": "vitest:root",
@@ -12960,21 +13227,6 @@
         },
         {
           "suite": "loadPolicy",
-          "name": "LoadPolicy_ExpiredWaiver_Fails",
-          "dynamic": false
-        },
-        {
-          "suite": "loadPolicy",
-          "name": "LoadPolicy_LiveWaiver_Accepted",
-          "dynamic": false
-        },
-        {
-          "suite": "loadPolicy",
-          "name": "LoadPolicy_WaiverWithoutOwner_Fails",
-          "dynamic": false
-        },
-        {
-          "suite": "loadPolicy",
           "name": "LoadPolicy_ExemptPathWithoutExpiry_Accepted",
           "dynamic": false
         },
@@ -12991,6 +13243,21 @@
         {
           "suite": "loadPolicy",
           "name": "LoadPolicy_UncompilablePattern_FailsAtLoad",
+          "dynamic": false
+        },
+        {
+          "suite": "loadPolicy",
+          "name": "LoadPolicy_MissingRulesRoster_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "loadPolicy",
+          "name": "LoadPolicy_ExemptPathWithoutRules_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "loadPolicy",
+          "name": "LoadPolicy_ExemptPathNamingUnknownRule_Fails",
           "dynamic": false
         },
         {
@@ -13035,12 +13302,12 @@
         },
         {
           "suite": "the repository policy datum",
-          "name": "Policy_CoverageRatchet_ShipsDisabledUntilTheTreeSettles",
+          "name": "Policy_EveryExemptGlob_MatchesATrackedFile",
           "dynamic": false
         },
         {
-          "suite": "isWaived",
-          "name": "IsWaived_LiveWaiverMatchingPath_ReturnsTrue",
+          "suite": "the repository policy datum",
+          "name": "IsExempt_RuleOutsideTheRoster_Throws",
           "dynamic": false
         },
         {
@@ -13137,6 +13404,194 @@
         {
           "suite": "stripMarkers",
           "name": "StripMarkers_CollapsesRuns_OfWhitespace",
+          "dynamic": false
+        },
+        {
+          "suite": "extractCommentProse",
+          "name": "CommentProse_KeepsCommentsAndDropsCode",
+          "dynamic": false
+        },
+        {
+          "suite": "extractCommentProse",
+          "name": "CommentProse_TemplateSubstitutionTailIsNotProse",
+          "dynamic": false
+        },
+        {
+          "suite": "extractCommentProse",
+          "name": "CommentProse_CommentInsideATemplateSubstitutionIsProse",
+          "dynamic": false
+        },
+        {
+          "suite": "extractCommentProse",
+          "name": "CommentProse_JoinsWrappedLinesIntoOneSentence",
+          "dynamic": false
+        },
+        {
+          "suite": "extractCommentProse",
+          "name": "CommentProse_RecoveredParse_ThrowsRatherThanGuessing",
+          "dynamic": false
+        },
+        {
+          "suite": "sentenceBefore",
+          "name": "SentenceBefore_StopsAtTheEnclosingSentenceBoundary",
+          "dynamic": false
+        },
+        {
+          "suite": "isQuotedMention",
+          "name": "QuotedMention_DistinguishesUseFromMention",
+          "dynamic": false
+        },
+        {
+          "suite": "isQuotedMention",
+          "name": "QuotedMention_ApostropheIsNotAQuote",
+          "dynamic": false
+        },
+        {
+          "suite": "isQuotedMention",
+          "name": "QuotedMention_ClosedQuoteEarlierInTheSentenceDoesNotCarryOver",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/scripts/lib/comment-sources.test.ts": {
+      "file": "tests/scripts/lib/comment-sources.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "shell comments",
+          "name": "Shell_OwnLineComments_MergeAndShebangIsSkipped",
+          "dynamic": false
+        },
+        {
+          "suite": "shell comments",
+          "name": "Shell_HashInsideQuotesAndExpansions_IsNotAComment",
+          "dynamic": false
+        },
+        {
+          "suite": "shell comments",
+          "name": "Shell_HeredocBody_IsSkippedEvenWithAnApostrophe",
+          "dynamic": false
+        },
+        {
+          "suite": "shell comments",
+          "name": "Shell_IndentedHeredocWithQuotedDelimiter_IsSkipped",
+          "dynamic": false
+        },
+        {
+          "suite": "shell comments",
+          "name": "Shell_UnclosedHeredoc_DoesNotHideTheRestOfTheFile",
+          "dynamic": false
+        },
+        {
+          "suite": "shell comments",
+          "name": "Shell_ShellcheckDirective_IsSkipped",
+          "dynamic": false
+        },
+        {
+          "suite": "YAML comments",
+          "name": "Yaml_CommentsAndRunBlockShellComments_AreRead",
+          "dynamic": false
+        },
+        {
+          "suite": "YAML comments",
+          "name": "Yaml_HashInsideAPlainOrQuotedScalar_IsNotAComment",
+          "dynamic": false
+        },
+        {
+          "suite": "YAML comments",
+          "name": "Yaml_RunBlockLines_KeepTheirFileLineNumbers",
+          "dynamic": false
+        },
+        {
+          "suite": "PowerShell comments",
+          "name": "PowerShell_LineBlockAndHereString_AreHandled",
+          "dynamic": false
+        },
+        {
+          "suite": "sourceLanguage",
+          "name": "SourceLanguage_MapsExtensions",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/scripts/lib/git-base.test.ts": {
+      "file": "tests/scripts/lib/git-base.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "readAtRef",
+          "name": "ReadAtRef_ExistingAndMissingPaths_ReturnsTextOrUndefined",
+          "dynamic": false
+        },
+        {
+          "suite": "readAtRef",
+          "name": "ReadAtRef_NoPaths_ReturnsAnEmptyMap",
+          "dynamic": false
+        },
+        {
+          "suite": "diffFromRef",
+          "name": "DiffFromRef_RenameAndAdd_AreReported",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveBase",
+          "name": "ResolveBase_ExplicitRef_WinsAndMustExist",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveBase",
+          "name": "ResolveBase_PullRequestWithoutBaseRef_FailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveBase",
+          "name": "ResolveBase_PushRun_SkipsWithAReason",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveBase",
+          "name": "ResolveBase_LocalWithoutOriginMain_SkipsWithAReason",
+          "dynamic": false
+        },
+        {
+          "suite": "small helpers",
+          "name": "RevParse_KnownAndUnknownRefs",
+          "dynamic": false
+        },
+        {
+          "suite": "small helpers",
+          "name": "TrackedFiles_ListsTheIndex",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/scripts/lib/lint-scope.test.ts": {
+      "file": "tests/scripts/lib/lint-scope.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "expandBraces",
+          "name": "ExpandBraces_NestedSets_ExpandToEveryCombination",
+          "dynamic": false
+        },
+        {
+          "suite": "globsMatch",
+          "name": "GlobsMatch_DoubleStarCrossesDirectoriesAndSingleStarDoesNot",
+          "dynamic": false
+        },
+        {
+          "suite": "isInLintScope",
+          "name": "IsInLintScope_EveryRootAndExtension_IsIn",
+          "dynamic": false
+        },
+        {
+          "suite": "isInLintScope",
+          "name": "IsInLintScope_OtherFilesAndIgnoredFixtures_AreOut",
+          "dynamic": false
+        },
+        {
+          "suite": "consumers",
+          "name": "LintScript_QuotedGlobs_EqualTheSharedConstant",
           "dynamic": false
         }
       ]
@@ -81248,67 +81703,6 @@
         }
       ]
     },
-    "tools/eslint-rules/comment-content.test.js": {
-      "file": "tools/eslint-rules/comment-content.test.js",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "",
-          "name": "Rule_OrdinalInLineComment_Reported",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "Rule_Report_NamesTheRemedy",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "Rule_Report_CarriesTheCommentLocation",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "Rule_BlockComment_Reported",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "Rule_CleanComment_NotReported",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "Rule_DirectiveComment_Skipped",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "Rule_AllowedReference_NotReported",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "Rule_ChangelogNarration_Reported",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "Rule_MeasuredOffenderFixture_Reported",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "Rule_PermittedFixture_NotReported",
-          "dynamic": false
-        },
-        {
-          "suite": "",
-          "name": "Rule_Source_ContainsNoLiteralPolicyPattern",
-          "dynamic": false
-        }
-      ]
-    },
     "tools/eslint-rules/no-handler-throw.test.js": {
       "file": "tools/eslint-rules/no-handler-throw.test.js",
       "runner": "vitest:root",
@@ -83487,57 +83881,6 @@
         }
       ]
     },
-    "tools/test-helpers/comment-prose.test.ts": {
-      "file": "tools/test-helpers/comment-prose.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "extractCommentProse",
-          "name": "CommentProse_KeepsCommentsAndDropsCode",
-          "dynamic": false
-        },
-        {
-          "suite": "extractCommentProse",
-          "name": "CommentProse_TemplateSubstitutionTailIsNotProse",
-          "dynamic": false
-        },
-        {
-          "suite": "extractCommentProse",
-          "name": "CommentProse_CommentInsideATemplateSubstitutionIsProse",
-          "dynamic": false
-        },
-        {
-          "suite": "extractCommentProse",
-          "name": "CommentProse_JoinsWrappedLinesIntoOneSentence",
-          "dynamic": false
-        },
-        {
-          "suite": "extractCommentProse",
-          "name": "CommentProse_RecoveredParse_ThrowsRatherThanGuessing",
-          "dynamic": false
-        },
-        {
-          "suite": "sentenceBefore",
-          "name": "SentenceBefore_StopsAtTheEnclosingSentenceBoundary",
-          "dynamic": false
-        },
-        {
-          "suite": "isQuotedMention",
-          "name": "QuotedMention_DistinguishesUseFromMention",
-          "dynamic": false
-        },
-        {
-          "suite": "isQuotedMention",
-          "name": "QuotedMention_ApostropheIsNotAQuote",
-          "dynamic": false
-        },
-        {
-          "suite": "isQuotedMention",
-          "name": "QuotedMention_ClosedQuoteEarlierInTheSentenceDoesNotCarryOver",
-          "dynamic": false
-        }
-      ]
-    },
     "tools/test-helpers/repo-sandbox.test.ts": {
       "file": "tools/test-helpers/repo-sandbox.test.ts",
       "runner": "vitest:root",
@@ -83840,6 +84183,11 @@
     },
     "tests/scripts/github-config.test.sh": {
       "file": "tests/scripts/github-config.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/lint-comments.test.sh": {
+      "file": "tests/scripts/lint-comments.test.sh",
       "runner": "shell",
       "cases": []
     },

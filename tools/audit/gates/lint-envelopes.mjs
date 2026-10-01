@@ -1,35 +1,18 @@
 #!/usr/bin/env node
 /**
- * lint-envelopes — error-envelope lint wrapper (#1706 DR-2).
+ * lint-envelopes: the error-envelope lint wrapper.
  *
- * A thin `node` wrapper around `eslint --config eslint.envelopes.config.js`,
- * hosted as a `scripts/lint-*.mjs` PRIMARY so `tools/audit/gates/check-enforcer-wiring.mjs`'s
- * manifest walker (pattern `^(check|lint)-.+\.(mjs|sh)$`) can see and reconcile
- * it — a bare `eslint …` invocation inline in a workflow step is invisible to
- * that walker. Runs on the UNFILTERED `grep-gates` lane, never the filtered
- * `test-root` `lint:windows` step (`ci.yml:114`), because `eslint.envelopes.config.js`
- * is a DEDICATED flat config (`--config` REPLACES the default `eslint.config.js`
- * ESLint would otherwise auto-discover) that is never merged into the shared
- * config `lint:windows` loads.
+ * A thin `node` wrapper around `eslint --config eslint.envelopes.config.js`. It is a `lint-*.mjs`
+ * primary, so the enforcer-wiring checker can see it, and it runs on the unfiltered `grep-gates`
+ * lane. The dedicated config replaces the shared `eslint.config.js` and is never merged into it.
  *
- * The custom `envelopes/no-handler-throw` rule (`tools/eslint-rules/no-handler-throw.js`)
- * enforces DR-1: a registered MCP action handler must return `ToolResult.error`,
- * never let a throw abnormally complete it. This wrapper is pure plumbing — it
- * owns none of that rule logic, only invocation + exit-code propagation.
+ * The `envelopes/no-handler-throw` rule requires a registered MCP action handler to return
+ * `ToolResult.error`, never to let a throw escape. This wrapper owns no rule logic.
  *
- * Default target: `src/verbs/**\/*.ts` — the
- * registration-set surface the rule type-checks. `--target`/`--config` exist
- * ONLY for testability (`scripts/lint-envelopes.test.sh` drives controlled
- * fixtures through the real wrapper without depending on the real tree's
- * current violation count); production usage (`npm run lint:envelopes`, the
- * `grep-gates` CI step) never passes them.
+ * Default target: `src/verbs/**\/*.ts`. The `--target` and `--config` flags exist for the self-test.
  *
- * Exit 0 — clean (ESLint reports zero errors).
- * Exit 1 — ESLint reports one or more errors (a registered handler can
- *          abnormally complete via a throw).
- * Exit 2 — fail-closed: eslint is not installed or could not be spawned, or
- *          exited for a reason other than reporting lint errors (e.g. a
- *          missing/unreadable `--config` path).
+ * Exit 0: clean. Exit 1: ESLint reports errors. Exit 2: fail-closed, because eslint is missing,
+ * cannot start, or exits for another reason, such as a missing `--config` path.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';

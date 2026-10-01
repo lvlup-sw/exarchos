@@ -1,7 +1,9 @@
 {
-  "$schema": "./comment-policy.schema.json",
-  "version": 1,
+  "version": 2,
   "rule": "A code comment states its constraint in words and names no planning ordinal. Planning ordinals identify artifacts of a workflow that a future reader cannot resolve and that are renumbered as the plan is revised, so a citation accurate when written stops being so without anything changing. Durable external references are unaffected: they name something outside this repository's planning cycle and a reader can follow them.",
+  "rules": [
+    "comment-content"
+  ],
   "forbiddenOrdinals": [
     {
       "id": "design-requirement",
@@ -147,52 +149,66 @@
   "exemptPaths": [
     {
       "glob": ".exarchos/comment-policy.json",
-      "reason": "The policy datum states the patterns it forbids. A datum that cannot spell its own rule cannot declare it."
+      "rules": [
+        "comment-content"
+      ],
+      "reason": "The policy states the patterns it forbids. A policy that cannot spell its own rule cannot declare it."
     },
     {
       "glob": "tools/audit/lib/comment-*.mjs",
-      "reason": "The classifier and extractor carry the rule's own vocabulary in remedies and doc comments."
+      "rules": [
+        "comment-content"
+      ],
+      "reason": "The classifier, extractor and baseline modules carry the rule's own vocabulary in remedies and docs."
     },
     {
-      "glob": "tools/audit/lib/comment-*.test.ts",
-      "reason": "The tests assert on the patterns, so they must contain them."
+      "glob": "tools/audit/gates/lint-comments.mjs",
+      "rules": [
+        "comment-content"
+      ],
+      "reason": "The gate's own source names the patterns it reports."
     },
     {
-      "glob": "scripts/check-comment-*.mjs",
-      "reason": "The gate's own sources."
+      "glob": "tools/eslint-rules/comment-*.js",
+      "rules": [
+        "comment-content"
+      ],
+      "reason": "The rules' own sources."
     },
     {
-      "glob": "scripts/check-comment-*.test.ts",
-      "reason": "The gate's own tests."
+      "glob": "tests/scripts/lib/comment-*.test.ts",
+      "rules": [
+        "comment-content"
+      ],
+      "reason": "The library tests assert on the patterns, so they must contain them."
+    },
+    {
+      "glob": "tests/scripts/eslint-rules/comment-*.test.ts",
+      "rules": [
+        "comment-content"
+      ],
+      "reason": "The rule tests assert on the patterns, so they must contain them."
+    },
+    {
+      "glob": "tests/scripts/lint-comments.test.sh",
+      "rules": [
+        "comment-content"
+      ],
+      "reason": "The gate's self-test writes offender text into its fixtures."
     },
     {
       "glob": "tools/audit/__fixtures__/comment-hygiene/**",
+      "rules": [
+        "comment-content"
+      ],
       "reason": "Kill fixtures carry verbatim offender text. A guard that flags its own fixtures cannot be tested."
     },
     {
-      "glob": "tools/eslint-rules/comment-content.js",
-      "reason": "The rule's own source."
-    },
-    {
-      "glob": "tools/eslint-rules/comment-content.test.js",
-      "reason": "The rule's own tests."
-    },
-    {
-      "glob": "tools/eslint-rules/__fixtures__/**",
-      "reason": "Rule fixtures carry verbatim offender text."
-    },
-    {
       "glob": "tests/evals/**/runs/**",
-      "reason": "Verbatim captured agent output. This is evidence of what an agent produced, not authored code: rewriting it would destroy the record, and blocking on it would fail the tree for something no author wrote."
+      "rules": [
+        "comment-content"
+      ],
+      "reason": "Verbatim captured agent output. It is evidence of what an agent produced, not authored code: rewriting it would destroy the record."
     }
-  ],
-  "waivers": [],
-  "coverage": {
-    "exportedDeclarations": {
-      "enabled": false,
-      "baselinePath": "scripts/tsdoc-coverage-baseline.json",
-      "direction": "monotonic-increase",
-      "disabledReason": "The baseline is measured against a settled tree. Capturing it before the pending structural refactor would key it to paths that refactor destroys, and its diff-scoped check would block that refactor's decomposition wave."
-    }
-  }
+  ]
 }

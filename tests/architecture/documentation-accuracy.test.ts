@@ -15,6 +15,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ESLint } from 'eslint';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -126,7 +127,7 @@ describe('Documentation_EveryStatedRule_IsOneThatIsEnforced', () => {
   // The anti-drift condition. Documentation may state a rule only where
   // something actually enforces it — otherwise the docs accumulate aspirations
   // that read exactly like guarantees.
-  const ENFORCED: ReadonlyArray<{ claim: RegExp; enforcer: string; where: string }> = [
+  const ENFORCED: ReadonlyArray<{ claim: RegExp; enforcer: string | { eslintRule: string }; where: string }> = [
     {
       claim: /never beside their subject|all tests live in `?tests\/`?/i,
       enforcer: 'tests/architecture/test-tree-contract.test.ts',
@@ -144,18 +145,34 @@ describe('Documentation_EveryStatedRule_IsOneThatIsEnforced', () => {
     },
     {
       claim: /planning ordinal/i,
-      enforcer: '.exarchos/comment-policy.json',
+      enforcer: { eslintRule: 'comments/comment-content' },
       where: 'CLAUDE.md',
     },
   ];
 
-  it('every rule the instructions state has a live enforcer', () => {
+  /** One linted file per lint root. A rule enforces a claim only if it is on for each of them. */
+  const RULE_SAMPLES = ['src/registry.ts', 'tools/audit/gates/lint-comments.mjs', 'tests/architecture/documentation-accuracy.test.ts'];
+
+  it('every rule the instructions state has a live enforcer', async () => {
     const unenforced: string[] = [];
+    const eslint = new ESLint({ cwd: REPO_ROOT });
     for (const { claim, enforcer, where } of ENFORCED) {
       const text = read(where);
       if (!claim.test(text)) continue; // the doc does not make the claim — nothing to enforce
-      if (!fs.existsSync(path.join(REPO_ROOT, enforcer))) {
-        unenforced.push(`${where} states a rule enforced by ${enforcer}, which does not exist`);
+      if (typeof enforcer === 'string') {
+        if (!fs.existsSync(path.join(REPO_ROOT, enforcer))) {
+          unenforced.push(`${where} states a rule enforced by ${enforcer}, which does not exist`);
+        }
+        continue;
+      }
+      for (const sample of RULE_SAMPLES) {
+        expect(fs.existsSync(path.join(REPO_ROOT, sample)), `rule sample ${sample} is missing`).toBe(true);
+        const config = (await eslint.calculateConfigForFile(path.join(REPO_ROOT, sample))) as { rules?: Record<string, unknown> };
+        const setting = config.rules?.[enforcer.eslintRule];
+        const severity = Array.isArray(setting) ? setting[0] : setting;
+        if (severity !== 2 && severity !== 'error') {
+          unenforced.push(`${where} states a rule enforced by ${enforcer.eslintRule}, which is not on at error for ${sample}`);
+        }
       }
     }
     expect(unenforced, unenforced.join('\n')).toEqual([]);

@@ -14,9 +14,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const OUT = path.join(ROOT, 'tools/audit/verb-registration-baseline.json');
+
+/** The tsx entry point. Node runs it directly because Windows cannot spawn the `npx` shim. */
+const TSX_CLI = createRequire(import.meta.url).resolve('tsx/cli');
 
 // Drive the real registry through the MCP workspace's own runner so the ids are
 // the ones the server actually serves, not a regex's guess at them.
@@ -30,7 +34,7 @@ const tmp = path.join(ROOT, '.tmp-verb-snapshot.mts');
 fs.writeFileSync(tmp, script, 'utf8');
 let ids;
 try {
-  const out = execFileSync('npx', ['tsx', tmp], {
+  const out = execFileSync(process.execPath, [TSX_CLI, tmp], {
     cwd: ROOT,
     encoding: 'utf8',
     maxBuffer: 32 * 1024 * 1024,
