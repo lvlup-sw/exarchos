@@ -2281,9 +2281,7 @@ src/verbs/worktree/pure/probe.ts	50482ea7dfbc	1
 src/verbs/worktree/pure/probe.ts	537d14ca7427	1
 src/verbs/worktree/pure/probe.ts	a421ea8fcbcc	1
 src/verbs/worktree/pure/probe.ts	b3ef9d203f4b	1
-src/verbs/worktree/pure/probe.ts	bf27f0200e6c	1
 src/verbs/worktree/pure/probe.ts	df92b183847d	1
-src/verbs/worktree/pure/probe.ts	ef879cf8fd0a	1
 src/verbs/worktree/pure/process-identity.ts	cf61adc6746b	1
 src/verbs/worktree/pure/prune-ladder.ts	1d925eed23e3	1
 src/verbs/worktree/pure/prune-ladder.ts	2e15a98e0aac	1
