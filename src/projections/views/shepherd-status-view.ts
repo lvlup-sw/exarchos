@@ -1,14 +1,12 @@
+/**
+ * Projection for the shepherd loop.
+ * Shepherd is an iteration loop inside the `synthesize` phase, not a separate phase.
+ * This view tracks loop progress (iteration count and PR health) with no phase transition.
+ */
 import type { ViewProjection } from './materializer.js';
 import type { WorkflowEvent } from '../../events/schemas.js';
 
-// ─── View Name Constant ────────────────────────────────────────────────────
-// Shepherd is NOT a separate HSM phase — it operates as an iteration loop
-// within the `synthesize` phase. This view tracks loop progress (iteration
-// counts, PR health) without requiring a phase transition.
-
 export const SHEPHERD_STATUS_VIEW = 'shepherd-status';
-
-// ─── View State Interfaces ─────────────────────────────────────────────────
 
 export interface PrStatus {
   readonly pr: number;
@@ -29,10 +27,7 @@ export interface ShepherdStatusState {
   readonly approvalRequestedAt?: string;
   readonly completedAt?: string;
   readonly outcome?: string | undefined;
-  // DR-3 (#1595): the WHY behind an `escalate` status. `overallStatus` already
-  // derives `'escalate'` from the iteration count; this field carries the
-  // structured reason + counts from the `shepherd.escalated` event so
-  // shepherd_status/ps surface a human-readable escalation, not just a status.
+  /** The reason and counts from the `shepherd.escalated` event, so `shepherd_status` and `ps` can show why the loop escalated. */
   readonly escalation?: {
     readonly reason: string;
     readonly iterationCount: number;
@@ -40,8 +35,6 @@ export interface ShepherdStatusState {
     readonly escalatedAt: string;
   };
 }
-
-// ─── Per-PR Update Helper ──────────────────────────────────────────────────
 
 function findOrCreatePr(prs: ReadonlyArray<PrStatus>, prNumber: number): PrStatus {
   const existing = prs.find((p) => p.pr === prNumber);
@@ -70,14 +63,11 @@ function updatePr(
   return [...prs, updated] as PrStatus[];
 }
 
-// ─── Overall Status Computation ────────────────────────────────────────────
-
+/**
+ * True when the iteration count reaches the bound, or when the view folded a `shepherd.escalated` event.
+ * The event alone is enough, so the status escalates even without the iteration events.
+ */
 function isEscalated(state: ShepherdStatusState): boolean {
-  // Escalated when the bound is hit (iteration count) OR when a structured
-  // `shepherd.escalated` event has been folded (DR-3, #1595). The explicit
-  // event is authoritative: it records that the loop terminated on the bound,
-  // so the status reflects escalation even if folded independently of the
-  // iteration events.
   return state.escalation !== undefined || state.iteration >= state.maxIterations;
 }
 
@@ -102,8 +92,6 @@ function computeOverallStatus(state: ShepherdStatusState): ShepherdStatusState['
   if (isAllHealthy(state.prs)) return 'healthy';
   return 'unknown';
 }
-
-// ─── Event Handlers ────────────────────────────────────────────────────────
 
 function handleCiStatus(state: ShepherdStatusState, event: WorkflowEvent): ShepherdStatusState {
   const data = event.data as { pr?: number; status?: string } | undefined;
@@ -142,12 +130,12 @@ function handleReviewFinding(state: ShepherdStatusState, event: WorkflowEvent): 
   return { ...next, overallStatus: computeOverallStatus(next) };
 }
 
+/** Blocks the PR with one synthetic `critical` finding. */
 function handleReviewEscalated(state: ShepherdStatusState, event: WorkflowEvent): ShepherdStatusState {
   const data = event.data as { pr?: number } | undefined;
   if (!data || data.pr === undefined) return state;
 
   const prNumber = data.pr;
-  // Mark the PR as blocked by adding a synthetic critical finding
   const updatedPrs = updatePr(state.prs, prNumber, (pr) => ({
     ...pr,
     unresolvedBySeverity: {
@@ -194,14 +182,11 @@ function handleCommentResolved(state: ShepherdStatusState, event: WorkflowEvent)
   return { ...next, overallStatus: computeOverallStatus(next) };
 }
 
+/**
+ * Adds 1 for each `shepherd.iteration` event and ignores any `iteration` value in the payload.
+ * `countShepherdIterations` uses the same rule, so `shepherd_status` and `ps` agree with the loop count.
+ */
 function handleShepherdIteration(state: ShepherdStatusState, event: WorkflowEvent): ShepherdStatusState {
-  // The COUNT of `shepherd.iteration` events is the single authority (DR-3,
-  // #1595) — increment by 1 per event rather than reading the `iteration` value
-  // in the payload. The payload may still carry an `iteration` field, but it is
-  // no longer the authority. This folds the SAME rule the loop's
-  // `countShepherdIterations` applies, so after N events `view.iteration === N`
-  // regardless of any payload value, and `shepherd_status`/`ps` can never
-  // disagree with the loop's count (INV-1: one event-sourced counter).
   void event;
   const next: ShepherdStatusState = { ...state, iteration: state.iteration + 1 };
   return { ...next, overallStatus: computeOverallStatus(next) };
@@ -216,10 +201,6 @@ function handleShepherdApprovalRequested(state: ShepherdStatusState, event: Work
 }
 
 function handleShepherdEscalated(state: ShepherdStatusState, event: WorkflowEvent): ShepherdStatusState {
-  // DR-3 (#1595): fold the structured bound-hit escalation into a surfaceable
-  // shape. `overallStatus` already reflects `'escalate'` via `isEscalated`; this
-  // adds the WHY (reason + counts) so a human/agent reading shepherd_status/ps
-  // sees why the loop terminated, not just that it did.
   const data = event.data as
     | { reason?: string; iterationCount?: number; maxIterations?: number }
     | undefined;
@@ -245,8 +226,6 @@ function handleShepherdCompleted(state: ShepherdStatusState, event: WorkflowEven
     outcome: data?.outcome,
   };
 }
-
-// ─── Projection ────────────────────────────────────────────────────────────
 
 export const shepherdStatusProjection: ViewProjection<ShepherdStatusState> = {
   init: (): ShepherdStatusState => ({
@@ -293,7 +272,3 @@ export const shepherdStatusProjection: ViewProjection<ShepherdStatusState> = {
     }
   },
 };
-
-// Note: the live `handleViewShepherdStatus` lives in `projections/views/tools.ts`;
-// this file owns only the projection + state shapes that the live handler
-// re-exports through that module.

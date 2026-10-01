@@ -1,15 +1,10 @@
 import type { ViewProjection } from './materializer.js';
 import { TeamTaskAssignedData, type WorkflowEvent } from '../../events/schemas.js';
 
-// ─── View Name Constant ────────────────────────────────────────────────────
-
 export const DELEGATION_TIMELINE_VIEW = 'delegation-timeline';
 
-// ─── Bounds ─────────────────────────────────────────────────────────────────
-
+/** The view keeps at most this many tasks. When a new task goes past the limit, the oldest task leaves the view. */
 export const MAX_TIMELINE_TASKS = 200;
-
-// ─── View State ────────────────────────────────────────────────────────────
 
 export interface TimelineTask {
   taskId: string;
@@ -18,8 +13,7 @@ export interface TimelineTask {
   assignedAt: string;
   completedAt: string | null;
   durationMs: number;
-  // #1525 — output tokens attributed to this task, folded from subagent.tokens_used
-  // atoms whose resolved taskId matches. Accumulates across re-runs/fix-cycles.
+  /** Sum of the output tokens of each `subagent.tokens_used` event with this `taskId`. Re-runs add to the sum. */
   outputTokens: number;
 }
 
@@ -37,8 +31,6 @@ export interface DelegationTimelineViewState {
   bottleneck: Bottleneck | null;
   hasMore: boolean;
 }
-
-// ─── Helpers ───────────────────────────────────────────────────────────────
 
 /** Find the task with the longest duration among completed tasks. */
 function findBottleneck(tasks: TimelineTask[]): Bottleneck | null {
@@ -61,8 +53,6 @@ function findBottleneck(tasks: TimelineTask[]): Bottleneck | null {
     reason: 'longest_task',
   };
 }
-
-// ─── Projection ────────────────────────────────────────────────────────────
 
 export const delegationTimelineProjection: ViewProjection<DelegationTimelineViewState> = {
   init: () => ({
@@ -142,9 +132,6 @@ export const delegationTimelineProjection: ViewProjection<DelegationTimelineView
       }
 
       case 'subagent.tokens_used': {
-        // #1525 — attribute the output-token total to its task. The atom carries
-        // a taskId the SubagentStop hook resolved from the dispatch; accumulate
-        // (re-runs/fix-cycles emit more than one). No matching task → ignore.
         const data = event.data as {
           taskId?: string;
           outputTokens?: number;

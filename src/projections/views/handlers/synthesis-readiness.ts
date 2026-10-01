@@ -6,13 +6,19 @@ import { getOrCreateMaterializer } from './materializer.js';
 import { foldToTail } from '../../fold-at-tail.js';
 import { readWorkflowStateJson } from './streams.js';
 
-// ─── View Synthesis Readiness Handler ────────────────────────────────────────
-
+/**
+ * Handles the `synthesis_readiness` view. The response omits `review.findingsBySeverity`
+ * unless `detail` is true.
+ *
+ * The planner stamps reviews and tasks in `state.json`, and the projection reads only
+ * events. So a review entry in `state.json` wins, which stops a stale `true` after a
+ * re-stamp. When `state.json` has a task list, the task total and the completed count
+ * come from it, because a task can complete without an event. A `null` test or typecheck
+ * result means that nothing measured it, so its blocker says "not measured".
+ */
 export async function handleViewSynthesisReadiness(
   args: {
     workflowId?: string;
-    // DR-8 (Task 024) — compact-by-default drops the review's per-severity
-    // findings breakdown; `detail: true` restores it.
     detail?: boolean;
   },
   stateDir: string,
@@ -25,13 +31,6 @@ export async function handleViewSynthesisReadiness(
 
     const { view } = await foldToTail<SynthesisReadinessState>(store, materializer, streamId, SYNTHESIS_READINESS_VIEW);
 
-    // Fix 2 (#1184) — review status is plan-state stamped via `workflow set`
-    // (state.reviews); the synthesis-readiness projection only watches
-    // `gate.executed`, so reviews recorded directly into state.json never
-    // surface as passed. state.json is the planner's source of truth — when
-    // an entry exists there, prefer it; otherwise fall back to the projection.
-    // This avoids a stale projection-derived `true` sticking after the
-    // planner re-stamps a review back to a non-passed status.
     const state = await readWorkflowStateJson(stateDir, streamId);
     const reviews = (state?.['reviews'] as Record<string, unknown> | undefined) ?? {};
     const reviewStatus = (
@@ -49,12 +48,6 @@ export async function handleViewSynthesisReadiness(
     const review = reviewStatus('review');
     const reviewPassed = review.present ? review.passed : view.review.reviewPassed;
 
-    // Fix 2 (#1184) — task counts: the projection counts events; state.json
-    // is the planner's stamp. Both `total` AND `completed` need the
-    // state.json fallback — projection-derived completed count is
-    // event-driven, so in the missing-event flows this PR is fixing it
-    // would underreport (state.tasks shows complete but no task.completed
-    // event ever fired). CR review 4178067854.
     const stateTasks = state?.['tasks'];
     const tasksTotal = Array.isArray(stateTasks) ? stateTasks.length : view.tasks.total;
     const tasksCompleted = Array.isArray(stateTasks)
@@ -65,10 +58,6 @@ export async function handleViewSynthesisReadiness(
         }).length
       : view.tasks.completed;
 
-    // Fix 2 (T2.6) — distinguish null (not measured) from false (failed) when
-    // generating blocker text. The projection's tests.* fields initialize to
-    // null; only `test.result` / `typecheck.result` events flip them to a
-    // boolean. Saying "tests not passing" when no test ever ran is misleading.
     const blockers: string[] = [];
     if (tasksTotal === 0) {
       blockers.push('no tasks tracked');
@@ -99,9 +88,6 @@ export async function handleViewSynthesisReadiness(
       review: { ...view.review, reviewPassed },
     };
 
-    // DR-8 (Task 024) compact-by-default — drop the review's per-severity
-    // findings breakdown; the `reviewPassed` headline + `blockers` stay.
-    // `detail: true` restores `findingsBySeverity`.
     if (args.detail) {
       return { success: true, data };
     }

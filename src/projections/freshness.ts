@@ -1,29 +1,12 @@
 /**
- * Projection freshness comparison (EFF-002).
+ * Projection freshness: compare a projection cursor with the durable event tail.
  *
- * CB-8 (phase-gate v2.12 dogfood): workflow views silently served a stale fold
- * — a cancelled workflow still reported at `plan-review`, 7 of 10 completed
- * tasks visible, projection lag past 500s — with no signal that the answer was
- * not derived from the current event tail. A read surface that cannot prove its
- * fold covers the tail must say so rather than answer confidently.
+ * A read surface that cannot prove that its fold covers the tail must say so.
+ * The comparison is pure and does no I/O. Callers supply the tail and the cursors.
  *
- * This module is the pure comparison. It performs no I/O: callers supply the
- * durable event tail and the projection cursors, and receive a typed verdict
- * suitable for stamping onto a response envelope.
- *
- * ## DR-4 — the verdict, made durable
- *
- * The comparison above answered CB-8's question but published nothing: the
- * verdict lived only in `_meta.projectionDegraded` on one response envelope,
- * recomputed per read from an in-memory LRU of materialized folds. Persisted
- * nowhere, consumed by nobody — so any consumer that did not read `_meta` (and
- * every consumer in a different process, or this one after a restart with a
- * cold cache) still served the stale fold as `success: true`.
- *
- * The `publish…` / `read…` half of this module closes that: the same verdict is
- * journaled to a dedicated durable stream, and read back as a folded state.
- * The `_meta` annotation is unchanged and still ephemeral by design — it is a
- * per-response courtesy, not the state of record.
+ * The `publish…` and `read…` functions write the same verdict to a dedicated
+ * durable stream and fold it back. That stream is the state of record. The
+ * `_meta` annotation is per response and is not stored.
  */
 
 import {
@@ -33,14 +16,15 @@ import {
   type ProjectionRecovered,
 } from '../events/schemas.js';
 
-/** Why a projection is not trustworthy for this read. */
+/**
+ * Why a projection is not trustworthy for this read.
+ *
+ * - `projection-behind`: the fold stops short of the durable tail. The answer omits recent events.
+ * - `projection-ahead`: the fold claims events past the durable tail, for example after a
+ *   snapshot restore over a pruned or rebuilt store.
+ */
 export type ProjectionDegradationReason =
-  /** The fold stops short of the durable tail — the answer omits recent events. */
   | 'projection-behind'
-  /**
-   * The fold claims events past the durable tail. A snapshot restored over a
-   * pruned or rebuilt store; the projection and the log contradict each other.
-   */
   | 'projection-ahead';
 
 /** One projection's position relative to the stream's durable tail. */
@@ -51,14 +35,14 @@ export interface ProjectionCursor {
 }
 
 export interface ProjectionFreshness {
-  /** True when NO consumer may act on the fold without acknowledging the gap. */
+  /** True when the fold disagrees with the tail. A consumer must not act on it as if it were current. */
   readonly degraded: boolean;
   readonly reason?: ProjectionDegradationReason;
   /** `MAX(events.sequence)` for the stream at read time. */
   readonly eventTail: number;
   /** The trailing (worst) projection cursor considered. */
   readonly projectionCursor: number;
-  /** `eventTail - projectionCursor`; negative when a projection runs ahead. */
+  /** `eventTail - projectionCursor`. It is negative when a projection runs ahead. */
   readonly lag: number;
   /** Projections that disagree with the tail, worst first. */
   readonly staleViews: readonly string[];
@@ -66,11 +50,10 @@ export interface ProjectionFreshness {
 
 
 /**
- * Compare one projection cursor against the durable event tail.
+ * Compare one projection cursor with the durable event tail.
  *
- * Equality is the only fresh state. Both directions of disagreement degrade:
- * behind means the answer is incomplete, ahead means the projection and the log
- * contradict each other. Neither may be served as authoritative.
+ * Only equality is fresh. Behind means that the answer is incomplete. Ahead means
+ * that the projection and the log contradict each other. Both directions degrade.
  */
 export function assessProjectionFreshness(input: {
   readonly eventTail: number;
@@ -98,24 +81,6 @@ export function assessProjectionFreshness(input: {
   };
 }
 
-// ─── Removed: `assessStreamFreshness` (#1855) ───────────────────────────────
-//
-// It compared EVERY cached fold of a stream against the tail and called the
-// stream degraded unless all of them agreed. That is not a stricter version of
-// the real obligation — it is a different and false one. A read advances
-// exactly one fold, so on any stream with more than one cached fold the
-// predicate could not come back clean; `workflow-state` (folded by orchestrate
-// verbs and gates, folded by no view action) made it permanent, and the surface
-// that published the verdict was the only one able to clear it.
-//
-// The staleness of a fold nobody is reading says nothing about the answer being
-// produced, because a read of THAT fold now repairs it before answering
-// (`projections/fold-at-tail.ts`). The per-fold comparison
-// (`assessProjectionFreshness`, above) is the whole of what survives, and its
-// one consumer is `planRehydrationSource`, which repairs rather than reports.
-//
-// The FRESH constant it used is gone with it.
-
 /** `_meta` key carrying the freshness verdict on a view response envelope. */
 export const PROJECTION_DEGRADED_META = 'projectionDegraded' as const;
 
@@ -129,9 +94,8 @@ export interface ProjectionDegradedMeta {
 }
 
 /**
- * Project a freshness verdict into the `_meta` payload, or `undefined` when the
- * read is trustworthy. Returning `undefined` for the healthy case keeps the
- * envelope byte-identical to today's for every non-degraded read.
+ * Project a freshness verdict into the `_meta` payload. Returns `undefined` when
+ * the read is trustworthy.
  */
 export function toProjectionDegradedMeta(
   freshness: ProjectionFreshness,
@@ -146,37 +110,27 @@ export function toProjectionDegradedMeta(
   };
 }
 
-// ─── DR-4: the durable projection-degraded state ────────────────────────────
-//
-// Everything above is ephemeral by construction. Everything below publishes the
-// SAME verdict durably so an independent consumer — a different process, or
-// this one after a restart with a cold materializer cache — can read it back
-// rather than re-derive it from a cache it does not share.
-
 /**
- * The singleton stream carrying projection-health facts.
+ * The singleton stream that holds projection-health facts.
  *
- * Deliberately NOT the assessed stream. Appending the verdict to the stream
- * under assessment would move the very `MAX(sequence)` tail the verdict is
- * computed against: the next read would observe a fresh disagreement, append
- * again, and the detector would feed itself without bound. A dedicated meta
- * stream keeps the observation out of the observed system — the same idiom
- * `feedback.recorded` uses with `meta/feedback`.
+ * It is not the assessed stream. An append to the assessed stream moves the
+ * `MAX(sequence)` tail that the verdict compares against. The next read then sees
+ * a new disagreement and appends again, without end. `feedback.recorded` uses
+ * `meta/feedback` in the same way.
  */
 export const PROJECTION_HEALTH_STREAM_ID = 'meta/projection-health';
 
 /** Durable fact: a stream's folds disagree with its tail. */
 export const PROJECTION_DEGRADED_EVENT_TYPE = 'projection.degraded' as const;
 
-/** Durable fact: a previously-degraded stream's folds caught the tail. */
+/** Durable fact: the folds of a degraded stream caught up with the tail. */
 export const PROJECTION_RECOVERED_EVENT_TYPE = 'projection.recovered' as const;
 
 /**
- * The durable degraded state for one stream, as folded from the health stream.
+ * The durable degraded state for one stream, folded from the health stream.
  *
- * This — not `_meta.projectionDegraded` — is the state of record. It survives a
- * process restart and is readable by any consumer holding an event store,
- * without warming a single projection.
+ * This is the state of record, not `_meta.projectionDegraded`. Any consumer with
+ * an event store can read it after a restart, with no warm projection.
  */
 export interface DurableProjectionDegradedState {
   /** The ASSESSED stream (the record itself lives on the health stream). */
@@ -201,12 +155,8 @@ interface JournalEvent {
 }
 
 /**
- * The narrow slice of the event store this module writes through.
- *
- * A port rather than a concrete `EventStore` import: the publisher needs an
- * idempotent keyed append and a typed single-stream read, nothing more, and
- * stating that keeps the pure comparison above free of substrate coupling.
- * `EventStore` satisfies it structurally — callers pass the real store.
+ * The part of the event store that this module uses: an idempotent keyed append
+ * and a single-stream read. `EventStore` satisfies it structurally.
  */
 export interface ProjectionHealthJournal {
   append(
@@ -221,24 +171,15 @@ export interface ProjectionHealthJournal {
 }
 
 /**
- * Storage key (INV-8) for a degradation observation.
+ * Idempotency key for a degradation observation.
  *
- * Keyed on the OBSERVED cursor/tail pair, so re-detecting the same degraded
- * cursor — every subsequent read of an unchanged stale stream — collapses onto
- * the row already written instead of appending one row per read. A genuinely
- * new disagreement (the tail moved, or the fold slipped further) mints a new
- * key and a new row, which is exactly the history worth keeping.
+ * The key holds the observed tail and cursor. Repeated reads of an unchanged stale
+ * stream collapse onto one row. A new disagreement makes a new key and a new row.
  *
- * `recoveredGeneration` salts the key with the fold generation: the
- * health-stream sequence of the stream's most recent `projection.recovered`
- * event (`0` when it has never recovered). Without it, degrade → recover →
- * degrade AGAIN at the identical `(eventTail, projectionCursor)` pair — the
- * module's own cursor-regression scenario (snapshot restore / rebuild) — would
- * dedupe the second `projection.degraded` onto the ORIGINAL row, whose sequence
- * precedes the recovered event, so the fold would end `recovered` and a
- * degraded stream would be served as healthy. A post-recovery re-detection now
- * carries a new generation, mints a new key, and lands PAST the recovered
- * event; within one generation the per-read collapse is unchanged.
+ * `recoveredGeneration` is the health-stream sequence of the last
+ * `projection.recovered` event for the stream, or `0`. Without it, a second
+ * degradation at the same tail and cursor after a recovery dedupes onto the first
+ * row. That row comes before the recovery, so the fold reports the stream as healthy.
  */
 export function projectionDegradedIdempotencyKey(
   streamId: string,
@@ -250,10 +191,8 @@ export function projectionDegradedIdempotencyKey(
 }
 
 /**
- * Storage key (INV-8) for a resolution.
- *
- * Keyed on the health-stream sequence of the degraded record it resolves: one
- * resolution per degradation, so a concurrent double-publish collapses.
+ * Idempotency key for a recovery. It holds the health-stream sequence of the
+ * degraded record that it resolves, so a concurrent double publish collapses.
  */
 export function projectionRecoveredIdempotencyKey(
   streamId: string,
@@ -263,10 +202,8 @@ export function projectionRecoveredIdempotencyKey(
 }
 
 /**
- * The current fold generation for a stream's degraded key: the health-stream
- * sequence of its most recent `projection.recovered` event, `0` when the stream
- * has never recovered. See {@link projectionDegradedIdempotencyKey} for why the
- * degraded key must be salted with this.
+ * The health-stream sequence of the last `projection.recovered` event for a
+ * stream, or `0`. {@link projectionDegradedIdempotencyKey} salts its key with it.
  */
 async function lastRecoveredSequence(
   journal: ProjectionHealthJournal,
@@ -305,10 +242,9 @@ function toDurableState(
 /**
  * Fold the health stream into the current durable degraded state per stream.
  *
- * `projection.degraded` claims the slot for its `streamId`; `projection.recovered`
- * releases it. Replaying the whole (small, meta) stream in sequence order is the
- * whole reducer — there is no cache, so the answer cannot go stale the way the
- * thing it reports on did.
+ * `projection.degraded` sets the entry for its `streamId`. `projection.recovered`
+ * removes it. The fold replays the whole stream in sequence order and keeps no
+ * cache, so the answer cannot go stale.
  */
 export async function readAllProjectionDegradedStates(
   journal: ProjectionHealthJournal,
@@ -330,12 +266,8 @@ export async function readAllProjectionDegradedStates(
 }
 
 /**
- * Read the durable degraded state for one stream, or `undefined` when the
- * stream is not currently recorded as degraded.
- *
- * This is the consumer entry point: a readiness / workflow / reliability
- * surface calls it with nothing but an event store and a stream id, and gets
- * back the typed verdict — no materializer, no warm cache, no `_meta`.
+ * Read the durable degraded state for one stream, or `undefined` when the stream
+ * is not degraded. A consumer needs only an event store and a stream id.
  */
 export async function readProjectionDegradedState(
   journal: ProjectionHealthJournal,
@@ -345,17 +277,15 @@ export async function readProjectionDegradedState(
 }
 
 /**
- * Publish the durable projection-health state implied by a freshness verdict.
+ * Publish the durable projection-health state for a freshness verdict.
  *
- * - Degraded → append `projection.degraded` (idempotency-keyed on the observed
- *   cursor/tail pair) and return the resulting durable state.
- * - Fresh, and the stream currently holds a degraded record → append the paired
- *   `projection.recovered` so the folded state returns to healthy.
- * - Fresh, and no degraded record is held → append NOTHING. A healthy stream
- *   must not write a row per read.
+ * - Degraded: append `projection.degraded` and return the durable state.
+ * - Fresh, with a held degraded record: append `projection.recovered`.
+ * - Fresh, with no held record: append nothing. A healthy stream writes no row per read.
  *
- * Returns the durable state now in force for the stream (`undefined` when
- * healthy), so a caller can publish and consume in one hop.
+ * Each payload goes through its schema before the append, so the stored data
+ * matches `EVENT_DATA_SCHEMAS`. Returns the durable state now in force, or
+ * `undefined` when healthy.
  */
 export async function publishProjectionFreshness(
   journal: ProjectionHealthJournal,
@@ -378,8 +308,6 @@ export async function publishProjectionFreshness(
     return undefined;
   }
 
-  // Parse before append so the durable payload can never drift from the
-  // registered `EVENT_DATA_SCHEMAS` contract T-07 reads it back through.
   const degraded: ProjectionDegraded = ProjectionDegradedData.parse({
     streamId,
     reason: freshness.reason,

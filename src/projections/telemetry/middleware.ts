@@ -1,9 +1,12 @@
+/**
+ * Telemetry wrapper for tool handlers.
+ *
+ * `enforceResponseEconomy` comes from its leaf module, not from `dispatch/core/dispatch.js`.
+ * `dispatch()` imports this module dynamically, so the leaf import keeps the edge
+ * one-way and prevents a runtime import cycle.
+ */
 import { EventStore } from '../../events/store.js';
 import type { ToolResult, PerfMetrics } from '../../format.js';
-// Import the economy seam from its LEAF module, NOT from `dispatch/core/dispatch.js`
-// (DR-4, task 009). dispatch() dynamic-imports THIS middleware for its
-// telemetry-ON wrap arm; importing `enforceResponseEconomy` from the leaf keeps
-// that a one-way edge instead of a dispatch ↔ middleware runtime import cycle.
 import { enforceResponseEconomy } from '../../dispatch/core/response-economy.js';
 import { telemetryLogger } from '../../logger.js';
 import { TELEMETRY_STREAM, TOKEN_GATE_THRESHOLD } from './constants.js';
@@ -12,26 +15,20 @@ import { matchCorrection, applyCorrections } from './auto-correction.js';
 import type { Correction } from './auto-correction.js';
 import { TraceWriter } from './trace-writer.js';
 
-// ─── Singleton TraceWriter ──────────────────────────────────────────────────
-
 const traceWriter = new TraceWriter();
-
-// ─── Types ──────────────────────────────────────────────────────────────────
 
 /** Transport-agnostic handler type: accepts args, returns ToolResult. */
 export type CoreHandler = (args: Record<string, unknown>) => Promise<ToolResult>;
 
 /** Optional configuration for auto-correction behavior in withTelemetry. */
 export interface AutoCorrectionOptions {
-  /** The action being performed (e.g., 'tasks', 'query', 'get'). */
+  /** The action of the call, for example `'tasks'`, `'query'` or `'get'`. */
   readonly action: string;
   /** Returns current metrics for the tool. */
   readonly getMetrics: () => ToolMetrics;
   /** Number of consecutive threshold breaches. */
   readonly consecutiveBreaches: number;
 }
-
-// ─── Perf Injection ─────────────────────────────────────────────────────────
 
 /** Sets `_perf` directly on the ToolResult object. */
 function injectPerf(result: ToolResult, perf: PerfMetrics): ToolResult {
@@ -43,8 +40,6 @@ function injectAutoCorrection(result: ToolResult, applied: Correction[]): ToolRe
   if (applied.length === 0) return result;
   return { ...result, _corrections: { applied } };
 }
-
-// ─── Event Hint Injection ──────────────────────────────────────────────────
 
 interface EventHint {
   readonly eventType: string;
@@ -58,10 +53,7 @@ function injectEventHints(result: ToolResult, payload: { missing: readonly Event
   return { ...result, _eventHints: payload };
 }
 
-// PR3/T8 (#1364) — typed predicates for structured action-level failure
-// recognition. Kept micro/local; not exported. A handler that returns
-// `{success: false, error: {…}}` is a structured failure; anything else
-// (success: true, no `success` property at all) is not.
+/** True when a result has `success: false`. A result without `success` is not a failure. */
 function isStructuredFailure(result: ToolResult): boolean {
   return (result as { success?: unknown }).success === false;
 }
@@ -74,18 +66,18 @@ function extractErrorCode(result: ToolResult): string {
   return 'UNKNOWN';
 }
 
-// ─── withTelemetry HOF ──────────────────────────────────────────────────────
-
 /**
- * Wraps a CoreHandler with telemetry instrumentation.
+ * Wrap a `CoreHandler` with telemetry. It emits `tool.invoked`, then `tool.completed`,
+ * or `tool.errored` on a throw. A `success: false` result also emits `tool.action_errored`.
  *
- * Emits `tool.invoked` before execution, `tool.completed` after success (with
- * duration, response size, and token estimate), or `tool.errored` on failure.
+ * The response-economy cap runs before the size measurement, so `_perf` and the events
+ * report the capped size. A response over the token threshold emits `tool.budget_exceeded`
+ * on the telemetry stream. It writes no gate result to the feature stream, because no
+ * later gate run clears such a result and convergence stays blocked.
  *
- * When `autoCorrectionOptions` is provided, applies auto-correction rules before
- * calling the handler and injects `_corrections` metadata into the response.
- *
- * Telemetry failures are swallowed — they never break the underlying handler.
+ * With `autoCorrectionOptions`, it corrects the arguments first and adds `_corrections`.
+ * With a `featureId`, it adds event hints that arrive within 150 ms. It also writes a
+ * trace. A telemetry failure never breaks the handler.
  */
 export function withTelemetry(
   handler: CoreHandler,
@@ -94,7 +86,6 @@ export function withTelemetry(
   autoCorrectionOptions?: AutoCorrectionOptions,
 ): CoreHandler {
   return async (args) => {
-    // ─── Auto-Correction ───────────────────────────────────────────────
     let correctedArgs = args;
     let appliedCorrections: Correction[] = [];
 
@@ -108,13 +99,12 @@ export function withTelemetry(
       appliedCorrections = result.applied;
     }
 
-    // Emit invoked (fire-and-forget, swallow failures)
     const invokePromise = eventStore
       .append(TELEMETRY_STREAM, {
         type: 'tool.invoked',
         data: { tool: toolName },
       })
-      .catch(() => { /* telemetry drop — non-fatal, never block workflow */ });
+      .catch(() => {});
 
     const start = performance.now();
 
@@ -122,19 +112,10 @@ export function withTelemetry(
       const rawResult = await handler(correctedArgs);
       const durationMs = Math.round(performance.now() - start);
 
-      // ─── Response-Economy Enforcement (DR-1, Task 003) ────────────────────
-      // Cap the handler's response against its registry-declared economy budget
-      // BEFORE the size is measured, so `_perf`, the `tool.completed` telemetry
-      // event, and the D3 catastrophic-overflow gate all report the FINAL,
-      // post-cap size — the guard and the measurement agree by construction.
-      // The cap decision lives in the shared dispatch core
-      // (`enforceResponseEconomy`); this seam only invokes it. On a
-      // fail-open / under-budget path the payload is returned untouched.
       const economyAction =
         typeof correctedArgs.action === 'string' ? correctedArgs.action : undefined;
       const result = enforceResponseEconomy(rawResult, toolName, economyAction);
 
-      // Serialize ToolResult to compute response size/token estimate
       let responseText: string;
       try {
         responseText = JSON.stringify(result);
@@ -144,22 +125,6 @@ export function withTelemetry(
       const responseBytes = Buffer.byteLength(responseText, 'utf-8');
       const tokenEstimate = Math.ceil(responseBytes / 4);
 
-      // Record a budget breach (fire-and-forget), on the TELEMETRY stream.
-      //
-      // This was a `gate.executed` on the FEATURE stream carrying
-      // `details.dimension: 'D3'`, and `D3` is a real convergence dimension
-      // (Context Economy). The convergence view folded it as a failed gate
-      // result under the name `token-budget`, which nothing ever re-runs — so
-      // the dimension could not recover. One breach anywhere in a feature
-      // stream pinned `overallConverged` false for the rest of that workflow's
-      // life. The runtime-economy signal already reaches the D3 verdict the
-      // sanctioned way: the `context-economy` gate reads `queryRuntimeMetrics`
-      // and appends its own governance row (#1898 item 8).
-      //
-      // The featureId is now RECORDED rather than required. It used to gate the
-      // emission only because the row needed a stream to be written to, so a
-      // breach from a call that named no workflow was dropped for a reason that
-      // had nothing to do with the measurement.
       if (tokenEstimate > TOKEN_GATE_THRESHOLD) {
         const featureIdForBreach =
           typeof correctedArgs.featureId === 'string' ? correctedArgs.featureId : undefined;
@@ -174,26 +139,18 @@ export function withTelemetry(
               ...(featureIdForBreach !== undefined && { featureId: featureIdForBreach }),
             },
           })
-          .catch(() => { /* telemetry drop — non-fatal, never block workflow */ });
+          .catch(() => {});
       }
 
-      // Wait for invoke event to settle before emitting completed
       await invokePromise;
 
-      // Emit completed (swallow failures)
       await eventStore
         .append(TELEMETRY_STREAM, {
           type: 'tool.completed',
           data: { tool: toolName, durationMs, responseBytes, tokenEstimate },
         })
-        .catch(() => { /* telemetry drop — non-fatal, never block workflow */ });
+        .catch(() => {});
 
-      // PR3/T8 (#1364) — split transport vs action-level errors. When the
-      // handler returns the standard MCP envelope failure
-      // `{success: false, error: {code, message}}`, emit a companion
-      // `tool.action_errored` so `view telemetry` can attribute the outcome
-      // by error code (MERGE_ROLLED_BACK, PREFLIGHT_FAILED, RESERVED_FIELD,
-      // …). `tool.errored` continues to fire only on JS throws (transport).
       if (isStructuredFailure(result)) {
         const errorCode = extractErrorCode(result);
         await eventStore
@@ -201,10 +158,9 @@ export function withTelemetry(
             type: 'tool.action_errored',
             data: { tool: toolName, durationMs, errorCode, responseBytes, tokenEstimate },
           })
-          .catch(() => { /* telemetry drop — non-fatal, never block workflow */ });
+          .catch(() => {});
       }
 
-      // Emit quality.hint.generated when auto-correction was applied
       if (appliedCorrections.length > 0) {
         await eventStore
           .append(TELEMETRY_STREAM, {
@@ -227,7 +183,6 @@ export function withTelemetry(
       let finalResult = injectPerf(result, { ms: durationMs, bytes: responseBytes, tokens: tokenEstimate });
       finalResult = injectAutoCorrection(finalResult, appliedCorrections);
 
-      // ─── Event Emission Hints (bounded wait, non-critical) ────────────
       const featureIdForHints = typeof correctedArgs.featureId === 'string' ? correctedArgs.featureId : undefined;
       if (featureIdForHints) {
         try {
@@ -253,10 +208,9 @@ export function withTelemetry(
               });
             }
           }
-        } catch { /* non-critical — hint generation failure never blocks */ }
+        } catch {}
       }
 
-      // ─── Trace Capture (swallow failures) ──────────────────────────────
       const action = typeof correctedArgs.action === 'string' ? correctedArgs.action : '';
       const featureId = typeof correctedArgs.featureId === 'string' ? correctedArgs.featureId : 'unknown';
       const sessionId = typeof correctedArgs.sessionId === 'string' ? correctedArgs.sessionId : 'unknown';
@@ -278,10 +232,8 @@ export function withTelemetry(
     } catch (error) {
       const durationMs = Math.round(performance.now() - start);
 
-      // Wait for invoke event to settle before emitting errored
       await invokePromise;
 
-      // Emit errored (swallow failures)
       await eventStore
         .append(TELEMETRY_STREAM, {
           type: 'tool.errored',
@@ -298,16 +250,11 @@ export function withTelemetry(
   };
 }
 
-// ─── Instrumented Registrar ─────────────────────────────────────────────────
-
 interface McpServer {
   tool: (...args: unknown[]) => void;
 }
 
-/**
- * Creates a registration function that transparently wraps CoreHandlers
- * with telemetry instrumentation before delegating to `server.tool()`.
- */
+/** Return a registrar that wraps each `CoreHandler` with {@link withTelemetry} and passes it to `server.tool()`. */
 export function createInstrumentedRegistrar(
   server: McpServer,
   eventStore: EventStore,

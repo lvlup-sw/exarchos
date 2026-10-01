@@ -1,13 +1,9 @@
-// ─── The view composite-tool surface — published module path ────────────────
-//
-// One handler per view, each in its own module under `handlers/`, plus the
-// three pieces they share: the cached materializer, the delta-query seam, and
-// the two contract helpers that shape compact and analytic responses. This
-// file is the path every consumer already imports, so it stays the surface's
-// published identity and the split is invisible to callers.
-//
-// Nothing is handled here. A new view gets a module under `handlers/` and a
-// line below.
+/**
+ * The published module path of the view composite-tool surface. Consumers import from here.
+ * Each view handler has its own module under `handlers/`, beside the shared materializer,
+ * delta-query, and contract modules. This file holds no handler and only re-exports.
+ * A new view gets a module under `handlers/` and an export line here.
+ */
 
 export { getOrCreateMaterializer, resetMaterializerCache } from './handlers/materializer.js';
 export {

@@ -12,6 +12,10 @@ export async function writeManifestEntry(stateDir: string, entry: SessionManifes
   await fs.appendFile(manifestPath, JSON.stringify(entry) + '\n', 'utf-8');
 }
 
+/**
+ * Reads the session manifest. A missing file gives an empty list.
+ * It skips a malformed line, so a partial write does not break the read.
+ */
 export async function readManifestEntries(stateDir: string): Promise<SessionManifestEntry[]> {
   const manifestPath = path.join(stateDir, SESSIONS_DIR, MANIFEST_FILE);
   let content: string;
@@ -34,7 +38,6 @@ export async function readManifestEntries(stateDir: string): Promise<SessionMani
     try {
       entries.push(JSON.parse(line) as SessionManifestEntry);
     } catch {
-      // Skip malformed lines — partial writes should not crash manifest reads
       continue;
     }
   }
@@ -48,13 +51,16 @@ export async function writeManifestCompletion(stateDir: string, completion: Sess
   await fs.appendFile(completionPath, JSON.stringify(completion) + '\n', 'utf-8');
 }
 
+/**
+ * Returns the manifest entries that have no `<sessionId>.events.jsonl` file.
+ * It skips an entry with no `transcriptPath` or `sessionId`, such as an orphan marker.
+ */
 export async function findUnextractedSessions(stateDir: string): Promise<SessionManifestEntry[]> {
   const entries = await readManifestEntries(stateDir);
   const sessionsDir = path.join(stateDir, SESSIONS_DIR);
 
   const results: SessionManifestEntry[] = [];
   for (const entry of entries) {
-    // Skip orphan markers and incomplete entries (no transcriptPath means not a valid session entry)
     if (!entry.transcriptPath || !entry.sessionId) continue;
 
     const eventsPath = path.join(sessionsDir, `${entry.sessionId}.events.jsonl`);

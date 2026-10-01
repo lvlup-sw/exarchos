@@ -3,31 +3,20 @@ import { logger } from '../../../logger.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-// ─── Helper: discover all event stream files ───────────────────────────────
-
+/** List the event stream IDs through `EventStore.listStreams()`. Without a store, it returns an empty list. */
 export async function discoverStreams(stateDir: string, store?: EventStore): Promise<string[]> {
-  // v2.11 Phase 3 (substrate-cut): SQLite is the only substrate, so
-  // stream discovery always flows through `EventStore.listStreams()`
-  // (a SELECT DISTINCT streamId FROM events on the SqliteBackend).
-  // The legacy JSONL `fs.readdir` fallback was removed alongside the
-  // JSONL writer.
   if (store) {
     return store.listStreams();
   }
-  // No store wired (synthetic test fixtures only) — return empty.
   void stateDir;
   return [];
 }
 
-// ─── Helper: read state.json (Fix 2 / #1184) ───────────────────────────────
-//
-// Several view handlers must consult `<id>.state.json` for plan-state facts
-// that the event projection cannot derive (review status, declared task
-// count, declared task list, dimension findings). The handlers stay
-// best-effort: a missing/corrupt state file falls back to the projection-
-// derived value rather than failing the view query, because state.json is
-// the planner's stamp and not all callers (CLI tools, tests, in-flight
-// workflows) will have one yet.
+/**
+ * Read `<workflowId>.state.json` for plan facts that the event projection cannot derive.
+ * It returns `null` when the file is absent, unreadable or not a JSON object. The caller then uses the projection value.
+ * An absent file is a normal case and logs nothing. Other read errors and parse errors log a warning, so corruption stays visible.
+ */
 export async function readWorkflowStateJson(
   stateDir: string,
   workflowId: string,
@@ -37,10 +26,6 @@ export async function readWorkflowStateJson(
   try {
     raw = await fs.readFile(file, 'utf-8');
   } catch (err) {
-    // ENOENT is the legitimate "no plan-state stamp yet" case (CLI tools,
-    // tests, in-flight workflows before first `workflow set`) — fall back
-    // silently to projection-derived values. Other I/O errors are NOT
-    // expected and would mask real corruption if treated as a clean miss.
     if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return null;
     logger.warn(
       { err: err instanceof Error ? err.message : String(err), file },
@@ -59,10 +44,6 @@ export async function readWorkflowStateJson(
     );
     return null;
   } catch (err) {
-    // Corrupt JSON: surface a warning so the corruption is observable in
-    // logs even though we keep serving views from the projection. Without
-    // this, a long-lived bad state.json would silently disagree with
-    // workflow_status / synthesis_readiness / convergence forever.
     logger.warn(
       { err: err instanceof Error ? err.message : String(err), file },
       'readWorkflowStateJson: failed to parse state.json — falling back to projection',

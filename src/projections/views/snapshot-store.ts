@@ -3,8 +3,6 @@ import * as path from 'node:path';
 import { EVENT_SCHEMA_VERSION } from '../../events/event-migration.js';
 import { atomicReplace } from '../../utils/atomic-write.js';
 
-// ─── Snapshot Data ─────────────────────────────────────────────────────────
-
 export interface SnapshotData<T = unknown> {
   readonly view: T;
   readonly highWaterMark: number;
@@ -12,26 +10,12 @@ export interface SnapshotData<T = unknown> {
   readonly schemaVersion: string;
 }
 
-// ─── Validation ──────────────────────────────────────────────────────────
-
 const SAFE_ID_PATTERN = /^[a-z0-9-]+$/;
 
 /**
- * Whether `id` may be used verbatim as a snapshot filename segment.
- *
- * This is the projection-side counterpart to the write-side `validateStreamId`
- * (`contract/shared/validation.ts`), which is intentionally more permissive — it accepts
- * two-segment slash ids, dots, and underscores. Snapshot filenames must stay
- * kebab-only: a slash would escape the snapshot directory and `.`/`..` invite
- * path traversal. Callers that iterate arbitrary streamIds (e.g. the pipeline
- * view) MUST skip any stream for which this returns `false` rather than forward
- * it into the snapshot path.
- *
- * Exported so `ViewMaterializer` shares this single source of truth instead of
- * re-deriving its own predicate. The narrow `startsWith('__')` guard added for
- * #1434 only covered `__migration__` and drifted from this pattern, letting
- * slash streamIds (`elicitation/<uuid>`, `workflow-state/<id>`, …) re-crash the
- * view — see RCA 2026-05-30-state-source-integrity.
+ * Whether `id` is safe to use as a snapshot filename segment.
+ * The write-side `validateStreamId` also accepts slashes, dots and underscores. A snapshot name must stay kebab-case, because those characters allow path traversal.
+ * A caller that iterates arbitrary stream IDs, such as the pipeline view, must skip an ID that fails this check.
  */
 export function isSnapshotSafeId(id: string): boolean {
   return SAFE_ID_PATTERN.test(id);
@@ -54,19 +38,11 @@ async function unlinkIfExists(filePath: string): Promise<void> {
   }
 }
 
-// ─── Snapshot Store ────────────────────────────────────────────────────────
-
 export class SnapshotStore {
   /**
-   * Optional per-view snapshot-namespace overrides (DR-5/DR-6): maps a
-   * registered `viewName` to the filename segment its snapshots use on disk,
-   * decoupling the persisted snapshot *lineage* from the projection's
-   * registration name. A view listed here reads/writes
-   * `<streamId>.<override>.snapshot.json` instead of `<streamId>.<viewName>...`,
-   * so the pipeline view can move to a versioned (`pipeline-v2`) lineage while
-   * the materializer, cache keys, and `BUILTIN_VIEW_NAMES` keep using
-   * `'pipeline'`. Pre-upgrade files under the un-namespaced name are simply
-   * never read → the stream re-folds. Views absent from the map are unaffected.
+   * `snapshotNamespaces` maps a registered `viewName` to the filename segment of its snapshots on disk.
+   * A mapped view uses `<streamId>.<override>.snapshot.json`, so its snapshot lineage can change without a change to the view name.
+   * The store does not read files under the old name, so the stream folds again.
    */
   constructor(
     private readonly stateDir: string,
@@ -80,15 +56,12 @@ export class SnapshotStore {
 
   /**
    * Get the file path for a snapshot.
-   * Validates streamId and the resolved snapshot name against a safe pattern
-   * and asserts the resolved path stays inside stateDir to prevent path traversal.
+   * It validates `streamId` and the resolved snapshot name, and it asserts that the path stays inside `stateDir`.
+   * The name assert uses the label `viewName`, because only a caller-supplied `viewName` can be unsafe.
    */
   private getSnapshotPath(streamId: string, viewName: string): string {
     assertSafeId(streamId, 'streamId');
     const snapshotName = this.resolveSnapshotName(viewName);
-    // Labeled `viewName` (the caller-facing input): the namespace-mapped branch
-    // only ever carries dev-controlled safe values, so this assert throws solely
-    // for a caller-supplied unsafe `viewName`, where `snapshotName === viewName`.
     assertSafeId(snapshotName, 'viewName');
 
     const resolved = path.resolve(
@@ -107,9 +80,8 @@ export class SnapshotStore {
   }
 
   /**
-   * Save a view snapshot to disk atomically using tmp+rename.
-   * Writes to a temporary file first, then renames to the target path.
-   * This ensures the target file is never left in a partially-written state.
+   * Save a view snapshot atomically. It writes a temporary file, then renames it to the target path.
+   * The target file is never partially written.
    */
   async save<T>(
     streamId: string,
@@ -144,7 +116,6 @@ export class SnapshotStore {
       const content = await fs.readFile(filePath, 'utf-8');
       const data = JSON.parse(content) as SnapshotData<T>;
 
-      // Basic validation
       if (
         data.view === undefined ||
         data.highWaterMark === undefined ||
@@ -170,10 +141,9 @@ export class SnapshotStore {
   }
 
   /**
-   * Delete ALL snapshots for a given stream.
-   * Uses exact prefix matching (`${streamId}.` with trailing dot) to avoid
-   * false positives (e.g., "my-feature" vs "my-feature-2").
-   * Returns array of deleted file names.
+   * Delete all snapshots for a stream, and return the deleted file names.
+   * The prefix `${streamId}.` includes the dot, so `my-feature` does not match `my-feature-2`.
+   * It skips a file that it cannot delete.
    */
   async deleteAllForStream(streamId: string): Promise<string[]> {
     assertSafeId(streamId, 'streamId');
@@ -196,7 +166,6 @@ export class SnapshotStore {
         await unlinkIfExists(path.join(this.stateDir, file));
         deleted.push(file);
       } catch {
-        // Skip files that couldn't be deleted (e.g., permission denied)
       }
     }
 

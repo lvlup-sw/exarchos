@@ -1,14 +1,9 @@
 import { ViewMaterializer } from './materializer.js';
 import type { ViewProjection } from './materializer.js';
 
-// ─── Built-in View Names ────────────────────────────────────────────────────
-//
-// These correspond to the action names exposed through `exarchos_view` in the
-// registry plus the internal projection names registered in tools.ts.
-// Custom views MUST NOT collide with these names.
-
+/** Names that a custom view must not use: the `exarchos_view` action names and the internal projection names. */
 export const BUILTIN_VIEW_NAMES: ReadonlySet<string> = new Set([
-  // Action names from exarchos_view (registry.ts viewActions)
+  /** The action names of `exarchos_view`, from `viewActions` in the registry. */
   'pipeline',
   'tasks',
   'workflow_status',
@@ -30,7 +25,7 @@ export const BUILTIN_VIEW_NAMES: ReadonlySet<string> = new Set([
   'convergence',
   'gate_reliability',
   'invariants_effective',
-  // Internal projection names registered in tools.ts createMaterializer()
+  /** The internal projection names that `createMaterializer` in `handlers/materializer.ts` registers. */
   'workflow-status',
   'task-detail',
   'pipeline',
@@ -50,12 +45,7 @@ export const BUILTIN_VIEW_NAMES: ReadonlySet<string> = new Set([
   'gate-reliability',
 ]);
 
-// ─── View Registry ──────────────────────────────────────────────────────────
-
-/**
- * Higher-level registry wrapping ViewMaterializer that tracks built-in vs
- * custom views and prevents name collisions.
- */
+/** A registry over {@link ViewMaterializer} that keeps custom views apart from built-in views and refuses name collisions. */
 export class ViewRegistry {
   private readonly customViews = new Set<string>();
   private readonly materializer: ViewMaterializer;

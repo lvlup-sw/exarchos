@@ -1,40 +1,14 @@
 /**
- * TaskStore projection reducer — Wave 2A.3 (#1284).
+ * The `task-store@v1` projection reducer. It folds the `task.*` events of one workflow stream into
+ * task records keyed by `taskId`. `types.ts` holds the state shape.
  *
- * `task-store@v1` is a **stream-scoped** reducer: it folds `task.*` events from
- * ONE workflow stream and produces a view of that feature's task records keyed
- * by `taskId`. See `types.ts` for the projected state shape and the status-enum
- * rationale.
+ * The scope must stay `stream`. A `taskId` is a per-feature ordinal such as `'001'`, and `TaskRecord`
+ * holds no `featureId`. Thus a fold over several streams merges the tasks of different features.
  *
- * It was authored (#1284) as a global reducer folding every stream. That was
- * incorrect, and #1342 retired it: `tasks` is keyed by a bare per-feature
- * ordinal (`'001'`) and `TaskRecord` carries no `featureId`, so folding streams
- * together merged feature-A's task `001` into feature-B's. The scope must match
- * the key space. Do not restore the cross-stream reading of this comment.
- *
- * ## Event-to-status map (matches `events/schemas.ts`)
- *
- *   - `task.assigned`   → status `'assigned'`, seeds title/branch/worktree/assignee
- *   - `task.claimed`    → status `'claimed'`, sets agentId/claimedAt
- *   - `task.progressed` → status `'in-progress'`, sets tddPhase/detail
- *   - `task.completed`  → status `'completed'`, sets artifacts/duration
- *   - `task.failed`     → status `'failed'`, sets error
- *
- * Any other event type is a no-op: the reducer returns the input `state` by
- * identity (preserves structural-sharing semantics for change detection in
- * downstream consumers, matching the convention from
- * `rehydration/reducer.ts`).
- *
- * ## Purity
- *
- * `apply` is a pure function over `(state, event)`:
- *   - No I/O, no clock reads, no module-scoped mutation.
- *   - No in-place mutation of `state` or any nested value — every transition
- *     constructs a fresh `TaskStoreState` via spread / structural sharing.
- *   - `projectionSequence` bumps ONLY on handled events. Unhandled and
- *     malformed (missing-taskId) events return identity.
- *
- * Enforced by `assertReducerImmutable` in `reducer.test.ts` (Task 2A.4).
+ * It handles `task.assigned`, `task.claimed`, `task.progressed`, `task.completed`, and `task.failed`.
+ * Each sets the status of the same name, but `task.progressed` sets `'in-progress'`. `apply` is pure
+ * and does not mutate its inputs. Any other event, or an event with no `taskId`, returns `state` by
+ * identity, so `projectionSequence` counts only the handled events.
  */
 import type { ProjectionReducer } from '../types.js';
 import type { WorkflowEvent } from '../../events/schemas.js';
@@ -48,25 +22,14 @@ import {
 
 type TaskOverlay = { -readonly [K in keyof Omit<TaskRecord, 'taskId'>]?: TaskRecord[K] } & { status: TaskStatus };
 
-// ─── Initial state ──────────────────────────────────────────────────────────
-
 const initialTaskStoreState: TaskStoreState = {
   projectionSequence: 0,
   tasks: {},
 };
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-//
-// The generic `data`-bag extractors (`extractTaskId`, `extractString`,
-// `extractNumber`, `extractStringArray`) live in
-// `../shared/event-data-extractors.ts` (DR-10) so this reducer and the
-// rehydration reducer share one copy and stay symmetrically lax about partial
-// payloads (replay tolerance, DR-1). `extractTddPhase` below stays local — it
-// narrows to the task-store-specific `TaskRecord['tddPhase']` surface.
-
 /**
- * Narrow `tddPhase` from event data to the `TaskRecord` surface
- * (`'red' | 'green' | 'refactor'`). Anything else collapses to `undefined`.
+ * Narrows `tddPhase` from event data to `'red' | 'green' | 'refactor'`, or `undefined` for any other value.
+ * It stays local because it narrows to a `TaskRecord` type. The generic extractors are in `../shared/`.
  */
 function extractTddPhase(
   data: WorkflowEvent['data'],
@@ -77,9 +40,8 @@ function extractTddPhase(
 }
 
 /**
- * Produce a new `TaskStoreState` with one task upserted. The prior record
- * (if any) supplies passthrough field defaults; the new overlay replaces
- * status + any provided fields. Never mutates inputs.
+ * Returns a new state with one task upserted and `projectionSequence` incremented.
+ * The overlay sets the status and each field that it holds. Other fields keep their prior values.
  */
 function upsertTask(
   state: TaskStoreState,
@@ -97,8 +59,6 @@ function upsertTask(
     tasks: { ...state.tasks, [taskId]: next },
   };
 }
-
-// ─── Per-event handlers ─────────────────────────────────────────────────────
 
 function applyTaskAssigned(
   state: TaskStoreState,
@@ -182,14 +142,10 @@ function applyTaskFailed(
   return upsertTask(state, taskId, overlay);
 }
 
-// ─── Reducer (thin dispatcher) ──────────────────────────────────────────────
-
 export const taskStoreReducer: ProjectionReducer<TaskStoreState, WorkflowEvent> = {
   id: 'task-store@v1',
   version: 1,
-  // Per-stream, and only ever safely per-stream — see `TaskStoreState`'s key
-  // space in `./types.ts` for the fact this answers to, and the `scope`
-  // docstring in `projections/types.ts` for the rule.
+  /** Must stay `stream`, because the task key space is per feature. `projections/types.ts` states the rule. */
   scope: 'stream',
   initial: initialTaskStoreState,
   apply(state: TaskStoreState, event: WorkflowEvent): TaskStoreState {
@@ -205,8 +161,6 @@ export const taskStoreReducer: ProjectionReducer<TaskStoreState, WorkflowEvent> 
       case 'task.failed':
         return applyTaskFailed(state, event);
       default:
-        // Unknown event type — return identity to preserve structural-sharing
-        // semantics. Matches the rehydration reducer's default branch.
         return state;
     }
   },

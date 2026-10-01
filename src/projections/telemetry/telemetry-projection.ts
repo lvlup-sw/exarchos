@@ -7,18 +7,13 @@ import {
   type QualityHintType,
 } from './quality-hints.js';
 
-// ─── View Name Constant ────────────────────────────────────────────────────
-
 export const TELEMETRY_VIEW = 'telemetry';
-
-// ─── Rolling Window Default ────────────────────────────────────────────────
 
 const DEFAULT_WINDOW_SIZE = 1000;
 
-// ─── Per-Tool Metrics ──────────────────────────────────────────────────────
-
 export interface ToolMetrics {
   readonly invocations: number;
+  /** Count of `tool.errored` events, which are transport and protocol failures. */
   readonly errors: number;
   readonly totalDurationMs: number;
   readonly totalBytes: number;
@@ -32,37 +27,30 @@ export interface ToolMetrics {
   readonly durations: readonly number[];
   readonly sizes: readonly number[];
   readonly tokenEstimates: readonly number[];
-  // PR3/T9 (#1364) — structured action-level failure counters. Split from
-  // `errors` (which counts transport/protocol throws via tool.errored only).
+  /**
+   * Count of `tool.action_errored` events, which are typed action failures with an `errorCode`.
+   * It is kept apart from `errors`, so a handler that returns an error code does not look like a broken connection.
+   */
   readonly actionErrors: number;
+  /** The `actionErrors` count for each `errorCode`. */
   readonly actionErrorBreakdown: Readonly<Record<string, number>>;
   /**
-   * How many of this tool's responses exceeded the response-economy token
-   * budget (#1898 item 8).
-   *
-   * Counted here rather than inferred from `tokenEstimates`, because the two
-   * measure different populations: the rolling array is capped at the window
-   * size and holds only the calls that produced a `tool.completed`, while a
-   * breach is recorded on its own and must stay countable after it falls out
-   * of the window.
+   * Count of the responses of this tool over the response-economy token budget.
+   * `tokenEstimates` holds only the `tool.completed` calls in the window. This counter keeps a breach countable after it leaves the window.
+   * The breach lives in this view, not as a gate row. Nothing runs that gate again, so a gate row keeps its convergence dimension false for the rest of the workflow.
    */
   readonly budgetExceeded: number;
 }
 
-// ─── Per-Turn Output-Token Record (#1262) ──────────────────────────────────
-
 /**
- * A single agent turn's output-token sum. The projection folds
- * `turn.completed` events into `view.turns` so quality-hint generators can
- * detect threshold crossings without scanning the raw event stream a second
- * time.
+ * The output-token sum of one agent turn.
+ * The projection folds `turn.completed` events into `view.turns`, so quality-hint generators can find threshold crossings without a second scan of the event stream.
+ * A `turn.completed` payload without a string `turnId` and a numeric `outputTokens` has no effect.
  */
 export interface TurnRecord {
   readonly turnId: string;
   readonly outputTokens: number;
 }
-
-// ─── Telemetry View State ──────────────────────────────────────────────────
 
 export interface TelemetryViewState {
   readonly tools: Record<string, ToolMetrics>;
@@ -70,15 +58,9 @@ export interface TelemetryViewState {
   readonly totalInvocations: number;
   readonly totalTokens: number;
   readonly windowSize: number;
-  /**
-   * Per-turn output-token records (#1262). Capped at `windowSize` like the
-   * rolling per-tool arrays so a long-running session doesn't grow the view
-   * state unbounded.
-   */
+  /** Per-turn output-token records. The reducer keeps the last `windowSize + 1` turns, so a long session cannot grow the view state without limit. */
   readonly turns: readonly TurnRecord[];
 }
-
-// ─── Factory for Empty ToolMetrics ─────────────────────────────────────────
 
 export function initToolMetrics(): ToolMetrics {
   return {
@@ -96,22 +78,17 @@ export function initToolMetrics(): ToolMetrics {
     durations: [],
     sizes: [],
     tokenEstimates: [],
-    // PR3/T9 (#1364)
     actionErrors: 0,
     actionErrorBreakdown: {},
     budgetExceeded: 0,
   };
 }
 
-// ─── Rolling Window Helper ─────────────────────────────────────────────────
-
 function appendWithCap(arr: readonly number[], value: number, cap: number): readonly number[] {
   const next = [...arr, value];
   if (next.length <= cap) return next;
   return next.slice(next.length - cap);
 }
-
-// ─── Projection ────────────────────────────────────────────────────────────
 
 export const telemetryProjection: ViewProjection<TelemetryViewState> = {
   init: () => ({
@@ -123,6 +100,11 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
     turns: [],
   }),
 
+  /**
+   * Folds tool, budget, and turn events into the view.
+   * The `tool.completed` arm lists each `ToolMetrics` field with no spread, so a new field fails the type check until that arm sets it.
+   * That arm must carry the counters of the other arms forward, or the next completion erases them.
+   */
   apply: (view, event) => {
     switch (event.type) {
       case 'tool.completed': {
@@ -155,12 +137,6 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
           durations,
           sizes,
           tokenEstimates,
-          // PR3/T9 (#1364) — preserve structured-failure counters across
-          // tool.completed folds. Listed explicitly (rather than ...existing)
-          // to keep the literal exhaustive in the type checker.
-          // `budgetExceeded` rides the same rule: its own arm counts it, and
-          // this arm must carry it forward or every breach would be erased by
-          // the next completion of the same tool.
           actionErrors: existing.actionErrors,
           actionErrorBreakdown: existing.actionErrorBreakdown,
           budgetExceeded: existing.budgetExceeded,
@@ -192,13 +168,6 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
         };
       }
 
-      // `tool.errored` tracks transport and protocol failures — a JS throw.
-      // `tool.action_errored` carries an `errorCode` instead, which is what
-      // lets this projection report `actionErrorBreakdown` per tool (#1364).
-      // The two stay separate because a typed action-level failure and a
-      // broken transport are not the same measurement, and one counter for
-      // both would make a handler returning an error code indistinguishable
-      // from a connection that died.
       case 'tool.action_errored': {
         const aeData = event.data as {
           tool?: unknown;
@@ -232,11 +201,6 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
         };
       }
 
-      // A token-budget breach is a per-tool runtime measurement, and this is
-      // the view that holds per-tool measurements. It is deliberately not a
-      // gate row on the feature stream: the convergence view keys gate results
-      // by name and nothing re-runs this one, so a breach folded there pins
-      // its dimension false for the rest of that workflow's life (#1898).
       case 'tool.budget_exceeded': {
         const beData = event.data as { tool?: unknown } | undefined;
         if (!beData || typeof beData.tool !== 'string') return view;
@@ -251,12 +215,6 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
         };
       }
 
-      // #1262 — per-turn output-token tracking. Folded into a capped
-      // rolling list (`view.turns`) so quality-hint generators can detect
-      // threshold crossings without re-scanning the raw event stream.
-      // `turn.completed` payloads must carry a string `turnId` and a
-      // numeric `outputTokens`; anything else is ignored (matches the
-      // tool.completed/tool.errored guard pattern).
       case 'turn.completed': {
         const tcData = event.data as { turnId?: unknown; outputTokens?: unknown } | undefined;
         if (
@@ -270,10 +228,6 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
         const outputTokens = tcData.outputTokens;
 
         const next = [...view.turns, { turnId, outputTokens }];
-        // Retain `windowSize + 1` turns so `computeOutputTokenHints` can
-        // walk one turn earlier than the visible window to distinguish a
-        // streak that started inside the window from one that extends
-        // beyond it (CodeRabbit MAJOR #1422 look-back fix).
         const turnHistoryCap = view.windowSize + 1;
         const turns = next.length <= turnHistoryCap
           ? next
@@ -291,17 +245,9 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
   },
 };
 
-// ─── #1262 Quality-Hint Generation ─────────────────────────────────────────
-
 /**
- * A NextAction-shaped hint surfaced when the current per-turn output-token
- * sum is above the configured threshold. The shape is intentionally a
- * subset of `NextAction` (verb + reason + idempotencyKey) so the envelope
- * formatter can lift it directly into `next_actions[]` without translation.
- *
- * `idempotencyKey` is derived from the upward-crossing turnId so downstream
- * consumers can dedupe across calls — the same active streak surfaces the
- * same key on every view request.
+ * A hint for a turn with an output-token sum above the threshold.
+ * It has the `verb`, `reason`, and `idempotencyKey` fields of a `NextAction`, so the envelope formatter can lift it into `next_actions[]`.
  */
 export interface OutputTokenHint {
   readonly verb: string;
@@ -311,33 +257,13 @@ export interface OutputTokenHint {
 }
 
 /**
- * Compute output-token quality hints for the current telemetry-view state.
+ * Computes the output-token quality hint for the telemetry view state.
+ * Returns `[]` when the catalog has no `output_tokens_high` entry, when there are no turns, or when the latest turn is at or below `thresholdTokens`.
+ * Otherwise it returns one hint, and only the latest turn decides it.
  *
- * Returns **at most one** hint per call, reflecting whether the session is
- * *currently* above the configured threshold (the latest turn's
- * `outputTokens > thresholdTokens`). The hint carries an `idempotencyKey`
- * derived from the upward-crossing turnId so a single streak surfaces the
- * same key across every view request — downstream consumers can dedupe
- * across calls without losing the "still above" signal.
- *
- * Sentry MEDIUM #1422 + CodeRabbit MAJOR #1422: the previous implementation
- * walked the full `view.turns` from a clean `above=false` seed on every
- * call, so every past upward crossing in the buffer re-emitted on every
- * request — exactly the next_actions-flood the edge-triggered design was
- * supposed to prevent. The CodeRabbit look-back finding was a symptom of
- * the same root cause: dropping the predecessor turn while seeding from
- * scratch meant a streak extending out of the window registered as a
- * fresh crossing.
- *
- * The fix collapses both: only the *current* state matters. When latest
- * turn is above threshold we walk backwards within the visible buffer to
- * find the streak start (used for the idempotency key); when latest is
- * below or no turns exist, we emit nothing. Look-back trim is handled by
- * the reducer keeping `windowSize + 1` turns so the streak-start walk can
- * detect when the streak begins inside the window vs. extends beyond it.
- *
- * Returns `[]` when the catalog entry is missing, no turns exist, or the
- * latest turn is at or below the threshold.
+ * The function walks back from the latest turn to the first kept turn of the current streak above the threshold.
+ * The `idempotencyKey` uses that turn, so one streak gives the same key on each view request, and callers can dedupe.
+ * When every kept turn is above the threshold, the key uses the earliest kept turn.
  */
 export function computeOutputTokenHints(
   view: TelemetryViewState,
@@ -352,11 +278,6 @@ export function computeOutputTokenHints(
   const latest = turns[turns.length - 1]!;
   if (latest.outputTokens <= thresholdTokens) return [];
 
-  // Walk backwards within the visible buffer to find the upward crossing
-  // (the earliest in-window turn of the current above-threshold streak).
-  // If the streak extends beyond the buffer (every visible turn is above),
-  // the crossing turnId falls back to the earliest in-window turn — the
-  // idempotency key remains stable for the lifetime of the buffer window.
   let crossingIdx = turns.length - 1;
   while (crossingIdx > 0 && turns[crossingIdx - 1]!.outputTokens > thresholdTokens) {
     crossingIdx--;

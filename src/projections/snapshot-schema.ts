@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-/** Zod schema for one JSONL line in the `<stateDir>/<streamId>.projections.jsonl` snapshot sidecar (DR-2). */
+/** Zod schema for one JSONL line in the `<stateDir>/<streamId>.projections.jsonl` snapshot sidecar. */
 export const SnapshotRecord = z.object({
   projectionId: z.string(),
   projectionVersion: z.string(),

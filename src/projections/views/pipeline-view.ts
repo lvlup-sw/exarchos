@@ -6,30 +6,16 @@ import {
   type TaskStatus,
 } from '../shared/task-status-fold.js';
 
-// ─── View Name Constant ────────────────────────────────────────────────────
-
 export const PIPELINE_VIEW = 'pipeline';
 
 /**
- * Versioned on-disk snapshot lineage for the pipeline view (DR-5/DR-6).
- *
- * The projection *registration* name stays `PIPELINE_VIEW` ('pipeline') — the
- * materializer lookup, `BUILTIN_VIEW_NAMES`, telemetry, and benchmarks are all
- * keyed on it and MUST NOT move. Only the persisted snapshot FILENAME is
- * versioned, via the SnapshotStore namespace map wired at the registration seam
- * (`projections/views/tools.ts`), so new servers read/write `<streamId>.pipeline-v2.snapshot.json`
- * and simply ignore pre-upgrade `<streamId>.pipeline.snapshot.json` files — the
- * stream re-folds once and picks up `repoRoot`. This deliberately avoids
- * bumping `EVENT_SCHEMA_VERSION` (which drives event-migration, not view
- * snapshots) and avoids mixed-version servers thrashing a shared snapshot file.
+ * The snapshot file name of the pipeline view. The materializer maps `PIPELINE_VIEW` to it, and the registration name stays `PIPELINE_VIEW`.
+ * Thus a server ignores old `pipeline` snapshots, and the stream folds again to get `repoRoot`.
+ * `EVENT_SCHEMA_VERSION` stays the same, because it controls event migration and not view snapshots.
  */
 export const PIPELINE_SNAPSHOT_NAME = 'pipeline-v2';
 
-// ─── Bounds ─────────────────────────────────────────────────────────────────
-
 export const MAX_STACK_POSITIONS = 100;
-
-// ─── Stack Position ────────────────────────────────────────────────────────
 
 export interface StackPosition {
   position: number;
@@ -38,13 +24,9 @@ export interface StackPosition {
   prUrl?: string | undefined;
 }
 
-// ─── Measured-size summary variant (DR-3) ────────────────────────────────────
-
 /**
- * The counts-by-group summary `handleViewPipeline` returns INSTEAD of per-item
- * detail when the capped payload would still exceed the resolved output-token
- * threshold (DR-3). Carries the full-inventory group counts (so the shape stays
- * informative) plus a small first page of {@link PipelineViewState} rows.
+ * A counts-by-group summary with a first page of full {@link PipelineViewState} rows.
+ * `handleViewPipeline` returns a local variant of this shape with compact rows.
  */
 export interface PipelineSummary {
   /** Total workflows in the filtered inventory (pre-cap). */
@@ -57,8 +39,6 @@ export interface PipelineSummary {
   firstPage: PipelineViewState[];
 }
 
-// ─── View State ────────────────────────────────────────────────────────────
-
 export interface PipelineViewState {
   featureId: string;
   workflowType: string;
@@ -67,33 +47,17 @@ export interface PipelineViewState {
   completedCount: number;
   failedCount: number;
   /**
-   * Per-task canonical status keyed by task id (#1359 / PR4 T13). Both
-   * `state.patched` plan folds and dedicated `task.*` events route
-   * through this map so the three counters above derive from one
-   * monotonic source of truth. Vocabulary is canonical TaskSchema
-   * (`pending | in_progress | complete | failed`); legacy values from
-   * pre-#1359 snapshots are accepted but pass through `rankOf` which
-   * treats unrecognized vocabulary as rank 0.
+   * The canonical status of each task, by task id. `state.patched` plan folds and `task.*` events both write it, and the three counters derive from it.
+   * A status never moves down the rank order. `rankOf` gives rank 0 to an unknown legacy value.
    */
   tasksById: Record<string, string>;
   stackPositions: StackPosition[];
   hasMore: boolean;
-  /**
-   * Repo identity (DR-5). Copied from `workflow.started` event data during the
-   * fold; `undefined` for legacy streams whose `workflow.started` carried no
-   * `repoRoot` (treated as unscoped by the repo-scoping filter). Purely folded —
-   * the projection performs NO lookup to populate it.
-   */
+  /** Repo identity, copied from `workflow.started` data with no lookup. When the event has no `repoRoot`, only an unscoped query shows the row. */
   repoRoot?: string | undefined;
-  /**
-   * ISO timestamp of the last folded event — used by handlers to expose
-   * `projectionAsOf` and `_meta.projectionLag` on the response envelope
-   * (#1359 / PR4 T14 + T15). Empty string when no event has been folded.
-   */
+  /** ISO timestamp of the last folded event, or an empty string. Handlers use it for `projectionAsOf` and `_meta.projectionLag`. */
   _asOf: string;
 }
-
-// ─── Internal: derive counters from tasksById ─────────────────────────────
 
 function deriveCounters(
   tasksById: Readonly<Record<string, string>>,
@@ -108,8 +72,6 @@ function deriveCounters(
   }
   return { taskCount, completedCount, failedCount };
 }
-
-// ─── Projection ────────────────────────────────────────────────────────────
 
 export const pipelineProjection: ViewProjection<PipelineViewState> = {
   init: () => ({
@@ -126,10 +88,11 @@ export const pipelineProjection: ViewProjection<PipelineViewState> = {
     _asOf: '',
   }),
 
+  /**
+   * Folds one event. Each handled event sets `_asOf`, so `projectionAsOf` shows the most recent event.
+   * Plan tasks from `state.patched` can promote a status but never move it down. The planner sends the full task list many times, and events carry the execution result.
+   */
   apply: (view, event) => {
-    // Update _asOf for every event we touch (whether or not we fold it
-    // into other fields) so that `projectionAsOf` always reflects the
-    // most recent event observed by the materializer.
     const nextAsOf = event.timestamp ?? view._asOf;
 
     switch (event.type) {
@@ -144,8 +107,6 @@ export const pipelineProjection: ViewProjection<PipelineViewState> = {
           featureId: data?.featureId ?? view.featureId,
           workflowType: data?.workflowType ?? view.workflowType,
           phase: 'started',
-          // DR-5: pure fold of repo identity — copied from the event, never
-          // looked up. Absent on legacy events ⇒ stays `undefined` (unscoped).
           repoRoot: data?.repoRoot ?? view.repoRoot,
           _asOf: nextAsOf,
         };
@@ -159,7 +120,6 @@ export const pipelineProjection: ViewProjection<PipelineViewState> = {
         } | undefined;
         return {
           ...view,
-          // Only set featureId if not already populated by workflow.started
           featureId: view.featureId || data?.featureId || view.featureId,
           phase: data?.to ?? view.phase,
           _asOf: nextAsOf,
@@ -167,11 +127,6 @@ export const pipelineProjection: ViewProjection<PipelineViewState> = {
       }
 
       case 'state.patched': {
-        // #1359 / PR4 T13 — fold plan-task assertions into tasksById via
-        // the shared monotonic STATUS_RANK helper. Plan-state assertions
-        // can advance an entry up the ladder but never regress a terminal
-        // status (the planner stamps the full task list repeatedly; events
-        // carry execution truth).
         const data = event.data as Record<string, unknown> | undefined;
         const planTasks = extractPlanTasksFromPatch(data);
         if (!planTasks) {
@@ -186,7 +141,6 @@ export const pipelineProjection: ViewProjection<PipelineViewState> = {
       }
 
       case 'task.assigned': {
-        // Canonical vocabulary post #1359: task.assigned → 'in_progress'.
         const data = event.data as { taskId?: string } | undefined;
         if (!data?.taskId) return { ...view, _asOf: nextAsOf };
         const tasksById = promoteStatus(

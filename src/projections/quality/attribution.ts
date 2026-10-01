@@ -1,8 +1,6 @@
 import type { CodeQualityViewState } from '../views/code-quality-view.js';
 import type { EvalResultsViewState } from '../views/eval-results-view.js';
 
-// ─── Interfaces ─────────────────────────────────────────────────────────────
-
 export type AttributionDimension = 'skill' | 'model' | 'gate' | 'prompt-version';
 
 const VALID_DIMENSIONS: ReadonlySet<string> = new Set<string>(['skill', 'model', 'gate', 'prompt-version']);
@@ -15,7 +13,8 @@ export function isValidDimension(value: string): value is AttributionDimension {
 export interface AttributionQuery {
   readonly dimension: AttributionDimension;
   readonly skill?: string | undefined;
-  readonly timeRange?: string | undefined; // ISO 8601 duration (e.g., 'P7D')
+  /** ISO 8601 duration in the form `P<n>D`, for example `P7D`. Only the `prompt-version` dimension applies it. */
+  readonly timeRange?: string | undefined;
 }
 
 export interface AttributionEntry {
@@ -32,7 +31,8 @@ export interface AttributionCorrelation {
   readonly factor1: string;
   readonly factor2: string;
   readonly direction: 'positive' | 'negative' | 'none';
-  readonly strength: number; // 0-1
+  /** Absolute correlation, from 0 to 1. */
+  readonly strength: number;
 }
 
 export interface AttributionResult {
@@ -41,8 +41,6 @@ export interface AttributionResult {
   readonly correlations: ReadonlyArray<AttributionCorrelation>;
 }
 
-// ─── ISO Duration Parser ────────────────────────────────────────────────────
-
 /** Parse a simple ISO 8601 duration string into milliseconds. Supports P<n>D format. */
 function parseIsoDuration(duration: string): number {
   const match = duration.match(/^P(\d+)D$/);
@@ -50,16 +48,12 @@ function parseIsoDuration(duration: string): number {
   return parseInt(match[1], 10) * 24 * 60 * 60 * 1000;
 }
 
-// ─── Time Range Filter ──────────────────────────────────────────────────────
-
 function computeCutoff(timeRange: string | undefined, referenceTime: Date): Date | null {
   if (!timeRange) return null;
   const durationMs = parseIsoDuration(timeRange);
   if (durationMs <= 0) return null;
   return new Date(referenceTime.getTime() - durationMs);
 }
-
-// ─── Correlation Computation ────────────────────────────────────────────────
 
 /**
  * Compute Pearson correlation coefficient between two numeric arrays.
@@ -100,6 +94,7 @@ function correlationDirection(r: number): 'positive' | 'negative' | 'none' {
   return 'none';
 }
 
+/** Correlate each pair of quality factors. The clamp on `strength` guards against floating-point overshoot. */
 function buildCorrelations(entries: AttributionEntry[]): AttributionCorrelation[] {
   if (entries.length < 2) return [];
 
@@ -117,7 +112,6 @@ function buildCorrelations(entries: AttributionEntry[]): AttributionCorrelation[
       const fj = factors[j];
       if (fi === undefined || fj === undefined) continue;
       const r = pearsonCorrelation(fi.values, fj.values);
-      // Clamp to [0, 1] to guard against floating-point overshoot
       const strength = Math.min(1, Math.max(0, Math.abs(r)));
       correlations.push({
         factor1: fi.name,
@@ -130,8 +124,6 @@ function buildCorrelations(entries: AttributionEntry[]): AttributionCorrelation[
 
   return correlations;
 }
-
-// ─── Dimension Handlers ─────────────────────────────────────────────────────
 
 function attributeBySkill(
   query: AttributionQuery,
@@ -159,13 +151,14 @@ function attributeBySkill(
   });
 }
 
+/** Models have no direct eval score, so `evalScore` is 0. */
 function attributeByModel(
   codeQuality: CodeQualityViewState,
 ): AttributionEntry[] {
   return Object.values(codeQuality.models).map(modelMetrics => ({
     key: modelMetrics.model,
     gatePassRate: modelMetrics.gatePassRate,
-    evalScore: 0, // models don't have direct eval scores
+    evalScore: 0,
     selfCorrectionRate: 0,
     regressionCount: 0,
     trend: 'stable' as const,
@@ -173,6 +166,7 @@ function attributeByModel(
   }));
 }
 
+/** Gates have no direct eval score, so `evalScore` is 0. */
 function attributeByGate(
   codeQuality: CodeQualityViewState,
 ): AttributionEntry[] {
@@ -182,7 +176,7 @@ function attributeByGate(
     return {
       key: gateMetrics.gate,
       gatePassRate: gateMetrics.passRate,
-      evalScore: 0, // gates don't have direct eval scores
+      evalScore: 0,
       selfCorrectionRate: 0,
       regressionCount,
       trend: 'stable' as const,
@@ -191,11 +185,11 @@ function attributeByGate(
   });
 }
 
+/** Group eval runs by `suiteId`, which stands for the prompt version. */
 function attributeByPromptVersion(
   evalResults: EvalResultsViewState,
   cutoff: Date | null,
 ): AttributionEntry[] {
-  // Group eval runs by suiteId (which represents prompt versions)
   const grouped = new Map<string, { scores: number[]; runs: number }>();
 
   for (const run of evalResults.runs) {
@@ -224,8 +218,6 @@ function attributeByPromptVersion(
     };
   });
 }
-
-// ─── Main Function ──────────────────────────────────────────────────────────
 
 /**
  * Compute multi-dimensional quality attribution analysis.

@@ -1,26 +1,16 @@
 /**
- * Rehydration projection reducer (T022 skeleton + T023 task-event fold
- * + T024 workflow-event fold + T025 remaining volatile sections, DR-3).
+ * Rehydration projection reducer. It folds the `WorkflowEvent` stream into a {@link RehydrationDocument}.
  *
- * Folds the canonical event stream (`WorkflowEvent`) into a
- * {@link RehydrationDocument} suitable for emission by the rehydration MCP
- * envelope (DR-3):
+ * - `task.assigned`, `task.completed` and `task.failed` set `taskProgress`.
+ * - `workflow.started` and `workflow.transition` set `workflowState`.
+ * - `workflow.checkpoint` and `workflow.handoff_summarized` set `latestHandoff` and `recentHandoffs`.
+ * - `state.patched` sets `artifacts` and the plan tasks in `taskProgress`.
+ * - A blocked `review.completed`, `review.escalated` and `workflow.guard-failed` add `blockers`.
+ * - The terminal `merge.*` events end the `merge-pending` detour.
  *
- *   - T023 — `task.assigned` / `task.completed` / `task.failed` → `taskProgress`
- *   - T024 — `workflow.started` / `workflow.transition` → `workflowState`
- *   - T025 — `state.patched` → `artifacts`; `review.completed` (blocked) /
- *            `review.escalated` / `workflow.guard-failed` → `blockers`.
- *            No decisions-producing event type is registered; `decisions`
- *            remains empty until one is added (see note at bottom of file).
- *
- * Handlers are grouped by event-type prefix below (task.*, workflow.*,
- * state.*, review.*). The top-level `apply()` is a thin dispatcher; every
- * per-prefix handler returns the original `state` unchanged when the event
- * is malformed or not actionable, which keeps `projectionSequence` monotonic
- * only over *handled* events and preserves identity for unhandled types.
- *
- * The reducer is **not** registered with the projection registry here; that
- * wiring is T026.
+ * The reducer handles no event that writes `decisions`, so that list stays empty.
+ * A handler returns `state` unchanged for a malformed or unactionable event, so `projectionSequence` counts only handled events.
+ * The `./index.ts` barrel registers the reducer.
  */
 import type { ProjectionReducer } from '../types.js';
 import type { WorkflowEvent } from '../../events/schemas.js';
@@ -41,41 +31,18 @@ import {
 } from '../shared/event-data-extractors.js';
 
 /**
- * Task statuses surfaced by this reducer — post #1359 PR4 canonical
- * vocabulary aligned with `workflow/schemas.ts`' `TaskSchema.status`.
- *
- *  - `in_progress` / `complete` / `failed` come from dedicated `task.*` events
- *    (formerly `assigned` / `completed`).
- *  - `pending` is seeded from `state.patched.patch.tasks` (the planner's
- *    declared task list — see Fix 2 / #1179) so plan-state tasks that have
- *    not yet been dispatched still appear in the rehydration document.
- *
- * Event-derived statuses are *authoritative* over plan-derived statuses:
- * once a task has been observed in_progress / complete / failed via events,
- * a later state.patched re-asserting the plan must NOT regress it back to
- * `pending` (the planner stamps the plan repeatedly; events carry execution
- * truth).
- *
- * Pre-#1359 the reducer normalized `'complete' → 'completed'`. That divergence
- * from canonical `TaskSchema.status` was Bug B in the #1359 projection-drift
- * RCA: an agent reading rehydrate.taskProgress saw `'completed'` and then
- * compared against `tasks[].status === 'complete'`, never matched, and
- * re-dispatched already-complete work.
+ * Task status in `taskProgress`. It uses the `TaskSchema.status` values of `workflow/schemas.ts`, so a consumer compares statuses with no translation.
+ * The `task.*` events set `in_progress`, `complete` and `failed`. The plan tasks of `state.patched` add entries with their plan status, often `pending`.
+ * A plan status never lowers the rank of an entry, so a repeated plan stamp does not move a started task back to `pending`.
  */
 type TaskProgressStatus = TaskStatus;
 
 /** Structural shape of a single taskProgress entry in the rehydration doc. */
 type TaskProgressEntry = RehydrationDocument['taskProgress'][number];
 
-// ─── Initial state ──────────────────────────────────────────────────────────
-
 /**
- * Minimal initial rehydration document — satisfies {@link RehydrationDocumentSchema}
- * with empty volatile sections and stable-section string defaults. Folding over
- * an empty event stream MUST yield this value (see `ProjectionReducer.initial`).
- *
- * Validated at module load (below) via `.parse(...)` so that any schema drift
- * is caught the moment this module is imported, rather than at first use.
+ * Initial document, with empty volatile sections and empty stable strings. A fold over an empty stream returns this value.
+ * The `.parse` call runs at module load, so a schema drift fails on import.
  */
 const initialRehydrationDocument: RehydrationDocument = RehydrationDocumentSchema.parse({
   v: 4,
@@ -89,33 +56,14 @@ const initialRehydrationDocument: RehydrationDocument = RehydrationDocumentSchem
   decisions: [],
   artifacts: {},
   blockers: [],
-  // recentHandoffs defaults to [] via the schema; explicit here so the
-  // initial document is self-describing and `parse(...)` doesn't have to
-  // populate it as a side effect.
   recentHandoffs: [],
-  // phasePlaybook is composed live at handler time (T-20). Initial document
-  // seeds it to `null` per the v:3 schema's nullable contract.
+  /** The rehydrate handler composes `phasePlaybook` when it reads the document, so the reducer leaves it `null`. */
   phasePlaybook: null,
 });
 
-// ─── Local extractors ───────────────────────────────────────────────────────
-//
-// The generic string / taskId extractors live in
-// `../shared/event-data-extractors.ts` (DR-10) so this reducer and the
-// task-store reducer share one copy. The rehydration-specific decoders below
-// (`extractArtifactsPatch`, `extractHandoff`) stay local — they decode
-// projection-shaped subtrees only this document consumes.
-
 /**
- * Diff-style decoding of `data.patch.artifacts` from a `state.patched` event:
- *
- *   - `set`   — string upserts (`{ [name]: path }`)
- *   - `unset` — entries explicitly cleared via `null` (delete from artifacts)
- *
- * The two slices are mutually exclusive. Anything else (undefined, nested
- * objects, arrays, empty strings) is ignored as malformed — the projection's
- * artifacts map is `Record<string, string>` so coercing non-string values
- * would corrupt downstream consumers.
+ * The diff in `data.patch.artifacts` of a `state.patched` event.
+ * `set` holds the string upserts. `unset` holds the keys that the patch clears with `null`.
  */
 interface ExtractedArtifactsPatch {
   readonly set: Record<string, string>;
@@ -123,16 +71,10 @@ interface ExtractedArtifactsPatch {
 }
 
 /**
- * Decode a `state.patched` event's `data.patch.artifacts` subtree into an
- * upsert/clear diff. Returns `undefined` when the event has no artifacts
- * patch OR when no entry is actionable (so callers treat the event as a
- * no-op and avoid bumping `projectionSequence`).
- *
- * The workflow-side `ArtifactsSchema` allows `string | null`. We honour the
- * null branch as an explicit "clear this entry" signal so callers issuing
- * `workflow set { artifacts: { design: null } }` get the expected result —
- * silently dropping the null would let stale artifact paths survive in the
- * projection long after the underlying file moved.
+ * Decodes `data.patch.artifacts` of a `state.patched` event into an upsert and clear diff.
+ * It returns `undefined` when the event has no actionable entry.
+ * A `null` value clears the entry, so a stale path does not stay after `workflow set { artifacts: { design: null } }`.
+ * It ignores other values, such as `''`, objects and arrays, because the `Record<string, string>` map cannot hold them.
  */
 function extractArtifactsPatch(
   data: WorkflowEvent['data'],
@@ -157,9 +99,6 @@ function extractArtifactsPatch(
     } else if (value === null) {
       unset.push(key);
     }
-    // Other shapes (undefined, '', objects, arrays) are intentionally
-    // ignored — `Record<string, string>` cannot represent them and they
-    // do not carry an unambiguous "clear this entry" signal.
   }
 
   if (Object.keys(set).length === 0 && unset.length === 0) {
@@ -169,15 +108,8 @@ function extractArtifactsPatch(
 }
 
 /**
- * Pure helper — upsert a task's progress entry by `taskId`.
- *
- * - If `taskId` is not present, append a new `{ id, status }` entry.
- * - If `taskId` is present, replace the existing entry's `status` (preserving
- *   any passthrough fields other reducers/callers may have attached).
- *
- * Never mutates `progress`; always returns a new array (identity-changed even
- * when contents are equivalent, to signal "handled this event" to callers
- * who rely on structural sharing for change detection).
+ * Sets the status of the `taskId` entry, or appends a new entry. It keeps the other fields of an existing entry.
+ * It always returns a new array, so a caller that compares references sees a handled event.
  */
 function upsertTaskProgress(
   progress: readonly TaskProgressEntry[],
@@ -194,55 +126,18 @@ function upsertTaskProgress(
 }
 
 /**
- * Decode the `data.patch.tasks` subtree of a `state.patched` event into a
- * minimal `{ id, status }[]` projection (Fix 2 / #1179).
- *
- * The workflow-side `TaskSchema` (workflow/schemas.ts) carries many fields,
- * but the rehydration document only consumes id + status. Anything that
- * isn't a non-empty string `id` is skipped — the patch could carry an
- * intentionally partial entry (e.g. only `title` updates) that we should
- * not invent an id for.
- *
- * Returns `undefined` when the event has no tasks subtree OR the subtree is
- * empty / unactionable, so callers can short-circuit and avoid bumping
- * `projectionSequence` for no-op patches.
+ * Decodes `data.patch.tasks` of a `state.patched` event into `{ id, status }` entries with `TaskSchema.status` values.
+ * The pipeline view uses the same extractor from `../shared/task-status-fold.ts`, so both projections fold plan tasks the same way.
  */
-// `extractPlanTasksFromPatch` (canonical-vocabulary plan-task extractor) and
-// `STATUS_RANK` (canonical-vocabulary precedence ladder) live in
-// `../shared/task-status-fold.ts` (#1359 / PR4 T13) so the pipeline view
-// projection can share the same monotonic-fold semantics. The reducer uses
-// the canonical extractor directly; callers pre-#1359 passed `data` through
-// a local extractor whose status mapping renamed `'complete' → 'completed'`,
-// which was Bug B of the #1359 projection-drift RCA.
-
 const extractPlanTasks = extractPlanTasksFromPatch;
 
 /**
- * Pure helper — fold a plan-derived task list into the existing taskProgress.
+ * Folds the task list of a plan into `taskProgress`. A new plan id is appended with its plan status.
+ * A plan status replaces an entry status only when its rank is higher. Thus a plan can promote `in_progress` to `complete`, but it cannot lower a status.
  *
- * Monotonic status promotion: a plan-carried status can advance an existing
- * entry up the precedence ladder (pending → assigned → completed/failed),
- * but never back down. This covers the missing-event flows #1180 was filed
- * against — a state.patched re-assertion can promote `assigned` to
- * `completed` even when the dedicated task.completed event never fired —
- * while still preventing the regression case (a re-assertion of `pending`
- * over a `completed` entry is ignored). New ids in the plan are appended
- * with their plan-declared status. Per CR review 4178067854.
- *
- * Membership retraction: `patch.tasks` carries the planner's FULL task list
- * — `workflow set` stamps it wholesale, never as a partial delta — so the
- * newest assertion is authoritative on membership. An id the plan no longer
- * declares is dropped, but ONLY while it is still `pending`. Once an entry
- * carries lifecycle evidence (`in_progress` / `complete` / `failed`) real
- * work exists against it, and a plan that drops it is an anomaly a human
- * should see rather than one the projection silently erases. Statuses
- * outside the canonical ladder are likewise retained — `rankOf` cannot
- * distinguish them from `pending`, and erasing real work is the worse
- * failure, so retraction tests the literal status instead.
- *
- * Without this, a plan narrowed during a plan-review revision — an edge the
- * HSM explicitly supports — left every dropped id wedged in the document as
- * a permanent pending ghost, because the fold could only ever append.
+ * `patch.tasks` is the full plan, so the fold drops an entry that the plan does not list, but only while that entry is `pending`.
+ * An entry with any other status stays, because it shows real work.
+ * The check uses the literal status, because `rankOf` gives an unknown status the rank of `pending`.
  */
 function foldPlanTasks(
   progress: readonly TaskProgressEntry[],
@@ -262,9 +157,6 @@ function foldPlanTasks(
     }
     const existing = next[existingIdx];
     if (existing === undefined) continue;
-    // Rank lookup is shared with the pipeline view via
-    // `../shared/task-status-fold.ts` so both surfaces agree on the
-    // precedence ladder (#1359 / PR4 T13).
     if (rankOf(planTask.status) > rankOf(existing.status)) {
       next[existingIdx] = { ...existing, status: planTask.status };
     }
@@ -272,25 +164,12 @@ function foldPlanTasks(
   return next;
 }
 
-// Silence the unused-import warning for `STATUS_RANK` — the ladder is
-// re-exported below for snapshot/migration consumers, but the reducer
-// itself uses `rankOf` exclusively. Without this reference TypeScript's
-// `noUnusedLocals` would flag the import.
 void STATUS_RANK;
 
-// ─── Per-prefix handlers ────────────────────────────────────────────────────
-//
-// Each handler accepts (state, event) where `event.type` has already been
-// narrowed by the dispatcher. Handlers are pure: they either return a new
-// document (handled) or return `state` unchanged (malformed / no-op), and
-// never mutate the input. Each handled result bumps `projectionSequence`
-// exactly once.
-
 /**
- * Predicate (#1208 / DR-MO-1, DR-MO-2) — true when the event's `data` carries
- * a worktree association via `worktree` OR `worktreePath`. Centralised so the
- * rehydration projection (this file) and the HSM `mergePendingEntry` guard
- * (workflow/hsm-definitions.ts) compute the same trigger.
+ * True when the event `data` has a non-blank `worktree` or `worktreePath` string.
+ * The HSM `mergePendingEntry` guard in `workflow/hsm-definitions.ts` uses it too, so both see the same trigger.
+ * A whitespace-only string does not count, so it cannot start the `merge-pending` detour.
  */
 export function eventDataHasWorktreeAssociation(
   data: WorkflowEvent['data'],
@@ -298,15 +177,21 @@ export function eventDataHasWorktreeAssociation(
   if (!data) return false;
   const w = data['worktree'];
   const p = data['worktreePath'];
-  // Trim before length-checking — a whitespace-only string is not a real
-  // worktree association and must not trigger the merge-pending detour.
   return (
     (typeof w === 'string' && w.trim().length > 0) ||
     (typeof p === 'string' && p.trim().length > 0)
   );
 }
 
-/** Handlers for `task.*` events — taskProgress fold (T023). */
+/**
+ * Folds a `task.*` event into `taskProgress` with `status`. An event with no `taskId` returns `state` unchanged.
+ * A `task.completed` with a worktree association also starts the `merge-pending` detour. The phase becomes `merge-pending`, and `mergeOrchestrator` gets a `pending` entry.
+ * The detour applies only to a `feature` workflow in phase `''`, `delegate` or `merge-pending`, because only `createFeatureHSM()` defines `merge-pending`.
+ * The phase `''` is allowed because production flows reach `delegate` with no `workflow.transition` event.
+ *
+ * It skips the detour when another task has a `pending` merge, so a later terminal merge event cannot apply to the wrong task.
+ * It also skips it when the same task already has a terminal merge phase, so a replayed event does not offer `merge_orchestrate` again.
+ */
 function applyTaskEvent(
   state: RehydrationDocument,
   event: WorkflowEvent,
@@ -314,29 +199,8 @@ function applyTaskEvent(
 ): RehydrationDocument {
   const taskId = extractTaskId(event.data);
   if (!taskId) {
-    // Malformed task event (no taskId): nothing to fold. Return unchanged
-    // so that replay over partial/legacy data cannot corrupt taskProgress.
     return state;
   }
-  // #1208 / DR-MO-1 auto-detour: when a `task.completed` carries a worktree
-  // association AND the merge orchestrator has not already terminated for
-  // this task, project the workflow into the `merge-pending` substate and
-  // seed the `mergeOrchestrator` segment so `nextActionsFromResult` can
-  // surface `merge_orchestrate`. Idempotent: a re-folded same-taskId event
-  // will not regress a terminal merge phase back to `pending`.
-  //
-  // Scope (per coderabbit / #1109 Constraint 1 — event-sourcing integrity):
-  // gated on workflowType='feature' AND a phase compatible with the
-  // `merge-pending` substate. `createFeatureHSM()` is the only HSM that
-  // defines `merge-pending`, so detouring a refactor / debug / oneshot /
-  // discovery stream — or a feature stream already past `delegate` (e.g.
-  // `synthesize`, `completed`) — would project an impossible state and
-  // confuse next-action / HSM consumers downstream.
-  //
-  // Compatible phases: `''` (initial — production flows reach `delegate`
-  // implicitly via `prepare_delegation` without emitting a
-  // `workflow.transition`), `delegate` (canonical entry), and
-  // `merge-pending` (re-entrant). All other phases are blocked.
   let nextWorkflowState = state.workflowState;
   const detourablePhase =
     state.workflowState.phase === '' ||
@@ -349,20 +213,6 @@ function applyTaskEvent(
     eventDataHasWorktreeAssociation(event.data)
   ) {
     const existing = state.workflowState.mergeOrchestrator;
-    // Skip the (re)stamp in two distinct cases:
-    //
-    //   1. `conflictsWithActiveOther` — an active pending merge already exists
-    //      for a DIFFERENT task. Clobbering it would let a subsequent
-    //      merge.executed / merge.recovered / merge.aborted fire against the
-    //      wrong taskId in `applyMergeTerminalEvent`. Preserve the active
-    //      pending; the second task's worktree merge gets picked up after
-    //      the first task's terminal event lands.
-    //
-    //   2. `sameTaskTerminal` — the same task already has a TERMINAL
-    //      mergeOrchestrator phase. Idempotency: a re-folded task.completed
-    //      (replay scenario) must not regress the terminal phase back to
-    //      'pending', otherwise next_actions would re-surface
-    //      merge_orchestrate after a successful merge.
     const conflictsWithActiveOther =
       existing !== undefined &&
       existing.taskId !== taskId &&
@@ -388,30 +238,20 @@ function applyTaskEvent(
 }
 
 /**
- * Handler for `merge.executed` / `merge.recovered` (and its read-tolerant
- * legacy alias `merge.rollback`) / `merge.aborted` — exits the `merge-pending`
- * substate by stamping the terminal phase on `mergeOrchestrator` and reverting
- * `workflowState.phase` to `delegate`.
+ * Handles `merge.executed`, `merge.recovered`, the retired `merge.rollback` and `merge.aborted`.
+ * It sets `terminalPhase` on `mergeOrchestrator` and moves the phase back to `delegate`, like the HSM `mergePendingExit` guard.
+ * With no `mergeOrchestrator` entry, it returns `state` unchanged, so a stray merge event does not invent one.
  *
- * The exit phase is derived from the event type (caller-provided). Mirrors
- * the HSM `mergePendingExit` guard in `workflow/hsm-definitions.ts` so the
- * rehydration projection observes the same lifecycle the HSM defines.
+ * A repeat of the same terminal phase returns `state` unchanged, so a duplicate does not advance `projectionSequence`.
+ * It reads no event field. Thus `merge.recovered` and `merge.rollback` fold the same, and the second event of such a pair changes nothing.
  */
 function applyMergeTerminalEvent(
   state: RehydrationDocument,
   event: WorkflowEvent,
   terminalPhase: 'completed' | 'rolled-back' | 'aborted',
 ): RehydrationDocument {
-  // No-op when there is nothing to terminate — protects replay over partial
-  // streams (a rogue merge.* event without a preceding worktree task.completed
-  // must not invent a mergeOrchestrator entry).
   const existing = state.workflowState.mergeOrchestrator;
   if (!existing) return state;
-  // Idempotent no-op when this terminal event has already been folded — a
-  // duplicate merge.executed / merge.recovered / merge.aborted at the same
-  // taskId + terminalPhase must NOT bump projectionSequence, otherwise replay
-  // count diverges from the truth-of-events count and downstream consumers
-  // (snapshot cadence, fingerprint comparisons) observe phantom mutations.
   if (
     existing.phase === terminalPhase &&
     state.workflowState.phase === 'delegate'
@@ -430,10 +270,8 @@ function applyMergeTerminalEvent(
 }
 
 /**
- * Handler for `workflow.started` — seeds `workflowState.featureId` +
- * `workflowType` from the registered `WorkflowStartedData` payload. Does NOT
- * write `phase` — the started event carries no phase; phase is only advanced
- * by `workflow.transition` below.
+ * Handles `workflow.started`: sets `featureId` and `workflowType` of `workflowState`.
+ * It does not set `phase`, because the event has no phase. An event with no `featureId` or `workflowType` returns `state` unchanged.
  */
 function applyWorkflowStarted(
   state: RehydrationDocument,
@@ -442,7 +280,6 @@ function applyWorkflowStarted(
   const featureId = extractString(event.data, 'featureId');
   const workflowType = extractString(event.data, 'workflowType');
   if (!featureId || !workflowType) {
-    // Malformed start event (missing identifiers): do not fold.
     return state;
   }
   return {
@@ -457,9 +294,8 @@ function applyWorkflowStarted(
 }
 
 /**
- * Handler for `workflow.transition` — advances `workflowState.phase` to the
- * `to` value. Preserves the prior `featureId` / `workflowType` set by the
- * preceding `workflow.started` event.
+ * Handles `workflow.transition`: sets `workflowState.phase` to `to`, and keeps `featureId` and `workflowType`.
+ * An event with no `to` returns `state` unchanged.
  */
 function applyWorkflowTransition(
   state: RehydrationDocument,
@@ -467,7 +303,6 @@ function applyWorkflowTransition(
 ): RehydrationDocument {
   const to = extractString(event.data, 'to');
   if (!to) {
-    // Malformed transition (no `to`): cannot advance phase.
     return state;
   }
   return {
@@ -481,15 +316,9 @@ function applyWorkflowTransition(
 }
 
 /**
- * Handler for `workflow.guard-failed` — a guard predicate rejected a
- * transition (per WorkflowGuardFailedData); record the rejection as a
- * structured blocker entry.
- *
- * Unlike sibling handlers, this one does NOT bail on missing fields — the
- * event's existence IS the signal that a guard fired, and dropping it on
- * partial payloads would leave the rehydration document blind to a real
- * blocker. `guard` falls back to `'unknown-guard'`; `from`/`to` are
- * surfaced only when present.
+ * Handles `workflow.guard-failed`: adds a blocker for the rejected transition.
+ * Unlike the other handlers, it also folds an event with missing fields, because the event itself shows that a guard fired.
+ * A missing `guard` becomes `'unknown-guard'`. It copies `from` and `to` only when they are present.
  */
 function applyWorkflowGuardFailed(
   state: RehydrationDocument,
@@ -514,21 +343,10 @@ function applyWorkflowGuardFailed(
 }
 
 /**
- * Handler for `state.patched` — folds the `data.patch.artifacts` subtree into
- * rehydration `artifacts` (T025) AND, post Fix 2 / #1179, folds
- * `data.patch.tasks` into `taskProgress` as plan-state assertions.
- *
- * `state.patched` is the canonical event behind `exarchos_workflow set` — see
- * `src/workflow/tools.ts` ~L759. Pre-fix this handler
- * deliberately ignored the `tasks` subtree on the assumption that dedicated
- * `task.*` events would always cover the tasks list. In practice planners
- * stamp the full task list via `workflow set` before any `task.assigned`
- * event fires, so pending tasks went missing from the rehydration document.
- *
- * Both subtrees are independent — the event may carry one, the other, both,
- * or neither. The handler treats them as independent contributions to a
- * single (potentially merged) state delta and bumps `projectionSequence`
- * once per actionable event (DR-1, no mutation; counter monotonicity).
+ * Handles `state.patched`, the event behind `exarchos_workflow set`.
+ * It folds `data.patch.artifacts` into `artifacts` and `data.patch.tasks` into `taskProgress`. The event can have one, both or neither.
+ * Planners stamp the full task list before the first `task.assigned`, so the plan tasks show the pending tasks.
+ * An event with neither subtree returns `state` unchanged. Otherwise `projectionSequence` advances once.
  */
 function applyStatePatched(
   state: RehydrationDocument,
@@ -537,16 +355,11 @@ function applyStatePatched(
   const artifactsPatch = extractArtifactsPatch(event.data);
   const planTasks = extractPlanTasks(event.data);
   if (!artifactsPatch && !planTasks) {
-    // No actionable subtrees: no-op. Return identity so callers that rely
-    // on structural sharing for change detection see "unhandled".
     return state;
   }
 
   let nextArtifacts: Record<string, string> = state.artifacts;
   if (artifactsPatch) {
-    // Fold the diff: drop unset keys first (so an `unset` entry can't be
-    // resurrected by a same-event `set`), then overlay the upserts. Build a
-    // fresh object rather than mutating to preserve reducer purity (DR-1).
     nextArtifacts = { ...state.artifacts };
     for (const key of artifactsPatch.unset) {
       delete nextArtifacts[key];
@@ -569,11 +382,8 @@ function applyStatePatched(
 }
 
 /**
- * Handler for `review.completed` — only the `blocked` verdict is folded as a
- * blocker (per ReviewCompletedData). Non-blocking verdicts (`pass`, `fail`)
- * are not folded; `fail` indicates findings to fix but not a hard stop, and
- * the plan's original `review.failed` event type is not registered in the
- * event-store.
+ * Handles `review.completed`: only the `blocked` verdict adds a blocker.
+ * Other verdicts, such as `pass` and `fail`, return `state` unchanged. A `fail` verdict means findings to fix, not a hard stop.
  */
 function applyReviewCompleted(
   state: RehydrationDocument,
@@ -596,23 +406,11 @@ function applyReviewCompleted(
 }
 
 /**
- * Handler for `workflow.checkpoint` — folds the optional `data.handoff`
- * sub-payload (#1240) into the volatile `latestHandoff` slot AND a bounded
- * sliding window `recentHandoffs` (max 3, most-recent-first).
- *
- * Empty-handoff events (no `handoff` sub-object, OR a `handoff` whose only
- * fields are missing/empty arrays) are intentionally folded as no-ops:
- * `projectionSequence` is NOT bumped, mirroring the "unhandled / unactionable"
- * convention used by the other handlers in this file. This keeps the
- * monotone-counter contract aligned with the truth-of-events count for
- * snapshot/fingerprint consumers.
- *
- * The entry's `eventRef` is keyed by `event.sequence` (#1246 v:2 contract;
- * post-#1230 sequence uniqueness guarantees this is a stable primary key) and
- * carries the source event's `timestamp` for human-readable audit. The v:2
- * schema (`HandoffEntrySchemaV2`, `.strict()` on the inner object) rejects an
- * `id` key, so this handler MUST NOT set one — the v:1 advisory `id` field is
- * gone (DR-Q-V2 strict deprecation).
+ * Handles `workflow.checkpoint`: folds `data.handoff` into `latestHandoff` and the front of `recentHandoffs`.
+ * `recentHandoffs` holds at most 3 entries, newest first, to limit the token cost of the envelope.
+ * An event with no actionable handoff returns `state` unchanged. The reducer does not project the other checkpoint fields.
+ * The entry has `source: 'operator'`, and it always replaces `latestHandoff`.
+ * `eventRef` holds only `sequence` and `timestamp`, because the strict `HandoffEntrySchemaV2` rejects an `id` key.
  */
 function applyWorkflowCheckpoint(
   state: RehydrationDocument,
@@ -620,14 +418,8 @@ function applyWorkflowCheckpoint(
 ): RehydrationDocument {
   const handoff = extractHandoff(event.data);
   if (!handoff) {
-    // No actionable handoff payload — return identity (no projectionSequence
-    // bump). The non-handoff portion of `workflow.checkpoint` (counter, phase,
-    // featureId) is not projected onto the rehydration document today.
     return state;
   }
-  // Build the v:2 entry. `eventRef` carries ONLY {sequence, timestamp};
-  // `HandoffEntrySchemaV2`'s `.strict()` enforces the no-`id` invariant at
-  // the schema boundary, but we also avoid constructing one here.
   const entry: RehydrationDocument['recentHandoffs'][number] = {
     ...(handoff.context !== undefined ? { context: handoff.context } : {}),
     ...(handoff.nextSteps !== undefined ? { nextSteps: handoff.nextSteps } : {}),
@@ -638,38 +430,21 @@ function applyWorkflowCheckpoint(
       sequence: event.sequence,
       timestamp: event.timestamp,
     },
-    // #1242 — operator-authored provenance. An operator checkpoint ALWAYS
-    // overwrites the slot (it is the higher-precedence source), and tagging it
-    // lets a later `workflow.handoff_summarized` defer to it.
     source: 'operator',
   };
   return {
     ...state,
     projectionSequence: state.projectionSequence + 1,
     latestHandoff: entry,
-    // Bounded sliding window — most-recent first; cap at 3 to bound the
-    // rehydration envelope's token cost. Older entries naturally fall off as
-    // new checkpoints land.
     recentHandoffs: [entry, ...state.recentHandoffs].slice(0, 3),
   };
 }
 
 /**
- * Handler for `workflow.handoff_summarized` (#1242) — folds the auto-summarized
- * handoff fallback, but ONLY when no operator-authored handoff currently holds
- * the `latestHandoff` slot. Operator-authored content (a `workflow.checkpoint`
- * handoff, tagged `source: 'operator'`) always takes precedence.
- *
- * Precedence rule (pure, replay-deterministic): the summary applies iff the
- * current `latestHandoff` is absent OR already `'auto'`. A legacy entry with no
- * `source` (only the checkpoint handler wrote handoffs pre-#1242) counts as
- * operator-authored and is therefore preserved. When the summary is suppressed,
- * this returns identity (no `projectionSequence` bump, no `recentHandoffs`
- * pollution) — matching the unactionable-event convention used throughout.
- *
- * The folded summary string comes verbatim from the stored event payload, so
- * replay reproduces the projection without re-invoking the (non-deterministic)
- * summarizer (INV-1 / Constraint 1 of #1242).
+ * Handles `workflow.handoff_summarized`: folds the summarized handoff with `source: 'auto'`.
+ * It applies only when `latestHandoff` is absent or already `'auto'`, so an operator handoff always wins.
+ * An entry with no `source` counts as an operator entry. When the summary does not apply, it returns `state` unchanged.
+ * The summary text comes from the stored event, so a replay does not run the summarizer again.
  */
 function applyWorkflowHandoffSummarized(
   state: RehydrationDocument,
@@ -677,11 +452,8 @@ function applyWorkflowHandoffSummarized(
 ): RehydrationDocument {
   const handoff = extractHandoff(event.data);
   if (!handoff) {
-    // No actionable summary content — identity fold (no projectionSequence bump).
     return state;
   }
-  // Operator precedence: defer to an operator-authored handoff already in the
-  // slot. `source` absent (legacy) is treated as operator-authored.
   const current = state.latestHandoff;
   if (current !== undefined && current.source !== 'auto') {
     return state;
@@ -707,28 +479,20 @@ function applyWorkflowHandoffSummarized(
 }
 
 /**
- * Decode the `data.handoff` subtree of a `workflow.checkpoint` event into
- * the projection-side handoff fields. Returns `undefined` when the event has
- * no handoff OR the handoff carries no actionable fields, so callers can
- * short-circuit without bumping `projectionSequence`.
- *
- * "Actionable" means at least one of: a non-empty `context` string, a
- * non-empty `nextSteps` array, or a non-empty `suggestions` array. An empty
- * array is treated identically to a missing field — empty handoff payloads
- * are written by hooks/auto-emitters under non-checkpoint flows and must
- * not generate noisy projection updates.
+ * The actionable fields of a handoff.
+ * The arrays are mutable because the Zod-inferred entry type uses `string[]`. The reducer does not mutate them.
  */
 interface ExtractedHandoff {
   readonly context?: string;
-  // Mutable arrays here so that the assembled entry is assignable to
-  // `RehydrationDocument['recentHandoffs'][number]` — the schema's `z.array()`
-  // infers `string[]`, not `readonly string[]`. The reducer never mutates
-  // these values; the mutability is a Zod-inferred-type requirement, not a
-  // semantic one.
   readonly nextSteps?: string[];
   readonly suggestions?: string[];
 }
 
+/**
+ * Decodes `data.handoff` of an event, and keeps only non-empty strings.
+ * It returns `undefined` when no `context`, `nextSteps` or `suggestions` value remains, so the caller does not advance `projectionSequence`.
+ * An empty array counts as a missing field and is left out of the result, because some emitters write empty handoffs.
+ */
 function extractHandoff(
   data: WorkflowEvent['data'],
 ): ExtractedHandoff | undefined {
@@ -751,16 +515,11 @@ function extractHandoff(
       )
     : undefined;
 
-  // No actionable content → caller treats event as no-op (no projectionSequence
-  // bump). An empty array post-filter counts the same as a missing field.
   const hasContext = context !== undefined;
   const hasNextSteps = nextSteps !== undefined && nextSteps.length > 0;
   const hasSuggestions = suggestions !== undefined && suggestions.length > 0;
   if (!hasContext && !hasNextSteps && !hasSuggestions) return undefined;
 
-  // Normalise: drop empty-array fields so they don't surface as `[]` in the
-  // projection — match the optional-field contract on HandoffEntrySchemaV2
-  // (a missing field and an empty array carry the same "no entries" meaning).
   return {
     ...(hasContext ? { context } : {}),
     ...(hasNextSteps ? { nextSteps } : {}),
@@ -768,10 +527,7 @@ function extractHandoff(
   };
 }
 
-/**
- * Handler for `review.escalated` — escalation is inherently a blocker (per
- * ReviewEscalatedData). The reviewer bumped risk up; capture the reason.
- */
+/** Handles `review.escalated`: adds a blocker with the escalation reason, because an escalation always blocks. */
 function applyReviewEscalated(
   state: RehydrationDocument,
   event: WorkflowEvent,
@@ -792,27 +548,17 @@ function applyReviewEscalated(
   };
 }
 
-// ─── Reducer (thin dispatcher) ──────────────────────────────────────────────
-
+/**
+ * The `rehydration@v1` reducer. An unknown event type returns `state` unchanged.
+ * It maps `task.assigned`, `task.completed` and `task.failed` to the `TaskSchema.status` values `in_progress`, `complete` and `failed`.
+ */
 export const rehydrationReducer: ProjectionReducer<RehydrationDocument, WorkflowEvent> = {
   id: 'rehydration@v1',
   version: 1,
   scope: 'stream' as const,
   initial: initialRehydrationDocument,
   apply(state: RehydrationDocument, event: WorkflowEvent): RehydrationDocument {
-    // Dispatch by event.type, grouped below by event-type prefix. Unknown
-    // event types short-circuit back to `state` unchanged (preserves the T022
-    // identity contract for unhandled types and keeps `projectionSequence`
-    // monotonic only over *handled* events).
     switch (event.type) {
-      // ── task.* — taskProgress fold (T023) ─────────────────────────────────
-      // Canonical vocabulary post #1359 / PR4 T11:
-      //   task.assigned  → 'in_progress'  (was 'assigned')
-      //   task.completed → 'complete'     (was 'completed')
-      //   task.failed    → 'failed'
-      // Aligned with `workflow/schemas.ts`' TaskSchema.status enum so a
-      // rehydrate consumer can compare directly against canonical
-      // `tasks[].status` without translation.
       case 'task.assigned':
         return applyTaskEvent(state, event, 'in_progress');
       case 'task.completed':
@@ -820,52 +566,32 @@ export const rehydrationReducer: ProjectionReducer<RehydrationDocument, Workflow
       case 'task.failed':
         return applyTaskEvent(state, event, 'failed');
 
-      // ── workflow.* — workflowState + blockers fold (T024, T025) ──────────
       case 'workflow.started':
         return applyWorkflowStarted(state, event);
       case 'workflow.transition':
         return applyWorkflowTransition(state, event);
       case 'workflow.guard-failed':
         return applyWorkflowGuardFailed(state, event);
-      // workflow.checkpoint — handoff fold (T2 / #1240 / #1246, v:2 envelope)
       case 'workflow.checkpoint':
         return applyWorkflowCheckpoint(state, event);
-      // workflow.handoff_summarized — auto-summary fallback (#1242). Operator
-      // checkpoints take precedence; see applyWorkflowHandoffSummarized.
       case 'workflow.handoff_summarized':
         return applyWorkflowHandoffSummarized(state, event);
 
-      // ── state.* — artifacts fold (T025) ──────────────────────────────────
       case 'state.patched':
         return applyStatePatched(state, event);
 
-      // ── review.* — blockers fold (T025) ──────────────────────────────────
       case 'review.completed':
         return applyReviewCompleted(state, event);
       case 'review.escalated':
         return applyReviewEscalated(state, event);
 
-      // ── merge.* — merge-orchestrator lifecycle (#1208 / DR-MO-1) ─────────
       case 'merge.executed':
         return applyMergeTerminalEvent(state, event, 'completed');
-      // DR-2 (task 006): the recovery path now emits ONLY `merge.recovered`;
-      // `merge.rollback` is the read-tolerant legacy alias (KEPT so pre-DR-2
-      // logs still fold to `rolled-back`). Both drive the SAME terminal fold —
-      // `applyMergeTerminalEvent` reads only `existing.taskId`, so the two
-      // events are byte-equivalent here. Folding both is idempotent: on a legacy
-      // dual-emit stream the first (recovered) folds and the second (rollback)
-      // hits the idempotent no-op, so the final state + projectionSequence are
-      // identical whichever event drove the transition.
       case 'merge.recovered':
       case 'merge.rollback':
         return applyMergeTerminalEvent(state, event, 'rolled-back');
       case 'merge.aborted':
         return applyMergeTerminalEvent(state, event, 'aborted');
-
-      // ── decision.* — NOT YET WIRED ───────────────────────────────────────
-      // No `decision.*` event type is registered in the event-store.
-      // `decisions` on the rehydration document remains empty until a
-      // decisions-producing event type is added and handled here.
 
       default:
         return state;

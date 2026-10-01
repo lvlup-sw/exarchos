@@ -1,11 +1,7 @@
 import type { ViewProjection } from './materializer.js';
 import type { WorkflowEvent } from '../../events/schemas.js';
 
-// ─── View Name Constant ────────────────────────────────────────────────────
-
 export const CONVERGENCE_VIEW = 'convergence';
-
-// ─── Dimension Definitions ─────────────────────────────────────────────────
 
 export const ALL_DIMENSIONS = ['D1', 'D2', 'D3', 'D4', 'D5'] as const;
 
@@ -17,17 +13,10 @@ const DIMENSION_LABELS: Record<string, string> = {
   D5: 'Workflow Determinism',
 };
 
-// ─── View State Interface ─────────────────────────────────────────────────
-
 /**
- * A single gate result captured under a convergence dimension.
- *
- * `skipped` and `skipReason` are populated when the underlying gate could not
- * actually run (e.g. static-analysis on a repo with no recognized toolchain).
- * A skipped gate has `passed: false` AND `skipped: true` — this is distinct
- * from a real failure (passed: false, skipped undefined/false). The dimension
- * is treated as not-converged in either case so a skip never falsely-greens
- * convergence. See DR-4 in docs/plans/archive/2026-05-04-v290-dogfood-bundle.md.
+ * One gate result under a convergence dimension.
+ * `skipped` and `skipReason` are set when the gate did not run, for example static analysis with no known toolchain.
+ * A skipped gate is not a pass, so it never makes a dimension converged.
  */
 export interface ConvergenceGateResult {
   readonly gateName: string;
@@ -40,27 +29,27 @@ export interface ConvergenceGateResult {
 
 export interface ConvergenceViewState {
   readonly featureId: string;
+  /** Results for each dimension, keyed by `D1` to `D5`. `label` is the readable name of the dimension. */
   readonly dimensions: Record<string, {
-    readonly dimension: string;       // 'D1' | 'D2' | 'D3' | 'D4' | 'D5'
-    readonly label: string;           // Human-readable name
+    readonly dimension: string;
+    readonly label: string;
     readonly gateResults: ConvergenceGateResult[];
-    readonly converged: boolean;      // All gates for this dimension passed
+    readonly converged: boolean;
     readonly lastChecked: string | null;
   }>;
   readonly overallConverged: boolean;
   readonly uncheckedDimensions: string[];
 }
 
-// ─── Convergence Predicates ────────────────────────────────────────────────
-
+/**
+ * True when the latest result of each gate passed and was not skipped.
+ * Only the latest result of each gate counts, so a retry can recover a failed gate.
+ */
 function isDimensionConverged(
   gateResults: ConvergenceGateResult[],
 ): boolean {
   if (gateResults.length === 0) return false;
 
-  // Check only the latest result per unique gate name so retries can recover.
-  // A gate is only "green" when passed AND not skipped — a skipped gate is
-  // inconclusive, never converged (T-10 / DR-4).
   const latestByGate = new Map<string, { passed: boolean; skipped: boolean }>();
   for (const r of gateResults) {
     latestByGate.set(r.gateName, { passed: r.passed, skipped: r.skipped === true });
@@ -86,8 +75,10 @@ function computeOverallConverged(
   });
 }
 
-// ─── Event Handlers ────────────────────────────────────────────────────────
-
+/**
+ * Folds a `gate.executed` event whose `details.dimension` is `D1` to `D5` into that dimension.
+ * It copies `skipped` and `skipReason` from `details`, so a reader can tell a skipped gate from a pass or a fail.
+ */
 function handleGateExecuted(
   state: ConvergenceViewState,
   event: WorkflowEvent,
@@ -107,9 +98,6 @@ function handleGateExecuted(
 
   const passed = data.passed ?? false;
   const phase = data.details?.phase as string | undefined;
-  // T-10 / DR-4: surface skipped/skipReason from the event details so
-  // downstream rendering can distinguish a skipped (inconclusive) gate
-  // from a true pass or fail. A skipped gate is never converged.
   const skipped = data.details?.skipped === true ? true : undefined;
   const skipReason = typeof data.details?.skipReason === 'string'
     ? (data.details.skipReason as string)
@@ -151,8 +139,6 @@ function handleGateExecuted(
     uncheckedDimensions: computeUncheckedDimensions(updatedDimensions),
   };
 }
-
-// ─── Projection ────────────────────────────────────────────────────────────
 
 export const convergenceProjection: ViewProjection<ConvergenceViewState> = {
   init: (): ConvergenceViewState => ({

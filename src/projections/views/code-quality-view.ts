@@ -1,26 +1,15 @@
 import type { ViewProjection } from './materializer.js';
 import type { WorkflowEvent } from '../../events/schemas.js';
 
-// ─── View Name Constant ────────────────────────────────────────────────────
-
 export const CODE_QUALITY_VIEW = 'code-quality';
-
-// ─── Bounds ─────────────────────────────────────────────────────────────────
 
 export const MAX_BENCHMARKS = 50;
 export const MAX_BENCHMARK_VALUES = 100;
 export const MAX_REGRESSIONS = 50;
-/** Rolling cap on per-skill mutation-score samples (#1525), mirrors MAX_BENCHMARK_VALUES. */
+/** Cap on the mutation-score samples of one skill. */
 export const MAX_MUTATION_SAMPLES = 100;
 
-// ─── View State Interfaces ─────────────────────────────────────────────────
-
-/**
- * Per-skill mutation-score trend (#1525). A left-fold of the `mutationScore`
- * carried on the mutation-adequacy `gate.executed` (`details.mutationScore`),
- * mirroring `BenchmarkTrend` — ordered samples plus a derived direction. No
- * side table: the samples live on the skill metrics the view already folds.
- */
+/** The mutation-score trend of one skill, from `details.mutationScore` of the `mutation-adequacy` gate. It has the shape of {@link BenchmarkTrend}. */
 export interface MutationScoreTrend {
   readonly values: ReadonlyArray<{ readonly value: number; readonly commit: string; readonly timestamp: string }>;
   readonly trend: 'improving' | 'stable' | 'degrading';
@@ -34,7 +23,7 @@ export interface SkillQualityMetrics {
   readonly avgRemediationAttempts: number;
   readonly topFailureCategories: ReadonlyArray<{ readonly category: string; readonly count: number }>;
   readonly latestPromptVersion?: string;
-  /** Present once a mutation-adequacy gate.executed with a numeric mutationScore has been folded. */
+  /** Present after the view folds a `mutation-adequacy` gate result with a numeric `mutationScore`. */
   readonly mutationScoreTrend?: MutationScoreTrend;
 }
 
@@ -76,13 +65,7 @@ export interface CodeQualityViewState {
   readonly benchmarks: ReadonlyArray<BenchmarkTrend>;
 }
 
-// ─── Internal Tracking State ───────────────────────────────────────────────
-
-/**
- * Tracks consecutive gate failures per gate+skill combination for
- * regression detection. This is carried alongside the view state but
- * not exposed externally.
- */
+/** Consecutive failures of one gate and skill pair, for regression detection. It is not part of the public view type. */
 interface FailureTracker {
   count: number;
   firstCommit: string;
@@ -94,8 +77,6 @@ interface InternalState extends CodeQualityViewState {
   readonly _failureTrackers: Record<string, FailureTracker>;
   readonly _remediationCounts: Record<string, number>;
 }
-
-// ─── Helpers ───────────────────────────────────────────────────────────────
 
 /** Compute running average: newAvg = (oldAvg * (n-1) + newVal) / n */
 function runningAverage(oldAvg: number, n: number, newVal: number): number {
@@ -132,11 +113,8 @@ function defaultModelMetrics(model: string): ModelQualityMetrics {
 }
 
 /**
- * Calculate trend direction from the last 3+ values.
- *
- * Default convention is *lower-is-better* (benchmark latency): a falling series
- * is "improving". Pass `higherIsBetter` for metrics where a rising series is the
- * improvement (e.g. mutation score — more mutants killed is better).
+ * Calculates the trend of the last three values, and returns `stable` for fewer than three.
+ * By default, lower is better, so a falling series is `improving`. Pass `higherIsBetter` for a metric such as mutation score.
  */
 function calculateTrend(
   values: Array<{ value: number }>,
@@ -186,12 +164,13 @@ function toInternal(view: CodeQualityViewState): InternalState {
   };
 }
 
-/** Create a result that hides internal trackers from enumeration. */
+/**
+ * Returns the public state with the tracker maps as non-enumerable properties.
+ * Thus the maps survive the next `apply`, but stay out of `toEqual` and `JSON.stringify`.
+ */
 function fromInternal(state: InternalState): CodeQualityViewState {
   const { _failureTrackers, _remediationCounts, ...publicState } = state;
   const result = { ...publicState } as CodeQualityViewState;
-  // Store trackers as non-enumerable so they survive apply() chaining
-  // but don't leak into toEqual/JSON.stringify comparisons
   Object.defineProperty(result, '_failureTrackers', {
     value: _failureTrackers,
     enumerable: false,
@@ -207,25 +186,11 @@ function fromInternal(state: InternalState): CodeQualityViewState {
   return result;
 }
 
-// ─── Event Handlers ────────────────────────────────────────────────────────
-
 /**
- * One observed CI check, folded into the SKILL metrics only.
- *
- * These rows arrived as `gate.executed` and went through
- * {@link handleGateExecuted}, which put every GitHub check name into
- * `state.gates` beside the gates this repository runs itself. Two populations,
- * one namespace, and no discriminant between them: the old rows carried
- * `layer: 'ci'`, which nothing validated and nothing read. A CI job sharing a
- * name with one of our gates merged their pass rates into one number and
- * nothing would have reported it (#1898 item 8).
- *
- * The per-skill half is kept deliberately. Driving checks green IS the
- * shepherd's outcome, so its pass rate belongs on the skill — which is why the
- * old rows carried `details.skill` at all. What is not kept: no `gates[...]`
- * entry, no model metrics (a CI check has no model), no failure tracker (the
- * regression detector is about OUR gates failing consecutively), and no
- * mutation trend.
+ * Folds one observed CI check into the metrics of `data.skill` only.
+ * A CI check name can match the name of a repository gate, so the check stays out of `state.gates`.
+ * It adds no model metrics, no failure tracker and no mutation trend.
+ * A failed check counts as a failure category under its own name, because the record has no `reason`.
  */
 function handleCiCheckObserved(
   state: InternalState,
@@ -243,8 +208,6 @@ function handleCiCheckObserved(
   const totalExecutions = prev.totalExecutions + 1;
   const passCount = Math.round(prev.gatePassRate * prev.totalExecutions) + (passed ? 1 : 0);
 
-  // A failing check is categorized by its own name. There is no `reason` on
-  // this record and inventing one would be worse than naming the check.
   let categories = [...prev.topFailureCategories] as Array<{ category: string; count: number }>;
   if (!passed) {
     const existing = categories.find((c) => c.category === data.check);
@@ -269,6 +232,11 @@ function handleCiCheckObserved(
   });
 }
 
+/**
+ * Folds one gate result into the gate, skill, model and regression metrics.
+ * Only the `mutation-adequacy` gate feeds the mutation trend, so a `mutationScore` from another gate has no effect.
+ * Three consecutive failures of one gate and skill pair make a regression entry. A pass resets the count.
+ */
 function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQualityViewState {
   const data = event.data as {
     gateName?: string;
@@ -291,15 +259,10 @@ function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQua
   const commit = typeof details.commit === 'string' ? details.commit : undefined;
   const reason = typeof details.reason === 'string' ? details.reason : undefined;
   const promptVersion = typeof details.promptVersion === 'string' ? details.promptVersion : undefined;
-  // #1525 — ONLY the mutation-adequacy gate's numeric score feeds the per-skill
-  // mutation trend. Gating on gateName (not just presence of a numeric field)
-  // prevents cross-gate contamination if any other gate ever carries a
-  // `mutationScore` key in its details.
   const mutationScore = gateName === 'mutation-adequacy' && typeof details.mutationScore === 'number'
     ? details.mutationScore
     : undefined;
 
-  // Update gate metrics
   const prevGate = state.gates[gateName] ?? defaultGateMetrics(gateName);
   const newCount = prevGate.executionCount + 1;
   const passedCount = Math.round(prevGate.passRate * prevGate.executionCount) + (passed ? 1 : 0);
@@ -314,14 +277,12 @@ function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQua
       : prevGate.failureReasons,
   };
 
-  // Update skill metrics if skill is present
   let updatedSkills = state.skills;
   if (skill) {
     const prevSkill = state.skills[skill] ?? defaultSkillMetrics(skill);
     const newExec = prevSkill.totalExecutions + 1;
     const skillPassCount = Math.round(prevSkill.gatePassRate * prevSkill.totalExecutions) + (passed ? 1 : 0);
 
-    // Aggregate failure categories on the skill
     let updatedCategories = [...prevSkill.topFailureCategories] as Array<{ category: string; count: number }>;
     if (!passed) {
       const category = reason || gateName;
@@ -339,9 +300,6 @@ function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQua
       }
     }
 
-    // #1525 — fold the mutation-adequacy score into a per-skill left-fold trend
-    // (ordered samples + derived direction), mirroring BenchmarkTrend. Mutation
-    // score is higher-is-better, so the trend is computed with that convention.
     let mutationScoreTrend = prevSkill.mutationScoreTrend;
     if (mutationScore !== undefined) {
       const prevValues = prevSkill.mutationScoreTrend?.values ?? [];
@@ -368,7 +326,6 @@ function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQua
     };
   }
 
-  // Update model metrics if model is present
   let updatedModels = state.models;
   if (model) {
     const prevModel = state.models[model] ?? defaultModelMetrics(model);
@@ -385,13 +342,11 @@ function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQua
     };
   }
 
-  // Update failure trackers for regression detection
   const tKey = trackerKey(gateName, skill ?? '_none_');
   let updatedTrackers = { ...state._failureTrackers };
   let updatedRegressions = state.regressions;
 
   if (passed) {
-    // Reset failure counter on pass
     const { [tKey]: _removed, ...rest } = updatedTrackers;
     updatedTrackers = rest;
   } else {
@@ -403,9 +358,7 @@ function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQua
     };
     updatedTrackers = { ...updatedTrackers, [tKey]: newTracker };
 
-    // Create regression entry at threshold
     if (newTracker.count >= 3) {
-      // Remove any existing regression for this gate+skill, then add updated one
       const filtered = state.regressions.filter(
         (r) => !(r.gate === gateName && r.skill === (skill ?? '_none_')),
       );
@@ -497,6 +450,11 @@ function handleBenchmarkCompleted(state: InternalState, event: WorkflowEvent): C
   });
 }
 
+/**
+ * Updates the self-correction metrics of a skill.
+ * `selfCorrectionRate` is the corrections divided by the failures in the skill metrics, at most 1. It is 0 when there are no failures.
+ * `avgRemediationAttempts` is the running average of `totalAttempts` over all corrections.
+ */
 function handleRemediationSucceeded(state: InternalState, event: WorkflowEvent): CodeQualityViewState {
   const data = event.data as {
     skill?: string;
@@ -512,15 +470,12 @@ function handleRemediationSucceeded(state: InternalState, event: WorkflowEvent):
   const prevCorrections = state._remediationCounts[skill] ?? 0;
   const corrections = prevCorrections + 1;
 
-  // Compute totalFailures from gate metrics
   const totalFailures = metrics.totalExecutions - Math.round(metrics.gatePassRate * metrics.totalExecutions);
 
-  // selfCorrectionRate = corrections / totalFailures, clamped to [0, 1]
   const selfCorrectionRate = totalFailures > 0
     ? Math.min(corrections / totalFailures, 1)
     : 0;
 
-  // Running average of attempts across all corrections
   const avgRemediationAttempts = runningAverage(
     metrics.avgRemediationAttempts, corrections, totalAttempts,
   );
@@ -543,15 +498,9 @@ function handleRemediationSucceeded(state: InternalState, event: WorkflowEvent):
 }
 
 /**
- * The handler for an event type, or `undefined` where this view ignores it.
- *
- * The lookup exists so that `toInternal` has exactly ONE call site. The two
- * tracker maps are non-enumerable, so a case arm that handed the PUBLIC view to
- * its handler lost them on that handler's first spread. Nothing went red when
- * that happened: regression detection and the remediation counter simply
- * started over from zero mid-stream, and every later verdict was computed from
- * a history that had been silently truncated. A handler that cannot be reached
- * without the conversion cannot make that mistake.
+ * Returns the handler for an event type, or `undefined` when the view ignores the type.
+ * With this lookup, `toInternal` has one call site. A handler that gets the public view loses the non-enumerable tracker maps on its first spread.
+ * Then regression detection and the remediation count restart from zero without an error.
  */
 function handlerFor(
   type: WorkflowEvent['type'],
@@ -569,8 +518,6 @@ function handlerFor(
       return undefined;
   }
 }
-
-// ─── Projection ────────────────────────────────────────────────────────────
 
 export const codeQualityProjection: ViewProjection<CodeQualityViewState> = {
   init: (): CodeQualityViewState => ({

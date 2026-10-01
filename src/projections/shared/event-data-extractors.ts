@@ -1,41 +1,21 @@
 /**
- * Shared event-data extractors for projection reducers (DR-10 dedup).
+ * Shared event-data extractors for projection reducers.
  *
- * Every projection reducer folds `WorkflowEvent`s whose payload lives on the
- * opaque `data` bag (typed `Record<string, unknown> | undefined` by the
- * event-store base schema). Pulling a typed field off that bag requires the
- * runtime check the type system cannot perform, and the rehydration
- * (`projections/rehydration/reducer.ts`) and task-store
- * (`projections/taskstore/reducer.ts`) reducers previously carried byte-identical
- * private copies of these primitives. This module is their single home so both
- * reducers (and any future one) stay symmetrically lax about partial payloads —
- * a load-bearing property for replay tolerance (DR-1).
- *
- * All extractors are pure: no I/O, no mutation, no throws. Each returns
- * `undefined` for a missing / wrong-typed / empty value so a caller can
- * short-circuit a malformed event into no-op handling without ever writing an
- * ill-typed value into a schema-validated projection.
+ * A `WorkflowEvent` carries its payload on the untyped `data` bag.
+ * These extractors do the runtime type check, so the reducers stay equally tolerant of partial payloads on replay.
+ * Each extractor is pure and does not throw.
+ * A missing or wrong-typed value gives `undefined`, as does an empty string. Thus a reducer does not write an ill-typed value.
  */
 import type { WorkflowEvent } from '../../events/schemas.js';
 
-/**
- * Pull a non-empty string `taskId` off an event's opaque `data` bag. Returns
- * `undefined` for missing, non-string, or empty values so callers can
- * short-circuit malformed task events into no-op handling.
- */
+/** Return the non-empty string `taskId` from an event's `data` bag, or `undefined`. */
 export function extractTaskId(data: WorkflowEvent['data']): string | undefined {
   if (!data) return undefined;
   const raw = data['taskId'];
   return typeof raw === 'string' && raw.length > 0 ? raw : undefined;
 }
 
-/**
- * Extract a non-empty string field, or `undefined`. The general-purpose sibling
- * of {@link extractTaskId} for arbitrary string-typed fields (e.g. `featureId`,
- * `workflowType`, `to`, `title`, `branch`). Missing / non-string / empty values
- * yield `undefined` so a reducer never writes `undefined` into a schema-validated
- * document.
- */
+/** Return the non-empty string field `key`, or `undefined`. */
 export function extractString(
   data: WorkflowEvent['data'],
   key: string,
@@ -55,10 +35,7 @@ export function extractNumber(
   return typeof raw === 'number' && Number.isFinite(raw) ? raw : undefined;
 }
 
-/**
- * Extract a `string[]`, filtering non-string entries. Returns `undefined` for
- * a missing field or a non-array value.
- */
+/** Return the string entries of the array field `key`, or `undefined` when the field is not an array. */
 export function extractStringArray(
   data: WorkflowEvent['data'],
   key: string,
