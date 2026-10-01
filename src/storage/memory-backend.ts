@@ -66,8 +66,8 @@ export class InMemoryBackend implements StorageBackend {
   /**
    * Change token for {@link StorageBackend.dataVersion}, bumped on each
    * {@link appendEvent}. Memory has no other process, so each append counts as a
-   * change, also an append by the observer. The cursor guard of the floor loop
-   * makes the extra drains harmless.
+   * change, and an append by the observer counts too. The cursor guard of the floor
+   * loop makes the extra drains harmless.
    */
   private appendVersion = 0;
 
@@ -95,9 +95,9 @@ export class InMemoryBackend implements StorageBackend {
   }
 
   /**
-   * Query one stream. All filters run in JS after the fetch, because memory has
-   * no index. The correlation filters match the fields on the event object, so the
-   * rows are the same as on the indexed SQLite path.
+   * Query one stream. All filters run in JS, because memory has no index. The
+   * correlation filters read the fields on the event object. The rows are the same
+   * as on the indexed SQLite path.
    */
   queryEvents(streamId: string, filters?: QueryFilters): WorkflowEvent[] {
     const stream = this.events.get(streamId);

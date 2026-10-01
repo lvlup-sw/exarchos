@@ -8,7 +8,8 @@
  * An oracle measures every arm again:
  *   • `projection-fold`: the governance-filtered fold diverges without the type.
  *   • `raw-reader`: the named module still reads the type, or the row is stale.
- *   • `gate-expectation`: the emission gate still lists the type. No live row uses it.
+ *   • `gate-expectation`: the emission gate still lists the type. No live row uses it,
+ *     but it stays, because a source scan cannot see that read shape.
  *   • `charter-pin`: the decision record pins the family. A row that gains real evidence must move.
  *
  * The load refuses a row for a type whose tier already derives `auto`.

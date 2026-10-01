@@ -40,7 +40,7 @@ export class Outbox {
     return path.join(this.stateDir, `${streamId}.outbox.json`);
   }
 
-  /** Adds a pending entry. With a backend, the backend stores it. Else the JSON file stores it. */
+  /** Adds a pending entry. With a backend, the backend stores it. Without one, the JSON file stores it. */
   async addEntry(
     streamId: string,
     event: WorkflowEvent,
@@ -226,7 +226,7 @@ export class Outbox {
     });
   }
 
-  /** Exponential backoff that starts at 1 second and stops at 60 seconds. */
+  /** Exponential backoff that starts at 1 second, with a cap of 60 seconds. */
   calculateNextRetry(attempts: number): string {
     const delayMs = Math.min(Math.pow(2, attempts - 1) * 1000, 60_000);
     return new Date(Date.now() + delayMs).toISOString();

@@ -518,7 +518,7 @@ export const ACTION_APPEND_OWNERSHIP: readonly ActionAppendOwnership[] = Object.
  * The closure audit keys edges by event name, so it cannot name the action that owes an
  * undeclared append. This audit names it.
  * - `stale`: the census does not confirm the row.
- * - `unbacked`: the action owns an append and declares no edge for it.
+ * - `unbacked`: the action owns an append, declares no edge for it, and has no reasoned `none`.
  * - `falseAbstentions`: the action declares a reasoned `none` for an append that it owns.
  *
  * Keys are `declaringTool.action`, because two tools can register the same action name.

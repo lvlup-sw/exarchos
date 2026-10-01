@@ -58,7 +58,7 @@ export const TERMINAL_WORKFLOW_STATUSES: ReadonlySet<WorkflowLifecycleStatus> = 
 /**
  * Map a workflow `phase` string to its coarse {@link WorkflowLifecycleStatus}.
  * Both backends use it, so SQLite and memory derive `status` the same way. Every
- * workflow type uses the same names for these three phases.
+ * workflow type uses the phase names `completed`, `cancelled`, and `blocked`.
  */
 export function deriveWorkflowStatus(phase: string): WorkflowLifecycleStatus {
   switch (phase) {
@@ -156,8 +156,8 @@ export interface StorageBackend {
    * on the same backend instance. The absolute value has no meaning.
    *
    * SQLite returns `PRAGMA data_version`, which changes only on commits from other
-   * connections. The Tier-1 hook already covers commits of this process. Memory
-   * returns a count of appends, so its own appends also change it. The extra drain
+   * connections. The Tier-1 hook already covers commits of this process. The memory
+   * backend returns a count of appends, so its own appends also change it. The extra drain
    * is cursor-guarded and never delivers an event twice.
    */
   dataVersion(): number;
@@ -182,8 +182,8 @@ export interface StorageBackend {
    * {@link WorkflowSummary} per tracked workflow.
    *
    * SQLite joins `workflow_state` and `streams` and filters `workflow_type` in SQL
-   * through the `idx_streams_workflow_type` index, never in JS. Memory derives the
-   * same fields and filters in JS. Both apply {@link matchesWorkflowSummaryFilter}
+   * through the `idx_streams_workflow_type` index, never in JS. The memory backend
+   * derives the same fields and filters in JS. Both apply {@link matchesWorkflowSummaryFilter}
    * for the lifecycle axes, so they return the same rows.
    */
   listWorkflowSummaries(filter?: WorkflowSummaryFilter): WorkflowSummary[];

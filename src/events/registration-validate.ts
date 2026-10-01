@@ -67,6 +67,7 @@ export const PRIMARY_OWNER_POPULATION_FLOOR = 76;
  * whose event has a boot-resolvable weld. It is a floor, and the check is `compared < floor`.
  * A wider set passes. A narrower set means that the comparison silently stopped covering ground,
  * while every non-empty check still passes. A lower floor must be a deliberate, reviewed edit.
+ * It is a constant, not a parameter, so no caller can relax it to zero.
  */
 export const EMISSION_DENOMINATOR_FLOOR = 46;
 
@@ -396,10 +397,10 @@ const diagnosticSortKey = (d: WeldResolutionDiagnostic): string =>
   [d.code, d.eventType ?? '', d.provider ?? '', 'action' in d ? d.action : ''].join('\u0000');
 
 /**
- * The provider ids that resolve: each tool with exactly one provider entry that has exactly one
- * live `EFFECT_OWNERSHIP` rule. Both conditions come from `providers.ts` through
- * {@link ruleBacksProvider}. A tool claimed twice is ambiguous, and an entry with no rule is
- * stale. Sorted, so a failure message is stable.
+ * The provider ids that resolve. An entry is backed when exactly one live `EFFECT_OWNERSHIP` rule
+ * backs it, through {@link ruleBacksProvider}. A tool resolves when exactly one backed entry claims
+ * it. Two backed entries make a tool ambiguous, and an entry without one rule is stale. Sorted, so a
+ * failure message is stable.
  */
 export function resolvableProviderIds(
   providers: readonly EffectProvider[] = EFFECT_PROVIDERS,
@@ -468,7 +469,8 @@ export function staleCoverEligibleWelds(
  * One declared emission edge from the tool registry: an action declares that it emits an event,
  * and the action belongs to a composite tool. {@link declaringTool} uses the same id space as
  * `EffectProviderId`, so the two sides compare directly. No module path is involved, because an
- * `AutoEmission` and a `ToolAction` carry none.
+ * `AutoEmission` and a `ToolAction` carry none. A walk of `src/` is no alternative, because the
+ * single-file binary has no `src/` and the walk cannot run at boot.
  */
 export interface EmissionEdge {
   /** The event type the action declares it emits. */
@@ -903,7 +905,7 @@ const identityKey = (identity: DisagreementIdentity): string =>
 
 /**
  * The identity of one reported disagreement. It is the only place that turns a diagnostic into a
- * ledger key. If a field goes from the mismatch arm, this function stops compiling.
+ * ledger key. If the mismatch arm loses a field, this function does not compile.
  */
 export function disagreementIdentityOf(diagnostic: ProviderDisagreement): DisagreementIdentity {
   return {
@@ -1078,7 +1080,7 @@ const staleCoverKey = (identity: StaleCoverIdentity): string =>
 
 /**
  * The identity of one reported stale cover. It is the only place that turns a diagnostic into a
- * ledger key. If a field goes from the stale-cover arm, this function stops compiling.
+ * ledger key. If the stale-cover arm loses a field, this function does not compile.
  */
 export function staleCoverIdentityOf(diagnostic: StaleCoverFinding): StaleCoverIdentity {
   return {
@@ -1204,9 +1206,10 @@ export interface HarnessWeldAuditResult {
 export type HarnessModuleReader = (relativePath: string) => string | undefined;
 
 /**
- * Checks every `harness` registration against the tree, because no registry exists at boot. The
- * module must be outside `src/`, because an emitter under `src/` has a real weld. The module must
- * exist and mention the event. The reader is a parameter, so a test can show that the check fails.
+ * Checks every `harness` registration against the tree, because no registry of harnesses exists.
+ * The module must be outside `src/`, because an emitter under `src/` has a real weld. The module
+ * must exist and mention the event. The reader is a parameter, so a test can show that the check
+ * fails.
  */
 export function auditHarnessWelds(
   annotations: Readonly<Record<string, EventRegistration>>,
@@ -1384,7 +1387,7 @@ export type _RegistrationValidate_SeverityPolicy_IsTotalOverTheDiagnosticAxis = 
 
 /**
  * The mismatch arm names all four sides in one record: the event, the declared provider, the
- * declaring tool and the action. If a field goes, the key set stops matching and the build fails.
+ * declaring tool and the action. If the arm loses a field, the key sets differ and the build fails.
  * @proof
  */
 export type _RegistrationValidate_MismatchDiagnostic_NamesBothSides = Expect<
@@ -1395,8 +1398,8 @@ export type _RegistrationValidate_MismatchDiagnostic_NamesBothSides = Expect<
 >;
 
 /**
- * The narrowed arm carries both `compared` and `floor`, so a reader can size the shortfall. If
- * either field goes, the key set stops matching and the build fails.
+ * The narrowed arm carries both `compared` and `floor`, so a reader can size the shortfall. If the
+ * arm loses either field, the key sets differ and the build fails.
  * @proof
  */
 export type _RegistrationValidate_NarrowedDiagnostic_CarriesTheShortfall = Expect<
@@ -1440,7 +1443,8 @@ export type _RegistrationValidate_StaleCoverPopulation_IsASubsetOfTheResolvedWel
 
 /**
  * The stale-cover finding names the event, the claimed provider and the admitting lifecycle in one
- * record. The lifecycle shows that the exclusion axis works. If a field goes, the build fails.
+ * record. The lifecycle shows that the exclusion axis works. If the arm loses a field, the build
+ * fails.
  * @proof
  */
 export type _RegistrationValidate_StaleCoverDiagnostic_NamesTheEventAndItsLifecycle = Expect<

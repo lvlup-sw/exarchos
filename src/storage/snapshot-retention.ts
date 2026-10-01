@@ -12,8 +12,8 @@ export const DEFAULT_SNAPSHOT_MAX_RECORDS = 500;
 /**
  * Resolve the per-coordinate snapshot row cap from `SNAPSHOT_MAX_RECORDS`.
  *
- * Only a whole-string positive safe integer (`/^\d+$/`) is accepted. Any other
- * value falls back to {@link DEFAULT_SNAPSHOT_MAX_RECORDS}, so a bad value never
+ * The function accepts only a whole-string positive safe integer (`/^\d+$/`). Any
+ * other value falls back to {@link DEFAULT_SNAPSHOT_MAX_RECORDS}, so a bad value never
  * disables the cap. `Number.parseInt` alone reads `"10junk"` as 10, and a very
  * long digit string parses past the safe-integer range.
  *

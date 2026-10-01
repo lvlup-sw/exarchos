@@ -21,8 +21,8 @@ export type UntrustedEventInput = Omit<EventInput, 'type'> & { type: string };
 
 /**
  * Build a WorkflowEvent with Zod validation. Use it at system boundaries
- * (MCP tool handlers, external input) where input is untrusted. The data check
- * is shared with `batch_append`, so the two write paths agree on a valid payload.
+ * (MCP tool handlers, external input) where input is untrusted. `batch_append`
+ * uses the same data check, so the two write paths agree on a valid payload.
  */
 export function buildValidatedEvent(
   streamId: string,

@@ -8,7 +8,7 @@
  * - `display`: the view shows, counts, or attributes the value. Nothing gates on it.
  * - `verdict`: the value is an input to a decision that the view computes.
  *
- * `verdict` rows are named, pinned, and can only shrink. An undeclared dependence fails.
+ * The list of `verdict` rows can only shrink. An undeclared dependence fails.
  */
 
 /** How a view's value stands to the telemetry it folds. */
@@ -40,7 +40,8 @@ export const VIEW_TELEMETRY_DEPENDENCE: Readonly<
     paths: [
       /**
        * Per-field paths, because `tool.budget_exceeded` is governance and creates the
-       * per-tool entry on both sides. `budgetExceeded` is the same on both sides.
+       * per-tool entry on both sides. `budgetExceeded` is the same on both sides. If
+       * `tool.budget_exceeded` becomes telemetry, these paths collapse to `tools.sample-tool`.
        */
       'tools.sample-tool.actionErrorBreakdown.sample-errorCode',
       'tools.sample-tool.actionErrors',

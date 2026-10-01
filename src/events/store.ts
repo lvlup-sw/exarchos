@@ -22,9 +22,10 @@ import {
 } from './subscriptions.js';
 
 /**
- * Adds the correlation IDs of the active dispatch to an event input.
- * A field that the caller supplies wins, so recovery code can reuse the IDs of an earlier dispatch.
- * The merge does not mutate the input, and it returns the same object when no field changes.
+ * Adds the dispatch IDs (`operationId`, `correlationId`, `causationId`) of the active dispatch to an
+ * event input. A field that the caller supplies wins, so recovery code can reuse the IDs of an
+ * earlier dispatch. The merge does not mutate the input, and it returns the same object when no
+ * field changes.
  */
 function stampWithDispatchContext<T extends {
   correlationId?: string | undefined;
@@ -229,10 +230,10 @@ export class EventStore {
   }
 
   /**
-   * Disposes every subscription, removes the commit hook, and then closes the SQLite handles.
-   * It is idempotent. A test must call it before it removes a temporary `stateDir`, because on
-   * Windows an open handle makes `fs.rm` fail with EPERM or EBUSY. Each append commits before
-   * its promise resolves, so `close()` does not affect durability.
+   * Disposes every subscription, removes the commit hook, and then closes the appender and any
+   * injected backend. It is idempotent. A test must call it before it removes a temporary
+   * `stateDir`, because on Windows an open handle makes `fs.rm` fail with EPERM or EBUSY. Each
+   * append commits before its promise resolves, so `close()` does not affect durability.
    */
   close(): void {
     this.subscriptions?.disposeAll();
@@ -269,7 +270,8 @@ export class EventStore {
 
   /**
    * Appends an event that `buildValidatedEvent()` already validated, with no second Zod parse.
-   * It adds the dispatch IDs as `append` does. These fields are optional, so the event stays valid.
+   * It adds the dispatch IDs as `append` does. The dispatch IDs are optional fields, so the event
+   * stays valid.
    */
   async appendValidated(
     streamId: string,
@@ -800,7 +802,8 @@ export class EventStore {
    *   - A bad reference, or a custodial settlement with no reference, gives `{ ok: false }`.
    *   - A timeout or a throw gives `{ ok: false, incomplete: true }` with no counts.
    *   - An abort of the caller's signal rejects with `AbortError`.
-   * The sweep reads every stream, so no append or replay path calls it. The doctor calls it on demand.
+   * The sweep reads every stream, so only the doctor calls it, on demand. It binds the same
+   * `listStreams` that the skip check tests, so the check cannot vouch for another enumerator.
    */
   async runBundleIntegrityCheck(opts?: {
     signal?: AbortSignal;

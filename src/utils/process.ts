@@ -13,7 +13,8 @@ import path from 'node:path';
 /**
  * True when a process with `pid` is alive. `process.kill(pid, 0)` checks existence
  * and permission without a signal. A throw (`ESRCH` or `EPERM`) counts as not
- * alive, because a PID that this user cannot signal belongs to another process.
+ * alive, because a PID that this user cannot signal now belongs to a process of
+ * another user.
  *
  * Caveats: `kill(pid, 0)` sees only the current PID namespace, so lock attribution
  * across containers that share a state directory is not reliable. The kernel also
@@ -34,8 +35,8 @@ export function isPidAlive(pid: number): boolean {
  * Since the CVE-2024-27980 fix (Node >= 20.12.2), `child_process.execFile*`
  * refuses to launch a `.cmd`/`.bat` directly — it throws `EINVAL` unless
  * `shell: true` is set. Native binaries (`git`, `cargo`, …) are real `.exe`s and
- * spawn fine without a shell. `resolveIntegrationCommand` can spawn a bare `bun`,
- * so the list includes `bun` and `bunx`.
+ * spawn fine without a shell. `resolveIntegrationCommand` can return a bare `bun`
+ * as the test command, so the list includes `bun` and `bunx`.
  */
 const WINDOWS_CMD_SHIMS = new Set([
   'npm',
@@ -71,7 +72,7 @@ export function needsWindowsShell(
  * whitespace get double quotes. All other commands pass through to `execFileSync`,
  * which returns stdout and throws on a non-zero exit.
  *
- * Arguments must be trusted (fixed subcommands, resolved file paths). With
+ * The caller must pass trusted arguments (fixed subcommands, resolved file paths). With
  * `shell: true`, an argument with shell metacharacters can inject commands.
  */
 export function runCommandSync(
@@ -92,7 +93,7 @@ export function runCommandSync(
  * callers that branch on the exit code. The win32 shim handling is the same as
  * in {@link runCommandSync}.
  *
- * Arguments must be trusted (fixed subcommands, resolved file paths). With
+ * The caller must pass trusted arguments (fixed subcommands, resolved file paths). With
  * `shell: true`, an argument with shell metacharacters can inject commands.
  */
 export function spawnCommandSync(
@@ -199,8 +200,8 @@ function commandHasPathOrExt(command: string): boolean {
 
 /**
  * Quote one token per the MS C runtime `CommandLineToArgvW` rules, so the argv
- * parser of the target program recovers it verbatim. Only backslashes before a
- * `"` and a trailing run are doubled. A token that needs no quotes returns unchanged.
+ * parser of the target program recovers it verbatim. It doubles only the backslashes
+ * before a `"` and a trailing run. A token that needs no quotes returns unchanged.
  */
 function quoteArgvToken(arg: string): string {
   if (arg === '') return '""';
@@ -274,7 +275,8 @@ function defaultResolveWin32Command(command: string): string | null {
  * - win32 `.cmd`/`.bat`: `spawn` cannot run a batch shim (`EINVAL`), and `shell: true`
  *   opens injection. So run the resolved shim through `cmd.exe /d /c` with
  *   `windowsVerbatimArguments` and each token escaped by {@link escapeForCmd}.
- * - win32 `.ps1`: run `powershell.exe -File <resolved>`. Node quoting is safe there.
+ * - win32 `.ps1`: run `powershell.exe -File <resolved>`. PowerShell is a real
+ *   `.exe` with no cmd.exe layer, so the Node quoting is safe.
  * - win32 `.exe` or explicit path: launch the resolved binary directly.
  *
  * An unresolvable bare command on win32 returns `{ ok: false }` with a {@link SpawnError}.
@@ -362,8 +364,9 @@ function defaultSpawn(
 
 /**
  * Launch a long-lived, supervised harness CLI child on win32 or POSIX, with no
- * shell-injection hazard. Resolves once the child spawns, to a {@link ChildHandle}.
- * A command that cannot launch rejects with a {@link SpawnError} and never throws.
+ * shell-injection hazard. The promise resolves to a {@link ChildHandle} once the
+ * child spawns. When a command cannot launch, the promise rejects with a
+ * {@link SpawnError}. The function never throws.
  * See {@link resolveSpawnPlan} for the launch strategy per platform.
  *
  * An `'error'` after `'spawn'` can arrive without an `'exit'`. Then `exit` resolves

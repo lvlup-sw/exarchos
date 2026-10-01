@@ -3,11 +3,12 @@
 // infrastructure. A doctor check, a retention policy, and an append-path refusal
 // will read it, and none of them exist yet.
 //
-// The first consumer must carry two facts. Telemetry is a fold fact, not a stream
-// placement, so a retention policy filters rows and never drops a stream. The
-// argument-rewriting path in `projections/telemetry/middleware.ts` becomes
-// correctness-bearing with no partition change. It is dormant because every
-// dispatcher call passes three arguments.
+// The first consumer must carry two facts. Telemetry rows share feature streams
+// with governance rows, so a retention policy filters rows and never drops a
+// stream. The argument-rewriting path (`autoCorrectionOptions`) in
+// `projections/telemetry/middleware.ts` becomes correctness-bearing with no
+// partition change. It is dormant because every dispatcher call passes three
+// arguments.
 
 /**
  * The live governance and telemetry partition over the shipped event catalog. It

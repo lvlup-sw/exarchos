@@ -1,6 +1,6 @@
 /**
  * NDJSON encoder. It writes one JSON object per line, terminated by `\n`. It
- * writes each frame synchronously and adds no buffer beyond the stream's own.
+ * writes each frame synchronously and adds no buffer beyond the buffer of the stream.
  */
 import type { Writable } from 'node:stream';
 import type { Frame } from './frames.js';

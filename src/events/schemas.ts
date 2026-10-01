@@ -1,10 +1,11 @@
 /**
  * The event catalog: every event type name and the Zod schema of each event payload.
  *
- * The `judgment` content schemas live in `judgment-content-schemas.ts`. This prevents a runtime
- * import cycle with `event-annotations.ts`. This module re-exports them for existing importers.
- * The re-exported `EVENT_NAME_PATTERN` is a regex form of the grammar in `event-name.ts`.
- * `architecture/event-grammar-census.ts` reads it to compare the two forms.
+ * The `judgment` content schemas live in `judgment-content-schemas.ts`, so `event-annotations.ts`
+ * takes no runtime value from this module, and this module imports the annotations with no cycle.
+ * This module re-exports those schemas for existing importers. The re-exported `EVENT_NAME_PATTERN`
+ * is a regex form of the grammar in `event-name.ts`. `tools/conformance/src/event-grammar-census.ts`
+ * reads it to compare the two forms.
  */
 import * as path from 'node:path';
 import { z } from 'zod';
@@ -91,6 +92,7 @@ export const INTERNAL_VCS_LEDGER_EVENT_TYPES: readonly [
  * - `orchestrate.intent_executed`: the bounded executor commits it after the run bundle is in custody.
  * - `execution.settled`: the settle handler commits it after capsule parse, adjudication and custody.
  * - `workflow.prepared`: settlement adjudicates a capsule only when this record pins its digest.
+ * - `deviation.proposed` and `deviation.decided`: the settle handler commits them for a held batch.
  *
  * A caller that can append these types can fake a settlement or pin any capsule.
  */
@@ -291,8 +293,8 @@ export const EventTypes = [
   'spec.legacy_capabilities_array',
   'phase.contract_missing',
   /**
-   * The gate-set resolver of the IMPLEMENT kind threw, so the dispatch failed closed. This event
-   * records the reason, so an operator sees the blocked phase.
+   * A gate-set resolver fault stopped a wave dispatch or a phase transition, which failed closed.
+   * This event records the reason, so an operator sees the blocked phase.
    */
   'phase.blocked',
   /**
@@ -459,9 +461,9 @@ export const EventTypes = [
    */
   'promotion.executed',
   /**
-   * A handler finished an operation without an event that its registration declares unconditionally.
-   * The post-dispatch verifier appends it. A violation is an Exarchos bug, so it is a recorded fact and
-   * not an error that the caller sees.
+   * A handler broke its emission contract: a declared event did not land, or an event landed
+   * although its registration says that nothing emits it. The post-dispatch verifier appends it.
+   * A violation is an Exarchos bug, so it is a recorded fact and not an error that the caller sees.
    */
   'emission.violated',
   /**
@@ -560,7 +562,7 @@ export type EventEmissionSource = 'auto' | 'model' | 'hook' | 'planned' | 'retir
 /**
  * The emission source of every registered event type.
  *
- * Each source derives from the coupling tier in `event-annotations.ts`, through
+ * Each source derives from the tier and the lifecycle in `event-annotations.ts`, through
  * `resolveEmissionSource` in `event-registration.ts`. No source is authored here, so a source cannot
  * disagree with its tier. The registry is built from `EventTypes`, so its keys match the catalog.
  * {@link deriveEmissionRegistry} fails closed at load on an empty population or an unannotated type.
@@ -946,7 +948,8 @@ const CancellationInstanceIdSchema = z.string().trim().min(1).max(200);
 
 /**
  * Fencing-token allocation. `epoch` is greater than every earlier ownership epoch on the stream. The
- * process manager rejects a later write with a lower epoch, so restart and takeover fold to the same
+ * process manager rejects a later write with a lower epoch, so a displaced instance cannot undercut
+ * a takeover. The saga facts are replayable events, so restart and takeover fold to the same
  * decisions.
  */
 export const CancelOwnershipAcquiredData = z
@@ -2071,9 +2074,10 @@ export const PhaseBlockedKindSchema = z.enum([
 ]);
 
 /**
- * The dispatch boundary (`classifyTasksFailClosed`) emits it when `resolveGateSet(kind, …)` throws
- * while it stamps the verification sequence of a wave. The dispatch fails closed. `kind` is the
- * faulted phase kind, `phase` is the lifecycle phase, and `error` holds the resolver fault.
+ * A gate-set resolver fault that failed closed. `handlePrepareDelegation` appends it when
+ * `classifyTasksFailClosed` reports a fault for a wave. The transition guard appends it when
+ * gate-set resolution fails at a phase boundary. `kind` is the faulted phase kind, `phase` is the
+ * lifecycle phase, and `error` holds the resolver fault.
  */
 export const PhaseBlockedData = z.object({
   phase: z.string().min(1).describe('Lifecycle phase the dispatch was blocked at'),
@@ -2099,7 +2103,7 @@ export const ResolvedGateFamilySchema = z.enum(['ladder', 'plan', 'review', 'syn
 
 /**
  * The POLA posture of a phase kind. It is inlined, so the event store does not import
- * `agents/spec.ts`. A drift-guard test pins it to the posture set of `KIND_OBLIGATIONS`.
+ * `runtime/agents/spec.ts`. A drift-guard test pins it to the posture set of `KIND_OBLIGATIONS`.
  */
 export const PhaseEnteredPostureSchema = z.enum(['read-only', 'task-isolated', 'shared-mutating']);
 
