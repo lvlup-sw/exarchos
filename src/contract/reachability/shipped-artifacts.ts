@@ -3,7 +3,8 @@
  * and `cli/generated/cli-surface.json`.
  * The reachability census compares the live compile against these files. Separate generation passes
  * write them, so the comparison fails when the shipped artifacts and the live contract disagree.
- * An absent file, a body with the wrong shape, or an entry with a missing field throws.
+ * An absent file, a body with the wrong shape, or an entry with a missing field throws. A lenient
+ * reader understates the shipped surface and misreports a closure break.
  */
 
 import fs from 'node:fs';

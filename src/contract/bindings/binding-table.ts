@@ -59,5 +59,5 @@ export function buildBindingTable(
     .sort(byTool);
 }
 
-/** The live binding table. The pre-startup verification checks it against the compiled contract. */
+/** The live binding table. The pre-startup verification checks it against the contract ActionIds of the live registry. */
 export const BINDING_TABLE: readonly ImplementationBinding[] = buildBindingTable();

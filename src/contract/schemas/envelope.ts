@@ -97,8 +97,8 @@ export const ErrorEnvelopeSchema = z.object({
 
 /**
  * Returns the Zod schema for the success branch of `Envelope<T>`, with `data` typed by `dataSchema`.
- * It also accepts the `warnings` and `_corrections` decorators from `wrapWithPassthrough`. The
- * decorators are optional, so a minimal envelope from `wrap()` parses.
+ * It also accepts the `warnings` and `_corrections` decorators from `wrapWithPassthrough`. The hint
+ * fields and the decorators are optional, so a minimal envelope from `wrap()` parses.
  */
 export function SuccessEnvelopeSchema<T extends z.ZodType>(dataSchema: T) {
   return z.object({

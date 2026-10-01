@@ -70,7 +70,7 @@ export const prepareActions: readonly BuiltinToolAction[] = [
       .object({
         /**
          * An alias, as in `settle`, because `streamId` is the bare featureId. The call needs at least
-         * one of the two, and two values must match.
+         * one of the two. When it passes both, the values must match.
          */
         streamId: z.string().min(1).optional(),
         featureId: z.string().min(1).optional(),
@@ -95,7 +95,7 @@ export const prepareActions: readonly BuiltinToolAction[] = [
     ),
     /**
      * A replay returns the persisted claim before any effect and appends nothing. An event-append
-     * ensure then refuses every replay, so no postcondition is declared.
+     * ensure then refuses every replay, so the contract declares no postcondition.
      */
     ensures: none(
       'the prepared record is appended once, on the call that compiles; a replay returns the ' +

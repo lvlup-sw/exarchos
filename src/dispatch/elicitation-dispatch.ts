@@ -5,8 +5,8 @@
  * The hand-off derives a JSON Schema for the missing field only, and it emits
  * `elicitation.requested`. It then calls `elicitation/create` through the injected
  * {@link ElicitationClient}, emits the outcome event, and returns the value. The events go to the
- * pseudo-stream `elicitation/<operationId>`. `dispatch/core/dispatch.ts` gives the resolution
- * order: explicit, roots, cwd, elicitation, then `INVALID_INPUT`.
+ * pseudo-stream `elicitation/<operationId>`. For an omitted parameter, the resolution order is
+ * explicit, roots, cwd, elicitation, then `INVALID_INPUT`.
  */
 
 import type { z } from 'zod';

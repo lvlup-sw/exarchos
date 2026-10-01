@@ -1,7 +1,7 @@
 /**
  * The canonical serialization of the closed contract surface. It covers the error and exit
- * families, the stable error registry, the output kinds, the change classes, and the protected
- * request-context fields.
+ * families, the stable error registry, and the output kinds. It also covers the change and
+ * compatibility classes, the migration directions, and the protected request-context fields.
  *
  * `authority-collector.ts` digests it as the `contract-surface` authority. Thus a change to the
  * contract shape trips the authority freeze. The surface holds no free-text descriptions, so a

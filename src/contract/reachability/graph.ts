@@ -159,11 +159,11 @@ function statusFor(applicable: boolean, count: number): HopStatus {
 
 /**
  * Counts the resolvers of each hop for one action, in the fixed hop order. `handler` and `owner`
- * resolve by tool, so a duplicate binding for the tool is `ambiguous`. A route counts only
- * under the tool of the action.
+ * resolve by tool, so a duplicate binding or provider for the tool is `ambiguous`. A route counts
+ * only under the tool of the action.
  *
- * `owner` applies only to a mutating action. Both emission hops apply only to an action that
- * declares emissions. The `event` hop resolves only when the catalog registers every declared event.
+ * `owner` applies only to a mutating action. The `event` hop applies only to an action that
+ * declares emissions, and resolves only when the catalog registers every declared event.
  */
 export function resolveHops(action: ActionNode, inputs: ReachabilityInputs): readonly HopResolution[] {
   const schemaCount = inputs.schemas.filter((s) => s.actionId === action.actionId).length;

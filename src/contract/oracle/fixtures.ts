@@ -1,4 +1,4 @@
-// Fixtures for the contract oracle. Only the oracle tests import this test-only module.
+// Fixtures for the contract oracle. Only tests import this test-only module.
 // - Seeded breaks: per axis, a correct and a broken subject with one byte-identical declaration and different handlers.
 // - Live output subjects: real `TOOL_REGISTRY` actions whose real `wrap` or `wrapError` envelope meets the declared `outputSchema`.
 // - Real-handler subjects: real handlers from the binding table, called with a real `DispatchContext`.
@@ -447,7 +447,7 @@ function bindingFor(
  * Real-handler subjects over the live registry. The registry declaration decides admission.
  * The oracle probes an action only when it is `readOnly`, is not `openWorld`, has a binding, and accepts an empty input.
  * A handler that declines the probe goes into `notProbed`, because a refusal is not the behavior of the action.
- * The `_perf` mask applies only to the idempotency comparison. Schema validation sees the unmasked envelope.
+ * The runtime-carrier mask applies only to the idempotency comparison. Schema validation sees the unmasked envelope.
  */
 export async function realHandlerSubjects(
   stateDir: string,

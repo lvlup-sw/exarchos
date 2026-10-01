@@ -16,8 +16,8 @@
  */
 
 /**
- * The two MCP SDK generations in this package. `v1` is `@modelcontextprotocol/sdk` and its
- * subpaths. `v2` is `@modelcontextprotocol/{core,server,client}`.
+ * The two MCP SDK generations. `v1` is `@modelcontextprotocol/sdk` and its subpaths, and
+ * `package.json` does not depend on it. `v2` is `@modelcontextprotocol/{core,server,client}`.
  * `architecture/sdk-generation-seam.ts` re-exports this type, so the lint and the brand agree.
  */
 export type SdkGeneration = 'v1' | 'v2';

@@ -50,7 +50,8 @@ export interface AutoEmissionValidation {
 
 /**
  * Validates the recovery expiry of one `AutoEmission` declaration. A `role: 'recovery'` edge fails
- * when its `recoveryExpiresAt` does not parse or is in the past. Every other edge passes.
+ * when its `recoveryExpiresAt` does not parse or is not in the future. Every other edge passes,
+ * including a recovery edge with no expiry.
  */
 export function validateAutoEmission(
   emission: AutoEmission,

@@ -7,9 +7,10 @@
  * `buildToolDescription`, and `handleDescribe`. A wrong projection or a wrong action binding shows
  * as a finding. Coherence findings check the meta-model only against its own rules, and are weaker.
  *
- * The audit cannot catch a wrong declaration, because both sides read the same `ToolAction`. It
- * also does not cover dimensions that no runtime consumer reads, such as the authorization hints
- * and `presentation`. Findings are sorted, and no clock, path, or locale affects them.
+ * The audit cannot catch a wrong declaration, because both sides read the same `ToolAction`. No
+ * differential covers a dimension that no runtime consumer reads, such as the per-action
+ * authorization hints and `presentation`. Findings are sorted, and no clock, path, or locale
+ * affects them.
  */
 
 import {

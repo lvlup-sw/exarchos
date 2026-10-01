@@ -3,9 +3,9 @@
  * of returned claims against the capsule that was pinned at compile time. The judge and the custody
  * write are in `verbs/settle/`.
  *
- * Unlike `execute_intent`, it compiles no named intent. It judges returned work, then runs the
- * task-completion segment of each accepted task. The two share content-addressed custody,
- * canonical encoding, and the operation claim.
+ * Unlike `execute_intent`, it takes no intent name from the caller. It judges returned work, then
+ * compiles and runs the task-completion segment of each accepted task. The two share
+ * content-addressed custody, canonical encoding, and the operation claim.
  */
 
 import { z } from 'zod';
@@ -126,7 +126,7 @@ export const settleActions: readonly BuiltinToolAction[] = [
           ),
         /**
          * An alias, as in `execute_intent`, because `streamId` is the bare featureId. The call needs
-         * at least one of the two, and two values must match.
+         * at least one of the two. When it passes both, the values must match.
          */
         streamId: z.string().min(1).optional(),
         featureId: z.string().min(1).optional(),
@@ -134,7 +134,7 @@ export const settleActions: readonly BuiltinToolAction[] = [
       .strict(),
     /**
      * Advisory: only the next-actions computer reads it. A returned batch follows delegated and
-     * reviewed work. Nothing is compiled here, so the plan phases are not in the set.
+     * reviewed work, so the plan phases are not in the set.
      */
     phases: new Set<string>([...DELEGATE_PHASES, ...REVIEW_PHASES]),
     roles: ROLE_ANY,
@@ -185,8 +185,8 @@ export const settleActions: readonly BuiltinToolAction[] = [
      * Conditional, because a replay returns the persisted verdict and appends nothing. An
      * unconditional declaration reports every replay as an `emission.violated` row.
      *
-     * Only the own append of this action is declared. The composed leaves append the gate rows, the
-     * completion fact, and the segment operation records, and each leaf declares its own.
+     * The declaration names only the append of this action. The composed leaves append the gate
+     * rows, the completion fact, and the segment operation records, and each leaf declares its own.
      */
     emissions: declared(
       {

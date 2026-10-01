@@ -1,6 +1,6 @@
 /**
- * The Tasks-augmented dispatch branch. The MCP `tools/call` adapter and the CLI `--follow` loop use
- * this surface. They must not implement task creation again.
+ * The Tasks-augmented dispatch branch. The MCP `tools/call` adapter and the CLI `--follow` loop build
+ * on this surface. They must not implement task creation again.
  *
  * A `task` object on the dispatched args is the augmentation signal. Without it, the one-shot path
  * applies. `runTasksAugmented` creates the task, starts `execute()` in the background, and returns
@@ -87,7 +87,7 @@ export interface RunTasksAugmentedArgs {
 /**
  * Create the task, start the handler in the background, and return the task in a `ToolResult`. The
  * `task.created` event is appended before the return, so an immediate `tasks/get` finds the task.
- * The run starts on a later microtask, so the call does not wait for the handler.
+ * The run starts on a later microtask, so the response returns before the handler starts.
  *
  * A successful result stores `completed`, and a failure or a throw stores `failed`. The store keeps
  * the full `ToolResult` under `_toolResult`. If the result store itself fails, the error is dropped,

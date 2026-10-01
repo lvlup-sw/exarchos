@@ -265,7 +265,7 @@ export function unconditionalEmissions(
 /**
  * Compares the unconditional promises of the action with what landed. It is pure, does not throw,
  * and reports each miss. A call with no unconditional edge is `not-applicable`, not `ok`, because
- * nothing earned a pass. The lifecycle check covers only the landings that the action declares, so
+ * nothing earned a pass, and it gets no lifecycle check. The lifecycle check covers only the landings that the action declares, so
  * a write by another party cannot move this verdict. The two faults are independent, and the
  * verdict reports both.
  */

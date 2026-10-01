@@ -419,10 +419,11 @@ function maskVolatileCarriers(
 }
 
 /**
- * Observes the behavior of the subject. It calls the handler twice as an authorized caller, each
- * time with fresh recorders, and once as a caller with no roles. It does not compare with the contract.
+ * Observes the behavior of the subject. It calls the handler as an authorized caller. If that call
+ * does not throw, it calls it again with fresh recorders. Then it calls it once as a caller with no
+ * roles. It does not compare with the contract.
  *
- * A throw on the second call is a contradiction. A throw on the authorized call counts as not
+ * A throw on the second call is a contradiction. A throw on an authorized call counts as not
  * served here, and the incorrect-handler axis reports it.
  */
 export async function observeBehavior(subject: OracleSubject): Promise<Observation> {
@@ -839,9 +840,9 @@ export function checkCompatibilityBreak(
 }
 
 /**
- * The emission axis. It is in {@link ALL_AXES} but not in {@link ORACLE_AXES}, because
- * `AXIS_HANDLERS` in `fixtures.ts` has a seeded break for each member of `ORACLE_AXES`. The
- * report carries it on {@link OracleReport.emissionVerdict}, and it counts toward `ok` and `failures`.
+ * The emission axis. It is in {@link ALL_AXES} but not in {@link ORACLE_AXES}. `AXIS_HANDLERS` in
+ * `fixtures.ts` must hold a seeded break for each member of `ORACLE_AXES`, and this axis has none.
+ * The report carries it on {@link OracleReport.emissionVerdict}, and it counts toward `ok` and `failures`.
  */
 export const EMISSION_AXIS = 'declared-emission';
 export type EmissionAxis = typeof EMISSION_AXIS;

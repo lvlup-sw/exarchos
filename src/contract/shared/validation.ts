@@ -1,10 +1,11 @@
 /**
- * Shared validation for stream IDs in the EventStore, the Outbox, and SyncState.
+ * Shared validation for stream IDs. Callers include the event store, the atomic appender and the
+ * outbox.
  *
  * A stream ID can hold one `/`, so a subagent stream can be `<feature-id>/<subagent-id>`. Each
- * segment holds letters, digits, hyphens, dots, and underscores. Empty segments, a leading or
- * trailing slash, more than one slash, and `.` or `..` segments are rejected. Then the namespaced
- * form cannot escape the on-disk JSONL layout.
+ * segment holds letters, digits, hyphens, dots, and underscores. The validator rejects empty
+ * segments, a leading or trailing slash, more than one slash, and `.` or `..` segments. As a
+ * result, the namespaced form cannot escape the on-disk JSONL layout.
  */
 
 /**

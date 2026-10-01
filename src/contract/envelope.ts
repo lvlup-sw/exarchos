@@ -6,6 +6,8 @@
  * - `error`: `success:false` with a structured `error` block.
  * The markers are the keys that `dispatch/core/response-economy.ts` stamps.
  * The module also re-exports the canonical envelope schemas, so generators import them from one place.
+ * The `contract-surface` authority digests the output-kind descriptors, so a descriptor change needs a
+ * new lock approval.
  */
 
 import { z } from 'zod';

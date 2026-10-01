@@ -50,9 +50,9 @@ export interface InitializeContextOptions {
  * Creates the DispatchContext for the MCP and CLI adapters. It first checks the event
  * registration welds, so an unresolvable `EffectProviderId` halts startup before the first append.
  *
- * Without `projectRoot`, it skips config, VCS, and hooks. With it, it lazy-imports the YAML
- * config, VCS, and hook modules, and applies the storage durability before the first append.
- * It imports the JS/TS config loader and the registrars only when a JS/TS config file is present.
+ * Without `projectRoot`, it skips config, VCS, hooks, and topology. With it, it lazy-imports the
+ * YAML config, VCS, and hook modules, applies the storage durability before the first append, and
+ * loads `topology.yaml`. It imports the JS/TS config loader and the registrars only when a JS/TS config file is present.
  * This keeps the CLI cold start fast. Without that file, `config` is `{}`.
  */
 export async function initializeContext(

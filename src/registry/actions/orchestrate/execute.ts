@@ -114,8 +114,8 @@ export const executeActions: readonly BuiltinToolAction[] = [
     /**
      * The leaves address paths, worktrees, and git refs through the typed args of the intent, not top-level request fields.
      * The plan-closeout intent binds its four document spellings from `args.specPath`.
-     * There is no `vcs` stream entry. A declared infrastructure stream wins over the arg-derived stream.
-     * So that entry moves the post-dispatch observation of this action to the vcs stream, where it declares no unconditional emission.
+     * The list has no `vcs` stream entry, because a declared infrastructure stream wins over the arg-derived stream.
+     * Such an entry moves the post-dispatch observation of this action to the vcs stream, where the action declares no unconditional emission.
      */
     resources: declared(
       { kind: 'stream', selector: 'featureId' },

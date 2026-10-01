@@ -1,6 +1,6 @@
 /**
  * The typed meta-model that the contract compiler reads, derived from the live `TOOL_REGISTRY`. An
- * entry describes one action: its ActionId, its input and carrier schemas, its bound error codes
+ * entry describes one action: its ActionId, its input and output schemas, its bound error codes
  * and output kinds, and its ten policy dimensions.
  *
  * The Zod schemas are the admission gate of the compiler. An entry with a missing policy field, or

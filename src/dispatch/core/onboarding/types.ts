@@ -96,16 +96,16 @@ export type ReconcilePlan = z.infer<typeof ReconcilePlanSchema>;
 
 /**
  * The outcome of applying a {@link ReconcilePlan}: which steps were applied,
- * skipped, or left residual, plus any surface-gated advisories.
+ * skipped, or left residual, plus the advisories.
  */
 export const ReconcileResultSchema = z.object({
   /** Steps that were executed successfully. */
   applied: z.array(PlanStepSchema),
   /** Steps that did not run on purpose, such as a config step that keeps a hand edit. */
   skipped: z.array(PlanStepSchema),
-  /** Steps that remain unreconciled after apply, because they failed or a gate blocked them. */
+  /** Steps that remain unreconciled after apply, such as a failed step or a step that a gate blocked. */
   residual: z.array(PlanStepSchema),
-  /** Surface-gated advisories returned in lieu of execution. */
+  /** Notices for the operator, such as a surface-gated step, a step failure, or a forced overwrite. */
   advisories: z.array(AdvisorySchema),
 });
 export type ReconcileResult = z.infer<typeof ReconcileResultSchema>;

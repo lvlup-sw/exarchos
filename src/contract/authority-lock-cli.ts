@@ -8,7 +8,8 @@
  *
  * An intentional change to a frozen authority makes the verify test fail. Run this generator,
  * review the new digests, and commit the lockfile. The invariant catalog wording is a frozen input.
- * Approve a catalog change through this generator, not by a manual digest edit.
+ * Approve a catalog change through this generator, not by a manual digest edit, so that one run
+ * records both the approval and the digest.
  */
 
 import fs from 'node:fs';

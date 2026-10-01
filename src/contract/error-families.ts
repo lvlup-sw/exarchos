@@ -359,7 +359,7 @@ export interface ExitCodeSubject {
 }
 
 /**
- * The authority that maps a dispatched result to its process exit code. `adapters/cli.resolveExitCode` delegates to it.
+ * The authority that maps a dispatched result to its process exit code. `resolveExitCode` in `adapters/cli/cli.ts` delegates to it.
  * `success: true` gives 0. Otherwise {@link exitCodeForError} resolves the code, with {@link UNSPECIFIED_FAILURE_CODE} for a missing code.
  * A failure never resolves to 0, even when a registry entry carries `exitCode: 0`.
  * The MCP wire renders `success: false` with no `error` as `isError: true`, so the CLI must fail too.

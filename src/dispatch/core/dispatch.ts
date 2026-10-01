@@ -8,6 +8,11 @@
  * The response-economy seam and ActionId admission live in leaf modules, so their other callers
  * do not import this module. The economy no-bypass gate in `dispatch.economy-seam.ts` reads the
  * `coreHandler` sites in this file.
+ *
+ * A custom tool needs a registry entry and its handlers, so a leaked handler cannot skip
+ * registration. The store-divergence checks run only for a state dir from the ambient cascade.
+ * An explicit state dir is not ambiguous, and without this scope the result depends on the stores
+ * in the user's home directory.
  */
 
 import type { ToolResult } from '../../format.js';
@@ -130,7 +135,9 @@ export interface DispatchContext {
   /**
    * The event-sourced SDK TaskStore. With it, a call that carries the SDK `task: { ttl? }` key goes
    * through `runTasksAugmented` and returns a `CreateTaskResult`-shaped envelope. Without it,
-   * dispatch uses the one-shot path even when the call carries `task`.
+   * dispatch uses the one-shot path even when the call carries `task`. An MCP client must also
+   * declare the `tasks` capability, so it cannot opt in with a `task` key alone. A context with no
+   * capability resolver has no such gate.
    */
   readonly taskStore?: EventSourcedTaskStore;
 }
@@ -212,7 +219,7 @@ export const READ_ONLY_ACTIONS = {
   exarchos_workflow: ['get', 'describe'],
   exarchos_event: ['query', 'describe'],
   /**
-   * Actions that append events or change state are absent. `doctor` and `check_convergence` are
+   * Most actions that append events or change state are absent. `doctor` and `check_convergence` are
    * absent, because their handlers append an event on each call. The listed `check_*` gates stay,
    * because the tier counts their audit-trail append as a logged read.
    */
@@ -323,8 +330,8 @@ export const COMPOSITE_HANDLERS: Record<string, CompositeHandler> = {};
 
 /**
  * The tools whose composite handler is a test stub. `COMPOSITE_HANDLERS` cannot tell this, because
- * the lazy loader writes real handlers into the same map. The emission verifier skips a stub,
- * because the emission contract belongs to the registered handler.
+ * the lazy loader writes real handlers into the same map. The emission verifier and the ensures
+ * check skip a stub, because those contracts belong to the registered handler.
  */
 const STUBBED_COMPOSITES = new Set<string>();
 
@@ -437,8 +444,8 @@ function createCustomToolHandler(
 /**
  * Routes a tool call to its composite or custom handler. It strips the SDK `task` key before the
  * `.strict()` validation, and it mints the correlation context before any early event.
- * A built-in call then goes through inferred values, a one-field elicitation, validation and the
- * undeclared-parameter refusal. Next come the readonly gate, the store-divergence refusal,
+ * A built-in call then goes through inferred values, validation with a one-field elicitation, and
+ * the undeclared-parameter refusal. Next come the readonly gate, the store-divergence refusal,
  * admission, the session-machinery interceptor and the install-freshness gate.
  *
  * The divergence refusal comes before the interceptor, because the interceptor appends an event.

@@ -4,8 +4,8 @@
  * `architecture/layer-boundaries-seam.ts` rejects a direct SDK import from any other module.
  *
  * The generation brand of `./brand.ts` stays, so the next generation gets the same compile-time
- * rejection. Each factory forwards `ConstructorParameters` instead of a restated SDK signature,
- * and each one brands its handle with no `as` assertion.
+ * rejection. Each constructor factory forwards `ConstructorParameters`, because a restated SDK
+ * signature drifts on the next SDK update. No factory uses an `as` assertion to brand its handle.
  *
  * v2 serves no `tasks/*` method. Each one answers `-32601`, and that wire loss is accepted.
  * `describeTaskWireGap` in `projections/task-store/attach.ts` reports the loss for each server.

@@ -1,7 +1,8 @@
 /**
  * Reference integrity for the Exarchos workflow capsule. The schema in `exarchos-capsule.ts` proves
- * that a capsule is closed. This module proves that it is resolvable. JSON Schema cannot express
- * cross-object resolution, so these rules stay out of the schema and its round-trip guard.
+ * that a capsule is closed. This module proves that it is resolvable. The round-trip guard compares
+ * the schema with its JSON Schema projection, and JSON Schema cannot express cross-object
+ * resolution. Thus these rules stay out of the schema.
  *
  * The pass resolves task refs to `graph.tasks`, checks that `graph.dependencies` is acyclic, and
  * resolves predicate facts and events to the `declares` block. Each required result must name a
@@ -75,7 +76,8 @@ const STEP_COLLECTION_KEYS: ReadonlySet<string> = new Set(['steps', 'bodySteps']
 /**
  * Every step id that a kernel definition declares, at any depth. The walk follows the kernel
  * schema, not the document. `WorkflowDefinitionV1Schema` uses `z.looseObject`, so an accepted
- * definition can keep unknown objects. A key-name match alone can find a step id inside them.
+ * definition can keep unknown objects. A key-name match alone can find a step id inside them, and
+ * then a dangling step reference resolves.
  */
 function collectStepIds(definition: unknown, into: Set<string>): void {
   visitDeclaredObjects(WorkflowDefinitionV1Schema, definition, (object, key) => {

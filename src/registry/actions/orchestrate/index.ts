@@ -1,7 +1,8 @@
 /**
  * The `exarchos_orchestrate` action list, assembled from its families in a fixed order.
  * The order is part of the surface: it sets the sequence in `describe`, and the recorded action
- * snapshot compares against it. The shared `describe` action comes last, as in every composite tool.
+ * snapshot compares against it. The shared `describe` action comes last, as in each visible
+ * composite tool.
  */
 
 import { makeDescribeAction } from '../../describe-actions.js';

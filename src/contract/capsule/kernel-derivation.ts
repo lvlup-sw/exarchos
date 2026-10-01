@@ -107,7 +107,9 @@ export function reachableZodNodeTypes(schema: z.ZodType): ReadonlySet<string> {
  * `additionalProperties` removed.
  *
  * A rebuilt node is new, so it loses the checks of its source, such as `.min()`. Thus the function
- * refuses a rebuilt node that carries checks, and the contract does not get looser.
+ * refuses a rebuilt node that carries checks, and the contract does not get looser. The overload
+ * keeps the source output type. A closed object refuses keys, but it does not change the type of a
+ * key that it accepts.
  *
  * @throws when a node that the transform rebuilds carries checks.
  */
@@ -147,7 +149,7 @@ const HANDLED_REBUILT_TYPES: ReadonlySet<string> = new Set(['object', 'optional'
  * Visit every object that a schema declares within a value that it accepted. A loose schema keeps
  * unknown keys, so a walk of the value alone cannot tell declared objects from extra ones. This
  * walk goes into only the keys that the schema shape names. A union follows the first option that
- * accepts the value.
+ * accepts the value, which is also the option that Zod picks.
  *
  * `key` is the property that leads to the object. Array elements get the key of the array.
  */
