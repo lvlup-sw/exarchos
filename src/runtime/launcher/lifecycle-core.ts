@@ -425,11 +425,12 @@ export interface LifecycleResultData {
 
 /**
  * Run one supervised harness launch, in the steps of the module header.
- * Orientation injection fails open, so the launch proceeds without it.
+ * When orientation injection fails, the launch proceeds without it.
  *
  * The signal handlers install after a successful spawn. The `finally` block
  * removes them, and kills and reaps a child that is still live after an error.
- * It then calls the once-only teardown, which does nothing when teardown already
+ * The kill comes before teardown, so the occupancy probe of teardown does not see the child.
+ * Then the block calls the once-only teardown, which does nothing when teardown already
  * ran. Last, it removes the orientation temp path and ignores a failure.
  */
 export async function runLifecycle(

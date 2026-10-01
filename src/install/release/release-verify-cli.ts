@@ -159,8 +159,8 @@ export function nodeReleaseVerifyIo(): ReleaseVerifyIo {
 }
 
 /**
- * True when this file is the process entry point. Thus an import of this module
- * in a test has no side effect.
+ * True when this file is the process entry point. The CLI runs only in that
+ * case, so an import of this module in a test has no side effect.
  */
 function invokedDirectly(): boolean {
   const entry = process.argv[1];

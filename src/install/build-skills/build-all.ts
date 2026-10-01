@@ -29,7 +29,7 @@ export interface BuildReport {
  * renders once for each loaded runtime. Before the renders, it checks token coverage, the placeholder
  * vocabulary, and flat-name clashes, and it throws on no sources.
  *
- * A `SKILL.<runtime>.md` override is copied verbatim. Other sources go through `requires` guards, CALL
+ * It copies a `SKILL.<runtime>.md` override verbatim. Other sources go through `requires` guards, CALL
  * macros, tokens, and claude-only block elision, in that order, so an elided macro never reaches the
  * renderer. `render()` gets no `runtime`, because that expands the CALL macros a second time. Linked
  * Markdown references get the same pipeline. The vocabulary lint reads each output, overrides included, and

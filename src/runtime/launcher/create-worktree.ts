@@ -1,7 +1,8 @@
 /**
  * Creates the top-level, task-less worktree of the harness launcher. It is a different kind from a delegation task worktree.
  * It is tracked through `worktree.reserved` and the launch liveness pair, not the task-scoped `worktree.created` terminal.
- * Each append goes to the `worktrees` stream, in this order:
+ * That terminal requires a `taskId`, and a task-less worktree has none.
+ * The steps run in this order, and each append goes to the `worktrees` stream:
  *   1. The topology guard ({@link deriveWorktreePath} and {@link guardWorktreeContainment}) refuses a nested or escaping target.
  *   2. {@link WorktreeManager.reserve} emits `worktree.reserved`, so the worktree is tracked before it exists on disk. A concurrent adopt or prune thus cannot race it.
  *   3. `worktree.create.requested` records the durable intent.

@@ -26,7 +26,7 @@ export interface RunKillProbeOptions {
 }
 
 /**
- * Return true when `bash` or `jq` answers on PATH. Each spawn names its binary as a literal.
+ * Return true when the named tool answers on PATH. Each spawn names its binary as a literal.
  * The portability gate rejects a variable binary in `src/`. A variable can resolve to a `.cmd` or `.ps1` shim,
  * which raw `spawnSync` cannot launch on Windows (CVE-2024-27980).
  */

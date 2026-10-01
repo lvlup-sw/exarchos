@@ -94,7 +94,7 @@ export interface LauncherWiringOverrides {
  * The teardown seam releases the `worktree.reserved` reservation, fails closed on a
  * non-git or unreachable-origin target, and never runs `git reset --hard`.
  * Its `owner` is the same holder identity that the lifecycle reserves under, so the release is a same-owner release.
- * The signal seam forwards SIGINT and SIGTERM to the child, runs teardown and the terminal event, and reaps the child.
+ * The signal seam forwards SIGINT and SIGTERM to the child, runs teardown, emits the terminal event, and reaps the child.
  */
 export function makeLauncherLifecycleDeps(
   ctx: DispatchContext,

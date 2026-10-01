@@ -121,9 +121,10 @@ function refuse(
 }
 
 /**
- * Make sure that `target` is a direct sibling of the `base` worktree, before `git worktree add`.
- * The injected `realpath` resolves symlinks and Windows 8.3 short names on both sides first.
- * It is the only filesystem read, and tests inject a simulated resolver.
+ * Make sure that `target` is a direct sibling of the `base` worktree.
+ * The creation path calls this guard before `git worktree add`.
+ * The `realpath` resolver first resolves symlinks and Windows 8.3 short names on both sides.
+ * The resolver is the only filesystem read, and tests inject a simulated resolver.
  * Both checks use this one resolved snapshot.
  * A refused target gives a structured {@link WorktreePathRefused}.
  */

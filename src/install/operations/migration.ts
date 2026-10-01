@@ -30,6 +30,7 @@ const V1_SYMLINK_NAMES = ['skills', 'commands', 'rules', 'scripts', 'settings.js
 
 /**
  * Detect a v1 install. The only signal is that `skills` in `claudeHome` is a symbolic link.
+ * A v2 dev install also creates symbolic links. It also writes an `exarchos.json` config, but this function does not read that config.
  *
  * @param claudeHome - Absolute path to the `~/.claude/` directory.
  */

@@ -4,8 +4,8 @@
  * in the vocabulary.
  *
  * It skips `references/` trees and `SKILL.<runtime>.md` overrides. The builder
- * copies those files verbatim, and they can hold other templating, such as
- * `{{#each hints}}`.
+ * copies an override verbatim. It renders a Markdown reference but keeps unknown
+ * tokens, because a reference can hold other templating, such as `{{#each hints}}`.
  *
  * `buildAllSkills()` runs this lint before the renderer, so one error lists
  * each unknown token before a render can fail.
@@ -228,8 +228,8 @@ export function lintPlaceholders(
 
 /**
  * Collect each `SKILL.md` under `root`, and skip `references/` directories.
- * The builder copies references and `SKILL.<runtime>.md` overrides verbatim,
- * so the lint does not read them. The sorted result keeps the message stable.
+ * The lint does not read references or `SKILL.<runtime>.md` overrides, because
+ * they can hold other templating. The sorted result keeps the message stable.
  */
 function collectSkillFiles(root: string): string[] {
   const out: string[] = [];

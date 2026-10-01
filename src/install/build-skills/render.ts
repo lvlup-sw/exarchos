@@ -26,7 +26,8 @@ export interface RenderContext {
  * `{{CHAIN next="plan" args="$PLAN"}}`. Then the arguments fill the
  * `{{next}}` and `{{args}}` tokens inside the value of `CHAIN`.
  * An unknown token throws, unless `context.lenientUnknownTokens` is set.
- * Give `context` a source path, so the error names the file and line.
+ * The error gives the line. Give `context` a source path and a runtime name, so
+ * the error also names them.
  */
 export function render(
   body: string,

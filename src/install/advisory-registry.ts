@@ -91,7 +91,7 @@ export interface AdvisoryEntry {
   readonly ciPath: string;
   /**
    * A plain substring that finds the hosting step in `ciPath`, matched against its `name`, `run`, or
-   * `uses`. Without it, the CI-path claim cannot be checked past the workflow trigger.
+   * `uses`. Without it, the ratchet cannot check the CI-path claim past the workflow trigger.
    */
   readonly ciStepMatch: string;
   /**
@@ -164,9 +164,9 @@ export interface AdvisoryRatchetResult {
  * The one authored list of governed advisory controls. A softening site or an advisory marker with no
  * complete entry here fails {@link verifyAdvisoryRatchet}.
  *
- * The inventory comes from {@link discoverSofteningSites}, not from the enforcer-wiring manifest. That
- * manifest covers only `check-*` and `lint-*` primaries, so it cannot name `eval-capability-layer`, whose
- * control is `run-evals-cli.ts`. That entry is softened twice: by `continue-on-error: true` in
+ * The inventory matches the sites that {@link discoverSofteningSites} finds, not the enforcer-wiring
+ * manifest. That manifest covers only `check-*` and `lint-*` primaries, so it cannot name
+ * `eval-capability-layer`, whose control is `run-evals-cli.ts`. That entry is softened twice: by `continue-on-error: true` in
  * `eval-gate.yml`, and by an exit-0 rule for the `capability` layer in `run-evals-cli.ts`. Three of the
  * four entries run on filtered CI lanes, and each `ciPathFiltered` claim records that.
  */
@@ -313,7 +313,8 @@ export const ADVISORY_SCAN_EXTENSIONS: readonly string[] = ['.mjs', '.sh', '.js'
 
 /**
  * The path that {@link discoverAdvisories} skips as this module. It does not match the real path of this
- * module, `src/install/advisory-registry.ts`.
+ * module, `src/install/advisory-registry.ts`. The default scan roots do not include `src/`, so the default
+ * scan never reads this module.
  */
 const SELF_PATH = 'src/advisory-registry.ts';
 
@@ -977,7 +978,8 @@ export interface AdvisoryRatchetInputs {
 /**
  * The ratchet. It never stops at the first problem, so a caller sees each violation in one pass:
  *
- *   - `duplicate-id`, `malformed`, `expired`: the registry itself is invalid.
+ *   - `duplicate-id`, `malformed`, `expired`: two entries share an id, or an entry has an invalid field or
+ *     a past expiry.
  *   - `unregistered`: a softening site or a marker on disk has no entry.
  *   - `control-mismatch`: a marker names a control that differs from the entry for its file.
  *   - `missing-on-disk`: an entry claims a softening site that is not on disk.

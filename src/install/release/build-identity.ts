@@ -60,6 +60,7 @@ export type ContractIdentity = z.infer<typeof ContractIdentitySchema>;
  * Each authority in `AUTHORITY_IDS` order adds `id`, `kind`, `version`, `versionSpec`, and `digest`, with NUL separators.
  * Only the pinned values count, so lockfile formatting does not change the digest.
  * A lock with a missing authority throws, so a truncated contract cannot go into a release.
+ * This function does not check that the lock is approved. The caller must refuse an unapproved lock.
  */
 export function contractIdentityFromLock(lock: AuthorityLock): ContractIdentity {
   const parts: string[] = [];
