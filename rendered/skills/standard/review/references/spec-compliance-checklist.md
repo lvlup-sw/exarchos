@@ -28,15 +28,13 @@ npm run typecheck
 ```
 
 ```typescript
-// Test adequacy (outcome-based kill-probe: revert source, assert a test goes red)
-exarchos_orchestrate({
-  action: "check_test_adequacy",
-  featureId: "<featureId>",
-  taskId: "<taskId>",
-  branch: "<branch>",
-  riskTier: "<low|medium|high>"
-})
+// Test adequacy (outcome-based kill-probe: revert source, assert a test goes red).
+// Settlement already ran it per task; read its recorded verdicts:
+exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "gate.executed" }, limit: 200 })
+// rows with gateName "test-adequacy": details.taskId, passed, details.verdict
 ```
+
+Run `check_test_adequacy` yourself only for a task with no recorded verdict, and pass `baseBranch` (the branch the task forked from); without it the gate blocks with `base-missing`.
 
 ## Manual Checks
 
@@ -68,7 +66,7 @@ After scripts pass, verify:
 
 ## Completion Criteria
 
-- [ ] `check_test_adequacy` orchestrate action passes (medium/high tiers)
+- [ ] Every medium/high task's recorded `test-adequacy` verdict passes
 - [ ] All tests pass
 - [ ] Coverage meets thresholds
 - [ ] All spec requirements verified

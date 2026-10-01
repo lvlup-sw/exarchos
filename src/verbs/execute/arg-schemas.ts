@@ -15,6 +15,8 @@
 
 import { z } from 'zod';
 
+import { CapsuleBaseRefSchema } from '../../contract/capsule/exarchos-capsule.js';
+
 /**
  * `task-completion` — the delegate-phase runbook: four per-task gates followed
  * by the terminal `task_complete`.
@@ -38,6 +40,13 @@ export const TaskCompletionArgs = z
     branch: z.string().min(1).optional(),
     riskTier: z.enum(['low', 'medium', 'high']),
     boundaryTouching: z.boolean(),
+    /**
+     * The branch the task forked from, frozen in the capsule. Named `baseRef`
+     * rather than `baseBranch` because the compiler hands an argument to every
+     * leaf whose schema declares that key: only the kill probe's step binds it,
+     * as `baseBranch: '<baseRef>'`, so the other gates keep their own base.
+     */
+    baseRef: CapsuleBaseRefSchema,
     // The completion's provenance — artifacts, files, tests, implements,
     // duration, the worktree — handed to the terminal `task_complete` leaf as
     // its own `result`. No gate leaf declares a `result`, so the compiler

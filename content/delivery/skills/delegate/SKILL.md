@@ -84,12 +84,12 @@ Before dispatching, query decision runbooks to classify the work and select the 
 exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 ```
 
-`prepare` reads the workflow's plan and compiles every task not yet complete into one capsule, in custody, pinned by digest, and announces each of them (`task.assigned`) in the same commit as its record — no call precedes it. Keep the receipt: `capsuleVersion` is what `settle` is keyed by, and the `capsule` is what every subagent's packet is built from.
+`prepare` reads the workflow's plan and compiles its **ready frontier** — every task not yet complete whose `blockedBy` tasks are all complete — into one capsule, in custody, pinned by digest, and announces each of them (`task.assigned`) in the same commit as its record — no call precedes it. Keep the receipt: `capsuleVersion` is what `settle` is keyed by, and the `capsule` is what every subagent's packet is built from.
 
 | In the capsule | What you read off it |
 |----------------|----------------------|
 | `graph.tasks[]`, `graph.dependencies[]`, `graph.joins[]` | The batch, and the order it must run in — a `dependencies` edge `{ from, to }` means `to` waits for `from` |
-| `settlementContract.taskVerification[taskId]` | The task's `riskTier` and `boundaryTouching`, frozen from the plan — the model tier, and the gates settlement will run |
+| `settlementContract.taskVerification[taskId]` | The task's `riskTier` and `boundaryTouching`, frozen from the plan — the model tier, and the gates settlement will run — and its `baseRef`, the integration branch the task's worktree forks from and the kill probe measures its diff from |
 | `knowledge.patterns[]` | One statement per tier in the batch naming those gates — splice it into the worker's prompt verbatim |
 | `contracts.taskResults[taskId]` | What the task must report back: `worktreePath` (required), `branch`, and its provenance (`files`, `implements`, `tests`, `acceptanceTestRef`) |
 | `contracts.deviationEnvelope` | What a worker may propose when a capsule assumption turns out wrong (`invalidated-assumption`, `missing-context`) — instead of guessing |
@@ -104,14 +104,16 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 | `WORKFLOW_TYPE_UNSUPPORTED` | Not a feature workflow | Take the primitive path (appendix) |
 | `PHASE_NOT_PREPARABLE` | Not in `delegate` | Transition first |
 | `NOTHING_TO_PREPARE` | Every planned task is complete | Transition to review |
+| `NO_READY_TASKS` | Tasks are pending, but each waits on a task that is not complete (the message names them) | Settle or fix the blocking tasks first; tasks that wait on each other are a cycle to break in the plan |
+| `BASE_UNRESOLVED` | The workflow records no integration branch (or not a safe ref name), so no task has a base | `exarchos_workflow({ action: "update", featureId: "<featureId>", updates: { "synthesis.integrationBranch": "<branch the tasks fork from>" } })`, then `prepare` again |
 | `UNKNOWN_DEPENDENCY`, `INVALID_TASK_ID`, `INVALID_TASK_STAMP`, `CAPSULE_UNSOUND` | The plan cannot be expressed as a batch | Fix the plan, `prepare` again |
 | `RUNTIME_UNFIT` | This runtime lacks a capability settlement needs to verify the batch (named in the message) | Stop; do not dispatch — the batch could never settle here |
 
-A retry with unchanged inputs returns the recorded capsule; a changed plan compiles the next version. **Prepare before every wave**, never once per workflow: the second wave's capsule is compiled from the tasks the first wave left.
+A retry with unchanged inputs returns the recorded capsule; a changed plan or a changed integration branch compiles the next version. **Prepare before every wave**, never once per workflow: a capsule holds only the ready frontier, so the second wave's capsule is compiled once the first wave has settled.
 
 ### Worktrees
 
-Each task works in its own worktree, materialized by the host under native isolation or laid out with `setup_worktree` (the canonical `.worktrees/<taskId>-<taskName>` path). Under native isolation, confirm each agent's working directory is under `.worktrees/` **before any agent edits files** (its first reported `pwd`); an agent in the shared checkout is stopped, given a worktree created by hand (`git worktree add -b <task-branch> .worktrees/<taskId>-<taskName> <integration-tip>`), and only then allowed to edit. The worktree path is what the task's claim will carry, and what settlement verifies against.
+Each task works in its own worktree, materialized by the host under native isolation or laid out with `setup_worktree` (the canonical `.worktrees/<taskId>-<taskName>` path). Under native isolation, confirm each agent's working directory is under `.worktrees/` **before any agent edits files** (its first reported `pwd`); an agent in the shared checkout is stopped, given a worktree created by hand (`git worktree add -b <task-branch> .worktrees/<taskId>-<taskName> <baseRef>`, the task's `baseRef` from the capsule), and only then allowed to edit. The worktree path is what the task's claim will carry, and what settlement verifies against. Fork every worktree from the task's `baseRef`: settlement's kill probe measures the task's diff from that branch, and the claim cannot name another one.
 
 ### Task Extraction
 
@@ -641,9 +643,9 @@ This is NOT a human checkpoint — the workflow continues autonomously.
 
 `prepare` compiles feature workflows. When it refuses `WORKFLOW_TYPE_UNSUPPORTED` — a debug or overhaul delegation — the per-task governance calls are made by hand, in this order:
 
-1. **Readiness** — `exarchos_orchestrate({ action: "prepare_delegation", featureId: "<featureId>", planPath: "docs/specs/<the-decomposition-spec>.md", tasks: [...] })`. It announces the plan's tasks (`task.assigned`) itself before reading readiness, so no append precedes it. Pass `planPath` so it lifts each task's `**Risk Tier:**` / `**Boundary Touching:**` stamp; `ready: false` stops the wave. It returns `implementerPromptTemplate`, a `verificationNotes` map keyed by `"<riskTier>|<boundaryTouching>"`, and `taskClassifications[i].verificationNoteKey` — splice the task's note into the template before dispatching.
+1. **Readiness** — `exarchos_orchestrate({ action: "prepare_delegation", featureId: "<featureId>", planPath: "docs/specs/<the-decomposition-spec>.md", tasks: [...] })`. It announces the plan's tasks (`task.assigned`) itself before reading readiness, so no append precedes it. Pass `planPath` so it lifts each task's `**Risk Tier:**` / `**Boundary Touching:**` stamp; `ready: false` stops the wave. It returns `implementerPromptTemplate`, a `verificationNotes` map keyed by `"<riskTier>|<boundaryTouching>"`, and `taskClassifications[i].verificationNoteKey` — splice the task's note into the template before dispatching. It also returns `baseBranch`, the integration branch the tasks fork from: **record it** for step 3.
 2. **Dispatch and collect** as in Steps 2 and 3, with the note in place of the capsule's terms.
-3. **Per completed task**, run the task-completion runbook: `exarchos_orchestrate({ action: "runbook", id: "task-completion" })` and execute the returned steps in order. Stop on gate failure. If runbook unavailable, use `describe` to retrieve gate schemas: `exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })`. Its terminal step records the completion with the report's provenance:
+3. **Per completed task**, run the task-completion runbook: `exarchos_orchestrate({ action: "runbook", id: "task-completion" })` and execute the returned steps in order. Stop on gate failure. Bind the `<baseRef>` template variable to the `baseBranch` recorded in step 1: the kill probe blocks with `base-missing` without it. If runbook unavailable, use `describe` to retrieve gate schemas: `exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })`. Its terminal step records the completion with the report's provenance:
 
 ```typescript
 exarchos_orchestrate({

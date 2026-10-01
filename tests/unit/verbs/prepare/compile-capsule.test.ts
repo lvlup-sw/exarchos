@@ -45,6 +45,7 @@ function input(overrides: Partial<CompileCapsuleInput> = {}): CompileCapsuleInpu
     ]),
     catalogInvariants: [],
     designRef: 'docs/specs/feature.md',
+    baseRef: 'feature/prepare-unit',
     executionProfile: { capabilities: ['fs:read', 'shell:exec'] },
     verificationSequence: (riskTier, boundaryTouching) => resolveVerificationPolicy(riskTier, boundaryTouching).sequence,
     compiledAt: '2026-09-12T00:00:00Z',
@@ -63,10 +64,10 @@ describe('delegation capsule compilation', () => {
     expect(ExarchosCapsuleV1Schema.safeParse(capsule).success).toBe(true);
     expect(resolveCapsuleReferences(capsule, { definition: featureDefinition().definition }).ok).toBe(true);
     expect(capsule.identity.definitionVersion).toBe(featureDefinition().definitionVersion);
-    expect(capsule.graph.tasks.map((t) => t.taskId)).toEqual(['T-1', 'T-2', 'T-3']);
-    expect(capsule.graph.dependencies).toEqual([{ from: 'T-1', to: 'T-2' }]);
-    expect(capsule.graph.joins).toEqual([{ joinId: 'batch-complete', waitsFor: ['T-2', 'T-3'], mode: 'all' }]);
-    expect(capsule.settlementContract.requiredResults).toEqual(['T-1', 'T-2', 'T-3']);
+    expect(capsule.graph.tasks.map((t) => t.taskId)).toEqual(['T-1', 'T-3']);
+    expect(capsule.graph.dependencies).toEqual([]);
+    expect(capsule.graph.joins).toEqual([{ joinId: 'batch-complete', waitsFor: ['T-1', 'T-3'], mode: 'all' }]);
+    expect(capsule.settlementContract.requiredResults).toEqual(['T-1', 'T-3']);
   });
 
   it('Compile_TheCompletionPredicate_IsTheTaskObligationWithoutTeamTeardown', () => {
@@ -87,7 +88,7 @@ describe('delegation capsule compilation', () => {
     const outcome = compileDelegationCapsule(input());
     if (!outcome.ok) throw new Error(outcome.refusal.message);
     const results = outcome.capsule.contracts.taskResults;
-    expect(Object.keys(results).sort()).toEqual(['T-1', 'T-2', 'T-3']);
+    expect(Object.keys(results).sort()).toEqual(['T-1', 'T-3']);
     for (const fields of Object.values(results)) {
       expect(fields.find((field) => field.name === 'worktreePath')).toEqual({
         name: 'worktreePath',
@@ -133,9 +134,9 @@ describe('delegation capsule compilation', () => {
     );
     if (!outcome.ok) throw new Error(outcome.refusal.message);
     expect(outcome.capsule.settlementContract.taskVerification).toEqual({
-      'T-1': { riskTier: 'high', boundaryTouching: false },
-      'T-2': { riskTier: 'medium', boundaryTouching: false },
-      'T-3': { riskTier: 'medium', boundaryTouching: true },
+      'T-1': { riskTier: 'high', boundaryTouching: false, baseRef: 'feature/prepare-unit' },
+      'T-2': { riskTier: 'medium', boundaryTouching: false, baseRef: 'feature/prepare-unit' },
+      'T-3': { riskTier: 'medium', boundaryTouching: true, baseRef: 'feature/prepare-unit' },
     });
     // And the graph task stays the graph task: the terms live in the
     // settlement contract, not smuggled onto the node.
@@ -178,7 +179,7 @@ describe('delegation capsule compilation', () => {
     // would pass every structural test in this file.
     const outcome = compileDelegationCapsule(input());
     if (!outcome.ok) throw new Error(outcome.refusal.message);
-    const claims = ['T-1', 'T-2', 'T-3'].map((taskId) => ({
+    const claims = ['T-1', 'T-3'].map((taskId) => ({
       taskId,
       fields: { worktreePath: `/worktrees/${taskId}`, files: ['src/a.ts'] },
       evidence: [],
@@ -188,13 +189,22 @@ describe('delegation capsule compilation', () => {
     expect(verdict.outcome).toBe('settled');
   });
 
-  it('Compile_ACyclicPlan_IsRefusedAsUnsound', () => {
+  it('Compile_ACyclicBatch_IsRefusedAsUnsound', () => {
+    const terms = { riskTier: 'medium', boundaryTouching: false } as const;
     const outcome = compileDelegationCapsule(
       input({
-        batch: batchOf([
-          { id: 'T-1', status: 'pending', blockedBy: ['T-2'] },
-          { id: 'T-2', status: 'pending', blockedBy: ['T-1'] },
-        ]),
+        batch: {
+          tasks: [
+            { taskId: 'T-1', title: 'first', stepId: 'delegate', verification: terms },
+            { taskId: 'T-2', title: 'second', stepId: 'delegate', verification: terms },
+          ],
+          dependencies: [
+            { from: 'T-1', to: 'T-2' },
+            { from: 'T-2', to: 'T-1' },
+          ],
+          joins: [],
+          requiredResults: ['T-1', 'T-2'],
+        },
       }),
     );
     expect(outcome.ok).toBe(false);

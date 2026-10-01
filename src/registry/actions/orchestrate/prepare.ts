@@ -55,18 +55,18 @@ export const prepareActions: readonly BuiltinToolAction[] = [
   withContract({
     name: 'prepare',
     description:
-      "Compile a feature workflow's outstanding delegation batch into ONE immutable capsule and " +
-      'commit one workflow.prepared record pinning its digest. Call it in the delegate phase. The ' +
-      'capsule carries the task graph, each task\'s result contract, the admitted evidence kinds, ' +
-      'the deviation envelope, the authority the batch will be settled against, each task\'s ' +
-      'verification terms (tier and boundary, from the plan), and the execution ' +
-      'profile — the capabilities the plane\'s own calls need, read off the registry; a runtime ' +
-      'lacking one is refused RUNTIME_UNFIT before it fans out. It announces each compiled task the ' +
-      'stream has not yet heard of (`task.assigned`). Run the batch from the capsule with no further ' +
-      'governance calls, then submit the results with `settle` (`capsuleVersion` plus a `batchId`). ' +
-      'A retry with unchanged inputs returns the recorded capsule; changed inputs compile the next ' +
-      'version. Refused before any effect: WORKFLOW_NOT_FOUND, ' +
-      'WORKFLOW_TYPE_UNSUPPORTED, PHASE_NOT_PREPARABLE, NOTHING_TO_PREPARE, INVALID_TASK_ID, ' +
+      "Compile a feature workflow's ready tasks (pending, every blocker complete) into ONE " +
+      'immutable capsule and commit one workflow.prepared record pinning its digest. Call it in the ' +
+      'delegate phase, before each wave. The capsule carries the task graph, each task\'s result ' +
+      'contract, the evidence kinds, the deviation envelope, the authority the batch is settled ' +
+      'against, each task\'s verification terms (tier and boundary from the plan; base from ' +
+      'synthesis.integrationBranch), and the execution profile — the capabilities the plane\'s ' +
+      'calls need; a runtime lacking one is refused before it fans out. It announces ' +
+      'each compiled task the stream has not heard of (`task.assigned`). Run the batch with no ' +
+      'further governance calls, then submit results with `settle` (`capsuleVersion`, ' +
+      '`batchId`). Unchanged inputs replay the recorded capsule; changed inputs compile the next ' +
+      'version. Refused before any effect: WORKFLOW_NOT_FOUND, WORKFLOW_TYPE_UNSUPPORTED, ' +
+      'PHASE_NOT_PREPARABLE, NOTHING_TO_PREPARE, NO_READY_TASKS, BASE_UNRESOLVED, INVALID_TASK_ID, ' +
       'INVALID_TASK_STAMP, UNKNOWN_DEPENDENCY, CAPSULE_UNSOUND, RUNTIME_UNFIT.',
     schema: z
       .object({

@@ -1,30 +1,17 @@
 // ─── Partitioning a plan into one delegation batch ───────────────────────────
 //
-// The batch is every planned task not yet complete. Its dependency edges come
-// from each task's `blockedBy`, and only the edges that still bind survive:
+// The batch is the plan's ready frontier: every task not yet complete whose
+// `blockedBy` tasks are all complete. A task still waiting on pending work is
+// left for a later preparation, compiled after its blockers settle, so a
+// capsule never holds two tasks one of which must fork from the other's work.
 //
-//   • a blocker inside the batch becomes an edge — the harness must finish it
-//     first;
-//   • a blocker already complete is satisfied, and an edge to it would make the
-//     capsule wait on work that is done;
-//   • a blocker the plan does not contain at all is refused. Dropping it would
-//     compile a capsule that silently lost an ordering the plan asked for.
+// A blocker the plan does not contain is refused, because dropping it would
+// lose an ordering the plan asked for. Pending tasks with nothing ready among
+// them are refused too, and the refusal names what each one waits on.
 //
-// Tasks nothing waits on are the batch's sinks. When there are two or more, one
-// join waits for all of them, so the capsule states where the batch rejoins
-// rather than leaving the harness to infer it.
-//
-// Every task in the batch carries the verification terms it will settle under:
-// its risk tier and whether it touches a boundary, resolved here from the
-// plan the way the delegation stamp resolves them — a planner's explicit stamp
-// wins, the file-and-layer heuristic decides otherwise. Resolved at compile
-// time and frozen into the capsule, because they choose which gates the task's
-// completion must pass, and a runtime that could choose its own tier at claim
-// time could choose its own judge.
-//
-// Cycles are NOT detected here. The capsule's reference pass already refuses a
-// cyclic graph, and a second cycle check in this module would be a second
-// answer to a question that pass owns.
+// Each task carries the verification terms it settles under. A planner's stamp
+// wins and the file-and-layer heuristic decides otherwise. They are frozen into
+// the capsule because they choose the gates the task is judged by.
 
 import { SharedStableIdSchema } from '../../contract/ir/admission-ir.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
@@ -61,6 +48,7 @@ export interface BatchTask {
 
 export interface DelegationBatch {
   readonly tasks: readonly BatchTask[];
+  /** Edges between tasks of the batch. A ready frontier has none; the compiler maps any it is given. */
   readonly dependencies: readonly { readonly from: string; readonly to: string }[];
   readonly joins: readonly { readonly joinId: string; readonly waitsFor: readonly string[] }[];
   /** Every task in the batch must report for the batch to settle. */
@@ -149,13 +137,48 @@ function readPlannedTask(entry: unknown, index: number): PlannedTask | PrepareRe
   return { id, title, complete, blockedBy, verification };
 }
 
-/** Partition the projected task list into the batch still to be delegated. */
+/** What each pending task waits on that is not yet complete, as a refusal names it. */
+function describeWaits(pending: readonly PlannedTask[], done: ReadonlySet<string>): string {
+  return pending
+    .map((task) => {
+      const waits = task.blockedBy.filter((blocker) => !done.has(blocker));
+      return `${JSON.stringify(task.id)} waits on ${waits.map((id) => JSON.stringify(id)).join(', ')}`;
+    })
+    .join('; ');
+}
+
+/**
+ * The first task id the plan names twice, if any. Checked across the whole
+ * plan before the frontier is chosen: a frontier holding one copy would hide
+ * the other from the capsule's own duplicate check, and settlement could not
+ * tell the two tasks apart.
+ */
+function firstDuplicateId(planned: readonly PlannedTask[]): string | undefined {
+  const seen = new Set<string>();
+  for (const task of planned) {
+    if (seen.has(task.id)) return task.id;
+    seen.add(task.id);
+  }
+  return undefined;
+}
+
+/** Partition the projected task list into the ready frontier still to be delegated. */
 export function partitionDelegationBatch(tasks: readonly unknown[]): PartitionOutcome {
   const planned: PlannedTask[] = [];
   for (const [index, entry] of tasks.entries()) {
     const read = readPlannedTask(entry, index);
     if ('code' in read) return { ok: false, refusal: read };
     planned.push(read);
+  }
+  const duplicate = firstDuplicateId(planned);
+  if (duplicate !== undefined) {
+    return {
+      ok: false,
+      refusal: {
+        code: 'INVALID_TASK_ID',
+        message: `planned task id ${JSON.stringify(duplicate)} appears more than once; a capsule names each task once`,
+      },
+    };
   }
 
   const pending = planned.filter((task) => !task.complete);
@@ -172,41 +195,49 @@ export function partitionDelegationBatch(tasks: readonly unknown[]): PartitionOu
     };
   }
 
-  const inBatch = new Set(pending.map((task) => task.id));
-  const done = new Set(planned.filter((task) => task.complete).map((task) => task.id));
-  const dependencies: { from: string; to: string }[] = [];
+  const known = new Set(planned.map((task) => task.id));
   for (const task of pending) {
-    for (const blocker of task.blockedBy) {
-      if (inBatch.has(blocker)) {
-        dependencies.push({ from: blocker, to: task.id });
-        continue;
-      }
-      if (done.has(blocker)) continue;
-      return {
-        ok: false,
-        refusal: {
-          code: 'UNKNOWN_DEPENDENCY',
-          message: `task ${JSON.stringify(task.id)} waits on ${JSON.stringify(blocker)}, which the plan does not contain`,
-        },
-      };
-    }
+    const unknown = task.blockedBy.find((blocker) => !known.has(blocker));
+    if (unknown === undefined) continue;
+    return {
+      ok: false,
+      refusal: {
+        code: 'UNKNOWN_DEPENDENCY',
+        message: `task ${JSON.stringify(task.id)} waits on ${JSON.stringify(unknown)}, which the plan does not contain`,
+      },
+    };
   }
 
-  const waitedOn = new Set(dependencies.map((edge) => edge.from));
-  const sinks = pending.filter((task) => !waitedOn.has(task.id)).map((task) => task.id);
+  const done = new Set(planned.filter((task) => task.complete).map((task) => task.id));
+  const ready = pending.filter((task) => task.blockedBy.every((blocker) => done.has(blocker)));
+  if (ready.length === 0) {
+    const blocking = [...new Set(pending.flatMap((task) => task.blockedBy.filter((b) => !done.has(b))))];
+    return {
+      ok: false,
+      refusal: {
+        code: 'NO_READY_TASKS',
+        message:
+          `none of the ${pending.length} pending task(s) is ready to delegate: ${describeWaits(pending, done)}. ` +
+          `A task is ready when every task it waits on is complete. Complete ${blocking
+            .map((id) => JSON.stringify(id))
+            .join(', ')} first; tasks that wait on each other form a cycle the plan must break.`,
+      },
+    };
+  }
 
+  const ids = ready.map((task) => task.id);
   return {
     ok: true,
     batch: {
-      tasks: pending.map((task) => ({
+      tasks: ready.map((task) => ({
         taskId: task.id,
         title: task.title,
         stepId: DELEGATION_STEP_ID,
         verification: task.verification,
       })),
-      dependencies,
-      joins: sinks.length >= 2 ? [{ joinId: BATCH_JOIN_ID, waitsFor: sinks }] : [],
-      requiredResults: pending.map((task) => task.id),
+      dependencies: [],
+      joins: ids.length >= 2 ? [{ joinId: BATCH_JOIN_ID, waitsFor: ids }] : [],
+      requiredResults: ids,
     },
   };
 }

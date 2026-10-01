@@ -20,7 +20,7 @@ Subagent reads the unified spec (`docs/specs/2026-02-15-hsm-guards.md`) from sta
 npm run test:run          — 47 passed, 0 failed
 npm run test:coverage     — 89% line, 82% branch
 npm run typecheck          — clean
-exarchos_orchestrate({ action: "check_test_adequacy" }) — passed: true
+exarchos_event({ action: "query", filter: { type: "gate.executed" } }) — test-adequacy passed for all 4 tasks
 ```
 
 All automated checks pass.

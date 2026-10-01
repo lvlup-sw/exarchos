@@ -48,6 +48,7 @@ const PARITY_ARGS = {
   taskId: 'T-parity',
   branch: 'feature/parity',
   repoRoot: PARITY_REPO_ROOT,
+  baseBranch: 'main',
 } as const;
 
 function makePassResult() {

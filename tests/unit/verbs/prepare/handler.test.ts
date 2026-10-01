@@ -91,8 +91,15 @@ interface SeedTask {
   readonly blockedBy?: readonly string[];
 }
 
-/** A feature workflow standing in `delegate` with the given plan. */
-async function seedDelegatingFeature(tasks: readonly SeedTask[], streamId = STREAM): Promise<void> {
+/** The integration branch the seeded workflow's tasks fork from. */
+const INTEGRATION_BRANCH = 'feature/prepare-unit';
+
+/** A feature workflow standing in `delegate` with the given plan and, unless told otherwise, an integration branch. */
+async function seedDelegatingFeature(
+  tasks: readonly SeedTask[],
+  streamId = STREAM,
+  integrationBranch: string | null = INTEGRATION_BRANCH,
+): Promise<void> {
   await store.append(streamId, { type: 'workflow.started', data: { featureId: streamId, workflowType: 'feature' } });
   await store.append(streamId, { type: 'workflow.transition', data: { from: 'plan-review', to: 'delegate' } });
   await store.append(streamId, {
@@ -100,6 +107,7 @@ async function seedDelegatingFeature(tasks: readonly SeedTask[], streamId = STRE
     data: {
       patch: {
         'artifacts.design': 'docs/specs/prepare-unit.md',
+        ...(integrationBranch !== null ? { 'synthesis.integrationBranch': integrationBranch } : {}),
         tasks: tasks.map((t) => ({ id: t.id, title: `title of ${t.id}`, status: t.status, blockedBy: t.blockedBy ?? [] })),
       },
     },
@@ -146,8 +154,8 @@ describe('prepare — the compilation endpoint', () => {
 
     expect(receipt.capsuleVersion).toBe(1);
     expect(receipt.workflowId).toBe(STREAM);
-    expect(receipt.capsule.graph.tasks.map((t) => t.taskId)).toEqual(['T-2', 'T-3', 'T-4']);
-    expect(receipt.capsule.graph.dependencies).toEqual([{ from: 'T-3', to: 'T-4' }]);
+    expect(receipt.capsule.graph.tasks.map((t) => t.taskId)).toEqual(['T-2', 'T-3']);
+    expect(receipt.capsule.graph.dependencies).toEqual([]);
     expect(receipt.capsuleDigest).toBe(capsuleDigest(receipt.capsule));
     expect(receipt.definitionVersion).toBe(lowerBuiltInDefinition('feature')?.definitionVersion);
 
@@ -155,7 +163,7 @@ describe('prepare — the compilation endpoint', () => {
     expect(rows).toHaveLength(1);
     const record = WorkflowPreparedData.parse(rows[0]);
     expect(record.capsuleDigest).toBe(receipt.capsuleDigest);
-    expect(record.taskCount).toBe(3);
+    expect(record.taskCount).toBe(2);
 
     // Read back out of custody and re-digested: the record pins bytes that
     // really decode to the capsule the caller was handed.
@@ -186,7 +194,50 @@ describe('prepare — the compilation endpoint', () => {
 
     const next = receiptOf(await prepare({ featureId: STREAM }));
     expect(next.capsuleVersion).toBe(2);
-    expect(next.capsule.graph.tasks.map((t) => t.taskId)).toEqual(['T-3', 'T-4']);
+    expect(next.capsule.graph.tasks.map((t) => t.taskId)).toEqual(['T-3']);
+    expect(await preparedRows()).toHaveLength(2);
+  });
+
+  it('Prepare_TheReadyFrontier_IsCompiledOneWaveAtATime', async () => {
+    await seedDelegatingFeature(PLAN);
+    const first = receiptOf(await prepare({ featureId: STREAM }));
+    expect(first.capsule.graph.tasks.map((t) => t.taskId)).toEqual(['T-2', 'T-3']);
+    expect(first.capsule.settlementContract.requiredResults).toEqual(['T-2', 'T-3']);
+
+    await store.append(STREAM, {
+      type: 'state.patched',
+      data: { patch: { 'tasks[1].status': 'complete', 'tasks[2].status': 'complete' } },
+    });
+    const second = receiptOf(await prepare({ featureId: STREAM }));
+    expect(second.capsuleVersion).toBe(2);
+    expect(second.capsule.graph.tasks.map((t) => t.taskId)).toEqual(['T-4']);
+  });
+
+  it('Prepare_EveryTask_CarriesTheIntegrationBranchAsItsBase', async () => {
+    await seedDelegatingFeature(PLAN);
+    const receipt = receiptOf(await prepare({ featureId: STREAM }));
+    expect(receipt.capsule.settlementContract.taskVerification).toEqual({
+      'T-2': { riskTier: 'medium', boundaryTouching: false, baseRef: INTEGRATION_BRANCH },
+      'T-3': { riskTier: 'medium', boundaryTouching: false, baseRef: INTEGRATION_BRANCH },
+    });
+  });
+
+  it('Prepare_TheSameInputsUnderAnotherBase_CompileTheNextVersion', async () => {
+    await seedDelegatingFeature(PLAN);
+    const first = receiptOf(await prepare({ featureId: STREAM }));
+    await store.append(STREAM, { type: 'state.patched', data: { patch: { 'artifacts.notes': 'unrelated' } } });
+    expect(receiptOf(await prepare({ featureId: STREAM }))).toEqual(first);
+
+    await store.append(STREAM, {
+      type: 'state.patched',
+      data: { patch: { 'synthesis.integrationBranch': 'feature/elsewhere' } },
+    });
+
+    const moved = receiptOf(await prepare({ featureId: STREAM }));
+    expect(moved.capsuleVersion).toBe(2);
+    expect(moved.operationId).not.toBe(first.operationId);
+    expect(moved.capsule.settlementContract.taskVerification?.['T-2']?.baseRef).toBe('feature/elsewhere');
+    expect(moved.capsule.graph.tasks).toEqual(first.capsule.graph.tasks);
     expect(await preparedRows()).toHaveLength(2);
   });
 
@@ -201,7 +252,6 @@ describe('prepare — the compilation endpoint', () => {
     expect(assigned.map((e) => e.data)).toEqual([
       { taskId: 'T-2', title: 'title of T-2' },
       { taskId: 'T-3', title: 'title of T-3' },
-      { taskId: 'T-4', title: 'title of T-4' },
     ]);
     const prepared = events.find((e) => e.type === 'workflow.prepared');
     expect(prepared).toBeDefined();
@@ -210,7 +260,7 @@ describe('prepare — the compilation endpoint', () => {
     expect(receipt.tailSequence).toBe(prepared?.sequence);
     // A retry announces nothing further.
     receiptOf(await prepare({ featureId: STREAM }));
-    expect((await store.query(STREAM)).filter((e) => e.type === 'task.assigned')).toHaveLength(3);
+    expect((await store.query(STREAM)).filter((e) => e.type === 'task.assigned')).toHaveLength(2);
   });
 
   it('Prepare_ATaskTheStreamAlreadyHeardOf_IsNotAnnouncedAgain', async () => {
@@ -224,12 +274,12 @@ describe('prepare — the compilation endpoint', () => {
       (await store.query(STREAM))
         .filter((e) => e.type === 'task.assigned')
         .map((e) => (e.data as { taskId: string }).taskId);
-    expect(await taskIds()).toEqual(['T-3', 'T-2', 'T-4']);
+    expect(await taskIds()).toEqual(['T-3', 'T-2']);
 
     // The next version compiles from the tasks the first wave left — every one already announced.
     await store.append(STREAM, { type: 'state.patched', data: { patch: { 'tasks[1].status': 'complete' } } });
     expect(receiptOf(await prepare({ featureId: STREAM })).capsuleVersion).toBe(2);
-    expect(await taskIds()).toEqual(['T-3', 'T-2', 'T-4']);
+    expect(await taskIds()).toEqual(['T-3', 'T-2']);
   });
 
   it('Prepare_ARefusedCompilation_AnnouncesNothing', async () => {
@@ -250,6 +300,7 @@ describe('prepare — the compilation endpoint', () => {
     expect(first.capsule.settlementContract.taskVerification?.['T-2']).toEqual({
       riskTier: 'medium',
       boundaryTouching: false,
+      baseRef: INTEGRATION_BRANCH,
     });
     const before = first.capsule.knowledge.patterns.map((p) => p.statement);
 
@@ -396,12 +447,36 @@ describe('prepare — the compilation endpoint', () => {
       await expectRefused(await prepare({ featureId: STREAM }), 'UNKNOWN_DEPENDENCY');
     });
 
-    it('Prepare_ACyclicPlan_IsRefusedAsUnsound', async () => {
+    it('Prepare_PendingTasksWithNoneReady_AreRefusedNamingTheirBlockers', async () => {
       await seedDelegatingFeature([
         { id: 'T-1', status: 'pending', blockedBy: ['T-2'] },
         { id: 'T-2', status: 'pending', blockedBy: ['T-1'] },
       ]);
-      await expectRefused(await prepare({ featureId: STREAM }), 'CAPSULE_UNSOUND');
+      const result = await prepare({ featureId: STREAM });
+      await expectRefused(result, 'NO_READY_TASKS');
+      if (!result.success) {
+        expect(result.error.message).toContain('"T-1" waits on "T-2"');
+        expect(result.error.message).toContain('"T-2" waits on "T-1"');
+      }
+    });
+
+    it('Prepare_AWorkflowWithNoIntegrationBranch_IsRefusedWithHowToSetIt', async () => {
+      await seedDelegatingFeature(PLAN, STREAM, null);
+      const result = await prepare({ featureId: STREAM });
+      await expectRefused(result, 'BASE_UNRESOLVED');
+      if (!result.success) expect(result.error.message).toContain('"synthesis.integrationBranch"');
+      expect((await store.query(STREAM)).filter((e) => e.type === 'task.assigned')).toEqual([]);
+    });
+
+    it('Prepare_AnIntegrationBranchThatIsNotASafeRef_IsRefused', async () => {
+      for (const [index, branch] of ['-x', 'main..feature', 'feature x', '   '].entries()) {
+        const streamId = `${STREAM}-unsafe-${index}`;
+        await seedDelegatingFeature(PLAN, streamId, branch);
+        const result = await prepare({ featureId: streamId });
+        expect(result.success, branch).toBe(false);
+        if (!result.success) expect(result.error.code).toBe('BASE_UNRESOLVED');
+        expect(await preparedRows(streamId)).toEqual([]);
+      }
     });
 
     it('Prepare_NoSubject_IsRefused', async () => {

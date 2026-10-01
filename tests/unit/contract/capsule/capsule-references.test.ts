@@ -99,7 +99,7 @@ const REFERENCE_CASES: readonly ReferenceCase[] = [
         ...b.settlementContract,
         taskVerification: {
           ...b.settlementContract.taskVerification,
-          'task-ghost': { riskTier: 'low', boundaryTouching: false },
+          'task-ghost': { riskTier: 'low', boundaryTouching: false, baseRef: 'feature/capsule-corpus' },
         },
       },
     }),

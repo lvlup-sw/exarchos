@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1288,
-    "parsedFiles": 1243,
+    "testFiles": 1289,
+    "parsedFiles": 1244,
     "shellFiles": 45,
-    "cases": 14236,
+    "cases": 14266,
     "dynamicTitles": 172,
     "unparseableFiles": 0
   },
@@ -51970,6 +51970,21 @@
         },
         {
           "suite": "compileIntent over the live registry",
+          "name": "TaskCompletion_TheFrozenBase_ReachesTheKillProbeAndNoOtherGate",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent over the live registry",
+          "name": "TaskCompletion_WithoutABase_RefusesBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent over the live registry",
+          "name": "TaskCompletion_ABaseThatCouldBeReadAsAnOption_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "compileIntent over the live registry",
           "name": "TaskCompletion_MissingWorktreePath_RefusesBeforeAnyEffect",
           "dynamic": false
         },
@@ -56151,6 +56166,31 @@
           "suite": "check_test_adequacy routing + idempotency (task 014)",
           "name": "GateEvent_MigratedPath_DoesNotEmitLegacyGateEvent",
           "dynamic": false
+        },
+        {
+          "suite": "check_test_adequacy routing + idempotency (task 014)",
+          "name": "CheckTestAdequacy_NoBase_IsBaseMissingAndBlocksAtEveryTier",
+          "dynamic": false
+        },
+        {
+          "suite": "check_test_adequacy routing + idempotency (task 014)",
+          "name": "CheckTestAdequacy_APolicySkippedGate_StillSkipsWithNoBase",
+          "dynamic": false
+        },
+        {
+          "suite": "check_test_adequacy routing + idempotency (task 014)",
+          "name": "CheckTestAdequacy_TheMergeBase_IsResolvedOnceAndMeasuresBothTheDiffAndTheRevert",
+          "dynamic": false
+        },
+        {
+          "suite": "check_test_adequacy routing + idempotency (task 014)",
+          "name": "CheckTestAdequacy_ARefGitWouldReadAsAnOption_NeverReachesGit",
+          "dynamic": false
+        },
+        {
+          "suite": "check_test_adequacy routing + idempotency (task 014)",
+          "name": "CheckTestAdequacy_ABaseWithNoMergeBase_IsADiffFailure",
+          "dynamic": false
         }
       ]
     },
@@ -58709,7 +58749,22 @@
         },
         {
           "suite": "delegation capsule compilation",
-          "name": "Compile_EveryTaskResult_RequiresEvidence",
+          "name": "Compile_EveryTaskResult_RequiresTheWorktree_AndCarriesNoEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation",
+          "name": "Compile_EveryTask_CarriesTheVerificationTermsThePlanResolves",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation",
+          "name": "Compile_TheExecutionProfile_IsAttachedAsHandedIn_AndOmittedWhenEmpty",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation",
+          "name": "Compile_TheBoundKnowledge_NamesTheGatesEachTierIsVerifiedBy",
           "dynamic": false
         },
         {
@@ -58719,7 +58774,7 @@
         },
         {
           "suite": "delegation capsule compilation",
-          "name": "Compile_ACyclicPlan_IsRefusedAsUnsound",
+          "name": "Compile_ACyclicBatch_IsRefusedAsUnsound",
           "dynamic": false
         },
         {
@@ -58770,6 +58825,41 @@
         },
         {
           "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_TheReadyFrontier_IsCompiledOneWaveAtATime",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_EveryTask_CarriesTheIntegrationBranchAsItsBase",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_TheSameInputsUnderAnotherBase_CompileTheNextVersion",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_ACompiledBatch_AnnouncesItsTasksInTheSameCommit",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_ATaskTheStreamAlreadyHeardOf_IsNotAnnouncedAgain",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_ARefusedCompilation_AnnouncesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_AChangedVerificationPolicy_CompilesTheNextVersion",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
           "name": "Prepare_ARegisteredCatalog_IsBoundIntoTheAuthority",
           "dynamic": false
         },
@@ -58781,6 +58871,16 @@
         {
           "suite": "prepare — the compilation endpoint",
           "name": "Prepare_AStreamThatMovesBeforeTheCommit_LosesTheVersionAndLeavesNoClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_TheCapsule_CarriesTheExecutionProfileTheRegistryDeclares",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint",
+          "name": "Prepare_ARuntimeThatCannotSettleTheBatch_IsRefusedBeforeFanOut",
           "dynamic": false
         },
         {
@@ -58810,7 +58910,17 @@
         },
         {
           "suite": "prepare — the compilation endpoint > refusals happen before any effect",
-          "name": "Prepare_ACyclicPlan_IsRefusedAsUnsound",
+          "name": "Prepare_PendingTasksWithNoneReady_AreRefusedNamingTheirBlockers",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint > refusals happen before any effect",
+          "name": "Prepare_AWorkflowWithNoIntegrationBranch_IsRefusedWithHowToSetIt",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare — the compilation endpoint > refusals happen before any effect",
+          "name": "Prepare_AnIntegrationBranchThatIsNotASafeRef_IsRefused",
           "dynamic": false
         },
         {
@@ -58907,7 +59017,12 @@
         },
         {
           "suite": "delegation batch partition",
-          "name": "Partition_ABlockerInTheBatch_BecomesAnEdge",
+          "name": "Partition_ATaskWaitingOnPendingWork_IsLeftForALaterPreparation",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation batch partition",
+          "name": "Partition_PendingTasksWithNoneReady_AreRefusedNamingWhatTheyWaitOn",
           "dynamic": false
         },
         {
@@ -58922,12 +59037,22 @@
         },
         {
           "suite": "delegation batch partition",
-          "name": "Partition_TwoOrMoreSinks_RejoinAtOneJoin",
+          "name": "Partition_TwoOrMoreReadyTasks_RejoinAtOneJoin",
           "dynamic": false
         },
         {
           "suite": "delegation batch partition",
-          "name": "Partition_OneSink_NeedsNoJoin",
+          "name": "Partition_EveryTask_CarriesItsVerificationTerms",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation batch partition",
+          "name": "Partition_APlannerStampOutsideItsVocabulary_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation batch partition",
+          "name": "Partition_OneReadyTask_NeedsNoJoin",
           "dynamic": false
         },
         {
@@ -58938,6 +59063,11 @@
         {
           "suite": "delegation batch partition",
           "name": "Partition_ATaskIdACapsuleCannotName_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation batch partition",
+          "name": "Partition_ATaskIdThePlanNamesTwice_IsRefusedEvenWhenOnlyOneCopyIsReady",
           "dynamic": false
         },
         {
@@ -83310,6 +83440,32 @@
         {
           "suite": "static call-shape census",
           "name": "CallShapeCensus_CheckedInSummary_IsRenderedFromTheSameCensus",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/kill-probe-base.test.ts": {
+      "file": "tests/acceptance/kill-probe-base.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the kill probe measures a task from the branch it forked from",
+          "name": "KillProbe_GivenMainAsTheBase_ReproducesTheDefect_PassingOnWaveOnesKill",
+          "dynamic": false
+        },
+        {
+          "suite": "the kill probe measures a task from the branch it forked from",
+          "name": "KillProbe_MeasuredFromTheIntegrationBranch_BlocksTheVacuousTest",
+          "dynamic": false
+        },
+        {
+          "suite": "the kill probe measures a task from the branch it forked from",
+          "name": "KillProbe_WithNoBase_IsBaseMissingAndProbesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "the kill probe measures a task from the branch it forked from",
+          "name": "KillProbe_ThroughSettle_RunsUnderTheBaseTheCapsuleFroze_AndRejectsTheBatch",
           "dynamic": false
         }
       ]

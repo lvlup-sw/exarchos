@@ -314,19 +314,36 @@ export const CapsuleProvenanceSchema = z
 export const CapsuleRiskTierSchema = z.enum(['low', 'medium', 'high']);
 
 /**
+ * A git ref a task's diff is measured against. A safe subset of git's ref
+ * names: it starts with a letter, a digit or an underscore, so it can never be
+ * read as an option, and it holds no whitespace and no `..`, so it can never
+ * name a range. A pattern rather than a refinement, so the JSON Schema
+ * projection carries the same rule.
+ */
+export const CapsuleBaseRefSchema = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(
+    /^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9._/+@-]*$/,
+    'a base ref starts with a letter, digit or underscore, contains no "..", and uses only letters, digits and . _ / + @ -',
+  );
+
+/**
  * The verification terms one task settles under, frozen when the capsule is
  * compiled.
  *
  * The tier and the boundary flag route which gates a task's completion must
- * pass. They are terms of settlement, not facts about the runtime: a task that
- * could name its own tier at claim time could name the gates it is judged by,
- * so they are compiled here, from the plan, and read back out of the pinned
- * capsule when the batch is settled.
+ * pass, and the base names what its diff is measured against. They are terms
+ * of settlement, not facts about the runtime: a task that could name its own
+ * tier or base at claim time could choose what it is judged by, so they are
+ * compiled here and read back out of the pinned capsule at settlement.
  */
 export const CapsuleTaskVerificationSchema = z
   .object({
     riskTier: CapsuleRiskTierSchema,
     boundaryTouching: z.boolean(),
+    baseRef: CapsuleBaseRefSchema,
   })
   .strict();
 

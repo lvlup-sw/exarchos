@@ -92,6 +92,7 @@ const INTENT_ARGS = {
   worktreePath: '/nonexistent-parity-worktree',
   riskTier: 'medium' as const,
   boundaryTouching: true,
+  baseRef: 'feature/parity',
 };
 
 function deps(): ExecuteIntentDeps {

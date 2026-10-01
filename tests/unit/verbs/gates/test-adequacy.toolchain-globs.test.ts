@@ -97,6 +97,7 @@ describe('check_test_adequacy toolchain test-glob threading (FIX-3)', () => {
           taskId: 'T-py',
           branch: 'feature/py',
           repoRoot,
+          baseBranch: 'main',
           runTests,
         },
         ctx,

@@ -8,17 +8,19 @@
 //
 // Every refusal happens before any effect, and the order of the questions is
 // the order a caller has to fix them in: is there a workflow, is it one this
-// compiler can lower, is it at the point where its work can be batched, and is
-// the plan itself sound. Only a compilation that passes all of them reaches
-// custody.
+// compiler can lower, is it at the point where its work can be batched, is the
+// plan itself sound, and does the workflow name the branch its tasks fork
+// from. Only a compilation that passes all of them reaches custody.
 //
 // A PREPARATION IS KEYED BY ITS INPUTS. The claim key is the digest of what
 // the capsule was compiled from — the definition, the batch, the bound
-// invariants, the design reference — so a retry after a timeout returns the
-// capsule already recorded instead of compiling a second version of the same
-// terms. Changed inputs are a different preparation, and get the next version.
+// invariants, the design reference, the base — so a retry after a timeout
+// returns the capsule already recorded instead of compiling a second version
+// of the same terms. Changed inputs are a different preparation, and get the
+// next version.
 
 import { contentDigest } from '../../contract/capsule/capsule-digest.js';
+import { CapsuleBaseRefSchema } from '../../contract/capsule/exarchos-capsule.js';
 import { requestDigest as canonicalRequestDigest } from '../../contract/request-context.js';
 import { loadExarchosConfig } from '../../config/load-exarchos-config.js';
 import { resolveEffectiveCatalog } from '../../architecture/resolve-effective-catalog.js';
@@ -118,6 +120,48 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** How a caller records the integration branch, quoted in the refusal that asks for it. */
+const SET_INTEGRATION_BRANCH =
+  'exarchos_workflow({ action: "update", featureId: "<featureId>", ' +
+  'updates: { "synthesis.integrationBranch": "<the branch the tasks fork from>" } })';
+
+/**
+ * The branch every task of the batch forks from: the workflow's recorded
+ * integration branch. Refused rather than guessed, because a guessed base
+ * measures a task's diff against the wrong commit, and the kill probe then
+ * proves or disproves work the task did not do.
+ */
+function resolveBaseRef(
+  streamId: string,
+  state: Record<string, unknown>,
+): { readonly ok: true; readonly baseRef: string } | { readonly ok: false; readonly refusal: PrepareRefusal } {
+  const branch = isRecord(state.synthesis) ? state.synthesis.integrationBranch : undefined;
+  if (typeof branch !== 'string' || branch.trim().length === 0) {
+    return {
+      ok: false,
+      refusal: {
+        code: 'BASE_UNRESOLVED',
+        message:
+          `'${streamId}' records no integration branch, so no task in the batch has a base to measure ` +
+          `its diff against. Record the branch the tasks fork from, then prepare again: ${SET_INTEGRATION_BRANCH}`,
+      },
+    };
+  }
+  if (!CapsuleBaseRefSchema.safeParse(branch).success) {
+    return {
+      ok: false,
+      refusal: {
+        code: 'BASE_UNRESOLVED',
+        message:
+          `'${streamId}' records the integration branch ${JSON.stringify(branch)}, which is not a safe ref ` +
+          'name (it must start with a letter, digit or underscore and hold no whitespace or ".."). Record ' +
+          `the branch the tasks fork from, then prepare again: ${SET_INTEGRATION_BRANCH}`,
+      },
+    };
+  }
+  return { ok: true, baseRef: branch };
+}
+
 /**
  * The repository's resolved invariants, by id and summary.
  *
@@ -192,6 +236,10 @@ export async function handlePrepare(
   if (!partition.ok) return refused(partition.refusal);
   const { batch } = partition;
 
+  const base = resolveBaseRef(streamId, state);
+  if (!base.ok) return refused(base.refusal);
+  const { baseRef } = base;
+
   // Announced in the same commit as the record, and once: a task the stream
   // has already heard of — from an earlier compilation, or by hand — is not
   // announced again, because the projection reads a second announcement as
@@ -253,6 +301,7 @@ export async function handlePrepare(
     designRef: designRef ?? null,
     executionProfile: { capabilities },
     verificationTerms,
+    baseRef,
   };
   const operationId = `prepare:${contentDigest(inputs)}`;
   const requestDigest = canonicalRequestDigest(inputs);
@@ -273,6 +322,7 @@ export async function handlePrepare(
       batch,
       catalogInvariants,
       designRef,
+      baseRef,
       executionProfile: { capabilities },
       verificationSequence: sequenceOf,
       compiledAt: (deps.now ?? (() => new Date().toISOString()))(),

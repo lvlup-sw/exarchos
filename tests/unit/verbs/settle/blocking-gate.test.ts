@@ -106,7 +106,10 @@ async function vacuousTaskWorktree(): Promise<string> {
   return dir;
 }
 
-/** The base capsule, with its one required task stamped medium-tier so the kill probe runs. */
+/**
+ * The base capsule, with its one required task stamped medium-tier so the kill
+ * probe runs, measured from the branch the task worktree forked from.
+ */
 function mediumTierCapsule(): ExarchosCapsuleV1 {
   const base = baseValidCapsule();
   return {
@@ -114,7 +117,7 @@ function mediumTierCapsule(): ExarchosCapsuleV1 {
     identity: { ...base.identity, capsuleVersion: CAPSULE_VERSION },
     settlementContract: {
       ...base.settlementContract,
-      taskVerification: { 'task-verify': { riskTier: 'medium', boundaryTouching: false } },
+      taskVerification: { 'task-verify': { riskTier: 'medium', boundaryTouching: false, baseRef: 'main' } },
     },
   };
 }
