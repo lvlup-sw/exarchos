@@ -235,6 +235,42 @@ interface InstallerRun {
   readonly allowModifiedSource?: boolean;
   /** Tag the installer is asked for; defaults to the fixture's own tag. */
   readonly requestTag?: string;
+  /**
+   * Feed the installer to the shell on stdin, as `curl | bash` and `irm | iex`
+   * do. No script directory is known, and PATH holds no verifier bin, so only
+   * the built-in verifier is left.
+   */
+  readonly piped?: boolean;
+  /** Replaces PATH for the run. */
+  readonly path?: string;
+}
+
+/** True when `name` (or its Windows shim) is a file in `dir`. */
+function dirHolds(dir: string, name: string): boolean {
+  const exts = process.platform === 'win32' ? ['', '.exe', '.cmd', '.ps1'] : [''];
+  return exts.some((ext) => existsSync(join(dir, `${name}${ext}`)));
+}
+
+/** The current PATH without the directories that hold `name`. */
+function pathWithout(name: string): string {
+  return (process.env['PATH'] ?? '')
+    .split(delimiter)
+    .filter((dir) => dir.length > 0 && !dirHolds(dir, name))
+    .join(delimiter);
+}
+
+/** The absolute path of an executable on the current PATH, or the bare name. */
+function onPath(name: string): string {
+  const dir = (process.env['PATH'] ?? '').split(delimiter).find((d) => d.length > 0 && dirHolds(d, name));
+  if (dir === undefined) return name;
+  const exe = process.platform === 'win32' && existsSync(join(dir, `${name}.exe`)) ? `${name}.exe` : name;
+  return join(dir, exe);
+}
+
+/** Set PATH, dropping any differently-cased copy (Windows spells it `Path`). */
+function withPath(env: NodeJS.ProcessEnv, value: string): void {
+  for (const key of Object.keys(env)) if (key.toUpperCase() === 'PATH') delete env[key];
+  env['PATH'] = value;
 }
 
 /**
@@ -262,7 +298,7 @@ function runShInstaller(run: InstallerRun): Promise<RunResult> {
       'EOF',
       'chmod +x "$FAKEBIN/uname"',
       'export PATH="$FAKEBIN:$PATH"',
-      'exec bash "$EXARCHOS_SCRIPT" "$@"',
+      run.piped === true ? 'cat "$EXARCHOS_SCRIPT" | bash -s -- "$@"' : 'exec bash "$EXARCHOS_SCRIPT" "$@"',
       '',
     ].join('\n'),
     { encoding: 'utf8' },
@@ -281,6 +317,8 @@ function runShInstaller(run: InstallerRun): Promise<RunResult> {
   if (run.verifier !== undefined) env['EXARCHOS_RELEASE_VERIFIER'] = toShellPath(run.verifier);
   if (run.trustRootPem !== undefined)
     env['EXARCHOS_TRUST_ROOT_PEM_FILE'] = toShellPath(run.trustRootPem);
+  if (run.piped === true) withPath(env, run.path ?? pathWithout('exarchos-release-verify'));
+  else if (run.path !== undefined) withPath(env, run.path);
 
   const args = [toShellPath(prelude)];
   if (run.allowModifiedSource === true) args.push('--allow-modified-source');
@@ -305,10 +343,39 @@ function runPs1Installer(run: InstallerRun): Promise<RunResult> {
   if (run.verifier !== undefined) env['EXARCHOS_RELEASE_VERIFIER'] = run.verifier;
   if (run.trustRootPem !== undefined) env['EXARCHOS_TRUST_ROOT_PEM_FILE'] = run.trustRootPem;
 
+  if (run.piped === true) {
+    const pwsh = onPath(PWSH);
+    env['EXARCHOS_SCRIPT'] = PS1_INSTALLER;
+    withPath(env, run.path ?? pathWithout('exarchos-release-verify'));
+    return runAsync(
+      pwsh,
+      ['-NoProfile', '-NonInteractive', '-Command', 'Get-Content -Raw -LiteralPath $env:EXARCHOS_SCRIPT | Invoke-Expression'],
+      env,
+    );
+  }
+
   const args = ['-NoProfile', '-NonInteractive', '-File', PS1_INSTALLER];
   if (run.allowModifiedSource === true) args.push('-AllowModifiedSource');
 
   return runAsync(PWSH, args, env);
+}
+
+/** The built-in verifier text an installer carries between two marker lines. */
+function builtInVerifierOf(path: string, open: string, close: string): string {
+  const lines = readFileSync(path, 'utf8').replace(/\r\n/g, '\n').split('\n');
+  const start = lines.indexOf(open);
+  const end = lines.indexOf(close, start + 1);
+  if (start < 0 || end < 0) throw new Error(`${path} carries no built-in verifier between '${open}' and '${close}'`);
+  return lines.slice(start + 1, end).join('\n');
+}
+
+/** Exit code and verdict tag of one verifier run. */
+function verdictOf(verifier: string, args: readonly string[]): { status: number | null; verdict: string } {
+  const run = spawnSync(process.execPath, [verifier, ...args], { encoding: 'utf-8', timeout: 60_000 });
+  const text = `${run.stdout}${run.stderr}`;
+  const tag = /release REJECTED \[([a-z-]+)\]/.exec(text)?.[1];
+  const verdict = tag ?? (text.includes('release verified') ? 'verified' : text.includes('usage error') ? 'usage' : text);
+  return { status: run.status, verdict };
 }
 
 // ─── Fixture / scratch management ────────────────────────────────────────────
@@ -406,13 +473,11 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
     ];
 
     if (IS_CI) {
-      // Fail CLOSED. Each missing shell silently drops 11 DR-20 acceptance
-      // tests, and a suite that shrank to nothing would still report green.
       expect(
         missing,
         `DR-20 acceptance requires BOTH installer shells on CI, but ${missing.join(' and ')} ` +
           `${missing.length === 1 ? 'is' : 'are'} unavailable. ${missing.length} of the two ` +
-          `installer suites would be SKIPPED — 11 tests apiece — and the run would still ` +
+          `installer suites would be SKIPPED in full and the run would still ` +
           `report success. Install the missing shell on this lane; do not widen the waiver.`,
       ).toEqual([]);
       return;
@@ -496,6 +561,53 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
     );
     expect(leaked, `test-only paths in the tarball: ${leaked.join(', ')}`).toEqual([]);
   }, 360_000);
+
+  describe('the built-in verifier both installers carry', () => {
+    const shCopy = (): string =>
+      builtInVerifierOf(SH_INSTALLER, `    cat > "$1" <<'EXARCHOS_EMBEDDED_VERIFIER'`, 'EXARCHOS_EMBEDDED_VERIFIER');
+    const ps1Copy = (): string =>
+      builtInVerifierOf(PS1_INSTALLER, "$script:EmbeddedReleaseVerifier = @'", "'@");
+
+    it('BuiltInVerifier_BothInstallers_CarryTheSameAsciiCopy', () => {
+      const sh = shCopy();
+      expect(sh.split('\n').length).toBeGreaterThan(50);
+      expect(sh).toContain('crypto.verify(null');
+      expect(/^[\x09\x0a\x20-\x7e]*$/.test(sh), 'the built-in verifier must be ASCII').toBe(true);
+      expect(ps1Copy()).toBe(sh);
+    });
+
+    it('BuiltInVerifier_EverySeededFault_ReturnsTheShippedVerifierVerdict', () => {
+      const builtIn = join(scratch, 'built-in-verifier.cjs');
+      writeFileSync(builtIn, `${shCopy()}\n`, 'utf8');
+      const faults: ReadonlyArray<readonly [string, Omit<ReleaseFixtureOptions, 'outDir' | 'assets'>, string]> = [
+        ['clean', {}, 'verified'],
+        ['signature', { corruptSignature: true }, 'manifest-signature'],
+        ['wrong-key', { signWithWrongKey: true }, 'manifest-signature'],
+        ['source', { manifestCommit: 'a'.repeat(40) }, 'source-mismatch'],
+        ['contract', { manifestContractDigest: `sha256:${'c'.repeat(64)}` }, 'contract-mismatch'],
+        ['asset', { corruptAssetAfterSigning: LINUX_ASSET }, 'asset-digest'],
+      ];
+      for (const [name, options, expected] of faults) {
+        const fixture = buildReleaseFixture({
+          ...options,
+          outDir: join(scratch, 'parity', name),
+          assets: [LINUX_ASSET],
+        });
+        const args = [
+          '--manifest', fixture.manifestPath,
+          '--trust-root', `${fixture.keyId}=${fixture.trustRootPem}`,
+          '--expect-source', `${fixture.commit}#${fixture.treeDigest}`,
+          '--expect-contract', fixture.contractDigest,
+          '--asset', `${LINUX_ASSET}=${join(fixture.releaseDir, LINUX_ASSET)}`,
+        ];
+        const shipped = verdictOf(SHIPPED_VERIFIER, args);
+        const carried = verdictOf(builtIn, args);
+        expect(shipped.verdict, `shipped verifier on '${name}'`).toBe(expected);
+        expect(carried, `built-in verifier on '${name}'`).toEqual(shipped);
+      }
+      expect(verdictOf(builtIn, [])).toEqual(verdictOf(SHIPPED_VERIFIER, []));
+    }, 180_000);
+  });
 
   describe.skipIf(BASH === undefined)(shellSuite('tools/release/get-exarchos.sh', BASH, 'bash'), () => {
     it('installs a release whose signed manifest verifies on all four dimensions', async () => {
@@ -694,6 +806,39 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
       expect(result.output).toMatch(/manifest/i);
       expect(installedNames(target.installDir)).toEqual([]);
     }, 180_000);
+
+    it('curl | bash with no verifier installed verifies with the built-in verifier and installs', async () => {
+      const { fixture, origin } = await scenario('sh-piped', {});
+      const target = freshTarget('sh-piped');
+      const result = await runShInstaller({
+        fixture,
+        baseUrl: origin.baseUrl,
+        ...target,
+        trustRootPem: fixture.trustRootPem,
+        piped: true,
+      });
+      expect(result.status, result.output).toBe(0);
+      expect(result.output).toContain('exarchos-release-verify.cjs');
+      expect(result.output).toContain('(built-in verifier)');
+      expect(result.output).toContain('release manifest verified');
+      expect(installedNames(target.installDir)).toContain('exarchos');
+    }, 180_000);
+
+    it('curl | bash: the built-in verifier rejects a tampered signature', async () => {
+      const { fixture, origin } = await scenario('sh-piped-sig', { corruptSignature: true });
+      const target = freshTarget('sh-piped-sig');
+      const result = await runShInstaller({
+        fixture,
+        baseUrl: origin.baseUrl,
+        ...target,
+        trustRootPem: fixture.trustRootPem,
+        piped: true,
+      });
+      expect(result.status, result.output).not.toBe(0);
+      expect(result.output).toContain('exarchos-release-verify.cjs');
+      expect(result.output).toContain('manifest-signature');
+      expect(installedNames(target.installDir)).toEqual([]);
+    }, 180_000);
   });
 
   describe.skipIf(PWSH === undefined)(shellSuite('tools/release/get-exarchos.ps1', PWSH, 'pwsh'), () => {
@@ -877,6 +1022,58 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
       });
       expect(result.status, result.output).not.toBe(0);
       expect(result.output).toMatch(/manifest/i);
+      expect(installedNames(target.installDir)).toEqual([]);
+    }, 180_000);
+
+    it('irm | iex with no verifier installed verifies with the built-in verifier and installs', async () => {
+      const { fixture, origin } = await scenario('ps-piped', {});
+      const target = freshTarget('ps-piped');
+      const result = await runPs1Installer({
+        fixture,
+        baseUrl: origin.baseUrl,
+        ...target,
+        trustRootPem: fixture.trustRootPem,
+        piped: true,
+      });
+      expect(result.status, result.output).toBe(0);
+      expect(result.output).toContain('exarchos-release-verify.cjs');
+      expect(result.output).toContain('(built-in verifier)');
+      expect(result.output).toContain('Release manifest verified');
+      expect(installedNames(target.installDir)).toContain('exarchos.exe');
+    }, 180_000);
+
+    it('irm | iex: the built-in verifier rejects a tampered signature', async () => {
+      const { fixture, origin } = await scenario('ps-piped-sig', { corruptSignature: true });
+      const target = freshTarget('ps-piped-sig');
+      const result = await runPs1Installer({
+        fixture,
+        baseUrl: origin.baseUrl,
+        ...target,
+        trustRootPem: fixture.trustRootPem,
+        piped: true,
+      });
+      expect(result.status, result.output).not.toBe(0);
+      expect(result.output).toContain('exarchos-release-verify.cjs');
+      expect(result.output).toContain('manifest-signature');
+      expect(installedNames(target.installDir)).toEqual([]);
+    }, 180_000);
+
+    it('irm | iex with no Node.js on PATH refuses and names what to install', async () => {
+      const { fixture, origin } = await scenario('ps-piped-nonode', {});
+      const target = freshTarget('ps-piped-nonode');
+      const emptyPath = join(scratch, 'targets', 'ps-piped-nonode', 'empty-path');
+      mkdirSync(emptyPath, { recursive: true });
+      const result = await runPs1Installer({
+        fixture,
+        baseUrl: origin.baseUrl,
+        ...target,
+        trustRootPem: fixture.trustRootPem,
+        piped: true,
+        path: emptyPath,
+      });
+      expect(result.status, result.output).not.toBe(0);
+      expect(result.output).toContain('verifier-unavailable');
+      expect(result.output).toContain('Node.js');
       expect(installedNames(target.installDir)).toEqual([]);
     }, 180_000);
   });

@@ -539,6 +539,50 @@ else
 fi
 teardown
 
+# The `curl | sh` shape: $0 names no installer file, no verifier is installed
+# and PATH is a sandbox. A decoy dist/ two levels above the working directory
+# must be ignored. With node, the installer writes its built-in verifier, and
+# that verifier is runnable (no arguments is a usage error, exit 3).
+setup
+SANDBOX="$TMPDIR_ROOT/sandbox-bin"
+mkdir -p "$SANDBOX" "$TMPDIR_ROOT/cwd/a/b" "$TMPDIR_ROOT/cwd/dist"
+printf 'process.exit(0)\n' > "$TMPDIR_ROOT/cwd/dist/release-verify.js"
+for tool in dirname cat node; do
+    ln -s "$(command -v "$tool")" "$SANDBOX/$tool"
+done
+RESOLVED="$(
+    cd "$TMPDIR_ROOT/cwd/a/b" && env -u EXARCHOS_RELEASE_VERIFIER EXARCHOS_LIB_ONLY=1 bash -c \
+        '. "$1" && PATH="$2" && resolve_release_verifier "$3"' \
+        piped-installer "$SCRIPT_UNDER_TEST" "$SANDBOX" "$TMPDIR_ROOT" 2>&1
+)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]] && [[ "$RESOLVED" == "$TMPDIR_ROOT/exarchos-release-verify.cjs" ]] && [[ -s "$RESOLVED" ]]; then
+    PROBE_CODE=0
+    node "$RESOLVED" >/dev/null 2>&1 || PROBE_CODE=$?
+    if [[ $PROBE_CODE -eq 3 ]]; then
+        pass "GetExarchos_NoVerifierInstalled_WritesTheBuiltInVerifier"
+    else
+        fail "GetExarchos_NoVerifierInstalled_WritesTheBuiltInVerifier (verifier exit=$PROBE_CODE, want 3)"
+    fi
+else
+    fail "GetExarchos_NoVerifierInstalled_WritesTheBuiltInVerifier (exit=$EXIT_CODE, resolved='$RESOLVED')"
+fi
+
+# Same shape without node: the gate refuses and names what to install.
+rm -f "$SANDBOX/node"
+printf '{}\n' > "$TMPDIR_ROOT/manifest.json"
+OUTPUT="$(
+    env -u EXARCHOS_RELEASE_VERIFIER EXARCHOS_LIB_ONLY=1 bash -c \
+        '. "$1" && PATH="$2" && verify_release_or_die "$3" "$3/bin" "$3/manifest.json" exarchos-linux-x64 v1.0.0' \
+        piped-installer "$SCRIPT_UNDER_TEST" "$SANDBOX" "$TMPDIR_ROOT" 2>&1
+)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -ne 0 ]] && [[ "$OUTPUT" == *"verifier-unavailable"* ]] && [[ "$OUTPUT" == *"Node.js 20 or later"* ]]; then
+    pass "GetExarchos_NoVerifierAndNoNode_RefusesAndNamesWhatToInstall"
+else
+    fail "GetExarchos_NoVerifierAndNoNode_RefusesAndNamesWhatToInstall (exit=$EXIT_CODE)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
 # ============================================================
 # TEST: DR-20 — the installer-native arms of the release gate
 #

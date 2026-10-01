@@ -193,7 +193,7 @@ jobs:
           command -v bash >/dev/null 2>&1 || missing+=("bash")
           command -v pwsh >/dev/null 2>&1 || command -v powershell >/dev/null 2>&1 || missing+=("pwsh")
           if [ ${#missing[@]} -ne 0 ]; then
-            echo "::error::${missing[*]} unavailable on this lane — the installer acceptance suite would SKIP 11 tests per missing shell and still report success. Install it (ubuntu: https://learn.microsoft.com/powershell/scripting/install/install-ubuntu) rather than widening the waiver."
+            echo "::error::${missing[*]} unavailable on this lane — the installer acceptance suite would SKIP every test of each missing shell and still report success. Install it (ubuntu: https://learn.microsoft.com/powershell/scripting/install/install-ubuntu) rather than widening the waiver."
             exit 1
           fi
           echo "installer shells present: bash=$(command -v bash) pwsh=$(command -v pwsh || command -v powershell)"

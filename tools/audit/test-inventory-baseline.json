@@ -7,7 +7,7 @@
     "testFiles": 1283,
     "parsedFiles": 1238,
     "shellFiles": 45,
-    "cases": 14155,
+    "cases": 14162,
     "dynamicTitles": 169,
     "unparseableFiles": 0
   },
@@ -12171,6 +12171,16 @@
           "dynamic": false
         },
         {
+          "suite": "DR-20 — the installers consume the signed release manifest > the built-in verifier both installers carry",
+          "name": "BuiltInVerifier_BothInstallers_CarryTheSameAsciiCopy",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-20 — the installers consume the signed release manifest > the built-in verifier both installers carry",
+          "name": "BuiltInVerifier_EverySeededFault_ReturnsTheShippedVerifierVerdict",
+          "dynamic": false
+        },
+        {
           "suite": "DR-20 — the installers consume the signed release manifest > <dynamic-suite-1>",
           "name": "installs a release whose signed manifest verifies on all four dimensions",
           "dynamic": false
@@ -12226,6 +12236,16 @@
           "dynamic": false
         },
         {
+          "suite": "DR-20 — the installers consume the signed release manifest > <dynamic-suite-1>",
+          "name": "curl | bash with no verifier installed verifies with the built-in verifier and installs",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-20 — the installers consume the signed release manifest > <dynamic-suite-1>",
+          "name": "curl | bash: the built-in verifier rejects a tampered signature",
+          "dynamic": false
+        },
+        {
           "suite": "DR-20 — the installers consume the signed release manifest > <dynamic-suite-3>",
           "name": "installs a release whose signed manifest verifies on all four dimensions",
           "dynamic": false
@@ -12278,6 +12298,21 @@
         {
           "suite": "DR-20 — the installers consume the signed release manifest > <dynamic-suite-3>",
           "name": "a release with no published manifest is refused",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-20 — the installers consume the signed release manifest > <dynamic-suite-3>",
+          "name": "irm | iex with no verifier installed verifies with the built-in verifier and installs",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-20 — the installers consume the signed release manifest > <dynamic-suite-3>",
+          "name": "irm | iex: the built-in verifier rejects a tampered signature",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-20 — the installers consume the signed release manifest > <dynamic-suite-3>",
+          "name": "irm | iex with no Node.js on PATH refuses and names what to install",
           "dynamic": false
         }
       ]
