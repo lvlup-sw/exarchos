@@ -27,6 +27,14 @@ export interface BuildOptions {
   readonly guardSuiteRoots?: readonly string[];
 }
 
+/**
+ * Builds the guard inventory from the enforcer manifest, the frozen spec, the MCP script gates
+ * and the guard suite roots. The spec `**Files:**` lists hold old paths, so
+ * `resolveHistoricalPath` maps each one to the current tree. A spec module with no self-test
+ * and no direct entry point has no executable verdict, so it goes to `compileTimeOnlyArtifacts`.
+ * A `.sh` gate, or a script that cannot be read or parsed, counts as runnable, the stricter reading.
+ * Only pull-request hosts decide `pathFilteredOnly`, because path filters apply before merge.
+ */
 export function buildGuardInventory(options: BuildOptions = {}): GuardInventory {
   const repoRoot = options.repoRoot ?? REPO_ROOT;
   const specAbs = join(repoRoot, SPEC_PATH);
@@ -42,7 +50,6 @@ export function buildGuardInventory(options: BuildOptions = {}): GuardInventory 
     options.manifestJson ?? JSON.parse(readFileSync(join(repoRoot, MANIFEST_PATH), 'utf8'));
   const workflows = options.workflows ?? loadWorkflows(repoRoot);
 
-  /** `null` for anything that is not a readable regular file (a directory throws). */
   const readScript = (path: string): string | null => {
     try {
       return readFileSync(join(repoRoot, path), 'utf8');
@@ -70,26 +77,18 @@ export function buildGuardInventory(options: BuildOptions = {}): GuardInventory 
 
   for (const primary of manifestPrimaries(manifestJson)) add(primary, 'enforcer-manifest');
 
-  /** A `.sh` gate has no AST to parse; a shell script IS its own entrypoint. */
   const isRunnable = (artifact: string): boolean => {
     if (artifact.endsWith('.sh')) return true;
     if (!/\.[cm]?[jt]s$/.test(artifact)) return false;
     try {
       return hasDirectRunExit(readFileSync(join(repoRoot, artifact), 'utf8'), artifact);
     } catch {
-      // Unreadable or unparseable: fail CLOSED toward "runnable", the stricter
-      // reading — it demands DIRECT execution rather than accepting a self-test.
       return true;
     }
   };
 
   const unresolvedSpecArtifacts: string[] = [];
   const compileTimeOnlyArtifacts: string[] = [];
-  // Channel 2 reads a FROZEN spec. Its `**Files:**` lists are a dated record of
-  // where those artifacts were, and task 019 moved every one of them — so
-  // without the rewrite below the whole channel resolves nothing and reports a
-  // clean, empty classification. The spec is not edited to match the tree; the
-  // tree is what moved.
   for (const task of wave1Tasks(parseSpecTasks(specText))) {
     for (const raw of task.files) {
       if (!isPathShaped(raw)) continue;
@@ -100,10 +99,6 @@ export function buildGuardInventory(options: BuildOptions = {}): GuardInventory 
       }
       if (isTestArtifact(file)) continue;
       if (!/\.[cm]?[jt]s$|\.sh$/.test(file)) continue;
-      // DR-24's own definition of a guard: it has a self-test that runs in the
-      // same CI job. A Wave-1 module with neither a self-test nor an entrypoint
-      // carries no executable verdict — its rung is `tsc`, not a CI step — so it
-      // is recorded rather than judged against execution reachability.
       const hasSelfTest = selfTestCandidates(file).some((c) => ctx.exists(c));
       if (!hasSelfTest && !isRunnable(file)) {
         compileTimeOnlyArtifacts.push(file);
@@ -131,8 +126,6 @@ export function buildGuardInventory(options: BuildOptions = {}): GuardInventory 
       const enforcing = hosts.filter((host) => isEnforcingHost(host, runnable));
       const enforcement: Enforcement =
         enforcing.length === 0 ? 'unreachable' : enforcing.some((h) => h.blocking) ? 'blocks' : 'observes';
-      // Path-filtering is a PRE-MERGE property, so a release-lane host (which
-      // fires only on a tag push) neither creates nor clears the condition.
       const enforcingOnPr = enforcing.filter((h) => h.onPullRequest);
       return {
         artifact,
@@ -171,5 +164,3 @@ export function buildGuardInventory(options: BuildOptions = {}): GuardInventory 
     indirection: ctx.shellIndex ?? { byStep: new Map(), runStepsWalked: 0, wrapperScriptsWalked: [], unresolvedInvocations: [] },
   };
 }
-
-// ─── The audit ───────────────────────────────────────────────────────────────

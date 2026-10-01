@@ -1,25 +1,15 @@
 // @ts-check
 /**
- * @fileoverview Counts live references into every subtree the refactor plans
- * to delete or relocate.
+ * @fileoverview Counts live references into each subtree that the refactor plans
+ * to delete or re-home. A referenced path is not a deletion candidate.
  *
- * Deletion is the one step with no cheap undo, so nothing is removed on the
- * strength of a map someone drew. A referenced path is not a deletion
- * candidate, and this is the artifact that decides which is which.
+ * The scan covers more than source, because three kinds of referrer are easy to miss:
  *
- * The scan surface is deliberately wider than source. Three classes of referrer
- * are easy to miss and each has bitten this kind of refactor before:
+ *   - Markdown at its current location. A scan of the post-move directory returns a false zero.
+ *   - `*.snap` snapshots. They hold paths as plain text, and no type check reads them.
+ *   - Extensionless governance files in `NAMED_FILES`. No extension filter sees CODEOWNERS.
  *
- *   - markdown WHEREVER it currently lives, not under some post-move directory
- *     that does not exist yet — scoping the scan to the destination returns a
- *     confident zero;
- *   - `*.snap` snapshots, which embed paths as plain text and are regenerated
- *     rather than type-checked, so a stale path there fails at review time at
- *     the earliest;
- *   - extensionless governance files enumerated BY NAME, since CODEOWNERS
- *     cannot be seen by any extension-filtered glob.
- *
- * Reports. Never fails — the assertions live in the accompanying test.
+ * The script only reports. The accompanying test holds the assertions.
  *
  * Usage: `node tools/audit/measure-reference-census.mjs [--out FILE]`
  */
@@ -50,7 +40,7 @@ const PROSE_SUBTREES = [
   'docs/migrations',
 ];
 
-/** Subtrees that are re-homed rather than deleted; counted separately. */
+/** Subtrees that move to a new home instead of deletion. The report gives them the `re-home` disposition. */
 const REHOMED_SUBTREES = ['docs/evals', 'docs/schemas', 'docs/assets', 'docs/architecture'];
 
 const SCAN_EXTENSIONS = new Set([
@@ -62,30 +52,18 @@ const SCAN_EXTENSIONS = new Set([
 const NAMED_FILES = ['.github/CODEOWNERS', '.gitattributes', '.npmignore', '.exarchos.yml'];
 
 /**
- * This instrument's own output, excluded from its own scan.
- *
- * The report embeds referrer paths verbatim in `sampleReferrers`, so once it
- * has been written it holds subtree-qualified paths as plain text — and the
- * next run reads it back as a live `config` referrer of exactly the subtrees
- * it is measuring. That is a feedback loop, not a finding: a record OF
- * references is not itself a reference a reader would follow. Same reasoning
- * as the sibling-reference exclusion below.
- *
- * For the same reason this comment names no subtree path literally: prose in
- * THIS file is scanned too, and a worked example here would re-create the loop
- * one level up.
+ * The output file of this script, which the scan skips.
+ * The report holds referrer paths as plain text in `sampleReferrers`.
+ * Thus a later run reads it as a live `config` referrer of the subtrees that it measures.
+ * A record of references is not a reference that a reader follows.
+ * For the same reason, comments in this file must name no subtree path, because the scan reads this file too.
  */
 const SELF_OUTPUT = 'tools/audit/reference-census.json';
 
 /**
- * Records OF relocation, excluded for the same reason as this instrument's own
- * output: they enumerate paths in order to prove those paths were preserved,
- * not because anything reads them.
- *
- * Without this the exodus manifest lists every relocated path verbatim, the
- * next census reads it back as a live `config` referrer of every subtree that
- * has ALREADY left, and each departed subtree acquires a permanent live
- * referrer supplied by the record of its own departure.
+ * Records of relocation, which the scan skips for the same reason as `SELF_OUTPUT`.
+ * The exodus manifest lists each relocated path. Without this skip, each subtree
+ * that left keeps a permanent live referrer, which is the record of its own move.
  */
 const RELOCATION_RECORDS = ['tools/audit/prose-manifest.json'];
 
@@ -99,6 +77,12 @@ function trackedFiles() {
     .filter((rel) => rel.length > 0);
 }
 
+/**
+ * Writes the census as JSON to the `--out` file or to stdout.
+ * A file inside a subtree that refers to the same subtree is not an external referrer.
+ * A Markdown file outside `docs/` is a live referrer that a reader follows.
+ * A Markdown file under `docs/` is a dated record. It stays out of scope, because a rewrite falsifies it.
+ */
 function main() {
   const argv = process.argv.slice(2);
   const outFlag = argv.indexOf('--out');
@@ -130,8 +114,6 @@ function main() {
       continue;
     }
     for (const subtree of subtrees) {
-      // A file inside the subtree referring to a sibling is not an external
-      // reference — counting it would make every subtree look load-bearing.
       if (rel.startsWith(`${subtree}/`)) continue;
       if (text.includes(`${subtree}/`)) acc[subtree].referrers.add(rel);
     }
@@ -145,11 +127,6 @@ function main() {
       disposition: PROSE_SUBTREES.includes(subtree) ? 'delete' : 're-home',
       ownFiles: acc[subtree].ownFiles,
       externalReferrers: referrers.length,
-      // Categorized because the remedy differs. Markdown splits by location
-      // rather than by extension: an instruction file or a shipped skill is a
-      // LIVE referrer a reader will follow, while a dated record under `docs/`
-      // is history that is explicitly out of scope — it described the tree as
-      // it stood, and rewriting it would falsify the record.
       referrersByKind: {
         code: referrers.filter((r) => /\.(ts|tsx|mts|cts|js|mjs|cjs|jsx)$/.test(r)).length,
         config: referrers.filter((r) => /\.(json|ya?ml)$/.test(r) || NAMED_FILES.includes(r)).length,

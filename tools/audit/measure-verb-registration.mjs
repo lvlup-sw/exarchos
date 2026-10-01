@@ -1,15 +1,11 @@
-// Snapshot every action id the MCP registry advertises (DR-2, DR-9, task 015).
+// Snapshots each action id that the MCP registry advertises.
 //
-// The structural moves in Phase 1 can orphan a handler in a way that COMPILES
-// CLEAN and only shows up as UNKNOWN_ACTION at runtime. This file is the
-// before/after evidence that no move changed the advertised verb surface.
+// A structural move can orphan a handler. The code still compiles, and the fault
+// shows only as UNKNOWN_ACTION at runtime. This snapshot is the before-and-after
+// evidence that a move did not change the advertised verb surface.
 //
-// Regenerate ONLY when an action is genuinely added or removed, and in the same
-// commit as that change. A regrouping must leave it byte-identical.
-//
-// Reads the registry by parsing rather than importing: the registry pulls the
-// SQLite substrate, which needs the workspace's `bun:sqlite` alias, and a
-// measurement instrument should not need a test runner to produce a number.
+// Regenerate it only when an action is added or removed, in the same commit as
+// that change. A regrouping must leave it byte-identical.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,8 +18,10 @@ const OUT = path.join(ROOT, 'tools/audit/verb-registration-baseline.json');
 /** The tsx entry point. Node runs it directly because Windows cannot spawn the `npx` shim. */
 const TSX_CLI = createRequire(import.meta.url).resolve('tsx/cli');
 
-// Drive the real registry through the MCP workspace's own runner so the ids are
-// the ones the server actually serves, not a regex's guess at them.
+/**
+ * A script that imports the real registry under `tsx`, so the ids are the ids
+ * that the server serves.
+ */
 const script = `
 import { TOOL_REGISTRY } from './src/registry.js';
 const ids = [];

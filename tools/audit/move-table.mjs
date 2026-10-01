@@ -1,24 +1,23 @@
-// The task 019 move table — one authority, two consumers.
+// The move table that dissolves `servers/exarchos-mcp` into the repo root.
 //
-// `move-tree.mjs` uses it to relocate files and rewrite import specifiers;
-// `retarget-literals.mjs` uses the same table to reconcile the repo-relative
-// path STRINGS that `tsc` cannot see. Keeping one table is the point: a second
-// copy would let the two halves of the same move disagree, and the disagreement
-// would surface as a config silently matching nothing rather than as an error.
+// `move-tree.mjs` uses it to move files and rewrite import specifiers. The
+// `retarget-*.mjs` codemods use it to rewrite the repo-relative path strings
+// that `tsc` cannot see. One table keeps the two halves of a move in agreement.
+// Two copies can disagree, and then a config silently matches nothing.
 //
-// Destinations follow `tools/audit/layer-map.json`: directories it maps to a
-// layer land under `src/`, and directories it marks as stated exceptions land
-// in the tool tree assigned there rather than riding into the product.
+// Destinations follow `tools/audit/layer-map.json`. A directory that it maps to
+// a layer lands under `src/`. A stated exception lands in its tool tree.
 
 /** [oldRepoRelativePrefix, newRepoRelativePrefix], longest match wins. */
 export const PREFIX_MOVES = [
-  // The old root `src/` was the installer and renderer toolchain in full —
-  // operations/, wizard/, manifest/, config/ and runtimes/ included. It becomes
-  // the `install` peer named in the layer map, which is also what dissolves the
-  // config/ and runtimes/ name clashes with the incoming core.
+  /**
+   * Moves the root installer and renderer toolchain to `src/install/`, the
+   * `install` peer of the layer map. This removes the `config/` and `runtimes/`
+   * name clashes with the core.
+   */
   ['src/', 'src/install/'],
 
-  // Stated exceptions: first-party tooling, not product code.
+  /** Stated exceptions: first-party tooling, not product code. */
   ['servers/exarchos-mcp/src/bench/', 'tools/evals/bench/'],
   ['servers/exarchos-mcp/src/benchmarks/', 'tools/evals/benchmarks/'],
   ['servers/exarchos-mcp/src/evals/', 'tools/evals/evals/'],
@@ -26,7 +25,7 @@ export const PREFIX_MOVES = [
   ['servers/exarchos-mcp/src/parity/', 'tools/conformance/src/parity/'],
   ['servers/exarchos-mcp/src/test-helpers/', 'tools/test-helpers/'],
 
-  // L9 — runtime.
+  /** Layer L9, the runtime. */
   ['servers/exarchos-mcp/src/agents/', 'src/runtime/agents/'],
   ['servers/exarchos-mcp/src/capabilities/', 'src/runtime/capabilities/'],
   ['servers/exarchos-mcp/src/channel/', 'src/runtime/channel/'],
@@ -37,57 +36,47 @@ export const PREFIX_MOVES = [
   ['servers/exarchos-mcp/src/runtimes/', 'src/runtime/runtimes/'],
   ['servers/exarchos-mcp/src/runtime/', 'src/runtime/'],
 
-  // The `install` peer, joined by the incoming installer toolchain above.
+  /** The `install` peer, which also receives the root installer toolchain. */
   ['servers/exarchos-mcp/src/onramp/', 'src/install/onramp/'],
   ['servers/exarchos-mcp/src/release/', 'src/install/release/'],
   ['servers/exarchos-mcp/src/install/', 'src/install/'],
 
-  // Everything else in the core keeps its name one level up.
+  /** The rest of the core keeps its name one level up. */
   ['servers/exarchos-mcp/src/', 'src/'],
 
-  // The core's own test and guard tiers, kept as named tiers rather than merged
-  // into the root ones — `process/` exists on both sides.
+  /**
+   * The core test and guard tiers stay apart from the root tiers, because both
+   * sides hold a `process/` directory.
+   */
   ['servers/exarchos-mcp/test/', 'tests/core/'],
   ['servers/exarchos-mcp/tests/', 'tests/core/'],
   ['servers/exarchos-mcp/scripts/', 'scripts/core/'],
-  // Both trees carry an `unknown-unknown.trace.jsonl`; a shared directory would
-  // silently drop one of them.
+  /**
+   * Both trees hold an `unknown-unknown.trace.jsonl`. One shared directory
+   * silently drops one of them.
+   */
   ['servers/exarchos-mcp/evals/captured/', 'evals/captured/core/'],
   ['servers/exarchos-mcp/evals-pkg/', 'tools/evals-pkg/'],
 ];
 
 /**
- * The dissolved package's own manifest and config files. These are not prefix
- * moves — each merged into the root file of the same name — so a literal naming
- * one now means the root one.
+ * Files of the dissolved package that merged into the root file of the same
+ * name. A literal that names one of them names the root file.
  */
 export const FILE_ALIASES = [
   ['servers/exarchos-mcp/package-lock.json', 'package-lock.json'],
-  // Catch-all, deliberately LAST by length so every specific prefix above wins:
-  // the dissolved package's own root is now the repo root. Without this, a path
-  // that walked up to the package root (`resolve(HERE, '..', '..')`) would keep
-  // naming a directory that no longer exists.
 ];
 
 /**
- * Aliases that are only valid for PATH ARITHMETIC, never for textual
- * substitution.
+ * Aliases for path arithmetic only, never for text substitution.
  *
- * `servers/exarchos-mcp` as a resolved DIRECTORY is now the repo root, so a
- * walk that lands there should be recomputed against the root. But the same
- * mapping applied to a STRING deletes it — which silently turned a
- * `DECLARED_PACKAGES` key into a duplicate of its neighbour and blanked a
- * dozen comments before this split existed. Two uses, two tables.
+ * As a resolved directory, `servers/exarchos-mcp` is the repo root. A walk into
+ * `servers/` also aims at the root, because a too-short walk still lands on a
+ * real directory. Applied to a string, the same mapping deletes the text.
  */
 export const PATH_ONLY_ALIASES = [
   ['servers/exarchos-mcp/', ''],
   ['servers/exarchos-mcp', ''],
-  // `servers/` itself is gone, so any path that walked up into it was aiming at
-  // the repo root — including the ones that were ALREADY off by a level before
-  // this move. Task 018 added a directory under `adapters/` without adjusting
-  // the `'..'` counts above it, so those literals have been resolving to the
-  // package root instead of the repo root ever since, silently, because a
-  // too-short walk still lands on a real directory.
   ['servers/', ''],
   ['servers', ''],
   ['servers/exarchos-mcp/package.json', 'package.json'],
@@ -107,28 +96,24 @@ export function mapRel(rel) {
   return rel;
 }
 
-/**
- * Map a repo-relative path STRING, including the dissolved package's own files.
- * Ordered longest-first across both tables so `…/package.json` never matches a
- * shorter directory prefix first.
- */
+/** Both tables, longest prefix first, so a file alias wins over a shorter directory prefix. */
 const LITERAL_SORTED = [...FILE_ALIASES, ...PREFIX_MOVES].sort((a, b) => b[0].length - a[0].length);
 
+/** Maps a repo-relative path string, the files of the dissolved package included. */
 export function mapLiteral(rel) {
   for (const [from, to] of LITERAL_SORTED) if (rel.startsWith(from)) return to + rel.slice(from.length);
   return rel;
 }
 
 /**
- * Map a resolved DIRECTORY path, for the codemods that recompute a relative
- * walk. Adds {@link PATH_ONLY_ALIASES} on top of the literal table — safe here
- * because the result is fed to `path.relative`, never substituted into source
- * as text.
+ * The literal tables plus {@link PATH_ONLY_ALIASES}, longest prefix first. The
+ * codemods use the result for path computation, not as replacement text.
  */
 const PATH_SORTED = [...PATH_ONLY_ALIASES, ...FILE_ALIASES, ...PREFIX_MOVES].sort(
   (a, b) => b[0].length - a[0].length,
 );
 
+/** Maps a resolved directory path for the codemods that recompute a relative walk. */
 export function mapPathTarget(rel) {
   for (const [from, to] of PATH_SORTED) if (rel.startsWith(from)) return to + rel.slice(from.length);
   return rel;

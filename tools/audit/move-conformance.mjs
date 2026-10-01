@@ -1,19 +1,14 @@
-// Cross-root move codemod for task 018a: `architecture/` → `tools/conformance/`.
+// Moves the conformance modules and tests from `src/architecture/` to
+// `tools/conformance/src/`, and rewrites the relative specifiers. The move crosses
+// the `src` root, so the table holds repo-relative paths.
 //
-// `move-directories.mjs` maps paths WITHIN `src`. This move
-// crosses that root, so the table is keyed on REPO-RELATIVE paths and the
-// arithmetic runs over the repository rather than the source tree. The rewriting
-// rule is the same one and for the same reason: each specifier is resolved
-// against its file's OLD directory, mapped through the move table, then
-// recomputed relative to that file's NEW directory. A textual prefix sweep gets
-// exactly one case wrong — the file moved but its target did not — and across a
-// root boundary that is nearly every import.
+// Each specifier resolves against the old directory of its file, maps through the
+// table, and becomes relative to the new directory. A text prefix sweep fails when
+// a file moves and its target does not.
 //
-// SAME BLIND SPOT as the within-src codemod: strings that are module paths but
-// sit in no import position (`vi.doUnmock`, the ARGUMENT of `vi.importActual`,
-// `readFileSync` paths, fixture text) are invisible here. Grep for them after.
-//
-// Dry-run by default; pass --apply to write.
+// Module paths in no import position stay unchanged: `vi.doUnmock`, the argument of
+// `vi.importActual`, `readFileSync` paths, and fixture text. Grep for them after.
+// Without `--apply`, it is a dry run.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,25 +19,23 @@ const ARCH_REL = 'src/architecture';
 const PKG_REL = 'tools/conformance';
 const APPLY = process.argv.includes('--apply');
 
-/** Modules that move, relative to `architecture/`. Computed, not transcribed. */
+/**
+ * Lists the modules that move, relative to `src/architecture/`, from the output of
+ * `measure-conformance-movable.mjs`. The seam-violator fixture stays, because a
+ * census that stays scans it in place.
+ */
 function movableModules() {
   const out = execFileSync('node', [path.join(ROOT, 'tools/audit/measure-conformance-movable.mjs')], {
     encoding: 'utf8', maxBuffer: 32e6,
   });
   const list = out.split('=== MOVABLE')[1].split('\n').slice(1).map((s) => s.trim()).filter(Boolean);
-  // Stated exception: this fixture exists to BE a seam violation and is scanned
-  // in situ by a census that stays. Moving it destroys what it is for.
   return list.filter((m) => m !== '__fixtures__/declaration-seam-violator.fixture.ts');
 }
 
 /**
- * Tests that move: those importing no architecture module that stays behind.
- *
- * `contract-seam-doc.test.ts` is deliberately ABSENT despite passing that
- * filter. It reaches `invariant-schema.ts` by PATH rather than by import, so an
- * import-following closure analysis cannot see that its subject stays behind.
- * The subject is pinned in `src/` by production consumers, so the test stays
- * with it.
+ * Tests that move: those that import no architecture module that stays.
+ * `contract-seam-doc.test.ts` passes that filter but stays. It reads `invariant-schema.ts`
+ * by path, not by import, and production code keeps that subject in `src/`.
  */
 const MOVING_TESTS = [
   '__tests__/wave1-exit.test.ts',
@@ -62,34 +55,28 @@ const MOVING_TESTS = [
   'verb-registration.test.ts',
 ];
 
-/** repo-relative old path -> repo-relative new path */
+/**
+ * Repo-relative old path to repo-relative new path. Each test lands beside its
+ * subject, and `__tests__/` flattens, because the guard tools pair a module with a
+ * sibling self-test.
+ */
 const MOVES = new Map();
 for (const m of movableModules()) {
   MOVES.set(`${ARCH_REL}/${m}`, `${PKG_REL}/src/${m}`);
 }
 for (const t of MOVING_TESTS) {
-  // Tests land BESIDE their subject, not in a sibling `tests/` tree, and
-  // `__tests__/wave1-exit.test.ts` flattens up to join them.
-  //
-  // This is not only the repo-wide convention (CLAUDE.md) — three mechanisms
-  // define a guard as a module with a CO-LOCATED self-test, and one of them is
-  // DR-24 itself. `selfTestCandidates`, `resolveHosts` and the guard-suite
-  // channel all resolve `foo.ts` -> `foo.test.ts` as siblings, so a split tree
-  // would leave every extracted census with no discoverable self-test: an
-  // unreachable guard, or a second layout convention threaded through all
-  // three. The directory split buys nothing that pays for that.
   const flat = t.replace(/^__tests__\//, '');
   MOVES.set(`${ARCH_REL}/${t}`, `${PKG_REL}/src/${flat}`);
 }
 
-/** Map an absolute path through the table. Returns the same path if unmoved. */
+/**
+ * Maps an absolute path through the table, or returns it unchanged. A `.js` path
+ * also matches its `.ts` key, because NodeNext imports a `.ts` module as `.js`.
+ */
 function mapAbs(abs) {
   const rel = path.relative(ROOT, abs).split(path.sep).join('/');
   const hit = MOVES.get(rel);
   if (hit !== undefined) return path.join(ROOT, hit);
-  // Specifiers arrive extension-shifted: under NodeNext a `.ts` module is
-  // imported as `.js`, so a `.ts`-keyed table would report every such import
-  // unmoved — which type-checks as a missing module rather than a wrong path.
   const asTs = rel.replace(/\.(js|mjs|cjs)$/, '.ts');
   if (asTs !== rel && MOVES.has(asTs)) {
     const ext = /\.(js|mjs|cjs)$/.exec(rel)[0];

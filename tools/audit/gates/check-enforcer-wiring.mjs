@@ -1,55 +1,21 @@
 #!/usr/bin/env node
 /**
- * Enforcer-wiring gate (task 011, DR-5 / DR-8).
+ * Enforcer-wiring gate. It proves that each `check-*` and `lint-*` primary in `tools/audit/gates` can fail CI.
+ * It walks npm-script chains and workflow run steps, reads the exit-code handling of each term,
+ * and reconciles each primary against the manifest.
  *
- * A name-grep can tell you a `tools/audit/gates/check-*` gate EXISTS. It cannot tell you
- * the gate is actually WIRED so that a real regression fails CI. This gate
- * closes that gap by TRANSITIVELY walking npm-script chains and CI workflow
- * run-steps, inspecting per-term exit-code handling, and reconciling every
- * primary against a manifest of dispositions. It models four trap classes a
- * grep is blind to:
+ * The main trap classes:
+ * - orphan: no workflow references the primary.
+ * - unreachable-npm: only an npm script that no workflow runs references the primary.
+ * - exit-code-swallowed: `|| true` or `continue-on-error` hides the exit code.
+ * - missing-synchronize: the workflow of a diff-dependent gate omits the `synchronize` trigger.
+ * - filtered-ci-path: a path, branch or `if:` filter breaks an `unfilteredCiPath` claim.
  *
- *   1. orphan               — a `tools/audit/gates/check-*|lint-*` primary that no
- *                             workflow references at all.
- *   2. unreachable-npm      — referenced only from an npm script that no
- *                             workflow invokes (e.g. `npm run validate`, which
- *                             no workflow runs).
- *   3. exit-code-swallowed  — runs in CI but its exit code is eaten (`|| true`
- *                             in an npm chain, or `continue-on-error: true` on
- *                             the step) so it can never fail the job.
- *   4. missing-synchronize  — a DIFF-DEPENDENT gate that is wired-and-failable
- *                             but hosted in a workflow whose `pull_request`
- *                             trigger omits `synchronize`, so a diff pushed
- *                             after the PR opens leaves a stale green standing.
- *   5. filtered-ci-path     — an entry CLAIMING an unfiltered CI path
- *                             (`unfilteredCiPath: true`) whose host workflow is
- *                             actually narrowed by `on.<event>.paths` /
- *                             `paths-ignore` / `branches`, or whose hosting
- *                             job/step is gated by a filtering `if:` (DR-15).
- *                             The claim used to be free text checked only for
- *                             filename shape.
+ * A `gating` entry must be reachable and failable from its named workflow. An `advisory` entry
+ * must be reachable and carry a rationale. A `retired` entry must carry a rationale and must not
+ * be failable. Each primary on disk needs an entry, and each non-retired entry needs its file.
  *
- * The manifest (`tools/audit/gates/enforcer-wiring-manifest.json` by default) lists every
- * primary with a disposition:
- *
- *   gating   → MUST be reachable-AND-failable from its named `workflow`; if
- *              `diffDependent`, that workflow's `pull_request` trigger MUST
- *              include `synchronize`.
- *   advisory → intentionally non-blocking (neutered / continue-on-error);
- *              MUST still be reachable from some workflow + carry a rationale.
- *   retired  → deliberately dead; MUST NOT be reachable-and-failable from any
- *              workflow + carry a rationale (file typically deleted).
- *
- * Completeness is enforced both ways: every primary on disk MUST have a
- * manifest entry (a newly-added orphan can't hide), and every non-retired
- * manifest entry MUST point at a file that exists.
- *
- * Exit 0 — clean. Exit 1 — violations OR a tool/manifest failure (fail closed).
- * Exit 2 — usage error (bad flag).
- *
- * Zero runtime dependencies: only Node built-ins. Designed to run as a
- * grep-gates CI step (no install, no build) on the unfiltered host so it fires
- * on every PR (DR-8: a gate in a path-filtered job is skipped-as-passed).
+ * Exit 0: clean. Exit 1: violations, or a tool or manifest failure. Exit 2: usage error.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -60,14 +26,8 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..', '..', '..');
 
 /**
- * The repo-relative directory every primary lives in — the single place this
- * gate's vocabulary is spelled. The recognizer regex, the paths
- * `enumeratePrimaryFiles` reports, and the self-test's synthetic fixtures all
- * derive from it, so a future relocation cannot leave one of the three behind
- * speaking the old prefix while the others move. Task 036 is exactly that
- * failure: the regex moved to `tools/audit/gates/` and the enumerator kept
- * emitting `scripts/`, so every primary on disk read as unlisted while every
- * manifest entry read as missing from disk.
+ * The repo-relative directory of every primary.
+ * The recognizer regex, the paths that `enumeratePrimaryFiles` reports, and the self-test fixtures derive from it, so a relocation moves all three.
  */
 export const PRIMARY_DIR = 'tools/audit/gates';
 
@@ -81,15 +41,6 @@ const PRIMARY_REF_RE = new RegExp(
   'g',
 );
 const VALID_DISPOSITIONS = new Set(['gating', 'advisory', 'retired']);
-
-// ─── Command exit-code analysis ────────────────────────────────────────────
-//
-// The one rule that captures GitHub's default `bash -eo pipefail` semantics
-// for our purposes: an atom's non-zero exit PROPAGATES unless the operator
-// immediately after it is `||` (which catches the failure). `&&`, `;`,
-// newline, and `|` all leave the atom failable. Failability composes through
-// nested `( … )` groups: a group caught by `||` at its parent level makes
-// every ref inside it non-failable too.
 
 /**
  * Split a shell command into top-level atoms, honoring quotes and parens, and
@@ -165,7 +116,7 @@ export function splitTopLevel(text) {
 
 /**
  * Pull the primary-script and npm-run references out of a single simple atom,
- * tagging each with the supplied `failable`.
+ * tagging each with the supplied `failable`. A `*.test.mjs` or `*.test.sh` self-test is not a primary.
  *
  * @param {string} atom
  * @param {boolean} failable
@@ -177,15 +128,15 @@ function extractRefsFromAtom(atom, failable, out) {
   }
   for (const m of atom.matchAll(PRIMARY_REF_RE)) {
     const rel = `${PRIMARY_DIR}/${m[1]}.${m[2]}`;
-    // A co-located `*.test.sh` / `*.test.mjs` self-test is NOT the primary.
     if (/\.test\.(mjs|sh)$/.test(rel)) continue;
     out.push({ type: 'script', path: rel, failable });
   }
 }
 
 /**
- * Analyze a command string into its primary/npm references, each carrying a
- * `failable` flag that already accounts for enclosing `||`-caught groups.
+ * Analyze a command string into its primary/npm references, each carrying a `failable` flag.
+ * An atom stays failable unless `||` follows it, as under the default `bash -eo pipefail` of GitHub.
+ * A group that `||` catches makes each reference inside it non-failable.
  *
  * @param {string} cmd
  * @param {boolean} [parentFailable=true]
@@ -209,9 +160,9 @@ export function analyzeCommandRefs(cmd, parentFailable = true) {
 
 /**
  * Transitively resolve the primaries reachable from a command, expanding
- * `npm run <name>` references through the package.json script map. Failability
- * composes multiplicatively along each path; a primary reachable-and-failable
- * via ANY path is recorded as failable.
+ * `npm run <name>` references through the package.json script map.
+ * A reference is failable only when each hop on its path is failable. A primary that is failable through any path is recorded as failable.
+ * The walk skips an npm script that already occurs on the current path, and a script name that does not exist.
  *
  * @param {string} cmd
  * @param {Record<string, string>} scripts
@@ -230,9 +181,9 @@ export function reachPrimariesFromCommand(cmd, scripts, seenNpm = new Set()) {
     if (ref.type === 'script' && ref.path) {
       merge(ref.path, ref.failable);
     } else if (ref.type === 'npm' && ref.name) {
-      if (seenNpm.has(ref.name)) continue; // cycle guard (per-path)
+      if (seenNpm.has(ref.name)) continue;
       const body = scripts[ref.name];
-      if (typeof body !== 'string') continue; // references a non-existent script
+      if (typeof body !== 'string') continue;
       const sub = reachPrimariesFromCommand(
         body,
         scripts,
@@ -243,8 +194,6 @@ export function reachPrimariesFromCommand(cmd, scripts, seenNpm = new Set()) {
   }
   return result;
 }
-
-// ─── Workflow parsing (zero-dep, targeted — not a general YAML parser) ──────
 
 /**
  * Group a workflow's lines into list items (steps). Each returned item is the
@@ -274,14 +223,14 @@ function groupListItems(lines) {
         current = [line];
         currentIndent = indent;
       } else {
-        current.push(line); // nested (deeper) list entry
+        current.push(line);
       }
       continue;
     }
     if (current) {
       const contentIndent = line.search(/\S/);
       if (contentIndent !== -1 && contentIndent <= currentIndent) {
-        flush(); // dedented out of the list item
+        flush();
         continue;
       }
       current.push(line);
@@ -305,7 +254,6 @@ function extractRunCommand(stepLines) {
     const rest = m[2];
     const isBlock = /^[|>][+-]?\s*$/.test(rest.trim());
     if (!isBlock && rest.trim() !== '') return rest;
-    // Block scalar: gather the more-indented following lines and dedent them.
     /** @type {string[]} */
     const block = [];
     let contentIndent = null;
@@ -317,7 +265,7 @@ function extractRunCommand(stepLines) {
       }
       const ind = bl.search(/\S/);
       if (contentIndent === null) contentIndent = ind;
-      if (ind < contentIndent) break; // sibling key at the run: level ends it
+      if (ind < contentIndent) break;
       block.push(bl.slice(contentIndent));
     }
     return block.join('\n');
@@ -327,7 +275,7 @@ function extractRunCommand(stepLines) {
 
 /**
  * Parse a workflow file into its run-steps (command + continue-on-error) and
- * its pull_request trigger shape.
+ * its pull_request trigger shape. This is a targeted line parser, not a general YAML parser.
  *
  * @param {string} text
  * @returns {{ runSteps: { command: string, continueOnError: boolean }[], pullRequest: { present: boolean, types: string[] | null } }}
@@ -347,11 +295,13 @@ export function parseWorkflow(text) {
 }
 
 /**
+ * Reads whether the top-level `on:` key declares `pull_request`, in the inline flow form or the block form.
+ * For the block form, it also reads the `types:` list of `pull_request`.
+ *
  * @param {string[]} lines
  * @returns {{ present: boolean, types: string[] | null }}
  */
 function parsePullRequestTrigger(lines) {
-  // Locate the top-level `on:` key.
   let onIdx = -1;
   for (let i = 0; i < lines.length; i++) {
     if (/^["']?on["']?:/.test(lines[i])) {
@@ -361,14 +311,12 @@ function parsePullRequestTrigger(lines) {
   }
   if (onIdx === -1) return { present: false, types: null };
 
-  // Inline flow form: `on: [push, pull_request]`.
   const inline = lines[onIdx].match(/^["']?on["']?:\s*\[([^\]]*)\]/);
   if (inline) {
     const present = inline[1].split(',').some((s) => s.trim() === 'pull_request');
     return { present, types: null };
   }
 
-  // Block form: collect the indented `on:` block.
   /** @type {string[]} */
   const onBlock = [];
   for (let i = onIdx + 1; i < lines.length; i++) {
@@ -376,7 +324,7 @@ function parsePullRequestTrigger(lines) {
       onBlock.push(lines[i]);
       continue;
     }
-    if (lines[i].search(/\S/) === 0) break; // next top-level key
+    if (lines[i].search(/\S/) === 0) break;
     onBlock.push(lines[i]);
   }
 
@@ -392,7 +340,6 @@ function parsePullRequestTrigger(lines) {
   }
   if (prIdx === -1) return { present: false, types: null };
 
-  // Collect the pull_request sub-block (more indented than `pull_request:`).
   /** @type {string[]} */
   const prBlock = [];
   for (let i = prIdx + 1; i < onBlock.length; i++) {
@@ -438,40 +385,6 @@ function parseTypesList(prBlock) {
   }
   return null;
 }
-
-// ─── CI path-filter modelling (DR-15) ───────────────────────────────────────
-//
-// "Runs on an unfiltered CI path" used to be a FREE-TEXT claim checked only for
-// filename shape: `.github/workflows/<name>.yml` matched a regex and the claim
-// was accepted. A workflow triggered by `on: pull_request: paths: ['docs/**']`
-// satisfies that regex and does NOT run on an unfiltered path — a gate hosted
-// there is skipped-as-passed on most PRs (DR-8). The model below parses the
-// trigger and the job/step `if:` gates so the claim is VERIFIED, not asserted.
-//
-// A CI path is UNFILTERED for an event (default `pull_request`) iff ALL hold:
-//   1. the workflow declares that event at all;
-//   2. the event carries no `paths:` / `paths-ignore:` narrowing;
-//   3. the event carries no `branches:` / `branches-ignore:` narrowing;
-//   4. at least one step matching the caller's `stepMatch` is hosted by a job
-//      whose `if:` is non-filtering AND whose own step `if:` is non-filtering.
-//
-// Rule 4 is "reachable via ANY unfiltered host": a gate re-asserted on an
-// unfiltered job is unfiltered even if another copy rides a filtered job
-// (the DR-10 re-assert pattern).
-//
-// SHAPES DELIBERATELY NOT MODELLED (documented gaps, not silent ones):
-//   - `on.<event>.paths` inherited from a reusable/called workflow
-//     (`workflow_call` + `uses:` at job level) — a job that delegates to
-//     another workflow file is not followed.
-//   - matrix/`strategy` exclusions, `concurrency` cancellation, and
-//     `timeout-minutes` — none of these narrow the PATH surface.
-//   - shell-level early exits inside a `run:` block (`set +e`, `if ... exit 0`,
-//     a `changed-files` guard implemented in bash) — the model reads YAML
-//     structure, not step bodies.
-//   - `on: <event>: types:` — a `types:` narrowing is NOT treated as a path
-//     filter (it selects PR lifecycle events, not file paths); the pre-existing
-//     `missing-synchronize` trap class already covers the one shape that
-//     matters there.
 
 /**
  * The fork-guard idiom this repo puts on essentially every job. It is a
@@ -696,19 +609,21 @@ export function parseWorkflowTriggers(text) {
  * @property {WorkflowStep[]} steps
  */
 
-/** Read a single-line scalar for a child key. @param {{rest: string}} child */
+/**
+ * Read a single-line scalar for a child key.
+ * It strips quotes only when one matching pair wraps the whole scalar, because a GitHub `if:` expression can end in a quoted literal.
+ * @param {{rest: string}} child
+ */
 function readScalar(child) {
   const rest = child.rest.trim();
   if (rest === '' || /^[|>][+-]?$/.test(rest)) return null;
-  // Strip quotes ONLY when the whole scalar is wrapped in a matching pair —
-  // a GitHub `if:` expression routinely ENDS in a quoted literal
-  // (`… != 'pull_request'`) and must not lose its trailing quote.
   const wrapped = rest.match(/^(['"])([\s\S]*)\1$/);
   return wrapped ? (wrapped[2] ?? '') : rest;
 }
 
 /**
  * Parse a `steps:` block into structured steps.
+ * A `continue-on-error` value other than `false` softens the step. A `${{ }}` expression also softens it, because it can evaluate to true.
  *
  * @param {string[]} stepsBlock
  * @returns {WorkflowStep[]}
@@ -730,8 +645,6 @@ function parseSteps(stepsBlock) {
       run: extractRunCommand(item),
       uses: field('uses'),
       if: field('if') === null || field('if') === '' ? null : String(field('if')),
-      // Any non-`false` value softens the step; `${{ … }}` expressions are
-      // treated as softening (they can evaluate true).
       continueOnError: coe !== null && coe !== '' && !/^false$/i.test(coe),
     });
   }
@@ -793,9 +706,14 @@ export function parseWorkflowJobs(text) {
 export const CI_PATH_EVENT = 'pull_request';
 
 /**
- * Model the path filters guarding a claimed CI path. This is the replacement
- * for the free-text/filename-shape check: the claim is decided against the
- * PARSED trigger + the parsed job/step `if:` gates.
+ * Model the path filters on a claimed CI path, from the parsed trigger and the parsed job and step `if:` gates.
+ * A CI path is unfiltered for an event when all of these are true:
+ * - the workflow declares the event.
+ * - the event has no `paths`, `paths-ignore`, `branches` or `branches-ignore` list.
+ * - a step that matches `stepMatch` sits in a job whose `if:` and own step `if:` do not filter.
+ * One unfiltered host is enough, even when another copy of the step runs in a filtered job.
+ *
+ * The model does not follow reusable workflows or read shell exits in `run:` blocks.
  *
  * @param {string} text  workflow file contents
  * @param {{ stepMatch?: string | null, event?: string }} [options]
@@ -874,15 +792,12 @@ export function analyzeCiPathFilters(text, options = {}) {
         detail: `no step matches ${JSON.stringify(stepMatch)} — this workflow does not run it`,
       });
     } else if (!perHost.some((gates) => gates.length === 0)) {
-      // Every host is gated; report the first host's gates.
       filters.push(...perHost[0]);
     }
   }
 
   return { event, unfiltered: filters.length === 0, filters };
 }
-
-// ─── Reachability across all workflows ──────────────────────────────────────
 
 /**
  * @param {Record<string, string>} workflows  path → file text
@@ -927,8 +842,6 @@ function referencedByAnyNpmScript(primary, scripts) {
   }
   return false;
 }
-
-// ─── Audit ──────────────────────────────────────────────────────────────────
 
 /**
  * @typedef {Object} ManifestEntry
@@ -993,10 +906,6 @@ export function audit({ manifest, scripts, workflows, primaryFiles }) {
       .map(([w]) => w);
     const reachableWorkflows = [...perWf.keys()];
 
-    // ── DR-15: an "unfiltered CI path" claim is VERIFIED, not asserted. ──
-    // Previously the only thing standing behind this claim anywhere in the
-    // repo was a filename-shaped string. Now the workflow's trigger and the
-    // hosting job/step `if:` gates decide it.
     if (entry.unfilteredCiPath === true) {
       if (!entry.workflow) {
         violations.push(
@@ -1090,7 +999,6 @@ export function audit({ manifest, scripts, workflows, primaryFiles }) {
       continue;
     }
 
-    // retired
     if (!entry.rationale || !entry.rationale.trim()) {
       violations.push(`${p}  [missing-rationale]  retired entries must record why they were retired`);
     }
@@ -1102,7 +1010,6 @@ export function audit({ manifest, scripts, workflows, primaryFiles }) {
     }
   }
 
-  // Completeness: every primary on disk must be dispositioned.
   for (const p of onDisk) {
     if (!listed.has(p)) {
       violations.push(
@@ -1113,8 +1020,6 @@ export function audit({ manifest, scripts, workflows, primaryFiles }) {
 
   return { ok: violations.length === 0, violations };
 }
-
-// ─── Filesystem adapters (used only by the CLI) ─────────────────────────────
 
 /** @param {string} primaryDir @returns {string[]} repo-relative primary paths */
 export function enumeratePrimaryFiles(primaryDir) {
@@ -1152,8 +1057,6 @@ function loadWorkflows(dir) {
   return out;
 }
 
-// ─── CLI main ────────────────────────────────────────────────────────────────
-
 function parseArgs(argv) {
   let manifestPath = path.join(SCRIPT_DIR, 'enforcer-wiring-manifest.json');
   let repoRoot = REPO_ROOT;
@@ -1189,6 +1092,7 @@ function printHelp() {
   );
 }
 
+/** Runs the gate and returns the exit code. A manifest or tool failure returns 1, so a broken gate fails CI. */
 function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
@@ -1202,8 +1106,6 @@ function main() {
 
   const { manifestPath, repoRoot } = args;
 
-  // Tool/manifest-parse failure = FAIL (exit 1), so a broken gate fails CI
-  // rather than silently passing.
   let manifest;
   try {
     manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));

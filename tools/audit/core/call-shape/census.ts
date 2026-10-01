@@ -1,11 +1,14 @@
-// Turns located call sites and the recorded path judgements into the census:
-// per intent, the Exarchos calls the source prescribes up to the next authority
-// boundary, its exception paths, its discovery calls and its harness calls.
+// Turns located call sites and recorded path judgements into the call-shape census.
+// For each intent, the census counts the Exarchos calls that the source prescribes up
+// to the next authority boundary. It also records the exception paths, discovery
+// calls and harness calls of the intent.
 //
-// It refuses rather than reporting a smaller number. A judgement whose anchor no
-// longer resolves, a counted call the registry does not serve, a located call no
-// judgement accounts for, and an intent whose normal path holds no Exarchos call
-// are each an error, because each would otherwise read as a genuine count.
+// The census reports an error, not a smaller number, in each of these cases,
+// because each case can otherwise read as a true count:
+// - a judgement whose anchor does not resolve
+// - a counted call that the registry does not serve
+// - a located call that no judgement accounts for
+// - an intent whose normal path holds no Exarchos call
 
 import { createHash } from 'node:crypto';
 import {
@@ -80,7 +83,7 @@ export interface ExceptionModel {
   readonly id: string;
   readonly label: string;
   readonly trigger: Cite;
-  /** The normal path runs up to and including this call first; null runs all of it. */
+  /** The normal path runs up to and including this call first. A null value runs all of the normal path. */
   readonly through: string | null;
   readonly extra: readonly Step[];
   /** The branch re-invokes the skill, so the whole normal path runs again after `extra`. */
@@ -343,6 +346,12 @@ interface Fetch {
   readonly at: Location;
 }
 
+/**
+ * Builds the census and the list of errors that make its counts untrustworthy.
+ * A registry snapshot whose sorted roster digest differs from the contract lock is an error.
+ * Each normal path must hold a call that the extractor located, because runbook steps and prose mentions resolve without the extractor.
+ * An exception `through` call that occurs more than once on the normal path is an error, because the branch point is then not clear.
+ */
 export function buildCallShapeCensus(
   inputs: CensusInputs,
   model: CensusModel,
@@ -359,9 +368,6 @@ export function buildCallShapeCensus(
   }
   const registered = new Set(actionIds);
   const rosterDigest = sha256(actionIds.join('\n'));
-  // The contract lock digests the same flattened, sorted roster. When the two
-  // disagree the snapshot is not the contract, and validating against it would
-  // certify calls against the wrong authority.
   if (inputs.actionIdRegistryDigest !== null && inputs.actionIdRegistryDigest !== `sha256:${rosterDigest}`) {
     fail(
       `REGISTRY_DIVERGES_FROM_CONTRACT_LOCK: ${inputs.registrySource} rosters sha256:${rosterDigest} but ${inputs.contractLockSource} pins ${inputs.actionIdRegistryDigest}`,
@@ -572,9 +578,6 @@ export function buildCallShapeCensus(
         `EMPTY_NORMAL_PATH ${intent.id}: no Exarchos work call resolved on the normal path, and a census that counts nothing cannot tell zero calls from a broken extractor`,
       );
     }
-    // Runbook steps and prose mentions resolve without the extractor, so they
-    // can keep a count above zero while the extractor reads nothing in this
-    // intent's source. At least one call on the path must be one it located.
     if (!normalCalls.some((call) => call.via === 'site' || call.via.endsWith('/site'))) {
       fail(
         `NORMAL_PATH_UNLOCATED ${intent.id}: no call on the normal path was located in its source, so the count does not depend on the extractor reading it`,
@@ -600,8 +603,6 @@ export function buildCallShapeCensus(
       if (exception.through !== null) {
         const through = exception.through;
         const cut = normalCalls.findIndex((call) => call.call === through);
-        // A call named more than once on the path gives the cut no single place
-        // to land; taking the first would be a silent guess at the branch point.
         const occurrences = normalCalls.filter((call) => call.call === through).length;
         if (cut === -1) fail(`EXCEPTION_THROUGH_NOT_ON_PATH ${label}: ${through}`);
         else if (occurrences > 1) {

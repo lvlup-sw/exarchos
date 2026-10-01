@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// refgraph.mjs — inbound-reference / reachability targeting for dead-ish modules.
-// Neuro-symbolic backbone: surface deletion candidates by static evidence; a
-// subagent line-by-line comb then confirms (registry/dynamic dispatch can hide edges).
+// refgraph.mjs counts the production and test importers of each TypeScript module under a root.
+// It lists the non-entry modules that have zero or one production importer.
+// Registry or dynamic dispatch can hide an edge. Read each candidate before you delete it.
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, dirname, resolve, relative, sep } from 'node:path';
 const ROOT = process.argv[2] || '.';
@@ -10,14 +10,18 @@ const TEST = /(\.(test|spec|bench)\.[cm]?[jt]sx?$)|([\\/](__tests__|__fixtures__
 function walk(d,a){let es;try{es=readdirSync(d,{withFileTypes:true})}catch{return a}for(const e of es){const p=join(d,e.name);if(e.isDirectory()){if(!SKIP.test(p+sep))walk(p,a)}else if(/\.(ts|tsx|mts|cts)$/.test(e.name))a.push(p)}return a}
 const files = walk(ROOT, []).map(f=>resolve(f));
 const isTest = f=>TEST.test(f);
-// entry points: knip config + conventional CLI/index/build entries
+/** Entry points: `index.ts`, `*-cli.ts`, named build and install scripts, and `.d.ts` files. */
 const ENTRY = /([\\/]index\.ts$)|(-cli\.ts$)|([\\/](build-skills|install-skills|skills-guard|placeholder-lint|generate-agents|fingerprint-cli|prose-lint-cli)\.ts$)|(\.d\.ts$)/;
 const isEntry = f=>ENTRY.test(f);
 
+/**
+ * Resolves a relative import specifier to a file in the tree. Returns null for a bare specifier
+ * or for no match. A `.js` specifier also tries the extensionless path, so it finds the `.ts` source.
+ */
 function resolveSpec(fromFile, spec){
-  if(!spec.startsWith('.')) return null; // external
+  if(!spec.startsWith('.')) return null;
   const abs = resolve(dirname(fromFile), spec);
-  const stripped = abs.replace(/\.(js|mjs|cjs|jsx)$/, ''); // ESM/TS: .js specifier -> .ts source
+  const stripped = abs.replace(/\.(js|mjs|cjs|jsx)$/, '');
   const bases = stripped===abs ? [abs] : [abs, stripped];
   const exts = ['', '.ts', '.tsx', '.mts', '.cts', '.js'];
   const cand = [];
@@ -41,11 +45,11 @@ for(const f of files){
 const lines = f=>{try{const s=readFileSync(f,'utf8');return s.length?s.split(/\r?\n/).length:0}catch{return 0}};
 const rel = f=>relative(ROOT,f).split(sep).join('/');
 const prodFiles = files.filter(f=>!isTest(f));
-// A) dead in production (no prod importer, not an entry) — deletion candidates
+/** Non-entry modules with no production importer. These are deletion candidates. */
 const deadProd = prodFiles.filter(f=>!isEntry(f) && inProd.get(f)===0)
   .map(f=>({f:rel(f),lines:lines(f),prodIn:0,testIn:inTest.get(f)}))
   .sort((a,b)=>b.lines-a.lines);
-// B) single prod consumer — inline/merge candidates
+/** Non-entry modules with one production importer. These are candidates to inline or merge. */
 const singleUse = prodFiles.filter(f=>!isEntry(f) && inProd.get(f)===1)
   .map(f=>({f:rel(f),lines:lines(f)})).sort((a,b)=>b.lines-a.lines);
 const sum = a=>a.reduce((s,x)=>s+x.lines,0);

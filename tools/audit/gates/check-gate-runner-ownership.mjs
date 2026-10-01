@@ -1,19 +1,18 @@
 #!/usr/bin/env node
 /**
- * Deterministic gate-production ownership census (v2.12 / DR-5).
+ * A deterministic census of the owners of gate production in the source tree.
  *
- * This is deliberately a source census rather than an AST dependency. Exact
- * file/kind/count dispositions make additions fail closed while allowing the
- * v2.12 compatibility observations and v3.0-reserved transition guards to
- * remain visible. Exemptions are typed records, never directory allowlists.
+ * It is a source census, not an AST dependency. Exact file, kind and count
+ * dispositions make an addition fail closed. The compatibility observations and
+ * the reserved v3.0 transition guards stay visible. Each exemption is a typed
+ * record, not a directory allowlist.
  */
 import { readFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const RUNTIME_ROOT = 'src';
-// These live outside `src/` after the evals fold but still carry owned
-// taxonomy / fixture literals the census must keep counting.
+/** Files outside `src/` that hold owned taxonomy or fixture literals for the census. */
 const EXTRA_CENSUS_FILES = Object.freeze([
   'tools/evals/evals/benchmarks/seeded-defects/corpus.ts',
   'tools/evals/benchmarks/event-factories.ts',
@@ -38,15 +37,18 @@ const mergedRationale =
 
 /** @type {readonly {file:string, kind:string, count:number, owner:string, rationale:string, category:string}[]} */
 const DISPOSITIONS = Object.freeze([
-  // Canonical evidence-production seams.
+  /** Canonical evidence-production seams. */
   { file: 'src/verbs/gates/gate-runner.ts', kind: 'durable-runner', count: 3, owner: 'orchestrate/gate-runner', rationale: 'The canonical v2.12 runner owns normalized evidence execution and the awaited durable append.', category: 'canonical-runner' },
-  // The canonical runner's own `gate.executed` append literal also matches the
-  // manual-gate-event detector; it is the ONE producer that literal names.
+  /**
+   * The append literal of the canonical runner also matches the manual-gate-event
+   * detector. That literal names the one producer of `gate.executed`.
+   */
   { file: 'src/verbs/gates/gate-runner.ts', kind: 'manual-gate-event', count: 1, owner: 'orchestrate/gate-runner', rationale: 'appendGateExecutedSignal inside the canonical runner is THE single gate.executed producer; the literal is its own append, not a bypass.', category: 'canonical-runner' },
-  // The ownership census proves the seam live by invoking the real runner
-  // twice (success + fail-closed witness) against throwaway in-memory stores.
-  // Those invocations are observations of the canonical producer, not a
-  // second production seam.
+  /**
+   * The ownership census calls the real runner twice against throwaway in-memory
+   * stores, once for success and once for fail-closed. These calls observe the
+   * canonical producer. They are not a second production seam.
+   */
   { file: 'src/verbs/gates/gate-ownership-census.ts', kind: 'durable-runner', count: 2, owner: 'orchestrate/gate-ownership-census', rationale: 'Live-witness probes drive the canonical runGate against sacrificial stores to prove success-carries-evidence and fail-closed behavior; no enforceable evidence is produced outside the runner.', category: 'diagnostic-observation' },
   { file: 'src/verbs/gates/durable-gate-producer.ts', kind: 'durable-runner', count: 2, owner: 'orchestrate/durable-gate-producer', rationale: mergedRationale, category: 'merged-durable-producer' },
   ...[
@@ -63,34 +65,21 @@ const DISPOSITIONS = Object.freeze([
     rationale: mergedRationale,
     category: 'merged-durable-producer',
   })),
+  /**
+   * Each gate in this list pays its declared durable evidence through the
+   * canonical runner. A bare `gate.executed` append is not the record that
+   * dispatch reads after the handler returns.
+   */
   ...[
     ['src/verbs/gates/plan-coverage.ts', 'orchestrate/gate-runner'],
     ['src/verbs/team/prepare-synthesis.ts', 'orchestrate/gate-runner'],
     ['src/verbs/gates/provenance-chain.ts', 'orchestrate/gate-runner'],
     ['src/verbs/review/review-verdict.ts', 'orchestrate/gate-runner'],
-    // These three declared durable gate evidence and paid it with a bare
-    // `gate.executed` append, which is the postcondition dispatch observes
-    // after the handler returns — so each answered a contract violation on
-    // every call. Routing them through the canonical runner is what closed
-    // that, and it is the OWNED path: the row below records the seam they now
-    // use, next to the compatibility-observation row each already carried.
     ['src/verbs/gates/check-convergence.ts', 'orchestrate/gate-runner'],
     ['src/verbs/gates/check-invariant-conformance.ts', 'orchestrate/gate-runner'],
     ['src/verbs/gates/security-scan.ts', 'orchestrate/gate-runner'],
-    // The two plan gates in the same register: one paid its declared durable
-    // evidence with a bare `gate.executed` append, the other with no append at
-    // all. Both now route through the canonical runner, which is the OWNED
-    // path — the row records the seam they use, alongside the
-    // compatibility-observation row task-decomposition already carried.
     ['src/verbs/tasks/task-decomposition.ts', 'orchestrate/gate-runner'],
     ['src/verbs/gates/spec-coverage-check.ts', 'orchestrate/gate-runner'],
-    // The ten remaining gates in the same register. Each declared durable gate
-    // evidence and paid it with a bare `gate.executed` append or with nothing
-    // at all — a different record on a different axis from the one dispatch
-    // observes, so each answered a contract violation on every call. Routing
-    // them through the canonical runner is what closed that, and it is the
-    // OWNED path: the row records the seam they now use, alongside the
-    // compatibility-observation row several of them already carried.
     ['src/verbs/gates/check-coverage-thresholds.ts', 'orchestrate/gate-runner'],
     ['src/verbs/gates/check-exploration-depth.ts', 'orchestrate/gate-runner'],
     ['src/verbs/gates/context-economy.ts', 'orchestrate/gate-runner'],
@@ -110,13 +99,15 @@ const DISPOSITIONS = Object.freeze([
     category: 'merged-durable-producer',
   })),
 
-  // One exhaustive provider owner and the shared benchmark taxonomy it maps.
+  /** One exhaustive provider owner and the shared benchmark taxonomy it maps. */
   { file: 'src/verbs/gates/gate-provider-registry.ts', kind: 'provider-registration', count: 4, owner: 'orchestrate/gate-provider-registry', rationale: 'The exhaustive typed registry assigns exactly one action owner to every supported GateClass.', category: 'provider-registry' },
   { file: 'src/verbs/gates/gate-provider-registry.ts', kind: 'gate-class-definition', count: 3, owner: 'orchestrate/gate-provider-registry', rationale: 'Local phase classes extend the shared taxonomy only at the exhaustive provider registry. THREE definitions, not two: `MechanicalGateClass`, `PhaseGateClass`, and the union alias `SupportedGateClass = MechanicalGateClass | PhaseGateClass`. The alias is not a third AUTHORITY — it introduces no class of its own and changes meaning only when one of its two members changes — but the detector matches `type \\w*GateClass =` textually and cannot tell a union alias from a new taxonomy. Counted here rather than routed around: the alias arrived in 500cc832e (which moved the mechanical vocabulary out of the eval corpus) without this row being updated, so the census was reporting a real, unrecorded third definition. Recording it keeps the both-ways tooth intact — a genuinely new class in this file still trips the count.', category: 'provider-registry' },
   { file: 'tools/evals/evals/benchmarks/seeded-defects/corpus.ts', kind: 'gate-class-definition', count: 1, owner: 'seeded-defect-corpus', rationale: 'This closed benchmark taxonomy is the shared mechanical GateClass source consumed by the provider registry.', category: 'gate-taxonomy' },
 
-  // Existing transition-shell topology is reserved, not newly approved. v3.0
-  // retirement owns deletion; this census rejects any additional location.
+  /**
+   * Reserved transition-shell topology, not new approvals. The v3.0 retirement
+   * owns deletion, and the census rejects each new location.
+   */
   ...[
     ['src/config/define.ts', 'guard-definition', 1],
     ['src/config/validation.ts', 'guard-definition', 1],
@@ -133,23 +124,19 @@ const DISPOSITIONS = Object.freeze([
     category: 'legacy-v3-reservation',
   })),
 
-  // Typed, exact-file non-enforceable observation exemptions.
-  //
-  // The eleven fire-and-forget gates that used to call `emitGateEvent`
-  // directly (swallowing a failed append behind a success carrier) now call
-  // the shared `requireGateEvent` wrapper in gate-utils.ts instead — the
-  // withholding is no longer a bare compatibility observation, so those
-  // eleven files carry no `direct-gate-emitter` row here any more. The one
-  // literal `emitGateEvent(` call that used to live in each of them collapsed
-  // into the single call inside `requireGateEvent`, which is why
-  // gate-utils.ts's own row below counts 2, not 1: its `emitGateEvent`
-  // function definition, plus that one shared internal call site.
+  /**
+   * Typed exact-file exemptions for observations that cannot enforce. The
+   * gate-utils.ts row counts 2: the `emitGateEvent` definition and its one call
+   * inside the shared `requireGateEvent` wrapper.
+   */
   ...[
     ['src/verbs/gates/gate-utils.ts', 2, 'orchestrate/gate-utils'],
     ['src/verbs/gates/plan-coverage.ts', 1, 'orchestrate/plan-coverage'],
-    // Both gates declare `gate.executed` unconditionally and appended nothing;
-    // the row is minted from inside the provider closure, under the canonical
-    // runner, so the declared signal and the durable proof land together.
+    /**
+     * These two gates append `gate.executed` inside the provider closure, under
+     * the canonical runner. Thus the declared signal and the durable proof land
+     * together.
+     */
     ['src/verbs/gates/pre-synthesis-check.ts', 1, 'orchestrate/pre-synthesis-check'],
     ['src/verbs/team/post-delegation-check.ts', 1, 'orchestrate/post-delegation-check'],
     ['src/verbs/team/prepare-delegation.ts', 1, 'orchestrate/prepare-delegation'],
@@ -168,15 +155,6 @@ const DISPOSITIONS = Object.freeze([
   { file: 'tools/evals/benchmarks/event-factories.ts', kind: 'manual-gate-event', count: 1, owner: 'benchmarks/event-factories', rationale: 'Synthetic benchmark fixture construction cannot execute or enforce a workflow gate.', category: 'diagnostic-observation' },
   { file: 'src/verbs/review/review-verdict.ts', kind: 'manual-gate-event', count: 1, owner: 'orchestrate/review-verdict', rationale: 'Read-only query of compatibility observations; durable review evidence is produced by the merged runner seam.', category: 'diagnostic-observation' },
   { file: 'src/verbs/tasks/tools.ts', kind: 'manual-gate-event', count: 1, owner: 'tasks/tools', rationale: 'Read-only task status query; this path cannot emit or enforce gate evidence.', category: 'diagnostic-observation' },
-  // TWO ROWS REMOVED by the `gate.executed` split (#1898 item 8):
-  // `src/verbs/vcs/assess-stack.ts` ("Mirrors external CI check status for
-  // diagnostics; it does not produce admission evidence") and
-  // `src/projections/telemetry/middleware.ts` ("Fire-and-forget token-budget
-  // telemetry; append failure is explicitly non-fatal and cannot affect a
-  // transition"). This census had already classified both as observations
-  // rather than gate runs — it was carrying the disposition for a name that
-  // could not express it. Both now append their own type, so neither file
-  // mentions `gate.executed` and a row here would cover nothing.
   { file: 'src/workflow/playbooks.ts', kind: 'playbook-gate-observation', count: 4, owner: 'workflow/playbooks', rationale: 'Four compact-guidance sentences tell the model the runtime records gate.executed and never to emit it; the per-phase disclosure rows derive from the phase event contract, and the six tool rows that once said "Emit gate.executed" are gone.', category: 'diagnostic-observation' },
   { file: 'src/workflow/topology/phase-events.ts', kind: 'playbook-gate-observation', count: 3, owner: 'workflow/topology/phase-events', rationale: 'The two `runtimeEmits` disclosure rows (review, synthesize) from which every playbook autoEmittedEvents row is derived, plus the module header naming the instruction defect the contract ended; a disclosure names the runtime surface that emits and instructs nothing, and the contract refuses gate.executed on the expects side because it is auto-sourced.', category: 'diagnostic-observation' },
 ]);
@@ -229,9 +207,9 @@ function lineNumber(content, offset) {
 }
 
 /**
- * Files whose `gate.executed` mentions are model guidance, not production:
- * the playbooks tell the model the runtime records it, and the phase event
- * contract's `runtimeEmits` rows are where those disclosures are declared.
+ * Files whose `gate.executed` mentions are model guidance, not production code.
+ * The playbooks tell the model that the runtime records the event. The
+ * `runtimeEmits` rows of the phase event contract declare these disclosures.
  */
 const PLAYBOOK_OBSERVATION_FILES = new Set([
   'src/workflow/playbooks.ts',
@@ -291,6 +269,11 @@ function validateDispositions() {
   return violations;
 }
 
+/**
+ * Counts the detector matches in production source and compares them with the
+ * dispositions. A missing extra file is skipped, so the count check reports 0
+ * found for it.
+ */
 export async function censusGateRunnerOwnership(repoRoot) {
   const runtimeRoot = path.join(repoRoot, RUNTIME_ROOT);
   const runtimeStat = await stat(runtimeRoot);
@@ -311,7 +294,6 @@ export async function censusGateRunnerOwnership(repoRoot) {
         findings.push(...collectFindings(extra, await readFile(absolute, 'utf8')));
       }
     } catch {
-      // Missing extra file: the disposition expected-count check reports found 0.
     }
   }
 

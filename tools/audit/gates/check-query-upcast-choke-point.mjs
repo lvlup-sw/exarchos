@@ -1,33 +1,14 @@
 #!/usr/bin/env node
 /**
- * Read-time upcasting choke-point CI gate (#1556).
+ * CI gate for the read-time upcasting choke point.
  *
- * Walks `src/**` looking for direct backend reads
- * (`.queryEvents(` / `.queryEventsByType(`) outside the events substrate.
- * Those methods return RAW backend rows — they have NOT passed through the
- * `migrateEvents` upcasting seam. Every reader must go through
- * `EventStore.query` / `EventStore.queryByType` (which fold rows through
- * `migrateEvents`), so a raw backend read anywhere else is a bypass that would
- * silently skip read-time schema evolution.
+ * It finds direct backend reads (`.queryEvents(` and `.queryEventsByType(`) in
+ * `src/` outside `events/` and `storage/`. These calls return raw rows that skip the
+ * `migrateEvents` upcast. Readers must call `EventStore.query` or `EventStore.queryByType`.
+ * Test and bench files are excluded.
  *
- *   Exit 0 — no violations (clean).
- *   Exit 1 — one or more violations (printed to stderr as `path:line excerpt`).
- *   Exit 2 — usage / environment error.
- *
- * Allowlisted substrate (these legitimately call the backend directly):
- *   - src/events/**  (store.ts is the choke point;
- *     atomic-appender.ts reads internally for sequence allocation / dedup —
- *     write-path reads, never returned to consumers as upcast events)
- *   - src/storage/**      (the backends that DEFINE these
- *     methods)
- *
- * Excluded automatically (test/bench surface):
- *   - **\/*.test.ts, **\/*.bench.ts, **\/__tests__/**, **\/benchmarks/**
- *
- * Flags (primarily for testability):
- *   --src-root <path>  Root directory to walk. Defaults to
- *                      `src` relative to repo root.
- *   --help             Show usage.
+ * Exit 0 when clean, 1 on violations (`path:line excerpt` on stderr), and 2 on a usage
+ * or environment error. `--src-root <path>` sets the walk root.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -38,26 +19,27 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..', '..', '..');
 const DEFAULT_SRC_ROOT = path.join(REPO_ROOT, 'src');
 
-/** Forward-slash-normalize a path for display — matching/allowlisting still
- * uses the native-separator form (`path.sep`-split). */
+/** Converts a path to forward slashes for display. Matching uses the native separator. */
 function toPosix(p) {
   return p.split(path.sep).join('/');
 }
 
-// Directory prefixes whose files may read the backend directly. These ARE the
-// events substrate (the choke point + its internal write-path reads) and
-// the storage backends that define the methods.
+/**
+ * Top-level directories whose files can read the backend directly: the events
+ * substrate, with the choke point and its write-path reads, and the storage backends.
+ */
 const ALLOWLISTED_DIRS = ['events', 'storage'];
 
-// `.queryEvents(` and `.queryEventsByType(` — the `(ByType)?` alternation
-// matches both, and the trailing `\s*\(` ensures we only catch calls (not a
-// `queryEventsFoo` identifier). `s` lets `.` cross newlines inside the comment
-// blanking; `g` iterates every match offset.
+/**
+ * Matches a call to `.queryEvents(` or `.queryEventsByType(`, and not a longer name such as
+ * `queryEventsFoo`.
+ */
 const BYPASS_PATTERN = /\.queryEvents(?:ByType)?\s*\(/gs;
 
-// Strip line/block comments (replaced with same-length whitespace, newlines
-// preserved) so a prose mention of `.queryEvents(` in a docstring cannot trip
-// the gate, while match offsets still resolve to the correct source line.
+/**
+ * Replaces line and block comments with spaces and keeps the newlines. A mention of
+ * `.queryEvents(` in a comment then does not trip the gate, and offsets keep their line.
+ */
 function stripComments(content) {
   const blank = (s) => s.replace(/[^\n]/g, ' ');
   return content
@@ -125,6 +107,10 @@ function* walkTsFiles(rootDir) {
   }
 }
 
+/**
+ * Returns the bypass calls in scope. An unreadable file in scope exits 2, because a skipped
+ * file can hide a bypass.
+ */
 function findViolations(srcRoot) {
   const violations = [];
   for (const filePath of walkTsFiles(srcRoot)) {
@@ -132,8 +118,6 @@ function findViolations(srcRoot) {
     if (isExcluded(relPath)) continue;
     if (isAllowlisted(relPath)) continue;
 
-    // Fail closed on read errors: an unreadable file in scope is not a clean
-    // file. Silently skipping would let IO/permission issues hide a bypass.
     let content;
     try {
       content = readFileSync(filePath, 'utf8');

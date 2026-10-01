@@ -1,16 +1,9 @@
 /**
- * check-base-substrate.ts — preflight validation for test-suite consolidation waves.
+ * Preflight check for test-suite consolidation. It confirms that the coverage
+ * baseline and the coverage ratchet gate exist under the repo root.
  *
- * Verifies that the #1719 coverage substrate is present on the base branch before
- * dispatching consolidation tasks. Asserts both:
- *   - tools/audit/coverage-baseline.json exists
- *   - tools/audit/gates/check-coverage-ratchet.mjs exists
- *
- * Exit 0 ("substrate present") when BOTH files exist.
- * Exit 1 ("substrate missing — abort dispatch") when either is absent.
- *
- * Accepts optional `--root <dir>` argument (default: cwd) to set the repo root
- * so the check can be unit-tested against arbitrary directory trees.
+ * Exit 0 when both files exist. Exit 1 when one or both are missing.
+ * `--root <dir>` sets the repo root. The default is the current directory.
  */
 
 import { existsSync } from 'node:fs';
@@ -27,8 +20,8 @@ export interface SubstrateCheckDeps {
 }
 
 /**
- * Verify the base-substrate files are present. Accepts a repoRoot (defaults to cwd)
- * so tests can point at arbitrary trees.
+ * Returns 0 when `coverage-baseline.json` and `gates/check-coverage-ratchet.mjs`
+ * exist under `<repoRoot>/tools/audit`, and 1 when one or both are missing.
  */
 export function checkBaseSubstrate(deps: SubstrateCheckDeps, repoRoot: string): number {
   const coverageBaseline = path.join(repoRoot, 'tools', 'audit', 'coverage-baseline.json');
@@ -72,20 +65,18 @@ export function checkBaseSubstrate(deps: SubstrateCheckDeps, repoRoot: string): 
   return EXIT_OK;
 }
 
-// ─── production wiring (only runs when invoked as a CLI) ────────────────────
-
 function invokedAsCli(): boolean {
   const entry = process.argv[1];
   return entry !== undefined && path.resolve(entry) === fileURLToPath(import.meta.url);
 }
 
+/**
+ * Reads `--root <dir>`. Throws when the flag has no value, so that the error
+ * names the real mistake and not a later `path.join` failure.
+ */
 function parseArgs(): { root: string } {
   const flag = process.argv.indexOf('--root');
   if (flag === -1) return { root: process.cwd() };
-  // `--root` with no following argument previously produced `undefined`, which
-  // then reached `path.join` and failed with a message about the wrong thing.
-  // Fail on the actual mistake instead. (Surfaced by task 066, the first
-  // typecheck this tree has ever had.)
   const value = process.argv[flag + 1];
   if (value === undefined) {
     throw new Error('[check-base-substrate] `--root` requires a directory path');

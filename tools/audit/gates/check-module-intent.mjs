@@ -1,70 +1,19 @@
 #!/usr/bin/env node
 /**
- * check-module-intent — module-intent CI gate (DR-7, DR-8, DR-9).
+ * check-module-intent: the module-intent CI gate. A production module under a scanned root
+ * with zero production importers must declare its intent in one of two ways:
  *
- * A production module under a scanned source root with ZERO production importers
- * is a debloat candidate. Rather than delete blindly, DR-7 requires every such
- * dead-in-prod module to DECLARE ITS INTENT, and the declaration to be honored:
+ *   1. A `RESERVED(issue, owner, expires)` header with an `#<number>` issue, a non-empty owner,
+ *      and a clean `YYYY-MM-DD` expiry that is not in the past. An expired stub fails.
+ *   2. Membership in a class of {@link ALLOWLIST_CLASSES}.
  *
- *   1. a `RESERVED(issue, owner, expires)` header whose `expires` is a CLEAN,
- *      parseable calendar date that is NOT in the past — an expired-and-unadopted
- *      RESERVED stub FAILS (this is the DR-7 "deletion happens at expiry"
- *      enforcement point). A well-formed issue ref (`#<number>`) and a non-empty
- *      owner are also required, OR
- *   2. membership in a declared CLASS ALLOWLIST — see {@link ALLOWLIST_CLASSES}.
- *      A convention class is a predicate that generalizes; a declared class
- *      enumerates its members, and every member carries an OWNER and a
- *      RATIONALE. Members of `declared-dormant-surface` also carry an EXPIRY,
- *      which is enforced exactly like a RESERVED header's.
+ * Reachability comes from `tools/audit/refgraph.mjs`, which counts `import type` edges.
+ * Two sweeps remove a false dead verdict on a concrete edge: a cross-root importer, or an npm
+ * script that runs the module.
  *
- * Any dead-in-prod module that declares neither → FAIL (exit 1): add a RESERVED
- * header, place it in a declared class, or delete it.
- *
- * ── WHICH ROOTS ARE SCANNED ─────────────────────────────────────────────────
- * The default root is the folded first-party source tree — `src`. The two
- * former trees (`servers/exarchos-mcp/src` and repo-root `src`) were merged;
- * relocating a module out of a gate's reach is not satisfying the gate, so
- * the reach is the whole product tree.
- *
- * ── THE TWO REACHABILITY WIDENINGS, AND WHY NEITHER IS AN ALLOWLIST ─────────
- * Reachability is delegated to the vendored `tools/audit/refgraph.mjs` detector
- * (the SAME instrument the 005 disposition baseline used). refgraph is
- * deliberately type-BLIND — an `import type` edge still counts — which is the
- * correct posture: a type-only importer still justifies the module's existence.
- * It is also scoped to ONE root and walks only `.ts`-family files, and both of
- * those produce false "dead" verdicts that an allowlist entry would have to
- * absorb as a lie. So they are answered with evidence instead:
- *
- *   - CROSS-ROOT IMPORTERS ({@link collectCrossRootImporters}). A first-party
- *     file outside the scanned root (tools, a plain-JS bridge) can still
- *     statically import a `src/` module; refgraph reads neither that file
- *     (wrong extension) nor that tree (wrong root), so it reports a module
- *     the shipped binary depends on as dead.
- *   - NPM-SCRIPT ENTRYPOINTS ({@link collectScriptEntrypoints}). A module run
- *     by an npm script as `node dist/….js` is a live CI entrypoint; refgraph's
- *     entry set is a hand-written filename regex and can miss it.
- *
- * Both sweeps only ever REMOVE a module from the dead set, and only on a
- * concrete edge (a resolved import, a script that runs it).
- *
- * FAIL-CLOSED (DR-8): if the reachability scan crashes / exits non-zero, its
- * output cannot be parsed, or an in-scope module cannot be read, the gate FAILS
- * with a named cause (exit 2) rather than passing on partial evidence. A gate
- * that silently no-ops on a tooling error is a gate that isn't there.
- *
- *   Exit 0 — every dead-in-prod module declares valid intent (clean).
- *   Exit 1 — one or more dead-in-prod modules lack valid intent (undeclared, or
- *            an expired / malformed RESERVED header or class expiry).
- *   Exit 2 — fail-closed: scan crash / unparseable scan output / unreadable
- *            module / usage error.
- *
- * Flags (primarily for testability):
- *   --src-root <path>   Root dir the detector scans. REPEATABLE. Passing it at
- *                       all replaces the default root set. Default: `src`.
- *   --refgraph <path>   Reachability detector script. Default
- *                       `tools/audit/refgraph.mjs`.
- *   --now <YYYY-MM-DD>  "Today" for expiry comparison. Default: system clock.
- *   --help              Show usage.
+ * Exit 0: clean. Exit 1: a module lacks valid intent. Exit 2: fail closed on a scan crash,
+ * unparseable scan output, an unreadable module, or a usage error.
+ * Flags: `--src-root <path>` (repeatable, default `src`), `--refgraph <path>`, `--now <YYYY-MM-DD>`.
  */
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -74,7 +23,7 @@ import process from 'node:process';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..', '..', '..');
-/** Folded first-party source tree. Repo-relative; resolved against REPO_ROOT. */
+/** The default scanned roots, relative to `REPO_ROOT`. */
 const DEFAULT_SRC_ROOTS = ['src'];
 const DEFAULT_REFGRAPH = path.join(REPO_ROOT, 'tools', 'audit', 'refgraph.mjs');
 
@@ -89,52 +38,28 @@ const EXIT_CLEAN = 0;
 const EXIT_VIOLATION = 1;
 const EXIT_FAILCLOSED = 2;
 
-// ── path helpers (refgraph emits forward-slashed, repo-relative paths) ────────
+/** Splits a forward-slashed path, the form that refgraph prints. */
 const segments = (rel) => rel.split('/');
 const basename = (rel) => segments(rel).pop() ?? rel;
 const toPosix = (p) => p.split(path.sep).join('/');
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CLASS ALLOWLIST
-//
-// A dead-in-prod module is exempt from the RESERVED-header requirement iff it
-// belongs to one of these declared classes. Each class is a MEMBERSHIP RULE
-// (a predicate over the module's root-relative path) plus a rationale — NOT a
-// bare path whitelist. The convention-based classes generalize: any future
-// module matching the convention is covered.
-//
-// Two classes ENUMERATE instead, and every member of both carries an `owner` and
-// a `rationale`:
-//
-//   `declared-gate-machinery`  — test-invoked analysis/census/lint modules that
-//        are unambiguous gate infrastructure. Permanent by nature, so no expiry:
-//        RESERVED means "dead stub, delete at expiry if unadopted", and a live
-//        governance gate is neither. An expiry here would either fire spuriously
-//        against correct infrastructure or need renewing forever — the rubber
-//        stamp DR-7 exists to prevent.
-//   `declared-dormant-surface` — product code with no live consumer. Every member
-//        additionally carries an `issue` and an `expires`, enforced by the SAME
-//        {@link validateReserved} rules as an in-file RESERVED header. This is a
-//        RESERVED marker kept in the register rather than in the file; it is a
-//        scheduled deletion, not a permanent class.
-//
-// ── WHY THE `/-seam\.ts$/` FILENAME RULE IS GONE ────────────────────────────
-// A `source-lint-seam` class matched any basename ending `-seam.ts` and granted
-// it a permanent, unowned exemption. That is the shape this program keeps
-// finding and repairing everywhere else: a NAME standing in for a property.
-// Nothing stops a `-seam.ts` that is dead product code, and nothing recorded who
-// owned any of the five real members. They are enumerated below instead, each
-// with an owner and its own reason. A NEW `-seam.ts` that goes dead now fails
-// this gate and has to be declared — which is the point.
-// ─────────────────────────────────────────────────────────────────────────────
 /**
- * Subtrees of the scan root that this census has no jurisdiction over, because
- * they are not entered through the engine's import graph. See the note at the
- * classification loop; membership is asserted non-vacuous by
- * `ModuleIntent_OutOfSubjectPrefixes_AllExist`.
+ * Subtrees outside the engine's import graph. The census reads "no production importer" as
+ * dead, which is sound only for code that the engine calls. `install` installs and packages
+ * the engine. The self-test `ModuleIntent_OutOfSubjectPrefixes_AllExist` checks each prefix.
  */
 const OUT_OF_SUBJECT = ['install'];
 
+/**
+ * Classes that exempt a dead module from the RESERVED header. A convention class is a predicate
+ * over the root-relative path, so a new module that matches is covered. A declared class
+ * enumerates its members, and each member has an `owner` and a `rationale`.
+ *
+ * `declared-gate-machinery` holds permanent gate infrastructure, so it has no expiry.
+ * `declared-dormant-surface` holds product code with no live consumer. Each of its members
+ * also has an `issue` and an `expires`, which {@link validateReserved} checks.
+ * No filename rule grants an exemption, so each `-seam.ts` module is a named member.
+ */
 const ALLOWLIST_CLASSES = [
   {
     name: 'test-helper',
@@ -171,9 +96,7 @@ const ALLOWLIST_CLASSES = [
     name: 'declared-gate-machinery',
     rationale:
       'Test-invoked analysis / census / source-lint modules that are unambiguous gate infrastructure. Enumerated — each member carries an owner and its own rationale.',
-    // Keys are ROOT-RELATIVE, in one namespace shared by every scanned root, so
-    // they must stay unambiguous across them. They are today: no path below is
-    // spelled the same way under both `servers/exarchos-mcp/src` and `src`.
+    /** Keys are root-relative in one namespace for every scanned root, so they must stay unambiguous. */
     members: {
       'architecture/import-cycles.ts': {
         owner: 'exarchos',
@@ -257,7 +180,6 @@ const ALLOWLIST_CLASSES = [
           'Consumer-closure audit: reconciles every capability/harness `consumedBy` against an injected live consumer population (reducer ids + view names), closing the open `ConsumerId` reference that lets a registration outlive its deleted consumer. The population is injected because enumerating it from the events layer is the layering inversion event-registration.ts refuses; the co-located test assembles it from the projections, where those imports are legal. Test-invoked structural gate, same class as emitter-closure-audit \u2014 deliberately not a production import target so the shipped server never depends on the audit.',
       },
 
-      // ── the five former `/-seam\.ts$/` members, now named ─────────────────
       'architecture/contract-seam.ts': {
         owner: 'exarchos',
         rationale:
@@ -293,12 +215,11 @@ const ALLOWLIST_CLASSES = [
     rationale:
       'Product code with no live consumer, held to a DEADLINE. Each member carries an owner, an issue and an `expires` enforced by the same rules as an in-file RESERVED header — a RESERVED marker recorded in the register instead of the file.',
     members: {
-      // The pre-binary interactive installer. `install/wizard/wizard.ts` is the
-      // root of the subtree; `install/operations/*` are alive ONLY because it
-      // imports them, so its disposition decides theirs. The shipped install
-      // path is the single-file binary + `install-skills.ts`; nothing reaches
-      // this flow. Also skipped by OUT_OF_SUBJECT (`install/`) — the register
-      // still names them so an expiry exists if that skip is lifted.
+      /**
+       * Root of the interactive installer subtree. The `install/operations` members live only
+       * because it imports them. The shipped install path is the single-file binary and
+       * `install-skills.ts`. `OUT_OF_SUBJECT` skips `install/`, but each entry keeps an expiry.
+       */
       'install/wizard/wizard.ts': {
         owner: 'exarchos',
         issue: '#1764',
@@ -349,10 +270,10 @@ const ALLOWLIST_CLASSES = [
           'Wizard-era bundle-path resolution (50 lines). Delete with the wizard subtree at expiry.',
       },
 
-      // Install-tree ratchets. Held to an expiry rather than placed in
-      // `declared-gate-machinery` because each is a RATCHET whose subject is a
-      // shipped projection: if the projection goes away the ratchet should go
-      // with it, and only a deadline forces that question to be asked.
+      /**
+       * An install-tree ratchet. Its subject is a shipped projection, so it has an expiry and is
+       * not in `declared-gate-machinery`. The deadline forces a check that the subject still exists.
+       */
       'install/shim-registry.ts': {
         owner: 'exarchos',
         issue: '#1764',
@@ -397,13 +318,10 @@ function classifyAllowed(rel) {
 }
 
 /**
- * Problems with an enumerated class member. Empty ⇒ valid.
- *
- * Every member owes an owner and a rationale; a `declared-dormant-surface`
- * member additionally owes the same `issue` + `expires` a RESERVED header owes,
- * validated by the same function — an expiry recorded in the register must not
- * be weaker than one recorded in the file, or the register becomes the softer
- * place to put a debt.
+ * Returns the problems of an enumerated class member. An empty list means valid. Each member
+ * needs an owner and a rationale. A `declared-dormant-surface` member also needs the `issue` and
+ * `expires` of a RESERVED header, and the same function checks them. An expiry in the register
+ * must not be weaker than one in the file.
  */
 function validateClassMember(className, member, now) {
   const problems = [];
@@ -418,25 +336,15 @@ function validateClassMember(className, member, now) {
   return problems;
 }
 
-// ── RESERVED header parsing / validation ─────────────────────────────────────
-
-/**
- * Extract the first `RESERVED(...)` field block from a module's source. Fields
- * are `key: value` pairs separated by commas; the trailing ` — reason` (after
- * the close paren) is not consumed. Returns `{ present: false }` when no marker
- * exists.
- */
+/** The fields of a RESERVED marker. A match that holds none of them is prose, not a marker. */
 const RESERVED_FIELD_NAMES = ['issue', 'owner', 'expires'];
 
+/**
+ * Returns the fields of the first RESERVED occurrence that holds a declared field, or
+ * `{ present: false }`. Fields are comma-separated `key: value` pairs. The text after the
+ * close paren is not read. A mention in prose holds no field, so it is not a header.
+ */
 function parseReserved(source) {
-  // Every `RESERVED(…)` occurrence is considered, and the first one carrying at
-  // least one declared FIELD is the marker. Matching the first occurrence
-  // outright made the parser answer a question about prose: `shim-registry.ts`
-  // and `advisory-registry.ts` both DISCUSS the mechanism ("the same enforcement
-  // philosophy as the `RESERVED(...)` module-intent gate"), and that sentence
-  // read as a header with three missing fields — three violations reported
-  // against two modules that never claimed to be reserved. A mention is not a
-  // declaration; requiring a field is what tells them apart.
   for (const m of source.matchAll(/RESERVED\(([^)]*)\)/g)) {
     const fields = {};
     for (const part of m[1].split(',')) {
@@ -454,9 +362,9 @@ function startOfUtcDay(date) {
 }
 
 /**
- * Validate a parsed RESERVED field block. Returns a list of problem strings
- * (empty ⇒ valid). Requires a well-formed issue ref, a non-empty owner, and a
- * CLEAN `YYYY-MM-DD` expiry that is a real calendar date and not in the past.
+ * Returns the problems of a parsed RESERVED field block. An empty list means valid. It needs an
+ * `#<number>` issue and a non-empty owner. The expiry must be exactly a real `YYYY-MM-DD` date,
+ * with nothing after it, and not in the past.
  */
 function validateReserved(fields, now) {
   const problems = [];
@@ -473,8 +381,6 @@ function validateReserved(fields, now) {
 
   const expires = fields.expires;
   if (!expires || !/^\d{4}-\d{2}-\d{2}$/.test(expires)) {
-    // A polluted expires (e.g. "2027-01-31; see also #1609") lands here: the
-    // field must be EXACTLY a date, nothing trailing.
     problems.push(`expires must be a clean YYYY-MM-DD date (got ${JSON.stringify(expires ?? null)})`);
   } else {
     const parsed = new Date(`${expires}T00:00:00Z`);
@@ -488,21 +394,19 @@ function validateReserved(fields, now) {
   return problems;
 }
 
-// ── reachability (delegated to the vendored refgraph detector) ───────────────
-
 /** Strip ANSI color codes so parsing is TTY-independent. */
 function stripAnsi(s) {
   // eslint-disable-next-line no-control-regex
   return s.replace(/\x1b\[[0-9;]*m/g, '');
 }
 
-/**
- * Run the reachability detector and return the list of repo-relative,
- * forward-slashed dead-in-prod module paths. Throws a `ScanError` on any
- * fail-closed condition (spawn failure, non-zero exit, unparseable output).
- */
+/** A fail-closed scan condition: a spawn failure, a non-zero exit, or unparseable output. */
 class ScanError extends Error {}
 
+/**
+ * Runs the reachability detector and returns the dead-in-prod paths, forward-slashed and
+ * relative to `srcRoot`. The list ends at a blank line or at the next section. Throws `ScanError`.
+ */
 function detectDeadInProd(refgraphPath, srcRoot) {
   let result;
   try {
@@ -533,14 +437,12 @@ function detectDeadInProd(refgraphPath, srcRoot) {
   const dead = [];
   for (let i = markerIdx + 1; i < lines.length; i++) {
     const line = lines[i].trim();
-    if (line === '') break; // section is terminated by a blank line
+    if (line === '') break;
     if (line.startsWith('--') || line.startsWith('====')) break;
     dead.push(line);
   }
   return dead;
 }
-
-// ── reachability widenings (edges refgraph's per-root `.ts` walk cannot see) ──
 
 /** Source extensions swept for import edges — `.js` included, unlike refgraph's walk. */
 const IMPORTER_EXTENSIONS = /\.(ts|tsx|mts|cts|js|mjs|cjs)$/;
@@ -570,7 +472,7 @@ function walkFiles(dir, out) {
   return out;
 }
 
-/** Resolve a relative specifier to an existing file, mirroring refgraph's candidate order. */
+/** Resolves a relative specifier to an existing file in the refgraph candidate order. It skips an unreadable candidate. */
 function resolveRelativeImport(fromFile, spec) {
   if (!spec.startsWith('.')) return null;
   const abs = path.resolve(path.dirname(fromFile), spec);
@@ -582,14 +484,12 @@ function resolveRelativeImport(fromFile, spec) {
       try {
         if (existsSync(candidate) && statSync(candidate).isFile()) return path.resolve(candidate);
       } catch {
-        /* unreadable candidate is simply not a resolution */
       }
     }
     const indexed = path.join(base, 'index.ts');
     try {
       if (existsSync(indexed) && statSync(indexed).isFile()) return path.resolve(indexed);
     } catch {
-      /* same */
     }
   }
   return null;
@@ -628,13 +528,10 @@ function collectCrossRootImporters(repoRoot) {
 }
 
 /**
- * Absolute paths of source modules an npm script RUNS, directly or through the
- * package's own build output.
- *
- * refgraph's entry set is a hand-written filename regex; it lists `skills-guard`
- * and `build-skills` and not `hooks-guard`, so `npm run hooks:guard`'s subject
- * read as dead code. Derived here from the script tables plus each package's own
- * `outDir`/`rootDir`, so the next `node dist/<x>.js` script needs no edit.
+ * Absolute paths of the source modules that an npm script runs, directly or through the build
+ * output. refgraph finds entry points with a filename regex, which can miss a script subject.
+ * This sweep reads the script tables and maps a path under `outDir` to its source under `rootDir`.
+ * A new `node dist/<x>.js` script needs no edit.
  */
 function collectScriptEntrypoints(repoRoot) {
   const entrypoints = new Set();
@@ -657,7 +554,6 @@ function collectScriptEntrypoints(repoRoot) {
       if (typeof body !== 'string') continue;
       for (const token of body.match(/[\w./@-]+\.(?:js|mjs|cjs|ts|mts|cts)\b/g) ?? []) {
         const rel = toPosix(token).replace(/^\.\//, '');
-        // A build-output path maps back to the source it was compiled from.
         const sourceRel = rel.startsWith(`${outDir}/`)
           ? `${rootDir}/${rel.slice(outDir.length + 1).replace(/\.js$/, '.ts')}`
           : rel;
@@ -665,7 +561,6 @@ function collectScriptEntrypoints(repoRoot) {
           try {
             if (existsSync(candidate) && statSync(candidate).isFile()) entrypoints.add(path.resolve(candidate));
           } catch {
-            /* not a resolution */
           }
         }
       }
@@ -673,8 +568,6 @@ function collectScriptEntrypoints(repoRoot) {
   }
   return entrypoints;
 }
-
-// ── CLI ──────────────────────────────────────────────────────────────────────
 
 function printUsage() {
   process.stderr.write(
@@ -717,6 +610,12 @@ function fail(msg) {
   process.exit(EXIT_FAILCLOSED);
 }
 
+/**
+ * Computes the two sweeps once for the repo, because they exist to see edges across roots.
+ * A scan error or an unreadable dead module fails closed. A present RESERVED header must be
+ * valid, and an invalid one does not fall through to the class allowlist. An enumerated member
+ * must pass {@link validateClassMember}. A convention-class match is enough.
+ */
 function main() {
   const args = parseArgs(process.argv);
 
@@ -737,14 +636,11 @@ function main() {
     }
   }
 
-  // The two widenings are computed ONCE against the repo, not per root — they
-  // exist precisely to see edges that cross a root boundary.
   const crossRootImporters = collectCrossRootImporters(REPO_ROOT);
   const scriptEntrypoints = collectScriptEntrypoints(REPO_ROOT);
 
   const violations = [];
   for (const srcRoot of args.srcRoots) {
-    // 1. Reachability — fail closed on any scan error (DR-8).
     let dead;
     try {
       dead = detectDeadInProd(args.refgraph, srcRoot);
@@ -756,45 +652,32 @@ function main() {
       throw err;
     }
 
-    // 2. Classify each dead-in-prod module.
     for (const rel of dead) {
       const full = path.join(srcRoot, ...rel.split('/'));
       const resolved = path.resolve(full);
 
-      // Not dead after all: something outside refgraph's per-root `.ts` walk
-      // imports it, or an npm script runs it. Both are concrete edges.
       if (crossRootImporters.has(resolved) || scriptEntrypoints.has(resolved)) continue;
 
-      // Subtrees entered from OUTSIDE the engine's import graph. The census
-      // reads "no production importer" as "dead", which is only sound for code
-      // the engine actually calls. `install` is a non-layer peer that installs
-      // and packages the engine rather than sitting in its call graph.
       if (OUT_OF_SUBJECT.some((prefix) => rel === prefix || rel.startsWith(`${prefix}/`))) continue;
 
       let source;
       try {
         source = readFileSync(full, 'utf8');
       } catch (err) {
-        // A dead module we cannot read is not a clean module — fail closed.
         process.stderr.write(
           `check-module-intent: failed to read dead-in-prod module ${rel} (fail-closed): ${err.message}\n`,
         );
         process.exit(EXIT_FAILCLOSED);
       }
 
-      // Reported repo-relative when the root is inside the repo, so a message
-      // is unambiguous now that two roots are scanned.
       const label = resolved.startsWith(`${REPO_ROOT}${path.sep}`)
         ? toPosix(path.relative(REPO_ROOT, resolved))
         : `${toPosix(srcRoot)}/${rel}`;
 
       const reserved = parseReserved(source);
       if (reserved.present) {
-        // An intent declaration exists: it MUST be valid. A malformed / expired
-        // RESERVED header is a violation (the DR-7 enforcement point) — it does
-        // NOT fall through to the class allowlist.
         const problems = validateReserved(reserved.fields, args.now);
-        if (problems.length === 0) continue; // valid RESERVED → OK
+        if (problems.length === 0) continue;
         violations.push({ rel: label, reason: `RESERVED header is invalid — ${problems.join('; ')}` });
         continue;
       }
@@ -808,11 +691,8 @@ function main() {
         });
         continue;
       }
-      if (classified.member === undefined) continue; // convention class → OK
+      if (classified.member === undefined) continue;
 
-      // An ENUMERATED member owes an owner and a rationale, and a dormant-surface
-      // member owes a live expiry. A declared class that skips those checks is
-      // just an unowned whitelist wearing a longer name.
       const problems = validateClassMember(classified.cls.name, classified.member, args.now);
       if (problems.length === 0) continue;
       violations.push({

@@ -1,11 +1,8 @@
-// Fixture: registered handlers COMPLIANT with no-handler-throw (#1706 DR-1),
-// plus every DR-3 exemption class — none of which the rule should flag:
-//   1. a deep, non-registered helper that throws freely (out of scope — only
-//      the registration set is walked);
-//   2. a fail-loud precondition guard (a programmer-error assertion about the
-//      handler's own wiring, not domain-input validation);
-//   3. an AbortError/cancellation re-throw from inside an otherwise-
-//      converting catch.
+// Fixture: registered handlers that comply with no-handler-throw. The rule must
+// flag none of them. The fixture also holds each exemption class:
+//   1. A deep helper outside the registration set, which throws freely.
+//   2. A fail-loud precondition guard on the wiring of the handler, not on domain input.
+//   3. An AbortError re-throw from a catch that converts each other failure.
 
 type ToolResult =
   | { success: true; data?: unknown }
@@ -33,18 +30,14 @@ function envelopeWrap(result: ToolResult, _startedAt: number): ToolResult {
 
 class AbortError extends Error {}
 
-// Exemption 1 (DR-1/DR-3): a deep, non-registered helper. Throws freely —
-// never referenced by ACTION_HANDLERS or a special branch, so it is out of
-// the rule's registration-set scope entirely (deep helpers are expected to
-// be caught and converted by the handler that calls them).
+/** Exemption 1: a deep helper that throws freely. No registration references it, so the rule does not scan it. */
 function assertValidId(id: string | undefined): asserts id is string {
   if (!id) {
-    throw new Error('id must be defined'); // exempt: not in the registration set
+    throw new Error('id must be defined');
   }
 }
 
-// Compliant handler: converts a domain failure to ToolResult.error directly,
-// no throw at all.
+/** Returns a domain failure as `ToolResult.error`, with no throw. */
 async function handleDirectReturn(args: { id?: string }): Promise<ToolResult> {
   if (!args.id) {
     return { success: false, error: { code: 'INVALID_INPUT', message: 'id is required' } };
@@ -52,9 +45,7 @@ async function handleDirectReturn(args: { id?: string }): Promise<ToolResult> {
   return { success: true };
 }
 
-// Compliant handler: a try whose catch returns a ToolResult — the deep
-// helper's throw is guarded because the catch converts it, so it can never
-// abnormally complete the handler.
+/** Its catch returns a `ToolResult`, so the throw of the deep helper cannot complete the handler abnormally. */
 async function handleTryCatchReturns(args: { id?: string }): Promise<ToolResult> {
   try {
     assertValidId(args.id);
@@ -67,33 +58,30 @@ async function handleTryCatchReturns(args: { id?: string }): Promise<ToolResult>
   }
 }
 
-// Exemption 2 (DR-1/DR-3): a fail-loud precondition guard — a programmer-
-// error assertion about the handler's OWN wiring (missing DispatchContext),
-// not a domain-input validation failure. The condition never references
-// `args`, distinguishing it from a validation throw that must become
-// ToolResult.error (see the violating fixture's `inline_arrow_throw`, which
-// carries the SAME guard alongside a real args-derived violation).
+/**
+ * Exemption 2: a fail-loud precondition guard on a missing `DispatchContext`.
+ * The condition does not reference `args`, so it is not domain-input validation.
+ * `inline_arrow_throw` in the violating fixture holds the same guard.
+ */
 async function handleWithGuard(
   args: { id?: string },
   _stateDir: string,
   ctx?: DispatchContext,
 ): Promise<ToolResult> {
   if (!ctx) {
-    throw new Error('DispatchContext required for this handler'); // exempt: precondition guard
+    throw new Error('DispatchContext required for this handler');
   }
   return { success: true, data: { id: args.id } };
 }
 
-// Exemption 3 (DR-1/DR-3): AbortError / cancellation. The catch converts
-// every OTHER failure to ToolResult.error but re-throws a cancellation so the
-// caller's own abort handling still observes it — this re-throw is exempt.
+/** Exemption 3: the catch converts each other failure, but re-throws an `AbortError` for the abort handling of the caller. */
 async function handleWithAbortSupport(args: { id?: string }): Promise<ToolResult> {
   try {
     assertValidId(args.id);
     return { success: true };
   } catch (err) {
     if (err instanceof AbortError) {
-      throw err; // exempt: cancellation, not a converted domain failure
+      throw err;
     }
     return {
       success: false,
@@ -102,8 +90,7 @@ async function handleWithAbortSupport(args: { id?: string }): Promise<ToolResult
   }
 }
 
-// A compliant special-cased branch handler, dispatched from its own
-// `if (action === 'onboard')` branch. No throw at all.
+/** A compliant special-branch handler, dispatched from an `if (action === 'onboard')` branch. */
 async function handleOnboard(args: { report?: string }): Promise<ToolResult> {
   if (!args.report) {
     return { success: false, error: { code: 'INVALID_INPUT', message: 'report is required' } };
@@ -112,12 +99,11 @@ async function handleOnboard(args: { report?: string }): Promise<ToolResult> {
 }
 
 /**
- * Mirrors composite.ts's `handleOrchestrate` tail: special branches first,
- * then the ACTION_HANDLERS table dispatch through a function-local `handler`
- * const. That last `envelopeWrap` is an INDIRECTION, not a named handler — its
- * census is the map walk — so the derived special-branch census must leave it
- * alone rather than report it as an unattributed dispatch. This is the shape
- * that keeps the derivation from over-selecting.
+ * Copies the tail of `handleOrchestrate` in composite.ts: special branches, then the
+ * `ACTION_HANDLERS` table dispatch through a local `handler` const. The map walk
+ * covers that indirection, so the derived census must not report it.
+ * The guarded table read matches the real tail, so the exemption works for the
+ * wrapper that production uses.
  */
 async function dispatchSpecialBranch(
   action: string,
@@ -128,10 +114,6 @@ async function dispatchSpecialBranch(
   if (action === 'onboard') {
     return envelopeWrap(await handleOnboard(rest as { report?: string }), startedAt);
   }
-  // The GUARDED table read, matching composite.ts's real tail. Written as the
-  // conditional rather than a bare lookup so the exemption is exercised through
-  // the wrapper production actually uses — a predicate that only accepted the
-  // bare form would reject the one dispatcher it exists for.
   const handler: ActionHandler | undefined =
     typeof action === 'string' ? ACTION_HANDLERS[action] : undefined;
   if (!handler) {
@@ -140,10 +122,7 @@ async function dispatchSpecialBranch(
   return envelopeWrap(await handler(rest, stateDir), startedAt);
 }
 
-// Compliant zero-arg factory shape (composite.ts's real `setup_worktree:
-// adaptSetupWorktree()` shape) — the factory's returned closure converts
-// its domain failure to ToolResult.error directly; no throw for the rule to
-// find once it unwraps the factory's `return` statement.
+/** The zero-arg factory shape of `setup_worktree: adaptSetupWorktree()` in composite.ts. Its closure returns the failure with no throw. */
 function adaptZeroArgFactoryClean(): ActionHandler {
   return async (args, _stateDir, _ctx) => {
     if (!args.id) {
@@ -153,8 +132,7 @@ function adaptZeroArgFactoryClean(): ActionHandler {
   };
 }
 
-// Compliant `as ActionHandler` cast shape (composite.ts's real
-// `prune_stale_workflows: handlePruneStaleWorkflows as ActionHandler`).
+/** The cast shape of `prune_stale_workflows: handlePruneStaleWorkflows as ActionHandler` in composite.ts. */
 async function handleAsCastClean(args: { id?: string }): Promise<ToolResult> {
   if (!args.id) {
     return { success: false, error: { code: 'INVALID_INPUT', message: 'id is required' } };
@@ -162,9 +140,7 @@ async function handleAsCastClean(args: { id?: string }): Promise<ToolResult> {
   return { success: true };
 }
 
-// Compliant destructured-first-param handler — proves the fail-loud-guard
-// fix's NON-exempt default for unrecognized first-param shapes doesn't
-// produce a false positive when the handler genuinely has no throw.
+/** A destructured first parameter is not exempt by default. This handler has no throw, so the rule must not report it. */
 async function handleDestructuredParamClean({ id }: { id?: string }): Promise<ToolResult> {
   if (!id) {
     return { success: false, error: { code: 'INVALID_INPUT', message: 'id is required' } };

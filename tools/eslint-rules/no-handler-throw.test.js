@@ -1,18 +1,11 @@
-// Unit tests for tools/eslint-rules/no-handler-throw.js (#1706 DR-1/DR-2).
+// Unit tests for tools/eslint-rules/no-handler-throw.js.
 //
-// Uses ESLint's own `Linter` (the same engine `RuleTester` wraps) rather than
-// `RuleTester` itself: `RuleTester`'s `errors` assertion requires an exact,
-// order-sensitive match of EVERY diagnostic produced from one `code` string,
-// which does not compose well with MSO-style per-scenario test names against
-// the two shared fixture files (each fixture packs multiple scenarios, per
-// the task's file list). Linting each fixture ONCE and asserting a focused
-// slice per test gives named, independent failures while still exercising
-// the exact same type-aware rule/parser/config path `RuleTester` would.
+// The suite uses the ESLint `Linter`, not `RuleTester`. `RuleTester` needs an exact,
+// ordered match of each diagnostic from one code string, and each fixture holds many
+// scenarios. The suite lints each fixture one time and asserts a focused slice per
+// test, through the same type-aware rule, parser and config.
 //
-// Run directly: `node tools/eslint-rules/no-handler-throw.test.js` (Node's
-// built-in test runner needs no extra dependency, no `--test` flag required).
-//
-// MSO-style test names (Method_Scenario_Outcome) per the task spec.
+// Run: `node tools/eslint-rules/no-handler-throw.test.js`. The Node test runner needs no flag.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -29,7 +22,10 @@ const FIXTURES_PROJECT = path.join(HERE, 'tsconfig.json');
 
 const RULE_ID = 'envelopes/no-handler-throw';
 
-/** Lints a fixture file (by name, under __fixtures__/) and returns messages. */
+/**
+ * Lints a fixture under `__fixtures__/` and returns the messages of the rule.
+ * A parser or config failure gives a message with no `ruleId`, and the function fails on it.
+ */
 function lintFixture(name) {
   const filename = path.join(FIXTURES_DIR, name);
   const code = readFileSync(filename, 'utf8');
@@ -50,9 +46,6 @@ function lintFixture(name) {
     },
     { filename },
   );
-  // A parser/config-level failure (e.g. a syntax error, or the file falling
-  // outside the tsconfig's `include`) surfaces as a message with no `ruleId`
-  // — fail loudly instead of silently treating it as "no violations".
   const configErrors = messages.filter(m => m.ruleId === null);
   assert.deepEqual(
     configErrors,
@@ -62,8 +55,7 @@ function lintFixture(name) {
   return messages.filter(m => m.ruleId === RULE_ID);
 }
 
-// Type-aware linting is not cheap — lint each fixture exactly once, reuse the
-// result across every focused assertion below.
+/** Type-aware linting is slow, so each fixture gets one lint, which the tests share. */
 const violating = lintFixture('handler-throw.violating.ts');
 const compliant = lintFixture('handler-throw.compliant.ts');
 const unresolved = lintFixture('handler-throw.unresolved.ts');
@@ -72,8 +64,6 @@ const unattributed = lintFixture('handler-throw.unattributed.ts');
 function findByName(messages, name) {
   return messages.find(m => m.message.includes(`'${name}'`));
 }
-
-// ─── Violating fixture: every abnormal-completion shape is reported ────────
 
 test('noHandlerThrow_TopLevelThrowInRegisteredHandler_IsReported', () => {
   const hit = findByName(violating, 'top_level_throw');
@@ -99,50 +89,36 @@ test('noHandlerThrow_InlineArrowHandlerThrow_IsReported', () => {
   );
 });
 
-// ─── Review fix M1: zero-arg-factory + `as ActionHandler` cast resolution ──
-
+/**
+ * The zero-arg factory shape of `setup_worktree: adaptSetupWorktree()`, a call with no
+ * arguments. The rule resolves the callee and unwraps the closure that its body returns.
+ */
 test('noHandlerThrow_ZeroArgFactoryHandlerThrow_IsReported', () => {
-  // composite.ts's real `setup_worktree: adaptSetupWorktree()` shape — a
-  // CallExpression with NO arguments. Before the fix, `resolveHandlerFnNode`
-  // took `arguments[last]` (undefined for a 0-arg call) and this entry was
-  // silently dropped from the census (never scanned). The fix resolves the
-  // callee to its declaration and unwraps the closure ITS body returns.
   const hit = findByName(violating, 'zero_arg_factory_throw');
   assert.ok(hit, 'expected a violation found via zero-arg-factory-return unwrap');
   assert.equal(hit.messageId, 'abnormalThrow');
 });
 
+/** The `prune_stale_workflows: handlePruneStaleWorkflows as ActionHandler` shape, pinned as a regression guard. */
 test('noHandlerThrow_AsCastHandlerThrow_IsReported', () => {
-  // composite.ts's real `prune_stale_workflows: handlePruneStaleWorkflows as
-  // ActionHandler` shape — already resolved correctly pre-fix (TSAsExpression
-  // → Identifier), but pinned here as a regression guard for M1.
   const hit = findByName(violating, 'as_cast_throw');
   assert.ok(hit, 'expected a violation for the `as ActionHandler` identifier-cast shape');
 });
 
-// ─── Review fix M2: destructured-first-param guard exemption ───────────────
-
+/**
+ * A destructured first parameter gives no `argsParamName`, so the guard exemption must
+ * not apply. Domain-input validation in such a handler stays a violation.
+ */
 test('noHandlerThrow_DestructuredParamValidationThrow_IsReported', () => {
-  // Before the fix, `isFailLoudPreconditionGuard` returned `true` (EXEMPT)
-  // whenever `argsParamName` was undefined — which a destructured first
-  // param (`{ id }: { id?: string }`) always produces, since
-  // `firstParamName` only names a plain Identifier param. That fail-opened
-  // EVERY sole-`if` throw in such a handler, including genuine domain-input
-  // validation. The fix defaults to NON-exempt for this shape.
   const hit = findByName(violating, 'destructured_param_throw');
   assert.ok(hit, 'expected a destructured-param validation throw to be reported, not exempted');
 });
 
-// ─── Derived special-branch census (task 082 / DR-9) ──────────────────────
-
+/**
+ * Kill probe for the derived census. `handleAmend` is in no hand-written roster.
+ * Only the `if (action === 'invariants_amend')` dispatch branch names it.
+ */
 test('noHandlerThrow_SpecialBranchHandlerAbsentFromAnyRoster_IsReported', () => {
-  // KILL PROBE for the derivation. `handleAmend` is dispatched from an
-  // `if (action === 'invariants_amend')` branch and appears in no
-  // hand-written handler roster — exactly the state the real
-  // `invariants_amend` verb shipped in. With the census derived from the
-  // dispatch branches it is scanned like any other special branch; with the
-  // old `SPECIAL_BRANCH_ACTIONS` map this handler was invisible and its
-  // throw went unreported.
   const hit = findByName(violating, 'invariants_amend');
   assert.ok(
     hit,
@@ -151,21 +127,19 @@ test('noHandlerThrow_SpecialBranchHandlerAbsentFromAnyRoster_IsReported', () => 
   assert.equal(hit.messageId, 'abnormalThrow');
 });
 
+/**
+ * Guards against under- and over-reporting. The nine are `handleTopLevelThrow` (1),
+ * `handleCatchRethrow` (2), `handleDoctor` (1) and the `args` throw of `inline_arrow_throw` (1).
+ * `zero_arg_factory_throw`, `as_cast_throw`, `destructured_param_throw` and
+ * `invariants_amend` give one each. The `ctx` guard of `inline_arrow_throw` stays exempt.
+ */
 test('noHandlerThrow_ViolatingFixture_ReportsExactlyNineAbnormalThrows', () => {
-  // Guards against both under- and over-reporting. 9: the original 5
-  // (handleTopLevelThrow ×1, handleCatchRethrow ×2, handleDoctor ×1,
-  // inline_arrow_throw's args-derived throw ×1 — its ctx-guard throw stays
-  // exempt), the 3 M1/M2 fixture cases (zero_arg_factory_throw,
-  // as_cast_throw, destructured_param_throw), and the derived-census kill
-  // case (invariants_amend), each contributing exactly one.
   assert.equal(
     violating.length,
     9,
     `expected exactly 9 violations, got ${violating.length}: ${JSON.stringify(violating.map(m => m.message))}`,
   );
 });
-
-// ─── Compliant fixture + exemption classes: nothing is reported ────────────
 
 test('noHandlerThrow_CompliantFixture_ReportsNothing', () => {
   assert.deepEqual(
@@ -175,9 +149,8 @@ test('noHandlerThrow_CompliantFixture_ReportsNothing', () => {
   );
 });
 
+/** `assertValidId()` is not in `ACTION_HANDLERS` or a special branch, so it is out of the registration set. */
 test('noHandlerThrow_ExemptDeepHelperThrow_IsNotReported', () => {
-  // assertValidId() is never referenced by ACTION_HANDLERS or a special
-  // branch — out of the registration set entirely.
   assert.equal(findByName(compliant, 'assertValidId'), undefined);
 });
 
@@ -205,33 +178,26 @@ test('noHandlerThrow_AsCastHandlerClean_IsNotReported', () => {
   assert.equal(findByName(compliant, 'as_cast_clean'), undefined);
 });
 
+/** The not-exempt default for a destructured first parameter must not cause a false positive when the handler has no throw. */
 test('noHandlerThrow_DestructuredParamClean_IsNotReported', () => {
-  // The NON-exempt default for a destructured first param must not itself
-  // cause a false positive when the handler genuinely has no throw.
   assert.equal(findByName(compliant, 'destructured_param_clean'), undefined);
 });
 
-// ─── Review fix M1: fail-loud on a genuinely unresolvable map entry ────────
-
+/**
+ * A zero-arg factory that returns the result of another call matches no known shape.
+ * The rule reports the map entry and does not skip it.
+ */
 test('noHandlerThrow_UnresolvableFactoryReturnShape_ReportsUnresolvedHandler', () => {
-  // A zero-arg factory whose body returns the RESULT of calling another
-  // function (not a function/arrow literal directly) cannot be resolved by
-  // any known shape. Before the fix this silently `continue`d past the map
-  // entry (fail-open); the fix reports a rule error on it instead
-  // (fail-closed) so an unscannable registered handler is never mistaken for
-  // "nothing to report".
   const hit = findByName(unresolved, 'indirect_factory_return');
   assert.ok(hit, `expected an unresolvedHandler report for the map entry: ${JSON.stringify(unresolved)}`);
   assert.equal(hit.messageId, 'unresolvedHandler');
 });
 
-// ─── Task 082 / DR-9: BOTH special-branch silent returns are now loud ──────
-
+/**
+ * The branch names an action, so the census sees the registration but cannot scan it.
+ * The rule reports it as it reports an `ACTION_HANDLERS` entry.
+ */
 test('noHandlerThrow_UnresolvableSpecialBranchHandler_ReportsUnresolvedHandler', () => {
-  // The `if (!fnNode) return;` hole. The branch NAMES an action, so the
-  // census can see the registration — it just cannot scan it. Silently
-  // skipping made an unscannable special branch indistinguishable from a
-  // clean one; it is reported now, the same way an ACTION_HANDLERS entry is.
   const hit = findByName(unresolved, 'unresolved_branch');
   assert.ok(hit, `expected an unresolvedHandler report for the branch: ${JSON.stringify(unresolved)}`);
   assert.equal(hit.messageId, 'unresolvedHandler');
@@ -245,11 +211,11 @@ test('noHandlerThrow_UnresolvedFixture_ReportsExactlyTwoDiagnostics', () => {
   );
 });
 
+/**
+ * No dispatch branch selects this envelope-wrapped call to a named handler, so the
+ * census cannot attribute it to an action. The rule reports the hole.
+ */
 test('noHandlerThrow_NamedHandlerDispatchOutsideAnyBranch_ReportsUnattributedDispatch', () => {
-  // The `if (!actionName) return;` hole. An envelope-wrapped call to a named
-  // handler that no dispatch branch selects cannot be attributed to an
-  // action — which is exactly what an unrostered handler name looked like
-  // before. It is a census hole, so it is reported rather than skipped.
   assert.equal(
     unattributed.length,
     1,
@@ -259,15 +225,12 @@ test('noHandlerThrow_NamedHandlerDispatchOutsideAnyBranch_ReportsUnattributedDis
   assert.match(unattributed[0].message, /handleUnbranched/);
 });
 
+/**
+ * Two shapes reach a real handler: the member callee in
+ * `envelopeWrap(await handlers.handleX(…))` and the plain alias `const handler = handleX`.
+ * Each hides a handler from the census, so the rule reports both.
+ */
 test('noHandlerThrow_UnscannableDispatchShapes_AreReportedNotExempted', () => {
-  // Two shapes that reached a real handler and were silently skipped:
-  //   1. `envelopeWrap(await handlers.handleX(…))` — a member-expression callee
-  //      the resolver could not name, which the caller read as "pre-built
-  //      envelope, nothing dispatched here";
-  //   2. `const handler = handleX` — a plain alias that satisfied the
-  //      table-dispatch exemption merely by being function-local.
-  // Either one hides a handler from the census entirely, which is the hole this
-  // rule exists to close.
   const unscannable = lintFixture('handler-throw.unscannable.ts');
   assert.equal(
     unscannable.length,
@@ -281,12 +244,11 @@ test('noHandlerThrow_UnscannableDispatchShapes_AreReportedNotExempted', () => {
   assert.match(unscannable.map(m => m.message).join('\n'), /handler/);
 });
 
+/**
+ * The `const handler = ACTION_HANDLERS[action]` tail of the compliant fixture. The map
+ * walk covers it, so the derivation must not report it. This shape decides whether the
+ * attribution check over-selects.
+ */
 test('noHandlerThrow_TableDispatchThroughLocalHandlerConst_IsNotReported', () => {
-  // The compliant fixture's `const handler = ACTION_HANDLERS[action]` tail —
-  // an INDIRECTION whose census is the map walk, not the branch derivation.
-  // Reporting it would make the loud attribution check unusable on the real
-  // dispatcher, so the derivation must leave it alone. (Subsumed by
-  // CompliantFixture_ReportsNothing; pinned separately because it is the one
-  // shape that decides whether the fail-loud arm over-selects.)
   assert.equal(findByName(compliant, 'handler'), undefined);
 });

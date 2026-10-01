@@ -8,36 +8,20 @@ export interface InventoryAudit {
   readonly violations: readonly string[];
   /** Path-filtered-only guards, surfaced so the hosting is reported, not accepted. */
   readonly pathFilteredOnly: readonly string[];
-  /** Guards no production module imports — the R-11 population. */
+  /** Guards that no production module imports. */
   readonly noProductionCaller: readonly string[];
 }
 
 /**
- * The reachability proof.
+ * Proves that every guard is reachable from CI. Each violation line holds a code in brackets.
+ * A scan that finds zero guards, zero `run:` steps, zero wrapper scripts or zero entrypoint
+ * sources fails, because a clean result then proves nothing.
  *
- * Failure conditions, in the order DR-24 states them:
- *   `[empty-inventory]`            — a resolution of zero guards FAILS rather than
- *                                    passing clean (the non-empty-denominator rule).
- *   `[unwired-guard]`              — unreachable from every CI job, with no exemption.
- *   `[expired-exemption]`          — a recorded reason whose deadline has passed.
- *   `[stale-exemption]`            — an exemption whose guard IS reachable; keeping it
- *                                    would let a later un-wiring pass unnoticed.
- *   `[orphan-exemption]`           — an exemption naming a guard outside the inventory.
- *   `[manifest-primary-missing]`   — a manifest primary the inventory cannot see, i.e.
- *                                    the denominator shrank below channel 1's.
- *   `[empty-entrypoint-scan]`      — the entrypoint classifier parsed zero sources, so
- *                                    "no coupled entrypoint" is vacuous.
- *   `[filename-coupled-entrypoint]` — the guard self-executes on a match against
- *                                    its own FILENAME, so a rename silently turns it
- *                                    into a no-op while every other column here still
- *                                    reports it as hosted and blocking.
- *   `[implementation-surface-outside-filter]` — the two-surface subset rule from
- *                                    docs/guides/ci-gate-hosting.md: a guard hosted
- *                                    ONLY in path-filtered jobs whose own source is
- *                                    outside every one of those filters can be
- *                                    weakened by a PR the filter never arms, and the
- *                                    job skips-as-passed on exactly that PR. This is
- *                                    #1711's failure, mechanized.
+ * An unreachable guard fails without an exemption. A guard that runs only when `argv[1]`
+ * ends with its own filename fails, because a rename makes it a no-op. A guard hosted only in
+ * path-filtered jobs fails when its source is outside every filter and no unfiltered
+ * pull-request host re-asserts it. An exemption fails when it is orphaned, stale or expired.
+ * The audit checks a `filtered-implementation-surface` exemption only when `filterGlobs` is given.
  */
 export function auditGuardInventory(
   inventory: GuardInventory,
@@ -60,10 +44,6 @@ export function auditGuardInventory(
     );
   }
 
-  // The same rule applied to the indirection resolver itself. A walk that
-  // examined no run-step, or found no wrapper script, reports every
-  // wrapper-hosted guard as unwired while looking exactly like a clean run —
-  // task 070's own failure, silently reintroduced.
   if (inventory.indirection.runStepsWalked === 0) {
     violations.push(
       '[empty-indirection-walk]  the wrapper-script resolver walked ZERO `run:` steps — ' +
@@ -94,7 +74,6 @@ export function auditGuardInventory(
   const filterGlobs = options.filterGlobs ?? {};
   const filtersKnown = Object.keys(filterGlobs).length > 0;
   const pathFilteredOnly: string[] = [];
-  /** Artifacts that genuinely exhibit each finding, used to detect stale exemptions. */
   const exhibits = new Map<ExemptedFinding, Set<string>>([
     ['unreachable', new Set(inventory.guards.filter((g) => g.enforcement === 'unreachable').map((g) => g.artifact))],
     ['filtered-implementation-surface', new Set<string>()],
@@ -122,10 +101,6 @@ export function auditGuardInventory(
     if (!guard.pathFilteredOnly) continue;
     pathFilteredOnly.push(guard.artifact);
     if (!filtersKnown) continue;
-    // The two-surface subset rule ranges over EVERY host, not only the enforcing
-    // ones: a DR-10 `.test.sh` re-assert on the unfiltered grep-gates host is
-    // precisely how `check-coverage-ratchet` and `check-mutation-gate` close this
-    // hole while still being enforced from a filtered job.
     const keys = [...new Set(guard.hosts.flatMap((h) => [...h.pathFilterKeys]))];
     const anyUnfilteredHost = guard.hosts.some((h) => h.pathFilterKeys.length === 0 && h.onPullRequest);
     const covered =
@@ -150,9 +125,6 @@ export function auditGuardInventory(
       );
       continue;
     }
-    // A `filtered-implementation-surface` exemption is only checkable when the
-    // filter globs were supplied; without them the finding cannot be computed, so
-    // the entry is neither confirmed nor declared stale.
     const checkable =
       exemption.excuses === 'unreachable' ||
       exemption.excuses === 'filename-coupled-entrypoint' ||
@@ -195,17 +167,3 @@ export function auditGuardInventory(
       .sort(),
   };
 }
-
-// ─── Rendering ───────────────────────────────────────────────────────────────
-
-/**
- * One markdown row per guard: artifact · CI job(s) · path-filtered? ·
- * blocks-or-observes · production caller.
- *
- * The job column names the ENFORCING hosts; a self-test-only host is suffixed so
- * "its tests run" is never mistaken for "its policy runs" (see
- * {@link isEnforcingHost}). An INDIRECT host renders the whole chain
- * (`job → wrapper.sh`), because "reachable" without "how" is a claim a reviewer
- * cannot check — and this inventory reported the opposite verdict for exactly one
- * missing hop until task 070.
- */

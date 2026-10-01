@@ -24,10 +24,9 @@ export function readPackageScripts(repoRoot: string, dir: string): PackageScript
 }
 
 /**
- * Expand `npm run <name>` (and `npm run <name> --`) transitively against a
- * package's script table, so a step that runs `npm run skills:guard` is seen to
- * execute `node tools/audit/gates/lint-test-first-drift.mjs` — the class-2 `unreachable-npm`
- * trap a name-grep cannot see. Cycles terminate via the `seen` set.
+ * Appends the body of each `npm run <name>` in `command`, expanded transitively from
+ * the script table. The result shows the `node` command that a step such as
+ * `npm run skills:guard` reaches, which a name grep cannot see. The `seen` set stops cycles.
  */
 export function expandNpmScripts(command: string, pkg: PackageScripts, seen = new Set<string>()): string {
   let out = command;
@@ -47,16 +46,3 @@ export function expandNpmScripts(command: string, pkg: PackageScripts, seen = ne
   }
   return out;
 }
-
-// ─── Shell-wrapper indirection (task 070) ────────────────────────────────────
-
-/**
- * Interpreters that take the program they run as a path ARGUMENT rather than in
- * command position, so `bash x.sh` / `node x.mjs` / `tsx x.ts` all execute `x`.
- *
- * A hand-written set, and the only one in this module — justified by which way it
- * fails. An interpreter MISSING here makes a real invocation read as unreachable,
- * i.e. the inventory reports a wiring hole that is not there. The opposite error
- * (silently blessing an execution that never happens) is the one that would let a
- * dead guard pass, and no omission here can cause it.
- */

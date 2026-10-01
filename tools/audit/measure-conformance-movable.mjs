@@ -26,7 +26,7 @@ const archAll = all.filter((f) => f.startsWith(ARCH + path.sep));
 const archModules = archAll.filter((f) => !isTestFile(f));
 const key = (f) => path.relative(ARCH, f).split(path.sep).join('/');
 
-// 1. Pinned by production consumers outside architecture/.
+/** Modules that a production module outside architecture/ imports by value. A type-only import erases, so it does not pin a module. */
 const pinned = new Set();
 for (const f of all.filter((x) => !x.startsWith(ARCH + path.sep) && !isTestFile(x))) {
   const text = fs.readFileSync(f, 'utf8');
@@ -36,19 +36,16 @@ for (const f of all.filter((x) => !x.startsWith(ARCH + path.sep) && !isTestFile(
     if (!target.startsWith(ARCH + path.sep)) continue;
     const names = clause.replace(/[{}]/g, '').split(',').map((s) => s.trim()).filter(Boolean);
     const allTyped = names.length > 0 && names.every((n) => n.startsWith('type '));
-    if (typeKw || allTyped) continue; // type-only erases; not a runtime pin
+    if (typeKw || allTyped) continue;
     pinned.add(key(target).replace(/\.js$/, '.ts'));
   }
 }
 
-// 2. Intra-architecture edges, kept as two maps because the two closure rules
-// below need different ones.
-//
-//   `deps`    — VALUE edges only. Type-only edges erase, so they cannot create
-//               the uninverted runtime edge into the subject that DR-1 forbids.
-//   `allDeps` — value AND type edges. `tsc --rootDir` does not care about
-//               erasure: a type-only import still pulls the target into the
-//               program, and a stayer importing a moved type fails to compile.
+/**
+ * Intra-architecture edges, in two maps for the two closure rules.
+ * `deps` holds value edges only. A type-only edge erases, so it cannot create a runtime edge into the subject.
+ * `allDeps` holds value and type edges, because `tsc --rootDir` also pulls a type-only import into the program.
+ */
 const deps = new Map();
 const allDeps = new Map();
 for (const f of archModules) {
@@ -70,19 +67,12 @@ for (const f of archModules) {
   allDeps.set(key(f), all);
 }
 
-// 3. Fixpoint over BOTH closure directions. One alone is not sound, and the
-// missing half shipped a broken partition once already: `sdk-generation-seam.ts`
-// was classified movable while `layer-boundaries-seam.ts` — a stayer — imported
-// three of its VALUES, so applying the move produced a `src/` -> `tools/` edge
-// and `tsc --rootDir` rejected the subject package.
-//
-//   UPWARD   a module stays if it VALUE-depends on a stayer. Moving it would
-//            leave an uninverted runtime edge into the subject, which DR-1
-//            allows only in `bindings/`.
-//   DOWNWARD a module stays if a stayer depends on it, by value OR by type.
-//            Moving it would invert the dependency direction outright: shipped
-//            source under `src/` importing from a dev-tooling package.
 const resolveId = (d) => [d, d.replace(/\/index\.ts$/, '.ts')];
+/**
+ * The fixpoint applies both closure directions, because one direction alone is not sound.
+ * Upward: a module stays when it depends by value on a stayer, because a move leaves a runtime edge into the subject.
+ * Downward: a module stays when a stayer depends on it by value or by type, because a move makes `src/` import from dev tooling.
+ */
 const stays = new Set(pinned);
 for (;;) {
   let grew = false;

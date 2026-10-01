@@ -12,20 +12,14 @@ export function isTestArtifact(path: string): boolean {
   return /\.(test|type-test|bench|smoke\.test)\.[cm]?[jt]sx?$/.test(path) || /(^|\/)__tests__\//.test(path);
 }
 
-// ─── Channel 3: runnable gates with a co-located self-test ───────────────────
-
 /**
- * True iff the module has a STATEMENT-LEVEL `process.exit(…)` — one not nested
- * inside a function body, so it executes on load and can fail a build.
+ * True when the module sets an exit status outside any function. That is a
+ * `process.exit(…)` call, or a `process.exitCode = …` assignment, which is the
+ * same entrypoint without the flush hazard. Such a module runs on load and can
+ * fail a build.
  *
- * A real parse, deliberately: `cli-derivation-guard.ts` records that a naive
- * `/\.command\(/` over the very file it governs reports 15 sites instead of 14
- * because a JSDoc block writes the call in prose. Comments are blanked
- * STRUCTURALLY here for the same reason — the parser classifies them as trivia,
- * so they never become `CallExpression` nodes at all.
- *
- * Fails CLOSED: a source the parser had to recover from throws rather than
- * contributing a `false` that would read as "not a gate".
+ * It parses the source, so a call written in a comment never counts. A source
+ * with parse errors throws, because `false` reads as "not a gate".
  */
 export function hasDirectRunExit(source: string, fileName: string): boolean {
   const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
@@ -52,7 +46,6 @@ export function hasDirectRunExit(source: string, fileName: string): boolean {
   };
   const visit = (node: ts.Node): void => {
     if (found) return;
-    /** `process.exit` / `process.exitCode`, as a property access off `process`. */
     const isProcessMember = (n: ts.Node, member: string): boolean =>
       ts.isPropertyAccessExpression(n) &&
       n.name.text === member &&
@@ -63,8 +56,6 @@ export function hasDirectRunExit(source: string, fileName: string): boolean {
       found = true;
       return;
     }
-    // `process.exitCode = runGuard()` is the same entrypoint with the flush
-    // hazard removed, so it has to classify the same way.
     if (
       ts.isBinaryExpression(node) &&
       node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
@@ -93,24 +84,14 @@ export interface EntrypointPredicate {
 }
 
 /**
- * Classify a module's entrypoint predicate.
+ * Classifies the entrypoint predicate of a module.
  *
- * A filename test is only a FINDING when nothing in the same statement also
- * compares `argv[1]` against `import.meta.url`. That distinction is load-bearing:
- * several gates read
- *
- *     path.resolve(entry) === fileURLToPath(import.meta.url) || entry.endsWith('/name.mjs')
- *
- * where the filename arm WIDENS an identity check rather than replacing it — a
- * rename still self-executes through the first disjunct. Scoping to the nearest
- * enclosing STATEMENT is what separates them from a bare
- * `process.argv[1].endsWith('cli-vocab-guard.ts')`.
- *
- * Both operands are followed through single-assignment aliases (`const entry =
- * process.argv[1]`, `const self = fileURLToPath(import.meta.url)`).
- *
- * Fails CLOSED on a source the parser had to recover from — a `[]` there would
- * read as "no coupling found".
+ * A filename test on `argv[1]` is a finding only when its enclosing statement
+ * holds no identity check of `argv[1]` against `import.meta.url`. In
+ * `path.resolve(entry) === fileURLToPath(import.meta.url) || entry.endsWith('/name.mjs')`
+ * the filename arm widens the identity check, so a rename still self-executes.
+ * Both operands are followed through variable aliases. A source with parse
+ * errors throws, because `[]` reads as "no coupling found".
  */
 export function classifyEntrypointPredicate(source: string, fileName: string): EntrypointPredicate {
   const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
@@ -209,36 +190,29 @@ export function classifyEntrypointPredicate(source: string, fileName: string): E
 }
 
 /**
- * Where each source tree's suites were lifted to, longest prefix first so a
- * specific subtree wins over the catch-all.
+ * Maps each source tree to the tree that holds its suites. The first matching
+ * prefix wins, so a specific subtree comes before its catch-all.
  *
- * Pairing is by CONSTRUCTED path, and an artifact whose constructed path finds
- * nothing reports as "no self-test" rather than as an error — so a stale entry
- * here takes a whole tree of guards quiet without reddening anything. That is
- * why the mapping is one ordered table rather than a chain of `else if` arms:
- * a relocation is absorbed in one place, and
- * `GuardInventory_EverySelfTestMirror_PairsSomethingReal` asserts every arm
- * still pairs a real file, so an arm that stops resolving fails loudly.
+ * An artifact whose constructed path finds nothing reports "no self-test", not
+ * an error. A stale entry thus silences a whole tree of guards. The test
+ * `GuardInventory_EverySelfTestMirror_PairsSomethingReal` asserts that each
+ * entry still pairs a real file.
  */
 export const SELF_TEST_MIRRORS: readonly (readonly [string, string])[] = Object.freeze([
   ['tools/audit/core/', 'tests/core/scripts/'],
   ['tools/audit/gates/', 'tests/scripts/'],
   ['tools/audit/lib/', 'tests/scripts/lib/'],
   ['tools/audit/tsconfig-strictness/', 'tests/scripts/tsconfig-strictness/'],
-  // The catch-all for `tools/audit/`'s own loose files, which task 036 moved
-  // from `scripts/audit/` — their suites kept the `audit/` segment.
+  /** The catch-all for the loose files in `tools/audit/`. Their suites keep an `audit/` segment. */
   ['tools/audit/', 'tests/scripts/audit/'],
   ['src/', 'tests/unit/'],
 ]);
 
 /**
- * Self-test candidates for an artifact, in resolution order.
- *
- * "Co-located" was literal until task 030 lifted every suite under `src/` into
- * the `tests/unit/` mirror. A module's self-test is still ITS test — only the
- * address changed — so the mirrored path is offered alongside the sibling one.
- * Without this the pairing silently finds nothing for the whole product tree,
- * and channels 3 and 4 stop discovering the censuses they exist to govern.
+ * Self-test candidates for an artifact, in resolution order: the sibling path,
+ * then the mirrored path from {@link SELF_TEST_MIRRORS}. The suites for `src/`
+ * live under `tests/unit/`, so without the mirrored path the pairing finds
+ * nothing for the product tree.
  */
 export function selfTestCandidates(artifact: string): string[] {
   const base = artifact.replace(/\.[cm]?[jt]s$/, '').replace(/\.sh$/, '');

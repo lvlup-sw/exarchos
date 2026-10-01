@@ -1,11 +1,10 @@
 // The recorded judgements: which located call belongs to which path for each
 // named intent, and why.
 //
-// Nothing here is a count. Each entry names a call and a piece of text in the
-// source that pins it, and the census resolves both against the live file. An
-// anchor that stops resolving, or a located call that no entry accounts for,
-// makes the census refuse, so this table cannot drift away from the skills it
-// reads without failing.
+// Nothing here is a count. Each entry names a call and a piece of source text
+// that pins it. The census resolves both against the live file. The census
+// refuses when an anchor stops resolving or when no entry accounts for a located
+// call. Thus this table cannot drift from the skills it reads.
 
 import type { CensusModel, IntentModel, SiteRef } from './census.js';
 

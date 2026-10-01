@@ -1,41 +1,16 @@
 /**
  * The prose exodus manifest, and the reconciliation that gates deletion.
  *
- * Documents leaving this repository go to an external documents repository.
- * Deletion here is IRREVERSIBLE from the reader's point of view — a link that
- * used to resolve stops resolving — so preservation has to be provable before
- * anything is removed, not asserted afterwards.
+ * Documents that leave this repository go to an external documents repository. The manifest
+ * records the source path, destination path, byte length and SHA-256 of each file. Reconcile
+ * reads the destination and recomputes each digest, so a changed file fails like an absent file.
  *
- * The manifest is that proof. It records, per file, the source path, the
- * destination path, the byte length and a SHA-256 of the content. Reconciling
- * means reading the destination and recomputing: a file that is present but
- * different fails exactly like a file that is absent, which is the property a
- * copy-and-hope transfer does not have.
+ * The rule names what stays, and the rest moves. A retained entry must be read by the program,
+ * a test, or a user who has the path. {@link RETAINED} lists each entry with its reason.
+ * When the mount is active, a citation to a moved document resolves at its original path.
  *
- * ── WHAT STAYS, AND WHY THE RULE IS STATED THIS WAY ROUND ───────────────────
- * Eligibility was once "no live referrer points at this subtree". Measured,
- * that rule blocked 462 files on 362 references — and 200 of those were a PATH
- * IN A COMMENT, a citation a reader might follow rather than anything the
- * program reads. Of those, 128 pointed into `docs/designs/` or `docs/plans/`,
- * which the comment policy already forbids on the stated grounds that "the
- * document may move out of this repository". The gate was preserving links the
- * policy wanted deleted.
- *
- * So the rule is inverted: name what STAYS, and move the rest. A retained entry
- * has to earn its place by being READ — by the program, by a test, or by a user
- * who was handed the path — not by being mentioned. {@link RETAINED} is that
- * list and each entry carries its reason.
- *
- * A citation left pointing at a relocated document is not a break: the mount
- * puts the file back at its original path. Unmounted it does not resolve, and
- * that is the honest trade — nothing FAILS, because nothing reads it.
- *
- * ── THE DESTINATION LAYOUT ──────────────────────────────────────────────────
- * `<documents-repo>/exarchos/<source-path>` — the repository name as the key,
- * then the source path preserved verbatim underneath. Two consequences, both
- * intended: a reader at the destination can see where a document came from
- * without a lookup table, and the mapping is mechanical enough that a symlink
- * mount is a per-directory `ln -s` rather than a translation.
+ * The destination layout is `<documents-repo>/exarchos/<source-path>`. A reader can see the
+ * origin of a document, and a symlink mount is one `ln -s` for each directory.
  */
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -121,7 +96,7 @@ export interface ProseManifest {
   readonly destinationRepo: string;
   readonly destinationKey: string;
   readonly capturedAt: string;
-  /** The subtrees this manifest covers, and why they were eligible. */
+  /** The subtrees that the entries cover. */
   readonly subtrees: readonly string[];
   readonly counts: { readonly files: number; readonly bytes: number };
   readonly entries: readonly ProseManifestEntry[];
@@ -145,7 +120,10 @@ export function trackedUnder(repoRoot: string, subtree: string): string[] {
   return out.split('\0').filter((rel) => rel.length > 0);
 }
 
-/** Build the manifest for an explicit list of source paths. */
+/**
+ * Build the manifest for an explicit list of source paths. The subtree list derives from the
+ * entries, so it cannot claim coverage that the entries do not have.
+ */
 export function buildManifest(
   repoRoot: string,
   sources: readonly string[],
@@ -161,8 +139,6 @@ export function buildManifest(
       digest: digestOf(bytes),
     });
   }
-  // The subtree list is DERIVED from what was actually included, so it can
-  // never claim coverage the entries do not have.
   const subtrees = [
     ...new Set(entries.map((e) => e.source.split('/').slice(0, 2).join('/'))),
   ].sort();
@@ -194,9 +170,8 @@ export interface ReconcileResult {
 /**
  * Read the destination and recompute every digest.
  *
- * `checked` is reported alongside `ok` on purpose: a reconciliation over an
- * empty manifest is clean for every destination, including one that received
- * nothing at all, so the caller has to be able to see the denominator.
+ * The result reports `checked` next to `ok`, because a reconcile of an empty
+ * manifest is clean for any destination. The caller must see that count.
  */
 export function reconcile(manifest: ProseManifest, destinationRoot: string): ReconcileResult {
   const findings: ReconcileFinding[] = [];

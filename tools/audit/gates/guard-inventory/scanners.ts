@@ -8,6 +8,11 @@ export interface McpScriptScan {
   readonly runnableWithoutSelfTest: readonly string[];
 }
 
+/**
+ * Lists the runnable gates in `MCP_SCRIPTS_DIR`, as {@link hasDirectRunExit}
+ * decides, split on whether each has a self-test. An unreadable directory
+ * throws, so a failed scan never reads as "no guards here".
+ */
 export function scanMcpScriptGates(repoRoot: string = REPO_ROOT): McpScriptScan {
   const dir = join(repoRoot, MCP_SCRIPTS_DIR);
   const gatesWithSelfTest: string[] = [];
@@ -16,8 +21,6 @@ export function scanMcpScriptGates(repoRoot: string = REPO_ROOT): McpScriptScan 
   try {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch (err) {
-    // Fail closed: a scan that cannot read its root must not contribute an
-    // empty channel that reads as "no guards here".
     throw new Error(`${MCP_SCRIPTS_DIR}: cannot enumerate (${err instanceof Error ? err.message : String(err)})`);
   }
   for (const entry of entries) {
@@ -37,16 +40,13 @@ export function scanMcpScriptGates(repoRoot: string = REPO_ROOT): McpScriptScan 
   };
 }
 
-// ─── Channel 4: modules of a declared guard suite ────────────────────────────
-
 export interface GuardSuiteScan {
   /** Suite modules carrying a co-located self-test — the guards. */
   readonly modulesWithSelfTest: readonly string[];
   /**
-   * Suite modules with NO co-located self-test: data tables, CLI entrypoints and
-   * composition-root bindings. Reported for the same reason channel 3 reports
-   * its own exclusions — so the boundary of the population stays reviewable
-   * rather than becoming a silent filter.
+   * Suite modules with no co-located self-test, such as data tables and CLI
+   * entrypoints. The scan reports them, so the population boundary stays
+   * visible and is not a silent filter.
    */
   readonly modulesWithoutSelfTest: readonly string[];
 }
@@ -55,13 +55,10 @@ export interface GuardSuiteScan {
  * Every module under {@link GUARD_SUITE_ROOTS}, split on whether it has a
  * co-located self-test.
  *
- * Fails CLOSED twice, and the second one is the point. A root that cannot be
- * read throws, exactly as {@link scanMcpScriptGates} does. But a root that reads
- * fine and yields ZERO guards also throws, because that is what a mistargeted
- * root looks like from the inside: the scan succeeds, the channel contributes
- * nothing, and the inventory it feeds reports a clean run over a smaller
- * denominator. An empty channel is indistinguishable from a channel that was
- * never needed, so it is not allowed to be silent.
+ * It fails closed. An empty root list throws, and so does a root that it cannot
+ * read. A root that it reads but that yields zero guards also throws. A
+ * mistargeted root looks like that, and its silence shrinks the inventory
+ * denominator.
  */
 export function scanGuardSuiteRoots(
   repoRoot: string = REPO_ROOT,
@@ -119,9 +116,3 @@ export function scanGuardSuiteRoots(
     modulesWithoutSelfTest: modulesWithoutSelfTest.sort(),
   };
 }
-
-// ─── Vitest include globs → suite identity ───────────────────────────────────
-
-// One package since task 019. The alias is kept (rather than inlined as the
-// literal 'root') because the suite is a real concept in this file's model —
-// what collapsed is the SET of suites, not the idea of one.
