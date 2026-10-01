@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1284,
-    "parsedFiles": 1239,
+    "testFiles": 1285,
+    "parsedFiles": 1240,
     "shellFiles": 45,
-    "cases": 14169,
-    "dynamicTitles": 171,
+    "cases": 14187,
+    "dynamicTitles": 172,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -12171,6 +12171,16 @@
           "dynamic": false
         },
         {
+          "suite": "DR-20 — the installers consume the signed release manifest > the built-in verifier both installers carry",
+          "name": "BuiltInVerifier_BothInstallers_CarryTheSameAsciiCopy",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-20 — the installers consume the signed release manifest > the built-in verifier both installers carry",
+          "name": "BuiltInVerifier_EverySeededFault_ReturnsTheShippedVerifierVerdict",
+          "dynamic": false
+        },
+        {
           "suite": "DR-20 — the installers consume the signed release manifest > <dynamic-suite-1>",
           "name": "installs a release whose signed manifest verifies on all four dimensions",
           "dynamic": false
@@ -12226,6 +12236,16 @@
           "dynamic": false
         },
         {
+          "suite": "DR-20 — the installers consume the signed release manifest > <dynamic-suite-1>",
+          "name": "curl | bash with no verifier installed verifies with the built-in verifier and installs",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-20 — the installers consume the signed release manifest > <dynamic-suite-1>",
+          "name": "curl | bash: the built-in verifier rejects a tampered signature",
+          "dynamic": false
+        },
+        {
           "suite": "DR-20 — the installers consume the signed release manifest > <dynamic-suite-3>",
           "name": "installs a release whose signed manifest verifies on all four dimensions",
           "dynamic": false
@@ -12278,6 +12298,21 @@
         {
           "suite": "DR-20 — the installers consume the signed release manifest > <dynamic-suite-3>",
           "name": "a release with no published manifest is refused",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-20 — the installers consume the signed release manifest > <dynamic-suite-3>",
+          "name": "irm | iex with no verifier installed verifies with the built-in verifier and installs",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-20 — the installers consume the signed release manifest > <dynamic-suite-3>",
+          "name": "irm | iex: the built-in verifier rejects a tampered signature",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-20 — the installers consume the signed release manifest > <dynamic-suite-3>",
+          "name": "irm | iex with no Node.js on PATH refuses and names what to install",
           "dynamic": false
         }
       ]
@@ -12857,6 +12892,67 @@
           "suite": "MigrationFollowups_EachDeferredComponent_HasIssue",
           "name": "<dynamic-case-2>",
           "dynamic": true
+        }
+      ]
+    },
+    "tests/scripts/pin-trust-root.test.ts": {
+      "file": "tests/scripts/pin-trust-root.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "pin-trust-root.mjs",
+          "name": "PinTrustRoot_SeededSentinel_CheckRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "pin-trust-root.mjs",
+          "name": "PinTrustRoot_RuntimeEd25519Key_ReplacesOnlyTheSentinelAndCheckAccepts",
+          "dynamic": false
+        },
+        {
+          "suite": "pin-trust-root.mjs",
+          "name": "PinTrustRoot_PinnedShInstaller_MaterializesThePinnedKey",
+          "dynamic": false
+        },
+        {
+          "suite": "pin-trust-root.mjs",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "pin-trust-root.mjs",
+          "name": "PinTrustRoot_PinnedPs1Installer_MaterializesThePinnedKey",
+          "dynamic": false
+        },
+        {
+          "suite": "pin-trust-root.mjs",
+          "name": "PinTrustRoot_NonEd25519Key_RefusedAndNothingWritten",
+          "dynamic": false
+        },
+        {
+          "suite": "pin-trust-root.mjs",
+          "name": "PinTrustRoot_PrivateKey_RefusedWithoutEchoingIt",
+          "dynamic": false
+        },
+        {
+          "suite": "pin-trust-root.mjs",
+          "name": "PinTrustRoot_OneInstallerAlreadyPinned_RefusesAndWritesNeither",
+          "dynamic": false
+        },
+        {
+          "suite": "pin-trust-root.mjs",
+          "name": "PinTrustRoot_InstallersPinDifferentKeys_CheckRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "release gate on the unpinned trust root",
+          "name": "ReleaseWorkflow_TrustRootGate_PrecedesEveryPublishingJob",
+          "dynamic": false
+        },
+        {
+          "suite": "release gate on the unpinned trust root",
+          "name": "Workflows_OnlyTheReleaseWorkflowRunsTheTrustRootGate",
+          "dynamic": false
         }
       ]
     },

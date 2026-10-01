@@ -2806,7 +2806,7 @@
   },
   "tests/scripts/installer-verify.test.ts": {
     "comments/comment-content": {
-      "count": 8
+      "count": 7
     }
   },
   "tests/scripts/lib/comment-classifier.test.ts": {

@@ -41,8 +41,29 @@ env:
   GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
+  # Both standalone installers verify the signed release manifest against a
+  # publisher key pinned in the installer itself. Until that key is pinned they
+  # hold a sentinel and refuse every install, so a release cut in that state
+  # ships installers that cannot install it. This gate fails the release while
+  # either installer holds the sentinel, or when they pin different keys. Every
+  # publishing job depends on it. It runs on the release path only: pull-request
+  # CI does not run it, so main stays green while the key is unpinned.
+  trust-root-gate:
+    name: Installer trust root pinned
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Refuse to release while an installer is unpinned
+        run: node tools/release/pin-trust-root.mjs --check
+
   release:
     name: Publish Release
+    needs: trust-root-gate
     # ubuntu-latest matches binary-matrix below — the self-hosted Azure Container
     # Apps Job runner (caj-github-runner-dev, 4 GiB / 8 GiB ephemeral) reproducibly
     # hangs on a plain `npm ci` for this workload (net RX dies
@@ -140,6 +161,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   binary-matrix:
     name: Binary Matrix (${{ matrix.target }})
+    needs: trust-root-gate
     # Only run for semver-shaped tags (vN.N.N[-pre]) — historical
     # non-semver `v*` tags continue to drive the npm-only `release` job
     # but must not produce or mutate GitHub Release assets.
@@ -249,7 +271,7 @@ jobs:
     # Same semver guard as binary-matrix — non-semver `v*` tags must not
     # publish GitHub Release artefacts.
     if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '.')
-    needs: binary-matrix
+    needs: [trust-root-gate, binary-matrix]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

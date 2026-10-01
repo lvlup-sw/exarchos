@@ -10,6 +10,11 @@ appends that directory to the user's Path environment variable.
 Mirrors tools/release/get-exarchos.sh (task 2.5). Both scripts share a
 contract: same URL layout, same asset naming, same quality tiers.
 
+Before it installs, the script checks the signed release manifest. When no
+release verifier is installed (the `irm | iex` case), it runs the verifier it
+carries, which needs Node.js 20 or later on PATH. Without Node.js it refuses to
+install.
+
 .PARAMETER Tier
 Quality tier to install from: `release` (default, tagged GitHub
 Releases), `staging` (pre-release), or `dev` (HEAD artifact).
@@ -286,7 +291,7 @@ function Test-ManifestSignature {
         '--asset', "$AssetName=$AssetPath"
     )
 
-    if ($VerifierPath -like '*.js') {
+    if (($VerifierPath -like '*.js') -or ($VerifierPath -like '*.cjs')) {
         $node = Get-Command node -ErrorAction SilentlyContinue
         if ($null -eq $node) { return $false }
         $output = & node $VerifierPath @verifierArgs 2>&1
@@ -371,19 +376,149 @@ function Get-EmbeddedBuildIdentity {
     }
 }
 
+# The built-in release verifier, for `irm | iex`, where neither dist/ nor the
+# npm bin exists. It travels in this script with the pinned key, so it adds no
+# new trust origin. It takes the same arguments and exit codes as
+# dist/release-verify.js, and get-exarchos.sh carries a byte-identical copy.
+$script:EmbeddedReleaseVerifier = @'
+'use strict';
+const fs = require('fs');
+const crypto = require('crypto');
+const COMMIT = /^[0-9a-f]{40}$/;
+const DIGEST = /^sha256:[0-9a-f]{64}$/;
+
+function canonical(value) {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
+  switch (typeof value) {
+    case 'string':
+      return JSON.stringify(value);
+    case 'boolean':
+      return value ? 'true' : 'false';
+    case 'number':
+      if (!Number.isFinite(value)) throw new Error('non-finite number in the manifest');
+      return JSON.stringify(value);
+    case 'object':
+      return '{' + Object.keys(value).sort().map(function (key) {
+        return JSON.stringify(key) + ':' + canonical(value[key]);
+      }).join(',') + '}';
+    default:
+      throw new Error('the manifest holds a value with no JSON form');
+  }
+}
+
+function parseArgs(argv) {
+  const args = { roots: new Map(), assets: new Map() };
+  for (let i = 0; i < argv.length; i += 2) {
+    const flag = argv[i];
+    const value = argv[i + 1];
+    if (value === undefined) throw new Error('missing value for ' + flag);
+    const eq = value.indexOf('=');
+    if (flag === '--manifest') args.manifest = value;
+    else if (flag === '--expect-source') args.source = value;
+    else if (flag === '--expect-contract') args.contract = value;
+    else if (flag === '--trust-root' && eq > 0) args.roots.set(value.slice(0, eq), fs.readFileSync(value.slice(eq + 1), 'utf8'));
+    else if (flag === '--asset' && eq > 0) args.assets.set(value.slice(0, eq), value.slice(eq + 1));
+    else throw new Error("unknown or malformed argument '" + flag + "'");
+  }
+  if (args.manifest === undefined) throw new Error('--manifest is required');
+  if (args.roots.size === 0) throw new Error('at least one --trust-root is required');
+  if (args.source === undefined) throw new Error('--expect-source is required');
+  if (args.contract === undefined) throw new Error('--expect-contract is required');
+  const hash = args.source.indexOf('#');
+  args.commit = args.source.slice(0, hash);
+  args.tree = args.source.slice(hash + 1);
+  if (hash <= 0 || !COMMIT.test(args.commit) || !DIGEST.test(args.tree)) {
+    throw new Error('--expect-source must be <commit>#<treeDigest>');
+  }
+  return args;
+}
+
+function verify(args) {
+  if (typeof crypto.verify !== 'function') {
+    throw new Error('this Node.js cannot verify Ed25519 signatures; install Node.js 20 or later');
+  }
+  const doc = JSON.parse(fs.readFileSync(args.manifest, 'utf8'));
+  if (doc === null || typeof doc !== 'object' || Object.keys(doc).sort().join(',') !== 'manifest,signature') {
+    throw new Error('the release manifest must hold exactly a manifest and a signature');
+  }
+  const manifest = doc.manifest;
+  const signature = doc.signature;
+  if (manifest === null || typeof manifest !== 'object' || manifest.manifestVersion !== 1) {
+    throw new Error('unsupported release manifest version');
+  }
+  if (signature === null || typeof signature !== 'object' || typeof signature.keyId !== 'string' || typeof signature.value !== 'string') {
+    throw new Error('the release manifest signature is malformed');
+  }
+  const pem = args.roots.get(signature.keyId);
+  if (pem === undefined) return [2, 'manifest-signature', 'no configured trust root for keyId ' + signature.keyId];
+  if (signature.algorithm !== 'ed25519') {
+    return [2, 'manifest-signature', 'trust root ' + signature.keyId + ' is ed25519, signature claims ' + String(signature.algorithm)];
+  }
+  let trusted = false;
+  try {
+    trusted = crypto.verify(null, Buffer.from(canonical(manifest), 'utf8'), crypto.createPublicKey(pem), Buffer.from(signature.value, 'base64'));
+  } catch (err) {
+    return [2, 'manifest-signature', 'signature verification error for keyId ' + signature.keyId];
+  }
+  if (!trusted) return [2, 'manifest-signature', 'signature does not chain to trust root ' + signature.keyId];
+  if (manifest.source.commit !== args.commit || manifest.source.treeDigest !== args.tree) {
+    return [2, 'source-mismatch', 'source identity mismatch: manifest ' + manifest.source.commit + '#' + manifest.source.treeDigest + ' != expected ' + args.source];
+  }
+  if (manifest.contract.digest !== args.contract) {
+    return [2, 'contract-mismatch', 'contract identity mismatch: manifest ' + manifest.contract.digest + ' != expected ' + args.contract];
+  }
+  if (args.assets.size === 0) return [2, 'asset-digest', 'no downloaded assets were presented for verification'];
+  for (const [name, path] of args.assets) {
+    const entry = manifest.assets.find(function (asset) { return asset.name === name; });
+    if (entry === undefined) return [2, 'asset-digest', "downloaded asset '" + name + "' is not in the signed manifest"];
+    const digest = 'sha256:' + crypto.createHash('sha256').update(fs.readFileSync(path)).digest('hex');
+    if (entry.digest !== digest) {
+      return [2, 'asset-digest', "asset '" + name + "' digest mismatch: manifest " + entry.digest + ' != downloaded ' + digest];
+    }
+  }
+  return [0, '', signature.keyId];
+}
+
+function main() {
+  let args;
+  try {
+    args = parseArgs(process.argv.slice(2));
+  } catch (err) {
+    process.stderr.write('usage error: ' + err.message + '\n');
+    return 3;
+  }
+  let verdict;
+  try {
+    verdict = verify(args);
+  } catch (err) {
+    verdict = [2, 'verification-error', err.message];
+  }
+  if (verdict[0] === 0) {
+    process.stdout.write('release verified - signed by ' + verdict[2] + ' (built-in verifier)\n');
+    return 0;
+  }
+  process.stderr.write('release REJECTED [' + verdict[1] + ']: ' + verdict[2] + '\n');
+  return verdict[0];
+}
+
+process.exitCode = main();
+'@
+
 function Resolve-ReleaseVerifier {
     <#
     .SYNOPSIS
-    Locate the shipped release verifier, or return $null.
+    Locate a release verifier, or return $null.
 
     Discovery order: explicit override, the package's own `dist/` (repo checkout
-    or an npm-installed @lvlup-sw/exarchos), then the `exarchos-release-verify`
-    bin that package.json exposes. It is NEVER downloaded from the release being
+    or an npm-installed @lvlup-sw/exarchos), the `exarchos-release-verify` bin
+    that package.json exposes, and last the built-in verifier written into
+    $WorkDir, which needs `node`. It is NEVER downloaded from the release being
     verified — fetching your verifier from the origin you are verifying is not
     verification.
     #>
     [CmdletBinding()]
-    param([string]$ScriptRoot = '')
+    param([string]$ScriptRoot = '', [string]$WorkDir = '')
 
     if (-not [string]::IsNullOrEmpty($env:EXARCHOS_RELEASE_VERIFIER)) {
         if (Test-Path $env:EXARCHOS_RELEASE_VERIFIER) { return $env:EXARCHOS_RELEASE_VERIFIER }
@@ -395,7 +530,12 @@ function Resolve-ReleaseVerifier {
     }
     $bin = Get-Command exarchos-release-verify -ErrorAction SilentlyContinue
     if ($null -ne $bin) { return $bin.Source }
-    return $null
+    if ([string]::IsNullOrEmpty($WorkDir)) { return $null }
+    $node = Get-Command node -CommandType Application -ErrorAction SilentlyContinue
+    if ($null -eq $node) { return $null }
+    $embedded = Join-Path $WorkDir 'exarchos-release-verify.cjs'
+    [System.IO.File]::WriteAllText($embedded, $script:EmbeddedReleaseVerifier, (New-Object System.Text.UTF8Encoding $false))
+    return $embedded
 }
 
 function Resolve-TrustRootPem {
@@ -763,10 +903,11 @@ function Install-Binary {
         # served from the same origin as the binary, so anyone who can replace
         # one can replace the other. Everything that makes this release *this*
         # release is established below, before anything is installed.
-        $verifier = Resolve-ReleaseVerifier -ScriptRoot $ScriptRoot
+        $verifier = Resolve-ReleaseVerifier -ScriptRoot $ScriptRoot -WorkDir $tmpRoot
         if ($null -eq $verifier) {
-            throw "Release REJECTED [verifier-unavailable]: could not locate the release verifier (dist/release-verify.js or the exarchos-release-verify bin). Set `$env:EXARCHOS_RELEASE_VERIFIER. Refusing to install (fail-closed)."
+            throw "Release REJECTED [verifier-unavailable]: no release verifier is available. The built-in verifier needs Node.js: install Node.js 20 or later (https://nodejs.org/) and re-run, or set `$env:EXARCHOS_RELEASE_VERIFIER to dist/release-verify.js or the exarchos-release-verify bin. Refusing to install (fail-closed)."
         }
+        Write-Host "[exarchos] Release verifier: $verifier"
         $trustRootPem = Resolve-TrustRootPem -WorkDir $tmpRoot
         if ($null -eq $trustRootPem) {
             throw "Release REJECTED [trust-root-unavailable]: no publisher trust root is pinned in this installer and `$env:EXARCHOS_TRUST_ROOT_PEM_FILE was not supplied. The manifest signature cannot be verified. Refusing to install."
