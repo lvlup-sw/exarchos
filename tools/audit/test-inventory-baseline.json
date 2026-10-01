@@ -7,7 +7,7 @@
     "testFiles": 1315,
     "parsedFiles": 1269,
     "shellFiles": 46,
-    "cases": 14511,
+    "cases": 14510,
     "dynamicTitles": 162,
     "unparseableFiles": 0
   },
@@ -21706,11 +21706,6 @@
         {
           "suite": "DR-26 — the retired INV-2 parity citations are re-pointed",
           "name": "ShippedSource_CitesNoRetiredInv2ParityFraming",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-26 — the retired INV-2 parity citations are re-pointed",
-          "name": "RepointedSites_EachCiteTheGoverningInv2Framing",
           "dynamic": false
         }
       ]

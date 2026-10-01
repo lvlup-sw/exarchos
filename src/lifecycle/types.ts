@@ -1,8 +1,7 @@
-// ─── Shared handler result contract ─────────────────────────────────────────
-//
-// Hook handlers in this directory return a uniform shape that the hook adapter
-// (`../adapters/hooks.ts`) forwards to stdout. Moved here from the deleted
-// `../cli.ts` in task 3.8 so the contract outlives the dead entry point.
+/**
+ * Result contract for the hook handlers in this directory. The CLI hook adapter
+ * (`../adapters/cli/hooks.ts`) writes this result to stdout.
+ */
 
 /** Result returned by hook-command handlers. */
 export interface CommandResult {

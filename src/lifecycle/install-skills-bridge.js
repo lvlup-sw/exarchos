@@ -1,32 +1,16 @@
 /**
- * Bridge module for the `install-skills` install path.
+ * The bridge for the `install-skills` path. It imports `installSkills()`, `loadAllRuntimes()` and
+ * the generated `EMBEDDED_RUNTIMES` statically.
  *
- * Statically imports `installSkills()`, `loadAllRuntimes()` and the
- * codegen-emitted `EMBEDDED_RUNTIMES`. Authored as plain JavaScript, not
- * TypeScript, and that is load-bearing in both directions: tsc runs with
- * `allowJs: false` so it never resolves these specifiers, while bun's
- * `--compile` bundler ignores tsc settings and follows them normally — which is
- * what puts the installer, and its lazy `@inquirer/prompts` import, inside the
- * single-file binary.
+ * The module is plain JavaScript on purpose. tsc runs with `allowJs: false`, so it does not resolve
+ * these specifiers. The bun `--compile` bundler follows them, so the installer and its lazy
+ * `@inquirer/prompts` import go into the single-file binary. A `string`-typed dynamic import at the
+ * call site hides the specifier from bun, and the binary then fails with "Cannot find module".
  *
- * Why a bridge rather than a dynamic import at the call site: a `string`-typed
- * dynamic import hides the specifier from bun's static analysis, and the
- * compiled binary then fails at user-runtime with "Cannot find module". bun has
- * to see the import statically to bundle it.
- *
- * ── Runtimes resolution policy ──────────────────────────────────────────────
- * The compiled binary is the primary install path, and `content/harness/runtimes/`
- * does not ship inside it — YAML files are not part of the static module graph,
- * so reading them from disk at user-runtime fails with "Runtimes directory not
- * found". A build-time codegen step emits `install/runtimes/embedded.ts`
- * instead; bun follows that import and bakes the validated, frozen array into
- * the binary, so the primary path has no filesystem dependency at all.
- *
- * Resolution order:
- *   - Default, including the compiled binary: `EMBEDDED_RUNTIMES` directly.
- *   - `EXARCHOS_RUNTIMES_FROM_DISK=1`: load the YAML from disk. Dev hot-reload
- *     only, for editing a runtime without re-running codegen. The
- *     `runtimes:guard` gate enforces that the two agree.
+ * The binary does not contain `content/harness/runtimes/`, so a build-time codegen step writes
+ * `install/runtimes/embedded.ts` and bun bundles that array. By default the bridge uses
+ * `EMBEDDED_RUNTIMES`. `EXARCHOS_RUNTIMES_FROM_DISK=1` loads the YAML from disk for development,
+ * and the `runtimes:guard` gate keeps the two in agreement.
  */
 
 import {
@@ -84,6 +68,10 @@ export function shouldLoadFromDisk(env = process.env) {
  */
 
 /**
+ * Runs the installer with the selected runtimes and the detected source trees. An injected
+ * `skillsSource` or `aliasesSource` wins over detection. If no skills source is found,
+ * `installSkills` runs `npx skills add`. If no alias source is found, it skips the alias copy.
+ *
  * @param {{ agent?: string }} opts
  * @param {RunInstallSkillsDeps} [deps]
  * @returns {Promise<void>}
@@ -93,23 +81,13 @@ export async function runInstallSkills(opts, deps = {}) {
   const loadFromDisk = deps.loadFromDisk ?? loadAllRuntimes;
   const embedded = deps.embedded ?? EMBEDDED_RUNTIMES;
   const extraOpts = deps.installSkillsOpts ?? {};
-  // The default installer merges any extra opts the caller threads through
-  // (onboard's injectable I/O hooks). A custom `installer` takes them itself.
   const installer = deps.installer ?? ((o) => installSkills({ ...o, ...extraOpts }));
 
   const runtimes = shouldLoadFromDisk(env) ? loadFromDisk(resolveRuntimesDir()) : embedded;
 
-  // Opt the binary entry point into the local-copy fast path by resolving
-  // `skillsSource` here. Auto-detection walks the standard candidate list
-  // (cwd/skills, binary-relative, src-relative dev path); when all of them miss
-  // the value is `undefined` and `installSkills` falls back to the upstream
-  // `npx skills add` shell-out. An injected source override wins over this.
   const skillsSource =
     'skillsSource' in extraOpts ? extraOpts.skillsSource : findSkillsSourceDir();
 
-  // The canonical command-alias tree, resolved the same way. When it misses,
-  // the installer skips the alias copy; only runtimes declaring
-  // `commandsInstallPath` receive aliases at all.
   const aliasesSource =
     'aliasesSource' in extraOpts ? extraOpts.aliasesSource : findCommandAliasesSourceDir();
 

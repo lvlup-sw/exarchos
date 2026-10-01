@@ -11,12 +11,8 @@ export interface CreateVcsProviderOpts {
 }
 
 /**
- * Creates the appropriate VCS provider.
- *
- * Resolution order:
- *  1. Explicit `config.vcs.provider` — used as-is (no detection).
- *  2. Auto-detection via `detectVcsProvider()` on the git remote URL.
- *  3. Fallback to `'github'` when detection returns null.
+ * Creates the VCS provider. An explicit `config.vcs.provider` wins with no detection.
+ * Otherwise `detectVcsProvider()` reads the git remote URL. When detection returns null, the provider is `'github'`.
  */
 export async function createVcsProvider(
   opts?: CreateVcsProviderOpts,
@@ -24,12 +20,10 @@ export async function createVcsProvider(
   const config = opts?.config;
   const settings = config?.vcs?.settings ?? {};
 
-  // If an explicit provider is configured, use it directly.
   if (config?.vcs?.provider) {
     return instantiate(config.vcs.provider, settings);
   }
 
-  // Otherwise, auto-detect from git remote.
   const detected = await detectVcsProvider(opts?.detectorDeps);
   const provider = detected?.provider ?? 'github';
 

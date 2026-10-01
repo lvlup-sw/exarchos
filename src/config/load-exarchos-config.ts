@@ -11,30 +11,25 @@ import {
 const CONFIG_FILENAME = '.exarchos.yml';
 
 export interface LoadResult {
-  /** Validated config contents. The unified schema (#1479) covers every
-   * known `.exarchos.yml` key — the test-runtime concern (test/typecheck/
-   * install/cli) AND the project concern (agents/review/workflow/...) — so a
-   * file with keys from either concern validates here without throwing. */
+  /**
+   * Validated config contents. The unified schema covers the test-runtime keys and
+   * the project keys, so a file with keys of either kind validates.
+   */
   config: FullExarchosConfig;
   /** Absolute path of the file the config came from. */
   source: string;
   /**
-   * Typed deprecations found in the RAW document (DR-31 / T-43).
-   *
-   * Deprecated keys are desugared away by the schema, so `config` cannot
-   * report them; they are collected pre-parse and surfaced here so operator
-   * diagnostics (`exarchos doctor` → invariants-catalog) can tell a consumer
-   * exactly which key to delete and what to write instead. Empty for a clean
-   * config.
+   * Typed deprecations found in the raw document. The schema removes deprecated
+   * keys, so `config` cannot report them. `exarchos doctor` uses this list to name
+   * the key to delete and its replacement. Empty for a clean config.
    */
   deprecations: ConfigDeprecation[];
 }
 
 export interface LoadOptions {
   /**
-   * For testing: inject a function that returns the git repo root for a given
-   * path. Defaults to running `git rev-parse --show-toplevel` via execSync.
-   * Should return `null` when the start path is not inside a git repo.
+   * Test hook that returns the git repo root for a path, or `null` outside a git repo.
+   * Defaults to `git rev-parse --show-toplevel`.
    */
   findRepoRoot?: (start: string) => string | null;
 }
@@ -53,11 +48,12 @@ function defaultFindRepoRoot(start: string): string | null {
 }
 
 /**
- * Load `.exarchos.yml` from `worktreePath` first, falling back to the git
- * repo root. Returns null when no config file is present at either location.
+ * Loads `.exarchos.yml` from `worktreePath`, or else from the git repo root when
+ * that root is a different directory. Returns null when neither location has a
+ * config file.
  *
- * Throws on YAML parse errors or schema validation failures, with the
- * offending file path and a list of violations included in the message.
+ * Throws on a YAML parse error or a schema violation. The message names the file
+ * and lists the violations.
  */
 export function loadExarchosConfig(
   worktreePath: string,
@@ -68,18 +64,15 @@ export function loadExarchosConfig(
   const worktreeAbs = resolve(worktreePath);
   const worktreeCfg = resolve(worktreeAbs, CONFIG_FILENAME);
 
-  // 1. Worktree first.
   if (existsSync(worktreeCfg)) {
     return readAndValidate(worktreeCfg);
   }
 
-  // 2. Fall back to repo root, but only if it differs from the worktree.
   const repoRoot = findRepoRoot(worktreeAbs);
   if (repoRoot === null) return null;
 
   const repoRootAbs = resolve(repoRoot);
   if (repoRootAbs === worktreeAbs) {
-    // Already checked this directory; no second read.
     return null;
   }
 
@@ -91,6 +84,11 @@ export function loadExarchosConfig(
   return null;
 }
 
+/**
+ * Reads, parses, and validates one config file. An empty document is an empty
+ * config. Deprecations come from the raw document, because the schema removes
+ * deprecated keys.
+ */
 function readAndValidate(path: string): LoadResult {
   let raw: string;
   try {
@@ -108,7 +106,6 @@ function readAndValidate(path: string): LoadResult {
     throw new Error(`Failed to parse .exarchos.yml at ${path}: ${msg}`);
   }
 
-  // Treat empty file / null document as empty config.
   const candidate: unknown = parsed === null || parsed === undefined ? {} : parsed;
 
   const result = FullExarchosConfigSchema.safeParse(candidate);
@@ -125,9 +122,6 @@ function readAndValidate(path: string): LoadResult {
   return {
     config: result.data,
     source: path,
-    // Collected from `candidate` (the RAW document), NOT `result.data` — the
-    // schema desugars deprecated keys away, so post-parse data cannot report
-    // them (DR-31 / T-43).
     deprecations: collectConfigDeprecations(candidate),
   };
 }

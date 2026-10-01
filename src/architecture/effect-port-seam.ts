@@ -1,3 +1,12 @@
+/**
+ * The narrow effect-port census. Each curated module declares a port, and its live effect
+ * footprint must equal that port exactly.
+ *
+ * The census uses the {@link EffectClass} values and the detectors of `effect-ledger.ts`. The
+ * ledger proves that each effect has an owner at layer granularity, but it never bounds one module.
+ * This census does. `BROAD_EFFECT_CONTEXT` reports an effect class outside the port.
+ * `STALE_EFFECT_PORT` reports a port class that the module does not perform.
+ */
 import {
   detectModuleEffects,
   scanEffectOccurrences,
@@ -5,41 +14,6 @@ import {
   type EffectOccurrence,
   type ModuleLexer,
 } from './effect-ledger.js';
-
-/**
- * P07-06 — narrow effect-port census (structural conformance).
- *
- * The structural-closure plan (BASE-003, WFQ-016) requires modules to receive a
- * **narrow effect port**, not a broad ambient effect context, and for mechanical
- * checks to **reject a broad effect context**. This module is that check. It
- * builds directly on the P04-01 effect ledger's vocabulary — the same three
- * statically-detectable {@link EffectClass} primitives (`filesystem`, `process`,
- * `network`), detected by the ledger's own {@link detectModuleEffects} /
- * {@link scanEffectOccurrences} (consumed read-only) — and adds a FINER,
- * per-module guarantee the layer-granular ledger deliberately does not express.
- *
- * ── Ledger vs. port (why this is additive, not redundant) ───────────────────
- * `effect-ledger.ts` proves *completeness*: every effect occurrence has SOME
- * declared owner, at LAYER granularity (e.g. all of `verbs/` may perform
- * `process` AND `filesystem`). It never bounds a *single* module. The effect-port
- * census proves *narrowness*: a curated module's declared port is its EXACT
- * effect footprint, so a module the ledger would happily let widen (because its
- * layer owns the extra class) is still rejected here. Concretely: the ledger
- * grants `utils/process.ts` both `process` (its exact rule) and `filesystem` (the
- * `utils/` prefix rule); this census pins its port to exactly
- * `[filesystem, process]` and REJECTS it the day it also opens a network socket.
- *
- * ── "Broad" defined concretely ──────────────────────────────────────────────
- * A module's effect context is BROAD when its live footprint contains an effect
- * class its declared port does NOT list — i.e. it exposes/uses more effect
- * classes than the narrow port grants. That is the {@link EffectPortDiagnostic}
- * `BROAD_EFFECT_CONTEXT`. Like every census on this ladder it is a **two-way
- * ratchet**: a port that OVER-declares (lists a class the module no longer
- * performs, or names a module that performs nothing / is gone) is stale cover and
- * trips `STALE_EFFECT_PORT`, so a narrow-port claim can never rot into a rubber
- * stamp. On the live tree each port equals its module's exact footprint, so
- * neither tooth bites — until someone widens (or empties) a narrow module.
- */
 
 /** A declared narrow port: `module`'s effect footprint must equal `port` exactly. */
 export interface EffectPortRule {
@@ -85,12 +59,10 @@ export function footprintOf(
 }
 
 /**
- * Pure narrow-port verdict over an already-collected occurrence set and rule set.
- *
- * Two independent, complementary checks, each with its own diagnostic:
- *   - BROAD_EFFECT_CONTEXT — a module performs an effect class outside its port;
- *   - STALE_EFFECT_PORT    — a port declares a class the module does not perform
- *                            (over-declaration / phantom module — stale cover).
+ * Returns the narrow-port verdict over a collected occurrence set and rule set.
+ * `BROAD_EFFECT_CONTEXT` reports a class that a module performs outside its port.
+ * `STALE_EFFECT_PORT` reports a port class that the module does not perform, which includes a
+ * missing module.
  */
 export function runEffectPortCensus(
   occurrences: readonly EffectOccurrence[],
@@ -102,7 +74,6 @@ export function runEffectPortCensus(
     const actual = footprintOf(rule.module, occurrences);
     const declared = new Set(rule.port);
 
-    // BROAD: the module does something the narrow port does not grant.
     for (const effectClass of [...actual].sort()) {
       if (!declared.has(effectClass)) {
         diagnostics.push({
@@ -119,8 +90,6 @@ export function runEffectPortCensus(
       }
     }
 
-    // STALE: the port names a class the module no longer performs (or the module
-    // performs nothing at all / is gone) — phantom cover.
     for (const effectClass of [...declared].sort()) {
       if (!actual.has(effectClass)) {
         diagnostics.push({
@@ -143,13 +112,9 @@ export function runEffectPortCensus(
 }
 
 /**
- * Collect the live occurrences and return the narrow-port verdict over the real
- * tree.
- *
- * `lex` is the ledger's lexer port — required here for the same reason it is
- * required there (see `effect-ledger.ts`'s {@link ModuleLexer}): this module is
- * shipped source, and the only sound lexer is the TypeScript compiler, which the
- * effect ledger will not admit into `src/`.
+ * Collects the live occurrences and returns the narrow-port verdict over the real tree. The caller
+ * supplies `lex` (a {@link ModuleLexer}), because the only sound lexer is the TypeScript compiler,
+ * and the effect ledger keeps it out of `src/`.
  */
 export async function auditEffectPorts(
   sourceRoot: string,
@@ -161,9 +126,8 @@ export async function auditEffectPorts(
 }
 
 /**
- * Convenience: the exact effect footprint of a single module's source, via the
- * ledger's own detector. Used by unit tests to pin a module's port against its
- * real source without walking the tree.
+ * Returns the effect footprint of one module source through the ledger detector. Unit tests use it
+ * to pin a port against the real source without a tree walk.
  */
 export function moduleFootprint(
   module: string,
@@ -173,19 +137,17 @@ export function moduleFootprint(
   return new Set(detectModuleEffects(module, source, lex).map((o) => o.effectClass));
 }
 
-// ─── The declared narrow ports ──────────────────────────────────────────────
-//
-// One entry per curated module whose effect port is intentionally narrow. Each
-// `port` is the module's EXACT live footprint (verified against the ledger's
-// scanner), so both ratchet teeth are live: widening a module trips
-// BROAD_EFFECT_CONTEXT and shrinking/removing one trips STALE_EFFECT_PORT.
-
 const port = (module: string, ports: readonly EffectClass[], note: string): EffectPortRule => ({
   module,
   port: Object.freeze([...ports]),
   note,
 });
 
+/**
+ * The curated modules with a narrow effect port. Each `port` is the exact live footprint of its
+ * module. A wider module trips `BROAD_EFFECT_CONTEXT`, and a narrower or removed one trips
+ * `STALE_EFFECT_PORT`.
+ */
 export const NARROW_EFFECT_PORTS: readonly EffectPortRule[] = Object.freeze([
   port(
     'workflow/feedback.ts',
@@ -205,18 +167,9 @@ export const NARROW_EFFECT_PORTS: readonly EffectPortRule[] = Object.freeze([
 ]);
 
 /**
- * The same rules for the modules that task 018a moved OUT of the subject tree
- * into `tools/conformance/`.
- *
- * They are a separate table because the census keys a module by its path
- * relative to the root being scanned, and these two now live under a different
- * root. Keeping them in {@link NARROW_EFFECT_PORTS} would make them phantom
- * rules — which is exactly what the extraction made them, and what
- * `STALE_EFFECT_PORT` caught.
- *
- * The alternative was to delete the two entries. That would have been a silent
- * weakening: both modules still read the filesystem, and the property that they
- * never grow a process or network port is no less true for their having moved.
+ * The narrow ports for modules under `tools/conformance/src`. The census keys a module by its path
+ * relative to the scan root, and these modules have a different root. In
+ * {@link NARROW_EFFECT_PORTS}, `STALE_EFFECT_PORT` reports them as missing modules.
  */
 export const CONFORMANCE_EFFECT_PORTS: readonly EffectPortRule[] = Object.freeze([
   port(

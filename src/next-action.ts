@@ -1,37 +1,22 @@
+/**
+ * The `NextAction` schema, a Zod union keyed on `verb`, and the registry advertisement schema.
+ *
+ * Most verbs share the open base shape. A verb with a required payload, such as `retry_with_task`,
+ * gets its own branch, so a new verb is a schema entry and not free-form prose. `z.union` tries
+ * members in order, so each verb-specific branch comes before the catch-all.
+ */
 import { z } from 'zod';
 
-// ─── Next-actions discriminator schema (DR-8 / Preview-4 §4.4 / #1440 Op 4) ─
-//
-// `NextAction` is a Zod union keyed on `verb`. Most verbs (HSM transition
-// names, `merge_orchestrate`, future control verbs) share the open base
-// shape — verb-specific payload fields are not required. The
-// `retry_with_task` verb (Preview-4 §4.4) carries a required
-// `ttl_suggestion_ms: number` field so callers know what Tasks-augmented
-// dispatch TTL to use when re-invoking. INV-5b requires that a new verb
-// like `retry_with_task` lands as a first-class entry in this schema
-// rather than as free-form prose.
-//
-// The union is *ordered*: the verb-specific branch (`retry_with_task`)
-// must be tried before the catch-all `BaseNextActionSchema`, because the
-// catch-all accepts any string verb and would otherwise short-circuit on
-// the first member. Zod's `z.union` walks members in order, so listing the
-// specific branch first preserves the discriminator contract.
-//
-// Adding a new verb-specific branch (T11+/future): append a new
-// `z.object({ verb: z.literal('your_verb'), ...payload }).strict()` to the
-// `verbBranches` list. The catch-all stays last.
-
 /**
- * Shared fields every `NextAction` carries regardless of verb. Verb-specific
- * branches extend this base.
+ * The fields that each `NextAction` carries. Verb-specific branches extend this base.
  *
- * - `verb`: control-verb name, snake_case (`merge_orchestrate`,
- *   `retry_with_task`, HSM target phase names like `plan`).
- * - `reason`: free-form, human-readable rationale.
- * - `validTargets`: optional list of canonical target identifiers.
+ * - `verb`: a snake_case control verb such as `merge_orchestrate`, or an HSM target phase such as
+ *   `plan`.
+ * - `reason`: a free-form rationale for a human reader.
+ * - `validTargets`: an optional list of canonical target identifiers.
  * - `hint`: optional free-form prose for the caller.
- * - `idempotencyKey`: empty strings rejected — empty keys would collapse
- *   unrelated invocations onto the same de-dup slot (DR-MO-1).
+ * - `idempotencyKey`: the schema rejects an empty string, because empty keys put unrelated calls in
+ *   the same de-dup slot.
  */
 const baseFields = {
   verb: z.string().min(1),
@@ -42,28 +27,17 @@ const baseFields = {
 } as const;
 
 /**
- * Verbs that have a dedicated, verb-specific branch with required-payload
- * fields. The catch-all branch below explicitly excludes these so that a
- * malformed verb-specific payload (e.g. `retry_with_task` without
- * `ttl_suggestion_ms`) cannot quietly fall through to the open shape.
- *
- * When you add a new verb-specific branch, list its literal here too.
+ * The verbs with a dedicated branch and required payload fields. The catch-all branch rejects them,
+ * so a `retry_with_task` without `ttl_suggestion_ms` cannot pass as the open shape. A new
+ * verb-specific branch must add its literal here.
  */
 const VERB_SPECIFIC_LITERALS = ['retry_with_task'] as const;
 
 /**
- * Catch-all branch. Validates any verb whose payload is just the base
- * shape — HSM transition names, `merge_orchestrate`, `checkpoint`, etc.
- *
- * The `verb` refinement explicitly rejects any literal that has a
- * verb-specific branch above; otherwise Zod's `z.union` walks members in
- * order, and a malformed `{ verb: 'retry_with_task', reason: '...' }` (no
- * `ttl_suggestion_ms`) would fail the verb-specific branch and then
- * silently parse against this catch-all, defeating the discriminator
- * contract.
- *
- * Order matters: this MUST be the last member of the union so
- * verb-specific branches above are matched first.
+ * The catch-all branch for a verb with only the base payload, such as an HSM transition name or
+ * `merge_orchestrate`. Its `verb` refinement rejects each verb with a dedicated branch. Without it,
+ * a malformed `retry_with_task` fails its own branch and then parses here. This branch must be the
+ * last member of the union.
  */
 const BaseNextActionSchema = z.object({
   ...baseFields,
@@ -77,16 +51,11 @@ const BaseNextActionSchema = z.object({
 });
 
 /**
- * `retry_with_task` branch (Preview-4 §4.4, #1440 Op 4).
+ * The `retry_with_task` branch. Dispatch emits it when a `taskSuitable: true` action runs without
+ * the `task: { ttl }` augmentation for more than 10000 ms. The caller can then call the action again
+ * with `task: { ttl: ttl_suggestion_ms }` to get live progress.
  *
- * Emitted by the dispatch boundary when a `taskSuitable: true` action is
- * invoked **without** the `task: { ttl }` augmentation and the elapsed
- * dispatch time exceeds the threshold (default 10_000 ms). The verb
- * suggests the caller re-invoke the same action with `task: { ttl:
- * ttl_suggestion_ms }` to get live progress telemetry.
- *
- * `ttl_suggestion_ms` is REQUIRED — the whole point of the hint is to
- * teach callers what TTL to thread back. The dispatch boundary sources it
+ * `ttl_suggestion_ms` is required, because the TTL is the purpose of the hint. Dispatch takes it
  * from `action.dispatch.taskTtlSuggestionMs ?? 60_000`.
  */
 const RetryWithTaskNextActionSchema = z.object({
@@ -96,12 +65,8 @@ const RetryWithTaskNextActionSchema = z.object({
 });
 
 /**
- * Schema for a suggested next action in a rehydration envelope (DR-8).
- *
- * Verb-keyed union. Adding a verb with a required-payload contract: prepend
- * a `z.object({ verb: z.literal('...'), ... })` branch to the union *before*
- * `BaseNextActionSchema`. Verbs that need only the base shape don't need a
- * dedicated branch — they validate via the catch-all.
+ * The schema of a suggested next action in a rehydration envelope. A verb with a required payload
+ * gets a branch before `BaseNextActionSchema`. A verb with only the base shape uses the catch-all.
  */
 export const NextAction = z.union([
   RetryWithTaskNextActionSchema,

@@ -1,11 +1,7 @@
 /**
- * VcsProviderDetector — "which VCS provider hosts this project's remote?"
- *
- * Detects the VCS provider (GitHub, GitLab, Azure DevOps) from the git
- * remote URL, verifies CLI availability, and supports env var overrides.
- *
- * All side effects (`exec`, env) are injected via `VcsDetectorDeps`
- * (DIM-1). No module-global state.
+ * Detects the VCS provider (GitHub, GitLab, or Azure DevOps) from the git remote URL
+ * or an env var override, and checks whether the provider CLI is available.
+ * `VcsDetectorDeps` injects the side effects (`exec` and env).
  */
 
 import { execFile } from 'node:child_process';
@@ -37,11 +33,9 @@ const DEFAULT_EXEC = async (cmd: string, args: string[]): Promise<string> => {
  * Supports HTTPS (`https://github.com/...`) and SSH (`git@github.com:...`) formats.
  */
 function extractHostname(remoteUrl: string): string | null {
-  // HTTPS: https://github.com/owner/repo.git
   const httpsMatch = remoteUrl.match(/^https?:\/\/([^/]+)/);
   if (httpsMatch) return httpsMatch[1]!;
 
-  // SSH: git@github.com:owner/repo.git
   const sshMatch = remoteUrl.match(/^[^@]+@([^:]+):/);
   if (sshMatch) return sshMatch[1]!;
 
@@ -49,7 +43,8 @@ function extractHostname(remoteUrl: string): string | null {
 }
 
 /**
- * Map a hostname to a VCS provider name.
+ * Maps the remote hostname to a VCS provider: `github.com`, `gitlab.com` or a
+ * `gitlab.` host, and `dev.azure.com` or a `*.visualstudio.com` host.
  */
 function parseRemoteUrl(remoteUrl: string): VcsProviderName | null {
   const hostname = extractHostname(remoteUrl);
@@ -57,10 +52,8 @@ function parseRemoteUrl(remoteUrl: string): VcsProviderName | null {
 
   if (hostname === 'github.com') return 'github';
 
-  // GitLab: gitlab.com or any host starting with "gitlab."
   if (hostname === 'gitlab.com' || hostname.startsWith('gitlab.')) return 'gitlab';
 
-  // Azure DevOps: dev.azure.com or *.visualstudio.com
   if (hostname === 'dev.azure.com' || hostname.endsWith('.visualstudio.com')) return 'azure-devops';
 
   return null;
@@ -113,21 +106,23 @@ async function checkCliAvailability(
   }
 }
 
+/**
+ * Detects the VCS environment of the current repo. A valid `EXARCHOS_VCS_PROVIDER`
+ * wins over the remote URL. If the `origin` URL cannot be read, the result has an
+ * empty URL when the override is set, and is null when it is not.
+ */
 export async function detectVcsProvider(
   deps?: VcsDetectorDeps,
 ): Promise<VcsEnvironment | null> {
   const exec = deps?.exec ?? DEFAULT_EXEC;
   const env = deps?.env ?? process.env;
 
-  // 0. Check env var override
   const envOverride = parseEnvOverride(env);
 
-  // 1. Get remote URL (may fail if no remote configured)
   let remoteUrl: string;
   try {
     remoteUrl = (await exec('git', ['remote', 'get-url', 'origin'])).trim();
   } catch {
-    // If env override is set, we can still proceed with empty URL
     if (envOverride) {
       remoteUrl = '';
     } else {
@@ -135,11 +130,9 @@ export async function detectVcsProvider(
     }
   }
 
-  // 2. Determine provider: env override takes precedence over URL detection
   const provider = envOverride ?? parseRemoteUrl(remoteUrl);
   if (!provider) return null;
 
-  // 3. Check CLI availability
   const { cliAvailable, cliVersion } = await checkCliAvailability(exec, provider);
 
   return {

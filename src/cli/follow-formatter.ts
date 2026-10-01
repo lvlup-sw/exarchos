@@ -1,31 +1,16 @@
 /**
- * follow-formatter — render Tasks `--follow` transitions for stdout (#1273, T33).
- *
- * Wave C / PR 3. Shared between the workflow_status and shepherd_status
- * CLI subcommands so both surfaces emit byte-identical transition lines
- * (the only diff is the subcommand prefix in front of the taskId). The
- * formatter is pure: input is the observed `Task` snapshot + the
- * subcommand label, output is a single newline-terminated string.
- *
- * Format:
+ * Renders Tasks `--follow` transitions for stdout. Each `--follow` subcommand uses the same line
+ * format, and only the subcommand prefix differs. Both functions are pure.
  *
  *   [<subcommand>] <taskId> <status> <lastUpdatedAt>[ — <statusMessage>]\n
  *
- * Rationale: agents tail this stream by piping to `head -n` / grep, so a
- * single line per transition + a stable prefix at column 0 keeps grep
- * deterministic. The `lastUpdatedAt` field is the SDK's own transition
- * timestamp (set by `EventSourcedTaskStore.storeTaskResult` /
- * `updateTaskStatus`), reused here instead of a fresh `new Date()` so
- * the rendered timeline matches the event-store record exactly.
+ * Agents read the stream line by line with tools such as `grep`, so each transition is one line
+ * with a stable prefix at column 0. `lastUpdatedAt` comes from the task store, so the rendered
+ * timeline matches the event-store record.
  */
 import type { V2Task as Task } from '../contract/sdk/seam.js';
 
-/**
- * Widened in #1440 Op 1 (T7): the CLI `--follow` predicate now admits
- * three additional view actions backed by pure `ViewProjection` folds.
- * The formatter is unchanged — only the prefix bracket varies — and the
- * union is kept in lockstep with `VIEW_FOLLOW_ACTIONS` in `adapters/cli/cli.ts`.
- */
+/** The `--follow` subcommands. The union matches `VIEW_FOLLOW_ACTIONS` in `adapters/cli/cli.ts`. */
 export type FollowSubcommand =
   | 'workflow_status'
   | 'shepherd_status'

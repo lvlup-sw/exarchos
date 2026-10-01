@@ -1,36 +1,17 @@
-// ─── Toolchain Registry — Single Source of Truth ────────────────────────────
-//
-// One declarative registry of toolchain IDENTITY: which file markers detect a
-// toolchain, its human `projectType` label, and its resolver-canonical commands.
-//
-// This module exists so detection lives in ONE place. Before it, the same
-// marker knowledge was duplicated across `test-runtime-resolver.detect()` and
-// `static-analysis.detectProjectType()` — which is how `.slnx` came to be
-// recognized in some sites but not others (#1507).
-//
-// The consuming surfaces share DETECTION (markers → toolchain). They do NOT
-// share commands: the resolver wants a test-runner command and static-analysis
-// wants a build/lint check, so each consumes detection and keeps its own
-// command perspective. (The retired `new-project` scaffolder also consumed a
-// per-toolchain scaffold token-map; that surface and its `scaffold` field were
-// removed in DR-3/DR-5 — task 017/018.)
-//
-// Node package-manager nuance (npm/pnpm/yarn/bun) is resolved separately from
-// the vendored lockfile table (see resolve-node-runtime, T2) — the node entry's
-// static `commands` are the npm baseline only.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The registry of toolchain identity: the file markers that detect a toolchain, its `projectType` label, and its resolver commands.
+ * Detection lives only here. The resolver and static analysis share detection, but each keeps its own commands.
+ * The node entry holds the npm baseline. The resolver selects the package-manager commands from the vendored lockfile table.
+ * The module also holds the test globs, the mutation diff-scope table, and the hermetic-double resolver for each toolchain.
+ */
 
 import { existsSync, readdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { toPosix } from '../utils/paths.js';
 
 /**
- * Structured contract-verification commands for a schema boundary.
- *
- * `codegen` regenerates client/server bindings from the schema artifact;
- * `diff` runs a breaking-change check against the baseline. Both are null-able
- * because the resolver may attach only one leg (e.g. an OpenAPI artifact with a
- * diff tool but no codegen wired). See {@link ToolchainCommands.contract}.
+ * The contract commands for a schema boundary. `codegen` regenerates the bindings from the schema artifact. `diff` checks for breaking changes against the baseline.
+ * Each one can be null, because the resolver can attach only one of them.
  */
 export interface ContractCommands {
   readonly codegen: string | null;
@@ -42,16 +23,12 @@ export interface ToolchainCommands {
   readonly test: string | null;
   readonly typecheck: string | null;
   readonly install: string | null;
-  /** Mutation-testing runner (e.g. `npx stryker run`, `cargo mutants --in-diff`). */
+  /** The mutation-testing runner, for example `cargo mutants --in-diff`. */
   readonly mutation: string | null;
-  /** Lint / static-style command (e.g. `cargo clippy`, `go vet ./...`). */
+  /** The lint command, for example `cargo clippy`. */
   readonly lint: string | null;
   /**
-   * Contract-verification commands, structured as `{ codegen, diff }`. `null`
-   * for language toolchains: contracts are keyed on schema ARTIFACTS (proto /
-   * OpenAPI / GraphQL), not on the language alone — the resolver attaches the
-   * artifact-keyed commands per-boundary (tasks 017/022), keeping this module
-   * the toolchain-IDENTITY source of truth, not a schema-tool registry.
+   * The contract commands. Every built-in toolchain has `null`, because contracts are keyed on schema artifacts such as proto, OpenAPI or GraphQL, not on the language.
    */
   readonly contract: ContractCommands | null;
 }
@@ -71,18 +48,15 @@ export interface Toolchain {
   readonly commands: ToolchainCommands;
 }
 
-// Priority-ordered. node first preserves prior resolver/static-analysis behavior
-// (package.json wins). Entries below the original five (node, dotnet, rust, go,
-// python) are additive: repos that previously resolved to "no toolchain" now
-// detect — never overriding an existing match.
+/**
+ * The built-in toolchains in priority order. `node` is first, so `package.json` wins over other markers.
+ * The node commands are a baseline. Node `lint` is null, because each repo picks its own linter script.
+ */
 export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
   {
     id: 'node',
     projectType: 'Node.js',
     markers: ['package.json'],
-    // Baseline only — the resolver computes node commands package-manager-aware.
-    // lint is null: a node repo's linter is project-script-specific (eslint /
-    // biome / oxlint), with no single conventional invocation to seed.
     commands: {
       test: 'npm run test:run',
       typecheck: 'tsc --noEmit',
@@ -256,10 +230,8 @@ export interface ConfigToolchain {
 }
 
 /**
- * Convert a user-declared `.exarchos.yml` toolchain into a registry
- * {@link Toolchain}. `projectType` defaults to the id; absent commands become
- * `null`. Pass the result as `detectToolchain(repoRoot, extra)` so user entries
- * are matched before the built-ins.
+ * Converts a `.exarchos.yml` toolchain entry into a {@link Toolchain}. `projectType` defaults to the id, and an absent command becomes `null`.
+ * Pass the result as the `extra` argument of {@link detectToolchain}, so user entries match before the built-ins.
  */
 export function toolchainFromConfig(entry: ConfigToolchain): Toolchain {
   const contract = entry.commands.contract;
@@ -284,31 +256,28 @@ export function toolchainFromConfig(entry: ConfigToolchain): Toolchain {
   };
 }
 
+/**
+ * Returns true when a marker is present. An extension glob (`*.csproj`) needs the directory listing.
+ * An exact filename uses `existsSync`, which is the access pattern that the fs mocks of callers expect.
+ */
 function markerMatches(
   marker: string,
   repoRoot: string,
   listDir: () => readonly string[] | null,
 ): boolean {
-  // Extension globs (`*.csproj`) need a directory listing; exact filenames use
-  // a direct existsSync probe — the natural "is this file here" check, and the
-  // access pattern callers' fs mocks already expect.
   if (marker.startsWith('*.')) {
     const entries = listDir();
     if (!entries) return false;
-    const ext = marker.slice(1); // '*.csproj' → '.csproj'
+    const ext = marker.slice(1);
     return entries.some((e) => e.endsWith(ext));
   }
   return existsSync(toPosix(path.join(repoRoot, marker)));
 }
 
 /**
- * Detect the toolchain at a repo root by its markers, in priority order.
- *
- * `extra` entries (e.g. user-declared `.exarchos.yml` `toolchains:`) are checked
- * BEFORE the built-ins, so a user can override or extend detection. Exact-name
- * markers are probed with `existsSync`; the directory is listed (lazily, once)
- * only when an extension-glob marker is evaluated. Returns `undefined` when no
- * marker matches.
+ * Detects the toolchain at a repo root by its markers, in priority order. It returns `undefined` when no marker matches.
+ * The `extra` entries come before the built-ins, so a user toolchain can override or extend detection.
+ * The function lists the directory once, and only when it evaluates an extension-glob marker.
  */
 export function detectToolchain(
   repoRoot: string,
@@ -333,18 +302,9 @@ export function detectToolchain(
   return undefined;
 }
 
-// ─── Test-file layout by toolchain (FIX-3) ──────────────────────────────────
-
 /**
- * Test-file globs by toolchain id, for ecosystems whose test layout is NOT the
- * co-located `*.test.*` convention (the splitHunks default). Co-located with
- * the toolchain registry so consumers (test-adequacy probe) hold no independent
- * layout table — same SoT discipline as commands/markers.
- *
- * Semantics: a returned set REPLACES the co-located defaults (the toolchain is
- * authoritative about what a "test file" is for that project — see
- * `SplitHunksOptions.testGlobs`). Toolchains absent from this map (node, cmake,
- * …) return null → callers fall back to `DEFAULT_TEST_GLOBS`.
+ * Test-file globs by toolchain id, for ecosystems that do not use the co-located `*.test.*` layout.
+ * A returned set replaces the defaults (see `SplitHunksOptions.testGlobs`). For a toolchain that is not in the map, callers use `DEFAULT_TEST_GLOBS`.
  */
 const TOOLCHAIN_TEST_GLOBS: Readonly<Record<string, readonly string[]>> = {
   python: ['tests/**', '**/test_*.py', '**/*_test.py', '**/conftest.py'],
@@ -367,41 +327,12 @@ export function testGlobsForToolchain(toolchainId: string): readonly string[] | 
   return TOOLCHAIN_TEST_GLOBS[toolchainId] ?? null;
 }
 
-// ─── Mutation diff-scope augmentation (R5 / #1520, design §4.2) ──────────────
-//
-// How to scope a resolved mutation command to a diff base, keyed by toolchain
-// id. This is per-toolchain command KNOWLEDGE, so it belongs in this SoT module
-// alongside the runner commands themselves — consumers (the mutation-adequacy
-// action) stay runner-agnostic and never re-declare a `--since`/`--in-diff`
-// table. The resolver returns a tagged DESCRIPTOR; the handler applies it to the
-// resolved command without knowing one runner's flag from another's.
-//
-// Why a descriptor and not a rewritten string: diff-scoping splits into shapes
-// that compose differently against the command —
-//   - append a flag (Stryker `--since`, PIT `-DtargetClasses`),
-//   - do nothing because the runner is already diff-native (cargo-mutants
-//     `--in-diff` — appending a second scope would double-scope),
-//   - restrict the run to the changed paths (mutmut, which has no diff flag),
-//   - or none of the above → run unscoped WITH a warning so the `< minutes`
-//     acceptance is never silently violated (never silently full-tree).
-
 /**
- * A resolved diff-scope augmentation for one toolchain's mutation runner.
- *
- * - `append-flag`     — append `flag` to the resolved command (`--since=<base>`,
- *                       `-DtargetClasses=...`). `tokenized` is false when the
- *                       value rides the flag (`--since=<base>`) and true when it
- *                       is a separate argv token (`--since <base>`), so the
- *                       applier can shell-quote correctly.
- * - `already-native`  — the runner already diff-scopes itself (cargo-mutants
- *                       `--in-diff`); the applier appends nothing.
- * - `path-restricted` — restrict the run to the diff's changed paths (mutmut's
- *                       `--paths-to-mutate`); `flag` carries a `<changed>`
- *                       placeholder the applier fills with the diff's changed
- *                       paths (the same applier-resolves-placeholder pattern as
- *                       PIT's `-DtargetClasses=<changed>` append-flag).
- * - `unscoped-warning`— no known augmentation; run unscoped and surface
- *                       `warning` (the Task-seam note), never silently full.
+ * How to scope the mutation runner of a toolchain to a diff. The handler applies it with no knowledge of runner flags.
+ * - `append-flag`: append `flag` to the command. `tokenized` is true when the value is a separate argv token, so the applier can quote it.
+ * - `already-native`: the runner scopes itself to the diff, so the applier appends nothing.
+ * - `path-restricted`: restrict the run to the changed paths. The applier fills the `<changed>` placeholder in `flag`.
+ * - `unscoped-warning`: no scope is known. The run is unscoped and shows `warning`, so a full-tree run is never silent.
  */
 export type MutationDiffScope =
   | { readonly kind: 'append-flag'; readonly flag: string; readonly tokenized: boolean; readonly warning?: undefined }
@@ -410,35 +341,21 @@ export type MutationDiffScope =
   | { readonly kind: 'unscoped-warning'; readonly warning: string };
 
 /**
- * Strategy for scoping a toolchain's mutation runner to a diff. Keyed by
- * toolchain id (the same ids as {@link BUILTIN_TOOLCHAINS}). A `base`-templated
- * builder so the value-placement nuance (`--since=<base>` vs `--since <base>`)
- * lives next to the runner knowledge, not in the consumer. A toolchain absent
- * from this table — or present in the registry with `mutation: null` (no runner
- * to scope) — resolves to the unscoped-warning arm.
+ * The diff-scope builder for each toolchain id. A toolchain that is not in this table resolves to `unscoped-warning`.
  */
 const MUTATION_DIFF_SCOPE: Readonly<Record<string, (base: string) => MutationDiffScope>> = {
-  // node: this repo's resolved mutation command is
-  // `node tools/audit/core/stryker-adapter.mjs` (DR-7, task
-  // 012) — NOT a bare StrykerJS invocation. `--since` is a Stryker.NET flag;
-  // StrykerJS itself has no such option. The node contract here is "the
-  // adapter consumes it": stryker-adapter.mjs parses `--since=<base>` and
-  // translates it into StrykerJS's own `--mutate <globs>` scoping, computed
-  // from `git diff --name-only <base>...HEAD` restricted to changed,
-  // still-existing `src/**` source files. This entry's
-  // shape (append a `--since=<base>` flag) is unchanged by that correction —
-  // only the target of the flag differs from a naive "StrykerJS understands
-  // --since" reading.
+  /**
+   * StrykerJS has no `--since` option. In this repo the node mutation command is `tools/audit/core/stryker-adapter.mjs`.
+   * The adapter converts `--since=<base>` into a StrykerJS `--mutate` list of the changed `src/**` files.
+   */
   node: (base) => ({ kind: 'append-flag', flag: `--since=${base}`, tokenized: false }),
-  // Stryker (.NET): value is a separate token.
+  /** Stryker.NET takes the value as a separate token. */
   dotnet: (base) => ({ kind: 'append-flag', flag: `--since ${base}`, tokenized: true }),
-  // cargo-mutants is already `--in-diff` — do not double-scope.
+  /** The cargo-mutants command already has `--in-diff`. A second scope is wrong. */
   rust: () => ({ kind: 'already-native' }),
-  // mutmut has no `--since`; restrict the run to the changed paths via
-  // `--paths-to-mutate` (the applier fills `<changed>` with the diff's .py paths).
+  /** mutmut has no diff flag, so the run uses `--paths-to-mutate` on the changed paths. */
   python: () => ({ kind: 'path-restricted', flag: '--paths-to-mutate=<changed>' }),
-  // PIT scopes via -DtargetClasses=<changed>; same strategy for both Java build
-  // tools (the changed-class glob is computed by the applier from `base`).
+  /** PIT uses `-DtargetClasses`. The applier computes the changed classes from `base`. */
   'java-maven': () => ({ kind: 'append-flag', flag: '-DtargetClasses=<changed>', tokenized: false }),
   'java-gradle': () => ({ kind: 'append-flag', flag: '-DtargetClasses=<changed>', tokenized: false }),
 };
@@ -450,12 +367,8 @@ function hasMutationRunner(toolchainId: string): boolean {
 }
 
 /**
- * Resolve how to scope a toolchain's mutation runner to the diff `base`.
- *
- * Returns a tagged {@link MutationDiffScope}. Unknown ids — and known ids whose
- * registry entry has no mutation runner (go/swift/cmake) — return the
- * `unscoped-warning` arm: there is nothing to scope, so we never pretend a
- * scope and never silently run full-tree.
+ * Resolves how to scope the mutation runner of a toolchain to the diff `base`.
+ * An id with no table entry returns `unscoped-warning`. The warning text tells a known runner apart from a toolchain with no runner.
  */
 export function resolveMutationDiffScope(toolchainId: string, base: string): MutationDiffScope {
   const build = MUTATION_DIFF_SCOPE[toolchainId];
@@ -468,31 +381,10 @@ export function resolveMutationDiffScope(toolchainId: string, base: string): Mut
   return { kind: 'unscoped-warning', warning: reason };
 }
 
-// ─── Hermetic-double resolution (SIV-5 / #1531) ──────────────────────────────
-//
-// The CONSTRUCTIVE half of SIV-4 (#1530): SIV-4 detects an agent-authored mock
-// of an UNOWNED dependency and steers away from it; SIV-5 says what to use
-// INSTEAD. Banning a practice without supplying the alternative just produces
-// friction, so this resolver maps a detected unowned-dependency CLASS to its
-// preferred high-fidelity double.
-//
-// Shape rationale: hermetic doubles key on the DEPENDENCY's class (a DB vs a
-// cloud API vs an owned interface), NOT on the project's language toolchain —
-// the exact reason `contract` is keyed on schema ARTIFACTS and is `null` on
-// every BUILTIN_TOOLCHAINS entry. So this is a SIBLING resolver (like
-// MUTATION_DIFF_SCOPE / resolveMutationDiffScope above), not a per-toolchain
-// `ToolchainCommands` field. It emits a RESOLUTION descriptor — a named
-// strategy with its fidelity/cadence/caveat — never a baked command or literal
-// (INV-4 gen-time-placeholder trap): the consumer inspects the descriptor and
-// decides, it does not receive a hardcoded "use Testcontainers" string.
-//
-// Fidelity order is Google's canonical real > fake > stub/mock. The honesty
-// caveats are first-class fields, not prose: an emulator (LocalStack) is itself
-// a FAKE of the cloud (a higher-fidelity failure mode, not a guarantee), and a
-// container-backed real double costs real wall-clock ⇒ boundary/offline
-// cadence, never the inner loop.
-
-/** The class of an unowned dependency, for hermetic-double resolution. */
+/**
+ * The class of an unowned dependency, for hermetic-double resolution.
+ * The double depends on the class of the dependency, not on the language toolchain. Thus it is a separate resolver and not a `ToolchainCommands` field.
+ */
 export type HermeticDependencyClass =
   | 'database'
   | 'cloud-api'
@@ -504,25 +396,21 @@ export type HermeticDependencyClass =
 export type HermeticFidelity = 'real' | 'fake' | 'stub';
 
 /**
- * A resolved hermetic double for one dependency class. A DESCRIPTOR, not a
- * baked command: `double` names the strategy; `fidelity`/`cadence`/`caveat`
- * carry the honesty the consumer needs to place it correctly.
+ * The hermetic double for one dependency class. It is a descriptor, not a command.
+ * `double` names the strategy. `fidelity`, `cadence` and `caveat` tell the consumer where the double fits.
  */
 export interface HermeticDouble {
   readonly depClass: HermeticDependencyClass;
   /** The resolved double strategy (a name, not a command or literal). */
   readonly double: string;
   readonly fidelity: HermeticFidelity;
-  /**
-   * `boundary-offline` for container-backed doubles (real wall-clock cost) —
-   * never the inner loop; `inner-loop` for cheap in-process doubles.
-   */
+  /** `boundary-offline` for a container-backed double, which costs real time. `inner-loop` for a cheap in-process double. */
   readonly cadence: 'inner-loop' | 'boundary-offline';
-  /** Honesty caveat (e.g. an emulator is itself a fake of the cloud). */
+  /** A limit of the double, for example that an emulator is itself a fake of the cloud. */
   readonly caveat?: string;
 }
 
-/** Dep-class → preferred double. The resolution table (resolve, don't bake). */
+/** The preferred double for each dependency class. */
 const HERMETIC_RESOLUTION: Readonly<Record<HermeticDependencyClass, HermeticDouble>> = {
   database: {
     depClass: 'database',
@@ -564,10 +452,7 @@ const HERMETIC_RESOLUTION: Readonly<Record<HermeticDependencyClass, HermeticDoub
 };
 
 /**
- * Signatures mapping a well-known dependency specifier to its class. Bare
- * package specifiers only (the unowned-mock targets SIV-4 surfaces). A specifier
- * matching no signature stays UNCLASSIFIED (the resolver returns null rather
- * than guess a double — resolve, don't bake).
+ * Patterns that map a well-known bare package specifier to its dependency class. A specifier that matches no pattern stays unclassified.
  */
 const HERMETIC_CLASS_SIGNATURES: ReadonlyArray<{
   readonly depClass: HermeticDependencyClass;
@@ -592,20 +477,15 @@ const HERMETIC_CLASS_SIGNATURES: ReadonlyArray<{
 ];
 
 /**
- * Classify an unowned dependency specifier into a {@link HermeticDependencyClass}
- * by well-known package signatures, or `null` when no signature matches. The
- * null arm is load-bearing: an unrecognized dependency gets the generic hermetic
- * menu, never a guessed-wrong concrete double.
+ * Classifies an unowned dependency specifier by the well-known package patterns. It returns `null` when no pattern matches.
+ * The consumer then gives the generic list of hermetic options, not a wrong concrete double.
  */
 export function classifyHermeticDependency(specifier: string): HermeticDependencyClass | null {
   const match = HERMETIC_CLASS_SIGNATURES.find((s) => s.test.test(specifier));
   return match ? match.depClass : null;
 }
 
-/**
- * Resolve a dependency class to its preferred hermetic double (the descriptor).
- * Total over the class union — every class has a resolution.
- */
+/** Returns the preferred hermetic double for a dependency class. Every class has one. */
 export function resolveHermeticDouble(depClass: HermeticDependencyClass): HermeticDouble {
   return HERMETIC_RESOLUTION[depClass];
 }

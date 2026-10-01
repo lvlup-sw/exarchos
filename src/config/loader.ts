@@ -4,26 +4,19 @@ import { pathToFileURL } from 'node:url';
 import type { ExarchosConfig } from './define.js';
 import { validateConfig } from './validation.js';
 
-// ─── Config File Names ─────────────────────────────────────────────────────
-
 const CONFIG_FILENAMES = ['exarchos.config.ts', 'exarchos.config.js'] as const;
 
-// ─── Config Loader ─────────────────────────────────────────────────────────
-
 /**
- * Loads an Exarchos config file from the project root via dynamic import.
+ * Loads the first config file in `projectRoot` through dynamic `import()` and validates its
+ * default export. Returns `{}` when no config file exists.
  *
- * TRUST BOUNDARY: Config files are user-authored TypeScript/JavaScript
- * modules in the project directory. Dynamic import executes this code,
- * which is equivalent to the user running their own scripts. This is
- * intentional — config files define workflows, guards, and custom behavior.
+ * A `.ts` file needs a TypeScript-capable loader. If its import fails, the loader uses the `.js`
+ * sibling when one exists.
  *
- * Looks for `exarchos.config.ts` or `exarchos.config.js` in projectRoot.
- * Uses dynamic `import()` for ESM-compatible loading.
- * Returns `{}` if no config file is found.
- * Validates the loaded config with Zod schema.
+ * Trust boundary: the config file is user-authored code. The import runs it, the same as when
+ * the user runs their own scripts.
  *
- * @throws Error if config file exists but is invalid
+ * @throws Error if the config file cannot load or is invalid
  */
 export async function loadConfig(projectRoot: string): Promise<ExarchosConfig> {
   let configPath: string | undefined;
@@ -40,9 +33,6 @@ export async function loadConfig(projectRoot: string): Promise<ExarchosConfig> {
     return {};
   }
 
-  // Dynamic import for ESM compatibility.
-  // .ts files require a TypeScript-capable loader (tsx, bun, ts-node).
-  // If the import fails for a .ts file, fall back to .js sibling.
   let configModule: unknown;
   try {
     configModule = await import(pathToFileURL(configPath).href);
@@ -63,10 +53,8 @@ export async function loadConfig(projectRoot: string): Promise<ExarchosConfig> {
     }
   }
 
-  // Extract default export
   const rawConfig = extractDefaultExport(configModule);
 
-  // Validate with Zod
   const result = validateConfig(rawConfig);
   if (!result.success) {
     throw new Error(
@@ -76,8 +64,6 @@ export async function loadConfig(projectRoot: string): Promise<ExarchosConfig> {
 
   return result.data as ExarchosConfig;
 }
-
-// ─── Helpers ───────────────────────────────────────────────────────────────
 
 function extractDefaultExport(module: unknown): unknown {
   if (module !== null && typeof module === 'object' && 'default' in module) {

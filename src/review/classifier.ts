@@ -1,18 +1,11 @@
-// ─── Review Classification (Issue #1159 Phase 2) ────────────────────────────
-//
-// Promotes the prose direct-vs-delegate heuristic from
-// content/synthesis/skills/shepherd/references/fix-strategies.md into a structured
-// orchestrate action. Consumers pass a list of ActionItems (typically the
-// `actionItems` returned by assess_stack) and receive a list of file-keyed
-// groups, each with a recommended dispatch strategy:
-//
-//   direct              — small enough to fix in the running shepherd loop
-//   delegate-fixer      — multi-item or HIGH severity → spawn fixer subagent
-//   delegate-scaffolder — pure doc-nit cluster → cheap scaffolder dispatch
-//
-// The shared SCAFFOLDING_KEYWORDS constant is also used by
-// verbs/team/prepare-delegation.ts (#1159 design Q-P5 resolution).
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Review classification. It groups review `ActionItem`s by file and gives each
+ * group a dispatch recommendation:
+ *
+ * - `direct`: one item without HIGH severity. The shepherd loop fixes it.
+ * - `delegate-fixer`: a HIGH item, or more than one item on the file.
+ * - `delegate-scaffolder`: all items LOW, and one matches a doc-nit keyword.
+ */
 
 import type {
   ActionItem,
@@ -30,8 +23,6 @@ const DIRECT_FIX_MAX_ITEMS = 1;
 
 const NULL_FILE_KEY = null as unknown as string;
 
-// ─── Grouping ──────────────────────────────────────────────────────────────
-
 export function groupItemsByFile(
   items: readonly ActionItem[],
 ): Map<string | null, ActionItem[]> {
@@ -47,8 +38,6 @@ export function groupItemsByFile(
   }
   return groups;
 }
-
-// ─── Per-Group Recommendation ──────────────────────────────────────────────
 
 function maxSeverity(items: readonly ActionItem[]): Severity {
   let highest: Severity = 'LOW';
@@ -66,6 +55,10 @@ function isDocNit(item: ActionItem): boolean {
   return REVIEW_DOC_NIT_KEYWORDS.some((kw) => haystack.includes(kw.toLowerCase()));
 }
 
+/**
+ * Recommends a dispatch for one file group. A group with more than one item
+ * goes to a fixer, so that one fixer reads the file once for all items.
+ */
 export function recommendForGroup(items: readonly ActionItem[]): {
   recommendation: DispatchRecommendation;
   rationale: string;
@@ -73,7 +66,6 @@ export function recommendForGroup(items: readonly ActionItem[]): {
 } {
   const severity = maxSeverity(items);
 
-  // All-LOW + at least one doc-nit keyword → cheap scaffolder dispatch.
   if (severity === 'LOW' && items.some(isDocNit)) {
     return {
       recommendation: 'delegate-scaffolder',
@@ -82,7 +74,6 @@ export function recommendForGroup(items: readonly ActionItem[]): {
     };
   }
 
-  // Any HIGH severity → delegate to fixer subagent regardless of count.
   if (severity === 'HIGH') {
     return {
       recommendation: 'delegate-fixer',
@@ -91,8 +82,6 @@ export function recommendForGroup(items: readonly ActionItem[]): {
     };
   }
 
-  // Multi-item groups (same file, multiple comments) → delegate to amortise
-  // file-read overhead per #1159 P1.
   if (items.length > DIRECT_FIX_MAX_ITEMS) {
     return {
       recommendation: 'delegate-fixer',
@@ -107,8 +96,6 @@ export function recommendForGroup(items: readonly ActionItem[]): {
     severity,
   };
 }
-
-// ─── Top-Level Entry Point ─────────────────────────────────────────────────
 
 export function classifyReviewItems(items: readonly ActionItem[]): ClassificationResult {
   const grouped = groupItemsByFile(items);

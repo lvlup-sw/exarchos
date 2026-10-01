@@ -1,22 +1,15 @@
-// ─── Unified Test Runtime Resolver ──────────────────────────────────────────
-//
-// Owns resolution of test/typecheck/install commands for a repository as a
-// layered, per-field precedence (highest first):
-//   override > .exarchos.yml direct > user `toolchains:` (tier 3) >
-//   task-runner (tier 4) > built-in toolchain registry (tier 5) > unresolved.
-// Toolchain identity + markers come from the shared registry (./toolchains.ts);
-// the language-agnostic task-runner tier from ./task-runners.ts. Returns a typed
-// ResolvedRuntime describing which commands to run plus the source per field.
-//
-// This module is the authoritative source for runtime resolution.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Resolves the test, typecheck and install commands of a repository, one field at a time.
+ * The layer order, highest first: override > `.exarchos.yml` direct > user `toolchains:` > task runner > built-in registry > unresolved.
+ * Toolchain identity and markers come from `./toolchains.ts`. The task-runner layer comes from `./task-runners.ts`.
+ * The result is a {@link ResolvedRuntime} with the commands and the source of each one.
+ */
 
 import { existsSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { toPosix } from '../utils/paths.js';
 
-/** POSIX-normalized path.join — marker paths are compared against config
- *  keys, so they must be separator-agnostic on Windows (#1620). */
+/** A `path.join` with POSIX separators. Marker paths are compared with config keys, so the separator must be the same on Windows. */
 const pjoin = (...segments: string[]): string => toPosix(path.join(...segments));
 import { logger } from '../logger.js';
 import { loadExarchosConfig, type LoadResult } from './load-exarchos-config.js';
@@ -27,10 +20,10 @@ import { LOCKS, INSTALL_METADATA } from './vendor/package-manager-detector/lockf
 
 const resolverLogger = logger.child({ subsystem: 'test-runtime-resolver' });
 
-// Detection sub-tiers of the layered resolver, in precedence order:
-//   override > config (.exarchos.yml direct) > toolchain-config (user
-//   .exarchos.yml `toolchains:`) > task-runner (Taskfile/just/mise/Makefile) >
-//   detection (built-in registry) > unresolved.
+/**
+ * The layer that supplied a command. `config` is `.exarchos.yml` direct, and `toolchain-config` is a user `toolchains:` entry.
+ * `task-runner` is a committed Taskfile, justfile, mise or Makefile target. `detection` is the built-in registry.
+ */
 export type ResolutionSource =
   | 'override'
   | 'config'
@@ -44,20 +37,13 @@ export interface ResolvedRuntime {
   typecheck: string | null;
   install: string | null;
   source: ResolutionSource;
-  /** Present when the resolver could not determine commands and no override was supplied. */
+  /** The fix text. It is present when `source` is `unresolved`. */
   remediation?: string;
 }
 
 /**
- * The widened verification runtime (task 017). Carries the legacy
- * test/typecheck/install fields PLUS the verification-ladder additions:
- * `mutation`, `lint`, and structured `contract`. Resolved via the same
- * per-field layered precedence as {@link ResolvedRuntime}.
- *
- * `source` is the aggregate label of the highest-precedence layer that
- * contributed any non-null field across the legacy three (preserving the exact
- * `resolveTestRuntime` semantics the alias delegates to). The widened fields
- * resolve independently per the same tier order.
+ * The verification runtime: the {@link ResolvedRuntime} fields plus `mutation`, `lint` and a structured `contract`.
+ * `source` comes from {@link resolveTestRuntime} and covers only test, typecheck and install.
  */
 export interface ResolvedVerificationRuntime extends ResolvedRuntime {
   mutation: string | null;
@@ -65,11 +51,8 @@ export interface ResolvedVerificationRuntime extends ResolvedRuntime {
   /** Structured contract commands `{ codegen, diff }`, or null when no tool resolves. */
   contract: ContractCommands | null;
   /**
-   * True when `mutation` came from the repository's own declaration (override,
-   * `.exarchos.yml` direct, or a user-declared toolchain) rather than from an
-   * inference (a committed task runner or built-in registry detection).
-   * Optional so an injected runtime in a test defaults to "not declared", which
-   * is the conservative reading for any consumer gating on it.
+   * True when `mutation` came from an override, `.exarchos.yml` direct, or a user toolchain, and not from a task runner or detection.
+   * It is optional, so an injected test runtime reads as "not declared". That is the safe reading for a consumer that gates on it.
    */
   mutationProjectDeclared?: boolean;
 }
@@ -83,17 +66,13 @@ export interface ResolveOptions {
     lint?: string;
     contract?: { codegen?: string; diff?: string };
   };
-  /** For testing: inject the config loader. Defaults to loadExarchosConfig from T12. */
+  /** A config loader for tests. The default is `loadExarchosConfig`. */
   loadConfig?: (worktreePath: string) => LoadResult | null;
 
   /**
-   * EventStore for emitting `command.resolved` events. When undefined, no
-   * events are emitted (allows callers like CLI tooling that runs before init
-   * to resolve commands without requiring an EventStore). When provided,
-   * three events are emitted per call (one per field).
-   *
-   * Constructor-injection only — the resolver MUST NOT instantiate or look up
-   * an EventStore itself. See PR #1185 (single-composition-root).
+   * The store for `command.resolved` events. With a store, each call appends three events, one for each field.
+   * Without a store, the resolver appends nothing, so CLI tools that run before init can resolve commands.
+   * The resolver must not create or look up an EventStore itself.
    */
   eventStore?: {
     append: (
@@ -102,26 +81,17 @@ export interface ResolveOptions {
     ) => void | Promise<void>;
   };
 
-  /**
-   * Stream ID to emit on. REQUIRED when `eventStore` is provided. Typically
-   * the featureId of the active workflow.
-   */
+  /** The stream for the events. It is required with `eventStore`. Usually it is the featureId of the active workflow. */
   stream?: string;
 }
 
 /**
- * Allowlist pattern for command overrides. Rejects shell metacharacters
- * (`;|&$\``(){}!<>) and control whitespace (`\n`, `\t`, `\r`) — only plain
- * spaces are allowed as token separators. Mirrors the .exarchos.yml schema
- * pattern in `exarchos-config-schema.ts` for unified semantics.
+ * The allowlist for command overrides. It rejects shell metacharacters and control whitespace, and allows a plain space between tokens.
+ * It is equal to `SAFE_COMMAND_REGEX` in `exarchos-config-schema.ts`.
  */
 const SAFE_COMMAND_PATTERN = /^[a-zA-Z0-9_\- :.=\/+,@"'\\]+$/;
 
-// Remediation copy for the "no project markers detected" branch. Includes a
-// minimal `.exarchos.yml` example so a dispatched agent has something
-// concrete to paste, plus a pointer to the checkpoint skill where the
-// configuration story is documented end-to-end. Format chosen to render
-// readably in both Markdown contexts and plain-text logs.
+/** The fix text when no project marker is found. It gives a minimal `.exarchos.yml` example and points to the checkpoint skill. */
 const UNRESOLVED_REMEDIATION =
   'No project markers detected. Add a .exarchos.yml at the repo root, ' +
   'for example: `test: pytest`, `typecheck: pyright`, `install: pip install -e .`. ' +
@@ -146,9 +116,8 @@ interface DetectionResult {
   install: string | null;
   detected: boolean;
   /**
-   * When set, the project markers were detected but the package.json scripts
-   * required to run tests are missing. The resolver should surface this as
-   * an `unresolved` source with the supplied remediation text.
+   * Set when the project markers are present but `package.json` is malformed or has no test script.
+   * The resolver then returns an `unresolved` source with this text.
    */
   unresolvedReason?: string;
 }
@@ -193,17 +162,10 @@ function hasScript(pkg: PackageJsonShape | null, name: string): boolean {
 const NODE_PACKAGE_MANAGERS = new Set(['bun', 'pnpm', 'yarn', 'npm']);
 
 /**
- * Detect the Node-ecosystem package manager in use for a project.
- *
- * Returns the package manager based on lockfile presence, in priority order
- * (bun > pnpm > yarn > npm default). The lockfile→agent mapping is sourced from
- * the vendored `package-manager-detector` `LOCKS` table (ordered most-specific
- * first) rather than a hand-maintained list — see
- * `./vendor/package-manager-detector/README.md`.
- *
- * Lockfiles only matter when a `package.json` declares the project — a stray
- * lockfile from a partial git checkout should not promote a non-Node tree to
- * Node detection. Returns `null` when no `package.json` is present.
+ * Detects the Node package manager of a project from its lockfile. The default is npm.
+ * The lockfile map is the vendored `package-manager-detector` `LOCKS` table, most specific first.
+ * With no lockfile, it checks the installed-state markers in `INSTALL_METADATA`, as upstream does.
+ * It returns `null` when there is no `package.json`, so a stray lockfile does not make a tree a Node project.
  */
 function detectNodePackageManager(
   repoRoot: string,
@@ -216,8 +178,6 @@ function detectNodePackageManager(
       return agent as 'bun' | 'pnpm' | 'yarn' | 'npm';
     }
   }
-  // No lockfile — fall back to installed-state markers (deps installed but the
-  // lockfile is absent), matching upstream's two-stage detect.
   for (const [marker, agent] of Object.entries(INSTALL_METADATA)) {
     if (NODE_PACKAGE_MANAGERS.has(agent) && existsSync(pjoin(repoRoot, marker))) {
       return agent as 'bun' | 'pnpm' | 'yarn' | 'npm';
@@ -227,12 +187,8 @@ function detectNodePackageManager(
 }
 
 /**
- * Yarn Berry (v2+) uses `yarn install --immutable`; Yarn Classic (v1) does
- * not understand that flag. Berry projects always carry one of:
- *   - `.yarnrc.yml` (Berry-only config file; v1 uses `.yarnrc`)
- *   - `.yarn/releases/` (Berry-bundled binary)
- *   - `packageManager: "yarn@>=2..."` field in package.json
- * Detect any of these signals; absence implies Yarn Classic.
+ * Returns true for Yarn Berry (v2+), which uses `yarn install --immutable`. Yarn Classic (v1) rejects that flag.
+ * The signals are `.yarnrc.yml`, `.yarn/releases/`, or a `packageManager` field of `yarn@2` or later. With no signal, the project is Yarn Classic.
  */
 function isYarnBerry(repoRoot: string, pkg: PackageJsonShape | null): boolean {
   if (existsSync(pjoin(repoRoot, '.yarnrc.yml'))) return true;
@@ -245,14 +201,9 @@ function isYarnBerry(repoRoot: string, pkg: PackageJsonShape | null): boolean {
 }
 
 /**
- * Per-package-manager script profile for the Node script-existence path
- * (pnpm / yarn / npm — `bun` is handled separately since `bun test` needs no
- * `scripts.test` entry). `testScript` is the script whose presence gates a
- * runnable `test` command; `install` is a function so yarn can pick
- * `--immutable` (Berry) vs `--frozen-lockfile` (Classic). These PM-aware
- * command strings live here, not in toolchains.ts, by design: the registry's
- * node entry is a package-manager-blind baseline (see toolchains.ts), and these
- * are the refinements the resolver layers on top — not a second toolchain list.
+ * Script profiles for pnpm, yarn and npm. `detect` handles bun separately, because `bun test` needs no `scripts.test` entry.
+ * `testScript` is the script that must exist for a runnable `test` command. `install` is a function, so yarn can select the flag for Berry or Classic.
+ * These commands refine the package-manager-blind node entry in `toolchains.ts`. They are not a second toolchain list.
  */
 const NODE_SCRIPT_PROFILES: Record<
   'pnpm' | 'yarn' | 'npm',
@@ -273,9 +224,6 @@ const NODE_SCRIPT_PROFILES: Record<
     testScript: 'test',
     test: 'yarn test',
     typecheck: 'yarn run typecheck',
-    // `--immutable` is Berry-only; Classic (v1) rejects it. Pick the install
-    // command from the detected version. Both versions still get the same
-    // test/typecheck shape — those scripts are user-defined.
     install: (repoRoot, pkg) =>
       isYarnBerry(repoRoot, pkg) ? 'yarn install --immutable' : 'yarn install --frozen-lockfile',
   },
@@ -287,9 +235,12 @@ const NODE_SCRIPT_PROFILES: Record<
   },
 };
 
+/**
+ * Runs the built-in detection. Node comes first, with package-manager and script checks. Then the registry detects the other toolchains in priority order.
+ * A bun repo uses `bun run test:run` when that script exists. Otherwise `bun test` runs the Bun runner over vitest files, not the real suite.
+ * For pnpm, yarn and npm, a missing test script gives an unresolved test that still carries an install command.
+ */
 function detect(repoRoot: string): DetectionResult {
-  // Tier 5 (built-in): node first (package-manager-aware, with script-existence
-  // nuance), then any other toolchain via the shared registry's priority order.
   const pm = detectNodePackageManager(repoRoot);
   if (pm !== null) {
     const { json: pkg, malformed } = readPackageJson(repoRoot);
@@ -304,17 +255,6 @@ function detect(repoRoot: string): DetectionResult {
       };
     }
     if (pm === 'bun') {
-      // bun ships a built-in `bun test` runner that does not require a
-      // `scripts.test` entry, so a bun repo NEVER resolves unresolved-test.
-      // BUT when the project defines an explicit `test:run` script (e.g. a
-      // vitest-on-bun repo like servers/exarchos-mcp, which pins vitest for
-      // Windows-headroom timeouts), honor it — otherwise `bun test` runs Bun's
-      // native runner over vitest files instead of the project's real suite.
-      // This mirrors the npm profile (`testScript: 'test:run'`) so both
-      // supported workspaces (root via npm, servers/exarchos-mcp via bun)
-      // resolve the SAME intended `test:run` command rather than diverging
-      // onto two different runners. `typecheck` follows the same honor-script
-      // rule as the npm/pnpm/yarn branch. Install stays package-manager-native.
       return {
         test: hasScript(pkg, 'test:run') ? 'bun run test:run' : 'bun test',
         typecheck: hasScript(pkg, 'typecheck') ? 'bun run typecheck' : 'tsc --noEmit',
@@ -322,10 +262,6 @@ function detect(repoRoot: string): DetectionResult {
         detected: true,
       };
     }
-    // pnpm / yarn / npm share one script-existence shape (bun handled above): a
-    // missing test script yields an unresolved-test result that still carries a
-    // runnable install; otherwise test/typecheck resolve package-manager-aware.
-    // The per-PM commands come from the NODE_SCRIPT_PROFILES table.
     const profile = NODE_SCRIPT_PROFILES[pm];
     const install = profile.install(repoRoot, pkg);
     if (!hasScript(pkg, profile.testScript)) {
@@ -347,13 +283,6 @@ function detect(repoRoot: string): DetectionResult {
     };
   }
 
-  // Non-node toolchains: delegate identity + canonical commands to the registry,
-  // the single source of truth for markers. This is where `.slnx`/`.sln` now
-  // resolve (#1507) and where the expanded ecosystem set (go, java, ruby, …)
-  // comes from. The node branch above already handled package.json repos with
-  // their package-manager nuance, so the registry's node entry is never reached
-  // here. Non-node entries carry test-only commands (typecheck/install null),
-  // preserving the resolver's prior output shape.
   const toolchain = detectToolchain(repoRoot);
   if (toolchain) {
     return {
@@ -367,6 +296,17 @@ function detect(repoRoot: string): DetectionResult {
   return { test: null, typecheck: null, install: null, detected: false };
 }
 
+/**
+ * Resolves the test, typecheck and install commands, one field at a time, in the layer order of the file header.
+ * An override must match `SAFE_COMMAND_PATTERN`, and the resolver trims it. An `eventStore` needs a `stream`.
+ * A config load error is not caught.
+ *
+ * The aggregate `source` is the highest layer that supplied any field.
+ * If detection flags the test as unresolvable and no higher layer supplies one, `source` is `unresolved`. Typecheck and install keep their values.
+ *
+ * Each `command.resolved` event carries the real source of its field. An unresolved field always carries a remediation, because the event schema requires one.
+ * An append failure only logs a warning, so resolution never fails because of the event store.
+ */
 export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): ResolvedRuntime {
   const rawOverride = options?.override;
 
@@ -375,15 +315,12 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
     if (rawOverride.typecheck !== undefined) assertSafe('typecheck', rawOverride.typecheck);
     if (rawOverride.install !== undefined) assertSafe('install', rawOverride.install);
   }
-  // Normalize override values to their trimmed form so emitted/returned commands
-  // match the trimmed `safeCommand` shape config values already use (N2).
   const override = {
     test: rawOverride?.test?.trim(),
     typecheck: rawOverride?.typecheck?.trim(),
     install: rawOverride?.install?.trim(),
   };
 
-  // Validate emission contract up-front: eventStore requires stream.
   if (options?.eventStore && (options.stream === undefined || options.stream === '')) {
     throw new Error(
       'resolveTestRuntime: stream is required when eventStore is provided',
@@ -392,13 +329,10 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
 
   const det = detect(repoRoot);
 
-  // Load config (T12 — propagates schema/parse errors as hard failures).
   const loadConfig = options?.loadConfig ?? loadExarchosConfig;
   const configResult = loadConfig(repoRoot);
   const config = configResult?.config;
 
-  // ── Detection sub-tiers (resolved per field, highest tier first) ──────────
-  // tier 3: user-declared `.exarchos.yml` toolchains: (matched before built-ins)
   const userToolchains = (config?.toolchains ?? []).map(toolchainFromConfig);
   const userMatched = userToolchains.length > 0 ? detectToolchain(repoRoot, userToolchains) : undefined;
   const userMatch = userMatched && userToolchains.includes(userMatched) ? userMatched : undefined;
@@ -407,13 +341,10 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
   const resolveDetection = (
     field: 'test' | 'typecheck' | 'install',
   ): { value: string | null; tier: DetectionTier | null } => {
-    // tier 3 — user toolchain command
     const userCmd = userMatch?.commands[field] ?? null;
     if (userCmd !== null) return { value: userCmd, tier: 'toolchain-config' };
-    // tier 4 — committed task-runner with a matching conventional target
     const runner = resolveTaskRunner(repoRoot, field);
     if (runner) return { value: runner.command, tier: 'task-runner' };
-    // tier 5 — built-in registry detection
     if (det[field] !== null) return { value: det[field], tier: 'detection' };
     return { value: null, tier: null };
   };
@@ -421,7 +352,6 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
   const typecheckDet = resolveDetection('typecheck');
   const installDet = resolveDetection('install');
 
-  // Per-field merge: override > config > [toolchain-config > task-runner > detection].
   type Layer = 'override' | 'config' | DetectionTier;
   const pick = (
     overrideVal: string | undefined,
@@ -446,9 +376,6 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
     ),
   );
 
-  // Aggregate source label = highest-precedence layer that contributed any
-  // non-null field. override > config > toolchain-config > task-runner >
-  // detection > unresolved.
   let source: ResolutionSource;
   if (contributingLayers.has('override')) {
     source = 'override';
@@ -464,43 +391,19 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
     source = 'unresolved';
   }
 
-  // Compute the final ResolvedRuntime first so emission has the same view as
-  // the caller. Two tricky cases below:
-  //   1) Detection had `unresolvedReason` (e.g., missing test:run script) and
-  //      neither override nor config supplied `test`. The aggregate result is
-  //      flagged 'unresolved' with the detection-specific remediation.
-  //   2) Nothing contributed at all → generic 'unresolved'.
-
   let result: ResolvedRuntime;
-  // Per-field event source/command/remediation for emission. Derived from the
-  // same layer tracking that drives the aggregate, but unresolved fields are
-  // emitted with source: 'unresolved' rather than null. The schema requires a
-  // non-empty remediation string for every `source: 'unresolved'` event, so
-  // each entry carries its own — even in the "partial detection" case (e.g.,
-  // .NET/Rust/Python where typecheck/install have no resolver default).
   type PerFieldEvent = {
     field: 'test' | 'typecheck' | 'install';
     command: string | null;
     source: ResolutionSource;
-    /** Required when source === 'unresolved'. */
     remediation?: string;
   };
   let perFieldEvents: PerFieldEvent[];
 
-  // Per-field remediation builder for the partial-unresolved case. Avoids
-  // hard-coding project-type strings in the message — the resolver shouldn't
-  // know whether it's looking at .NET vs Rust at this layer.
   const fieldUnresolvedRemediation = (field: 'typecheck' | 'install'): string =>
     `No ${field} command available for this project from detection. ` +
     `Add a "${field}" entry to .exarchos.yml or pass an override.`;
 
-  // Per-field event construction, table-driven over the three legacy fields in
-  // order. Each field's event derives from its resolved pick: a null layer
-  // (nothing contributed) emits `source: 'unresolved'` with a remediation string
-  // (the schema requires one), otherwise the contributing layer becomes the
-  // event source. The result-branches below differ only in which remediation an
-  // unresolved field gets, so they share this one builder rather than each
-  // repeating the three-element array literal.
   const layerToSource = (layer: Layer | null): ResolutionSource =>
     layer === null ? 'unresolved' : layer;
   const fieldPicks: Record<
@@ -524,14 +427,6 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
     });
 
   if (det.unresolvedReason && testPick.value === null) {
-    // The built-in detection flagged an unresolvable test (e.g. node missing a
-    // test:run script) AND no higher tier (override / config / user toolchain /
-    // task-runner) supplied one — so `test` is genuinely null. override/config
-    // (and now the toolchain-config / task-runner tiers) may still have
-    // contributed valid `typecheck`/`install` values — honor them per the
-    // documented precedence. The aggregate source remains `unresolved` because
-    // `test` is unrunnable, but per-field events keep their actual source so the
-    // audit trail is accurate.
     const reason = det.unresolvedReason;
     result = {
       test: null,
@@ -559,16 +454,11 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
       install: installPick.value,
       source,
     };
-    // Detected projects (e.g., .NET / Rust / Python) leave secondary fields
-    // null — the per-field event must still satisfy the schema's
-    // unresolved-with-remediation invariant.
     perFieldEvents = buildPerFieldEvents((field) =>
       field === 'test' ? UNRESOLVED_REMEDIATION : fieldUnresolvedRemediation(field),
     );
   }
 
-  // Emit per-field events. Resolution succeeds even if emission fails
-  // (DIM-7 resilience): we catch and warn but never propagate.
   if (options?.eventStore && options.stream) {
     const stream = options.stream;
     const store = options.eventStore;
@@ -605,10 +495,9 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
 }
 
 /**
- * One command field, ready for a gate to run, or the reason it cannot run.
+ * One command field, ready for a gate to run, or the reason that it cannot run.
  * `unresolved`: the resolver found no command for the field.
- * `invalid`: resolution failed, or the resolved command cannot be split into a
- * program and its arguments.
+ * `invalid`: resolution failed, or the resolved command does not split into a program and its arguments.
  */
 export type RunnableCommand =
   | {
@@ -621,9 +510,8 @@ export type RunnableCommand =
   | { readonly kind: 'invalid'; readonly reason: string };
 
 /**
- * Resolve one command field for a gate that runs it. This function never
- * throws and never guesses a command. A caller that needs the leg to pass
- * treats every result other than `runnable` as a failed leg.
+ * Resolves one command field for a gate that runs it. The function never throws and never guesses a
+ * command. A caller that needs the leg to pass treats each result other than `runnable` as a failed leg.
  */
 export function resolveRunnableCommand(
   repoRoot: string,
@@ -659,25 +547,7 @@ export function resolveRunnableCommand(
   return { kind: 'runnable', command, bin: parts.cmd, args: parts.args };
 }
 
-// ─── Generalized Verification Runtime Resolver (task 017) ───────────────────
-//
-// `resolveVerificationRuntime` widens the resolver over the verification-ladder
-// field set: the legacy test/typecheck/install PLUS mutation, lint, and
-// structured contract. It reuses the exact same layered precedence — per field,
-// highest first: override > .exarchos.yml direct > user `toolchains:` >
-// task-runner > built-in registry > unresolved.
-//
-// Design note (single source of truth): the legacy three fields are resolved by
-// delegating to `resolveTestRuntime` so its behavior — and its `command.resolved`
-// emission and aggregate `source` semantics — stay byte-identical. The widened
-// scalar fields (mutation, lint) resolve through the same tier order via a
-// shared per-field helper; `contract` resolves structured ({ codegen, diff }).
-// Contracts are keyed on schema ARTIFACTS, not the language toolchain, so the
-// built-in registry contributes null contract and the resolved structured value
-// comes from override / config-direct (artifact-keyed registry seeds are wired
-// in task 022).
-
-/** Resolve a single widened scalar field (mutation | lint) through the tier stack. */
+/** Resolves `mutation` or `lint` through override, config, user toolchain, task runner, and then built-in detection. */
 function resolveScalarField(
   repoRoot: string,
   field: 'mutation' | 'lint',
@@ -686,37 +556,27 @@ function resolveScalarField(
   userMatchCommand: string | null,
   detectBuiltin: () => Toolchain | undefined,
 ): string | null {
-  // tier 1 — override
   if (overrideVal !== undefined) return overrideVal;
-  // tier 2 — .exarchos.yml direct
   if (configVal !== undefined) return configVal;
-  // tier 3 — user-declared toolchain command
   if (userMatchCommand !== null) return userMatchCommand;
-  // tier 4 — committed task-runner with a matching conventional target
   const runner = resolveTaskRunner(repoRoot, field);
   if (runner) return runner.command;
-  // tier 5 — built-in registry detection (memoised by the caller so the
-  // filesystem probe runs at most once across all widened fields).
   const detectedCmd = detectBuiltin()?.commands[field] ?? null;
   if (detectedCmd !== null) return detectedCmd;
   return null;
 }
 
 /**
- * Resolve the widened verification runtime for a repository.
- *
- * The legacy test/typecheck/install fields (and the returned `source`) are
- * delegated to {@link resolveTestRuntime} verbatim — same emission, same
- * aggregate-source semantics. The widened fields resolve independently per the
- * documented per-field precedence.
+ * Resolves the verification runtime. Test, typecheck, install and `source` come from {@link resolveTestRuntime}, with the same events.
+ * `mutation` and `lint` resolve through the same layer order, and the built-in detection runs at most once for both.
+ * `contract` resolves through override, config and user toolchain only, because contracts are keyed on schema artifacts.
+ * The mutation gate uses `mutationProjectDeclared` to tell a declared command from an inferred one. The two command strings look the same.
  */
 export function resolveVerificationRuntime(
   repoRoot: string,
   options?: ResolveOptions,
 ): ResolvedVerificationRuntime {
   const rawOverride = options?.override;
-  // Validate the widened override values with the same allowlist the legacy
-  // fields use (resolveTestRuntime already validates test/typecheck/install).
   if (rawOverride) {
     if (rawOverride.mutation !== undefined) assertSafe('mutation', rawOverride.mutation);
     if (rawOverride.lint !== undefined) assertSafe('lint', rawOverride.lint);
@@ -728,25 +588,18 @@ export function resolveVerificationRuntime(
     }
   }
 
-  // Legacy three — byte-identical to resolveTestRuntime (incl. emission).
   const base = resolveTestRuntime(repoRoot, options);
 
-  // Load config once for the widened fields (mirrors resolveTestRuntime's loader
-  // seam; a throw here would already have surfaced from the base call above).
   const loadConfig = options?.loadConfig ?? loadExarchosConfig;
   const configResult = loadConfig(repoRoot);
   const config = configResult?.config;
 
-  // tier 3 — user-declared `.exarchos.yml` toolchains, matched before built-ins.
   const userToolchains = (config?.toolchains ?? []).map(toolchainFromConfig);
   const userMatched =
     userToolchains.length > 0 ? detectToolchain(repoRoot, userToolchains) : undefined;
   const userMatch =
     userMatched && userToolchains.includes(userMatched) ? userMatched : undefined;
 
-  // Built-in detection is filesystem-backed (existsSync/readdirSync) — memoise
-  // it so the probe runs at most once across mutation + lint (LOW: it ran once
-  // per field, on top of resolveTestRuntime's own detection).
   let detectedBuiltin: Toolchain | undefined;
   let detectedBuiltinRan = false;
   const detectBuiltin = (): Toolchain | undefined => {
@@ -774,17 +627,8 @@ export function resolveVerificationRuntime(
     detectBuiltin,
   );
 
-  // Contract — structured { codegen, diff }. Per-field within the structure:
-  // override leg > config leg > user-toolchain leg. The built-in registry seeds
-  // null contract (artifact-keyed seeds are wired in task 022), so detection
-  // contributes nothing here today.
   const contract = resolveContract(rawOverride?.contract, config?.contract, userMatch?.commands.contract ?? null);
 
-  // Tiers 1-3 are the REPOSITORY speaking (an override, `.exarchos.yml` direct,
-  // a user-declared toolchain); tiers 4-5 are the resolver inferring on its
-  // behalf. A consumer that must not act on a guess — the mutation gate, which
-  // refuses to pick a run root it cannot justify — needs that apart from the
-  // command string, which looks identical either way.
   const mutationProjectDeclared =
     rawOverride?.mutation?.trim() !== undefined ||
     config?.mutation !== undefined ||
@@ -800,9 +644,8 @@ export function resolveVerificationRuntime(
 }
 
 /**
- * Resolve the structured contract field, leg by leg (codegen + diff each follow
- * override > config > user-toolchain). Returns null when no leg resolves on
- * either side — the "no contract tool" signal task 022's gate degrades on.
+ * Resolves the contract commands. `codegen` and `diff` each take the first value from override, config, and then user toolchain.
+ * It returns null when neither resolves. That null means "no contract tool".
  */
 function resolveContract(
   overrideContract: { codegen?: string; diff?: string } | undefined,

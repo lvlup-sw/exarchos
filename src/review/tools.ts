@@ -1,16 +1,13 @@
-// ─── Review Triage Tool Handler ─────────────────────────────────────────────
-//
-// Scores PRs by risk and dispatches to CodeRabbit or self-hosted review
-// based on velocity. Emits review.routed events for each dispatched PR.
-// ────────────────────────────────────────────────────────────────────────────
-
+/**
+ * The review triage handler. It scores each PR by risk. Each PR gets self-hosted review, and a PR
+ * at or above the threshold for the current velocity also gets CodeRabbit. It emits a
+ * `review.routed` event for each dispatched PR.
+ */
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../events/store.js';
 import { detectVelocity } from './velocity.js';
 import { dispatchReviews } from './dispatch.js';
 import type { PRDiffMetadata, ReviewContext, ReviewDispatch } from './types.js';
-
-// ─── Input Validation ──────────────────────────────────────────────────────
 
 interface ReviewTriageInput {
   featureId: string;
@@ -48,8 +45,6 @@ function isError(result: ReviewTriageInput | ToolResult): result is ToolResult {
   return 'success' in result && result.success === false;
 }
 
-// ─── Event Emission ────────────────────────────────────────────────────────
-
 async function emitRoutedEvents(
   eventStore: EventStore,
   featureId: string,
@@ -71,8 +66,6 @@ async function emitRoutedEvents(
   }
 }
 
-// ─── Summary ───────────────────────────────────────────────────────────────
-
 interface DispatchSummary {
   total: number;
   coderabbit: number;
@@ -88,8 +81,7 @@ function summarizeDispatches(dispatches: ReviewDispatch[]): DispatchSummary {
   };
 }
 
-// ─── Handler ───────────────────────────────────────────────────────────────
-
+/** Triages the review of each PR. The caller injects the event store, and this handler never creates one. */
 export async function handleReviewTriage(
   args: Record<string, unknown>,
   _stateDir: string,
@@ -106,8 +98,6 @@ export async function handleReviewTriage(
   const velocity = detectVelocity(context);
   const dispatches = dispatchReviews(input.prs, velocity);
 
-  // Emit review.routed events (skip if no dispatches). EventStore is
-  // injected via DispatchContext — never instantiated here (#1182).
   if (dispatches.length > 0) {
     await emitRoutedEvents(eventStore, input.featureId, dispatches);
   }

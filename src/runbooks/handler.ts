@@ -1,11 +1,3 @@
-// ─── Runbook Handler ─────────────────────────────────────────────────────────
-//
-// Two modes:
-// - List mode (no `id`): returns summary of all runbooks, optionally filtered by phase.
-// - Detail mode (`id` provided): returns the full resolved runbook with schemas
-//   resolved from the registry at serve-time.
-// ────────────────────────────────────────────────────────────────────────────
-
 import { zodToJsonSchema } from '../utils/json-schema.js';
 import type { ToolResult } from '../format.js';
 import { findActionInRegistry } from '../registry.js';
@@ -18,13 +10,12 @@ interface RunbookArgs {
 }
 
 /**
- * Handles the `runbook` action on exarchos_orchestrate.
- *
- * List mode: returns `{ id, phase, description, stepCount }` for each runbook.
- * Detail mode: returns a fully resolved runbook with schemas from the registry.
+ * Handles the `runbook` action of `exarchos_orchestrate`. Without an `id`, it lists
+ * `{ id, phase, description, stepCount }` for each runbook, filtered by `phase` when
+ * given. With an `id`, it returns the runbook with each step schema resolved from the
+ * registry at serve time.
  */
 export async function handleRunbook(args: RunbookArgs): Promise<ToolResult> {
-  // ─── List mode ────────────────────────────────────────────────────────
   if (!args.id) {
     let runbooks = ALL_RUNBOOKS;
     if (args.phase) {
@@ -42,7 +33,6 @@ export async function handleRunbook(args: RunbookArgs): Promise<ToolResult> {
     };
   }
 
-  // ─── Detail mode ──────────────────────────────────────────────────────
   const runbook = ALL_RUNBOOKS.find(r => r.id === args.id);
   if (!runbook) {
     return {

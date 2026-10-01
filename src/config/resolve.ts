@@ -11,15 +11,9 @@ export type ModelId = 'opus' | 'sonnet' | 'haiku';
 export type EmissionEnforcementMode = (typeof EMISSION_ENFORCEMENT_MODES)[number];
 
 /**
- * The enforcement mode in force when NO project config was resolved at all.
- *
- * `initializeContext` returns without a `projectConfig` whenever no
- * `projectRoot` is supplied — the CLI cold start and most tests — so the
- * schema's resolved default is simply never consulted on that path. Leaving it
- * implicit would mean the documented default and the behavior most runs
- * actually get were two different things, with nothing stating which.
- *
- * It matches the resolved default deliberately: the absence of a config file is
+ * The enforcement mode when no project config is resolved. Without a `projectRoot`,
+ * `initializeContext` returns no `projectConfig`, as in a CLI cold start and most
+ * tests. This value matches the schema default, because a missing config file is
  * not an opt-out of enforcement.
  */
 export const EMISSION_ENFORCEMENT_FALLBACK: EmissionEnforcementMode = 'block';
@@ -33,8 +27,6 @@ export function resolveEmissionEnforcement(
 ): EmissionEnforcementMode {
   return config?.events.emissionEnforcement ?? EMISSION_ENFORCEMENT_FALLBACK;
 }
-
-// ─── Resolved Types ─────────────────────────────────────────────────────────
 
 export interface ResolvedDimensionConfig {
   readonly severity: 'blocking' | 'warning' | 'disabled';
@@ -56,29 +48,23 @@ export interface ResolvedProjectConfig {
     readonly defaultModel: 'opus' | 'sonnet' | 'haiku';
     readonly models: Readonly<Record<string, 'opus' | 'sonnet' | 'haiku'>>;
     /**
-     * DR-1 (#1672): tier-keyed model policy — the model floor applied to a
-     * task by its verification-ladder `riskTier`, INDEPENDENT of the
-     * scaffolder/implementer agent split. This is the surface that drives
-     * task-classification model choice (see `resolveModelForTask`); the
-     * per-agent `models` map above governs only the non-dispatch surfaces
-     * (reviewer/fixer dispatch, agent generation).
+     * Model for a task by its verification-ladder `riskTier`, independent of the
+     * per-agent `models` map. `resolveModelForTask` reads it.
      *
-     * Documented defaults: `low → haiku`, `medium → sonnet`, `high → opus`.
-     * Overridable via `.exarchos.yml agents.tier-models`. Validated at
-     * config-resolution time (see {@link validateTierModels}): model strength
-     * (haiku < sonnet < opus) must be monotone non-decreasing across
-     * `low → medium → high`, and `high → haiku` is rejected (the high-tier
-     * floor is `sonnet`; `high → sonnet` is an allowed operator opt-in).
+     * Defaults: `low → haiku`, `medium → sonnet`, `high → opus`. The
+     * `agents.tier-models` key overrides them. {@link validateTierModels} rejects a
+     * table whose model strength decreases from low to high, and `high → haiku`.
      */
     readonly tierModels: Readonly<Record<RiskTier, ModelId>>;
   };
   readonly review: {
     readonly dimensions: Readonly<Record<'D1' | 'D2' | 'D3' | 'D4' | 'D5', ResolvedDimensionConfig>>;
     readonly gates: Readonly<Record<string, ResolvedGateConfig>>;
-    // DR-3: mutation score enforcement at `review → synthesize`. `advisory`
-    // (default) never blocks; `block` fails the guard when a HIGH-tier run is
-    // sub-threshold. A dedicated key (not the gate's `blocking:false`) so the
-    // default is unambiguous — no default-vs-explicit-false confusion.
+    /**
+     * Mutation-score enforcement at `review → synthesize`. `advisory`, the default,
+     * never blocks. `block` fails the guard when a HIGH-tier run is under the
+     * threshold. A dedicated key, not the gate `blocking` flag, keeps the default clear.
+     */
     readonly mutationEnforcement: 'block' | 'advisory';
     readonly routing: {
       readonly coderabbitThreshold: number;
@@ -87,11 +73,9 @@ export interface ResolvedProjectConfig {
   };
   readonly events: {
     /**
-     * How the post-dispatch emission verifier reports a violation. `block`
-     * (default) fails the run; `advisory` records the finding without failing.
-     *
-     * One value, not a per-environment pair. See the schema block for why a
-     * default that only bites in CI is worse than no default at all.
+     * How the post-dispatch emission verifier reports a violation. `block`, the
+     * default, fails the run. `advisory` records the finding and does not fail. One
+     * value applies in every environment.
      */
     readonly emissionEnforcement: EmissionEnforcementMode;
   };
@@ -131,28 +115,25 @@ export interface ResolvedProjectConfig {
     readonly enforceOnWaveDispatch: boolean;
   };
   /**
-   * The verification policy-overlay (R2 / task 001) — the per-cell gate-sequence
-   * overrides from `.exarchos.yml`. A config without a `verification:` block
-   * resolves to an empty overlay (`policy: {}`), meaning "override nothing" — the
-   * later resolver layers this over the frozen base policy table. Shares the
-   * `VerificationPolicyOverlay` shape with the YAML schema (single overlay type).
+   * The per-cell gate-sequence overrides from `.exarchos.yml`. A config with no
+   * `verification:` block resolves to `policy: {}`, which overrides nothing. A later
+   * resolver lays this overlay over the frozen base policy table.
    */
   readonly verification: {
     readonly policy: VerificationPolicyOverlay;
   };
   /**
-   * Storage substrate tuning (DR-4). `synchronous` is the SQLite
-   * `PRAGMA synchronous` durability posture threaded through the EventStore
-   * to the lazily-created append substrate. Defaults to `'normal'`.
+   * Storage tuning. `synchronous` is the SQLite `PRAGMA synchronous` setting that
+   * the event store passes to the append substrate. Defaults to `normal`.
    */
   readonly storage: {
     readonly synchronous: 'normal' | 'full';
   };
   /**
-   * SYNTHESIZE-kind `document` readiness leg config (DR-2, #1594). `severity`
-   * gates whether an uncovered doc-bearing change blocks synthesis; `surfaceGlobs`
-   * declares the doc-bearing paths (empty ⇒ auto-waive); `docGlobs` declares what
-   * counts as a doc change. Always fully resolved (defaults applied).
+   * Config of the `document` readiness leg of synthesis. `severity` sets whether an
+   * uncovered doc-bearing change blocks synthesis. `surfaceGlobs` declares the
+   * doc-bearing paths, and an empty list waives the leg. `docGlobs` declares what
+   * counts as a doc change.
    */
   readonly synthesis: {
     readonly documentLeg: {
@@ -162,24 +143,20 @@ export interface ResolvedProjectConfig {
     };
   };
   /**
-   * Shared escalation policy (DR-3, #1595). `maxIterations` is the per-loop
-   * auto-fix bound threaded to the review and shepherd
-   * fix-loops; consumers pass it as `configMaxIterations` to
-   * `resolveEscalationPolicy`. Always fully resolved (default applied).
+   * Shared escalation policy. `maxIterations` is the auto-fix bound of each review
+   * and shepherd fix loop. Consumers pass it to `resolveEscalationPolicy` as
+   * `configMaxIterations`.
    */
   readonly escalation: {
     readonly maxIterations: number;
   };
   /**
-   * Where authored workflow artifacts live (DR-6). Prefixes, already
-   * POSIX-normalized and trailing-slashed by `resolveArtifactDirs`, matched
-   * against the repo-relative paths in a workflow's artifact map. Always fully
-   * resolved (defaults applied).
+   * Directory prefixes of the authored workflow artifacts, normalized by
+   * `resolveArtifactDirs`. They match the repo-relative paths in the artifact map
+   * of a workflow.
    */
   readonly artifacts: ArtifactDirs;
 }
-
-// ─── Default Values ─────────────────────────────────────────────────────────
 
 const DEFAULT_DIMENSION: ResolvedDimensionConfig = { severity: 'blocking', enabled: true };
 
@@ -201,8 +178,7 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
       scaffolder: 'haiku',
       reviewer: 'sonnet',
     },
-    // DR-1 (#1672): documented tier→model floor. Model strength is monotone
-    // non-decreasing across low → medium → high, and high ≥ sonnet.
+    /** Model strength does not decrease from low to high, and high is at least `sonnet`. */
     tierModels: {
       low: 'haiku',
       medium: 'sonnet',
@@ -217,40 +193,26 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
       D4: { ...DEFAULT_DIMENSION },
       D5: { ...DEFAULT_DIMENSION },
     },
-    // Verification-ladder slice 1: `tdd-compliance` is demoted to ADVISORY by
-    // default. The kill-probe gate `check_test_adequacy` is now the load-bearing
-    // per-task verification; commit-order TDD is corroborating advice, so its
-    // resolved default severity is `warning` (blocking:false), not blocking. A
-    // project can still re-block it with an explicit gate override.
+    /** Per-gate defaults. A project can make a gate blocking again with a `review.gates` entry. */
     gates: {
+      /** Advisory, because the `check_test_adequacy` kill probe is the per-task verification. */
       'tdd-compliance': { enabled: true, blocking: false, params: {} },
-      // Verification-ladder slice 1, SIV-4 (#1530): the mock-boundary gate is
-      // ADVISORY by default. It surfaces unowned-dependency mocks (the high-risk
-      // pattern coding agents over-produce) and steers toward hermetic fixtures,
-      // but does not block a task by default — an unowned mock can be the right
-      // call (acknowledged via the `reason` escape hatch). A project can re-block
-      // it with an explicit `review.gates['mock-boundary']` override.
+      /** Advisory, because an unowned-dependency mock can be correct with a `reason`. */
       'mock-boundary': { enabled: true, blocking: false, params: {} },
-      // Verification-ladder slice 3, R5 (#1520): the mutation-adequacy review
-      // dimension is ADVISORY by default. A sub-threshold mutation score
-      // surfaces survivor "kill this mutant" next_actions but does not block a
-      // merge — a sub-100% score is expected (equivalent mutants, research §6
-      // Q2). The soft default threshold lives in `params.threshold` (~0.40) so
-      // it can be calibrated from the INV-1 score trend without a code change.
-      // A project re-blocks with an explicit `review.gates['mutation-adequacy']`
-      // override (blocking: true).
+      /**
+       * Advisory, because equivalent mutants make a score under 100% normal. A project
+       * can calibrate the soft `params.threshold` with no code change.
+       */
       'mutation-adequacy': { enabled: true, blocking: false, params: { threshold: 0.4 } },
     },
-    // DR-3 (#1520/R5): advisory by default — a sub-threshold mutation score
-    // surfaces survivor follow-ups but does not block review→synthesize.
+    /** A score under the threshold adds survivor follow-ups but does not block `review → synthesize`. */
     mutationEnforcement: 'advisory',
     routing: {
       coderabbitThreshold: 0.4,
       riskWeights: { ...DEFAULT_RISK_WEIGHTS },
     },
   },
-  // The emission verifier blocks by default, in every environment. See
-  // `yaml-schema.ts` for why this is a dedicated key and not a gate boolean.
+  /** The emission verifier blocks by default, in every environment. */
   events: {
     emissionEnforcement: EMISSION_ENFORCEMENT_FALLBACK,
   },
@@ -289,8 +251,7 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
     enforceOnPhaseTransition: true,
     enforceOnWaveDispatch: true,
   },
-  // Empty override layer: a config without a `verification:` block overrides no
-  // cell, so the resolver later falls through to the frozen base policy table.
+  /** An empty overlay overrides no cell, so the resolver uses the frozen base policy table. */
   verification: {
     policy: {},
   },
@@ -310,8 +271,6 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
   artifacts: DEFAULT_ARTIFACT_DIRS,
 });
 
-// ─── Tier→Model Policy Validation (DR-1, #1672) ─────────────────────────────
-
 /**
  * Total order over model strength. `haiku < sonnet < opus`. Load-bearing for
  * the monotonicity guard below: a stronger model must never sit at a lower tier
@@ -323,22 +282,14 @@ const MODEL_STRENGTH: Readonly<Record<ModelId, number>> = { haiku: 0, sonnet: 1,
 const TIER_ORDER: readonly RiskTier[] = ['low', 'medium', 'high'];
 
 /**
- * Validate a fully-resolved tier→model table (DR-1, settled OQ2). Two rules,
- * checked in this order so the error names the most specific offending cell:
+ * Validates a full tier-to-model table. It checks two rules in this order:
+ *   1. `high → haiku` fails, because the high-tier floor is `sonnet`. This rule runs
+ *      first, so an all-`haiku` table fails with this specific error.
+ *   2. Model strength must not decrease across `low → medium → high`.
  *
- *   1. `high → haiku` is REJECTED — the high-tier model floor is `sonnet`.
- *      (`high → sonnet` is an allowed operator opt-in; `high → opus` is the
- *      default.) Checked first so an all-`haiku` table — which is technically
- *      monotone — still fails with the specific high-floor diagnostic.
- *   2. Model strength must be MONOTONE NON-DECREASING across low → medium →
- *      high: a lower tier may never carry a stronger model than a higher tier.
- *
- * Throws a structured config error naming the offending cell, matching the
- * `.exarchos.yml`-field-scoped envelope used elsewhere in the config layer
- * (see `load-exarchos-config.ts`).
+ * The error names the `.exarchos.yml` field and the offending cell.
  */
 function validateTierModels(tierModels: Record<RiskTier, ModelId>): void {
-  // Rule 1 — high-tier floor. `high → haiku` is never permitted.
   if (tierModels.high === 'haiku') {
     throw new Error(
       "Invalid .exarchos.yml agents.tier-models.high: 'haiku' is not permitted for the " +
@@ -346,7 +297,6 @@ function validateTierModels(tierModels: Record<RiskTier, ModelId>): void {
     );
   }
 
-  // Rule 2 — monotone non-decreasing model strength across the tier order.
   for (let i = 1; i < TIER_ORDER.length; i++) {
     const prevTier = TIER_ORDER[i - 1];
     const tier = TIER_ORDER[i];
@@ -360,8 +310,6 @@ function validateTierModels(tierModels: Record<RiskTier, ModelId>): void {
     }
   }
 }
-
-// ─── Normalization ──────────────────────────────────────────────────────────
 
 /**
  * Normalizes a dimension config value (shorthand string or longform object)
@@ -404,8 +352,6 @@ function normalizeHookAction(
   };
 }
 
-// ─── Deep Freeze ────────────────────────────────────────────────────────────
-
 /**
  * Recursively freezes an object and all nested objects/arrays.
  */
@@ -423,33 +369,30 @@ function deepFreeze<T>(obj: T): T {
   return obj;
 }
 
-// ─── Resolve Config ─────────────────────────────────────────────────────────
-
 type DimensionKey = 'D1' | 'D2' | 'D3' | 'D4' | 'D5';
 const DIMENSION_KEYS: readonly DimensionKey[] = ['D1', 'D2', 'D3', 'D4', 'D5'];
 
 /**
- * Resolves a partial `ProjectConfig` (from YAML) against defaults,
- * producing a fully-populated, deeply-frozen `ResolvedProjectConfig`.
+ * Resolves a partial `ProjectConfig` from YAML against `DEFAULTS` into a full,
+ * deeply frozen `ResolvedProjectConfig`.
+ *
+ * A partial `agents.tier-models` override merges over the defaults, and then the
+ * merged table is validated. Project gate entries lay over the per-gate defaults, so
+ * a gate that the project does not name keeps its default. The resolver copies nested
+ * input before the freeze, so that `deepFreeze` does not freeze caller input.
  */
 export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
-  // ── Agents ──
   const agentDefaultModel = (project.agents?.['default-model'] as 'opus' | 'sonnet' | 'haiku') ?? DEFAULTS.agents.defaultModel;
   const agentModels: Record<string, 'opus' | 'sonnet' | 'haiku'> = {
     ...DEFAULTS.agents.models,
     ...(project.agents?.models as Record<string, 'opus' | 'sonnet' | 'haiku'> ?? {}),
   };
-  // DR-1 (#1672): tier→model policy. Layer any `.exarchos.yml agents.tier-models`
-  // partial override over the documented defaults, then validate the FULL merged
-  // table (monotonicity + high-tier floor). The override is partial — an operator
-  // may re-map a single tier and inherit the rest.
   const tierModels: Record<RiskTier, ModelId> = {
     ...DEFAULTS.agents.tierModels,
     ...(project.agents?.['tier-models'] as Partial<Record<RiskTier, ModelId>> ?? {}),
   };
   validateTierModels(tierModels);
 
-  // ── Review ──
   const dimensions = {} as Record<DimensionKey, ResolvedDimensionConfig>;
   for (const key of DIMENSION_KEYS) {
     const override = project.review?.dimensions?.[key];
@@ -458,11 +401,6 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
       : { ...DEFAULT_DIMENSION };
   }
 
-  // Seed the per-gate DEFAULTS (e.g. the verification-ladder advisory
-  // demotions for tdd-compliance / mock-boundary), then overlay project
-  // entries. Without the seed, ANY project that ships a `.exarchos.yml` lost
-  // the per-gate defaults entirely and fell through to the (often blocking)
-  // dimension setting — silently re-blocking demoted gates (FIX-2 fallout).
   const gates: Record<string, ResolvedGateConfig> = Object.fromEntries(
     Object.entries(DEFAULTS.review.gates).map(([name, gate]) => [name, { ...gate }]),
   );
@@ -482,13 +420,11 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
   const mutationEnforcement =
     project.review?.['mutation-enforcement'] ?? DEFAULTS.review.mutationEnforcement;
 
-  // ── VCS ──
   const vcsProvider = project.vcs?.provider ?? DEFAULTS.vcs.provider;
   const vcsSettings = project.vcs?.settings
     ? { ...project.vcs.settings }
     : {};
 
-  // ── Workflow ──
   const skipPhases = [...(project.workflow?.['skip-phases'] ?? DEFAULTS.workflow.skipPhases)];
   const maxFixCycles = project.workflow?.['max-fix-cycles'] ?? DEFAULTS.workflow.maxFixCycles;
   const maxPlanRevisions = project.workflow?.['max-plan-revisions'] ?? DEFAULTS.workflow.maxPlanRevisions;
@@ -502,14 +438,12 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     }
   }
 
-  // ── Tools ──
   const defaultBranch = project.tools?.['default-branch'] ?? DEFAULTS.tools.defaultBranch;
   const commitStyle = project.tools?.['commit-style'] ?? DEFAULTS.tools.commitStyle;
   const prTemplate = project.tools?.['pr-template'] ?? DEFAULTS.tools.prTemplate;
   const autoMerge = project.tools?.['auto-merge'] ?? DEFAULTS.tools.autoMerge;
   const prStrategy = project.tools?.['pr-strategy'] ?? DEFAULTS.tools.prStrategy;
 
-  // ── Hooks ──
   const hooksOn: Record<string, { readonly command: string; readonly timeout: number }[]> = {};
   if (project.hooks?.on) {
     for (const [event, actions] of Object.entries(project.hooks.on)) {
@@ -517,36 +451,21 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     }
   }
 
-  // ── Plugins ──
   const impeccableEnabled = project.plugins?.impeccable?.enabled ?? DEFAULTS.plugins.impeccable.enabled;
 
-  // ── Prune ──
-  // `stale-after-days` was removed (DR-9): per-phase staleness lives in
-  // `topology.yaml` `staleness` blocks, so the knob was accepted-but-ignored.
   const maxBatchSize = project.prune?.['max-batch-size'] ?? DEFAULTS.prune.maxBatchSize;
   const phaseExclusions = [...(project.prune?.['phase-exclusions'] ?? DEFAULTS.prune.phaseExclusions)];
   const malformedHandling = project.prune?.['malformed-handling'] ?? DEFAULTS.prune.malformedHandling;
   const requireDryRun = project.prune?.['require-dry-run'] ?? DEFAULTS.prune.requireDryRun;
 
-  // ── Checkpoint ──
   const operationThreshold = project.checkpoint?.['operation-threshold'] ?? DEFAULTS.checkpoint.operationThreshold;
   const enforceOnPhaseTransition = project.checkpoint?.['enforce-on-phase-transition'] ?? DEFAULTS.checkpoint.enforceOnPhaseTransition;
   const enforceOnWaveDispatch = project.checkpoint?.['enforce-on-wave-dispatch'] ?? DEFAULTS.checkpoint.enforceOnWaveDispatch;
 
-  // ── Verification ──
-  // Thread the parsed policy-overlay through as-is. A missing block (or missing
-  // `policy`) resolves to the empty overlay (`{}`) — "override nothing" — so
-  // the later resolver falls through to the base policy table. The overlay
-  // nests (per-cell arrays + a `boundary` sub-policy), so we DEEP-clone before
-  // freezing — `deepFreeze` would otherwise reach through a shallow copy and
-  // freeze the caller's nested arrays/objects (matching the codebase's
-  // don't-freeze-caller-input discipline).
   const verificationPolicy: VerificationPolicyOverlay = project.verification?.policy
     ? structuredClone(project.verification.policy)
     : structuredClone(DEFAULTS.verification.policy);
 
-  // ── Events ──
-  // No environment branch on purpose: the same mode resolves in CI and in dev.
   const emissionEnforcement: EmissionEnforcementMode =
     project.events?.['emission-enforcement'] ?? DEFAULTS.events.emissionEnforcement;
 
@@ -574,9 +493,6 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
       documentLeg: {
         severity:
           project.synthesis?.documentLeg?.severity ?? DEFAULTS.synthesis.documentLeg.severity,
-        // Spread-clone the arrays so the subsequent deepFreeze() freezes a fresh
-        // copy, never the caller-owned `project.*` input nor the shared DEFAULTS
-        // arrays (both would be a no-freeze-caller-input violation).
         surfaceGlobs: [
           ...(project.synthesis?.documentLeg?.surfaceGlobs ?? DEFAULTS.synthesis.documentLeg.surfaceGlobs),
         ],

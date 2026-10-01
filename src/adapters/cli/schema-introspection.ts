@@ -14,12 +14,10 @@ import {
 import type { SerializedPlaybooks } from '../../workflow/playbooks.js';
 
 /**
- * Resolves a schema reference (e.g., "workflow.init") to its JSON Schema representation.
+ * Resolves a `<tool>.<action>` ref, such as `workflow.init`, to the JSON Schema of
+ * that action. The tool part maps to `exarchos_<tool>` in the registry.
  *
- * The ref format is `<toolShortName>.<actionName>` where toolShortName maps to
- * `exarchos_<toolShortName>` in the registry.
- *
- * @throws Error if the ref format is invalid or the tool/action is not found.
+ * @throws Error if the ref format is not valid, or the tool or the action is not found.
  */
 export function resolveSchemaRef(ref: string): Record<string, unknown> {
   const parts = ref.split('.');
@@ -51,23 +49,9 @@ export function resolveSchemaRef(ref: string): Record<string, unknown> {
 }
 
 /**
- * Lists all tools and their actions from the registry.
- *
- * Tier model — INTENTIONAL asymmetry with the MCP `tools/list` surface.
- * `listSchemas()` returns the FULL registry, including `hidden: true` tools
- * (e.g. `exarchos_sync`). The MCP adapter (`./mcp.ts`) skips hidden tools
- * during `registerTool()` so they stay off the model-facing surface. The
- * CLI introspection path keeps them visible because the CLI is the operator
- * / script / debugging surface, where seeing the complete registry is the
- * desired behavior.
- *
- * Each returned entry carries a `hidden` boolean so callers (CLI renderers,
- * docs generators, parity tests) can mark or filter hidden tools without
- * having to re-walk the registry.
- *
- * See bug #1218 for the triage that locked this asymmetry in as
- * intentional, and `registry.ts:CompositeTool.hidden` for the field
- * contract.
+ * Lists every tool in the registry with its actions, hidden tools included. The MCP
+ * adapter skips hidden tools, but the CLI is the operator surface and shows them on
+ * purpose. Each entry carries a `hidden` flag, so callers can mark or filter them.
  */
 export function listSchemas(): Array<{
   tool: string;
@@ -85,12 +69,8 @@ export function listSchemas(): Array<{
 }
 
 /**
- * Resolves HSM topology for a specific workflow type or lists all workflow types.
- *
- * Delegates to canonical serialization functions in state-machine.ts.
- * When called with a workflow type, returns the full serialized HSM topology.
- * When called without arguments, returns a listing of all available workflow types
- * with summary metadata.
+ * Returns the serialized HSM topology of one workflow type.
+ * Without a workflow type, returns a summary of all workflow types.
  *
  * @throws Error if the workflow type is not found.
  */
@@ -102,11 +82,8 @@ export function resolveTopologyRef(workflowType?: string): SerializedTopology | 
 }
 
 /**
- * Resolves playbook data for a specific workflow type or lists all workflow types.
- *
- * Delegates to canonical serialization functions in playbooks.ts.
- * When called with a workflow type, returns all serialized phase playbooks.
- * When called without arguments, returns a listing of all available workflow types.
+ * Returns the serialized phase playbooks of one workflow type.
+ * Without a workflow type, returns the names of the workflow types that have playbooks.
  *
  * @throws Error if the workflow type is not found.
  */
@@ -119,11 +96,7 @@ export function resolvePlaybookRef(
   return listPlaybookWorkflowTypes();
 }
 
-/**
- * Returns the event emission catalog grouped by source (auto, model, hook, planned).
- *
- * Delegates to canonical serializeEventCatalog() in schemas.ts.
- */
+/** Returns the event emission catalog, grouped by emission source. */
 export function resolveEmissionCatalog(): EventCatalog {
   return serializeEventCatalog();
 }

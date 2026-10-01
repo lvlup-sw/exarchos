@@ -1,9 +1,9 @@
+/**
+ * Zod helpers that coerce LLM tool input before validation.
+ * Callers sometimes send objects and arrays as JSON strings, and numbers as digit strings.
+ * Each exported helper preprocesses directly into its target schema, so `zodToJsonSchema` emits the real type.
+ */
 import { z } from 'zod';
-
-// ─── Type Coercion Helpers ──────────────────────────────────────────────────
-// LLM tool callers sometimes pass objects as JSON strings, numbers as
-// string digits, and arrays as JSON-stringified arrays. These helpers
-// transparently coerce before Zod validation.
 
 function tryJsonParse(val: string): unknown {
   try {
@@ -23,9 +23,9 @@ function tryJsonParseArray(val: string): unknown {
   }
 }
 
-/** z.record() that also accepts a JSON string and parses it to an object.
- *  Uses z.preprocess directly into z.record so zodToJsonSchema emits
- *  {"type":"object"} instead of {} — prompting the LLM to pass native objects.
+/**
+ * `z.record()` that also accepts a JSON object string.
+ * The schema emits `{"type":"object"}`, not `{}`, so the LLM sends native objects.
  */
 export function coercedRecord() {
   return z.preprocess(
@@ -34,9 +34,7 @@ export function coercedRecord() {
   );
 }
 
-/** z.number().int().positive() that also accepts a numeric string.
- *  Preprocesses directly into z.number so zodToJsonSchema emits {"type":"integer"}.
- */
+/** `z.number().int().positive()` that also accepts a numeric string. */
 export function coercedPositiveInt() {
   return z.preprocess(
     (val) => (typeof val === 'string' ? Number(val) : val),
@@ -44,9 +42,7 @@ export function coercedPositiveInt() {
   );
 }
 
-/** z.number().int().nonnegative() that also accepts a numeric string.
- *  Preprocesses directly into z.number so zodToJsonSchema emits {"type":"integer"}.
- */
+/** `z.number().int().nonnegative()` that also accepts a numeric string. */
 export function coercedNonnegativeInt() {
   return z.preprocess(
     (val) => (typeof val === 'string' ? Number(val) : val),
@@ -54,10 +50,7 @@ export function coercedNonnegativeInt() {
   );
 }
 
-/** z.array(z.string()) that also accepts a JSON-stringified array.
- *  LLMs sometimes serialize arrays as strings in MCP tool calls.
- *  Preprocesses directly into z.array so zodToJsonSchema emits {"type":"array"}.
- */
+/** `z.array(z.string())` that also accepts a JSON array string. */
 export function coercedStringArray() {
   return z.preprocess(
     (val) => (typeof val === 'string' ? tryJsonParseArray(val) : val),
@@ -65,9 +58,9 @@ export function coercedStringArray() {
   );
 }
 
-/** Splits a CSV string (`"1660,1671,1659"`) into trimmed, non-empty parts.
- *  Blank fields (`"1660,,1671"`, trailing commas, whitespace-only) are dropped,
- *  so `""` yields `[]` — matching the empty JSON array `"[]"`.
+/**
+ * Splits a CSV string into trimmed parts and drops blank fields.
+ * Thus `""` gives `[]`, the same result as the JSON array `"[]"`.
  */
 function splitCsv(val: string): string[] {
   return val
@@ -76,18 +69,10 @@ function splitCsv(val: string): string[] {
     .filter(Boolean);
 }
 
-/** z.array of positive integers that accepts either a JSON-stringified array
- *  (`"[1660,1671]"`) OR a CSV string (`"1660,1671,1659"`) OR a native array.
- *
- *  CLI flag values arrive as raw strings; `coerceFlags` classifies this field as
- *  `'array'` (the preprocess pipe unwraps to `z.array`), so both the CLI and the
- *  direct-MCP path funnel a string in here. A JSON array is parsed to a native
- *  array; anything else is treated as CSV and split into parts. Each element is
- *  then coerced from a numeric string to an integer by {@link coercedPositiveInt},
- *  so CSV and JSON forms of the same numbers land as the identical `number[]`.
- *
- *  Preprocessing directly into z.array keeps zodToJsonSchema emitting
- *  {"type":"array"} so the CLI flag auto-emits with the right shape.
+/**
+ * Array of positive integers that accepts a native array, a JSON array string, or a CSV string.
+ * A string that does not parse as a JSON array goes to {@link splitCsv}, so a bare `"1660"` also works.
+ * {@link coercedPositiveInt} then converts each element, so the CSV and JSON forms give the same `number[]`.
  */
 export function coercedIntArray() {
   return z.preprocess((val) => {
@@ -96,10 +81,7 @@ export function coercedIntArray() {
       const parsed = JSON.parse(val);
       if (Array.isArray(parsed)) return parsed;
     } catch {
-      // Not a JSON array — fall through to CSV tolerance below.
     }
-    // CSV (`"1660,1671,1659"`) or a bare scalar (`"1660"`): split on commas and
-    // let z.array(coercedPositiveInt()) coerce each numeric-string element.
     return splitCsv(val);
   }, z.array(coercedPositiveInt()));
 }

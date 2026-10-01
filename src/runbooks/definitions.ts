@@ -5,79 +5,56 @@ export const TASK_COMPLETION: RunbookDefinition = {
   phase: 'delegate',
   description: 'Complete a task after every blocking per-task gate has passed.',
   steps: [
-    // Verification-ladder: the kill-probe gate is the load-bearing per-task
-    // verification — the sole per-task gate after check_tdd_compliance was
-    // retired (#1587). It reverts the task's source hunks, re-runs the
-    // new/changed tests, and asserts at least one goes red — proving the tests
-    // are not vacuous (outcome-based adequacy, test-after, NOT commit-order
-    // test-first). Runs against the agent worktree (repoRoot:auto +
-    // worktreePath, the #1330 resolver).
-    // DR-3: `riskTier` + `boundaryTouching` are resolved and FROZEN at
-    // prepare_delegation (deriveRiskTier / deriveBoundaryTouching, honoring
-    // planner stamps). They must reach the gate that CONSUMES them, or the
-    // frozen stamp is stranded: `interpretProbeVerdict` reads the tier to
-    // decide whether an un-probed task blocks (medium/high) or degrades to an
-    // advisory skip (low), and `resolvePolicySkip` needs BOTH fields to route
-    // the gate at all. Dispatched with an undefined tier, a high-tier task that
-    // adds no probe-able tests came back a PASS. The `<var>` placeholders
-    // thread the matching templateVars below — the orchestrator fills them from
-    // the classification prepare_delegation returned, never re-deriving them.
+    /**
+     * Kill-probe gate. It reverts the source hunks of the task, runs the new or
+     * changed tests again, and requires at least one to fail. `riskTier` and
+     * `boundaryTouching` carry the stamp that `prepare_delegation` froze. The gate
+     * reads the tier to decide if a task without probed tests blocks (medium or
+     * high) or gets an advisory skip (low). `resolvePolicySkip` needs both fields.
+     */
     { tool: 'exarchos_orchestrate', action: 'check_test_adequacy', onFail: 'stop',
       params: { repoRoot: 'auto', worktreePath: '<worktreePath>',
         riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>', baseBranch: '<baseRef>' },
       note: 'kill probe: reverts source, re-runs new tests, asserts red — the load-bearing per-task gate; baseRef is the branch the task forked from' },
-    // Verification-ladder slice 1 Bundle B3: the contract-drift gate regenerates
-    // schema bindings, typechecks the regen, and runs a breaking-change diff
-    // against the merge-base. Runs against the agent worktree (repoRoot:auto +
-    // worktreePath, the #1330 resolver). Degrades to an advisory pass when no
-    // contract tool resolves (INV-4), so onFail:'stop' only halts on real
-    // breaking drift — a repo with no schema boundary is never blocked.
-    // DR-3: policy-routed by the frozen stamp (see the kill-probe step above).
+    /**
+     * Contract-drift gate. It regenerates the schema bindings, typechecks them, and
+     * diffs them against the merge base for breaking changes. When no contract tool
+     * resolves, it gives an advisory pass, so `stop` halts only on breaking drift.
+     */
     { tool: 'exarchos_orchestrate', action: 'check_contract_drift', onFail: 'stop',
       params: { repoRoot: 'auto', worktreePath: '<worktreePath>',
         riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>' },
       note: 'contract gate: codegen → typecheck → breaking-diff vs merge-base; advisory-skips when no contract tool resolves' },
-    // Verification-ladder slice 1 SIV-4 (#1530): the mock-boundary gate scans the
-    // task's NEW test hunks for unowned-dependency mocks and steers toward
-    // hermetic fixtures. ADVISORY (onFail:'continue') — an unowned mock can be the
-    // right call (acknowledged via the `reason` escape hatch), so it surfaces a
-    // per-finding steer without blocking the task. Runs against the agent worktree
-    // (repoRoot:auto + worktreePath, the #1330 resolver).
-    // DR-3: policy-routed by the frozen stamp (see the kill-probe step above) —
-    // mock-boundary is in the resolved sequence only for a boundary-touching
-    // medium/high task, so the stamp is what keeps it off a low-blast edit.
+    /**
+     * Advisory mock-boundary gate. It flags mocks of unowned dependencies in new
+     * test hunks. An unowned mock with a `reason` can be correct, so the gate does
+     * not block. The policy runs it only for a boundary-touching medium or high task.
+     */
     { tool: 'exarchos_orchestrate', action: 'check_mock_boundary', onFail: 'continue',
       params: { repoRoot: 'auto', worktreePath: '<worktreePath>',
         riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>' },
       note: 'ADVISORY (SIV-4 #1530): flags unowned mocks in new test hunks; steers toward hermetic fixtures' },
-    // #1330 / T-05: the static-analysis gate must run against the agent's
-    // worktree, not the orchestrator's cwd. `repoRoot: 'auto'` triggers the
-    // worktree-aware resolver (T-04, gate-utils.resolveRepoRoot); the
-    // `<worktreePath>` placeholder threads the `worktreePath` template var so
-    // the agent supplies its own worktree path at fill-in time.
+    /**
+     * Static-analysis gate. `repoRoot: 'auto'` and the `<worktreePath>` variable
+     * make it run in the agent worktree, not in the orchestrator directory.
+     */
     { tool: 'exarchos_orchestrate', action: 'check_static_analysis', onFail: 'stop',
       params: { repoRoot: 'auto', worktreePath: '<worktreePath>' },
       note: '#1330: run against the agent worktree via repoRoot:auto + worktreePath template var' },
-    // WFQ-004: `task_complete` is the TERMINAL step. Every blocking per-task
-    // gate above must have passed before the task is recorded complete —
-    // previously the cumulative integration suite ran AFTER this step, so a
-    // task could be marked complete and only then fail its last blocking gate.
-    // The cumulative suite now runs once at the wave boundary
-    // (AGENT_TEAMS_SAGA), matching `check_integration_suite`'s own contract as
-    // a post-merge backstop rather than a per-task gate.
+    /**
+     * Terminal step. All blocking per-task gates must pass before it. The
+     * cumulative integration suite runs once per wave in `AGENT_TEAMS_SAGA`.
+     */
     { tool: 'exarchos_orchestrate', action: 'task_complete', onFail: 'stop',
       note: 'WFQ-004: terminal step — no blocking per-task gate may follow it' },
   ],
   templateVars: ['taskId', 'featureId', 'streamId', 'branch', 'worktreePath',
-    // DR-3: the frozen delegation stamp. Declared here so the orchestrator is
-    // contractually obliged to supply the SAME values prepare_delegation
-    // resolved — the `<riskTier>` / `<boundaryTouching>` placeholders on the
-    // gate steps above have nothing to bind to otherwise.
+    /** The stamp from `prepare_delegation` and the task base, for the `<riskTier>`, `<boundaryTouching>` and `<baseRef>` placeholders. */
     'riskTier', 'boundaryTouching', 'baseRef'],
-  // T-01/T-02: every check_* gate step above routes through the canonical
-  // durable gate runner, which mints `gate.executed` from the SAME persisted
-  // `admission.evidence-recorded` record it just wrote (registry.ts declares
-  // both now — see the `runDurableGateProducer` comment on each action).
+  /**
+   * Each `check_*` gate goes through the durable gate runner. The runner emits
+   * `gate.executed` from the `admission.evidence-recorded` record that it writes.
+   */
   autoEmits: ['admission.evidence-recorded', 'gate.executed', 'task.completed'],
 };
 
@@ -89,21 +66,20 @@ export const QUALITY_EVALUATION: RunbookDefinition = {
     { tool: 'exarchos_orchestrate', action: 'check_static_analysis', onFail: 'stop' },
     { tool: 'exarchos_orchestrate', action: 'check_security_scan', onFail: 'continue' },
     { tool: 'exarchos_orchestrate', action: 'check_convergence', onFail: 'continue' },
-    // DR-15 / task 027: invariant conformance as a review dimension. Now that
-    // INV-13/14/16 carry mode:check (alongside INV-4), this gate produces
-    // deterministic mechanical findings; a blocking-severity check violation
-    // (INV-4/14/16) folds to a HIGH → NEEDS_FIXES and halts (onFail:'stop').
-    // Audit-mode entries render into the review-subagent prompt, never gating
-    // here. Evaluates check-mode trees against the review `diff` (supplied at
-    // fill-in).
+    /**
+     * Invariant-conformance gate. A blocking violation of a check-mode invariant
+     * gives a HIGH finding, so the gate halts. Audit-mode entries go only into the
+     * review prompt. The gate evaluates check-mode trees against the review `diff`.
+     */
     { tool: 'exarchos_orchestrate', action: 'check_invariant_conformance', onFail: 'stop',
       note: 'DR-15: check-mode invariant findings gate; audit-mode entries stay advisory (prompt-only)' },
     { tool: 'exarchos_orchestrate', action: 'check_review_verdict', onFail: 'stop' },
   ],
   templateVars: ['featureId', 'high', 'medium', 'low'],
-  // The review gates route through the canonical gate runner, which persists
-  // durable evidence before reporting success — so every enforceable step here
-  // also emits `admission.evidence-recorded` alongside `gate.executed`.
+  /**
+   * The review gates go through the gate runner, which records durable evidence
+   * before it reports success. Thus they also emit `admission.evidence-recorded`.
+   */
   autoEmits: ['admission.evidence-recorded', 'gate.executed'],
 };
 
@@ -137,19 +113,13 @@ export const AGENT_TEAMS_SAGA: RunbookDefinition = {
       note: 'Event-first: emit before SendMessage shutdown' },
     { tool: 'native:SendMessage', action: 'shutdown', onFail: 'continue',
       note: 'Shutdown N teammates, then TeamDelete' },
-    // WFQ-004 / #1329: the cumulative full-suite gate runs ONCE here, at the
-    // wave boundary after every wave merge has landed — not per task. It
-    // surfaces the accumulated load cascade that per-task gates miss (a file
-    // failing at import is "0 failed tests / 1 failed suite"). Running it once
-    // per wave also removes the duplicate-ownership loop where the agent, the
-    // lead, and the per-task runbook each re-verified the same claim.
-    // WFQ-004 executability fix: `repoRoot: 'auto'` with NO worktreePath and
-    // NO taskId can never resolve (gate-utils.resolveRepoRoot falls through
-    // every branch → ok:false → INVALID_INPUT), so the saga always halted at
-    // the wave boundary. The cumulative suite runs against the INTEGRATION
-    // worktree — a wave-level location the per-task resolver cannot derive —
-    // so the orchestrator must fill the `<repoRoot>` template var (declared in
-    // templateVars below) with the integration worktree's absolute path.
+    /**
+     * Cumulative full-suite gate. It runs once per wave, after all merges of the
+     * wave land. It finds load failures that per-task gates miss, such as a file
+     * that fails at import. The orchestrator must fill `<repoRoot>` with the
+     * absolute path of the integration worktree. The per-task resolver cannot
+     * derive that path.
+     */
     { tool: 'exarchos_orchestrate', action: 'check_integration_suite', onFail: 'stop',
       params: { repoRoot: '<repoRoot>' },
       note: 'WFQ-004: cumulative post-merge backstop — exactly once per wave, folds file-LOAD failures into failCount. Fill <repoRoot> with the INTEGRATION worktree path (not a per-task worktree).' },
@@ -160,12 +130,10 @@ export const AGENT_TEAMS_SAGA: RunbookDefinition = {
       note: 'Auto-emits workflow.transition (DR-4: replaces `set({phase})` rerouting in v2.11)' },
   ],
   templateVars: ['featureId', 'streamId', 'stream', 'event', 'events', 'teamId', 'stateFile', 'repoRoot'],
-  // T5a.1/DR-4 (#1259, v2.11): hard-cut of `workflow.set` removes the
-  // `hsm.deprecated_action_invoked` emission path. State patches now
-  // route through `exarchos_event.append` directly (the event type is
-  // carried via `params.type`, not `action.autoEmits`); the canonical
-  // phase-mutation event is `workflow.transition` emitted by the
-  // `transition` action.
+  /**
+   * State patches go through `exarchos_event.append` with `params.type`, so they
+   * are not in `autoEmits`. The `transition` action emits `workflow.transition`.
+   */
   autoEmits: ['admission.evidence-recorded', 'gate.executed', 'workflow.transition'],
 };
 
@@ -174,11 +142,11 @@ export const SYNTHESIS_FLOW: RunbookDefinition = {
   phase: 'synthesize',
   description: 'Verify readiness, create PR, submit for merge.',
   steps: [
-    // DR-8 (#1756): `repoRoot` is a REQUIRED field on the action schema — the
-    // four readiness legs shell out and the gate refuses to guess which tree
-    // they measure. Fill `<repoRoot>` with the absolute path of the repo the
-    // verdict is about (the integration worktree during a stacked synthesis),
-    // not the directory the MCP server happens to be running in.
+    /**
+     * `repoRoot` is required, because the four readiness checks run commands in it.
+     * The caller must fill `<repoRoot>` with the absolute path of the repository
+     * under synthesis, not the directory of the MCP server.
+     */
     { tool: 'exarchos_orchestrate', action: 'prepare_synthesis', onFail: 'stop',
       params: { repoRoot: '<repoRoot>' },
       note: 'Fill <repoRoot> with the absolute path of the repo under synthesis; all four legs (tests, typecheck, stack, changed files) run there' },
@@ -190,15 +158,12 @@ export const SYNTHESIS_FLOW: RunbookDefinition = {
       params: { type: 'state.patched' },
       note: 'Record PR URL in artifacts.prUrl — emit state.patched directly (DR-4: `set` MCP surface removed in v2.11)' },
   ],
-  // T5a.1/DR-4 (v2.11): added `stream` and `event` template vars to cover
-  // the new `event.append` step's required schema fields.
+  /** `stream` and `event` cover the required fields of the `event.append` step. */
   templateVars: ['featureId', 'baseBranch', 'repoRoot', 'stream', 'event'],
-  // T5a.1/DR-4 (v2.11): `set` removed. The `hsm.deprecated_action_invoked`
-  // emission disappeared with it; remaining auto-emits are the canonical
-  // event types this synthesis flow still produces. `state.patched` is
-  // emitted via `event.append({type: 'state.patched'})` — that's a
-  // `params.type` value rather than an action-level `autoEmits` entry,
-  // so it does not appear in the computed-from-registry view.
+  /**
+   * `state.patched` comes from the `params.type` of an `event.append` step, not
+   * from the `autoEmits` of an action, so this list does not name it.
+   */
   autoEmits: ['gate.executed'],
 };
 
@@ -209,67 +174,31 @@ export const SYNTHESIS_CLOSEOUT: RunbookDefinition = {
     'Validate the PR body and open the pull request through the provider abstraction. ' +
     'Recording the PR URL in state is left to the caller.',
   steps: [
-    // The body is validated as TEXT the caller already holds. Passing `pr`
-    // instead would send the handler to the remote to read a body that does not
-    // exist yet, which is the wrong order for a closeout that is about to
-    // create the request.
-    //
-    // `enforce` is what makes `stop` cover the section verdict. Without it the
-    // handler reports a missing section on its SUCCESS carrier, a step's
-    // failure policy reads the envelope rather than the payload, and a body
-    // short of every required section reached the create — the segment would
-    // have opened a pull request its own first leaf judged deficient, and
-    // reported that leaf as passed. With it the verdict leaves as a refusal
-    // naming the missing sections, so the policy acts on it and the caller
-    // reads it off the receipt's failure.
+    /**
+     * Validates the body as text that the caller holds, because the PR does not
+     * exist yet. `enforce: true` makes a missing section a refusal, so `stop` halts
+     * before `create_pr`. Without it, the handler reports a missing section on a
+     * success carrier, and the step policy reads only the envelope.
+     */
     { tool: 'exarchos_orchestrate', action: 'validate_pr_body', onFail: 'stop',
       params: { body: '<prBody>', enforce: true } },
     { tool: 'exarchos_orchestrate', action: 'create_pr', onFail: 'stop',
       params: { title: '<title>', body: '<prBody>', base: '<baseBranch>', head: '<headBranch>' } },
   ],
-  // `prBody` binds onto both leaves' `body` parameter: one variable for one
-  // document, so the two leaves cannot be handed different texts. The create
-  // leaf may still ENRICH what it opens — given a subject whose state carries a
-  // captured intent it appends a grounded `## Intent` section before both its
-  // journal append and the provider call — so the opened body is the validated
-  // body plus that section, never a different document.
+  /**
+   * `prBody` binds to the `body` of both leaves, so they cannot get different
+   * texts. `create_pr` can append an `## Intent` section from a captured intent,
+   * so the opened body is the validated body plus that section.
+   */
   templateVars: ['featureId', 'title', 'prBody', 'baseBranch', 'headBranch'],
-  // `prepare_synthesis` is left out for what it would cost a request-bounded
-  // segment: all four of its readiness legs shell out, including a full test
-  // run under a two-minute timeout, against a caller-supplied worktree path.
-  // That verdict is owed BEFORE the closeout is asked for, not inside it.
-  //
-  // `validate_pr_stack` now records the durable gate evidence its contract
-  // declares, so the postcondition that used to halt this segment no longer
-  // does. Extending the segment to carry it is a separate decision about what
-  // the closeout should DO, not a repair, and is deliberately not made here.
-  //
-  // The state-patch step the hand-followed synthesis flow ends with is left out
-  // because the executor invokes leaves through the ORCHESTRATE handler table:
-  // a step on another composite tool has no handler there, and the compiler
-  // refuses the whole segment for it rather than letting it fail mid-flight.
-  //
-  // That patch is therefore an obligation this segment LEAVES WITH THE CALLER,
-  // not one it discharges. The pull request's number and URL are on the
-  // `pr.create.executed` record and on the receipt, but the workflow-state
-  // projection folds both `pr.create.*` rows to identity, so neither
-  // `artifacts.pr` nor `synthesis.prUrl` is derived from them. Those two fields
-  // are what the synthesize→completed guard reads, and they are what the
-  // single-PR-owner refusal in `create_pr` reads. Until the caller patches one
-  // of them the workflow cannot leave the synthesize phase, and a second
-  // `create_pr` for the same subject is refused only by the remote-recovery
-  // precheck rather than by that structural guard. Same shape as the
-  // transition this segment's plan-phase sibling leaves to its caller.
-  //
-  // Only the two `create_pr` records: both are declared unconditionally, and
-  // `validate_pr_body` declares no emission at all.
-  //
-  // Any durable evidence a leaf records is deliberately NOT named here.
-  // `autoEmits` mirrors the actions' declared `emissions`, and evidence rides
-  // the separate postcondition axis instead. Naming an evidence row here is not
-  // a more complete declaration but a false one — the bijection derives the
-  // permitted set from those same `emissions`, so it reddens on the addition.
-  // Measured, not argued.
+  /**
+   * Only the two `create_pr` records. `autoEmits` mirrors the declared action
+   * `emissions`, so it names no durable evidence. The segment leaves out
+   * `prepare_synthesis`, which runs a full test suite. It also leaves out the
+   * state patch, because the executor runs only orchestrate leaves. Thus the
+   * caller must record the PR URL in state before the workflow can leave the
+   * synthesize phase.
+   */
   autoEmits: ['pr.create.requested', 'pr.create.executed'],
 };
 
@@ -309,19 +238,11 @@ export const TASK_FIX: RunbookDefinition = {
         fallbackAgent: 'fixer',
       },
       note: 'CC: resume agentId with full context. Others: agent_spec("fixer") + fresh dispatch.' },
-    // #1587 retired check_tdd_compliance; TASK_COMPLETION received check_test_adequacy
-    // (the kill-probe) as its replacement per-task gate, but the fix chain had no
-    // equivalent — a fixed task could complete without the adequacy probe a
-    // first-time completion gets. Mirror TASK_COMPLETION here: revert the fix's
-    // source hunks, re-run the new/changed tests, assert red. Advisory carrier —
-    // it self-skips low-tier and passes when the fix adds no tests, so it only
-    // halts on a genuinely vacuous test. Runs against the agent worktree
-    // (repoRoot:auto + worktreePath, #1330 resolver).
-    // DR-3: the fix chain threads the SAME frozen `riskTier` /
-    // `boundaryTouching` stamp prepare_delegation resolved for the task, so a
-    // re-dispatched fix is judged at its real tier. Without them the gate
-    // reached `interpretProbeVerdict` with an undefined tier and a high-tier
-    // fix that added no probe-able tests was laundered into an advisory pass.
+    /**
+     * Kill-probe gate, as in `TASK_COMPLETION`, so a fixed task gets the same
+     * adequacy probe as a first completion. The frozen `riskTier` and
+     * `boundaryTouching` stamp makes the gate judge the fix at its real tier.
+     */
     { tool: 'exarchos_orchestrate', action: 'check_test_adequacy', onFail: 'stop',
       params: { repoRoot: 'auto', worktreePath: '<worktreePath>',
         riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>', baseBranch: '<baseRef>' },
@@ -330,10 +251,9 @@ export const TASK_FIX: RunbookDefinition = {
     { tool: 'exarchos_orchestrate', action: 'task_complete', onFail: 'stop' },
   ],
   templateVars: ['taskId', 'featureId', 'streamId', 'branch', 'agentId', 'failureContext', 'worktreePath',
-    // DR-3: the frozen delegation stamp — see TASK_COMPLETION.templateVars.
+    /** The delegation stamp and the task base. See `TASK_COMPLETION.templateVars`. */
     'riskTier', 'boundaryTouching', 'baseRef'],
-  // T-01/T-02: check_test_adequacy + check_static_analysis both route through
-  // the canonical durable gate runner — see TASK_COMPLETION.autoEmits.
+  /** Both gates go through the durable gate runner. See `TASK_COMPLETION.autoEmits`. */
   autoEmits: ['admission.evidence-recorded', 'gate.executed', 'task.completed'],
 };
 
@@ -717,53 +637,31 @@ export const PLAN_CLOSEOUT: RunbookDefinition = {
   phase: 'plan',
   description: 'Run the blocking plan gates over the unified spec and emit the traceability matrix.',
   steps: [
-    // The two blocking plan gates, in the order the plan-depth policy resolves
-    // them. `onFail` mirrors each action's own declared blocking-ness rather
-    // than restating a policy: both gates block, so both stop.
+    /**
+     * The two blocking plan gates, in the order of the plan-depth policy. Both
+     * gates block, so both stop.
+     */
     { tool: 'exarchos_orchestrate', action: 'check_plan_coverage', onFail: 'stop',
       params: { designPath: '<specPath>', planPath: '<specPath>' } },
     { tool: 'exarchos_orchestrate', action: 'check_provenance_chain', onFail: 'stop',
       params: { designPath: '<specPath>', planPath: '<specPath>' } },
-    // Not a gate — it writes a matrix. A failure here leaves the gates' verdicts
-    // standing, so it does not halt the segment.
+    /** Not a gate. It writes a matrix, so a failure here does not halt the segment. */
     { tool: 'exarchos_orchestrate', action: 'generate_traceability', onFail: 'continue',
       params: { designFile: '<specPath>', planFile: '<specPath>' } },
   ],
-  // One variable for one document: design and plan are two sections of the same
-  // unified artifact, and the four parameter spellings above are four names for
-  // the same path.
+  /**
+   * Design and plan are two sections of one unified spec, so all four path
+   * parameters above get `<specPath>`.
+   */
   templateVars: ['featureId', 'specPath'],
-  // The advisory decomposition gate and the spec-coverage declaration check are
-  // left out, and NOT for a broken contract: both now record the durable gate
-  // evidence they declare.
-  //
-  // The coverage check requires a repo root, a wave-level absolute path this
-  // segment's one-document argument deliberately does not carry. That missing
-  // argument is the whole of the obstacle — at plan depth the check shells
-  // nothing and does not require the root to exist on disk, so the cost this
-  // comment once claimed (a test run per referenced test file) is a
-  // post-implementation cost that a plan-phase step would never pay.
-  //
-  // The decomposition gate needs no argument this segment lacks: its schema is
-  // the subject identity the compiler writes plus one plan path, which is the
-  // binding the three shipped steps already use. What keeps it out is a
-  // deliberate scope choice rather than a cost — it is advisory, it would move
-  // a step shape the suite pins, and an advisory verdict that stops nothing is
-  // worth adding on purpose or not at all.
-  //
-  // The move out of planning is left to the caller: the target depends on a
-  // plan-review approval this segment cannot observe, so a transition leaf here
-  // would either guess the target or commit one the approval has not yet earned.
-  //
-  // Only `gate.executed`: both gates declare it unconditionally, and the matrix
-  // generator declares no emission at all.
-  //
-  // The durable evidence each gate also records is deliberately NOT named here.
-  // `autoEmits` mirrors the actions' declared `emissions`, and the two plan
-  // gates carry their evidence obligation on the separate `durable-evidence`
-  // postcondition axis instead. Naming the evidence row here is not a more
-  // complete declaration but a false one — the bijection derives the permitted
-  // set from those same `emissions`, so it reddens on the addition.
+  /**
+   * Only `gate.executed`, which both gates declare. The matrix generator declares
+   * no emission. `autoEmits` mirrors the declared action `emissions`, so it names
+   * no durable evidence. The segment leaves out the advisory decomposition gate,
+   * and the spec-coverage check, which needs a repo root that this segment does
+   * not carry. The caller does the move out of planning, because the target
+   * depends on a plan-review approval that this segment cannot see.
+   */
   autoEmits: ['gate.executed'],
 };
 
@@ -870,8 +768,10 @@ export const MERGE_ORCHESTRATION: RunbookDefinition = {
       note: 'HSM exits merge-pending back to delegate regardless of merge outcome.' },
   ],
   templateVars: ['featureId', 'taskId', 'sourceBranch', 'targetBranch', 'strategy', 'repoRoot'],
-  // DR-2 (task 006): recovery emits ONLY `merge.recovered`; the legacy
-  // `merge.rollback` write path is retired (read-tolerant, not emittable).
+  /**
+   * Recovery emits only `merge.recovered`. Readers accept the old `merge.rollback`,
+   * but no path emits it.
+   */
   autoEmits: ['merge.preflight', 'merge.executed', 'merge.recovered', 'workflow.transition'],
 };
 

@@ -1,23 +1,16 @@
-// ─── Task-Runner Tier (universal, language-agnostic) ────────────────────────
-//
-// The truly-universal layer of the toolchain resolver: if a repo commits a
-// standard task runner with a conventional `test` (or `build`/`typecheck`/
-// `install`) target, run THAT — regardless of language. This covers any
-// toolchain a runner supports, with zero per-language code and no enumeration.
-//
-// Detection is file-presence + target-presence. We confirm the conventional
-// target actually exists (so we never hand back a command that fails), then
-// emit the runner's invocation for it.
-//
-//   Taskfile.yml   → `task <target>`
-//   justfile       → `just <target>`
-//   mise.toml      → `mise run <target>`
-//   Makefile       → `make <target>`
-//
-// Resolves above the built-in ecosystem table but below explicit user
-// declaration — see test-runtime-resolver's precedence.
-// ────────────────────────────────────────────────────────────────────────────
-
+/**
+ * Task-runner tier of the toolchain resolver. It works for any language.
+ * If a repo commits a task runner with a conventional target, the resolver runs that target.
+ * Detection needs the runner file and the target in it:
+ *
+ *   Taskfile.yml   -> `task <target>`
+ *   justfile       -> `just <target>`
+ *   mise.toml      -> `mise run <target>`
+ *   Makefile       -> `make <target>`
+ *
+ * This tier is above the built-in ecosystem table and below the user declarations.
+ * The precedence is in `test-runtime-resolver.ts`.
+ */
 import { existsSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { parse as parseYaml } from 'yaml';
@@ -33,9 +26,6 @@ const TARGET_CANDIDATES: Readonly<Record<TaskKind, readonly string[]>> = {
   typecheck: ['typecheck', 'check'],
   install: ['install', 'deps'],
   build: ['build'],
-  // verification-ladder slice 1 (task 017): a committed task-runner target
-  // named `mutation`/`lint` is a deliberate project interface, honored at the
-  // task-runner tier just like `test`.
   mutation: ['mutation', 'mutants'],
   lint: ['lint'],
 };
@@ -77,11 +67,13 @@ function justHasTarget(content: string, target: string): boolean {
   return new RegExp(`^@?${escapeRegExp(target)}(\\s+[^:\\n]*)?:(?!=)`, 'm').test(content);
 }
 
-/** mise.toml: `[tasks.<target>]` table, or `<target> = …` under a `[tasks]` table. */
+/**
+ * mise.toml: a `[tasks.<target>]` table, or `<target> = …` under a `[tasks]` table.
+ * The `[tasks]` body runs from its header to the next `[section]` or the end of the file.
+ */
 function miseHasTarget(content: string, target: string): boolean {
   const t = escapeRegExp(target);
   if (new RegExp(`^\\[tasks\\.${t}\\]`, 'm').test(content)) return true;
-  // Body of the [tasks] table: from its header to the next `[section]` or EOF.
   const headerIdx = content.search(/^\[tasks\][^\n]*$/m);
   if (headerIdx === -1) return false;
   const afterHeader = content.slice(headerIdx).replace(/^\[tasks\][^\n]*\n?/, '');
@@ -95,8 +87,10 @@ function makeHasTarget(content: string, target: string): boolean {
   return new RegExp(`^${escapeRegExp(target)}\\s*:(?!=)`, 'm').test(content);
 }
 
-// Priority order: explicit cross-platform runners first, Makefile (lowest common
-// denominator, non-standardized targets, not native on Windows) last.
+/**
+ * Runners in priority order. The cross-platform runners come first.
+ * Makefile is last, because its targets have no standard and Windows has no native `make`.
+ */
 const RUNNERS: readonly RunnerDef[] = [
   {
     id: 'task',
@@ -112,7 +106,6 @@ const RUNNERS: readonly RunnerDef[] = [
   },
   {
     id: 'mise',
-    // path.join normalizes the forward slashes cross-platform.
     files: ['mise.toml', '.mise.toml', 'mise/config.toml', '.config/mise/config.toml'],
     hasTarget: miseHasTarget,
     command: (t) => `mise run ${t}`,
@@ -126,9 +119,8 @@ const RUNNERS: readonly RunnerDef[] = [
 ];
 
 /**
- * Resolve a task-runner command for `kind` at `repoRoot`, or undefined when no
- * committed runner declares a matching conventional target. Pure: reads files,
- * no execution.
+ * Returns the task-runner command for `kind` at `repoRoot`, or `undefined` when no runner file has a matching target.
+ * It reads files and runs nothing. `path.join` converts the forward slashes in the runner file names for each platform.
  */
 export function resolveTaskRunner(
   repoRoot: string,

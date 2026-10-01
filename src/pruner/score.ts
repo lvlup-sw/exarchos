@@ -1,43 +1,13 @@
 /**
- * Pure pruner staleness scorer (DR-7, v2.11 hard-cut).
- *
- * `scoreStaleness(state, contract)` is a pure function that decides
- * whether a workflow is stale based on a numeric snapshot (`state`) and
- * a typed `PhaseContract`.
- *
- * v2.11 behavior — typed-contract-only:
- *   - Reduce over the contract's declared signals according to
- *     `freshnessRequires`:
- *       - 'all' → fresh iff every declared signal is fresh
- *                 (stale iff ANY signal exceeds its threshold OR is
- *                  absent on `state` — absence = "no evidence", which
- *                  matches `selectPruneCandidates`'s `whenAbsent: true`
- *                  convention).
- *       - 'any' → fresh iff at least one declared signal is fresh
- *                 (stale iff EVERY declared signal exceeds its
- *                  threshold or is absent).
- *
- * The v2.10 untyped heuristic fallback (when `contract` was undefined)
- * was deleted in v2.11 (Phase 5c, DR-7). The topology loader now throws
- * on any phase missing a `staleness` block, so callers that follow the
- * canonical lifecycle wiring (loader → coordinator → scorer) cannot reach
- * the scorer without a typed contract. Callers that construct a synthetic
- * "no contract" call site are surfaced loudly via `scoreEntryThroughTopology`
- * (see `coordinator.ts`).
- *
- * The scorer accepts numeric minutes rather than ISO timestamps so it
- * stays clock-free; the handler layer (T48) does the timestamp math.
+ * The pure staleness scorer of the pruner. It decides from minute values and a typed `PhaseContract` whether a workflow is stale.
+ * The topology loader throws on a phase with no `staleness` block, so the normal wiring always gives a contract.
+ * The scorer takes minutes, not timestamps, so it reads no clock. The handler layer does the timestamp math.
  */
 import type { PhaseContract, StalenessSignalName } from '../workflow/topology/phase-contract.js';
 
 /**
- * Pre-computed per-signal minute deltas. The scorer reads only the
- * signals named on the contract; extra fields are ignored (forward-
- * compatibility with future signals).
- *
- * Per-signal thresholds come from the typed contract
- * (`contract.signals[].thresholdMinutes`); there is no caller-supplied
- * default-threshold semantic in v2.11.
+ * The minutes since each signal. The scorer reads only the signals that the contract names, and ignores other fields.
+ * The thresholds come from the contract, not from the caller.
  */
 export interface StalenessState {
   lastActivityMinutes?: number;
@@ -69,18 +39,18 @@ function readSignalMinutes(
   }
 }
 
+/**
+ * Scores a workflow against its contract. A signal is stale when its minutes exceed its threshold, or when `state` does not have it.
+ * Absence is "no evidence", as in the `whenAbsent: true` rule of `selectPruneCandidates`. Thus an `'all'` contract cannot skip an absent signal.
+ * With `freshnessRequires: 'all'`, the workflow is stale when any signal is stale. With `'any'`, it is stale when every signal is stale.
+ */
 export function scoreStaleness(
   state: StalenessState,
   contract: PhaseContract,
 ): StalenessScore {
-  // Contract path: reduce per-signal staleness verdicts.
   const verdicts: Partial<Record<StalenessSignalName, boolean>> = {};
   for (const signal of contract.signals) {
     const minutes = readSignalMinutes(state, signal.name);
-    // Absent signal = "no evidence" → treat as stale, matching
-    // `selectPruneCandidates`'s `whenAbsent: true` convention. Without
-    // this, an `'all'` contract could classify partially-wired entries
-    // as fresh by skipping over absent signals.
     const isStaleSignal =
       minutes === undefined ? true : minutes > signal.thresholdMinutes;
     verdicts[signal.name] = isStaleSignal;
@@ -89,9 +59,9 @@ export function scoreStaleness(
   const verdictValues = Object.values(verdicts);
   const isStale =
     contract.freshnessRequires === 'all'
-      ? // 'all' fresh required → stale iff ANY signal stale
+      ?
         verdictValues.some((v) => v === true)
-      : // 'any' fresh sufficient → stale iff EVERY signal stale
+      :
         verdictValues.every((v) => v === true);
 
   return { isStale, signalsEvaluated: verdicts };
