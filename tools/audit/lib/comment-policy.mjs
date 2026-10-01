@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { globsMatch } from './lint-scope.mjs';
 import { PLACEMENT_CHECKS, PLACEMENT_RULE } from './comment-placement.mjs';
+import { BUDGET_CHECKS, PROSE_RULE, STE_CHECKS } from './comment-ste.mjs';
 
 /** Where the datum lives, relative to the repository root. */
 export const DEFAULT_POLICY_PATH = '.exarchos/comment-policy.json';
@@ -189,6 +190,110 @@ function readPlacement(raw) {
 }
 
 /**
+ * Compile a regular expression from a policy entry, or throw a policy error that names the entry.
+ *
+ * @param {Record<string, unknown>} entry
+ * @param {string} where
+ * @returns {RegExp}
+ */
+function compileEntry(entry, where) {
+  const source = requireString(entry, 'pattern', where);
+  try {
+    return new RegExp(source, entry.flags === undefined ? 'g' : String(entry.flags));
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    throw new PolicyError(`${where} has an invalid pattern: ${detail}`);
+  }
+}
+
+/**
+ * Validate one STE check. A check cites a rule or a table of the skill. It has a limit, a pattern
+ * or a list of terms.
+ *
+ * @param {unknown} raw
+ * @returns {import('./comment-ste.mjs').SteCheck & { disabledReason?: string, steRule?: string }}
+ */
+function readSteCheck(raw) {
+  const check = requireObject(raw, 'prose.steChecks');
+  const id = requireString(check, 'id', 'prose.steChecks');
+  const where = `prose.steChecks.${id}`;
+  if (!STE_CHECKS.includes(id)) throw new PolicyError(`${where} is not an STE check.`);
+  const steRule = typeof check.steRule === 'string' && check.steRule.length > 0 ? check.steRule : undefined;
+  const source = typeof check.source === 'string' && check.source.length > 0 ? check.source : undefined;
+  if ((steRule === undefined) === (source === undefined)) throw new PolicyError(`${where} needs exactly one of \`steRule\` and \`source\`.`);
+  if (typeof check.enabled !== 'boolean') throw new PolicyError(`${where} requires an explicit boolean \`enabled\`.`);
+  const disabledReason = typeof check.disabledReason === 'string' ? check.disabledReason : undefined;
+  if (!check.enabled && disabledReason === undefined) throw new PolicyError(`${where} is disabled without a \`disabledReason\`.`);
+  const base = {
+    id,
+    cite: steRule === undefined ? String(source) : `STE ${steRule}`,
+    enabled: check.enabled,
+    remedy: requireString(check, 'remedy', where),
+    ...(steRule === undefined ? {} : { steRule }),
+    ...(disabledReason === undefined ? {} : { disabledReason }),
+  };
+  if (id === 'sentence-length' || id === 'paragraph-length') {
+    if (!Number.isInteger(check.limit) || Number(check.limit) < 1) throw new PolicyError(`${where} requires a positive integer \`limit\`.`);
+    return { ...base, limit: Number(check.limit) };
+  }
+  if (id === 'filler') {
+    const terms = requireArray(check.terms, `${where}.terms`).map((rawTerm, index) => {
+      const term = requireObject(rawTerm, `${where}.terms[${index}]`);
+      const name = requireString(term, 'term', `${where}.terms[${index}]`);
+      return { term: name, pattern: compileEntry(term, `${where}.terms.${name}`), use: requireString(term, 'use', `${where}.terms.${name}`) };
+    });
+    if (terms.length === 0) throw new PolicyError(`${where}.terms is empty.`);
+    return { ...base, terms: Object.freeze(terms) };
+  }
+  return { ...base, pattern: compileEntry(check, where) };
+}
+
+/**
+ * The prose section: the vendored skill, the STE checks and the line budgets.
+ *
+ * @typedef {object} ProsePolicy
+ * @property {{ canonical: string, mirror: string, version: string }} skill
+ * @property {readonly ReturnType<typeof readSteCheck>[]} steChecks
+ * @property {ReadonlyMap<string, { lines: number, enabled: boolean, remedy: string }>} budgets
+ */
+
+/**
+ * Validate the prose section. It must declare every STE check and every budget, and no other.
+ *
+ * @param {unknown} raw
+ * @returns {ProsePolicy}
+ */
+function readProse(raw) {
+  const section = requireObject(raw, 'prose');
+  const skillEntry = requireObject(section.skill, 'prose.skill');
+  const skill = {
+    canonical: requireString(skillEntry, 'canonical', 'prose.skill'),
+    mirror: requireString(skillEntry, 'mirror', 'prose.skill'),
+    version: requireString(skillEntry, 'version', 'prose.skill'),
+  };
+  const steChecks = requireArray(section.steChecks, 'prose.steChecks').map(readSteCheck);
+  const ids = steChecks.map((check) => check.id);
+  const duplicate = ids.find((id, index) => ids.indexOf(id) !== index);
+  if (duplicate !== undefined) throw new PolicyError(`prose.steChecks.${duplicate} appears twice.`);
+  const missing = STE_CHECKS.filter((id) => !ids.includes(id));
+  if (missing.length > 0) throw new PolicyError(`prose.steChecks does not declare: ${missing.join(', ')}.`);
+  /** @type {Map<string, { lines: number, enabled: boolean, remedy: string }>} */
+  const budgets = new Map();
+  for (const rawBudget of requireArray(section.budgets, 'prose.budgets')) {
+    const budget = requireObject(rawBudget, 'prose.budgets');
+    const id = requireString(budget, 'id', 'prose.budgets');
+    if (!BUDGET_CHECKS.includes(id)) throw new PolicyError(`prose.budgets.${id} is not a line budget.`);
+    if (budgets.has(id)) throw new PolicyError(`prose.budgets.${id} appears twice.`);
+    if (!Number.isInteger(budget.lines) || Number(budget.lines) < 1) throw new PolicyError(`prose.budgets.${id} requires a positive integer \`lines\`.`);
+    if (typeof budget.enabled !== 'boolean') throw new PolicyError(`prose.budgets.${id} requires an explicit boolean \`enabled\`.`);
+    budgets.set(id, { lines: Number(budget.lines), enabled: budget.enabled, remedy: requireString(budget, 'remedy', `prose.budgets.${id}`) });
+  }
+  const missingBudgets = BUDGET_CHECKS.filter((id) => !budgets.has(id));
+  if (missingBudgets.length > 0) throw new PolicyError(`prose.budgets does not declare: ${missingBudgets.join(', ')}.`);
+  return { skill, steChecks: Object.freeze(steChecks), budgets };
+}
+
+/**
  * Read, validate and return the policy.
  *
  * @param {string} [policyPath]
@@ -274,12 +379,17 @@ export function loadPolicy(policyPath = DEFAULT_POLICY_PATH) {
   });
 
   const placement = rules.includes(PLACEMENT_RULE) ? readPlacement(doc.placement) : undefined;
+  if (rules.includes(PROSE_RULE) && placement === undefined) {
+    throw new PolicyError(`${PROSE_RULE} reads the placement of each block, so the roster must also name ${PLACEMENT_RULE}.`);
+  }
+  const prose = rules.includes(PROSE_RULE) ? readProse(doc.prose) : undefined;
 
   return {
     version: typeof doc.version === 'number' ? doc.version : 0,
     rule: typeof doc.rule === 'string' ? doc.rule : '',
     rules,
     placement,
+    prose,
     forbiddenOrdinals,
     allowedReferences,
     changelogPatterns,

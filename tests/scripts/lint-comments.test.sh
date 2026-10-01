@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Self-test for tools/audit/gates/lint-comments.mjs. It drives the real gate over seeded fixtures:
 # a clean file, a new violation, a baselined block, a swap, a duplicate, a stale entry, a comment
-# inside a function, a shell comment after a heredoc, a hand-grown baseline entry, a missing
-# config, and a pull request run without its base branch. The trap restores every changed file.
+# inside a function, a description that breaks an STE rule, a shell comment after a heredoc, a
+# hand-grown baseline entry, a missing config, and a pull request run without its base branch.
+# The trap restores every changed file.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -73,6 +74,10 @@ expect_output "LintComments_FixedButNotPruned_NamesTheStaleEntry" "baseline list
 printf '/** Count to one. */\nexport function one() {\n  // step one\n  return 1;\n}\n' > "$FX"
 check "LintComments_CommentInsideAFunction_ExitsOne" 1 "$(gate --files "$FX" --no-admission --baseline "$TMP/empty.tsv")"
 expect_output "LintComments_CommentInsideAFunction_NamesThePlacementRule" "comments/comment-placement"
+
+printf '/** The retry budget should be three; the caller reads it. */\nexport const a = 1;\n' > "$FX"
+check "LintComments_DescriptionBreaksAnSteRule_ExitsOne" 1 "$(gate --files "$FX" --no-admission --baseline "$TMP/empty.tsv")"
+expect_output "LintComments_DescriptionBreaksAnSteRule_NamesTheProseRule" "comments/comment-prose"
 
 printf '#!/usr/bin/env bash\ncat <<EOF\nit'"'"'s a body\nEOF\n# wave 3 cleanup\necho done\n' > "$FX_DIR/fixture.sh"
 check "LintComments_ShellCommentAfterHeredoc_ExitsOne" 1 "$(gate --files "$FX_DIR/fixture.sh" --no-admission --baseline "$TMP/empty.tsv")"

@@ -122,6 +122,33 @@ describe('loadPolicy', () => {
     expect(loadPolicy(writeTempPolicy(validDatum())).placement).toBeUndefined();
   });
 
+  it('LoadPolicy_ProseInRoster_RequiresEveryCheckAndBudget', () => {
+    const placement = { testCallees: ['it'], checks: ['banner', 'trailing', 'in-body', 'non-jsdoc', 'detached', 'floating'].map((id) => ({ id, enabled: true, message: 'm' })) };
+    const steChecks = [
+      { id: 'sentence-length', steRule: '6.3', limit: 25, enabled: true, remedy: 'r' },
+      { id: 'paragraph-length', steRule: '6.6', limit: 6, enabled: true, remedy: 'r' },
+      ...['semicolon', 'modal', 'contraction', 'perfect-tense', 'progressive-passive', 'latin-abbreviation'].map((id) => ({ id, steRule: '8.1', pattern: ';', enabled: true, remedy: 'r' })),
+      { id: 'filler', source: 'table', terms: [{ term: 'just', pattern: '\\bjust\\b', use: 'delete it' }], enabled: true, remedy: 'r' },
+    ];
+    const budgets = [
+      { id: 'header-lines', lines: 15, enabled: true, remedy: 'r' },
+      { id: 'doc-lines', lines: 10, enabled: true, remedy: 'r' },
+    ];
+    const skill = { canonical: 'a/SKILL.md', mirror: 'b/SKILL.md', version: '1.2.0' };
+    const datum = (prose: unknown, rules = ['comment-content', 'comment-placement', 'comment-prose']) => validDatum({ rules, placement, prose });
+
+    expect(loadPolicy(writeTempPolicy(datum({ skill, steChecks, budgets }))).prose?.steChecks.map((c) => c.cite)).toContain('STE 6.3');
+    expect(() => loadPolicy(writeTempPolicy(datum({ skill, steChecks: steChecks.slice(1), budgets })))).toThrow(/does not declare: sentence-length/);
+    expect(() => loadPolicy(writeTempPolicy(datum({ skill, steChecks, budgets: budgets.slice(1) })))).toThrow(/does not declare: header-lines/);
+    expect(() => loadPolicy(writeTempPolicy(datum({ skill, steChecks: [{ ...steChecks[0], enabled: false }, ...steChecks.slice(1)], budgets })))).toThrow(
+      /disabled without a `disabledReason`/,
+    );
+    expect(() => loadPolicy(writeTempPolicy(datum({ skill, steChecks: [{ ...steChecks[0], source: 'x' }, ...steChecks.slice(1)], budgets })))).toThrow(
+      /exactly one of `steRule` and `source`/,
+    );
+    expect(() => loadPolicy(writeTempPolicy(datum({ skill, steChecks, budgets }, ['comment-content', 'comment-prose'])))).toThrow(/must also name comment-placement/);
+  });
+
   it('LoadPolicy_EmptyForbiddenOrdinals_Fails', () => {
     expect(() => loadPolicy(writeTempPolicy(validDatum({ forbiddenOrdinals: [] })))).toThrow(
       /forbids nothing/,

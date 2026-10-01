@@ -104,10 +104,16 @@ them locally.
   directly above a module-level declaration, a member, a module-level literal element, or a
   `describe`/`it`/`test` call. No comments inside function or test bodies, no trailing comments,
   no section banners. Put the reason in the description, or delete the comment.
+- **Headers and descriptions are short and in Simplified Technical English** — write them with the
+  `simple-english` skill (`.agents/skills/simple-english/`, mirrored in `.claude/skills/`) in
+  pragmatic mode: at most 25 words per sentence and six sentences per paragraph, no semicolons, no
+  `should`/`would`/`may`/`might`/`could`, no contractions, no `has been`, no `e.g.`/`i.e.`/`etc.`,
+  no filler words. A file header holds at most 15 lines of text, and a description at most 10.
 - **Comments name no planning ordinal** — no `DR-<n>`, `task <n>`, `INV-<n>`, `wave <n>`, or
   `docs/specs/…` path. State the constraint in words; the policy and its rationale are in
-  `.exarchos/comment-policy.json`. `npm run lint:comments` enforces both rules. Existing violations
-  sit in `tools/audit/comment-quality/baseline.tsv`, which only shrinks: an edited comment must pass.
+  `.exarchos/comment-policy.json`. `npm run lint:comments` enforces all three rules. Existing
+  violations sit in `tools/audit/comment-quality/baseline.tsv`, which only shrinks: an edited
+  comment must pass.
 
 ## Workflow Dispatch
 

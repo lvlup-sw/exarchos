@@ -156,6 +156,16 @@ describe('Documentation_EveryStatedRule_IsOneThatIsEnforced', () => {
       enforcer: { eslintRule: 'comments/comment-placement' },
       where: 'CLAUDE.md',
     },
+    {
+      claim: /Simplified Technical English/,
+      enforcer: { eslintRule: 'comments/comment-prose' },
+      where: 'CLAUDE.md',
+    },
+    {
+      claim: /mirrored in `\.claude\/skills\/`/,
+      enforcer: 'tests/architecture/repo-local-skills.test.ts',
+      where: 'CLAUDE.md',
+    },
   ];
 
   it('every rule the instructions state has a live enforcer', async () => {
