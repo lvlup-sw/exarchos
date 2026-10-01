@@ -99,7 +99,6 @@ eslint.config.js	16fec7ecfce7	1
 eslint.config.js	428eaa382c97	1
 eslint.config.js	ef392119466d	1
 eslint.envelopes.config.js	4662cb005c0c	1
-eslint.envelopes.config.js	ffd7d7aae0f8	1
 renovate-config.js	5f66f5b4f512	1
 renovate-config.js	7ff1f685fbb3	1
 renovate-config.js	ce748c9cebc8	1
@@ -6320,6 +6319,7 @@ src/verbs/tasks/tools.ts	411f4a5d02fc	1
 src/verbs/tasks/tools.ts	43f35c5cee88	1
 src/verbs/tasks/tools.ts	781e3733ddf0	1
 src/verbs/tasks/tools.ts	7c0b248140e9	1
+src/verbs/tasks/tools.ts	8065d7df0c6a	1
 src/verbs/tasks/tools.ts	81e48be119c5	1
 src/verbs/tasks/tools.ts	920f32e83e90	1
 src/verbs/tasks/tools.ts	add381d75e68	1
@@ -6327,7 +6327,6 @@ src/verbs/tasks/tools.ts	b8d6b61dc01f	1
 src/verbs/tasks/tools.ts	cb5ea38b3f0b	1
 src/verbs/tasks/tools.ts	d2e77aa99a98	1
 src/verbs/tasks/tools.ts	d444d3f06fde	1
-src/verbs/tasks/tools.ts	dd7987fc18d2	1
 src/verbs/tasks/tools.ts	def6be57da31	1
 src/verbs/tasks/tools.ts	e5d470207da3	1
 src/verbs/tasks/tools.ts	f083fbeec371	1
@@ -6996,12 +6995,10 @@ src/verbs/worktree/pure/probe.ts	64dfdb403fb1	1
 src/verbs/worktree/pure/probe.ts	a421ea8fcbcc	1
 src/verbs/worktree/pure/probe.ts	a73c2fab01c8	1
 src/verbs/worktree/pure/probe.ts	b3ef9d203f4b	1
-src/verbs/worktree/pure/probe.ts	bf27f0200e6c	1
 src/verbs/worktree/pure/probe.ts	cc7834598b79	1
 src/verbs/worktree/pure/probe.ts	cdffd20f7503	1
 src/verbs/worktree/pure/probe.ts	dbb17438f1f2	1
 src/verbs/worktree/pure/probe.ts	df92b183847d	1
-src/verbs/worktree/pure/probe.ts	ef879cf8fd0a	1
 src/verbs/worktree/pure/process-identity.ts	18294cc85f39	1
 src/verbs/worktree/pure/process-identity.ts	31fc3c743245	1
 src/verbs/worktree/pure/process-identity.ts	47c441a2f868	1
@@ -8251,10 +8248,10 @@ tests/acceptance/prepare-settle.test.ts	17da348cb750	1
 tests/acceptance/prepare-settle.test.ts	1d10ffb734a9	1
 tests/acceptance/prepare-settle.test.ts	2bb2733a60be	1
 tests/acceptance/prepare-settle.test.ts	2bcafbf9e527	1
-tests/acceptance/prepare-settle.test.ts	3e0b82142da6	1
 tests/acceptance/prepare-settle.test.ts	66a82f758ecb	1
 tests/acceptance/prepare-settle.test.ts	74d7a6eab821	1
 tests/acceptance/prepare-settle.test.ts	74fc863387fd	1
+tests/acceptance/prepare-settle.test.ts	84bbc19c4a4b	1
 tests/acceptance/prepare-settle.test.ts	87277fcd7c47	1
 tests/acceptance/prepare-settle.test.ts	8dba06ca7be4	1
 tests/acceptance/prepare-settle.test.ts	956f39eaba25	1
@@ -8375,7 +8372,6 @@ tests/architecture/documentation-accuracy.test.ts	b2bcc4f1589b	1
 tests/architecture/documentation-accuracy.test.ts	bf82a76041b9	1
 tests/architecture/documentation-accuracy.test.ts	c9c16988c871	1
 tests/architecture/documentation-accuracy.test.ts	d5de97de755a	1
-tests/architecture/documentation-accuracy.test.ts	d9faeff7e3b0	1
 tests/architecture/documentation-accuracy.test.ts	f3ee0a4a664a	1
 tests/architecture/documentation-accuracy.test.ts	f4f295d8a966	1
 tests/architecture/event-authority-contracts.test.ts	1ccb54e40a9f	1
@@ -25262,6 +25258,7 @@ tests/unit/verbs/worktree/pure/path-containment.test.ts	ffcec4ace1d0	1
 tests/unit/verbs/worktree/pure/probe.test.ts	0177007ff061	1
 tests/unit/verbs/worktree/pure/probe.test.ts	02a908a7f476	1
 tests/unit/verbs/worktree/pure/probe.test.ts	059ff987374f	1
+tests/unit/verbs/worktree/pure/probe.test.ts	0770cb8abf11	1
 tests/unit/verbs/worktree/pure/probe.test.ts	0fffda65249a	1
 tests/unit/verbs/worktree/pure/probe.test.ts	12703847889d	2
 tests/unit/verbs/worktree/pure/probe.test.ts	127bc9602b0f	1
@@ -25308,17 +25305,18 @@ tests/unit/verbs/worktree/pure/probe.test.ts	ab9cf098eb5d	1
 tests/unit/verbs/worktree/pure/probe.test.ts	ac2d0d73b41d	1
 tests/unit/verbs/worktree/pure/probe.test.ts	af1bddf49e33	1
 tests/unit/verbs/worktree/pure/probe.test.ts	b1ead573170b	1
+tests/unit/verbs/worktree/pure/probe.test.ts	b825f2f510ea	1
 tests/unit/verbs/worktree/pure/probe.test.ts	bc72638520a2	1
 tests/unit/verbs/worktree/pure/probe.test.ts	befddb4bc677	1
 tests/unit/verbs/worktree/pure/probe.test.ts	ca5a2092f645	1
 tests/unit/verbs/worktree/pure/probe.test.ts	cc508589d763	1
+tests/unit/verbs/worktree/pure/probe.test.ts	cebe563f2cce	1
 tests/unit/verbs/worktree/pure/probe.test.ts	d2f3b33ae714	1
 tests/unit/verbs/worktree/pure/probe.test.ts	d6e4d05c5585	2
 tests/unit/verbs/worktree/pure/probe.test.ts	dad4c4860247	1
 tests/unit/verbs/worktree/pure/probe.test.ts	dcbab56ed649	1
 tests/unit/verbs/worktree/pure/probe.test.ts	e234a40c9f0a	1
 tests/unit/verbs/worktree/pure/probe.test.ts	fa7efe346a53	1
-tests/unit/verbs/worktree/pure/probe.test.ts	fc4df52d961e	1
 tests/unit/verbs/worktree/pure/probe.test.ts	fec678806541	1
 tests/unit/verbs/worktree/pure/probe.test.ts	ff2f0289992b	1
 tests/unit/verbs/worktree/pure/process-identity.test.ts	0d3d0f6a0164	1
