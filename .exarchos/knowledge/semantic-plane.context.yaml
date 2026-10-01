@@ -66,8 +66,8 @@ design:
     authority: [invariants, assumptions, delegatedDecisions, escalationBoundaries]   # plus goals = the five authority categories
     graph: [tasks, dependencies, joins, completionPredicate]
     contracts: [taskInputs, taskResults, evidenceKinds, deviationEnvelope]
-    knowledge: [mode eager|hybrid, rationale, patterns, glossary, unresolvedRefs?, supplementBudget?]
-    executionProfile: [capabilities, concurrencyHints?, preferredAgentKinds?]
+    knowledge: [mode eager|hybrid, rationale, patterns, glossary, "unresolvedRefs?", "supplementBudget?"]
+    executionProfile: [capabilities, "concurrencyHints?", "preferredAgentKinds?"]
     provenance: [sources, compiledAt, compilerVersion]
     stages: tasks, joins, the critic/review stage ("a logical capsule stage, not an Exarchos-owned agent") and synthesis boundaries all live INSIDE one capsule.
     envelopes: taskContext[] per worker (task, knowledge slice, result schema); reviewContext (acceptance rules, pinned knowledge refs).
@@ -532,23 +532,23 @@ milestones:
     outcome: The semantic plane end to end. One prepare and one settle per normal workflow; the runtime does all the work, including Git.
     exit_criteria:
       - Built-in workflows compile from authored kernel definitions; one capsule per workflow with tasks, critic stage and synthesis boundary.
-      - 2 Exarchos calls per normal workflow, 3 per exception path, measured by #1687 (static and observed).
+      - "2 Exarchos calls per normal workflow, 3 per exception path, measured by #1687 (static and observed)."
       - Settlement carries phase change; no canonical skill names transition, next_actions or a playbook; the state document is no guard input.
       - Divergence loop complete (decision round, material path, settlement vocabulary, partial settlement).
       - Per-task verification scope pinned in the capsule; worktree identity checked; no per-language code in gates.
       - serialize_merge, setup_worktree and create_pr off the governance surface; settle observes.
       - C2 binds per-task knowledge slices from repo-local records; workers never fetch design knowledge.
       - Workers never call MCP; agent-teams mode re-designed or excluded.
-      - Every #1898 item landed or withdrawn.
+      - "Every #1898 item landed or withdrawn."
       - prepare/settle on the 2026-07-28 stateless MCP spec; long-running settle handled.
       - Launcher retired; plugin primary; release pipeline pinned.
       - Four visible tools stay four.
   v3.1.0:
     title: Portability and proof
-    outcome: One definition runs on two runtimes with equivalent settlement records; #1249 laws harden on real settlements; evals measure the plane.
+    outcome: "One definition runs on two runtimes with equivalent settlement records; #1249 laws harden on real settlements; evals measure the plane."
   v3.2.0:
     outcome: Design rationale as typed claims, the claims being the source of truth (beyond v3.0's C2 minimum).
-  none: 63 issues of hygiene and small bugs. CI-dated expiries 2026-10-31 (#1742, 51 knip entries in #1744) and 2026-11-30 (#1736, 61 knip entries in #1744).
+  none: "63 issues of hygiene and small bugs. CI-dated expiries 2026-10-31 (#1742, 51 knip entries in #1744) and 2026-11-30 (#1736, 61 knip entries in #1744)."
 
 # ─── where things are tracked ────────────────────────────────────────────────
 
