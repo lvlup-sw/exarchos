@@ -1176,6 +1176,12 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       // the caller's to act on; folding an adjudication verdict into phase
       // state would make this view an authority on work it never observed.
       case 'execution.settled':
+      // The divergence loop's decision facts — a deviation proposed against a
+      // held batch, and the decision on it — are facts about one settlement,
+      // read back by the settle call that decides the batch. No field of this
+      // view moves for them: the batch's tasks move when it settles.
+      case 'deviation.proposed':
+      case 'deviation.decided':
         return view;
 
       // ── Exhaustiveness guard (#1554 guard (a)) ─────────────────────────
