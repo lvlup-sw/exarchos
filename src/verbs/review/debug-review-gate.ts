@@ -214,6 +214,7 @@ function runTests(repoRoot: string): { readonly passed: boolean; readonly detail
     runCommandSync(resolved.bin, resolved.args, {
       cwd: repoRoot,
       stdio: 'pipe',
+      timeout: 120_000,
     });
     return { passed: true, detail: resolved.command };
   } catch {

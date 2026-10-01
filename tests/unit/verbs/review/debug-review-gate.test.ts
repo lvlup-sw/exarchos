@@ -256,7 +256,7 @@ describe('handleDebugReviewGate', () => {
     expect(data.report).toContain('5 test file(s)');
   });
 
-  /** A Go module resolves `go test ./...` from the toolchain registry, and that command runs. */
+  /** A Go module resolves `go test ./...` from the toolchain registry, and that command runs within the 120 s bound. */
   it('runs the resolved test command for a Go module', async () => {
     const goRepo = fixtureRepo({ 'go.mod': 'module example.com/fixture\n' });
     vi.mocked(execFileSync)
@@ -271,7 +271,7 @@ describe('handleDebugReviewGate', () => {
 
     expect(execFileSync).toHaveBeenCalledTimes(2);
     expect(vi.mocked(execFileSync).mock.calls[1]?.slice(0, 2)).toEqual(['go', ['test', './...']]);
-    expect((vi.mocked(execFileSync).mock.calls[1]?.[2] as { cwd?: string }).cwd).toBe(goRepo);
+    expect(vi.mocked(execFileSync).mock.calls[1]?.[2]).toMatchObject({ cwd: goRepo, timeout: 120_000 });
     const data = result.data as { passed: boolean; report: string };
     expect(data.passed).toBe(true);
     expect(data.report).toContain('- **PASS**: Tests pass (go test ./...)');
