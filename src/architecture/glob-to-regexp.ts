@@ -9,9 +9,9 @@ const REGEX_SPECIAL = '\\^$.|?+()[]{}';
 /**
  * Converts a glob pattern to an anchored RegExp:
  *
- *   - A double-star and a slash match zero or more leading path segments. Thus the pattern
- *     `servers/`, double-star, `/*.ts` also matches `servers/foo.ts`.
- *   - A double-star without a slash matches across path separators.
+ *   - A double-star followed by a slash matches zero or more leading path segments. Thus the
+ *     pattern `servers/`, double-star, `/*.ts` also matches `servers/foo.ts`.
+ *   - A double-star not followed by a slash matches across path separators.
  *   - `*` matches within one path segment.
  *   - `/` and every other regex-special character become literals.
  */

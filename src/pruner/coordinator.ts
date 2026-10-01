@@ -12,8 +12,8 @@ import { scoreStaleness, type StalenessState, type StalenessScore } from './scor
 /**
  * Scores the staleness of one entry through the phase contract in `topology`.
  * Throws when the phase is absent from the topology or has no `staleness`
- * block. A loaded topology cannot cause this, so the cause is a synthetic
- * fixture or a bypass of the loader.
+ * block. The loader rejects a phase without a `staleness` block, so the second
+ * case comes only from a synthetic fixture or a bypass of the loader.
  */
 export function scoreEntryThroughTopology(
   topology: Topology,

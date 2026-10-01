@@ -344,9 +344,9 @@ function canonicalPath(p: string): string {
  * Returns true when the config registers `filePath` in `invariants.catalogs`.
  * `resolveCatalogSources` decides what a registration is.
  *
- * A relative registration resolves against `configRoot`. Without a root, it matches
- * a segment-aligned path suffix: `.exarchos/invariants.md` matches
- * `<root>/.exarchos/invariants.md`, but not `<root>/my.exarchos/invariants.md`.
+ * A relative registration resolves against `configRoot`. Without `configRoot`, it
+ * matches a segment-aligned path suffix: `.exarchos/invariants.md` matches
+ * `<any-dir>/.exarchos/invariants.md`, but not `<any-dir>/my.exarchos/invariants.md`.
  *
  * @param filePath Catalog file that the caller asks to load.
  * @param config Effective config, injected or read from disk.

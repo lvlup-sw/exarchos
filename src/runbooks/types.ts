@@ -37,8 +37,8 @@ export interface RunbookStep {
   /** Action name within the tool */
   readonly action: string;
   /**
-   * Advice to the agent when the step fails: `stop` halts the sequence, `continue` goes on, and
-   * `retry` retries once. No executor reads this field.
+   * Failure policy of the step: `stop` halts the sequence, and `continue` goes on.
+   * The intent executor in `verbs/execute` applies this policy, and it refuses a `retry` step.
    */
   readonly onFail: 'stop' | 'continue' | 'retry';
   /** Static params to pre-fill (agent fills the rest from templateVars) */

@@ -45,7 +45,7 @@ import { prettyPrint, printError, toCliResult } from './cli-format.js';
  * A conformance test checks each id against `deriveCliSurface(compileForCli())`, so a renamed action fails the build.
  * The table shrinks when a verb moves to a registry `cli.topLevel` hint, as `merge_orchestrate` did.
  *
- * `cli-derivation-guard.test.ts` needs at least one comment line with the call form. Each such line must start with `*` or `//`.
+ * `cli-derivation-guard.test.ts` needs at least one comment line with the call form `.command(`. Each such line must start with `*` or `//` and hold the call form once.
  */
 export const CLI_PROMOTED_ACTION_IDS = Object.freeze({
   doctor: 'exarchos_orchestrate.doctor',
@@ -113,7 +113,7 @@ function emitResult(result: ToolResult, json: boolean, format?: 'table' | 'json'
 
 /**
  * Interval between `[heartbeat]` stderr lines for long-running actions.
- * A caller sees progress before it suspects a hang, at about 5 seconds. Fast actions emit no heartbeat.
+ * It is shorter than about 5 seconds, the time after which a person suspects a hang. Fast actions finish before the first heartbeat.
  */
 const HEARTBEAT_INTERVAL_MS = 2000;
 

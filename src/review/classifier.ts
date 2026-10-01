@@ -1,10 +1,10 @@
 /**
  * Review classification. It groups review `ActionItem`s by file and gives each
- * group a dispatch recommendation:
+ * group a dispatch recommendation. The first rule that matches applies:
  *
- * - `direct`: one item without HIGH severity. The shepherd loop fixes it.
- * - `delegate-fixer`: a HIGH item, or more than one item on the file.
  * - `delegate-scaffolder`: all items LOW, and one matches a doc-nit keyword.
+ * - `delegate-fixer`: a HIGH item, or more than one item on the file.
+ * - `direct`: one item without HIGH severity. The shepherd loop fixes it.
  */
 
 import type {
@@ -57,7 +57,8 @@ function isDocNit(item: ActionItem): boolean {
 
 /**
  * Recommends a dispatch for one file group. A group with more than one item
- * goes to a fixer, so that one fixer reads the file once for all items.
+ * goes to a fixer, so that one fixer reads the file once for all items. A
+ * scaffolder match comes first.
  */
 export function recommendForGroup(items: readonly ActionItem[]): {
   recommendation: DispatchRecommendation;

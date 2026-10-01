@@ -30,7 +30,7 @@ function detectSeverity(body: string): { severity: Severity } {
 }
 
 /**
- * Returns null for a comment from another author, and for a bad body, so one bad comment does not stop the batch.
+ * Returns null for a comment from another author. It also returns null for a bad body, so one bad comment does not stop the batch.
  * It does not set `unknownTier` when no tag matches. Many Sentry comments have no tier, and the flag is for providers with a strict tier vocabulary.
  */
 export const sentryAdapter: ProviderAdapter = {

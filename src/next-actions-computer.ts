@@ -109,8 +109,8 @@ const ADMISSION_UNDECIDABLE_HINT =
 
 /**
  * Asks the admission projection for a verdict on each outbound edge. Returns `null` when the
- * caller gave no admission facts or when adjudication throws, and the computer then uses topology
- * only. A fault fails open, so a bad `evaluatedAt` does not empty the affordance list.
+ * state has no admission facts or no workflow type, or when adjudication throws. The computer then
+ * uses topology only. A fault fails open, so a bad `evaluatedAt` does not empty the affordance list.
  */
 function admissionVerdicts(
   state: NextActionsState,

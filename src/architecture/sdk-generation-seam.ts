@@ -7,8 +7,8 @@
  * `Transport`. A cross-generation linked pair compiles, then exchanges no messages.
  *
  * The lint fails a module that imports both generations. The seam module `contract/sdk/seam.ts` is
- * exempt, because its generation brands stop a handle of one generation in the position of the
- * other. The brand cannot see a module that bypasses the seam, and the lint cannot see a mixed
+ * exempt, because its generation brands reject a handle of one generation where the other is
+ * expected. The brand cannot see a module that bypasses the seam, and the lint cannot see a mixed
  * pair, so both checks stay. The module re-exports `SdkGeneration` from the brand, so the brand and
  * the lint agree on what a generation is.
  */

@@ -84,9 +84,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /**
  * Extracts the admission facts from a shape-1 payload, or `undefined` when the payload is not a
- * full state read. A `fields` projection or a `query` scalar from `handleGet` lacks facts it did
- * not request, and admission then denies almost every edge. `BaseWorkflowStateSchema` requires
- * the four marker keys, so a full state always has them.
+ * full state read. A `fields` projection or a `query` scalar from `handleGet` lacks the facts that
+ * it did not request. Admission over such a payload denies almost every edge.
+ * `BaseWorkflowStateSchema` requires the four marker keys, so a full state always has them.
  *
  * `updatedAt` is the evaluation instant, so the helper reads no clock and stays deterministic.
  * `eventLogAvailable` is always `false`, because a handler payload does not carry the event log.

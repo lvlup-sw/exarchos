@@ -390,7 +390,7 @@ const AMBIENT_BUN_RULES: readonly {
  * class. One `lex` call gives the imports and the masked code. Type-only imports
  * are not effects. The scan does not see an injected client, the consumer of a
  * re-exported primitive, or a computed global access. Tests in
- * `effect-ledger.test.ts` pin two of these false negatives.
+ * `effect-ledger.test.ts` pin these three false negatives.
  *
  * @param module Repo-relative module path, reported on the occurrence.
  * @param source Module source text.

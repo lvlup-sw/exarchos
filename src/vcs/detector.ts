@@ -43,8 +43,9 @@ function extractHostname(remoteUrl: string): string | null {
 }
 
 /**
- * Maps the remote hostname to a VCS provider: `github.com`, `gitlab.com` or a
- * `gitlab.` host, and `dev.azure.com` or a `*.visualstudio.com` host.
+ * Maps the hostname of the remote URL to a VCS provider. `github.com` is GitHub.
+ * `gitlab.com`, or a host that starts with `gitlab.`, is GitLab. `dev.azure.com`, or
+ * a `*.visualstudio.com` host, is Azure DevOps. Any other host gives null.
  */
 function parseRemoteUrl(remoteUrl: string): VcsProviderName | null {
   const hostname = extractHostname(remoteUrl);

@@ -26,7 +26,7 @@ export interface RunInstallSkillsDeps {
 export function shouldLoadFromDisk(env?: NodeJS.ProcessEnv): boolean;
 
 /**
- * Runs the `install-skills` CLI subcommand. The runtime maps come from `EMBEDDED_RUNTIMES`.
+ * Runs the `install-skills` CLI subcommand. By default, the runtime maps come from `EMBEDDED_RUNTIMES`.
  * When `EXARCHOS_RUNTIMES_FROM_DISK=1`, they come from `content/harness/runtimes/*.yaml` on disk.
  */
 export function runInstallSkills(

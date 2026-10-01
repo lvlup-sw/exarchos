@@ -229,7 +229,7 @@ export type ToolchainConfig = z.infer<typeof ToolchainConfigSchema>;
 
 /**
  * The default `ownership.firstParty` globs: the first-party source trees that the import-boundary lint and ownership-aware gates scan.
- * Ownership has no opt-in, so an absent block gets these globs. An empty scope silently turns off every ownership-aware check.
+ * Ownership has no opt-in, so an absent block gets these globs. The default is not empty, because an empty scope silently turns off every ownership-aware check.
  * The default is on the field and on the block, so `ownership` absent and `ownership: {}` give the same globs.
  */
 const DEFAULT_FIRST_PARTY_GLOBS: readonly string[] = ['src/**', 'servers/*/src/**'];
