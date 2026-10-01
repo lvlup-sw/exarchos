@@ -485,6 +485,8 @@ measured:
       check: "grep -n -A14 'function verificationArgsOf' src/verbs/settle/handler.ts"
     - fact: the kill probe defaults its base to main (#1925); ten gates default baseBranch to main
       check: "grep -rn -E \"(\\|\\||\\?\\?) *'main'\" src/verbs/gates/*.ts"
+    - fact: "a blocking gate that blocks (success carrier, passed: false, not a skip) fails its executor leaf, so settle rejects the task and leaves no task.completed (since #1943, 2026-10-01)"
+      check: "grep -n -A16 'function blockingGateRefusal' src/verbs/execute/executor.ts; npx vitest run --project core tests/unit/verbs/settle/blocking-gate.test.ts"
     - fact: "gates still carry per-language code (static analysis hardcodes dotnet build -warnaserror; test globs come from a per-toolchain table)"
       check: "grep -n warnaserror src/verbs/pure/static-analysis.ts; grep -n testGlobsForToolchain src/verbs/gates/test-adequacy-handler.ts"
     - fact: C2 knowledge binding is one rationale statement

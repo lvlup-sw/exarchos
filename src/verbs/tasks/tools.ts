@@ -366,12 +366,10 @@ export async function handleTaskComplete(
     });
 
   const unmetGates: string[] = [];
-  // #1587: the retired test-FIRST `tdd-compliance` gate is no longer a hard
-  // task_complete requirement. Per-task verification is now the TIER-SCALED
-  // `check_test_adequacy` kill probe, enforced by the TASK_COMPLETION runbook
-  // chain's `onFail:'stop'` ordering (it runs BEFORE task_complete and skips
-  // by policy for low-tier tasks) — so it must NOT be a universal hard-gate
-  // here, where the tier is unknown. `static-analysis` stays universal.
+  // Static analysis is the one gate this action requires. The kill probe is
+  // tier-scaled and the tier is unknown here, so the task-completion runbook
+  // enforces it: the probe runs first, and a blocked verdict halts the segment
+  // before this step.
   if (!evidenceMaySatisfy('static-analysis') && !hasPassingGate('static-analysis')) {
     unmetGates.push('static-analysis');
   }

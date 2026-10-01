@@ -62,6 +62,7 @@ import {
   receiptOf,
   silentHandler,
   throwingHandler,
+  verdictHandler,
 } from './fixtures.js';
 
 const STREAM = 'wf-executor';
@@ -357,6 +358,160 @@ describe('handleExecuteIntent onFail', () => {
     expect(receipt.outcome).toBe('committed');
     expect(receipt.leaves.map((leaf) => leaf.status)).toEqual(['advisory-failed', 'passed']);
     expect(later.calls()).toBe(1);
+  });
+});
+
+/** A leaf registered as a blocking gate. */
+const blockingGate = fixtureAction({ name: 'fixture_blocking_gate', gate: { blocking: true } });
+
+/** A leaf registered as a gate that does not block. */
+const advisoryGate = fixtureAction({ name: 'fixture_advisory_gate', gate: { blocking: false } });
+
+/** A leaf with no gate registration at all. */
+const ungated = fixtureAction({ name: 'fixture_ungated' });
+
+/** A blocking gate that blocks, in the carrier shape the kill probe returns. */
+const BLOCKED_VERDICT = {
+  passed: false,
+  disposition: 'blocked',
+  report: 'the scoped tests stayed GREEN with the task source reverted',
+};
+
+describe('handleExecuteIntent blocking gate verdicts', () => {
+  async function bundleOf(receipt: IntentReceipt): Promise<ReturnType<typeof decodeExecuteIntentBundle>> {
+    const ref = receipt.bundleRefs?.[0];
+    if (ref === undefined) throw new Error('receipt carries no bundle reference');
+    return decodeExecuteIntentBundle(await RunBundleStore.forStateDir(stateDir).resolve(ref.digest));
+  }
+
+  it('BlockingGateThatBlocks_HaltsTheSegmentUnderStop', async () => {
+    const later = countingHandler(silentHandler());
+    const deps = depsFor(
+      [fixtureStep('fixture_blocking_gate', 'stop'), fixtureStep('fixture_quiet', 'stop')],
+      { fixture_blocking_gate: verdictHandler(BLOCKED_VERDICT), fixture_quiet: later.handler },
+      [blockingGate, quiet],
+    );
+    const result = await execute(
+      { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-gate-stop' },
+      deps,
+    );
+    const receipt = receiptOf(result);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INTENT_SEGMENT_FAILED');
+    expect(result.error?.message).toBe(
+      "leaf 'fixture_blocking_gate' is a blocking gate and its verdict blocked (passed: false, disposition 'blocked')",
+    );
+    expect(receipt.outcome).toBe('failed');
+    expect(receipt.failedLeaf).toBe('fixture_blocking_gate');
+    expect(receipt.leaves.map((leaf) => leaf.status)).toEqual(['failed']);
+    expect(later.calls()).toBe(0);
+
+    const committed = await operationEvents();
+    expect(committed).toHaveLength(1);
+    expect(committed[0]?.data).toMatchObject({ outcome: 'failed', failedLeaf: 'fixture_blocking_gate' });
+
+    const bundle = await bundleOf(receipt);
+    expect(bundle.leaves[0]?.disposition).toEqual({ kind: 'invoked', handler: { success: true } });
+    expect(bundle.leaves[0]?.verdict).toEqual({
+      status: 'failed',
+      failure: { code: 'INTENT_SEGMENT_FAILED', message: result.error?.message },
+    });
+  });
+
+  it('BlockingGateThatBlocks_IsAdvisoryFailedUnderContinue', async () => {
+    const later = countingHandler(silentHandler());
+    const deps = depsFor(
+      [fixtureStep('fixture_blocking_gate', 'continue'), fixtureStep('fixture_quiet', 'stop')],
+      { fixture_blocking_gate: verdictHandler(BLOCKED_VERDICT), fixture_quiet: later.handler },
+      [blockingGate, quiet],
+    );
+    const result = await execute(
+      { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-gate-continue' },
+      deps,
+    );
+    const receipt = receiptOf(result);
+
+    expect(result.success).toBe(true);
+    expect(receipt.outcome).toBe('committed');
+    expect(receipt.leaves.map((leaf) => leaf.status)).toEqual(['advisory-failed', 'passed']);
+    expect(later.calls()).toBe(1);
+
+    const verdict = (await bundleOf(receipt)).leaves[0]?.verdict;
+    expect(verdict?.status).toBe('advisory-failed');
+    expect(verdict?.status === 'advisory-failed' ? verdict.failure.message : '').toContain('passed: false');
+  });
+
+  it('ABlockedVerdictUnderContinue_DoesNotExcuseAMissingEmission', async () => {
+    const announcingGate = fixtureAction({
+      name: 'fixture_blocking_gate',
+      gate: { blocking: true },
+      emissions: declared({ event: 'gate.executed', condition: 'always', owner: 'orchestrate', role: 'primary' }),
+    });
+    const later = countingHandler(silentHandler());
+    const deps = depsFor(
+      [fixtureStep('fixture_blocking_gate', 'continue'), fixtureStep('fixture_quiet', 'stop')],
+      { fixture_blocking_gate: verdictHandler(BLOCKED_VERDICT), fixture_quiet: later.handler },
+      [announcingGate, quiet],
+    );
+    const result = await execute(
+      { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-gate-integrity' },
+      deps,
+    );
+
+    expect(result.error?.code).toBe('INTENT_EMISSION_CONTRACT_VIOLATED');
+    expect(receiptOf(result).leaves.map((leaf) => leaf.status)).toEqual(['failed']);
+    expect(later.calls()).toBe(0);
+  });
+
+  it.each([
+    ['a pass', { passed: true, disposition: 'proved' }],
+    ['a policy skip', { passed: true, skipped: true, disposition: 'advisory-skip' }],
+    ['an inconclusive skip', { passed: false, skipped: true, skipReason: 'no-toolchain' }],
+    ['a skip named only by its disposition', { passed: false, disposition: 'advisory-skip' }],
+  ])('BlockingGateThatDoesNotBlock_PassesTheLeaf (%s)', async (_label, data) => {
+    const deps = depsFor(
+      [fixtureStep('fixture_blocking_gate', 'stop'), fixtureStep('fixture_quiet', 'stop')],
+      { fixture_blocking_gate: verdictHandler(data), fixture_quiet: silentHandler() },
+      [blockingGate, quiet],
+    );
+    const result = await execute({ intent: INTENT, streamId: STREAM, args: { taskId: 't1' } }, deps);
+    const receipt = receiptOf(result);
+
+    expect(result.success).toBe(true);
+    expect(receipt.outcome).toBe('committed');
+    expect(receipt.leaves.map((leaf) => leaf.status)).toEqual(['passed', 'passed']);
+  });
+
+  it.each([
+    ['a gate that does not block', advisoryGate],
+    ['a leaf that is no gate', ungated],
+  ])('PassedFalseFromANonBlockingLeaf_StaysAdvisory (%s)', async (_label, action) => {
+    const deps = depsFor(
+      [fixtureStep(action.name, 'stop'), fixtureStep('fixture_quiet', 'stop')],
+      { [action.name]: verdictHandler(BLOCKED_VERDICT), fixture_quiet: silentHandler() },
+      [action, quiet],
+    );
+    const result = await execute({ intent: INTENT, streamId: STREAM, args: { taskId: 't1' } }, deps);
+    const receipt = receiptOf(result);
+
+    expect(result.success).toBe(true);
+    expect(receipt.outcome).toBe('committed');
+    expect(receipt.leaves.map((leaf) => leaf.status)).toEqual(['passed', 'passed']);
+  });
+
+  it('ReplayOfABlockedSegment_ReproducesTheSameRefusal', async () => {
+    const counted = countingHandler(verdictHandler(BLOCKED_VERDICT));
+    const deps = depsFor([fixtureStep('fixture_blocking_gate', 'stop')], { fixture_blocking_gate: counted.handler }, [
+      blockingGate,
+    ]);
+    const request = { intent: INTENT, streamId: STREAM, args: { taskId: 't1' }, operationId: 'op-gate-replay' };
+    const first = await execute(request, deps);
+    const second = await execute(request, deps);
+
+    expect(second.error).toEqual(first.error);
+    expect(second.error?.code).toBe('INTENT_SEGMENT_FAILED');
+    expect(counted.calls()).toBe(1);
   });
 });
 

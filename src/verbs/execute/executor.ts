@@ -67,6 +67,7 @@ import { OrchestrateIntentExecutedData } from '../../events/schemas.js';
 import type { IntentFailureDetail, ToolResult } from '../../format.js';
 import { evidenceArtifactResolver } from '../../workflow/admission/evidence-artifact.js';
 import { OperationIdSchema } from '../../workflow/admission/types.js';
+import { readGateSkipDescriptor } from '../gates/gate-utils.js';
 import { compileIntent, PRODUCTION_COMPILE_DEPS, type CompileDeps } from './compile.js';
 import {
   encodeExecuteIntentBundle,
@@ -177,8 +178,8 @@ function readString(raw: Record<string, unknown>, key: string): string | undefin
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-/** A plain object of intent arguments — not an array, not null. */
-function isArgsObject(value: unknown): value is Record<string, unknown> {
+/** A plain object — not an array, not null. Intent arguments and a gate's carrier both take this shape. */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
@@ -392,7 +393,7 @@ export async function handleExecuteIntent(
   let intentArgs: Record<string, unknown> = {};
   const rawArgs = raw.args;
   if (rawArgs !== undefined) {
-    if (!isArgsObject(rawArgs)) {
+    if (!isPlainObject(rawArgs)) {
       return invalid('args must be an object of typed intent arguments');
     }
     intentArgs = rawArgs;
@@ -727,6 +728,28 @@ async function replayElidedRows(input: {
     .map((row) => ({ type: row.type, streamId: leaf.observationStreamId, sequence: row.sequence }));
 }
 
+/**
+ * Why a blocking gate's verdict refuses its leaf, or `undefined` when it does not.
+ *
+ * A blocking gate reports a block on a SUCCESS carrier with `data.passed` false,
+ * so the handler's `success` alone cannot say the gate refused. A carrier that
+ * declares itself skipped is not a refusal, and a gate that is not registered
+ * as blocking stays advisory whatever it reports. The message names the verdict
+ * and not the gate's report, which stays on the gate's own evidence.
+ */
+function blockingGateRefusal(leaf: CompiledLeaf, result: ToolResult): string | undefined {
+  if (leaf.declaration.gate?.blocking !== true) return undefined;
+  const carrier = result.data;
+  if (!isPlainObject(carrier) || carrier.passed !== false) return undefined;
+  if (readGateSkipDescriptor(result) !== undefined || carrier.disposition === 'advisory-skip') {
+    return undefined;
+  }
+  const verdict = ['passed: false'];
+  if (typeof carrier.disposition === 'string') verdict.push(`disposition '${carrier.disposition}'`);
+  if (typeof carrier.discriminant === 'string') verdict.push(`discriminant '${carrier.discriminant}'`);
+  return `leaf '${leaf.action}' is a blocking gate and its verdict blocked (${verdict.join(', ')})`;
+}
+
 async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
   const { leaf, operationId, stateDir, ctx, outer, handlers, handlerTool } = input;
   const derived = derivedLeafOperationId(operationId, leaf.index, leaf.action);
@@ -951,6 +974,7 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
         .map((capture) => capture.type),
     );
     const missing = [...owed].filter((type) => !landed.has(type));
+    let emissionViolation: LeafOutcome['emissionViolation'];
     if (missing.length > 0 || verdict.status === 'violated') {
       const undelivered = missing.length > 0 ? missing : verdict.missingEvents;
       const message =
@@ -969,16 +993,25 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
           disposition: invoked,
         };
       }
+      emissionViolation = 'INTENT_EMISSION_CONTRACT_VIOLATED';
+    }
+
+    const refusal = blockingGateRefusal(leaf, result);
+    if (refusal !== undefined) {
       return {
-        status: 'passed',
-        events: receiptEvents(),
-        captures,
-        emissionViolation: 'INTENT_EMISSION_CONTRACT_VIOLATED',
+        ...failFor('INTENT_SEGMENT_FAILED', refusal),
+        ...(emissionViolation !== undefined ? { emissionViolation } : {}),
         disposition: invoked,
       };
     }
 
-    return { status: 'passed', events: receiptEvents(), captures, disposition: invoked };
+    return {
+      status: 'passed',
+      events: receiptEvents(),
+      captures,
+      ...(emissionViolation !== undefined ? { emissionViolation } : {}),
+      disposition: invoked,
+    };
   });
 }
 
