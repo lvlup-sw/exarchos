@@ -12,7 +12,6 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -21,22 +20,18 @@ import { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { handleOrchestrate } from '../../../../src/verbs/composite.js';
 import { runAsTrustedCaller, seedActivePhaseAttempt, withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
-function git(repoRoot: string, args: readonly string[]): string {
-  return execFileSync('git', [...args], {
-    cwd: repoRoot,
-    encoding: 'utf-8',
-    timeout: 30_000,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
+function git(repoRoot: string, args: readonly string[]): Promise<string> {
+  return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
 }
 
-function initRepo(prefix: string): string {
+async function initRepo(prefix: string): Promise<string> {
   const repoRoot = mkdtempSync(path.join(os.tmpdir(), prefix));
-  git(repoRoot, ['init', '--initial-branch=main', '-q']);
-  git(repoRoot, ['config', 'user.email', 'test@example.com']);
-  git(repoRoot, ['config', 'user.name', 'Test']);
-  git(repoRoot, ['config', 'commit.gpgsign', 'false']);
+  await git(repoRoot, ['init', '--initial-branch=main', '-q']);
+  await git(repoRoot, ['config', 'user.email', 'test@example.com']);
+  await git(repoRoot, ['config', 'user.name', 'Test']);
+  await git(repoRoot, ['config', 'commit.gpgsign', 'false']);
   return repoRoot;
 }
 
@@ -58,25 +53,25 @@ describe('check_test_adequacy toolchain test-glob threading (FIX-3)', () => {
     async () => {
       // Python-marker repo: tests live under `tests/test_*.py`, the pytest layout
       // — which the co-located defaults do NOT match.
-      const repoRoot = initRepo('test-adequacy-pyglob-');
+      const repoRoot = await initRepo('test-adequacy-pyglob-');
       cleanups.push(() => rmSync(repoRoot, { recursive: true, force: true }));
 
       writeFileSync(path.join(repoRoot, 'pyproject.toml'), '[project]\nname = "fixture"\n');
       mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
       writeFileSync(path.join(repoRoot, 'src', 'calc.py'), 'def value():\n    return 1\n');
-      git(repoRoot, ['add', '.']);
-      git(repoRoot, ['commit', '-m', 'base', '-q']);
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'base', '-q']);
 
       // Task diff: change source AND add a python test under tests/.
-      git(repoRoot, ['checkout', '-b', 'feature/py', '-q']);
+      await git(repoRoot, ['checkout', '-b', 'feature/py', '-q']);
       writeFileSync(path.join(repoRoot, 'src', 'calc.py'), 'def value():\n    return 2\n');
       mkdirSync(path.join(repoRoot, 'tests'), { recursive: true });
       writeFileSync(
         path.join(repoRoot, 'tests', 'test_foo.py'),
         'from src.calc import value\n\n\ndef test_value():\n    assert value() == 2\n',
       );
-      git(repoRoot, ['add', '.']);
-      git(repoRoot, ['commit', '-m', 'feat + test', '-q']);
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'feat + test', '-q']);
 
       const stateDir = mkdtempSync(path.join(os.tmpdir(), 'test-adequacy-pyglob-state-'));
       cleanups.push(() => rmSync(stateDir, { recursive: true, force: true }));

@@ -90,11 +90,11 @@ describe('omission fails the build, not the run', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it('CompileFail_EffectWithoutCommittedEvent_FailsTypecheck', () => {
+  it('CompileFail_EffectWithoutCommittedEvent_FailsTypecheck', async () => {
     materializeCarrier(dir, []);
     fs.writeFileSync(path.join(dir, 'fixture.ts'), OMITTING_FIXTURE, 'utf8');
 
-    const run = compile(dir, ['effect-carrier.ts', 'schemas.ts', 'fixture.ts']);
+    const run = await compile(dir, ['effect-carrier.ts', 'schemas.ts', 'fixture.ts']);
 
     expect(run.accepted, `a plan omitting its emission declaration compiled:\n${run.output}`).toBe(
       false,
@@ -105,14 +105,14 @@ describe('omission fails the build, not the run', () => {
     expect(run.output).toMatch(/emits/);
   });
 
-  it('CompileFail_FixtureCompilesWhenGuardRemoved', () => {
+  it('CompileFail_FixtureCompilesWhenGuardRemoved', async () => {
     // The probe: the SAME fixture against a copy whose guard is relaxed. If it
     // still failed, the first assertion would be measuring a typo rather than
     // the requirement.
     materializeCarrier(dir, RELAX_REQUIRED_EMITS);
     fs.writeFileSync(path.join(dir, 'fixture.ts'), OMITTING_FIXTURE, 'utf8');
 
-    const run = compile(dir, ['effect-carrier.ts', 'schemas.ts', 'fixture.ts']);
+    const run = await compile(dir, ['effect-carrier.ts', 'schemas.ts', 'fixture.ts']);
 
     expect(
       run.accepted,

@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { spawnSync } from 'node:child_process';
 import {
   mkdtempSync,
   rmSync,
@@ -11,10 +10,12 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { spawnAsync, type SpawnResult } from '../test-helpers/spawn.js';
+
 // ─── Black-box tests for the opt-in pre-push ship-gate hook (DR-5, #1597) ────
 //
 // We drive `hooks/pre-push.ship-gate.sample` as a real POSIX `sh` script — the
-// same way git would invoke `.git/hooks/pre-push` — via `spawnSync('sh', ...)`,
+// same way git would invoke `.git/hooks/pre-push` — via `spawnAsync('sh', ...)`,
 // so the test is independent of the file's on-disk mode. Per test we write a
 // fake `exarchos` stub into a tmp dir and prepend it to PATH; the stub's stdout
 // stands in for the ship-path verb's `--json` ToolResult. We assert on the
@@ -43,9 +44,8 @@ function writeStub(dir: string, stdout: string, exitCode = 0): void {
  * lookup fails regardless of whether a real `exarchos` is installed — while
  * keeping the inherited PATH intact so `sh` itself still resolves.
  */
-function runHook(pathEnv: string, binName = 'exarchos'): ReturnType<typeof spawnSync> {
-  return spawnSync('sh', [HOOK_PATH], {
-    encoding: 'utf-8',
+function runHook(pathEnv: string, binName = 'exarchos'): Promise<SpawnResult> {
+  return spawnAsync('sh', [HOOK_PATH], {
     env: {
       ...process.env,
       PATH: pathEnv,
@@ -71,7 +71,7 @@ describe('pre-push ship-gate hook (DR-5, #1597)', () => {
     expect(existsSync(HOOK_PATH)).toBe(true);
   });
 
-  it('PrePushHook_BlockingFinding_BlocksPush', () => {
+  it('PrePushHook_BlockingFinding_BlocksPush', async () => {
     // Advisory verbs emit success:true with data.passed:false on a finding —
     // the hook must parse the JSON signal, not the (zero) exit code.
     writeStub(
@@ -79,23 +79,23 @@ describe('pre-push ship-gate hook (DR-5, #1597)', () => {
       '{"success":true,"data":{"passed":false,"passCount":1,"failCount":3,"report":"3 lint errors"}}',
       0,
     );
-    const result = runHook(`${binDir}:${process.env.PATH ?? ''}`);
+    const result = await runHook(`${binDir}:${process.env.PATH ?? ''}`);
     expect(result.status, `stderr: ${result.stderr}`).toBe(1);
     expect(result.stderr).toMatch(/BLOCKED/);
   });
 
-  it('PrePushHook_Pass_AllowsPush', () => {
+  it('PrePushHook_Pass_AllowsPush', async () => {
     writeStub(
       binDir,
       '{"success":true,"data":{"passed":true,"passCount":4,"failCount":0,"report":"ok"}}',
       0,
     );
-    const result = runHook(`${binDir}:${process.env.PATH ?? ''}`);
+    const result = await runHook(`${binDir}:${process.env.PATH ?? ''}`);
     expect(result.status, `stderr: ${result.stderr}`).toBe(0);
     expect(result.stderr).toMatch(/passed/);
   });
 
-  it('PrePushHook_VerbUnavailable_DegradesOpen', () => {
+  it('PrePushHook_VerbUnavailable_DegradesOpen', async () => {
     // Engine unavailable: point EXARCHOS_BIN at a name that resolves on no
     // PATH so `command -v` fails — regardless of whether a real `exarchos` is
     // installed on the test host. The inherited PATH stays intact so `sh`
@@ -103,12 +103,12 @@ describe('pre-push ship-gate hook (DR-5, #1597)', () => {
     // actionable message, never wedge the push on a missing optional tool
     // (POLA).
     const absentBin = 'exarchos-ship-gate-absent-binary';
-    const result = runHook(process.env.PATH ?? '', absentBin);
+    const result = await runHook(process.env.PATH ?? '', absentBin);
     expect(result.status, `stderr: ${result.stderr}`).toBe(0);
     expect(result.stderr).toMatch(/not found on PATH/);
   });
 
-  it('PrePushHook_InconclusiveVerb_DegradesOpen', () => {
+  it('PrePushHook_InconclusiveVerb_DegradesOpen', async () => {
     // The verb ran but emitted no pass/block signal (e.g. a crash or a skipped
     // gate). "Couldn't run" must be distinct from "gate says block": allow the
     // push rather than wedge it on an inconclusive verdict.
@@ -117,7 +117,7 @@ describe('pre-push ship-gate hook (DR-5, #1597)', () => {
       '{"success":false,"error":{"code":"SCRIPT_ERROR","message":"boom"}}',
       2,
     );
-    const result = runHook(`${binDir}:${process.env.PATH ?? ''}`);
+    const result = await runHook(`${binDir}:${process.env.PATH ?? ''}`);
     expect(result.status, `stderr: ${result.stderr}`).toBe(0);
     expect(result.stderr).toMatch(/could not determine a verdict/);
   });

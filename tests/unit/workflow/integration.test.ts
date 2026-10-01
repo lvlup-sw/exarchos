@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { execFileSync } from 'node:child_process';
 import {
   handleInit,
   handleGet,
@@ -17,6 +16,7 @@ import { EventStore } from '../../../src/events/store.js';
 import { readStateFile, reconcileFromEvents } from '../../../src/workflow/state-store.js';
 import type { EventType as ExternalEventType } from '../../../src/events/schemas.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
+import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 
 describe('Integration', () => {
   let stateDir: string;
@@ -381,25 +381,25 @@ describe('Integration', () => {
       // repository makes it honestly report COMPENSATION_PARTIAL. Give it a
       // real repo with the branches the workflow claims, so this exercises
       // compensation succeeding rather than the fail-closed path.
-      const git = (...args: string[]): void => {
-        execFileSync('git', args, { cwd: stateDir, stdio: 'ignore' });
+      const git = async (...args: string[]): Promise<void> => {
+        await execFileAsync('git', args, { cwd: stateDir });
       };
-      git('init', '-q');
-      git('config', 'user.email', 'test@example.com');
-      git('config', 'user.name', 'Test');
-      git('config', 'commit.gpgsign', 'false');
+      await git('init', '-q');
+      await git('config', 'user.email', 'test@example.com');
+      await git('config', 'user.name', 'Test');
+      await git('config', 'commit.gpgsign', 'false');
       await fs.writeFile(path.join(stateDir, 'README.md'), '# fixture\n', 'utf-8');
-      git('add', 'README.md');
-      git('commit', '-q', '-m', 'fixture');
-      git('branch', 'feat/task-1');
-      git('branch', 'feat/task-2');
+      await git('add', 'README.md');
+      await git('commit', '-q', '-m', 'fixture');
+      await git('branch', 'feat/task-1');
+      await git('branch', 'feat/task-2');
       // Compensation probes `origin` before deleting remote branches, so the
       // fixture needs a real remote — otherwise `ls-remote` fails and the whole
       // action is (correctly) reported as a compensation failure.
       const originDir = path.join(stateDir, 'origin.git');
-      execFileSync('git', ['init', '--bare', '-q', originDir], { stdio: 'ignore' });
-      git('remote', 'add', 'origin', originDir);
-      git('push', '-q', 'origin', 'feat/task-1', 'feat/task-2');
+      await execFileAsync('git', ['init', '--bare', '-q', originDir]);
+      await git('remote', 'add', 'origin', originDir);
+      await git('push', '-q', 'origin', 'feat/task-1', 'feat/task-2');
 
       // Init and advance to delegate
       await handleInit(

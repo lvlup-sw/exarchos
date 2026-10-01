@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -200,8 +200,9 @@ describe('SqliteAtomicAppender', () => {
       return originalRun(...args);
     };
 
-    const t0 = Date.now();
+    const timers = vi.spyOn(globalThis, 'setTimeout');
     let result: Awaited<ReturnType<typeof appender.append>>;
+    let backoffMs: number[];
     try {
       result = await appender.append(
         'sqlite-busy-retry',
@@ -210,8 +211,11 @@ describe('SqliteAtomicAppender', () => {
       );
     } finally {
       stmts.insertEventStrict.run = originalRun;
+      backoffMs = timers.mock.calls
+        .map((call) => call[1])
+        .filter((ms): ms is number => typeof ms === 'number' && ms > 0);
+      timers.mockRestore();
     }
-    const elapsed = Date.now() - t0;
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -219,9 +223,9 @@ describe('SqliteAtomicAppender', () => {
     expect(result.sequences).toEqual([1]);
     // Five attempts: 4 BUSY throws + 1 success.
     expect(attempts).toBe(5);
-    // Backoff bounded — 5+10+20+40 ≤ 75 ms total of intentional sleeps,
+    // Backoff bounded — 5+10+20+40 = 75 ms total of intentional sleeps,
     // capped well below 1 s. This proves there's no unbounded retry sleep.
-    expect(elapsed).toBeLessThan(1000);
+    expect(backoffMs).toEqual([5, 10, 20, 40]);
   });
 
   it('SqliteAtomicAppender_SqliteBusy_ExceedsFiveAttempts_ReturnsStorageBusy', async () => {

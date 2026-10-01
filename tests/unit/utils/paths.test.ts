@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 import { expandTilde, isClaudeCodePlugin, resolveStateDir, resolveTeamsDir, resolveTasksDir, resolveCacheDir, deriveRepoKey, resetRepoKeyMemo, resolveStorePath, computeStorePathDivergence, STORE_DB_FILENAME } from '../../../src/utils/paths.js';
 
 describe('expandTilde', () => {
@@ -243,18 +243,17 @@ describe('deriveRepoKey', () => {
   // otherwise return a stale cross-test cache hit (Sentry finding).
   beforeEach(() => resetRepoKeyMemo());
 
-  it('DeriveRepoKey_WorktreePath_MatchesMainCheckoutKey', () => {
+  it('DeriveRepoKey_WorktreePath_MatchesMainCheckoutKey', async () => {
     const mainRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'drk-main-'));
     const wtParent = fs.mkdtempSync(path.join(os.tmpdir(), 'drk-wt-'));
     const wtPath = path.join(wtParent, 'linked');
-    const git = (args: string[]) =>
-      execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const git = (args: string[]) => execFileAsync('git', args);
     try {
-      git(['init', '-q', mainRoot]);
-      git(['-C', mainRoot, 'config', 'user.email', 'test@example.com']);
-      git(['-C', mainRoot, 'config', 'user.name', 'Test']);
-      git(['-C', mainRoot, 'commit', '-q', '--allow-empty', '-m', 'init']);
-      git(['-C', mainRoot, 'worktree', 'add', '-q', wtPath]);
+      await git(['init', '-q', mainRoot]);
+      await git(['-C', mainRoot, 'config', 'user.email', 'test@example.com']);
+      await git(['-C', mainRoot, 'config', 'user.name', 'Test']);
+      await git(['-C', mainRoot, 'commit', '-q', '--allow-empty', '-m', 'init']);
+      await git(['-C', mainRoot, 'worktree', 'add', '-q', wtPath]);
 
       const mainKey = deriveRepoKey(mainRoot);
       const worktreeKey = deriveRepoKey(wtPath);

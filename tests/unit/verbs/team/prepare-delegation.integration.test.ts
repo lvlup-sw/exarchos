@@ -10,7 +10,6 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
-import { execFileSync } from 'node:child_process';
 import * as path from 'node:path';
 import { toPosix } from '../../../../src/utils/paths.js';
 import * as os from 'node:os';
@@ -27,6 +26,7 @@ import { getRequiredReviews } from '../../../../src/workflow/review-contract.js'
 import { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
 vi.mock('../../../../src/verbs/team/dispatch-guard.js', () => ({
   validateBranchAncestry: vi.fn().mockResolvedValue({ passed: true, checks: ['ancestry'] }),
@@ -227,23 +227,20 @@ describe('handlePrepareDelegation — event persistence (integration)', () => {
 describe('ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree (characterization, #1301)', () => {
   let repoRoot: string;
 
-  function git(cwd: string, args: readonly string[]): string {
-    return execFileSync('git', ['-C', cwd, ...args], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+  function git(cwd: string, args: readonly string[]): Promise<string> {
+    return execFileAsync('git', ['-C', cwd, ...args]);
   }
 
   beforeEach(async () => {
     repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'rootcause-1301-'));
-    git(repoRoot, ['init', '-b', 'main']);
-    git(repoRoot, ['config', 'user.email', 'test@example.com']);
-    git(repoRoot, ['config', 'user.name', 'Test']);
+    await git(repoRoot, ['init', '-b', 'main']);
+    await git(repoRoot, ['config', 'user.email', 'test@example.com']);
+    await git(repoRoot, ['config', 'user.name', 'Test']);
     // Seed a committed file so the agent worktree has a real main-worktree
     // counterpart to (not) leak into.
     await fs.writeFile(path.join(repoRoot, 'src.txt'), 'baseline\n');
-    git(repoRoot, ['add', '.']);
-    git(repoRoot, ['commit', '-m', 'baseline']);
+    await git(repoRoot, ['add', '.']);
+    await git(repoRoot, ['commit', '-m', 'baseline']);
   });
 
   afterEach(async () => {
@@ -269,7 +266,7 @@ describe('ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree (characte
     expect(data.worktreePath.startsWith(worktreesRoot)).toBe(true);
     expect(path.resolve(data.worktreePath)).not.toBe(path.resolve(repoRoot));
     // A real, distinct worktree was provisioned (git sees a separate gitdir).
-    expect(existsSyncSafe(data.worktreePath)).toBe(true);
+    expect(await existsSafe(data.worktreePath)).toBe(true);
   });
 
   it('an agent-side write into its worktree does NOT mirror into the main worktree', async () => {
@@ -285,34 +282,28 @@ describe('ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree (characte
     // handed it. If server path-resolution leaked, the byte-identical content
     // would also appear at the main worktree's copy of the same file.
     const agentFile = path.join(worktreePath, 'src.txt');
-    execFileSync('node', ['-e', `require('fs').writeFileSync(${JSON.stringify(agentFile)}, 'agent-edit\\n')`], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    await execFileAsync('node', ['-e', `require('fs').writeFileSync(${JSON.stringify(agentFile)}, 'agent-edit\\n')`]);
 
     // The agent's edited path (src.txt) must NOT surface as a modification in
     // the main worktree. (`handleSetupWorktree` step 1 writes `.gitignore`
     // into the main worktree by design — that is provisioning, not a leak, so
     // we assert specifically on the agent-edited path, not whole-tree
     // cleanliness.)
-    const mainStatus = git(repoRoot, ['status', '--porcelain']);
+    const mainStatus = await git(repoRoot, ['status', '--porcelain']);
     const leakedPaths = mainStatus
       .split('\n')
       .map(l => l.slice(2).trim())
       .filter(p => p === 'src.txt');
     expect(leakedPaths).toEqual([]);
     // And the main worktree's file is untouched.
-    const mainContent = execFileSync('cat', [path.join(repoRoot, 'src.txt')], {
-      encoding: 'utf-8',
-    });
+    const mainContent = await execFileAsync('cat', [path.join(repoRoot, 'src.txt')]);
     expect(mainContent).toBe('baseline\n');
   });
 });
 
-function existsSyncSafe(p: string): boolean {
+async function existsSafe(p: string): Promise<boolean> {
   try {
-    execFileSync('git', ['-C', p, 'rev-parse', '--git-dir'], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    await execFileAsync('git', ['-C', p, 'rev-parse', '--git-dir']);
     return true;
   } catch {
     return false;

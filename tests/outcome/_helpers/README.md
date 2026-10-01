@@ -15,10 +15,15 @@ from the other two tiers:
   collaborators. They prove a function does what the function intends.
 - **Process / integration tests** (also under `test:run`) wire several
   components together with light fakes and assert on their composed shapes.
-- **Outcome tests** (`npm run test:outcome`) drive `execFileSync('node',
+- **Outcome tests** (`npm run test:outcome`) drive `execFileAsync('node',
   ['dist/bin/cli.js', ...])` or the real `git` binary against a real tmpdir
   and assert on what the operator sees: files on disk, exit codes, stderr
   prose, and git state. No mocking of process, fs, or child_process.
+
+Test code starts child processes only through the async helpers in
+`tools/test-helpers/spawn.ts`. A synchronous spawn blocks the vitest worker's
+event loop, and `tests/architecture/worker-loop-and-clock.test.ts` rejects it
+(#2029).
 
 To keep these tests hermetic the helpers in this directory build each test's
 workspace from `fs.mkdtempSync` plus real `git init`, so every test owns its
@@ -57,18 +62,18 @@ the same isolation.
 ### Example
 
 ```ts
-import { execFileSync } from 'node:child_process';
 import * as path from 'node:path';
 import { describe, it, expect } from 'vitest';
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 import { withTmpHome } from './_helpers/tmp-home.js';
 
 describe('cli --help', () => {
   it('prints usage without writing to HOME', async () => {
     await withTmpHome(async (home) => {
-      const out = execFileSync(
+      const out = await execFileAsync(
         'node',
         [path.resolve('dist/bin/cli.js'), '--help'],
-        { env: { ...process.env, HOME: home }, encoding: 'utf8' },
+        { env: { ...process.env, HOME: home } },
       );
       expect(out).toMatch(/Usage:/);
     });
@@ -76,9 +81,9 @@ describe('cli --help', () => {
 });
 ```
 
-Note: pass HOME explicitly in `env`. `execFileSync` does not inherit the
-mutated `process.env` on every platform/runtime combination, so threading it
-through the call is the safe pattern.
+Note: pass HOME explicitly in `env`. A child does not see the mutated
+`process.env` on every platform/runtime combination, so threading it through
+the call is the safe pattern.
 
 ## `withTmpGit` and `addSiblingWorktree`
 
@@ -124,7 +129,7 @@ preflight that needs to detect a branch already checked out elsewhere.
 ```ts
 import { describe, it, expect } from 'vitest';
 import { withTmpGit, addSiblingWorktree } from './_helpers/tmp-git.js';
-import { execSync } from 'node:child_process';
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 describe('merge preflight in multi-worktree topology', () => {
   it.fails('detects target branch checked out in a sibling', async () => {
@@ -134,9 +139,10 @@ describe('merge preflight in multi-worktree topology', () => {
 
       // Drive the real handler against the primary worktree. It must see
       // that `release` is occupied by `releaseWt` and refuse the merge.
-      const result = execSync(
-        `node dist/bin/cli.js merge --from integration --into release`,
-        { cwd: repo, encoding: 'utf8' },
+      const result = await execFileAsync(
+        'node',
+        ['dist/bin/cli.js', 'merge', '--from', 'integration', '--into', 'release'],
+        { cwd: repo },
       );
 
       expect(result).toMatch(/release.*checked out at.*\/-wt-release/);

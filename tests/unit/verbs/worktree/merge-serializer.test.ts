@@ -12,7 +12,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -22,6 +21,7 @@ import { EventStore } from '../../../../src/events/store.js';
 import { EVENT_DATA_SCHEMAS } from '../../../../src/events/schemas.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { writeStateFile } from '../../../../src/workflow/state-store.js';
 import type { ToolResult } from '../../../../src/format.js';
 
@@ -137,13 +137,8 @@ async function foldWorktrees(arm: Arm): Promise<WorktreesProjection> {
 
 // ─── Real-git helpers (composition test) ─────────────────────────────────────
 
-function git(repoRoot: string, args: readonly string[]): string {
-  return execFileSync('git', [...args], {
-    cwd: repoRoot,
-    encoding: 'utf-8',
-    timeout: 30_000,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
+function git(repoRoot: string, args: readonly string[]): Promise<string> {
+  return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
 }
 
 /**
@@ -152,20 +147,20 @@ function git(repoRoot: string, args: readonly string[]): string {
  * merge-preflight passes — ancestry, current-branch, main-worktree, drift all
  * clean — and `git merge --no-ff feat` lands a clean merge commit on main.
  */
-function setupMergeableRepo(): string {
+async function setupMergeableRepo(): Promise<string> {
   const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'wlm-serialize-repo-'));
   repoDirs.push(repoRoot);
-  git(repoRoot, ['init', '--initial-branch=main', '-q']);
-  git(repoRoot, ['config', 'user.email', 'test@example.com']);
-  git(repoRoot, ['config', 'user.name', 'Test']);
-  git(repoRoot, ['config', 'commit.gpgsign', 'false']);
+  await git(repoRoot, ['init', '--initial-branch=main', '-q']);
+  await git(repoRoot, ['config', 'user.email', 'test@example.com']);
+  await git(repoRoot, ['config', 'user.name', 'Test']);
+  await git(repoRoot, ['config', 'commit.gpgsign', 'false']);
   writeFileSync(path.join(repoRoot, 'a.txt'), 'A\n');
-  git(repoRoot, ['add', 'a.txt']);
-  git(repoRoot, ['commit', '-m', 'A', '-q']);
-  git(repoRoot, ['checkout', '-b', 'feat', '-q']);
+  await git(repoRoot, ['add', 'a.txt']);
+  await git(repoRoot, ['commit', '-m', 'A', '-q']);
+  await git(repoRoot, ['checkout', '-b', 'feat', '-q']);
   writeFileSync(path.join(repoRoot, 'c.txt'), 'C\n');
-  git(repoRoot, ['add', 'c.txt']);
-  git(repoRoot, ['commit', '-m', 'C', '-q']);
+  await git(repoRoot, ['add', 'c.txt']);
+  await git(repoRoot, ['commit', '-m', 'C', '-q']);
   return repoRoot;
 }
 
@@ -424,7 +419,7 @@ describe('serialize_merge — composition', () => {
     const featureId = 'feat-compose';
 
     // (1) Serialized path — through handleOrchestrate, production defaults.
-    const repoSerial = setupMergeableRepo();
+    const repoSerial = await setupMergeableRepo();
     const armSerial = await createArm();
     await seedFeatureState(armSerial.stateDir, featureId);
     const serialResult = await handleOrchestrate(
@@ -444,7 +439,7 @@ describe('serialize_merge — composition', () => {
     expect(serialResult.success).toBe(true);
 
     // (2) Direct path — handleMergeOrchestrate on an EQUIVALENT independent repo.
-    const repoDirect = setupMergeableRepo();
+    const repoDirect = await setupMergeableRepo();
     const armDirect = await createArm();
     await seedFeatureState(armDirect.stateDir, featureId);
     const directResult = await handleMergeOrchestrate(

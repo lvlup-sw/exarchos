@@ -50,14 +50,14 @@ const OWNERS: readonly string[] = [
 ];
 
 describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', () => {
-  it('Census_ScannedPopulation_IsNotVacuous', () => {
+  it('Census_ScannedPopulation_IsNotVacuous', async () => {
     const census = scanEvidenceStoreConstructions(REPO_ROOT, {
       sourceDir: SOURCE_DIR,
       owners: OWNERS,
     });
     expect(census.scannedModuleCount).toBeGreaterThan(300);
 
-    const tracked = listTrackedFiles(REPO_ROOT, {
+    const tracked = await listTrackedFiles(REPO_ROOT, {
       exclude: (file) => !file.startsWith('src/') || file.endsWith('.test.ts'),
     });
     expect(tracked.length).toBeGreaterThan(0);

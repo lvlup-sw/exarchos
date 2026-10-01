@@ -52,7 +52,8 @@ import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { isPidAlive, spawnCommandSync } from '../../../src/utils/process.js';
+import { isPidAlive } from '../../../src/utils/process.js';
+import { spawnAsync } from '../../../tools/test-helpers/spawn.js';
 
 // ─── Repo-root discovery ────────────────────────────────────────────────────
 
@@ -299,22 +300,22 @@ export async function withBuildLock<T>(
  * Extracted so tests can inject a fake in its place (`EnsureBinaryBuiltOptions
  * .runBuild`) without shelling out to `bun` or racing the real artifact path.
  */
-function defaultRunBuild(repoRoot: string, outDir: string): void {
+async function defaultRunBuild(repoRoot: string, outDir: string): Promise<void> {
   // `bun` on win32 is a `.cmd`/`.ps1` shim, which `spawnSync` cannot resolve
   // without a shell — it returns `status: null` with no stdout/stderr, which the
   // check below reported as an opaque "build-binary.ts failed (exit null)".
-  // `spawnCommandSync` IS that rule; calling it beats re-deriving the shell
+  // `spawnAsync` applies that rule; calling it beats re-deriving the shell
   // decision beside a raw spawn, which reads to any scanner as the bare form.
-  const result = spawnCommandSync(
+  const result = await spawnAsync(
     'bun',
     ['run', 'tools/release/build-binary.ts', '--outdir', outDir],
-    { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' },
+    { cwd: repoRoot },
   );
   if (result.error !== undefined || result.status !== 0) {
     throw new Error(
       `build-binary.ts failed (exit ${result.status}${
         result.error === undefined ? '' : `, ${result.error.message}`
-      }):\n${result.stdout ?? ''}\n${result.stderr ?? ''}`,
+      }):\n${result.stdout}\n${result.stderr}`,
     );
   }
 }

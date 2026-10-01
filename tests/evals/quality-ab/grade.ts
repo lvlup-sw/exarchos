@@ -44,6 +44,8 @@ import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { execFileAsync, spawnAsync, SpawnFailure } from '../../../tools/test-helpers/spawn.js';
+
 // Reuse the production diff-scoped kill-probe (check_test_adequacy). `runProbe`
 // only type-imports `GitExec`, so importing it pulls in NO MCP runtime deps
 // (no event store, no SQLite) — the grader stays a lightweight tsx script.
@@ -102,23 +104,23 @@ export interface RunResult {
 
 // ─── Oracle (unchanged behavior) ──────────────────────────────────────────────
 
-export function gradeOracle(
+export async function gradeOracle(
   runDir: string,
   task: string,
   tasksDir: string,
-): Pick<RunResult, 'oraclePassed' | 'oracleTotal' | 'oracleFailures' | 'error'> {
+): Promise<Pick<RunResult, 'oraclePassed' | 'oracleTotal' | 'oracleFailures' | 'error'>> {
   const oracleSrc = path.join(tasksDir, task, 'oracle.ts');
   const oracleDst = path.join(runDir, 'oracle.ts');
   fs.copyFileSync(oracleSrc, oracleDst);
   try {
-    const out = execFileSync(TSX, ['oracle.ts'], { cwd: runDir, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+    const out = await execFileAsync(TSX, ['oracle.ts'], { cwd: runDir });
     const line = out.trim().split('\n').filter(Boolean).pop() ?? '{}';
     const parsed = JSON.parse(line) as { passed: number; total: number; failures: string[] };
     return { oraclePassed: parsed.passed, oracleTotal: parsed.total, oracleFailures: parsed.failures };
   } catch (err) {
     // Oracle crashed (missing export, runtime throw, syntax error) → 0 correct.
     const total = countOracleChecks(oracleSrc);
-    const msg = err instanceof Error ? (err as Error & { stderr?: string }).stderr ?? err.message : String(err);
+    const msg = err instanceof SpawnFailure && err.status !== null ? err.stderr : err instanceof Error ? err.message : String(err);
     return { oraclePassed: 0, oracleTotal: total, oracleFailures: ['oracle could not run against impl'], error: String(msg).split('\n').slice(0, 3).join(' ') };
   } finally {
     // Don't leave the hidden oracle behind in the run dir.
@@ -134,15 +136,15 @@ export function countOracleChecks(oraclePath: string): number {
   return m ? m.length : 0;
 }
 
-export function gradeTypecheck(runDir: string): boolean {
+export async function gradeTypecheck(runDir: string): Promise<boolean> {
   try {
     // Realistic target/lib (es2022) matching the repo — a bare `tsc` defaults to
     // an ES5 lib and rejects modern-but-valid TS (private fields, sticky regex,
     // etc.), which would be a grader artifact rather than an impl defect.
-    execFileSync(
+    await execFileAsync(
       TSC,
       ['--noEmit', '--strict', '--skipLibCheck', '--target', 'es2022', '--lib', 'es2022', 'impl.ts'],
-      { cwd: runDir, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+      { cwd: runDir },
     );
     return true;
   } catch {
@@ -174,7 +176,7 @@ export const evalGitExec: GitExec = (repoRoot, args) => {
   try {
     const stdout = execFileSync('git', [...args], {
       cwd: repoRoot,
-      timeout: 30_000,
+      timeout: 15_000,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -188,6 +190,13 @@ export const evalGitExec: GitExec = (repoRoot, args) => {
   }
 };
 
+/** The asynchronous twin of {@link evalGitExec}, for the setup steps that run before the probe. */
+async function evalGitAsync(repoRoot: string, args: readonly string[]): Promise<{ stdout: string; exitCode: number }> {
+  const result = await spawnAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
+  if (result.status === 0 && result.error === undefined) return { stdout: result.stdout, exitCode: 0 };
+  return { stdout: result.stdout + result.stderr, exitCode: result.status ?? 1 };
+}
+
 /**
  * Build the probe's test runner: run each produced test file via `tsx` in the
  * throwaway repo. A produced test is a module-load harness (`node:assert`) that
@@ -198,7 +207,7 @@ export function makeEvalRunTests(tsx: string = TSX): TestRunFn {
   return async ({ repoRoot, testFiles }) => {
     for (const tf of testFiles) {
       try {
-        execFileSync(tsx, [tf], { cwd: repoRoot, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 120_000 });
+        await execFileAsync(tsx, [tf], { cwd: repoRoot, timeout: 120_000 });
       } catch {
         return { passed: false };
       }
@@ -263,11 +272,11 @@ export async function gradeAdequacy(
   try {
     // 1. `git init` + a throwaway identity (robust to a missing global config;
     //    `-c` flags avoid a second config round-trip and any gpg-sign prompt).
-    evalGitExec(tmp, ['init', '-q']);
+    await evalGitAsync(tmp, ['init', '-q']);
     // 2. BASE commit = the task stub, written as `impl.ts`.
     fs.writeFileSync(path.join(tmp, 'impl.ts'), stubSrc);
-    evalGitExec(tmp, ['add', 'impl.ts']);
-    const commit = evalGitExec(tmp, [
+    await evalGitAsync(tmp, ['add', 'impl.ts']);
+    const commit = await evalGitAsync(tmp, [
       '-c', 'user.email=eval@exarchos.local',
       '-c', 'user.name=exarchos-eval',
       '-c', 'commit.gpgsign=false',
@@ -276,7 +285,7 @@ export async function gradeAdequacy(
     if (commit.exitCode !== 0) {
       return { probed: false, redObserved: false, score: null, discriminant: 'setup-failed', error: `git commit failed: ${commit.stdout.trim().slice(0, 200)}` };
     }
-    const head = evalGitExec(tmp, ['rev-parse', 'HEAD']);
+    const head = await evalGitAsync(tmp, ['rev-parse', 'HEAD']);
     if (head.exitCode !== 0) {
       return { probed: false, redObserved: false, score: null, discriminant: 'setup-failed', error: `git rev-parse failed: ${head.stdout.trim().slice(0, 200)}` };
     }
@@ -335,7 +344,7 @@ export async function gradeRun(baseDir: string, run: string, options: GradeRunOp
     throw new Error(`Malformed run directory name (want <task>__<arm>__r<rep>): ${run}`);
   }
   const rep = repRaw.replace(/^r/, '');
-  const oracle = gradeOracle(runDir, task, options.tasksDir);
+  const oracle = await gradeOracle(runDir, task, options.tasksDir);
   const adequacy = await gradeAdequacy(runDir, task, {
     tasksDir: options.tasksDir,
     ...(options.tsx ? { tsx: options.tsx } : {}),
@@ -347,7 +356,7 @@ export async function gradeRun(baseDir: string, run: string, options: GradeRunOp
     arm,
     rep,
     ...oracle,
-    typecheckOk: gradeTypecheck(runDir),
+    typecheckOk: await gradeTypecheck(runDir),
     wroteTests: detectTests(runDir),
     adequacyProbed: adequacy.probed,
     adequacyRedObserved: adequacy.redObserved,

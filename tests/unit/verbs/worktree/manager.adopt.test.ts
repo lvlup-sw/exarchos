@@ -19,7 +19,6 @@
 //     (operational cold-rebuild, INV-1).
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -28,6 +27,7 @@ import * as path from 'node:path';
 import { EventStore } from '../../../../src/events/store.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import {
   WorktreeManager,
   WORKTREES_STREAM,
@@ -42,30 +42,26 @@ import { canonicalWorktreeId } from '../../../../src/verbs/worktree/pure/path-co
 // ─── git + event-store helpers ──────────────────────────────────────────────
 
 /** Run `git <args>` from `cwd`, returning trimmed stdout (throws on failure). */
-function git(cwd: string, args: readonly string[]): string {
-  return execFileSync('git', args as string[], {
-    cwd,
-    encoding: 'utf-8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim();
+async function git(cwd: string, args: readonly string[]): Promise<string> {
+  return (await execFileAsync('git', args, { cwd })).trim();
 }
 
 /** Init a real repo on branch `work` with one commit; returns its canonical path. */
 async function initRepo(dir: string): Promise<string> {
   await mkdir(dir, { recursive: true });
-  git(dir, ['init', '-q', '-b', 'work']);
-  git(dir, ['config', 'user.email', 'wlm@example.com']);
-  git(dir, ['config', 'user.name', 'WLM Test']);
-  git(dir, ['config', 'commit.gpgsign', 'false']);
+  await git(dir, ['init', '-q', '-b', 'work']);
+  await git(dir, ['config', 'user.email', 'wlm@example.com']);
+  await git(dir, ['config', 'user.name', 'WLM Test']);
+  await git(dir, ['config', 'commit.gpgsign', 'false']);
   await writeFile(path.join(dir, 'README.md'), '# wlm-adopt test\n');
-  git(dir, ['add', '.']);
-  git(dir, ['commit', '-q', '-m', 'init']);
+  await git(dir, ['add', '.']);
+  await git(dir, ['commit', '-q', '-m', 'init']);
   return realpathSync(dir);
 }
 
 /** Number of on-disk worktrees git reports for `repoRoot`. */
-function countOnDiskWorktrees(repoRoot: string): number {
-  return git(repoRoot, ['worktree', 'list', '--porcelain'])
+async function countOnDiskWorktrees(repoRoot: string): Promise<number> {
+  return (await git(repoRoot, ['worktree', 'list', '--porcelain']))
     .split('\n')
     .filter((l) => l.startsWith('worktree ')).length;
 }
@@ -135,16 +131,16 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.adopt (real git +
     const repo = await initRepo(path.join(workdir, 'repo'));
     // A real hand-made worktree — created by git directly, NOT by the manager.
     const wtPath = path.join(workdir, 'hand-wt');
-    git(repo, ['worktree', 'add', '-q', wtPath, '-b', 'hand-branch']);
+    await git(repo, ['worktree', 'add', '-q', wtPath, '-b', 'hand-branch']);
     const wtId = canonicalWorktreeId(wtPath);
 
-    const before = countOnDiskWorktrees(repo);
+    const before = await countOnDiskWorktrees(repo);
 
     const manager = new WorktreeManager({ eventStore: store });
     const result = await manager.adopt(repo);
 
     // Adoption created NO new worktree on disk — it tracks, never creates.
-    expect(countOnDiskWorktrees(repo)).toBe(before);
+    expect(await countOnDiskWorktrees(repo)).toBe(before);
     // The hand-made worktree was adopted via `worktree.adopted`.
     expect(result.adopted).toContain(wtId);
     const adoptedForWt = eventsOfType(store, 'worktree.adopted').filter(
@@ -167,9 +163,9 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.adopt (real git +
     // identically; nothing assumes a specific harness owns creation.
     const agentPath = path.join(workdir, '.claude', 'worktrees', 'agent-xyz');
     await mkdir(path.dirname(agentPath), { recursive: true });
-    git(repo, ['worktree', 'add', '-q', agentPath, '-b', 'agent-branch']);
+    await git(repo, ['worktree', 'add', '-q', agentPath, '-b', 'agent-branch']);
     const plainPath = path.join(workdir, 'totally-arbitrary-checkout');
-    git(repo, ['worktree', 'add', '-q', plainPath, '-b', 'plain-branch']);
+    await git(repo, ['worktree', 'add', '-q', plainPath, '-b', 'plain-branch']);
 
     const manager = new WorktreeManager({ eventStore: store });
     const result = await manager.adopt(repo);
@@ -187,7 +183,7 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.adopt (real git +
   it('Adopt_HandMadeWorktree_RecordsFeatureIdNull', async () => {
     const repo = await initRepo(path.join(workdir, 'repo'));
     const wtPath = path.join(workdir, 'unattached-wt');
-    git(repo, ['worktree', 'add', '-q', wtPath, '-b', 'unattached-branch']);
+    await git(repo, ['worktree', 'add', '-q', wtPath, '-b', 'unattached-branch']);
     const wtId = canonicalWorktreeId(wtPath);
 
     // Default resolver → no harness knowledge → unattached (featureId null).
@@ -209,34 +205,34 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.adopt (real git +
 
   it('Adopt_StaleAfterExternalPush_ReverifiesHeadBeforeMutation', async () => {
     const originPath = path.join(workdir, 'origin.git');
-    git(workdir, ['init', '-q', '--bare', originPath]);
+    await git(workdir, ['init', '-q', '--bare', originPath]);
 
     // Clone A: commits c1 on `work`, pushes with upstream tracking. The clone
     // names the remote `origin`, so `-u origin work` sets a real tracking ref
     // (`@{upstream}` → origin/work) — a raw path would not.
     const repoA = path.join(workdir, 'A');
-    git(workdir, ['clone', '-q', originPath, repoA]);
-    git(repoA, ['config', 'user.email', 'a@example.com']);
-    git(repoA, ['config', 'user.name', 'A']);
-    git(repoA, ['config', 'commit.gpgsign', 'false']);
-    git(repoA, ['checkout', '-q', '-b', 'work']);
+    await git(workdir, ['clone', '-q', originPath, repoA]);
+    await git(repoA, ['config', 'user.email', 'a@example.com']);
+    await git(repoA, ['config', 'user.name', 'A']);
+    await git(repoA, ['config', 'commit.gpgsign', 'false']);
+    await git(repoA, ['checkout', '-q', '-b', 'work']);
     await writeFile(path.join(repoA, 'f.txt'), 'c1\n');
-    git(repoA, ['add', '.']);
-    git(repoA, ['commit', '-q', '-m', 'c1']);
-    git(repoA, ['push', '-q', '-u', 'origin', 'work']);
+    await git(repoA, ['add', '.']);
+    await git(repoA, ['commit', '-q', '-m', 'c1']);
+    await git(repoA, ['push', '-q', '-u', 'origin', 'work']);
     const idA = canonicalWorktreeId(repoA);
 
     // Clone B: an EXTERNAL process advances `work` to c2 and pushes.
     const repoB = path.join(workdir, 'B');
-    git(workdir, ['clone', '-q', originPath, repoB]);
-    git(repoB, ['config', 'user.email', 'b@example.com']);
-    git(repoB, ['config', 'user.name', 'B']);
-    git(repoB, ['config', 'commit.gpgsign', 'false']);
-    git(repoB, ['fetch', '-q', 'origin']);
-    git(repoB, ['checkout', '-q', '-B', 'work', 'origin/work']);
+    await git(workdir, ['clone', '-q', originPath, repoB]);
+    await git(repoB, ['config', 'user.email', 'b@example.com']);
+    await git(repoB, ['config', 'user.name', 'B']);
+    await git(repoB, ['config', 'commit.gpgsign', 'false']);
+    await git(repoB, ['fetch', '-q', 'origin']);
+    await git(repoB, ['checkout', '-q', '-B', 'work', 'origin/work']);
     await writeFile(path.join(repoB, 'f.txt'), 'c1\nc2\n');
-    git(repoB, ['commit', '-q', '-am', 'c2']);
-    git(repoB, ['push', '-q', 'origin', 'work']);
+    await git(repoB, ['commit', '-q', '-am', 'c2']);
+    await git(repoB, ['push', '-q', 'origin', 'work']);
 
     const manager = new WorktreeManager({ eventStore: store });
 
@@ -246,7 +242,7 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.adopt (real git +
     expect(beforeReport?.verification.mutable).toBe(true);
 
     // The external push lands in A's tracking ref.
-    git(repoA, ['fetch', '-q', 'origin']);
+    await git(repoA, ['fetch', '-q', 'origin']);
 
     // Re-verify (fresh HEAD/ancestry) flags A as stale-after-push → NOT mutable,
     // so a caller cannot silently drop the newly-pushed c2 by committing into A.
@@ -261,7 +257,7 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.adopt (real git +
   it('Released_WorktreeIsGcEligible_NotRecycledIntoPool', async () => {
     const repo = await initRepo(path.join(workdir, 'repo'));
     const wtPath = path.join(workdir, 'released-wt');
-    git(repo, ['worktree', 'add', '-q', wtPath, '-b', 'rel-branch']);
+    await git(repo, ['worktree', 'add', '-q', wtPath, '-b', 'rel-branch']);
     const wtId = canonicalWorktreeId(wtPath);
 
     const manager = new WorktreeManager({ eventStore: store });
@@ -293,8 +289,8 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.adopt (real git +
 
   it('Reconcile_RealGitProbePlusReplay_EqualsFreshEventLogReplay', async () => {
     const repo = await initRepo(path.join(workdir, 'repo'));
-    git(repo, ['worktree', 'add', '-q', path.join(workdir, 'wt-a'), '-b', 'a']);
-    git(repo, ['worktree', 'add', '-q', path.join(workdir, 'wt-b'), '-b', 'b']);
+    await git(repo, ['worktree', 'add', '-q', path.join(workdir, 'wt-a'), '-b', 'a']);
+    await git(repo, ['worktree', 'add', '-q', path.join(workdir, 'wt-b'), '-b', 'b']);
 
     const manager = new WorktreeManager({ eventStore: store });
     // Operational reconcile = real `git worktree list --porcelain` probe (adopt)

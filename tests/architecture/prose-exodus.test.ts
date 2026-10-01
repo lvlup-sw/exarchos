@@ -21,7 +21,6 @@
 // @oracle-sources: ../../tools/audit/prose-manifest.json, live-git-tracked-file-listing
 
 import { describe, it, expect } from 'vitest';
-import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,6 +32,7 @@ import {
   RETAINED,
   type ProseManifest,
 } from '../../tools/audit/prose-manifest.js';
+import { execFileAsync, spawnAsync } from '../../tools/test-helpers/spawn.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const MANIFEST_PATH = path.join(REPO_ROOT, 'tools/audit/prose-manifest.json');
@@ -41,10 +41,7 @@ const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8')) as ProseMani
 
 /** Tracked files, repo-relative. Symlinked mounts are untracked and invisible. */
 const tracked = new Set(
-  execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '-z'], {
-    encoding: 'utf8',
-    maxBuffer: 128 * 1024 * 1024,
-  })
+  (await execFileAsync('git', ['-C', REPO_ROOT, 'ls-files', '-z']))
     .split('\0')
     .filter((rel) => rel.length > 0),
 );
@@ -95,7 +92,7 @@ describe('ProseManifest_EveryRelocatedFile_IsPresentAtTheDestinationWithAMatchin
     ).toEqual([]);
   });
 
-  it('no mount symlink is tracked', () => {
+  it('no mount symlink is tracked', async () => {
     // This failed once, and silently. The ignore patterns were written with a
     // trailing slash (`docs/audits/`), which matches a DIRECTORY — and a mount
     // is a symlink, which git treats as a file. The patterns matched nothing,
@@ -105,10 +102,7 @@ describe('ProseManifest_EveryRelocatedFile_IsPresentAtTheDestinationWithAMatchin
     //
     // Checked by MODE rather than by path, so it also catches a symlink
     // committed somewhere this test does not know to look.
-    const linkEntries = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '-s', '--', 'docs'], {
-      encoding: 'utf8',
-      maxBuffer: 32 * 1024 * 1024,
-    })
+    const linkEntries = (await execFileAsync('git', ['-C', REPO_ROOT, 'ls-files', '-s', '--', 'docs']))
       .split('\n')
       .filter((line) => line.startsWith('120000'))
       .map((line) => line.split('\t')[1] ?? line);
@@ -121,7 +115,7 @@ describe('ProseManifest_EveryRelocatedFile_IsPresentAtTheDestinationWithAMatchin
     ).toEqual([]);
   });
 
-  it('every FULLY relocated directory is ignored, so a mount cannot be committed', () => {
+  it('every FULLY relocated directory is ignored, so a mount cannot be committed', async () => {
     // The ignore rule has to actually match the mount, and asking git is the
     // only way to know — a pattern that matches nothing looks exactly like one
     // that matches.
@@ -135,10 +129,11 @@ describe('ProseManifest_EveryRelocatedFile_IsPresentAtTheDestinationWithAMatchin
     );
     expect(emptied.length, 'no directory relocated completely').toBeGreaterThan(0);
 
-    const notIgnored = emptied.filter((subtree) => {
-      const res = spawnSync('git', ['-C', REPO_ROOT, 'check-ignore', '-q', subtree]);
-      return res.status !== 0;
-    });
+    const notIgnored: string[] = [];
+    for (const subtree of emptied) {
+      const res = await spawnAsync('git', ['-C', REPO_ROOT, 'check-ignore', '-q', subtree]);
+      if (res.status !== 0) notIgnored.push(subtree);
+    }
     expect(
       notIgnored,
       'relocated directories that are NOT ignored — a mount created there would be committable',

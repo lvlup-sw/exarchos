@@ -21,7 +21,6 @@
 // the serializer — appends.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -31,6 +30,7 @@ import { EventStore } from '../../../../src/events/store.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import type { ToolResult } from '../../../../src/format.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import {
   WORKTREES_STREAM,
@@ -45,31 +45,27 @@ import { LauncherWlm, createLauncherWlm } from '../../../../src/runtime/launcher
 // ─── git + event-store helpers ──────────────────────────────────────────────
 
 /** Run `git <args>` from `cwd`, returning trimmed stdout (throws on failure). */
-function git(cwd: string, args: readonly string[]): string {
-  return execFileSync('git', args as string[], {
-    cwd,
-    encoding: 'utf-8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim();
+async function git(cwd: string, args: readonly string[]): Promise<string> {
+  return (await execFileAsync('git', args, { cwd })).trim();
 }
 
 /** Init a real repo on branch `work` with one commit; returns its canonical path. */
 async function initRepo(dir: string): Promise<string> {
   await mkdir(dir, { recursive: true });
-  git(dir, ['init', '-q', '-b', 'work']);
-  git(dir, ['config', 'user.email', 'compose@example.com']);
-  git(dir, ['config', 'user.name', 'Compose Test']);
-  git(dir, ['config', 'commit.gpgsign', 'false']);
+  await git(dir, ['init', '-q', '-b', 'work']);
+  await git(dir, ['config', 'user.email', 'compose@example.com']);
+  await git(dir, ['config', 'user.name', 'Compose Test']);
+  await git(dir, ['config', 'commit.gpgsign', 'false']);
   await writeFile(path.join(dir, 'README.md'), '# wlm-compose test\n');
-  git(dir, ['add', '.']);
-  git(dir, ['commit', '-q', '-m', 'init']);
+  await git(dir, ['add', '.']);
+  await git(dir, ['commit', '-q', '-m', 'init']);
   return realpathSync(dir);
 }
 
 /** A base sibling worktree the launcher derives siblings off. */
 async function addBaseWorktree(repo: string, workdir: string): Promise<string> {
   const base = path.join(workdir, 'base-wt');
-  git(repo, ['worktree', 'add', '-q', base, '-b', 'base-branch']);
+  await git(repo, ['worktree', 'add', '-q', base, '-b', 'base-branch']);
   return realpathSync(base);
 }
 
@@ -163,7 +159,7 @@ describe('LauncherWlm — WLM composition (real git + real event store)', () => 
     // a Claude Code agent worktree, added by git directly.
     const nested = path.join(workdir, '.claude', 'worktrees', 'agent-harness');
     await mkdir(path.dirname(nested), { recursive: true });
-    git(repo, ['worktree', 'add', '-q', nested, '-b', 'agent-harness-branch']);
+    await git(repo, ['worktree', 'add', '-q', nested, '-b', 'agent-harness-branch']);
     const nestedId = canonicalWorktreeId(nested);
 
     const wlm = createLauncherWlm({ ctx });

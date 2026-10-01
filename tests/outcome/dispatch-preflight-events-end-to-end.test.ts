@@ -26,16 +26,16 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { execFileSync } from 'node:child_process';
 
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 import { withTmpGit } from './_helpers/tmp-git.js';
 import { EventStore } from '../../src/events/store.js';
 import { handlePrepareDelegation } from '../../src/verbs/team/prepare-delegation.js';
 import { resetMaterializerCache } from '../../src/projections/views/tools.js';
 import type { DispatchContext } from '../../src/dispatch/core/dispatch.js';
 
-function gitRun(repo: string, args: readonly string[]): void {
-  execFileSync('git', ['-C', repo, ...args], { stdio: 'pipe' });
+async function gitRun(repo: string, args: readonly string[]): Promise<void> {
+  await execFileAsync('git', ['-C', repo, ...args]);
 }
 
 async function mkStateDir(label: string): Promise<string> {
@@ -63,7 +63,7 @@ describe('dispatch.preflight + stash.detected end-to-end (#1261)', () => {
     await withTmpGit(async (repoPath) => {
       // Set up a feature branch descending from `main` so the ancestry
       // guard (`merge-base --is-ancestor main feature/work`) passes.
-      gitRun(repoPath, ['checkout', '-b', 'feature/work']);
+      await gitRun(repoPath, ['checkout', '-b', 'feature/work']);
 
       const stateDir = await mkStateDir('happy');
       resetMaterializerCache();
@@ -129,14 +129,10 @@ describe('dispatch.preflight + stash.detected end-to-end (#1261)', () => {
       // `merge-base --is-ancestor main feature/orphan` exits 1
       // (ancestry-missing). Mirrors the topology in
       // `tests/outcome/preflight-debug.test.ts`.
-      execFileSync(
-        'git',
-        ['-C', repoPath, 'checkout', '--orphan', 'feature/orphan'],
-        { stdio: 'pipe' },
-      );
+      await execFileAsync('git', ['-C', repoPath, 'checkout', '--orphan', 'feature/orphan']);
       await fs.writeFile(path.join(repoPath, 'orphan.txt'), 'orphan\n');
-      execFileSync('git', ['-C', repoPath, 'add', 'orphan.txt'], { stdio: 'pipe' });
-      execFileSync('git', ['-C', repoPath, 'commit', '-m', 'orphan'], { stdio: 'pipe' });
+      await execFileAsync('git', ['-C', repoPath, 'add', 'orphan.txt']);
+      await execFileAsync('git', ['-C', repoPath, 'commit', '-m', 'orphan']);
 
       const stateDir = await mkStateDir('ancestry-fail');
       resetMaterializerCache();

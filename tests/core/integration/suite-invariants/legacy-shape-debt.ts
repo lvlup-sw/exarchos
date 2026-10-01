@@ -241,7 +241,6 @@ export const LEGACY_SHAPE_DEBT: readonly string[] = Object.freeze([
   'tests/unit/sync/outbox.legacy.test.ts',
   'tests/unit/projections/task-store/event-sourced-task-store.test.ts',
   'tests/unit/projections/task-store/production-wiring.test.ts',
-  'tests/unit/projections/telemetry/benchmarks/event-store.test.ts',
   'tests/unit/projections/telemetry/telemetry-projection.test.ts',
   'tests/unit/projections/telemetry/tools.test.ts',
   'tests/unit/projections/telemetry/trace-writer.test.ts',

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { spawnCommandSync } from '../../../src/utils/process.js';
+import { spawnAsync } from '../../test-helpers/spawn.js';
 import { REPO_ROOT, SUBJECT_PACKAGE_ROOT } from './subject-root.js';
 import {
   detectRuntimeCycles,
@@ -26,7 +26,7 @@ import {
 // depcruise over `src`, detects strongly-connected components (Tarjan), and
 // asserts zero runtime cycles outside `tools/audit/cycle-baseline.json`.
 //
-// The depcruise run rides the `.cmd`-shim spawn class (`spawnCommandSync` →
+// The depcruise run rides the `.cmd`-shim spawn class (`spawnAsync` →
 // win32-correct `npx`) with a per-test timeout well ABOVE the child budget: this
 // test runs in the blocking `test-windows` MCP lane, where a full `src` crawl is
 // several seconds. depcruise is a hard devDependency of this package; the run is
@@ -65,25 +65,21 @@ let cached: Capture | undefined;
  * package root so `npx` resolves the local binary and the emitted paths are
  * `src/…`-relative; the repo-root config supplies the `.js`→`.ts` resolver.
  */
-function captureGraph(): Capture {
+async function captureGraph(): Promise<Capture> {
   if (cached) return cached;
   if (!existsSync(depcruiseBinPath())) {
     cached = { available: false, json: '' };
     return cached;
   }
-  const result = spawnCommandSync(
+  const result = await spawnAsync(
     'npx',
     ['depcruise', '--config', DEPCRUISE_CONFIG, '--output-type', 'json', SRC_PREFIX],
-    {
-      cwd: MCP_PACKAGE_ROOT,
-      encoding: 'utf8',
-      maxBuffer: 64 * 1024 * 1024,
-    },
+    { cwd: MCP_PACKAGE_ROOT },
   );
   // A spawn failure (ENOENT / shim missing) → degrade to unavailable. A ran-but-
   // nonzero exit with empty stdout is treated the same; a real graph always
   // yields a `{ "modules": [...] }` document on stdout.
-  const json = typeof result.stdout === 'string' ? result.stdout : '';
+  const json = result.stdout;
   const available = result.error == null && json.trim().length > 0;
   cached = { available, json };
   return cached;
@@ -99,8 +95,8 @@ function loadBaseline(): CycleBaseline {
 describe('runtime import cycles (dependency-cruiser acceptance)', () => {
   it(
     'importGraph_DepcruiseRuntimeEdges_ZeroUnbaselinedCycles',
-    (ctx) => {
-      const capture = captureGraph();
+    async (ctx) => {
+      const capture = await captureGraph();
       if (!capture.available) {
         ctx.skip();
         return;
@@ -124,8 +120,8 @@ describe('runtime import cycles (dependency-cruiser acceptance)', () => {
 
   it(
     'stateStoreProjectionSeam_NoRuntimeBackEdge',
-    (ctx) => {
-      const capture = captureGraph();
+    async (ctx) => {
+      const capture = await captureGraph();
       if (!capture.available) {
         ctx.skip();
         return;
@@ -153,8 +149,8 @@ describe('runtime import cycles (dependency-cruiser acceptance)', () => {
 
   it(
     'forbiddenRuntimeEdges_LiveGraph_NoPresentOrStaleRule',
-    (ctx) => {
-      const capture = captureGraph();
+    async (ctx) => {
+      const capture = await captureGraph();
       if (!capture.available) {
         ctx.skip();
         return;

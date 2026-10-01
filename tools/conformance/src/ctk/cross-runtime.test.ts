@@ -13,13 +13,13 @@
 // faithful packaged-parity proof available without a bespoke admission CLI
 // surface. See the final report for the follow-up.
 
-import { execFileSync } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, it, expect } from 'vitest';
 
+import { execFileAsync } from '../../../test-helpers/spawn.js';
 import { admissionScenarioCorpus } from './__fixtures__/admission-scenario-corpus.js';
 import { corpusDigest } from './__fixtures__/admission-decision-path.js';
 
@@ -44,7 +44,7 @@ function isFile(candidate: string): boolean {
  * PATH only holds the npm-global `bun.cmd` shim, whose real binary lives at
  * `<shim-dir>/node_modules/bun/bin/bun.exe` (per the shim body).
  */
-function resolveBunExecutable(): string | null {
+async function resolveBunExecutable(): Promise<string | null> {
   const pathDirs = (process.env.PATH ?? '')
     .split(delimiter)
     .filter((dir) => dir.length > 0);
@@ -64,18 +64,17 @@ function resolveBunExecutable(): string | null {
   }
   // Last resort: trust PATH resolution via a bare invocation (Linux).
   try {
-    execFileSync(realName, ['--version'], { stdio: 'ignore' });
+    await execFileAsync(realName, ['--version']);
     return realName;
   } catch {
     return null;
   }
 }
 
-const BUN_EXECUTABLE = resolveBunExecutable();
+const BUN_EXECUTABLE = await resolveBunExecutable();
 
-function runBunDigest(bun: string): string {
-  const stdout = execFileSync(bun, ['run', CLI_PATH], {
-    encoding: 'utf8',
+async function runBunDigest(bun: string): Promise<string> {
+  const stdout = await execFileAsync(bun, ['run', CLI_PATH], {
     // Keep it hermetic and fast; the CLI does pure in-memory work.
     timeout: 60_000,
   });
@@ -105,7 +104,7 @@ describe('admission decision cross-runtime parity (exit-proof d, cross-runtime l
   // shell out to it) and every CI lane that runs this suite installs it via
   // `oven-sh/setup-bun`. Its absence is therefore an ENVIRONMENT DEFECT, and
   // the honest response is to say so — not to silently degrade the proof.
-  it('CorpusDigest_MatchesAcrossNodeAndBun', () => {
+  it('CorpusDigest_MatchesAcrossNodeAndBun', async () => {
     expect(
       BUN_EXECUTABLE,
       'bun is unavailable, so the only cross-runtime leg of this parity proof cannot run. ' +
@@ -115,7 +114,7 @@ describe('admission decision cross-runtime parity (exit-proof d, cross-runtime l
     ).not.toBeNull();
 
     const nodeDigest = corpusDigest(admissionScenarioCorpus);
-    const bunDigest = runBunDigest(BUN_EXECUTABLE as string);
+    const bunDigest = await runBunDigest(BUN_EXECUTABLE as string);
     expect(bunDigest).toBe(nodeDigest);
     // Pin that the digest actually crossed the boundary rather than defaulting
     // to something trivially equal on both sides.

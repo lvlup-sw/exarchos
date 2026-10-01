@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { runCommandSync } from '../../src/utils/process.js';
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 /**
  * Every path the package declares to the outside world has to resolve, and
@@ -20,12 +20,10 @@ const readJson = (rel: string): Record<string, unknown> =>
   JSON.parse(readFileSync(join(REPO_ROOT, rel), 'utf8')) as Record<string, unknown>;
 
 /** Paths npm would publish, from a dry-run pack. */
-function packedPaths(): string[] {
-  const out = runCommandSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
+async function packedPaths(): Promise<string[]> {
+  const out = await execFileAsync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
     cwd: REPO_ROOT,
-    encoding: 'utf8',
     timeout: 300_000,
-    maxBuffer: 64 * 1024 * 1024,
   });
   const parsed = JSON.parse(String(out)) as ReadonlyArray<{
     files: ReadonlyArray<{ path: string }>;
@@ -121,11 +119,11 @@ describe('FilesArray', () => {
     }
   });
 
-  it('EveryGeneratedTree_IsActuallyPublished', () => {
+  it('EveryGeneratedTree_IsActuallyPublished', async () => {
     // The entry existing on disk is not the same as its contents reaching the
     // tarball. Four directories were once left as dead declarations, which
     // dropped them from the package silently.
-    const packed = packedPaths();
+    const packed = await packedPaths();
     for (const kind of ['skills', 'commands', 'rules', 'agents', 'command-aliases']) {
       const prefix = `rendered/${kind}/`;
       expect(

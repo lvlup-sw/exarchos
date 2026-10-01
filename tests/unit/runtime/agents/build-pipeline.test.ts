@@ -27,9 +27,9 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { spawnAsync } from '../../../../tools/test-helpers/spawn.js';
 
 // ─── Locate repo root ──────────────────────────────────────────────────────
 //
@@ -165,7 +165,7 @@ describe('build pipeline wiring (Task 6)', () => {
       }
     });
 
-    it('spawning the generator writes all 20 expected files and exits 0', () => {
+    it('spawning the generator writes all 20 expected files and exits 0', async () => {
       // Resolve `tsx`'s loader entry via Node's standard module
       // resolution from this test file's location. CI installs deps
       // only inside `servers/exarchos-mcp/`, so a hardcoded
@@ -176,7 +176,7 @@ describe('build pipeline wiring (Task 6)', () => {
       const requireFromTest = createRequire(import.meta.url);
       const tsxPackageJson = requireFromTest.resolve('tsx/package.json');
       const tsxEntry = path.join(path.dirname(tsxPackageJson), 'dist', 'loader.mjs');
-      const result = spawnSync(
+      const result = await spawnAsync(
         process.execPath,
         ['--import', `file://${tsxEntry}`, GENERATOR_PATH],
         {
@@ -185,7 +185,6 @@ describe('build pipeline wiring (Task 6)', () => {
             ...process.env,
             EXARCHOS_OUTPUT_ROOT: sandbox,
           },
-          encoding: 'utf-8',
           timeout: 30_000,
         },
       );

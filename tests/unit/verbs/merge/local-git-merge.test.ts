@@ -21,16 +21,12 @@ import {
   type LocalGitMergeAdapter,
 } from '../../../../src/verbs/merge/local-git-merge.js';
 import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
-function git(repoRoot: string, args: readonly string[]): string {
-  return execFileSync('git', [...args], {
-    cwd: repoRoot,
-    encoding: 'utf-8',
-    timeout: 30_000,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
+function git(repoRoot: string, args: readonly string[]): Promise<string> {
+  return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
 }
 
 /**
@@ -40,55 +36,55 @@ function git(repoRoot: string, args: readonly string[]): string {
  * `feat` is set up so that `git merge feat` from `main` produces a clean
  * merge commit (no conflict) by touching different files.
  */
-function setupDivergentRepo(): { repoRoot: string; mainHead: string; featHead: string } {
+async function setupDivergentRepo(): Promise<{ repoRoot: string; mainHead: string; featHead: string }> {
   const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'local-git-merge-'));
   // identity required by `git commit`
-  git(repoRoot, ['init', '--initial-branch=main', '-q']);
-  git(repoRoot, ['config', 'user.email', 'test@example.com']);
-  git(repoRoot, ['config', 'user.name', 'Test']);
-  git(repoRoot, ['config', 'commit.gpgsign', 'false']);
+  await git(repoRoot, ['init', '--initial-branch=main', '-q']);
+  await git(repoRoot, ['config', 'user.email', 'test@example.com']);
+  await git(repoRoot, ['config', 'user.name', 'Test']);
+  await git(repoRoot, ['config', 'commit.gpgsign', 'false']);
 
   writeFileSync(path.join(repoRoot, 'a.txt'), 'A\n');
-  git(repoRoot, ['add', 'a.txt']);
-  git(repoRoot, ['commit', '-m', 'A', '-q']);
+  await git(repoRoot, ['add', 'a.txt']);
+  await git(repoRoot, ['commit', '-m', 'A', '-q']);
 
   // feat branches off A, adds C.
-  git(repoRoot, ['checkout', '-b', 'feat', '-q']);
+  await git(repoRoot, ['checkout', '-b', 'feat', '-q']);
   writeFileSync(path.join(repoRoot, 'c.txt'), 'C\n');
-  git(repoRoot, ['add', 'c.txt']);
-  git(repoRoot, ['commit', '-m', 'C', '-q']);
-  const featHead = git(repoRoot, ['rev-parse', 'HEAD']).trim();
+  await git(repoRoot, ['add', 'c.txt']);
+  await git(repoRoot, ['commit', '-m', 'C', '-q']);
+  const featHead = (await git(repoRoot, ['rev-parse', 'HEAD'])).trim();
 
   // main advances with B.
-  git(repoRoot, ['checkout', 'main', '-q']);
+  await git(repoRoot, ['checkout', 'main', '-q']);
   writeFileSync(path.join(repoRoot, 'b.txt'), 'B\n');
-  git(repoRoot, ['add', 'b.txt']);
-  git(repoRoot, ['commit', '-m', 'B', '-q']);
-  const mainHead = git(repoRoot, ['rev-parse', 'HEAD']).trim();
+  await git(repoRoot, ['add', 'b.txt']);
+  await git(repoRoot, ['commit', '-m', 'B', '-q']);
+  const mainHead = (await git(repoRoot, ['rev-parse', 'HEAD'])).trim();
 
   return { repoRoot, mainHead, featHead };
 }
 
-function setupConflictRepo(): { repoRoot: string } {
+async function setupConflictRepo(): Promise<{ repoRoot: string }> {
   const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'local-git-merge-conflict-'));
-  git(repoRoot, ['init', '--initial-branch=main', '-q']);
-  git(repoRoot, ['config', 'user.email', 'test@example.com']);
-  git(repoRoot, ['config', 'user.name', 'Test']);
-  git(repoRoot, ['config', 'commit.gpgsign', 'false']);
+  await git(repoRoot, ['init', '--initial-branch=main', '-q']);
+  await git(repoRoot, ['config', 'user.email', 'test@example.com']);
+  await git(repoRoot, ['config', 'user.name', 'Test']);
+  await git(repoRoot, ['config', 'commit.gpgsign', 'false']);
 
   writeFileSync(path.join(repoRoot, 'shared.txt'), 'original\n');
-  git(repoRoot, ['add', 'shared.txt']);
-  git(repoRoot, ['commit', '-m', 'init', '-q']);
+  await git(repoRoot, ['add', 'shared.txt']);
+  await git(repoRoot, ['commit', '-m', 'init', '-q']);
 
-  git(repoRoot, ['checkout', '-b', 'feat', '-q']);
+  await git(repoRoot, ['checkout', '-b', 'feat', '-q']);
   writeFileSync(path.join(repoRoot, 'shared.txt'), 'feat-version\n');
-  git(repoRoot, ['add', 'shared.txt']);
-  git(repoRoot, ['commit', '-m', 'feat edit', '-q']);
+  await git(repoRoot, ['add', 'shared.txt']);
+  await git(repoRoot, ['commit', '-m', 'feat edit', '-q']);
 
-  git(repoRoot, ['checkout', 'main', '-q']);
+  await git(repoRoot, ['checkout', 'main', '-q']);
   writeFileSync(path.join(repoRoot, 'shared.txt'), 'main-version\n');
-  git(repoRoot, ['add', 'shared.txt']);
-  git(repoRoot, ['commit', '-m', 'main edit', '-q']);
+  await git(repoRoot, ['add', 'shared.txt']);
+  await git(repoRoot, ['commit', '-m', 'main edit', '-q']);
 
   return { repoRoot };
 }
@@ -99,7 +95,7 @@ const realGitExec: GitExec = (repoRoot, args) => {
     const stdout = execFileSync('git', [...args], {
       cwd: repoRoot,
       encoding: 'utf-8',
-      timeout: 120_000,
+      timeout: 15_000,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     return { stdout, exitCode: 0 };
@@ -126,7 +122,7 @@ describe('buildLocalGitMergeAdapter', () => {
 
   describe('strategy=merge', () => {
     it('localMergeAdapter_NoFfMerge_ProducesMergeCommitWithTwoParents', async () => {
-      const { repoRoot, mainHead, featHead } = setupDivergentRepo();
+      const { repoRoot, mainHead, featHead } = await setupDivergentRepo();
       cleanup.push(repoRoot);
       const adapter: LocalGitMergeAdapter = buildLocalGitMergeAdapter(realGitExec, repoRoot);
 
@@ -136,7 +132,7 @@ describe('buildLocalGitMergeAdapter', () => {
       expect(result.mergeSha).toHaveLength(40);
 
       // The new HEAD is a merge commit with two parents: mainHead and featHead.
-      const parents = git(repoRoot, ['rev-list', '--parents', '-n', '1', result.mergeSha])
+      const parents = (await git(repoRoot, ['rev-list', '--parents', '-n', '1', result.mergeSha]))
         .trim()
         .split(' ');
       expect(parents.length).toBe(3);
@@ -145,41 +141,41 @@ describe('buildLocalGitMergeAdapter', () => {
     });
 
     it('localMergeAdapter_LeavesCallerOnTargetBranch', async () => {
-      const { repoRoot } = setupDivergentRepo();
+      const { repoRoot } = await setupDivergentRepo();
       cleanup.push(repoRoot);
       const adapter = buildLocalGitMergeAdapter(realGitExec, repoRoot);
 
       await adapter({ sourceBranch: 'feat', targetBranch: 'main', strategy: 'merge' });
 
-      const currentBranch = git(repoRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+      const currentBranch = (await git(repoRoot, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim();
       expect(currentBranch).toBe('main');
     });
   });
 
   describe('strategy=squash', () => {
     it('localMergeAdapter_Squash_ProducesSingleParentCommitWithFeatChanges', async () => {
-      const { repoRoot, mainHead } = setupDivergentRepo();
+      const { repoRoot, mainHead } = await setupDivergentRepo();
       cleanup.push(repoRoot);
       const adapter = buildLocalGitMergeAdapter(realGitExec, repoRoot);
 
       const result = await adapter({ sourceBranch: 'feat', targetBranch: 'main', strategy: 'squash' });
 
       // Squash merge produces a single-parent commit on top of mainHead.
-      const parents = git(repoRoot, ['rev-list', '--parents', '-n', '1', result.mergeSha])
+      const parents = (await git(repoRoot, ['rev-list', '--parents', '-n', '1', result.mergeSha]))
         .trim()
         .split(' ');
       expect(parents.length).toBe(2);
       expect(parents[1]).toBe(mainHead);
 
       // The squash commit must include feat's changes (c.txt).
-      const fileList = git(repoRoot, ['ls-tree', '-r', '--name-only', result.mergeSha]);
+      const fileList = await git(repoRoot, ['ls-tree', '-r', '--name-only', result.mergeSha]);
       expect(fileList).toMatch(/c\.txt/);
     });
   });
 
   describe('strategy=rebase', () => {
     it('localMergeAdapter_Rebase_LinearHistory_NoMergeCommit', async () => {
-      const { repoRoot, mainHead } = setupDivergentRepo();
+      const { repoRoot, mainHead } = await setupDivergentRepo();
       cleanup.push(repoRoot);
       const adapter = buildLocalGitMergeAdapter(realGitExec, repoRoot);
 
@@ -187,13 +183,13 @@ describe('buildLocalGitMergeAdapter', () => {
 
       // After rebase + ff-merge, the resulting HEAD has a single parent
       // (the rebased source commit's parent chain ends at mainHead).
-      const parents = git(repoRoot, ['rev-list', '--parents', '-n', '1', result.mergeSha])
+      const parents = (await git(repoRoot, ['rev-list', '--parents', '-n', '1', result.mergeSha]))
         .trim()
         .split(' ');
       expect(parents.length).toBe(2); // single parent → linear
 
       // mainHead must be reachable from the new HEAD (no rewrite of main).
-      const reachable = git(repoRoot, ['merge-base', '--is-ancestor', mainHead, result.mergeSha]);
+      const reachable = await git(repoRoot, ['merge-base', '--is-ancestor', mainHead, result.mergeSha]);
       // exit 0 = ancestor; we just need this to not have thrown
       expect(reachable).toBe('');
     });
@@ -201,7 +197,7 @@ describe('buildLocalGitMergeAdapter', () => {
 
   describe('failure modes', () => {
     it('localMergeAdapter_TargetBranchMissing_Throws', async () => {
-      const { repoRoot } = setupDivergentRepo();
+      const { repoRoot } = await setupDivergentRepo();
       cleanup.push(repoRoot);
       const adapter = buildLocalGitMergeAdapter(realGitExec, repoRoot);
 
@@ -211,11 +207,11 @@ describe('buildLocalGitMergeAdapter', () => {
     });
 
     it('localMergeAdapter_MergeConflict_ThrowsAndLeavesNoCommit', async () => {
-      const { repoRoot } = setupConflictRepo();
+      const { repoRoot } = await setupConflictRepo();
       cleanup.push(repoRoot);
       const adapter = buildLocalGitMergeAdapter(realGitExec, repoRoot);
 
-      const before = git(repoRoot, ['rev-parse', 'HEAD']).trim();
+      const before = (await git(repoRoot, ['rev-parse', 'HEAD'])).trim();
 
       await expect(
         adapter({ sourceBranch: 'feat', targetBranch: 'main', strategy: 'merge' }),
@@ -225,14 +221,14 @@ describe('buildLocalGitMergeAdapter', () => {
       // Adapter must leave HEAD where it found it (or in mid-merge state) so
       // the executor's reset does meaningful work. We assert that HEAD is
       // still resolvable (no detached/corrupt state).
-      const after = git(repoRoot, ['rev-parse', 'HEAD']).trim();
+      const after = (await git(repoRoot, ['rev-parse', 'HEAD'])).trim();
       expect(after).toBeTruthy();
       // In conflict state, HEAD has not advanced past `before`.
       expect(after).toBe(before);
     });
 
     it('localMergeAdapter_SourceBranchMissing_Throws', async () => {
-      const { repoRoot } = setupDivergentRepo();
+      const { repoRoot } = await setupDivergentRepo();
       cleanup.push(repoRoot);
       const adapter = buildLocalGitMergeAdapter(realGitExec, repoRoot);
 
@@ -248,7 +244,7 @@ describe('buildLocalGitMergeAdapter', () => {
       // actually undoes a real local merge — the dead-rollback bug #1194 was
       // about. Wire the adapter through executeMerge with a real repo and
       // confirm git reset restores HEAD after the rollback path runs.
-      const { repoRoot } = setupConflictRepo();
+      const { repoRoot } = await setupConflictRepo();
       cleanup.push(repoRoot);
 
       const { executeMerge } = await import('../../../../src/verbs/pure/execute-merge.js');
@@ -257,8 +253,8 @@ describe('buildLocalGitMergeAdapter', () => {
       // Caller must be on target before invoking the executor (precondition
       // documented on the adapter). #1194 follow-up may move this checkout
       // into the handler.
-      git(repoRoot, ['checkout', 'main', '-q']);
-      const before = git(repoRoot, ['rev-parse', 'HEAD']).trim();
+      await git(repoRoot, ['checkout', 'main', '-q']);
+      const before = (await git(repoRoot, ['rev-parse', 'HEAD'])).trim();
 
       const result = await executeMerge({
         sourceBranch: 'feat',
@@ -271,7 +267,7 @@ describe('buildLocalGitMergeAdapter', () => {
       });
 
       expect(result.phase).toBe('rolled-back');
-      const after = git(repoRoot, ['rev-parse', 'HEAD']).trim();
+      const after = (await git(repoRoot, ['rev-parse', 'HEAD'])).trim();
       expect(after).toBe(before);
     });
   });

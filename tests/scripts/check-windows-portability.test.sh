@@ -182,6 +182,31 @@ r4helper_exit=$?
 set -e
 check "rule 4: utils/process.ts helper is exempt" 0 "$r4helper_exit"
 
+# The async test-side helper (tools/test-helpers/spawn.ts) is exempt for the
+# same reason: it applies the same shim rule before its raw spawn (#2029). The
+# exemption is by file, so a sibling module with the same call is still flagged.
+mkdir -p "$TMP/r4testhelper/tools/test-helpers"
+cat > "$TMP/r4testhelper/tools/test-helpers/spawn.ts" <<'EOF'
+import { spawn } from 'node:child_process';
+export function spawnAsync(command: string, args: string[]) { return spawn(command, args); }
+EOF
+set +e
+node "$GATE" --src-root "$TMP/r4testhelper" >/dev/null 2>&1
+r4testhelper_exit=$?
+set -e
+check "rule 4: test-helpers/spawn.ts helper is exempt" 0 "$r4testhelper_exit"
+
+mkdir -p "$TMP/r4testsibling/tools/test-helpers"
+cat > "$TMP/r4testsibling/tools/test-helpers/other.ts" <<'EOF'
+import { spawn } from 'node:child_process';
+export function run(command: string, args: string[]) { return spawn(command, args); }
+EOF
+set +e
+node "$GATE" --src-root "$TMP/r4testsibling" >/dev/null 2>&1
+r4testsibling_exit=$?
+set -e
+check "rule 4: a sibling of the test-side helper is not exempt" 1 "$r4testsibling_exit"
+
 # `process.execPath` is an absolute path to the running interpreter, so it can
 # never resolve to a `.cmd` shim — rule 4 must not fire on it, in production
 # source, or the gate would red the very form it steers callers towards.

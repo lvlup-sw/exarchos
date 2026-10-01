@@ -8,30 +8,23 @@
 // 'unit' project's `scripts/**/*.test.ts` include picks it up.)
 
 import { describe, it, expect } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { spawnAsync } from '../../tools/test-helpers/spawn.js';
+
 const REPO_ROOT = join(import.meta.dirname, '../..');
 const SCRIPT = join(import.meta.dirname, '../../tools/audit/gates/lint-test-first-drift.mjs');
 
-function runGuard(dirs: string[]): { code: number; findings: Array<{ rule: string }> } {
-  let code = 0;
-  let stdout = '';
-  try {
-    stdout = execFileSync('node', [SCRIPT, ...dirs], { encoding: 'utf8' });
-  } catch (err) {
-    const e = err as { status?: number; stdout?: Buffer | string };
-    code = e.status ?? 1;
-    stdout = e.stdout?.toString() ?? '';
-  }
-  return { code, findings: JSON.parse(stdout).findings };
+async function runGuard(dirs: string[]): Promise<{ code: number; findings: Array<{ rule: string }> }> {
+  const result = await spawnAsync('node', [SCRIPT, ...dirs]);
+  return { code: result.status ?? 1, findings: JSON.parse(result.stdout).findings };
 }
 
 describe('test-first drift guard (#1591)', () => {
-  it('DriftGuard_CleanTree_Passes', () => {
-    const { code, findings } = runGuard([
+  it('DriftGuard_CleanTree_Passes', async () => {
+    const { code, findings } = await runGuard([
       join(REPO_ROOT, 'rendered/commands'),
       join(REPO_ROOT, 'rendered/agents'),
       join(REPO_ROOT, 'content'),
@@ -40,7 +33,7 @@ describe('test-first drift guard (#1591)', () => {
     expect(code).toBe(0);
   });
 
-  it('DriftGuard_SeededIronLawFixture_Fails', () => {
+  it('DriftGuard_SeededIronLawFixture_Fails', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'drift-guard-'));
     try {
       writeFileSync(
@@ -54,7 +47,7 @@ describe('test-first drift guard (#1591)', () => {
           '3. [REFACTOR] clean',
         ].join('\n'),
       );
-      const { code, findings } = runGuard([dir]);
+      const { code, findings } = await runGuard([dir]);
       const rules = findings.map((f) => f.rule);
       expect(rules).toContain('iron-law');
       expect(rules).toContain('no-production-code-first');
@@ -65,7 +58,7 @@ describe('test-first drift guard (#1591)', () => {
     }
   });
 
-  it('DriftGuard_LowercaseRgrVariant_Fails', () => {
+  it('DriftGuard_LowercaseRgrVariant_Fails', async () => {
     // The unconditional-RGR rule is case-insensitive: a `[Red]`/`[green]`
     // variant must not bypass the guard. (Iron-Law / NO-PRODUCTION literals
     // are already case-insensitive.)
@@ -80,7 +73,7 @@ describe('test-first drift guard (#1591)', () => {
           '3. [Refactor] clean',
         ].join('\n'),
       );
-      const { code, findings } = runGuard([dir]);
+      const { code, findings } = await runGuard([dir]);
       expect(findings.map((f) => f.rule)).toContain('unconditional-rgr-template');
       expect(code).toBe(1);
     } finally {
@@ -88,25 +81,15 @@ describe('test-first drift guard (#1591)', () => {
     }
   });
 
-  it('DriftGuard_MissingScanDir_FailsFast', () => {
+  it('DriftGuard_MissingScanDir_FailsFast', async () => {
     // A missing scan root must abort loudly rather than silently scanning zero
     // files (which would let a misconfigured dir list read as a clean tree).
-    let code = 0;
-    let stderr = '';
-    try {
-      execFileSync('node', [SCRIPT, join(tmpdir(), 'drift-guard-does-not-exist-xyz')], {
-        encoding: 'utf8',
-      });
-    } catch (err) {
-      const e = err as { status?: number; stderr?: Buffer | string };
-      code = e.status ?? 1;
-      stderr = e.stderr?.toString() ?? '';
-    }
-    expect(code).not.toBe(0);
-    expect(stderr).toMatch(/scan directory does not exist/i);
+    const result = await spawnAsync('node', [SCRIPT, join(tmpdir(), 'drift-guard-does-not-exist-xyz')]);
+    expect(result.status ?? 1).not.toBe(0);
+    expect(result.stderr).toMatch(/scan directory does not exist/i);
   });
 
-  it('DriftGuard_OptInMarker_ExemptsRgrTemplate', () => {
+  it('DriftGuard_OptInMarker_ExemptsRgrTemplate', async () => {
     // A deliberate high-tier opt-in lane marks itself and is NOT flagged for the
     // RGR template (the Iron-Law / NO-PRODUCTION-CODE literals are never exempt).
     const dir = mkdtempSync(join(tmpdir(), 'drift-guard-'));
@@ -121,7 +104,7 @@ describe('test-first drift guard (#1591)', () => {
           '3. [REFACTOR] clean',
         ].join('\n'),
       );
-      const { code, findings } = runGuard([dir]);
+      const { code, findings } = await runGuard([dir]);
       expect(findings, JSON.stringify(findings, null, 2)).toHaveLength(0);
       expect(code).toBe(0);
     } finally {

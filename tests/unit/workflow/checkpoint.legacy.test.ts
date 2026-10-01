@@ -171,6 +171,15 @@ describe('checkpoint', () => {
   });
 
   describe('isStale', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-06-01T12:00:00.000Z'));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
     it('StalenessDetection_AfterThreshold_ReportsStale', () => {
       // 121 minutes ago
       const pastTime = new Date(Date.now() - 121 * 60 * 1000).toISOString();
@@ -215,6 +224,15 @@ describe('checkpoint', () => {
   });
 
   describe('getMinutesSinceActivity', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-06-01T12:00:00.000Z'));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
     it('should return minutes since last activity', () => {
       const pastTime = new Date(Date.now() - 60 * 60 * 1000).toISOString();
       const checkpoint = makeCheckpoint({
@@ -223,9 +241,7 @@ describe('checkpoint', () => {
 
       const minutes = getMinutesSinceActivity(checkpoint);
 
-      // Allow 1 minute tolerance for test execution time
-      expect(minutes).toBeGreaterThanOrEqual(59);
-      expect(minutes).toBeLessThanOrEqual(61);
+      expect(minutes).toBe(60);
     });
 
     it('should return 0 for very recent activity', () => {
@@ -236,7 +252,7 @@ describe('checkpoint', () => {
 
       const minutes = getMinutesSinceActivity(checkpoint);
 
-      expect(minutes).toBeLessThanOrEqual(1);
+      expect(minutes).toBe(0);
     });
   });
 

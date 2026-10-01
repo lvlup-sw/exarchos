@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { handleVerifyWorktreeBoundary } from '../../../../src/lifecycle/verify-worktree-boundary.js';
 
 /**
@@ -39,12 +39,8 @@ import { handleVerifyWorktreeBoundary } from '../../../../src/lifecycle/verify-w
  */
 
 /** Run `git <args>` from `cwd`, returning trimmed stdout (throws on failure). */
-function git(cwd: string, args: readonly string[]): string {
-  return execFileSync('git', args as string[], {
-    cwd,
-    encoding: 'utf-8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim();
+async function git(cwd: string, args: readonly string[]): Promise<string> {
+  return (await execFileAsync('git', args, { cwd })).trim();
 }
 
 /** Build a PreToolUse hook payload string, as Claude Code feeds on stdin. */
@@ -78,22 +74,22 @@ describe('WorktreeBoundaryGuard #1301 leak-shape regression (real linked worktre
     // realpathSync defeats the /tmp → /private/tmp (macOS) symlink so the
     // containment math is done in canonical space on both sides.
     repoRoot = realpathSync(await mkdtemp(path.join(tmpdir(), 'boundary-1301-')));
-    git(repoRoot, ['init', '-q', '-b', 'main']);
-    git(repoRoot, ['config', 'user.email', 'test@example.com']);
-    git(repoRoot, ['config', 'user.name', 'Test']);
-    git(repoRoot, ['config', 'commit.gpgsign', 'false']);
+    await git(repoRoot, ['init', '-q', '-b', 'main']);
+    await git(repoRoot, ['config', 'user.email', 'test@example.com']);
+    await git(repoRoot, ['config', 'user.name', 'Test']);
+    await git(repoRoot, ['config', 'commit.gpgsign', 'false']);
     // Seed a committed file so the MAIN worktree has a real counterpart for the
     // absolute-path leak to (attempt to) land in.
     await writeFile(path.join(repoRoot, 'src.txt'), 'baseline\n');
-    git(repoRoot, ['add', '.']);
-    git(repoRoot, ['commit', '-q', '-m', 'baseline']);
+    await git(repoRoot, ['add', '.']);
+    await git(repoRoot, ['commit', '-q', '-m', 'baseline']);
 
     // Provision two linked worktrees under .worktrees/, exactly as native
     // isolation does. Each is a distinct git worktree with its OWN toplevel.
     worktreePath = path.join(repoRoot, '.worktrees', 'agent-x');
     siblingPath = path.join(repoRoot, '.worktrees', 'agent-other');
-    git(repoRoot, ['worktree', 'add', '-q', worktreePath, '-b', 'agent-x']);
-    git(repoRoot, ['worktree', 'add', '-q', siblingPath, '-b', 'agent-other']);
+    await git(repoRoot, ['worktree', 'add', '-q', worktreePath, '-b', 'agent-x']);
+    await git(repoRoot, ['worktree', 'add', '-q', siblingPath, '-b', 'agent-other']);
   });
 
   afterEach(async () => {

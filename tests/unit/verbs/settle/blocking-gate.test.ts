@@ -15,7 +15,6 @@
 // @oracle-sources: ../../../../src/verbs/settle/handler.ts, the rows a real event store holds after the batch, read back by type rather than off the receipt
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -49,6 +48,7 @@ import type { SettlementReceipt } from '../../../../src/verbs/settle/types.js';
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt } from '../../../../tools/test-helpers/trusted-context.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
 const STREAM = 'feat-settle-blocking-gate';
 const CAPSULE_VERSION = 9;
@@ -72,8 +72,8 @@ function correlation(): ReturnType<typeof mintDispatchContext> {
   );
 }
 
-function git(cwd: string, args: readonly string[]): void {
-  execFileSync('git', [...args], { cwd, stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 });
+async function git(cwd: string, args: readonly string[]): Promise<void> {
+  await execFileAsync('git', args, { cwd, timeout: 30_000 });
 }
 
 /** A task branch that changes the source and ships a test that never reads it. */
@@ -88,21 +88,21 @@ async function vacuousTaskWorktree(): Promise<string> {
   );
   await mkdir(path.join(dir, 'src'));
   await writeFile(path.join(dir, 'src', 'answer.mjs'), 'export const answer = 41;\n', 'utf-8');
-  git(dir, ['init', '--initial-branch=main', '-q']);
-  git(dir, ['config', 'user.email', 'test@example.com']);
-  git(dir, ['config', 'user.name', 'Test']);
-  git(dir, ['config', 'commit.gpgsign', 'false']);
-  git(dir, ['add', '.']);
-  git(dir, ['commit', '-q', '-m', 'base']);
-  git(dir, ['checkout', '-q', '-b', 'task/vacuous']);
+  await git(dir, ['init', '--initial-branch=main', '-q']);
+  await git(dir, ['config', 'user.email', 'test@example.com']);
+  await git(dir, ['config', 'user.name', 'Test']);
+  await git(dir, ['config', 'commit.gpgsign', 'false']);
+  await git(dir, ['add', '.']);
+  await git(dir, ['commit', '-q', '-m', 'base']);
+  await git(dir, ['checkout', '-q', '-b', 'task/vacuous']);
   await writeFile(path.join(dir, 'src', 'answer.mjs'), 'export const answer = 42;\n', 'utf-8');
   await writeFile(
     path.join(dir, 'src', 'answer.test.mjs'),
     "import { test } from 'node:test';\n\ntest('runs', () => {});\n",
     'utf-8',
   );
-  git(dir, ['add', '.']);
-  git(dir, ['commit', '-q', '-m', 'ship the change with a test that does not read it']);
+  await git(dir, ['add', '.']);
+  await git(dir, ['commit', '-q', '-m', 'ship the change with a test that does not read it']);
   return dir;
 }
 

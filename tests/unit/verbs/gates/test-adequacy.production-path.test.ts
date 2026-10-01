@@ -33,7 +33,6 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -48,6 +47,7 @@ import {
   seedActivePhaseAttempt,
   withTrustedCaller,
 } from '../../../../tools/test-helpers/trusted-context.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import {
   interpretProbeVerdict,
   verdictOf,
@@ -58,21 +58,16 @@ import {
 
 // ─── fixtures ────────────────────────────────────────────────────────────────
 
-function git(repoRoot: string, args: readonly string[]): string {
-  return execFileSync('git', [...args], {
-    cwd: repoRoot,
-    encoding: 'utf-8',
-    timeout: 30_000,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
+function git(repoRoot: string, args: readonly string[]): Promise<string> {
+  return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
 }
 
-function initRepo(prefix: string): string {
+async function initRepo(prefix: string): Promise<string> {
   const repoRoot = mkdtempSync(path.join(os.tmpdir(), prefix));
-  git(repoRoot, ['init', '--initial-branch=main', '-q']);
-  git(repoRoot, ['config', 'user.email', 'test@example.com']);
-  git(repoRoot, ['config', 'user.name', 'Test']);
-  git(repoRoot, ['config', 'commit.gpgsign', 'false']);
+  await git(repoRoot, ['init', '--initial-branch=main', '-q']);
+  await git(repoRoot, ['config', 'user.email', 'test@example.com']);
+  await git(repoRoot, ['config', 'user.name', 'Test']);
+  await git(repoRoot, ['config', 'commit.gpgsign', 'false']);
   return repoRoot;
 }
 
@@ -123,18 +118,18 @@ describe('check_test_adequacy production path', () => {
   }
 
   /** A task branch that changes ONLY source — nothing for the probe to kill. */
-  function sourceOnlyBranch(prefix: string): string {
-    const repoRoot = initRepo(prefix);
+  async function sourceOnlyBranch(prefix: string): Promise<string> {
+    const repoRoot = await initRepo(prefix);
     cleanups.push(() => rmrf(repoRoot));
     writeFileSync(path.join(repoRoot, 'package.json'), '{"name":"fx","version":"1.0.0"}\n');
     mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
     writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const v = () => 1;\n');
-    git(repoRoot, ['add', '.']);
-    git(repoRoot, ['commit', '-m', 'base', '-q']);
-    git(repoRoot, ['checkout', '-b', 'feature/src-only', '-q']);
+    await git(repoRoot, ['add', '.']);
+    await git(repoRoot, ['commit', '-m', 'base', '-q']);
+    await git(repoRoot, ['checkout', '-b', 'feature/src-only', '-q']);
     writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const v = () => 2;\n');
-    git(repoRoot, ['add', '.']);
-    git(repoRoot, ['commit', '-m', 'source only — ships no tests', '-q']);
+    await git(repoRoot, ['add', '.']);
+    await git(repoRoot, ['commit', '-m', 'source only — ships no tests', '-q']);
     return repoRoot;
   }
 
@@ -146,7 +141,7 @@ describe('check_test_adequacy production path', () => {
     //    "discriminant":"no-new-tests","report":"nothing to probe — task adds no tests"}
     // returned for riskTier:'high'. A high-tier task whose kill probe did not
     // run is UNVERIFIED, and the gate must block rather than advise.
-    const repoRoot = sourceOnlyBranch('prodpath-observed-');
+    const repoRoot = await sourceOnlyBranch('prodpath-observed-');
     const ctx = await makeCtx('prodpath-observed-state-', 'feat-observed');
 
     const result = await dispatch(
@@ -188,7 +183,7 @@ describe('check_test_adequacy production path', () => {
     // a check that ran and proved the tests non-vacuous. That is the defect
     // class — "could not run" and "ran and passed" sharing one channel — and
     // these two assertions are what fail without the `ProbeVerdict` union.
-    const repoRoot = sourceOnlyBranch('prodpath-skip-');
+    const repoRoot = await sourceOnlyBranch('prodpath-skip-');
     const ctx = await makeCtx('prodpath-skip-state-', 'feat-skip');
 
     const result = await dispatch(
@@ -227,7 +222,7 @@ describe('check_test_adequacy production path', () => {
   // in the event store, because that is what every downstream reader sees.
 
   it('ProductionPath_PolicySkippedGate_DurableRowsRecordSkipNotPass', async () => {
-    const repoRoot = sourceOnlyBranch('prodpath-durable-skip-');
+    const repoRoot = await sourceOnlyBranch('prodpath-durable-skip-');
     const ctx = await makeCtx('prodpath-durable-skip-state-', 'feat-durable-skip');
 
     const result = await dispatch(
@@ -291,18 +286,18 @@ describe('check_test_adequacy production path', () => {
     // defaults, so `src/calc.test.ts` was classified as SOURCE, `probedTests`
     // came back `[]`, and the gate reported `no-new-tests` for a task that
     // plainly added a test — the gate probing the wrong subject.
-    const repoRoot = initRepo('prodpath-subject-');
+    const repoRoot = await initRepo('prodpath-subject-');
     cleanups.push(() => rmrf(repoRoot));
     writeFileSync(path.join(repoRoot, 'pyproject.toml'), '[project]\nname = "fx"\n');
     mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
     writeFileSync(path.join(repoRoot, 'src', 'calc.ts'), 'export const v = () => 1;\n');
-    git(repoRoot, ['add', '.']);
-    git(repoRoot, ['commit', '-m', 'base', '-q']);
-    git(repoRoot, ['checkout', '-b', 'feature/ts', '-q']);
+    await git(repoRoot, ['add', '.']);
+    await git(repoRoot, ['commit', '-m', 'base', '-q']);
+    await git(repoRoot, ['checkout', '-b', 'feature/ts', '-q']);
     writeFileSync(path.join(repoRoot, 'src', 'calc.ts'), 'export const v = () => 2;\n');
     writeFileSync(path.join(repoRoot, 'src', 'calc.test.ts'), '// pins v() === 2\n');
-    git(repoRoot, ['add', '.']);
-    git(repoRoot, ['commit', '-m', 'feat + co-located test', '-q']);
+    await git(repoRoot, ['add', '.']);
+    await git(repoRoot, ['commit', '-m', 'feat + co-located test', '-q']);
 
     const ctx = await makeCtx('prodpath-subject-state-', 'feat-subject');
 
@@ -341,7 +336,7 @@ describe('check_test_adequacy production path', () => {
     // `diff-failed` is indeterminate too, but it is an EXECUTION failure of a
     // probe that was supposed to run — not a legitimate "nothing to do". It
     // must never degrade to an advisory skip, even on the low tier.
-    const repoRoot = sourceOnlyBranch('prodpath-difffail-');
+    const repoRoot = await sourceOnlyBranch('prodpath-difffail-');
     const ctx = await makeCtx('prodpath-difffail-state-', 'feat-difffail');
 
     const result = await dispatch(

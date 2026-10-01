@@ -30,7 +30,6 @@
 // ─────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import {
   copyFileSync,
   mkdirSync,
@@ -52,6 +51,7 @@ import {
   EMPTY_REPORT,
   MAX_MUTATE_FILES,
 } from '../../../tools/audit/core/stryker-adapter.mjs';
+import { execFileAsync, spawnAsync } from '../../../tools/test-helpers/spawn.js';
 
 // Task 019 dissolved the nested server package, so the package root and the
 // repository root are now the same directory and the adapter moved under
@@ -60,18 +60,11 @@ const REAL_SERVER_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)
 const REPO_ROOT = REAL_SERVER_DIR;
 const ADAPTER_SCRIPT = path.join(REAL_SERVER_DIR, 'tools', 'audit', 'core', 'stryker-adapter.mjs');
 
-function runNode(args: readonly string[], cwd: string): { status: number | null; stdout: string; stderr: string } {
-  try {
-    const stdout = execFileSync(process.execPath, [ADAPTER_SCRIPT, ...args], {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    return { status: 0, stdout, stderr: '' };
-  } catch (err) {
-    const e = err as { status?: number | null; stdout?: string; stderr?: string };
-    return { status: e.status ?? null, stdout: e.stdout ?? '', stderr: e.stderr ?? '' };
-  }
+function runNode(
+  args: readonly string[],
+  cwd: string,
+): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  return spawnAsync(process.execPath, [ADAPTER_SCRIPT, ...args], { cwd });
 }
 
 // ─── Pure helpers (fast, no subprocess) ─────────────────────────────────────
@@ -164,8 +157,8 @@ describe('resolveVerificationRuntime mutation-field provenance (DR-7)', () => {
 // ─── Composed path — real repo, empty diff (fast, no fixture needed) ──────
 
 describe('stryker-adapter composed path — empty mutatable surface', () => {
-  it('a genuinely empty diff (--since=HEAD) prints the empty-valid report and exits 0, never invoking Stryker', () => {
-    const result = runNode(['--since=HEAD'], REPO_ROOT);
+  it('a genuinely empty diff (--since=HEAD) prints the empty-valid report and exits 0, never invoking Stryker', async () => {
+    const result = await runNode(['--since=HEAD'], REPO_ROOT);
     expect(result.status).toBe(0);
     const parsed = parseMutationReport(result.stdout);
     expect(parsed.ok).toBe(true);
@@ -184,7 +177,7 @@ describe('stryker-adapter composed path — empty mutatable surface', () => {
 // the process died before restoring it, #1719).
 
 describe.skipIf(process.platform === 'win32')('stryker-adapter composed path — devDep absent', () => {
-  it('fails CLOSED (non-zero exit, no parseable report) when the local pinned binary is missing', () => {
+  it('fails CLOSED (non-zero exit, no parseable report) when the local pinned binary is missing', async () => {
     // The adapter's missing-binary branch fires purely on
     // `existsSync(<root>/servers/exarchos-mcp/node_modules/.bin/stryker)`, so
     // an empty temp root exercises it with zero effect on shared state.
@@ -193,7 +186,7 @@ describe.skipIf(process.platform === 'win32')('stryker-adapter composed path —
       // No `--since`: the full-tree lane, which invokes runStryker immediately
       // (no diff computation) — the fastest deterministic way to reach the
       // "binary missing" branch without depending on repo git history.
-      const result = runNode([], tmpRoot);
+      const result = await runNode([], tmpRoot);
       expect(result.status).not.toBe(0);
       expect(result.stdout.trim()).toBe('');
       const parsed = parseMutationReport(result.stdout);
@@ -215,7 +208,7 @@ describe.skipIf(process.platform === 'win32')('stryker-adapter composed path —
 // the unmodified, real adapter script, not a hand-mock.
 
 describe.skipIf(process.platform === 'win32')('stryker-adapter composed path — runner present', () => {
-  it('produces a parseable carrier with real mutant counts over a tiny 2-commit diff', () => {
+  it('produces a parseable carrier with real mutant counts over a tiny 2-commit diff', async () => {
     const tmpRoot = mkdtempSync(path.join(tmpdir(), 'stryker-adapter-smoke-'));
     try {
       const serverDir = path.join(tmpRoot);
@@ -264,14 +257,14 @@ describe.skipIf(process.platform === 'win32')('stryker-adapter composed path —
       // composed path runs the exact file this task ships, not a stand-in.
       copyFileSync(ADAPTER_SCRIPT, path.join(serverDir, 'scripts', 'stryker-adapter.mjs'));
 
-      const git = (args: readonly string[]): string =>
-        execFileSync('git', args, { cwd: tmpRoot, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
-      git(['init', '-q']);
-      git(['config', 'user.email', 'smoke@example.com']);
-      git(['config', 'user.name', 'smoke']);
-      git(['add', '-A']);
-      git(['commit', '-q', '-m', 'base', '--no-verify']);
-      const baseSha = git(['rev-parse', 'HEAD']).trim();
+      const git = (args: readonly string[]): Promise<string> =>
+        execFileAsync('git', args, { cwd: tmpRoot });
+      await git(['init', '-q']);
+      await git(['config', 'user.email', 'smoke@example.com']);
+      await git(['config', 'user.name', 'smoke']);
+      await git(['add', '-A']);
+      await git(['commit', '-q', '-m', 'base', '--no-verify']);
+      const baseSha = (await git(['rev-parse', 'HEAD'])).trim();
 
       // A real, behavior-preserving content change to the same file: adds a
       // second, fully-covered function, so the diff is genuine and Stryker
@@ -296,14 +289,12 @@ describe.skipIf(process.platform === 'win32')('stryker-adapter composed path —
           '',
         ].join('\n'),
       );
-      git(['add', '-A']);
-      git(['commit', '-q', '-m', 'head', '--no-verify']);
+      await git(['add', '-A']);
+      await git(['commit', '-q', '-m', 'head', '--no-verify']);
 
       const fixtureAdapter = path.join(serverDir, 'scripts', 'stryker-adapter.mjs');
-      const stdout = execFileSync(process.execPath, [fixtureAdapter, `--since=${baseSha}`], {
+      const stdout = await execFileAsync(process.execPath, [fixtureAdapter, `--since=${baseSha}`], {
         cwd: tmpRoot,
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'pipe'],
       });
 
       const parsed = parseMutationReport(stdout);

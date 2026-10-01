@@ -11,11 +11,12 @@
  * measure different compilers — so a guard could hold under one and not the
  * other with nothing to say so. One copy, imported twice.
  */
-import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+
+import { execFileAsync, SpawnFailure } from '../../tools/test-helpers/spawn.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -67,24 +68,14 @@ export interface CompileResult {
 }
 
 /** Spawn `tsc` over `files` in `dir`, capturing both streams on rejection. */
-export function compile(dir: string, files: readonly string[]): CompileResult {
+export async function compile(dir: string, files: readonly string[]): Promise<CompileResult> {
   try {
-    const output = execFileSync(process.execPath, [TSC_BIN, ...TSC_FLAGS, ...files], {
+    const output = await execFileAsync(process.execPath, [TSC_BIN, ...TSC_FLAGS, ...files], {
       cwd: dir,
-      encoding: 'utf8',
-      stdio: 'pipe',
     });
     return { accepted: true, output };
   } catch (err: unknown) {
-    const streams: string[] = [];
-    if (typeof err === 'object' && err !== null) {
-      for (const key of ['stdout', 'stderr']) {
-        const value: unknown = Reflect.get(err, key);
-        if (typeof value === 'string') streams.push(value);
-        else if (value instanceof Uint8Array) streams.push(Buffer.from(value).toString('utf8'));
-      }
-    }
-    return { accepted: false, output: streams.join('') };
+    return { accepted: false, output: err instanceof SpawnFailure ? err.stdout + err.stderr : '' };
   }
 }
 

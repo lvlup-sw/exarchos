@@ -24,10 +24,10 @@
 //
 // @oracle-sources: vitepress-build-output, live-docs-directory-listing, ../../package.json, ../../tools/release/mount-docs.mjs
 import { describe, it, expect, beforeAll } from 'vitest';
-import { spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnAsync, type SpawnResult } from '../../tools/test-helpers/spawn.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const DOCS_DIR = path.join(REPO_ROOT, 'docs');
@@ -55,16 +55,14 @@ function publishedFiles(): string[] {
   return out.sort();
 }
 
-let build: ReturnType<typeof spawnSync>;
+let build: SpawnResult;
 
-beforeAll(() => {
+beforeAll(async () => {
   // Through the npm script, not the vitepress binary. The script string is
   // itself part of what this task retargeted, and invoking the binary directly
   // would leave a `docs:build` that points at the deleted tree passing.
-  build = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'docs:build'], {
+  build = await spawnAsync('npm', ['run', 'docs:build'], {
     cwd: REPO_ROOT,
-    encoding: 'utf8',
-    shell: process.platform === 'win32',
     timeout: 180_000,
   });
 }, 200_000);
@@ -73,7 +71,7 @@ describe('the reduced documentation site', () => {
   it('Documentation_AfterReduction_VitePressStillBuilds', () => {
     expect(
       build.status,
-      `\`npm run docs:build\` failed.\n--- stdout ---\n${build.stdout ?? ''}\n--- stderr ---\n${build.stderr ?? ''}`,
+      `\`npm run docs:build\` failed.\n--- stdout ---\n${build.stdout}\n--- stderr ---\n${build.stderr}`,
     ).toBe(0);
 
     expect(existsSync(path.join(DIST_DIR, 'index.html')), 'no index.html was emitted').toBe(true);
@@ -143,7 +141,7 @@ describe('the reduced documentation site', () => {
     ).toEqual([]);
   });
 
-  it('Documentation_AfterReduction_TheRetiredSiteIsGone', () => {
+  it('Documentation_AfterReduction_TheRetiredSiteIsGone', async () => {
     // The reduction is only real if the old tree left. A skeleton beside the
     // 46 pages it replaced is not a reduction, it is a second copy.
     expect(
@@ -151,11 +149,9 @@ describe('the reduced documentation site', () => {
       'documentation/ still exists — the site was reduced but the old tree was not removed',
     ).toBe(false);
 
-    const tracked = spawnSync('git', ['-C', REPO_ROOT, 'ls-files', '--', 'documentation'], {
-      encoding: 'utf8',
-    });
+    const tracked = await spawnAsync('git', ['-C', REPO_ROOT, 'ls-files', '--', 'documentation']);
     expect(tracked.status, 'git ls-files failed').toBe(0);
-    expect((tracked.stdout ?? '').trim(), 'files are still tracked under documentation/').toBe('');
+    expect(tracked.stdout.trim(), 'files are still tracked under documentation/').toBe('');
   });
 
   it('Documentation_AfterReduction_TheDocsScriptsTargetTheNewTree', () => {

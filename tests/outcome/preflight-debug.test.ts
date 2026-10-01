@@ -17,6 +17,7 @@ import * as fs from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import * as path from 'node:path';
 
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 import { withTmpGit } from './_helpers/tmp-git.js';
 import { mergePreflight } from '../../src/verbs/pure/merge-preflight.js';
 import type { GitExec } from '../../src/verbs/pure/merge-preflight.js';
@@ -33,6 +34,7 @@ function liveGitExec(repoRoot: string, args: readonly string[]): {
       cwd: repoRoot,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 15_000,
     });
     return { stdout, exitCode: 0 };
   } catch (err) {
@@ -51,12 +53,10 @@ async function setupAncestryFailureTopology(repoPath: string): Promise<void> {
   // branch with no shared history, then commit a file so HEAD has a valid
   // commit and `merge-base --is-ancestor main feature/orphan` returns exit 1
   // (disjoint histories, no common ancestor).
-  execFileSync('git', ['-C', repoPath, 'checkout', '--orphan', 'feature/orphan'], {
-    stdio: 'pipe',
-  });
+  await execFileAsync('git', ['-C', repoPath, 'checkout', '--orphan', 'feature/orphan']);
   await fs.writeFile(path.join(repoPath, 'orphan.txt'), 'orphan\n');
-  execFileSync('git', ['-C', repoPath, 'add', 'orphan.txt'], { stdio: 'pipe' });
-  execFileSync('git', ['-C', repoPath, 'commit', '-m', 'orphan'], { stdio: 'pipe' });
+  await execFileAsync('git', ['-C', repoPath, 'add', 'orphan.txt']);
+  await execFileAsync('git', ['-C', repoPath, 'commit', '-m', 'orphan']);
 }
 
 describe('preflight debug payload (#1362 phase 1)', () => {

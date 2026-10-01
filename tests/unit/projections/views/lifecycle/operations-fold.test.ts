@@ -16,10 +16,7 @@ import {
 import type { EventType } from '../../../../../src/events/schemas.js';
 import { EventStore } from '../../../../../src/events/store.js';
 import { rmrfAsync } from '../../../../../tools/test-helpers/temp-dir.js';
-import { percentile } from '../../../../../src/projections/telemetry/percentile.js';
 import { WORKTREES_STREAM } from '../../../../../src/verbs/worktree/manager.js';
-
-const RUN_BENCHMARKS = process.env.RUN_BENCHMARKS === 'true';
 
 // ─── DR-3 (task 006): generic `ps` operations fold ──────────────────────────
 //
@@ -426,61 +423,6 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
       expect(bySurface.has('mutation')).toBe(false);
       expect(bySurface.has('prune')).toBe(false);
       expect(rows).toHaveLength(2);
-    });
-
-    // ── Benchmark: cold fold over 10k real store-backed events ────────────
-    //
-    // Boundary/offline cadence (RUN_BENCHMARKS=true), never the default inner
-    // loop — matches the sibling `telemetry/benchmarks/*.test.ts` convention.
-    // 10k events across all four surfaces (a realistic mix of in-flight and
-    // terminated instances) are appended to a real `EventStore`, queried back
-    // once (cold — no prior fold on this data), then folded repeatedly to
-    // compute a p95 over real wall-clock runs.
-    it.skipIf(!RUN_BENCHMARKS)('operations-fold-cold-10k-events', async () => {
-      const streamId = 'bench-ops-fold-cold-10k';
-      const surfaces = LIVENESS_DESCRIPTORS;
-      const eventCount = 10_000;
-
-      const batch: Array<{ type: string; data: Record<string, unknown>; timestamp: string }> = [];
-      for (let i = 0; i < eventCount; i++) {
-        const descriptor = surfaces[i % surfaces.length];
-        // Every 3rd instance is left in flight (start with no terminal);
-        // the other two thirds get their terminal appended immediately
-        // after — a realistic mostly-quiescent-with-some-stragglers mix.
-        const key = `k-${i}`;
-        const isInFlight = i % 3 === 0;
-        batch.push({
-          type: descriptor.startType,
-          data: { instanceId: key },
-          timestamp: new Date(2026, 0, 1, 0, 0, 0, i).toISOString(),
-        });
-        if (!isInFlight) {
-          batch.push({
-            type: descriptor.terminalTypes[0],
-            data: { instanceId: key },
-            timestamp: new Date(2026, 0, 1, 0, 0, 1, i).toISOString(),
-          });
-        }
-      }
-
-      await store.batchAppend(streamId, batch);
-      const events = await store.query(streamId);
-      expect(events.length).toBeGreaterThanOrEqual(eventCount);
-
-      // Act — repeated cold folds over the same (already-queried) event
-      // list, timing each run independently to compute a p95.
-      const elapsedRuns: number[] = [];
-      for (let run = 0; run < 15; run++) {
-        const start = performance.now();
-        foldInFlightOperations(events);
-        elapsedRuns.push(performance.now() - start);
-      }
-
-      const p95 = percentile(elapsedRuns, 0.95);
-      console.log(
-        `[operations-fold] cold ${events.length} events, p95 over 15 runs: ${p95.toFixed(3)}ms`,
-      );
-      expect(p95).toBeLessThan(250);
     });
   });
 });

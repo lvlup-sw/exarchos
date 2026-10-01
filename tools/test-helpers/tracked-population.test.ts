@@ -19,8 +19,8 @@ const SRC_ROOT = join(HERE, '..');
 const REPO_ROOT = join(HERE, '..', '..');
 
 describe('tracked-population — the second authority is itself checked', () => {
-  it('TrackedPopulation_ListsRootRelativeForwardSlashedPaths', () => {
-    const files = listTrackedFiles(SRC_ROOT);
+  it('TrackedPopulation_ListsRootRelativeForwardSlashedPaths', async () => {
+    const files = await listTrackedFiles(SRC_ROOT);
     expect(files.length).toBeGreaterThan(0);
     // Root-relative (no leading `servers/`), forward-slashed on every platform.
     expect(files).toContain('test-helpers/tracked-population.ts');
@@ -28,17 +28,17 @@ describe('tracked-population — the second authority is itself checked', () => 
     expect(files.every((f) => !f.startsWith('/'))).toBe(true);
   });
 
-  it('TrackedPopulation_IsSortedAndDeduplicatedByGit', () => {
-    const files = listTrackedFiles(SRC_ROOT);
+  it('TrackedPopulation_IsSortedAndDeduplicatedByGit', async () => {
+    const files = await listTrackedFiles(SRC_ROOT);
     expect([...files].sort()).toEqual(files);
     expect(new Set(files).size).toBe(files.length);
   });
 
-  it('TrackedPopulation_ExcludesBuildOutputAndDotDirsByProperty', () => {
+  it('TrackedPopulation_ExcludesBuildOutputAndDotDirsByProperty', async () => {
     // A repo-root query is the case that matters: `dist/` is real build output
     // and `.claude/worktrees/` holds complete sibling checkouts, so a walk that
     // recursed into either would count the same modules many times over.
-    const files = listTrackedFiles(REPO_ROOT);
+    const files = await listTrackedFiles(REPO_ROOT);
     expect(files.filter((f) => f.split('/').includes('dist'))).toEqual([]);
     expect(files.filter((f) => f.split('/').includes('node_modules'))).toEqual([]);
     expect(files.filter((f) => f.split('/').some((s) => s.startsWith('.')))).toEqual([]);
@@ -46,18 +46,18 @@ describe('tracked-population — the second authority is itself checked', () => 
     expect(files).toContain('tools/test-helpers/tracked-population.ts');
   });
 
-  it('TrackedPopulation_HonorsTheCallerSuppliedExclusion', () => {
-    const all = listTrackedFiles(SRC_ROOT);
-    const production = listTrackedFiles(SRC_ROOT, {
+  it('TrackedPopulation_HonorsTheCallerSuppliedExclusion', async () => {
+    const all = await listTrackedFiles(SRC_ROOT);
+    const production = await listTrackedFiles(SRC_ROOT, {
       exclude: (path) => path.endsWith('.test.ts'),
     });
     expect(production.length).toBeLessThan(all.length);
     expect(production.filter((f) => f.endsWith('.test.ts'))).toEqual([]);
-    expect(countTrackedFiles(SRC_ROOT)).toBe(all.length);
+    expect(await countTrackedFiles(SRC_ROOT)).toBe(all.length);
   });
 
-  it('TrackedPopulation_SelectsByExtension', () => {
-    const markdown = listTrackedFiles(join(REPO_ROOT, 'content'), { extensions: ['.md'] });
+  it('TrackedPopulation_SelectsByExtension', async () => {
+    const markdown = await listTrackedFiles(join(REPO_ROOT, 'content'), { extensions: ['.md'] });
     expect(markdown.length).toBeGreaterThan(0);
     expect(markdown.every((f) => f.endsWith('.md'))).toBe(true);
   });
@@ -67,13 +67,13 @@ describe('tracked-population — the second authority is itself checked', () => 
   // instead of throwing, every `expect(missed).toEqual([])` built on it would
   // pass vacuously — the exact defect this module exists to catch, reproduced
   // inside the detector.
-  it('TrackedPopulation_EmptyResult_ThrowsRatherThanCorroboratingNothing', () => {
-    expect(() => listTrackedFiles(SRC_ROOT, { extensions: ['.no-such-extension'] })).toThrow(
+  it('TrackedPopulation_EmptyResult_ThrowsRatherThanCorroboratingNothing', async () => {
+    await expect(listTrackedFiles(SRC_ROOT, { extensions: ['.no-such-extension'] })).rejects.toThrow(
       /second authority is empty/,
     );
     // Same tooth via an exclusion that rejects everything — an over-wide mirror
     // of a scanner's exclusions is as blinding as a moved root.
-    expect(() => listTrackedFiles(SRC_ROOT, { exclude: () => true })).toThrow(
+    await expect(listTrackedFiles(SRC_ROOT, { exclude: () => true })).rejects.toThrow(
       /second authority is empty/,
     );
   });

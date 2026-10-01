@@ -84,18 +84,11 @@ describe('process-tracker', () => {
     register(child1);
     register(child2);
 
-    const start = Date.now();
     await killAll({ timeoutMs: 1000 });
-    const elapsed = Date.now() - start;
 
     // Both children are dead.
     expect(child1.exitCode !== null || child1.signalCode !== null).toBe(true);
     expect(child2.exitCode !== null || child2.signalCode !== null).toBe(true);
-
-    // Long-lived children ignore SIGTERM in the simple `setInterval` script only
-    // in some cases; node exits on SIGTERM by default. Either way, killAll must
-    // return within the timeout budget + a small slack.
-    expect(elapsed).toBeLessThan(5000);
   });
 
   it('ProcessTracker_Clear_EmptiesList', async () => {

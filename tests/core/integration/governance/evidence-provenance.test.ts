@@ -19,7 +19,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import {
   createPublicRootHarness,
   assertNoStubbedCompositeHandlers,
@@ -62,30 +62,26 @@ async function withHarness<T>(
 async function makeGitFixture(): Promise<string> {
   const repo = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'gov-t2-git-')));
   scratchDirs.push(repo);
-  const git = (args: readonly string[]): void => {
-    execFileSync('git', [...args], {
-      cwd: repo,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+  const git = async (args: readonly string[]): Promise<void> => {
+    await execFileAsync('git', [...args], { cwd: repo });
   };
-  git(['init', '--quiet']);
-  git(['config', 'user.email', 'gov-t2@example.invalid']);
-  git(['config', 'user.name', 'Governance T2']);
-  git(['config', 'commit.gpgsign', 'false']);
+  await git(['init', '--quiet']);
+  await git(['config', 'user.email', 'gov-t2@example.invalid']);
+  await git(['config', 'user.name', 'Governance T2']);
+  await git(['config', 'commit.gpgsign', 'false']);
   await fs.writeFile(
     path.join(repo, 'package.json'),
     JSON.stringify({ name: 'gov-t2-git-fixture', version: '1.0.0', private: true }, null, 2),
     'utf-8',
   );
-  git(['add', '.']);
-  git(['commit', '--quiet', '-m', 'chore: baseline']);
-  git(['branch', '-M', 'main']);
-  git(['checkout', '--quiet', '-b', 'feat/no-tests']);
+  await git(['add', '.']);
+  await git(['commit', '--quiet', '-m', 'chore: baseline']);
+  await git(['branch', '-M', 'main']);
+  await git(['checkout', '--quiet', '-b', 'feat/no-tests']);
   await fs.mkdir(path.join(repo, 'src'), { recursive: true });
   await fs.writeFile(path.join(repo, 'src', 'widget.ts'), 'export const widget = 1;\n', 'utf-8');
-  git(['add', '.']);
-  git(['commit', '--quiet', '-m', 'feat: add widget with no tests']);
+  await git(['add', '.']);
+  await git(['commit', '--quiet', '-m', 'feat: add widget with no tests']);
   return repo;
 }
 

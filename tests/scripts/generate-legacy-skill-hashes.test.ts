@@ -25,7 +25,6 @@ import {
   rmSync,
   existsSync,
 } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,6 +42,7 @@ import {
   // The generator is ESM `.mjs`; vitest resolves it fine from a `.ts` test.
   // No declarations for the plain-JS generator; `allowJs` infers them.
 } from '../../tools/release/generate-legacy-skill-hashes.mjs';
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
@@ -179,7 +179,7 @@ describe('generate-legacy-skill-hashes (Task 023, DR-8)', () => {
     expect(readFileSync(tracked).equals(original)).toBe(true);
   });
 
-  it('legacyHashManifest_ExcludesReleasesAtOrAboveMaxBound', () => {
+  it('legacyHashManifest_ExcludesReleasesAtOrAboveMaxBound', async () => {
     // The legacy window is frozen at [MIN_RELEASE, MAX_RELEASE_EXCLUSIVE): the
     // rename release (v2.12.0) and everything after carry no old-name per-runtime
     // renders, and — critically — an unbounded set makes a fresh buildManifest()
@@ -189,10 +189,10 @@ describe('generate-legacy-skill-hashes (Task 023, DR-8)', () => {
     // tags survive (lightweight tags need no trees — enumeration is `git tag` only).
     const repo = mkdtempSync(path.join(tmpdir(), 'legacy-hash-bound-'));
     const g = (...args: string[]) =>
-      execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+      execFileAsync('git', args, { cwd: repo });
     try {
-      g('init', '-q');
-      g('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'seed');
+      await g('init', '-q');
+      await g('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'seed');
       for (const t of [
         'v2.8.9', // below MIN — excluded
         'v2.11.0-rc.1', // in-window prerelease
@@ -200,7 +200,7 @@ describe('generate-legacy-skill-hashes (Task 023, DR-8)', () => {
         'v2.12.0-preview.1', // == MAX base — excluded (the rename release)
         'v2.13.5', // above MAX — excluded
       ]) {
-        g('tag', t);
+        await g('tag', t);
       }
 
       const refs = enumerateReleaseRefs({ cwd: repo }) as string[];

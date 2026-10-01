@@ -14,7 +14,7 @@
  * SIGINT → `cancelled` path), plus a small in-memory `cancelCalls`
  * spy used in the T34 SIGINT assertion.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { PassThrough } from 'node:stream';
 import type { V2Task as Task } from '../../../src/contract/sdk/seam.js';
 
@@ -132,10 +132,9 @@ describe('runFollowLoop (#1273)', () => {
       // T33 acceptance: `cli.followPollIntervalMs` is honored. The loop
       // accepts the resolved value via `pollIntervalMs` (the resolver
       // lives in the CLI adapter wiring); here we assert that supplying
-      // `100` actually paces the loop (not just rapid-fires through the
-      // script). We measure elapsed time across three transitions; with
-      // a 100ms cadence + 2 polls between transitions, wall-clock must
-      // exceed ~150ms even on a busy CI runner.
+      // `50` actually paces the loop (not just rapid-fires through the
+      // script). On a fake clock, three polls with a 50ms cadence cannot
+      // finish before 100ms of clock time has passed.
       const taskId = 'task-cfg-003';
       const script: Task[] = [
         { taskId, status: 'working', ttl: 60_000, createdAt: ISO_FIXED, lastUpdatedAt: ISO_FIXED },
@@ -151,19 +150,26 @@ describe('runFollowLoop (#1273)', () => {
       const stdout = new PassThrough();
       const store = scriptedStore(taskId, script);
 
-      const start = Date.now();
-      await runFollowLoop({
-        taskStore: store,
-        taskId,
-        pollIntervalMs: 50,
-        stdout,
-        subcommand: 'workflow_status',
-      });
-      const elapsed = Date.now() - start;
-      // Three polls × 50ms cadence ≈ 100ms+; allow generous floor for
-      // CI scheduling jitter. The point is that the cadence is observed
-      // and the loop does NOT race ahead in zero ms.
-      expect(elapsed).toBeGreaterThanOrEqual(40);
+      vi.useFakeTimers();
+      try {
+        let finished = false;
+        const loop = runFollowLoop({
+          taskStore: store,
+          taskId,
+          pollIntervalMs: 50,
+          stdout,
+          subcommand: 'workflow_status',
+        }).then((result) => {
+          finished = true;
+          return result;
+        });
+        await vi.advanceTimersByTimeAsync(99);
+        expect(finished).toBe(false);
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect((await loop).terminalStatus).toBe('completed');
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('CliFollow_PayloadChange_AlsoRenders', async () => {

@@ -116,6 +116,7 @@ import {
   UnknownContractActionError,
 } from '../../../../src/contract/cli/generated-client.js';
 import { CONTRACT_EXIT_CODES, exitCodeForError } from '../../../../src/contract/error-families.js';
+import { spawnAsync } from '../../../../tools/test-helpers/spawn.js';
 
 // ─── Test Helpers ────────────────────────────────────────────────────────────
 
@@ -988,9 +989,7 @@ describe.skipIf(!SMOKE_BINARY)(
 
     it('cli_InstallSkillsBinary_HelpAgainstTempHome_ExitsZero', async () => {
       if (!SMOKE_BINARY) throw new Error('binary check should have skipped');
-      const { spawnSync } = await import('node:child_process');
-      const result = spawnSync(SMOKE_BINARY, ['install-skills', '--help'], {
-        encoding: 'utf-8',
+      const result = await spawnAsync(SMOKE_BINARY, ['install-skills', '--help'], {
         timeout: 30_000,
         env: { ...process.env, HOME: homeTmp, WORKFLOW_STATE_DIR: stateTmp },
       });

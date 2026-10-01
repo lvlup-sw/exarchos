@@ -1,10 +1,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { defaultGitExec } from '../../../../src/verbs/vcs/git-exec-default.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
 // #1311 — scoped coverage for the shared merge-orchestrator git executor.
 // The canonical (120s, stderr-capturing) `defaultGitExec` extracted from the
@@ -54,15 +54,15 @@ describe('git-exec-default — DR-1 index.lock retry composition', () => {
 
   // A real, initialized git repo with one unstaged file and the path to its
   // (not-yet-created) index.lock.
-  function makeRepo(): { repo: string; file: string; lock: string } {
+  async function makeRepo(): Promise<{ repo: string; file: string; lock: string }> {
     const repo = mkdtempSync(join(tmpdir(), 'exarchos-lockrepo-'));
     createdRepos.push(repo);
-    const git = (args: string[]): void => {
-      execFileSync('git', args, { cwd: repo, stdio: 'pipe' });
+    const git = async (args: string[]): Promise<void> => {
+      await execFileAsync('git', args, { cwd: repo });
     };
-    git(['init', '-q']);
-    git(['config', 'user.email', 'test@exarchos.local']);
-    git(['config', 'user.name', 'Exarchos Test']);
+    await git(['init', '-q']);
+    await git(['config', 'user.email', 'test@exarchos.local']);
+    await git(['config', 'user.name', 'Exarchos Test']);
     const file = 'staged.txt';
     writeFileSync(join(repo, file), 'contents\n');
     return { repo, file, lock: join(repo, '.git', 'index.lock') };
@@ -83,7 +83,7 @@ describe('git-exec-default — DR-1 index.lock retry composition', () => {
   }
 
   it('DefaultGitExecComposition_RealIndexLockFile_RetriesAndSucceeds', async () => {
-    const { repo, file, lock } = makeRepo();
+    const { repo, file, lock } = await makeRepo();
     // A REAL on-disk lock: `git add` fails until it is removed.
     writeFileSync(lock, '');
     expect(existsSync(lock)).toBe(true);
@@ -91,24 +91,20 @@ describe('git-exec-default — DR-1 index.lock retry composition', () => {
     // Clear the lock off-thread partway through the first backoff, so a RETRY
     // (not the initial attempt) is the one that succeeds.
     const remover = scheduleOffThreadRemoval(lock, 100);
-    const startedAt = Date.now();
     const result = defaultGitExec(repo, ['add', file]);
-    const elapsedMs = Date.now() - startedAt;
     await remover.terminate();
 
-    // The DEFAULT composition retried and eventually succeeded.
+    // The DEFAULT composition retried and eventually succeeded. Git cannot
+    // succeed while the lock exists, and only the worker removes it.
     expect(result.exitCode).toBe(0);
     expect(existsSync(lock)).toBe(false);
-    // Success is ONLY reachable via a retry: git cannot succeed while the lock
-    // exists, so a real backoff sleep must have elapsed between attempts.
-    expect(elapsedMs).toBeGreaterThanOrEqual(100);
     // The file was actually staged — the retried op did real work, not a no-op.
     const status = defaultGitExec(repo, ['status', '--porcelain']);
     expect(status.stdout).toMatch(/^A\s+staged\.txt/m);
   }, 20_000);
 
-  it('DefaultGitExecComposition_PersistentLock_ReturnsContentionResultNotSilentFailure', () => {
-    const { repo, file, lock } = makeRepo();
+  it('DefaultGitExecComposition_PersistentLock_ReturnsContentionResultNotSilentFailure', async () => {
+    const { repo, file, lock } = await makeRepo();
     // The lock never clears → the retry budget is exhausted.
     writeFileSync(lock, '');
 

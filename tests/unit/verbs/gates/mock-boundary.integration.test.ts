@@ -23,7 +23,6 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -34,24 +33,20 @@ import { handleOrchestrate } from '../../../../src/verbs/composite.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 import { runAsTrustedCaller, seedActivePhaseAttempt, withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
 import { gateRunnerObservationSource } from '../../../../src/verbs/gates/gate-runner.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
 // ─── git fixture helpers ─────────────────────────────────────────────────────
 
-function git(repoRoot: string, args: readonly string[]): string {
-  return execFileSync('git', [...args], {
-    cwd: repoRoot,
-    encoding: 'utf-8',
-    timeout: 30_000,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
+function git(repoRoot: string, args: readonly string[]): Promise<string> {
+  return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
 }
 
-function initRepo(prefix: string): string {
+async function initRepo(prefix: string): Promise<string> {
   const repoRoot = mkdtempSync(path.join(os.tmpdir(), prefix));
-  git(repoRoot, ['init', '--initial-branch=main', '-q']);
-  git(repoRoot, ['config', 'user.email', 'test@example.com']);
-  git(repoRoot, ['config', 'user.name', 'Test']);
-  git(repoRoot, ['config', 'commit.gpgsign', 'false']);
+  await git(repoRoot, ['init', '--initial-branch=main', '-q']);
+  await git(repoRoot, ['config', 'user.email', 'test@example.com']);
+  await git(repoRoot, ['config', 'user.name', 'Test']);
+  await git(repoRoot, ['config', 'commit.gpgsign', 'false']);
   return repoRoot;
 }
 
@@ -61,7 +56,7 @@ function initRepo(prefix: string): string {
  * relative mock of `../foo.js` from `src/foo.test.ts` is OWNED, while a bare
  * `axios` mock is UNOWNED.
  */
-function writeBaseProject(repoRoot: string, exarchosYml?: string): void {
+async function writeBaseProject(repoRoot: string, exarchosYml?: string): Promise<void> {
   mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
   writeFileSync(path.join(repoRoot, 'src', 'foo.ts'), 'export const foo = () => 1;\n');
   writeFileSync(
@@ -71,8 +66,8 @@ function writeBaseProject(repoRoot: string, exarchosYml?: string): void {
   if (exarchosYml !== undefined) {
     writeFileSync(path.join(repoRoot, '.exarchos.yml'), exarchosYml);
   }
-  git(repoRoot, ['add', '.']);
-  git(repoRoot, ['commit', '-m', 'base: src + test', '-q']);
+  await git(repoRoot, ['add', '.']);
+  await git(repoRoot, ['commit', '-m', 'base: src + test', '-q']);
 }
 
 function makeCtx(stateDir: string, eventStore: EventStore): DispatchContext {
@@ -132,18 +127,18 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
   it(
     'HandleOrchestrate_CheckMockBoundary_UnownedMock_AdvisoryWithSteerNextAction',
     async () => {
-      const repoRoot = initRepo('mock-boundary-unowned-');
+      const repoRoot = await initRepo('mock-boundary-unowned-');
       cleanups.push(() => rmrf(repoRoot));
-      writeBaseProject(repoRoot);
+      await writeBaseProject(repoRoot);
 
       // Branch: add a test file that mocks a third-party dependency.
-      git(repoRoot, ['checkout', '-b', 'feature/unowned', '-q']);
+      await git(repoRoot, ['checkout', '-b', 'feature/unowned', '-q']);
       writeFileSync(
         path.join(repoRoot, 'src', 'http.test.ts'),
         "import axios from 'axios';\nvi.mock('axios');\naxios.get('/x');\n",
       );
-      git(repoRoot, ['add', '.']);
-      git(repoRoot, ['commit', '-m', 'test: mock axios', '-q']);
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'test: mock axios', '-q']);
 
       const { result } = await dispatch(repoRoot, 'feature/unowned');
       const { success, data } = result;
@@ -179,20 +174,20 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
   it(
     'HandleOrchestrate_CheckMockBoundary_FirstPartyMock_Passes',
     async () => {
-      const repoRoot = initRepo('mock-boundary-firstparty-');
+      const repoRoot = await initRepo('mock-boundary-firstparty-');
       cleanups.push(() => rmrf(repoRoot));
-      writeBaseProject(repoRoot);
+      await writeBaseProject(repoRoot);
 
       // Branch: add a test that mocks a FIRST-PARTY relative module. `./foo.js`
       // resolves against the diff file's directory (`src/bar.test.ts` → `src/`),
       // so the target is `src/foo.js` — under the `src/**` first-party scope.
-      git(repoRoot, ['checkout', '-b', 'feature/firstparty', '-q']);
+      await git(repoRoot, ['checkout', '-b', 'feature/firstparty', '-q']);
       writeFileSync(
         path.join(repoRoot, 'src', 'bar.test.ts'),
         "import { foo } from '../../orchestrate/foo.js';\nvi.mock('./foo.js');\nfoo();\n",
       );
-      git(repoRoot, ['add', '.']);
-      git(repoRoot, ['commit', '-m', 'test: mock first-party foo', '-q']);
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'test: mock first-party foo', '-q']);
 
       const { result } = await dispatch(repoRoot, 'feature/firstparty');
       const { success, data } = result;
@@ -210,21 +205,21 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
   it(
     'CheckMockBoundary_ConfigOverrideBlocking_StillHonored',
     async () => {
-      const repoRoot = initRepo('mock-boundary-blocking-');
+      const repoRoot = await initRepo('mock-boundary-blocking-');
       cleanups.push(() => rmrf(repoRoot));
       // `.exarchos.yml` flips the gate to blocking via a review-gate override.
-      writeBaseProject(
+      await writeBaseProject(
         repoRoot,
         ['review:', '  gates:', '    mock-boundary:', '      blocking: true', ''].join('\n'),
       );
 
-      git(repoRoot, ['checkout', '-b', 'feature/blocking', '-q']);
+      await git(repoRoot, ['checkout', '-b', 'feature/blocking', '-q']);
       writeFileSync(
         path.join(repoRoot, 'src', 'http.test.ts'),
         "import axios from 'axios';\nvi.mock('axios');\naxios.get('/x');\n",
       );
-      git(repoRoot, ['add', '.']);
-      git(repoRoot, ['commit', '-m', 'test: mock axios', '-q']);
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'test: mock axios', '-q']);
 
       const { result } = await dispatch(repoRoot, 'feature/blocking');
       const { success, data } = result;
@@ -243,17 +238,17 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
   it(
     'GateEvent_EscapeHatch_LoggedInPayload',
     async () => {
-      const repoRoot = initRepo('mock-boundary-escape-');
+      const repoRoot = await initRepo('mock-boundary-escape-');
       cleanups.push(() => rmrf(repoRoot));
-      writeBaseProject(repoRoot);
+      await writeBaseProject(repoRoot);
 
-      git(repoRoot, ['checkout', '-b', 'feature/escape', '-q']);
+      await git(repoRoot, ['checkout', '-b', 'feature/escape', '-q']);
       writeFileSync(
         path.join(repoRoot, 'src', 'http.test.ts'),
         "import axios from 'axios';\nvi.mock('axios');\naxios.get('/x');\n",
       );
-      git(repoRoot, ['add', '.']);
-      git(repoRoot, ['commit', '-m', 'test: mock axios (intentional)', '-q']);
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'test: mock axios (intentional)', '-q']);
 
       const reason = 'axios stubbed at the transport boundary; covered by a separate contract test';
       const { result, eventStore, featureId } = await dispatch(repoRoot, 'feature/escape', {

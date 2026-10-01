@@ -21,7 +21,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { execSync } from 'node:child_process';
+import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 
 const tempDirs: string[] = [];
 
@@ -133,7 +133,7 @@ const gitEnv = {
  * Provision a temp project: content/harness/hooks/, runtimes/, a seeded hooks/ tree,
  * all committed so `git diff` starts clean.
  */
-function provisionProject(): string {
+async function provisionProject(): Promise<string> {
   const root = makeTempDir();
   writeHooksSource(join(root, 'content/harness/hooks'));
   writeBindingSource(join(root, 'content/harness/binding'));
@@ -145,9 +145,9 @@ function provisionProject(): string {
     bindingOutDir: join(root, 'binding'),
     runtimesDir: join(root, 'content/harness/runtimes'),
   });
-  execSync('git init -q -b main', { cwd: root, env: gitEnv });
-  execSync('git add -A', { cwd: root, env: gitEnv });
-  execSync('git commit -q -m "seed"', { cwd: root, env: gitEnv });
+  await execFileAsync('git', ['init', '-q', '-b', 'main'], { cwd: root, env: gitEnv });
+  await execFileAsync('git', ['add', '-A'], { cwd: root, env: gitEnv });
+  await execFileAsync('git', ['commit', '-q', '-m', 'seed'], { cwd: root, env: gitEnv });
   return root;
 }
 
@@ -189,7 +189,7 @@ function shrunkRuntimeYaml(name: string, hooksLines: string[]): string {
  * → note; a plugin template is present so a *reverted* renderer would still build
  * and emit the retired plugin, making the shape assertions the drift detector).
  */
-function provisionShrunkProject(): { root: string; outDir: string } {
+async function provisionShrunkProject(): Promise<{ root: string; outDir: string }> {
   const root = makeTempDir();
   const srcDir = join(root, 'content/harness/hooks');
   mkdirSync(srcDir, { recursive: true });
@@ -270,22 +270,22 @@ function provisionShrunkProject(): { root: string; outDir: string } {
     bindingOutDir: join(root, 'binding'),
     runtimesDir,
   });
-  execSync('git init -q -b main', { cwd: root, env: gitEnv });
-  execSync('git add -A', { cwd: root, env: gitEnv });
-  execSync('git commit -q -m "seed"', { cwd: root, env: gitEnv });
+  await execFileAsync('git', ['init', '-q', '-b', 'main'], { cwd: root, env: gitEnv });
+  await execFileAsync('git', ['add', '-A'], { cwd: root, env: gitEnv });
+  await execFileAsync('git', ['commit', '-q', '-m', 'seed'], { cwd: root, env: gitEnv });
   return { root, outDir };
 }
 
 describe('runHooksGuard — #1476 T10', () => {
-  it('HooksGuard_InSyncTree_ReturnsOk', () => {
-    const root = provisionProject();
+  it('HooksGuard_InSyncTree_ReturnsOk', async () => {
+    const root = await provisionProject();
     const result = runHooksGuard({ cwd: root });
     expect(result.ok).toBe(true);
     expect(result.exitCode).toBe(0);
   });
 
-  it('HooksGuard_SourceChangedNotRegenerated_FailsWithDrift', () => {
-    const root = provisionProject();
+  it('HooksGuard_SourceChangedNotRegenerated_FailsWithDrift', async () => {
+    const root = await provisionProject();
     // Mutate the source AFTER committing — the committed hooks/ tree is now
     // stale relative to what the build would produce.
     writeFileSync(
@@ -309,14 +309,14 @@ describe('runHooksGuard — #1476 T10', () => {
     expect(result.message).toMatch(/build:hooks|hooks:guard|stale|drift/i);
   });
 
-  it('HooksGuard_CommittedTreeStale_FailsWithDrift', () => {
-    const root = provisionProject();
+  it('HooksGuard_CommittedTreeStale_FailsWithDrift', async () => {
+    const root = await provisionProject();
     // Commit a tampered generated file so the committed hooks/ tree no longer
     // matches what the build produces. The build regenerates the correct
     // content; `git diff` against the stale committed version shows drift.
     writeFileSync(join(root, 'hooks', 'hooks.json'), '{"hooks":{"tampered":[]}}\n');
-    execSync('git add -A', { cwd: root, env: gitEnv });
-    execSync('git commit -q -m "tamper"', { cwd: root, env: gitEnv });
+    await execFileAsync('git', ['add', '-A'], { cwd: root, env: gitEnv });
+    await execFileAsync('git', ['commit', '-q', '-m', 'tamper'], { cwd: root, env: gitEnv });
 
     const result = runHooksGuard({ cwd: root });
     expect(result.ok).toBe(false);
@@ -325,8 +325,8 @@ describe('runHooksGuard — #1476 T10', () => {
 });
 
 describe('runHooksGuard — shrunk hook tree (DR-7)', () => {
-  it('hooksGuard_ShrunkTree_Passes', () => {
-    const { root, outDir } = provisionShrunkProject();
+  it('hooksGuard_ShrunkTree_Passes', async () => {
+    const { root, outDir } = await provisionShrunkProject();
 
     // The freshly built + committed shrunk tree round-trips with no drift.
     const result = runHooksGuard({ cwd: root });

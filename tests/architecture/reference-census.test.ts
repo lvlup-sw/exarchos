@@ -30,7 +30,8 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 
@@ -67,10 +68,8 @@ const snapshot = JSON.parse(
 ) as Census;
 
 const census = JSON.parse(
-  execFileSync(process.execPath, [path.join(REPO_ROOT, 'tools/audit/measure-reference-census.mjs')], {
+  await execFileAsync(process.execPath, [path.join(REPO_ROOT, 'tools/audit/measure-reference-census.mjs')], {
     cwd: REPO_ROOT,
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
   }),
 ) as Census;
 

@@ -14,7 +14,6 @@
 // dry-run still spawns nothing.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { existsSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -23,6 +22,7 @@ import * as path from 'node:path';
 import { buildCli, CLI_EXIT_CODES } from '../../../../src/adapters/cli/cli.js';
 import { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { WorktreeManager, WORKTREES_STREAM } from '../../../../src/verbs/worktree/manager.js';
 import { LAUNCH_EXECUTED } from '../../../../src/runtime/launcher/liveness.js';
@@ -42,23 +42,19 @@ import type { LauncherWiringOverrides } from '../../../../src/runtime/launcher/p
 
 // ── git + event-store helpers (mirror lifecycle.test.ts) ─────────────────────
 
-function git(cwd: string, args: readonly string[]): string {
-  return execFileSync('git', args as string[], {
-    cwd,
-    encoding: 'utf-8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim();
+async function git(cwd: string, args: readonly string[]): Promise<string> {
+  return (await execFileAsync('git', args, { cwd })).trim();
 }
 
 async function initRepo(dir: string): Promise<string> {
   await mkdir(dir, { recursive: true });
-  git(dir, ['init', '-q', '-b', 'work']);
-  git(dir, ['config', 'user.email', 'cli-launcher@example.com']);
-  git(dir, ['config', 'user.name', 'CLI Launcher Test']);
-  git(dir, ['config', 'commit.gpgsign', 'false']);
+  await git(dir, ['init', '-q', '-b', 'work']);
+  await git(dir, ['config', 'user.email', 'cli-launcher@example.com']);
+  await git(dir, ['config', 'user.name', 'CLI Launcher Test']);
+  await git(dir, ['config', 'commit.gpgsign', 'false']);
   await writeFile(path.join(dir, 'README.md'), '# cli launcher wiring test\n');
-  git(dir, ['add', '.']);
-  git(dir, ['commit', '-q', '-m', 'init']);
+  await git(dir, ['add', '.']);
+  await git(dir, ['commit', '-q', '-m', 'init']);
   // `.native` (not the JS `realpathSync`) so Windows 8.3 SHORT names are expanded
   // to their long form — mirroring production's `defaultRealpath`, so the path the
   // launcher derives (via `deriveWorktreePath`) matches this test's expectation on
@@ -68,7 +64,7 @@ async function initRepo(dir: string): Promise<string> {
 
 async function addBaseWorktree(repo: string, workdir: string): Promise<string> {
   const base = path.join(workdir, 'base-wt');
-  git(repo, ['worktree', 'add', '-q', base, '-b', 'base-branch']);
+  await git(repo, ['worktree', 'add', '-q', base, '-b', 'base-branch']);
   return realpathSync.native(base);
 }
 

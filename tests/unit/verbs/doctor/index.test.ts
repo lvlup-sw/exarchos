@@ -32,29 +32,33 @@ function fakeContextWithProbes(): { ctx: DispatchContext; buildProbes: () => Ret
   return { ctx, buildProbes: () => makeStubProbes() };
 }
 
-/** Build a check that sleeps for `ms` and returns a Pass result. */
-function sleepingCheck(name: string, ms: number): CheckFn {
-  return async (_probes, signal): Promise<CheckResult> => {
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => resolve(), ms);
-      if (signal.aborted) {
-        clearTimeout(timer);
-        reject(new DOMException('Aborted', 'AbortError'));
-        return;
-      }
-      signal.addEventListener('abort', () => {
-        clearTimeout(timer);
-        reject(new DOMException('Aborted', 'AbortError'));
-      }, { once: true });
-    });
+/**
+ * Builds `count` checks that each wait until all of them have started. They can
+ * all finish only when the composer runs them at the same time, so a
+ * `maxRunning()` of `count` proves parallel execution without reading a clock.
+ */
+function concurrentChecks(count: number): { checks: CheckFn[]; maxRunning: () => number } {
+  let running = 0;
+  let maxRunning = 0;
+  let releaseAll: () => void = () => undefined;
+  const allStarted = new Promise<void>((resolve) => {
+    releaseAll = resolve;
+  });
+  const checks = Array.from({ length: count }, (_, index): CheckFn => async (): Promise<CheckResult> => {
+    running += 1;
+    maxRunning = Math.max(maxRunning, running);
+    if (running === count) releaseAll();
+    await allStarted;
+    running -= 1;
     return {
       category: 'runtime',
-      name,
+      name: `c${index + 1}`,
       status: 'Pass',
-      message: `slept ${ms}ms`,
-      durationMs: ms,
+      message: 'started alongside every other check',
+      durationMs: 0,
     };
-  };
+  });
+  return { checks, maxRunning: () => maxRunning };
 }
 
 /** Build a check that runs longer than the timeout budget. */
@@ -76,29 +80,26 @@ function hangingCheck(name: string): CheckFn {
 
 describe('handleDoctor — parallel execution + timeout', () => {
   it('HandleDoctor_AllChecksRunInParallel_TotalTimeLessThanSequentialSum', async () => {
-    // Arrange: 4 checks each sleeping 500ms. Sequential total would be
-    // ~2000ms; parallel should finish in ~500ms plus overhead.
+    // Arrange: 4 checks that each wait until all 4 have started. Run in
+    // sequence, the first would wait until its timeout and the rest never overlap.
     const { ctx } = fakeContextWithProbes();
-    const checks: CheckFn[] = [
-      sleepingCheck('c1', 500),
-      sleepingCheck('c2', 500),
-      sleepingCheck('c3', 500),
-      sleepingCheck('c4', 500),
-    ];
+    const { checks, maxRunning } = concurrentChecks(4);
 
     // Act
-    const start = Date.now();
     const result = await handleDoctorWithChecks(
       { timeoutMs: 5000 },
       ctx,
       checks,
       () => makeStubProbes(),
     );
-    const elapsed = Date.now() - start;
 
-    // Assert: success, and well below the sequential sum (2000ms).
+    // Assert: success, all 4 checks were running at the same time, and none
+    // timed out waiting for the others.
     expect(result.success).toBe(true);
-    expect(elapsed).toBeLessThan(2000);
+    expect(maxRunning()).toBe(4);
+    expect(result.data).toMatchObject({
+      checks: [{ status: 'Pass' }, { status: 'Pass' }, { status: 'Pass' }, { status: 'Pass' }],
+    });
   });
 
   it('HandleDoctor_CheckExceedsTimeout_ReturnsWarningWithTimeoutFix', async () => {

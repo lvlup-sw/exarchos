@@ -110,8 +110,8 @@ function isAllowlisted(call: Call): boolean {
   );
 }
 
-function scanSource(): { files: string[]; calls: Call[] } {
-  const files = listTrackedFiles(REPO_ROOT, {
+async function scanSource(): Promise<{ files: string[]; calls: Call[] }> {
+  const files = await listTrackedFiles(REPO_ROOT, {
     extensions: ['.ts'],
     exclude: (relative) => !relative.startsWith('src/') || relative.endsWith('.d.ts'),
   });
@@ -122,8 +122,8 @@ function scanSource(): { files: string[]; calls: Call[] } {
 }
 
 describe('projection fold seam', () => {
-  it('ProjectionFoldSeam_NoSourceFile_BypassesTheTailCoveringFold', () => {
-    const { files, calls } = scanSource();
+  it('ProjectionFoldSeam_NoSourceFile_BypassesTheTailCoveringFold', async () => {
+    const { files, calls } = await scanSource();
 
     // (1) Denominator. An empty walk makes every assertion below vacuously
     // true, which is precisely how this guard would fail open.
@@ -144,12 +144,14 @@ describe('projection fold seam', () => {
     ).toEqual([]);
   });
 
-  it('ProjectionFoldSeam_EntryPoint_HasRealCallers', () => {
+  it('ProjectionFoldSeam_EntryPoint_HasRealCallers', async () => {
     // (2) A guard that forbids bypassing a seam nobody calls forbids nothing.
-    const callers = listTrackedFiles(REPO_ROOT, {
-      extensions: ['.ts'],
-      exclude: (relative) => !relative.startsWith('src/'),
-    }).filter((file) => {
+    const callers = (
+      await listTrackedFiles(REPO_ROOT, {
+        extensions: ['.ts'],
+        exclude: (relative) => !relative.startsWith('src/'),
+      })
+    ).filter((file) => {
       if (file === POLICY.seam.module) return false;
       const { maskedSource } = lexModule(
         readFileSync(path.join(REPO_ROOT, file), 'utf8'),

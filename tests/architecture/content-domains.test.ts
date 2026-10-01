@@ -1,8 +1,9 @@
-import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 /**
  * The authoring tree is grouped by capability. These tests hold two properties
@@ -177,7 +178,7 @@ describe('SkillFixtures', () => {
   const VALIDATOR_DIR = join(REPO_ROOT, 'tools/skill-validators');
   const FIXTURES_DIR = join(REPO_ROOT, 'tests/support/skill-fixtures');
 
-  it('AfterRelocation_AreStillReadByTheirValidators', () => {
+  it('AfterRelocation_AreStillReadByTheirValidators', async () => {
     expect(existsSync(FIXTURES_DIR)).toBe(true);
     expect(directoriesIn(FIXTURES_DIR).length).toBeGreaterThan(0);
 
@@ -187,9 +188,8 @@ describe('SkillFixtures', () => {
     const script = join(VALIDATOR_DIR, 'validate-frontmatter.test.sh');
     expect(existsSync(script)).toBe(true);
 
-    const output = execFileSync('bash', [script], {
+    const output = await execFileAsync('bash', [script], {
       cwd: REPO_ROOT,
-      encoding: 'utf8',
     });
     expect(output).toMatch(/Results: (\d+)\/\1 passed, 0 failed/);
   });

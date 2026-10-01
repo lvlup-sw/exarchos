@@ -31,7 +31,6 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,6 +45,7 @@ import {
 } from '../../../../src/architecture/sdk-generation-seam.js';
 import type { SdkGeneration } from '../../../../src/contract/sdk/brand.js';
 import { parseModuleSpecifiers } from '../../../../tools/test-helpers/module-specifier-parser.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { listTrackedFiles, trackedFilesMissedBy } from '../../../../tools/test-helpers/tracked-population.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -235,14 +235,14 @@ function spawnOutputOf(err: unknown): string {
   return streams.join('');
 }
 
-function runTsc(files: readonly string[]): TscRun {
+async function runTsc(files: readonly string[]): Promise<TscRun> {
   let output = '';
   let accepted: boolean;
   try {
-    output = execFileSync(
+    output = await execFileAsync(
       process.execPath,
       [path.join(packageRoot, 'node_modules', 'typescript', 'bin', 'tsc'), ...TSC_FLAGS, ...files],
-      { cwd: packageRoot, encoding: 'utf8', stdio: 'pipe' },
+      { cwd: packageRoot },
     );
     accepted = true;
   } catch (err) {
@@ -267,7 +267,7 @@ function crossingCountOf(fixture: string): number {
 }
 
 describe('DR-26 — owned SDK seam, generation-branded handles', () => {
-  it('SdkSeam_HandleFromOtherGeneration_FailsCompile', () => {
+  it('SdkSeam_HandleFromOtherGeneration_FailsCompile', async () => {
     // BLOCKING ARM — a handle drawn from one generation, passed where the other
     // is expected, must fail `tsc`. This is DR-0's original rung-2 criterion,
     // now true because the subject is the seam's own branded handle type rather
@@ -286,7 +286,7 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
       fs.writeFileSync(samePath, SAME_GENERATION_FIXTURE, 'utf8');
       fs.writeFileSync(crossPath, CROSS_GENERATION_FIXTURE, 'utf8');
 
-      const run = runTsc([samePath, crossPath]);
+      const run = await runTsc([samePath, crossPath]);
 
       expect(
         run.accepted,
@@ -341,7 +341,7 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
     }
   }, 180_000);
 
-  it('SdkSeam_ZeroImportSitesResolved_FailsClosed', () => {
+  it('SdkSeam_ZeroImportSitesResolved_FailsClosed', async () => {
     // BLOCKING ARM — a census that resolves zero SDK import sites must FAIL.
     // Both generations are declared dependencies, so "nothing imports either
     // one" is a broken scan (relocated root, renamed seam, dead scanner), never
@@ -372,7 +372,7 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
     // module the repository tracks under the scan root must have been reached.
     // Containment rather than a count so a shortfall names the missing modules,
     // and so an untracked scratch file in a working tree cannot mask one.
-    const trackedModules = listTrackedFiles(srcRoot);
+    const trackedModules = await listTrackedFiles(srcRoot);
     expect(
       trackedFilesMissedBy(scan.modules, trackedModules),
       'the walk did not reach every module git tracks under the scan root — the ' +
@@ -436,7 +436,7 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
     ).toEqual([]);
   });
 
-  it('SdkSeamPopulationPin_NarrowedScanRoot_FailsInsteadOfPassing', () => {
+  it('SdkSeamPopulationPin_NarrowedScanRoot_FailsInsteadOfPassing', async () => {
     // KILL FIXTURE for the pin above (task 079). A denominator tooth is only
     // worth what it rejects, and the `> 50` floor it replaces rejected nothing a
     // real regression would produce: `src/architecture` alone clears 50, so a
@@ -453,7 +453,7 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
         'proves nothing about what the floor let through',
     ).toBeGreaterThan(50);
 
-    const tracked = listTrackedFiles(srcRoot);
+    const tracked = await listTrackedFiles(srcRoot);
     // The narrowed walk DID reach everything under `architecture/`, so a report
     // of misses there would mean the fixture is measuring the path basis rather
     // than coverage.

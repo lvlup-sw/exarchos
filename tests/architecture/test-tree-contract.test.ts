@@ -1,9 +1,10 @@
-import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createVitest } from 'vitest/node';
+
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 /**
  * The consolidated test tree is only worth having if every tier in it is
@@ -291,7 +292,7 @@ describe('TestTree', () => {
     expect(collectedFiles).not.toContain('tests/architecture/layer-boundaries-seam.test.ts');
   });
 
-  it('CapturedEvalRuns_AfterMove_RemainExcludedFromCollection', () => {
+  it('CapturedEvalRuns_AfterMove_RemainExcludedFromCollection', async () => {
     // Task 033 moved the captured eval artifacts under `tests/`, where the test
     // globs actually reach. Each one is a verbatim record of what a model wrote,
     // driven by a module-load harness that calls `process.exit` — reaching a
@@ -301,11 +302,11 @@ describe('TestTree', () => {
     //
     // Asserting the glob string would prove only that a line exists. This asks
     // the resolved runner what it actually collects.
-    const runFiles = execFileSync('git', ['ls-files', 'tests/evals'], {
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-      maxBuffer: 64 * 1024 * 1024,
-    })
+    const runFiles = (
+      await execFileAsync('git', ['ls-files', 'tests/evals'], {
+        cwd: REPO_ROOT,
+      })
+    )
       .split('\n')
       .filter((f) => f.includes('/runs/') && /\.test\.ts$/.test(f));
 

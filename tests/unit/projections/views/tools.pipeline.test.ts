@@ -12,13 +12,13 @@ import { mkdtemp } from 'node:fs/promises';
 import fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { execFileSync } from 'node:child_process';
 
 import { EventStore } from '../../../../src/events/store.js';
 import { handleViewPipeline, resetMaterializerCache } from '../../../../src/projections/views/tools.js';
 import { handleView } from '../../../../src/projections/views/composite.js';
 import { deriveRepoKey } from '../../../../src/utils/paths.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import type { QualityHintsConfig } from '../../../../src/workflow/capabilities/resolver.js';
 
@@ -575,14 +575,13 @@ describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 0
     const mainRoot = fs.mkdtempSync(path.join(tmpdir(), 'pipe-drk-main-'));
     const wtParent = fs.mkdtempSync(path.join(tmpdir(), 'pipe-drk-wt-'));
     const wtPath = path.join(wtParent, 'linked');
-    const git = (args: string[]) =>
-      execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const git = (args: string[]) => execFileAsync('git', args);
     try {
-      git(['init', '-q', mainRoot]);
-      git(['-C', mainRoot, 'config', 'user.email', 'test@example.com']);
-      git(['-C', mainRoot, 'config', 'user.name', 'Test']);
-      git(['-C', mainRoot, 'commit', '-q', '--allow-empty', '-m', 'init']);
-      git(['-C', mainRoot, 'worktree', 'add', '-q', wtPath]);
+      await git(['init', '-q', mainRoot]);
+      await git(['-C', mainRoot, 'config', 'user.email', 'test@example.com']);
+      await git(['-C', mainRoot, 'config', 'user.name', 'Test']);
+      await git(['-C', mainRoot, 'commit', '-q', '--allow-empty', '-m', 'init']);
+      await git(['-C', mainRoot, 'worktree', 'add', '-q', wtPath]);
 
       const mainKey = deriveRepoKey(mainRoot);
       await seedStarted('wt-scoped', { repoRoot: mainKey });

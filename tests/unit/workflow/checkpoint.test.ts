@@ -199,11 +199,13 @@ describe('handleCheckpoint — materializes rehydration projection (T034, DR-6)'
     });
 
     // WHEN: we invoke the checkpoint handler.
+    const calledAt = Date.now();
     const result = await handleCheckpoint(
       { featureId, summary: 'T034 materialization checkpoint' },
       stateDir,
       store,
     );
+    const returnedAt = Date.now();
 
     // THEN (1): the call succeeds and preserves the counter-reset behavior —
     //   `_checkpoint.operationsSince` is 0 after the reset (checked via _meta
@@ -257,12 +259,13 @@ describe('handleCheckpoint — materializes rehydration projection (T034, DR-6)'
     expect(parsed.sequence).toBe(5);
     expect(parsed.sequence).toBeGreaterThan(doc.projectionSequence);
 
-    // Snapshot's `timestamp` must be a parseable ISO string within a plausible
-    // window (strict ISO validation happens inside SnapshotRecord.parse above;
-    // this asserts it is close to "now").
+    // Snapshot's `timestamp` must be a parseable ISO string taken during the
+    // call (strict ISO validation happens inside SnapshotRecord.parse above;
+    // this asserts it falls between the call and its return).
     const snapshotTime = new Date(parsed.timestamp).getTime();
     expect(Number.isNaN(snapshotTime)).toBe(false);
-    expect(Math.abs(Date.now() - snapshotTime)).toBeLessThan(60_000);
+    expect(snapshotTime).toBeGreaterThanOrEqual(calledAt);
+    expect(snapshotTime).toBeLessThanOrEqual(returnedAt);
 
     // THEN (3): the event stream has gained BOTH the existing
     //   `workflow.checkpoint` event AND the new `workflow.checkpoint_written`

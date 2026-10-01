@@ -22,7 +22,6 @@
  * by `prose-lint.test.ts`.
  */
 import { describe, it, expect } from 'vitest';
-import { spawnSync } from 'node:child_process';
 import {
   mkdtempSync,
   rmSync,
@@ -34,6 +33,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateManifestCommands } from '../../tools/audit/gates/test-utils.js';
+import { spawnAsync } from '../../tools/test-helpers/spawn.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
@@ -47,14 +47,13 @@ const ROOT_PACKAGE_JSON = path.join(REPO_ROOT, 'package.json');
  * containing seeded AI-writing patterns so the divergence path can be
  * exercised without mutating the real template.
  */
-function runCheck(extraArgs: string[] = []): {
+async function runCheck(extraArgs: string[] = []): Promise<{
   status: number | null;
   stdout: string;
   stderr: string;
-} {
-  const result = spawnSync('node', [SCRIPT, ...extraArgs], {
+}> {
+  const result = await spawnAsync('node', [SCRIPT, ...extraArgs], {
     cwd: REPO_ROOT,
-    encoding: 'utf8',
     // The script shells out to `tsx`; inherit PATH + node-path env.
     env: { ...process.env },
   });
@@ -72,17 +71,17 @@ describe('check-prose-lint CLI (T049, DR-13)', () => {
     expect(existsSync(SCRIPT)).toBe(true);
   });
 
-  it('Validate_CleanTemplate_ExitsZero', () => {
+  it('Validate_CleanTemplate_ExitsZero', async () => {
     // With no args, the script lints the live rehydration template via
     // `lintTemplate()`. T048 left the template clean, so a non-zero exit
     // here means either the template has drifted or the wrapper is wired
     // incorrectly. Surface stderr in the failure message so CI logs are
     // actionable.
-    const { status, stdout, stderr } = runCheck();
+    const { status, stdout, stderr } = await runCheck();
     expect(status, `stderr: ${stderr}\nstdout: ${stdout}`).toBe(0);
   });
 
-  it('Validate_AiWritingInTemplate_ExitsNonZero', () => {
+  it('Validate_AiWritingInTemplate_ExitsNonZero', async () => {
     // Seed a file with multiple high-signal AI tells and feed it via the
     // `--template-source` flag. The script must exit non-zero (1) and
     // print the offending pattern names + line numbers to stderr so a
@@ -102,7 +101,7 @@ describe('check-prose-lint CLI (T049, DR-13)', () => {
         'utf8',
       );
 
-      const { status, stderr } = runCheck([
+      const { status, stderr } = await runCheck([
         '--template-source',
         seededFile,
       ]);

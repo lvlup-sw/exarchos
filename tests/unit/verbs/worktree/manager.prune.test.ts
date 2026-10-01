@@ -24,7 +24,6 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { readFileSync, realpathSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -33,6 +32,7 @@ import * as path from 'node:path';
 import { EventStore } from '../../../../src/events/store.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import {
   WorktreeManager,
   WORKTREES_STREAM,
@@ -49,24 +49,20 @@ import { IndexLockContentionError, type SleepFn } from '../../../../src/verbs/wo
 // ─── git + event-store helpers ──────────────────────────────────────────────
 
 /** Run `git <args>` from `cwd`, returning trimmed stdout (throws on failure). */
-function git(cwd: string, args: readonly string[]): string {
-  return execFileSync('git', args as string[], {
-    cwd,
-    encoding: 'utf-8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim();
+async function git(cwd: string, args: readonly string[]): Promise<string> {
+  return (await execFileAsync('git', args, { cwd })).trim();
 }
 
 /** Init a real repo on branch `work` with one commit; returns its canonical path. */
 async function initRepo(dir: string): Promise<string> {
   await mkdir(dir, { recursive: true });
-  git(dir, ['init', '-q', '-b', 'work']);
-  git(dir, ['config', 'user.email', 'wlm@example.com']);
-  git(dir, ['config', 'user.name', 'WLM Test']);
-  git(dir, ['config', 'commit.gpgsign', 'false']);
+  await git(dir, ['init', '-q', '-b', 'work']);
+  await git(dir, ['config', 'user.email', 'wlm@example.com']);
+  await git(dir, ['config', 'user.name', 'WLM Test']);
+  await git(dir, ['config', 'commit.gpgsign', 'false']);
   await writeFile(path.join(dir, 'README.md'), '# wlm-prune test\n');
-  git(dir, ['add', '.']);
-  git(dir, ['commit', '-q', '-m', 'init']);
+  await git(dir, ['add', '.']);
+  await git(dir, ['commit', '-q', '-m', 'init']);
   return realpathSync(dir);
 }
 
@@ -76,16 +72,16 @@ async function initRepoWithOrigin(
   name: string,
 ): Promise<string> {
   const origin = path.join(workdir, `${name}-origin.git`);
-  git(workdir, ['init', '-q', '--bare', origin]);
+  await git(workdir, ['init', '-q', '--bare', origin]);
   const repo = await initRepo(path.join(workdir, name));
-  git(repo, ['remote', 'add', 'origin', origin]);
-  git(repo, ['push', '-q', 'origin', 'work']);
+  await git(repo, ['remote', 'add', 'origin', origin]);
+  await git(repo, ['push', '-q', 'origin', 'work']);
   return repo;
 }
 
 /** Add a linked worktree on a fresh branch at `repo`'s current HEAD. */
-function addWorktree(repo: string, wtPath: string, branch: string): string {
-  git(repo, ['worktree', 'add', '-q', wtPath, '-b', branch]);
+async function addWorktree(repo: string, wtPath: string, branch: string): Promise<string> {
+  await git(repo, ['worktree', 'add', '-q', wtPath, '-b', branch]);
   return canonicalWorktreeId(wtPath);
 }
 
@@ -191,9 +187,9 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
 
   it('Prune_DefaultInvocation_DeletesNothing_ReportsCandidatesAndBytes', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
-    git(repo, ['branch', 'feat/integ']); // integration ref at HEAD
+    await git(repo, ['branch', 'feat/integ']); // integration ref at HEAD
     const wtPath = path.join(workdir, 'wt-eligible');
-    addWorktree(repo, wtPath, 'wbranch'); // HEAD == feat/integ → merged
+    await addWorktree(repo, wtPath, 'wbranch'); // HEAD == feat/integ → merged
     await setIntegrationBranch(store, 'feat-1', 'feat/integ');
 
     const manager = new WorktreeManager({ eventStore: store });
@@ -222,7 +218,7 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
   it('Prune_AdoptGate_ReconcilesUnadoptedWorktreesBeforeLadder', async () => {
     const repo = await initRepo(path.join(workdir, 'repo'));
     const wtPath = path.join(workdir, 'unadopted');
-    const wtId = addWorktree(repo, wtPath, 'unadopted-branch');
+    const wtId = await addWorktree(repo, wtPath, 'unadopted-branch');
 
     // No prior reserve/adopt: the worktree has NO worktrees@v1 entry yet.
     expect((await projection(store)).worktrees[wtId]).toBeUndefined();
@@ -246,17 +242,17 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
 
   it('Prune_OnlyReleasedOrOrphanState_IsDeletionEligible', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
-    git(repo, ['branch', 'feat/integ']);
+    await git(repo, ['branch', 'feat/integ']);
     await setIntegrationBranch(store, 'feat-x', 'feat/integ');
 
     const adoptedPath = path.join(workdir, 'wt-adopted');
     const reservedPath = path.join(workdir, 'wt-reserved');
     const releasedPath = path.join(workdir, 'wt-released');
     const orphanPath = path.join(workdir, 'wt-orphan');
-    const adoptedId = addWorktree(repo, adoptedPath, 'b-adopted');
-    const reservedId = addWorktree(repo, reservedPath, 'b-reserved');
-    const releasedId = addWorktree(repo, releasedPath, 'b-released');
-    const orphanId = addWorktree(repo, orphanPath, 'b-orphan');
+    const adoptedId = await addWorktree(repo, adoptedPath, 'b-adopted');
+    const reservedId = await addWorktree(repo, reservedPath, 'b-reserved');
+    const releasedId = await addWorktree(repo, releasedPath, 'b-released');
+    const orphanId = await addWorktree(repo, orphanPath, 'b-orphan');
 
     // Live owner so the reserved one is provably in-use (not just `active`).
     const manager = new WorktreeManager({
@@ -321,7 +317,7 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
   it('Prune_UnadoptedCleanWorktree_NotDeleted_ReproducesAndBlocks55724', async () => {
     const repo = await initRepo(path.join(workdir, 'repo'));
     const wtPath = path.join(workdir, 'agent-clean');
-    const wtId = addWorktree(repo, wtPath, 'agent-clean-branch');
+    const wtId = await addWorktree(repo, wtPath, 'agent-clean-branch');
     // Clean working tree, NO adoption record — the exact #55724 shape a naive
     // recency GC would reclaim, losing an active agent's checkout.
 
@@ -342,10 +338,10 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
 
   it('Prune_LongRunningUnreleasedWorktree_StaleMtime_NotDeleted', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
-    git(repo, ['branch', 'feat/integ']);
+    await git(repo, ['branch', 'feat/integ']);
     await setIntegrationBranch(store, 'feat-lr', 'feat/integ');
     const wtPath = path.join(workdir, 'long-runner');
-    const wtId = addWorktree(repo, wtPath, 'lr-branch');
+    const wtId = await addWorktree(repo, wtPath, 'lr-branch');
 
     // A long-running agent: its files have a very old mtime, but it is reserved
     // by a LIVE owner — a naive mtime/recency GC would reclaim it mid-flight.
@@ -382,19 +378,19 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     // feat/A sits at the initial commit; feat/B too. W1 (feat-a) stays at the
     // initial commit → merged into feat/A. W2 (feat-b) gains an extra commit →
     // NOT merged into feat/B. Each worktree must resolve ITS OWN feature's ref.
-    git(repo, ['branch', 'feat/A']);
-    git(repo, ['branch', 'feat/B']);
+    await git(repo, ['branch', 'feat/A']);
+    await git(repo, ['branch', 'feat/B']);
     await setIntegrationBranch(store, 'feat-a', 'feat/A');
     await setIntegrationBranch(store, 'feat-b', 'feat/B');
 
     const w1Path = path.join(workdir, 'wt-a');
     const w2Path = path.join(workdir, 'wt-b');
-    addWorktree(repo, w1Path, 'wa'); // at initial commit
-    addWorktree(repo, w2Path, 'wb');
+    await addWorktree(repo, w1Path, 'wa'); // at initial commit
+    await addWorktree(repo, w2Path, 'wb');
     // W2 advances past feat/B with an unmerged commit.
     await writeFile(path.join(w2Path, 'extra.txt'), 'unmerged work\n');
-    git(w2Path, ['add', '.']);
-    git(w2Path, ['commit', '-q', '-m', 'unmerged']);
+    await git(w2Path, ['add', '.']);
+    await git(w2Path, ['commit', '-q', '-m', 'unmerged']);
 
     const manager = new WorktreeManager({ eventStore: store });
     const w1Id = await makeReleased(manager, w1Path, 'feat-a');
@@ -416,11 +412,11 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
 
   it('Prune_NullFeatureIdOrUnresolvableBranch_FailsClosed', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
-    git(repo, ['branch', 'feat/integ']);
+    await git(repo, ['branch', 'feat/integ']);
     const nullPath = path.join(workdir, 'wt-null');
     const noBranchPath = path.join(workdir, 'wt-nobranch');
-    addWorktree(repo, nullPath, 'null-branch');
-    addWorktree(repo, noBranchPath, 'nobranch-branch');
+    await addWorktree(repo, nullPath, 'null-branch');
+    await addWorktree(repo, noBranchPath, 'nobranch-branch');
     // `feat-set` has a featureId but its workflow never set an integrationBranch.
 
     const manager = new WorktreeManager({ eventStore: store });
@@ -447,10 +443,10 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
 
   it('Prune_UncommittedOrUntracked_NeverDeleted', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
-    git(repo, ['branch', 'feat/integ']);
+    await git(repo, ['branch', 'feat/integ']);
     await setIntegrationBranch(store, 'feat-dirty', 'feat/integ');
     const wtPath = path.join(workdir, 'wt-dirty');
-    addWorktree(repo, wtPath, 'dirty-branch'); // HEAD merged → otherwise eligible
+    await addWorktree(repo, wtPath, 'dirty-branch'); // HEAD merged → otherwise eligible
 
     const manager = new WorktreeManager({ eventStore: store });
     const wtId = await makeReleased(manager, wtPath, 'feat-dirty');
@@ -470,10 +466,10 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
 
   it('Prune_Orphan_OnlyDeletedWithExplicitPruneOrphansYes', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
-    git(repo, ['branch', 'feat/integ']);
+    await git(repo, ['branch', 'feat/integ']);
     await setIntegrationBranch(store, 'feat-orph', 'feat/integ');
     const wtPath = path.join(workdir, 'wt-orph');
-    const wtId = addWorktree(repo, wtPath, 'orph-branch');
+    const wtId = await addWorktree(repo, wtPath, 'orph-branch');
 
     await store.append(WORKTREES_STREAM, {
       type: 'worktree.orphan_detected',
@@ -517,11 +513,11 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
   it('Prune_OriginUnreachable_FailsClosed', async () => {
     const repo = await initRepo(path.join(workdir, 'repo'));
     // An origin that points nowhere — `git ls-remote origin` fails fast.
-    git(repo, ['remote', 'add', 'origin', path.join(workdir, 'no-such-origin.git')]);
-    git(repo, ['branch', 'feat/integ']);
+    await git(repo, ['remote', 'add', 'origin', path.join(workdir, 'no-such-origin.git')]);
+    await git(repo, ['branch', 'feat/integ']);
     await setIntegrationBranch(store, 'feat-unreach', 'feat/integ');
     const wtPath = path.join(workdir, 'wt-unreach');
-    addWorktree(repo, wtPath, 'unreach-branch'); // clean + merged → only origin blocks
+    await addWorktree(repo, wtPath, 'unreach-branch'); // clean + merged → only origin blocks
 
     const manager = new WorktreeManager({ eventStore: store });
     const wtId = await makeReleased(manager, wtPath, 'feat-unreach');
@@ -541,10 +537,10 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
 
   it('Prune_Deletion_EmitsRemoveRequestedThenExecuted', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
-    git(repo, ['branch', 'feat/integ']);
+    await git(repo, ['branch', 'feat/integ']);
     await setIntegrationBranch(store, 'feat-del', 'feat/integ');
     const wtPath = path.join(workdir, 'wt-del');
-    addWorktree(repo, wtPath, 'del-branch');
+    await addWorktree(repo, wtPath, 'del-branch');
 
     const manager = new WorktreeManager({ eventStore: store });
     const wtId = await makeReleased(manager, wtPath, 'feat-del');
@@ -568,7 +564,7 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     expect(exeData.removed).toBe(true);
     // Entry dropped from the projection; gone from disk.
     expect((await projection(store)).worktrees[wtId]).toBeUndefined();
-    const stillListed = git(repo, ['worktree', 'list', '--porcelain']).includes(
+    const stillListed = (await git(repo, ['worktree', 'list', '--porcelain'])).includes(
       wtId,
     );
     expect(stillListed).toBe(false);
@@ -578,10 +574,10 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
 
   it('PruneWorktrees_Run_EmitsStartedAndTerminalExactlyOnce', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
-    git(repo, ['branch', 'feat/integ']);
+    await git(repo, ['branch', 'feat/integ']);
     await setIntegrationBranch(store, 'feat-live', 'feat/integ');
     const wtPath = path.join(workdir, 'wt-live');
-    addWorktree(repo, wtPath, 'live-branch');
+    await addWorktree(repo, wtPath, 'live-branch');
 
     const manager = new WorktreeManager({ eventStore: store });
     const wtId = await makeReleased(manager, wtPath, 'feat-live');
@@ -632,7 +628,7 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     // too must be `ps`/`wait`-visible — emission is NOT gated on `apply`.
     const repo = await initRepoWithOrigin(workdir, 'repo');
     const wtPath = path.join(workdir, 'wt-dry');
-    addWorktree(repo, wtPath, 'dry-branch');
+    await addWorktree(repo, wtPath, 'dry-branch');
 
     const manager = new WorktreeManager({ eventStore: store });
     const result = await manager.prune({ repoRoot: repo }); // default ⇒ dry-run
@@ -688,7 +684,7 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
     const wtPath = path.join(workdir, 'wt-crash');
     const manager = new WorktreeManager({ eventStore: store });
     const wtId = await (async () => {
-      addWorktree(repo, wtPath, 'crash-branch');
+      await addWorktree(repo, wtPath, 'crash-branch');
       return makeReleased(manager, wtPath, null);
     })();
 
@@ -700,7 +696,7 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
       { type: 'worktree.remove.requested', data: { operationId, worktreePath: wtPath } },
       { idempotencyKey: `worktree.remove.requested:${operationId}` },
     );
-    git(repo, ['worktree', 'remove', '--force', wtPath]); // side-effect already happened
+    await git(repo, ['worktree', 'remove', '--force', wtPath]); // side-effect already happened
 
     // Resume: prune's recovery pass finishes the orphaned requested idempotently.
     await manager.prune({ repoRoot: repo, apply: true });
@@ -721,13 +717,13 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
 
   it('Prune_ConcurrentWithReconcile_ReverifiesUnderLock_NoDoubleFree', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
-    git(repo, ['branch', 'feat/integ']);
+    await git(repo, ['branch', 'feat/integ']);
     await setIntegrationBranch(store, 'feat-cc', 'feat/integ');
 
     const delPath = path.join(workdir, 'wt-del');
     const deadPath = path.join(workdir, 'wt-dead');
-    addWorktree(repo, delPath, 'del-branch');
-    addWorktree(repo, deadPath, 'dead-branch');
+    await addWorktree(repo, delPath, 'del-branch');
+    await addWorktree(repo, deadPath, 'dead-branch');
 
     // Every owner is dead so reconcile WILL write (release wt-dead) concurrently
     // with prune deleting wt-del, stressing the shared `worktrees` stream lock.
@@ -771,10 +767,10 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
 
   it('Prune_DirtyProbeFails_BackingPresent_FailsClosed_NotDeleted', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
-    git(repo, ['branch', 'feat/integ']);
+    await git(repo, ['branch', 'feat/integ']);
     await setIntegrationBranch(store, 'feat-probe', 'feat/integ');
     const wtPath = path.join(workdir, 'wt-probe');
-    const wtId = addWorktree(repo, wtPath, 'probe-branch'); // clean + merged → otherwise eligible
+    const wtId = await addWorktree(repo, wtPath, 'probe-branch'); // clean + merged → otherwise eligible
     const canonicalWt = canonicalWorktreeId(wtPath);
 
     // The worktree's backing repo is PRESENT, but `git status` ERRORS (non-zero)
@@ -810,10 +806,10 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
 
   it('Prune_GoesDirtyBetweenPlanAndCommit_NotDeleted', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
-    git(repo, ['branch', 'feat/integ']);
+    await git(repo, ['branch', 'feat/integ']);
     await setIntegrationBranch(store, 'feat-toctou', 'feat/integ');
     const wtPath = path.join(workdir, 'wt-toctou');
-    const wtId = addWorktree(repo, wtPath, 'toctou-branch'); // clean + merged → eligible
+    const wtId = await addWorktree(repo, wtPath, 'toctou-branch'); // clean + merged → eligible
     const canonicalWt = canonicalWorktreeId(wtPath);
 
     // A runner that reports the TARGET worktree CLEAN on the first `git status`
@@ -862,7 +858,7 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
   it('Prune_RecoveryPath_NeverUsesResetHard', async () => {
     const repo = await initRepo(path.join(workdir, 'repo'));
     const wtPath = path.join(workdir, 'wt-recover');
-    addWorktree(repo, wtPath, 'recover-branch');
+    await addWorktree(repo, wtPath, 'recover-branch');
 
     // Record every git argument vector the prune flow issues.
     const recorded: string[][] = [];
@@ -928,10 +924,10 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
 
   it('PruneExecutor_TransientIndexLock_RetriesWithBackoffThenRemoves', async () => {
     const repo = await initRepoWithOrigin(workdir, 'repo');
-    git(repo, ['branch', 'feat/integ']); // integration ref at HEAD → merged
+    await git(repo, ['branch', 'feat/integ']); // integration ref at HEAD → merged
     await setIntegrationBranch(store, 'feat-lock', 'feat/integ');
     const wtPath = path.join(workdir, 'wt-lock-retry');
-    const wtId = addWorktree(repo, wtPath, 'lock-retry-branch');
+    const wtId = await addWorktree(repo, wtPath, 'lock-retry-branch');
 
     // Fail the FIRST two `git worktree remove` attempts with an index.lock
     // contention error (status 128 + the lock diagnostic on stderr), then let
@@ -980,7 +976,7 @@ describe.skipIf(process.platform === 'win32')('WorktreeManager.prune (real git +
   it('PruneExecutor_ExhaustedIndexLockRetry_PropagatesStructuredErrorNoDelete', async () => {
     const repo = await initRepo(path.join(workdir, 'repo'));
     const wtPath = path.join(workdir, 'wt-lock-exhaust');
-    const wtId = addWorktree(repo, wtPath, 'lock-exhaust-branch');
+    const wtId = await addWorktree(repo, wtPath, 'lock-exhaust-branch');
 
     // EVERY `git worktree remove` attempt loses the index.lock race — the
     // contention never clears, so the bounded retry budget is exhausted.

@@ -18,7 +18,6 @@
  * itself is covered by `fingerprint.test.ts`.
  */
 import { describe, it, expect } from 'vitest';
-import { spawnSync } from 'node:child_process';
 import {
   mkdtempSync,
   rmSync,
@@ -29,6 +28,8 @@ import {
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { spawnAsync } from '../../tools/test-helpers/spawn.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
@@ -47,14 +48,13 @@ const COMMITTED_FINGERPRINT = path.join(
  * point at a temp file with a wrong hash; production callers (the validate
  * chain) invoke it with no arguments and default to the committed file.
  */
-function runCheck(extraArgs: string[] = []): {
+async function runCheck(extraArgs: string[] = []): Promise<{
   status: number | null;
   stdout: string;
   stderr: string;
-} {
-  const result = spawnSync('node', [SCRIPT, ...extraArgs], {
+}> {
+  const result = await spawnAsync('node', [SCRIPT, ...extraArgs], {
     cwd: REPO_ROOT,
-    encoding: 'utf8',
     // The script shells out to `tsx`; inherit PATH + node-path env.
     env: { ...process.env },
   });
@@ -72,15 +72,15 @@ describe('check-prefix-fingerprint CLI (T047, DR-12)', () => {
     expect(existsSync(SCRIPT)).toBe(true);
   });
 
-  it('Validate_MatchingFingerprint_ExitsZero', () => {
+  it('Validate_MatchingFingerprint_ExitsZero', async () => {
     // Real committed value — should match the live computation and exit 0.
     // A non-zero exit here means either the committed hash has drifted or
     // the wrapper is wired incorrectly.
-    const { status, stdout, stderr } = runCheck();
+    const { status, stdout, stderr } = await runCheck();
     expect(status, `stderr: ${stderr}\nstdout: ${stdout}`).toBe(0);
   });
 
-  it('Validate_DivergentFingerprint_ExitsNonZero', () => {
+  it('Validate_DivergentFingerprint_ExitsNonZero', async () => {
     // Create a temp copy of the committed file with a deliberately-wrong
     // hash; the script must exit non-zero and print both expected + actual
     // hashes to stderr so CI diagnostics are actionable.
@@ -93,7 +93,7 @@ describe('check-prefix-fingerprint CLI (T047, DR-12)', () => {
         'utf8',
       );
 
-      const { status, stderr } = runCheck(['--fingerprint-file', wrongFile]);
+      const { status, stderr } = await runCheck(['--fingerprint-file', wrongFile]);
 
       expect(status).not.toBe(0);
       // The diagnostic surface must name both the expected (committed/wrong)
@@ -107,7 +107,7 @@ describe('check-prefix-fingerprint CLI (T047, DR-12)', () => {
     }
   });
 
-  it('Validate_DefaultFingerprintFile_ReadsCommittedPath', () => {
+  it('Validate_DefaultFingerprintFile_ReadsCommittedPath', async () => {
     // Sanity: with no args the script reads the real committed file and
     // succeeds. This protects against regressions where the default path is
     // silently broken (e.g. a relative-cwd bug) while an explicit override
@@ -115,7 +115,7 @@ describe('check-prefix-fingerprint CLI (T047, DR-12)', () => {
     const committed = readFileSync(COMMITTED_FINGERPRINT, 'utf8').trim();
     expect(committed).toMatch(/^[0-9a-f]{64}$/u);
 
-    const { status } = runCheck();
+    const { status } = await runCheck();
     expect(status).toBe(0);
   });
 });

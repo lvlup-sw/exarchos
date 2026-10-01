@@ -10,6 +10,7 @@ import {
   EXIT_FINDING,
   EXIT_USAGE,
 } from '../../../tools/audit/manifest-gate-ci.mjs';
+import { spawnAsync } from '../../../tools/test-helpers/spawn.js';
 
 const SRC = 'src';
 
@@ -45,8 +46,8 @@ describe('deriveTouchedPairIds', () => {
 describe('manifest-gate-ci (temp-git fixtures)', () => {
   let dir: string;
 
-  const git = (...args: string[]) => {
-    const res = spawnSync('git', args, { cwd: dir, encoding: 'utf8' });
+  const git = async (...args: string[]) => {
+    const res = await spawnAsync('git', args, { cwd: dir });
     if (res.status !== 0) {
       throw new Error(`git ${args.join(' ')} failed: ${res.stderr}`);
     }
@@ -60,12 +61,12 @@ describe('manifest-gate-ci (temp-git fixtures)', () => {
   };
   const del = (rel: string) => rmSync(path.join(dir, rel), { force: true });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     dir = mkdtempSync(path.join(tmpdir(), 'manifest-gate-'));
-    git('init', '-q', '-b', 'main');
-    git('config', 'user.email', 'gate@test');
-    git('config', 'user.name', 'gate');
-    git('config', 'commit.gpgsign', 'false');
+    await git('init', '-q', '-b', 'main');
+    await git('config', 'user.email', 'gate@test');
+    await git('config', 'user.name', 'gate');
+    await git('config', 'commit.gpgsign', 'false');
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -100,18 +101,18 @@ describe('guards', () => {
 });
 `;
 
-  const seedMergeBase = () => {
+  const seedMergeBase = async () => {
     write(`${SRC}/__tests__/workflow/guards.test.ts`, LEGACY_MERGE);
     write(`${SRC}/workflow/guards.test.ts`, CANON_MERGE);
-    git('add', '-A');
-    git('commit', '-q', '-m', 'base: legacy + canonical guards pair');
-    const baseSha = git('rev-parse', 'HEAD');
-    git('checkout', '-q', '-b', 'pr');
+    await git('add', '-A');
+    await git('commit', '-q', '-m', 'base: legacy + canonical guards pair');
+    const baseSha = await git('rev-parse', 'HEAD');
+    await git('checkout', '-q', '-b', 'pr');
     return baseSha;
   };
 
-  it('clean merge (every pre-image case carried into the canonical) → PASSES', () => {
-    const base = seedMergeBase();
+  it('clean merge (every pre-image case carried into the canonical) → PASSES', async () => {
+    const base = await seedMergeBase();
     // Merge: canonical gains legacy_only; legacy copy removed.
     write(
       `${SRC}/workflow/guards.test.ts`,
@@ -125,16 +126,16 @@ describe('guards', () => {
 `,
     );
     del(`${SRC}/__tests__/workflow/guards.test.ts`);
-    git('add', '-A');
-    git('commit', '-q', '-m', 'consolidate workflow/guards (merge)');
+    await git('add', '-A');
+    await git('commit', '-q', '-m', 'consolidate workflow/guards (merge)');
 
     const { code, out } = runGate(base);
     expect(code).toBe(EXIT_OK);
     expect(out).toContain('workflow/guards: OK');
   });
 
-  it('dropping a LEGACY case (no surviving twin) → FAILS', () => {
-    const base = seedMergeBase();
+  it('dropping a LEGACY case (no surviving twin) → FAILS', async () => {
+    const base = await seedMergeBase();
     // legacy_only is silently dropped from the merge result.
     write(
       `${SRC}/workflow/guards.test.ts`,
@@ -147,8 +148,8 @@ describe('guards', () => {
 `,
     );
     del(`${SRC}/__tests__/workflow/guards.test.ts`);
-    git('add', '-A');
-    git('commit', '-q', '-m', 'consolidate workflow/guards (drops legacy_only)');
+    await git('add', '-A');
+    await git('commit', '-q', '-m', 'consolidate workflow/guards (drops legacy_only)');
 
     const { code, err } = runGate(base);
     expect(code).toBe(EXIT_FINDING);
@@ -156,8 +157,8 @@ describe('guards', () => {
     expect(err).toMatch(/\(legacy\)/);
   });
 
-  it('dropping a pre-existing CANONICAL case → FAILS (bidirectional)', () => {
-    const base = seedMergeBase();
+  it('dropping a pre-existing CANONICAL case → FAILS (bidirectional)', async () => {
+    const base = await seedMergeBase();
     // canonical_only is dropped — the gate must catch loss on the canonical
     // side too, not only the legacy side.
     write(
@@ -171,8 +172,8 @@ describe('guards', () => {
 `,
     );
     del(`${SRC}/__tests__/workflow/guards.test.ts`);
-    git('add', '-A');
-    git('commit', '-q', '-m', 'consolidate workflow/guards (drops canonical_only)');
+    await git('add', '-A');
+    await git('commit', '-q', '-m', 'consolidate workflow/guards (drops canonical_only)');
 
     const { code, err } = runGate(base);
     expect(code).toBe(EXIT_FINDING);
@@ -180,7 +181,7 @@ describe('guards', () => {
     expect(err).toMatch(/\(canonical\)/);
   });
 
-  it('clean relocate (legacy moved to a rewritten sibling) → PASSES', () => {
+  it('clean relocate (legacy moved to a rewritten sibling) → PASSES', async () => {
     // Base with a DIVERGENT legacy preamble (extra vi.mock) → relocate, not merge.
     const legacyDivergent = `import { describe, it, expect, vi } from 'vitest';
 import { guards } from '../../workflow/guards.js';
@@ -191,10 +192,10 @@ describe('guards', () => {
 `;
     write(`${SRC}/__tests__/workflow/guards.test.ts`, legacyDivergent);
     write(`${SRC}/workflow/guards.test.ts`, CANON_MERGE);
-    git('add', '-A');
-    git('commit', '-q', '-m', 'base: divergent legacy + canonical');
-    const base = git('rev-parse', 'HEAD');
-    git('checkout', '-q', '-b', 'pr');
+    await git('add', '-A');
+    await git('commit', '-q', '-m', 'base: divergent legacy + canonical');
+    const base = await git('rev-parse', 'HEAD');
+    await git('checkout', '-q', '-b', 'pr');
 
     // Relocate: legacy content moved to <base>.legacy.test.ts with imports
     // rewritten from ../../workflow/ to ./ ; legacy __tests__ copy removed;
@@ -210,32 +211,32 @@ describe('guards', () => {
 `,
     );
     del(`${SRC}/__tests__/workflow/guards.test.ts`);
-    git('add', '-A');
-    git('commit', '-q', '-m', 'consolidate workflow/guards (relocate)');
+    await git('add', '-A');
+    await git('commit', '-q', '-m', 'consolidate workflow/guards (relocate)');
 
     const { code, out } = runGate(base);
     expect(code).toBe(EXIT_OK);
     expect(out).toContain('workflow/guards: OK');
   });
 
-  it('a PR touching no consolidation pair → PASSES trivially', () => {
-    const base = seedMergeBase();
+  it('a PR touching no consolidation pair → PASSES trivially', async () => {
+    const base = await seedMergeBase();
     write(`${SRC}/workflow/unrelated.ts`, 'export const x = 1;\n');
-    git('add', '-A');
-    git('commit', '-q', '-m', 'unrelated change');
+    await git('add', '-A');
+    await git('commit', '-q', '-m', 'unrelated change');
 
     const { code, out } = runGate(base);
     expect(code).toBe(EXIT_OK);
     expect(out).toContain('no consolidation pair touched');
   });
 
-  it('a lone co-located test with NO legacy twin is SKIPPED (not false-blocked)', () => {
+  it('a lone co-located test with NO legacy twin is SKIPPED (not false-blocked)', async () => {
     // Only a canonical file at base — never a two-directory pair.
     write(`${SRC}/workflow/solo.test.ts`, CANON_MERGE);
-    git('add', '-A');
-    git('commit', '-q', '-m', 'base: solo co-located test (no legacy twin)');
-    const base = git('rev-parse', 'HEAD');
-    git('checkout', '-q', '-b', 'pr');
+    await git('add', '-A');
+    await git('commit', '-q', '-m', 'base: solo co-located test (no legacy twin)');
+    const base = await git('rev-parse', 'HEAD');
+    await git('checkout', '-q', '-b', 'pr');
     // Legitimately delete a case from this non-pair file — must NOT fail the gate.
     write(
       `${SRC}/workflow/solo.test.ts`,
@@ -246,15 +247,15 @@ describe('guards', () => {
 });
 `,
     );
-    git('add', '-A');
-    git('commit', '-q', '-m', 'edit solo test (drops a case, but it is not a pair)');
+    await git('add', '-A');
+    await git('commit', '-q', '-m', 'edit solo test (drops a case, but it is not a pair)');
 
     const { code } = runGate(base);
     expect(code).toBe(EXIT_OK);
   });
 
-  it('returns a usage exit code when the merge-base cannot be resolved', () => {
-    seedMergeBase();
+  it('returns a usage exit code when the merge-base cannot be resolved', async () => {
+    await seedMergeBase();
     const { code, err } = runGate('does-not-exist-ref');
     expect(code).toBe(EXIT_USAGE);
     expect(err).toContain('merge-base');
@@ -263,12 +264,12 @@ describe('guards', () => {
   // ── fail-CLOSED on unexpected git failures (a transient error must never
   //    read as "no pairs touched" / "case absent" and pass the gate silently) ──
   const rawGit = (args: string[], cwd: string) => {
-    const res = spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    const res = spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 15_000 });
     return { status: res.status ?? 1, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
   };
 
-  it('fails CLOSED when `git diff` errors — not silently treated as an empty diff', () => {
-    const base = seedMergeBase();
+  it('fails CLOSED when `git diff` errors — not silently treated as an empty diff', async () => {
+    const base = await seedMergeBase();
     const failingDiff = (args: string[], cwd: string) =>
       args[0] === 'diff'
         ? { status: 128, stdout: '', stderr: 'fatal: bad revision (simulated transient failure)' }
@@ -284,13 +285,13 @@ describe('guards', () => {
     expect(out.join('\n')).not.toContain('no consolidation pair touched');
   });
 
-  it('fails CLOSED when `git show` errors for a reason other than an absent path', () => {
-    const base = seedMergeBase();
+  it('fails CLOSED when `git show` errors for a reason other than an absent path', async () => {
+    const base = await seedMergeBase();
     // A real consolidation edit so a pair IS touched → verifyPair calls git show.
     write(`${SRC}/workflow/guards.test.ts`, CANON_MERGE);
     del(`${SRC}/__tests__/workflow/guards.test.ts`);
-    git('add', '-A');
-    git('commit', '-q', '-m', 'touch guards pair');
+    await git('add', '-A');
+    await git('commit', '-q', '-m', 'touch guards pair');
     const failingShow = (args: string[], cwd: string) =>
       args[0] === 'show'
         ? { status: 128, stdout: '', stderr: 'fatal: unable to read tree object (simulated corruption)' }

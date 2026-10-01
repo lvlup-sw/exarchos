@@ -6,7 +6,6 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { execSync } from 'node:child_process';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import type {
@@ -20,6 +19,7 @@ import type {
   SampleResult,
 } from './types.js';
 import type { SessionResult } from './executor.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
 export interface RunConfig {
   corpusDir: string;
@@ -225,7 +225,7 @@ export async function runBenchmark(
   // Resolve model and commit
   let commit = 'unknown';
   try {
-    commit = execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim();
+    commit = (await execFileAsync('git', ['rev-parse', '--short', 'HEAD'])).trim();
   } catch {
     // Not in a git repo
   }

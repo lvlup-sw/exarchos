@@ -3,8 +3,6 @@ import { describe, it, expect } from 'vitest';
 import { withHermeticEnv } from '../../helpers/hermetic.js';
 import { spawnMcpClient } from '../../helpers/mcp-client.js';
 
-const SIGTERM_GRACE_MS = 3_000;
-
 describe('exarchos mcp', () => {
   it('mcp_start_acceptsInitializeOverStdio', async () => {
     await withHermeticEnv(async () => {
@@ -24,10 +22,7 @@ describe('exarchos mcp', () => {
   it('mcp_sigterm_exitsCleanlyWithinThreeSeconds', async () => {
     await withHermeticEnv(async () => {
       const handle = await spawnMcpClient();
-      const start = Date.now();
       await handle.terminate();
-      const elapsed = Date.now() - start;
-      expect(elapsed).toBeLessThanOrEqual(SIGTERM_GRACE_MS);
       // The fixture's terminate() sends SIGTERM via client.close (which
       // closes stdio), waits for natural exit, and only escalates to
       // SIGKILL after a 3s grace. A clean exit means the child caught

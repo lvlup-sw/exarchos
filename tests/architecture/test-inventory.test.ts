@@ -15,7 +15,8 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 
@@ -67,12 +68,12 @@ const idOf = (entry: FileEntry, c: Case): string => `${entry.runner}::${c.suite}
 /** What the inventory counts as a test file. One definition, three readers. */
 const IS_TEST_FILE = /\.(test|spec|bench)\.(ts|tsx|mts|cts|js|mjs|cjs|jsx)$|\.test\.sh$/;
 
-function trackedTestFiles(): string[] {
-  return execFileSync('git', ['ls-files', '-z'], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-    maxBuffer: 128 * 1024 * 1024,
-  })
+async function trackedTestFiles(): Promise<string[]> {
+  return (
+    await execFileAsync('git', ['ls-files', '-z'], {
+      cwd: REPO_ROOT,
+    })
+  )
     .split('\0')
     .filter((rel) => IS_TEST_FILE.test(rel));
 }
@@ -148,13 +149,13 @@ describe('test inventory', () => {
     expect(inventory.unparseable).toEqual([]);
   });
 
-  it('TestInventory_Discovery_FoundEveryTrackedTestFile', () => {
-    const missing = trackedTestFiles().filter((rel) => inventory.files[rel] === undefined);
+  it('TestInventory_Discovery_FoundEveryTrackedTestFile', async () => {
+    const missing = (await trackedTestFiles()).filter((rel) => inventory.files[rel] === undefined);
 
     expect(missing, 'tracked test files absent from the inventory').toEqual([]);
   });
 
-  it('TestInventory_MissingFile_NamesTheMissingSource', () => {
+  it('TestInventory_MissingFile_NamesTheMissingSource', async () => {
     // Reconciliation is `oracle − relocations`. A file that vanished with no
     // relocation entry must be named, not summarised as a count.
     //
@@ -164,19 +165,19 @@ describe('test inventory', () => {
     // oracle could not fail for any input — including a genuinely deleted test.
     const dropped = unaccountedFor(
       Object.keys(inventory.files),
-      new Set(trackedTestFiles()),
+      new Set(await trackedTestFiles()),
       inventory.relocations,
     );
 
     expect(dropped, 'baseline test files neither tracked nor relocated').toEqual([]);
   });
 
-  it('TestInventory_SeededDisappearance_IsReportedByName', () => {
+  it('TestInventory_SeededDisappearance_IsReportedByName', async () => {
     // The kill probe for the reconciliation above, driving the SAME function
     // rather than a re-implementation of it — the earlier version asked only
     // whether a relocation existed, so it stayed green regardless of whether
     // the real check still followed one to a destination that exists.
-    const current = new Set(trackedTestFiles());
+    const current = new Set(await trackedTestFiles());
     const phantom = 'src/__vanished__.test.ts';
 
     const missing = unaccountedFor(
@@ -188,12 +189,12 @@ describe('test inventory', () => {
     expect(missing).toContain(phantom);
   });
 
-  it('TestInventory_UnexplainedLoss_NamesTheMissingFileAndBlocks', () => {
+  it('TestInventory_UnexplainedLoss_NamesTheMissingFileAndBlocks', async () => {
     // Task 034. Two distinct losses a consolidation can suffer, and the
     // reconciliation has to name the file in both — a count would say only
     // that something went, which is the report that made an earlier oracle
     // unusable.
-    const current = new Set(trackedTestFiles());
+    const current = new Set(await trackedTestFiles());
     const real = Object.keys(inventory.files)[0];
     expect(real, 'the baseline is empty — nothing to reconcile').toBeDefined();
 
@@ -218,7 +219,7 @@ describe('test inventory', () => {
     expect(unaccountedFor([real!], current, inventory.relocations)).toEqual([]);
   });
 
-  it('TestInventory_AfterFullConsolidation_ReconcilesAgainstBaseline', () => {
+  it('TestInventory_AfterFullConsolidation_ReconcilesAgainstBaseline', async () => {
     // Task 034. Tasks 030-033 emptied five roots between them. Two things have
     // to hold for each, and neither implies the other: nothing tracked is left
     // in it, and every test that WAS there is accounted for.
@@ -228,8 +229,8 @@ describe('test inventory', () => {
     // post-move paths — filtering it by a former root yields nothing, and a
     // reconciliation over nothing passes without checking anything. The ledger
     // is the only side that still remembers where a test started.
-    const current = new Set(trackedTestFiles());
-    const tracked = trackedTestFiles();
+    const current = new Set(await trackedTestFiles());
+    const tracked = await trackedTestFiles();
 
     for (const { prefix, task } of FORMER_TEST_ROOTS) {
       const left = tracked.filter((f) => f.startsWith(prefix));

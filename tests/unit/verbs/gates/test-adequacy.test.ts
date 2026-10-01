@@ -33,16 +33,12 @@ import {
   type TestRunFn,
 } from '../../../../src/verbs/gates/test-adequacy.js';
 import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
+import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
 // ─── real-git helpers (tasks 012/013) ────────────────────────────────────────
 
-function git(repoRoot: string, args: readonly string[]): string {
-  return execFileSync('git', [...args], {
-    cwd: repoRoot,
-    encoding: 'utf-8',
-    timeout: 30_000,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
+function git(repoRoot: string, args: readonly string[]): Promise<string> {
+  return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
 }
 
 /** Production-shaped GitExec over a real repo (mirrors merge-orchestrate's). */
@@ -50,7 +46,7 @@ const realGitExec: GitExec = (repoRoot, args) => {
   try {
     const stdout = execFileSync('git', [...args], {
       cwd: repoRoot,
-      timeout: 30_000,
+      timeout: 15_000,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -64,12 +60,12 @@ const realGitExec: GitExec = (repoRoot, args) => {
   }
 };
 
-function initRepo(prefix: string): string {
+async function initRepo(prefix: string): Promise<string> {
   const repoRoot = mkdtempSync(path.join(os.tmpdir(), prefix));
-  git(repoRoot, ['init', '--initial-branch=main', '-q']);
-  git(repoRoot, ['config', 'user.email', 'test@example.com']);
-  git(repoRoot, ['config', 'user.name', 'Test']);
-  git(repoRoot, ['config', 'commit.gpgsign', 'false']);
+  await git(repoRoot, ['init', '--initial-branch=main', '-q']);
+  await git(repoRoot, ['config', 'user.email', 'test@example.com']);
+  await git(repoRoot, ['config', 'user.name', 'Test']);
+  await git(repoRoot, ['config', 'commit.gpgsign', 'false']);
   return repoRoot;
 }
 
@@ -78,38 +74,38 @@ function initRepo(prefix: string): string {
  * feature branch changing source (`return 2`) + adding a test. The working
  * tree at HEAD is clean. Returns the repoRoot, base ref, and the source file.
  */
-function setupTaskRepo(prefix: string): {
+async function setupTaskRepo(prefix: string): Promise<{
   repoRoot: string;
   baseRef: string;
   sourceFile: string;
   testFile: string;
-} {
-  const repoRoot = initRepo(prefix);
+}> {
+  const repoRoot = await initRepo(prefix);
   mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
   writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const value = () => 1;\n');
-  git(repoRoot, ['add', '.']);
-  git(repoRoot, ['commit', '-m', 'base', '-q']);
-  const baseRef = git(repoRoot, ['rev-parse', 'HEAD']).trim();
+  await git(repoRoot, ['add', '.']);
+  await git(repoRoot, ['commit', '-m', 'base', '-q']);
+  const baseRef = (await git(repoRoot, ['rev-parse', 'HEAD'])).trim();
 
-  git(repoRoot, ['checkout', '-b', 'feature/x', '-q']);
+  await git(repoRoot, ['checkout', '-b', 'feature/x', '-q']);
   writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const value = () => 2;\n');
   writeFileSync(path.join(repoRoot, 'src', 'calc.test.js'), "// pins value()===2\n");
-  git(repoRoot, ['add', '.']);
-  git(repoRoot, ['commit', '-m', 'task: bump to 2 + test', '-q']);
+  await git(repoRoot, ['add', '.']);
+  await git(repoRoot, ['commit', '-m', 'task: bump to 2 + test', '-q']);
 
   return { repoRoot, baseRef, sourceFile: 'src/calc.js', testFile: 'src/calc.test.js' };
 }
 
 /** Hash of the full working tree (HEAD index + worktree) for equality checks. */
-function workingTreeHash(repoRoot: string): string {
+async function workingTreeHash(repoRoot: string): Promise<string> {
   // `git stash create` returns a commit sha capturing the working tree; using
   // its tree sha gives a stable content fingerprint without mutating refs.
-  const stashSha = git(repoRoot, ['stash', 'create']).trim();
+  const stashSha = (await git(repoRoot, ['stash', 'create'])).trim();
   if (!stashSha) {
     // Clean tree — fingerprint HEAD's tree.
-    return git(repoRoot, ['rev-parse', 'HEAD^{tree}']).trim();
+    return (await git(repoRoot, ['rev-parse', 'HEAD^{tree}'])).trim();
   }
-  return git(repoRoot, ['rev-parse', `${stashSha}^{tree}`]).trim();
+  return (await git(repoRoot, ['rev-parse', `${stashSha}^{tree}`])).trim();
 }
 
 // ─── task 011: splitHunks ────────────────────────────────────────────────────
@@ -200,8 +196,8 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
 
   it(
     'Snapshot_BeforeProbe_UsesRefuseToDiscardRef',
-    () => {
-      const { repoRoot } = setupTaskRepo('test-adequacy-snap-');
+    async () => {
+      const { repoRoot } = await setupTaskRepo('test-adequacy-snap-');
       repos.push(repoRoot);
 
       // Dirty the worktree so the snapshot has something non-trivial to hold:
@@ -209,7 +205,7 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
       // ref (no `stash push`) — that is the refuse-to-discard property.
       writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const value = () => 99;\n');
 
-      const stashRefsBefore = git(repoRoot, ['stash', 'list']);
+      const stashRefsBefore = await git(repoRoot, ['stash', 'list']);
       const snap = snapshotWorkingTree(realGitExec, repoRoot);
 
       expect('stashSha' in snap).toBe(true);
@@ -218,18 +214,18 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
         expect(snap.stashSha).toMatch(/^[0-9a-f]{40}$/);
       }
       // No ref was mutated — the stash list is unchanged (object-only create).
-      expect(git(repoRoot, ['stash', 'list'])).toBe(stashRefsBefore);
+      expect(await git(repoRoot, ['stash', 'list'])).toBe(stashRefsBefore);
     },
     30_000,
   );
 
   it(
     'Restore_AfterProbe_TreeHashMatchesSnapshot',
-    () => {
-      const { repoRoot, baseRef, sourceFile } = setupTaskRepo('test-adequacy-restore-');
+    async () => {
+      const { repoRoot, baseRef, sourceFile } = await setupTaskRepo('test-adequacy-restore-');
       repos.push(repoRoot);
 
-      const before = workingTreeHash(repoRoot);
+      const before = await workingTreeHash(repoRoot);
       const snap = snapshotWorkingTree(realGitExec, repoRoot);
       expect('stashSha' in snap).toBe(true);
 
@@ -237,32 +233,32 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
       const reverted = revertSourceFiles(realGitExec, repoRoot, baseRef, [sourceFile]);
       expect(reverted.ok).toBe(true);
       // After revert the tree differs from the snapshot.
-      expect(workingTreeHash(repoRoot)).not.toBe(before);
+      expect(await workingTreeHash(repoRoot)).not.toBe(before);
 
       if ('stashSha' in snap) {
         const restore = restoreWorkingTree(realGitExec, repoRoot, snap.stashSha);
         expect(restore.restored).toBe(true);
       }
       // Restored tree is byte-identical to the pre-probe snapshot.
-      expect(workingTreeHash(repoRoot)).toBe(before);
+      expect(await workingTreeHash(repoRoot)).toBe(before);
     },
     30_000,
   );
 
   it(
     'RevertSourceFiles_MixedExistingAndAddedSource_RevertsAndRestores',
-    () => {
-      const { repoRoot, baseRef, sourceFile } = setupTaskRepo(
+    async () => {
+      const { repoRoot, baseRef, sourceFile } = await setupTaskRepo(
         'test-adequacy-added-source-',
       );
       repos.push(repoRoot);
       const addedSource = 'src/transition-admission-corpus.ts';
       const absoluteAddedSource = path.join(repoRoot, addedSource);
       writeFileSync(absoluteAddedSource, 'export const corpus = [];\n');
-      git(repoRoot, ['add', addedSource]);
-      git(repoRoot, ['commit', '-m', 'task: add characterization corpus', '-q']);
+      await git(repoRoot, ['add', addedSource]);
+      await git(repoRoot, ['commit', '-m', 'task: add characterization corpus', '-q']);
 
-      const before = workingTreeHash(repoRoot);
+      const before = await workingTreeHash(repoRoot);
       const snap = snapshotWorkingTree(realGitExec, repoRoot);
       expect('stashSha' in snap).toBe(true);
       if (!('stashSha' in snap)) throw new Error('snapshot failed');
@@ -279,18 +275,18 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
       const restore = restoreWorkingTree(realGitExec, repoRoot, snap.stashSha);
       expect(restore.restored).toBe(true);
       expect(existsSync(absoluteAddedSource)).toBe(true);
-      expect(workingTreeHash(repoRoot)).toBe(before);
+      expect(await workingTreeHash(repoRoot)).toBe(before);
     },
     30_000,
   );
 
   it(
     'Restore_OnProbeError_StillRestores',
-    () => {
-      const { repoRoot, baseRef, sourceFile } = setupTaskRepo('test-adequacy-restore-err-');
+    async () => {
+      const { repoRoot, baseRef, sourceFile } = await setupTaskRepo('test-adequacy-restore-err-');
       repos.push(repoRoot);
 
-      const before = workingTreeHash(repoRoot);
+      const before = await workingTreeHash(repoRoot);
       const snap = snapshotWorkingTree(realGitExec, repoRoot);
       expect('stashSha' in snap).toBe(true);
       if (!('stashSha' in snap)) throw new Error('snapshot failed');
@@ -307,15 +303,15 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
         restored = restore.restored;
       }
       expect(restored).toBe(true);
-      expect(workingTreeHash(repoRoot)).toBe(before);
+      expect(await workingTreeHash(repoRoot)).toBe(before);
     },
     30_000,
   );
 
   it(
     'Revert_Conflict_ReturnsRevertConflictDiscriminant',
-    () => {
-      const { repoRoot } = setupTaskRepo('test-adequacy-conflict-');
+    async () => {
+      const { repoRoot } = await setupTaskRepo('test-adequacy-conflict-');
       repos.push(repoRoot);
 
       // Ask to revert a path that does not exist at the base ref → the targeted
@@ -334,14 +330,14 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
 
   it(
     'Revert_TaskAddedSource_RemovesThenRestoresCleanly',
-    () => {
-      const { repoRoot, baseRef } = setupTaskRepo('test-adequacy-added-source-');
+    async () => {
+      const { repoRoot, baseRef } = await setupTaskRepo('test-adequacy-added-source-');
       repos.push(repoRoot);
       const addedSource = 'src/new-helper.js';
       const addedContent = 'export const helper = true;\n';
       writeFileSync(path.join(repoRoot, addedSource), addedContent);
-      git(repoRoot, ['add', addedSource]);
-      git(repoRoot, ['commit', '-m', 'task: add source helper', '-q']);
+      await git(repoRoot, ['add', addedSource]);
+      await git(repoRoot, ['commit', '-m', 'task: add source helper', '-q']);
 
       const snap = snapshotWorkingTree(realGitExec, repoRoot);
       expect('stashSha' in snap).toBe(true);
@@ -352,11 +348,11 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
         addedSource,
       ]);
       expect(reverted.ok).toBe(true);
-      expect(() => git(repoRoot, ['show', `:${addedSource}`])).toThrow();
+      await expect(git(repoRoot, ['show', `:${addedSource}`])).rejects.toThrow();
 
       const restored = restoreWorkingTree(realGitExec, repoRoot, snap.stashSha);
       expect(restored.restored).toBe(true);
-      expect(git(repoRoot, ['show', `:${addedSource}`])).toBe(addedContent);
+      expect(await git(repoRoot, ['show', `:${addedSource}`])).toBe(addedContent);
     },
     30_000,
   );
@@ -379,7 +375,7 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
   it(
     'Probe_NoNewTests_ReturnsNoNewTestsDiscriminant',
     async () => {
-      const { repoRoot, baseRef } = setupTaskRepo('test-adequacy-probe-notest-');
+      const { repoRoot, baseRef } = await setupTaskRepo('test-adequacy-probe-notest-');
       repos.push(repoRoot);
 
       // Diff has ONLY a source file — no test file. The probe must short-circuit
@@ -414,18 +410,18 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
   it(
     'Probe_NewTestFailsOnRevert_RedObservedTrue_PassedTrue',
     async () => {
-      const { repoRoot, baseRef, sourceFile, testFile } = setupTaskRepo(
+      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo(
         'test-adequacy-probe-red-',
       );
       repos.push(repoRoot);
 
-      const before = workingTreeHash(repoRoot);
+      const before = await workingTreeHash(repoRoot);
 
       // The test runner reports FAIL when the source has been reverted (the new
       // test pins the new behavior). We detect "reverted" by reading the
       // current source content via git.
       const runTests: TestRunFn = async ({ repoRoot: rr }) => {
-        const src = git(rr, ['show', ':' + sourceFile]).trim();
+        const src = (await git(rr, ['show', ':' + sourceFile])).trim();
         // After revert, the worktree source equals base (`=> 1`).
         const reverted = src.includes('=> 1');
         return { passed: !reverted };
@@ -445,7 +441,7 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
       expect(result.probedTests).toEqual([testFile]);
       expect(result.discriminant).toBeUndefined();
       // Working tree restored to pre-probe state.
-      expect(workingTreeHash(repoRoot)).toBe(before);
+      expect(await workingTreeHash(repoRoot)).toBe(before);
     },
     30_000,
   );
@@ -453,12 +449,12 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
   it(
     'Probe_NewTestPassesOnRevert_PassedFalse',
     async () => {
-      const { repoRoot, baseRef, sourceFile, testFile } = setupTaskRepo(
+      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo(
         'test-adequacy-probe-green-',
       );
       repos.push(repoRoot);
 
-      const before = workingTreeHash(repoRoot);
+      const before = await workingTreeHash(repoRoot);
 
       // A vacuous test stays GREEN even with source reverted → no red observed.
       const runTests: TestRunFn = async () => ({ passed: true });
@@ -474,7 +470,7 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
       expect(result.redObserved).toBe(false);
       expect(result.passed).toBe(false);
       expect(result.restoredClean).toBe(true);
-      expect(workingTreeHash(repoRoot)).toBe(before);
+      expect(await workingTreeHash(repoRoot)).toBe(before);
     },
     30_000,
   );
@@ -482,7 +478,7 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
   it(
     'Probe_Result_CarriesProbedTestsAndRestoredClean',
     async () => {
-      const { repoRoot, baseRef, sourceFile, testFile } = setupTaskRepo(
+      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo(
         'test-adequacy-probe-carrier-',
       );
       repos.push(repoRoot);
