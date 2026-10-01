@@ -1,18 +1,14 @@
 #!/usr/bin/env node
 /**
- * lint-envelopes: the error-envelope lint wrapper.
- *
- * A thin `node` wrapper around `eslint --config eslint.envelopes.config.js`. It is a `lint-*.mjs`
- * primary, so the enforcer-wiring checker can see it, and it runs on the unfiltered `grep-gates`
- * lane. The dedicated config replaces the shared `eslint.config.js` and is never merged into it.
+ * lint-envelopes runs `eslint --config eslint.envelopes.config.js`. Its `lint-*.mjs` name lets the
+ * enforcer-wiring checker see it. The dedicated config replaces the shared `eslint.config.js`.
  *
  * The `envelopes/no-handler-throw` rule requires a registered MCP action handler to return
- * `ToolResult.error`, never to let a throw escape. This wrapper owns no rule logic.
+ * `ToolResult.error` and not let a throw escape. This wrapper holds no rule logic.
  *
- * Default target: `src/verbs/**\/*.ts`. The `--target` and `--config` flags exist for the self-test.
+ * Default target: `src/verbs/**\/*.ts`. The self-test uses the `--target` and `--config` flags.
  *
- * Exit 0: clean. Exit 1: ESLint reports errors. Exit 2: fail-closed, because eslint is missing,
- * cannot start, or exits for another reason, such as a missing `--config` path.
+ * Exit 0: clean. Exit 1: ESLint reports errors. Exit 2: fail-closed, for a missing or failed eslint.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -24,15 +20,9 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..', '..', '..');
 const DEFAULT_CONFIG = path.join(REPO_ROOT, 'eslint.envelopes.config.js');
 /**
- * ESLint's own JS entry point. Spawned under `process.execPath` rather than
- * shelling out to `npx`: `npx` is a `.cmd` shim on Windows and raw `spawnSync`
- * cannot launch one since CVE-2024-27980, so `spawnSync('npx', …)` returned
- * `status: null` on every Windows host — this wrapper's fail-closed arm then
- * reported "could not spawn eslint" and the lane never ran the rule at all.
- *
- * Resolving the entry point also keeps the property `--no-install` was there
- * for: a missing/un-installed eslint is a MISSING FILE here, so it fails closed
- * locally with no network fallback to reason about.
+ * ESLint's JS entry point, run under `process.execPath`. On Windows, `npx` is a `.cmd` shim that
+ * `spawnSync` cannot launch since CVE-2024-27980. A missing eslint is a missing file here, so the
+ * gate fails closed with no network fallback.
  */
 const ESLINT_CLI = path.join(REPO_ROOT, 'node_modules', 'eslint', 'bin', 'eslint.js');
 const DEFAULT_TARGET = 'src/verbs/**/*.ts';
@@ -79,6 +69,7 @@ function parseArgs(argv) {
   return args;
 }
 
+/** Passes through ESLint exit 0 and 1. Any other status, null included, exits 2 (fail-closed). */
 function main() {
   const args = parseArgs(process.argv);
 
@@ -111,10 +102,6 @@ function main() {
     process.exit(EXIT_FAILCLOSED);
   }
 
-  // ESLint's own exit codes: 0 clean, 1 lint errors found, 2 a fatal/usage
-  // error (e.g. a missing config file, an unparseable glob). Propagate
-  // directly rather than remapping — an unexpected/null status is treated as
-  // fail-closed rather than assumed clean.
   const status = result.status;
   if (status === EXIT_CLEAN || status === EXIT_VIOLATION) {
     process.exit(status);

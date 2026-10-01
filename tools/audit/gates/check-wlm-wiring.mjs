@@ -1,53 +1,20 @@
 #!/usr/bin/env node
 /**
- * WLM wiring gate — DR-1 (index.lock retry kernel) + DR-2 (single-writer
- * reroute) regression fence (task-004).
+ * Regression gate for the index.lock retry wiring and the single-writer merge
+ * reroute.
  *
- * Two independent, additive rules. Modeled on
- * `tools/audit/gates/check-windows-portability.mjs`: a zero-dependency Node script that
- * walks files and flags a regression at PR time, seconds instead of the full
- * suite.
+ * Rule 1: a worktree-mutating git argv literal under `src/orchestrate/`,
+ * `src/verbs/`, or in `src/workflow/compensation.ts` is legal only in a file of
+ * `WIRED_ALLOWLIST`. Each wired file must also call its retry idiom.
  *
- *   Rule 1 — retry-adapter coverage (DR-1). Every worktree-mutating git
- *   invocation (a `['worktree', 'add'|'remove'|'prune', …]` argv literal,
- *   however it's dispatched — `gitRunner.run(…)`, `runCommand('git', …)`,
- *   `gitExec(…)`, a raw `execFileSync('git', …)`) anywhere under
- *   `src/orchestrate/` (recursively) or in
- *   `src/workflow/compensation.ts` must be constructed
- *   ONLY inside one of the 5 production files that own the DR-1 retry
- *   kernel's wrapping (`WIRED_ALLOWLIST` below) — every other file is
- *   presumed naked and flagged. Each allow-listed file is in turn required to
- *   actually CALL its retry idiom (`withIndexLockRetry`/`withIndexLockRetrySync`/
- *   `burstStagger`), so gutting the wrapper without removing the call site
- *   still fails. A scope-pin (default root only) asserts the merge seam
- *   (`merge-orchestrate.ts`) and the 5 wired files are still inside the
- *   walked scope, so relocating a site out from under the gate to dodge it
- *   is itself a failure.
+ * Rule 2: a `content/` line that names `merge_orchestrate` in an integration
+ * context must also name `serialize_merge`.
  *
- *   Rule 2 — no raw `merge_orchestrate` directive for an INTEGRATION merge in
- *   `content/` (DR-2). Every current legitimate co-mention of
- *   `merge_orchestrate` with integration-branch language is paired with
- *   `serialize_merge` on the SAME line (the caveat). A line naming
- *   `merge_orchestrate` in an integration-branch/-ref/-merge context WITHOUT
- *   `serialize_merge` alongside it is flagged. A scope-pin (default root
- *   only) asserts the 7 rerouted surfaces (merge-orchestrator contributes 3
- *   files) still carry the `serialize_merge` caveat, so silently deleting the
- *   reroute (rather than reintroducing a bad directive) is also caught.
+ * Each rule also has a scope pin. It fails when an expected file leaves the
+ * scope, or when a rerouted skill file drops its `serialize_merge` caveat. A
+ * root flag turns off the pin of its rule, because a fixture root is partial.
  *
- *   Exit 0 — clean.  Exit 1 — violations (`path:line  [rule]  excerpt` on
- *   stderr).  Exit 2 — usage / environment error.
- *
- * Flags:
- *   --src-root <path>     Root containing `orchestrate/` + `workflow/` for
- *                          Rule 1 (default: repo `src`).
- *   --skills-root <path>  Root containing skill sources for Rule 2 (default:
- *                          repo `content`).
- *   --help                Show usage.
- *
- * The scope-pin checks for each rule are suppressed when its root is
- * overridden via a flag — a fixture root is deliberately partial, so pinning
- * the full-tree scope there would be a false alarm. The real-tree CI
- * invocation uses no overrides, so the pin stays live where it matters.
+ *   Exit 0: clean. Exit 1: violations on stderr. Exit 2: a usage or environment error.
  */
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -96,9 +63,10 @@ function requireDir(root, label) {
   return null;
 }
 
-// Replace comments with same-length blanks (newlines preserved) so a prose
-// mention in a docstring cannot trip the gate, while offsets still map to the
-// correct source line. Same shape as check-windows-portability.mjs.
+/**
+ * Replaces comments with same-length blanks and keeps the newlines. Thus a prose
+ * mention cannot trip the gate, and offsets still map to the correct line.
+ */
 function stripComments(content) {
   const blank = (s) => s.replace(/[^\n]/g, ' ');
   const noBlock = content.replace(/\/\*[\s\S]*?\*\//g, blank);
@@ -134,8 +102,11 @@ function reportPath(file) {
   return path.relative(REPO_ROOT, file).split(path.sep).join('/');
 }
 
-// ─── Rule 1 — retry-adapter coverage (DR-1) ─────────────────────────────────
-
+/**
+ * Yields the production TypeScript files under `dir` and skips `.test.ts` files.
+ * Tests run raw worktree commands against throwaway repos, without burst
+ * contention.
+ */
 function* walkTsFiles(dir) {
   let entries;
   try {
@@ -149,9 +120,6 @@ function* walkTsFiles(dir) {
     if (e.isDirectory()) {
       yield* walkTsFiles(full);
     } else if (e.isFile() && /\.(ts|mts)$/.test(e.name) && !/\.test\.ts$/.test(e.name)) {
-      // Production only — fixtures/unit tests legitimately spawn raw
-      // `git worktree add/remove` against throwaway repos; that is not the
-      // DR-1 concern (real, burst-dispatched production contention).
       yield full;
     }
   }
@@ -167,36 +135,36 @@ function collectRule1Files(srcRoot) {
   return files;
 }
 
-// A worktree-mutating argv literal — `['worktree', 'add'|'remove'|'prune', …]`
-// — however it's dispatched (`gitRunner.run(…)`, `runCommand('git', …)`,
-// `gitExec(…)`, a raw `execFileSync('git', …)`). Read-only subcommands
-// (`worktree list`) are deliberately excluded — they never contend for
-// `.git/index.lock`.
+/**
+ * A worktree-mutating argv literal, in each dispatch form. `worktree list` is
+ * excluded, because it does not contend for `.git/index.lock`.
+ */
 const WORKTREE_MUTATION_RE = /\[\s*['"]worktree['"]\s*,\s*['"](?:add|remove|prune)['"]/g;
 
-// The 5 production files that legitimately construct a worktree-mutating argv
-// literal today — each owns (or, for git-retry.ts, defines) the DR-1 retry
-// wrapping. Every other file under scope is presumed naked. Paths are
-// src-root-relative, POSIX-separated.
+/**
+ * The wired files and the retry idiom that each must call. Paths are relative to
+ * the source root and use POSIX separators.
+ */
 const WIRED_IDIOM_REQUIREMENTS = new Map([
   ['verbs/vcs/git-exec-default.ts', /\bwithIndexLockRetrySync\s*\(/],
   ['verbs/team/setup-worktree.ts', /\bburstStagger\s*\(/],
   ['verbs/worktree/manager.ts', /\bwithIndexLockRetry\s*\(/],
   ['workflow/compensation.ts', /\bwithIndexLockRetry\s*\(/],
 ]);
-// git-retry.ts IS the kernel — it defines the idioms rather than calling one
-// of them, so it is allow-listed without an idiom-presence requirement.
+/**
+ * The files that can hold a worktree-mutating literal. `git-retry.ts` defines
+ * the idioms, so it has no idiom requirement.
+ */
 const WIRED_ALLOWLIST = new Set([
   ...WIRED_IDIOM_REQUIREMENTS.keys(),
   'verbs/worktree/git-retry.ts',
 ]);
 
-// Scope-pin (default root only): the 5 wired files plus the merge seam
-// (`merge-orchestrate.ts`, which must stay INSIDE the walked scope even
-// though it needs no wrapping of its own — it delegates to the already-
-// wrapped `defaultGitExec`). If any goes missing from the walked scope
-// (renamed, or the directory moved), that is itself a failure — silently
-// shrinking the gate's scope must never look like a clean pass.
+/**
+ * The scope pin of rule 1: the wired files and the merge seam. The seam
+ * `merge-orchestrate.ts` calls the wrapped `defaultGitExec`, so it needs no
+ * wrapper, but it must stay in scope.
+ */
 const EXPECTED_SRC_SCOPE_FILES = [
   ...WIRED_ALLOWLIST,
   'verbs/merge/merge-orchestrate.ts',
@@ -216,7 +184,7 @@ function checkRule1(srcRoot, srcRootIsDefault, violations) {
             `expected a call matching ${requiredRe} in this wired file, none found`,
         );
       }
-      continue; // Allow-listed: exempt from the naked-mutation scan below.
+      continue;
     }
 
     for (const m of src.matchAll(WORKTREE_MUTATION_RE)) {
@@ -240,8 +208,6 @@ function checkRule1(srcRoot, srcRootIsDefault, violations) {
   }
 }
 
-// ─── Rule 2 — no raw `merge_orchestrate` for an integration merge (DR-2) ────
-
 function* walkMdFiles(dir) {
   let entries;
   try {
@@ -260,19 +226,14 @@ function* walkMdFiles(dir) {
   }
 }
 
-// An "integration-merge directive" context — the phrase that must never
-// appear naming raw `merge_orchestrate` without the `serialize_merge` caveat
-// on the SAME line. Matches "integration branch", "integration-branch",
-// "integration ref", "shared integration", "integration merge", etc.
+/** An integration context: "integration branch", "integration-branch", "integration ref", or "integration merge". */
 const INTEGRATION_CONTEXT_RE = /integration[\s-]?(?:branch|ref|merge)/i;
 
-// The 7 surfaces that carry the serialize_merge reroute (merge-orchestrator
-// contributes 3 files: SKILL.md + its two references/). Paths are relative
-// to `content/` after the domain-grouped skills layout. Scope-pin (default
-// root only): each must still carry the `serialize_merge` caveat somewhere
-// — if a file is deleted or its reroute caveat silently dropped (rather
-// than a bad directive being reintroduced), that is itself a regression the
-// same-line check alone can't see.
+/**
+ * The scope pin of rule 2: the files that carry the `serialize_merge` reroute,
+ * relative to `content/`. Each must still name `serialize_merge` on a line that
+ * names `merge_orchestrate`.
+ */
 const EXPECTED_SKILLS_SCOPE_FILES = [
   'delivery/skills/merge-orchestrator/SKILL.md',
   'delivery/skills/merge-orchestrator/references/recovery-runbook.md',
@@ -318,8 +279,6 @@ function checkRule2(skillsRoot, skillsRootIsDefault, violations) {
     }
   }
 }
-
-// ─── Entry point ─────────────────────────────────────────────────────────────
 
 function main() {
   const args = parseArgs(process.argv.slice(2));

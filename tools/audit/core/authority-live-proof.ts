@@ -1,104 +1,17 @@
-// tools/audit/core/authority-live-proof.ts
+// The live half of the authority census. It measures boundary rows from the
+// source tree for `runAuthorityCensus`, which keeps the verdict. It has no
+// policy, no exit code and no CLI entrypoint.
 //
-// DR-6 / G5 — the LIVE half of the authority census (task 026).
+// A representation is bound when its name is computed from the authority, and
+// unbound when the name is a baked literal. Runtime values erase this
+// difference, so the module parses source with the TypeScript parser and
+// classifies each site. A representation is bound only when each site is
+// derived. A measurement throws when its denominator is empty, because an empty
+// measurement reads as a closed boundary.
 //
-// ─────────────────────────────────────────────────────────────────────────────
-// WHAT THIS IS, AND WHAT IT DELIBERATELY IS NOT
-//
-// Task 025 shipped the closure verdict (`architecture/authority-census.ts`) and
-// stated its own limitation as DATA rather than prose: the evidence field records
-// the `authority` and `binding` hops as resolving against `declared-row` — "a
-// committed measurement, not independent evidence about the tree". The census
-// therefore proves the TABLE is inconsistent. It does not prove the TREE is.
-//
-// Task 066 re-keyed that field to (hop, ROW), so the two rows this module
-// measures now carry `live-measurement` while the other six stay `declared-row`.
-// Their `oracle` entries name THIS module and its entrypoints; the co-located
-// test resolves those names against the real exports and compares the declared
-// subject paths against `GOVERNED_SOURCES` + `EVENT_CATALOG_SOURCES` below, so a
-// source added here without reaching the evidence table fails CI.
-//
-// This module closes that gap for the two rows task 026 names, and it does so
-// WITHOUT introducing an enforcement instrument:
-//
-//   • It has no policy, no violation vocabulary, no exit code and no CLI
-//     entrypoint. It reports no findings and passes no judgement.
-//   • It MEASURES the tree and emits boundary ROWS. The verdict is still
-//     `runAuthorityCensus` — every finding kind, every closure rule and every
-//     per-row `blocking` decision stays task 025's, unchanged.
-//   • The only thing that changes is the EVIDENCE CLASS of the census's input:
-//     rows read off the tree instead of rows read off task 024's table.
-//
-// `runAuthorityCensus(rows: readonly unknown[])` already takes `unknown` on
-// purpose — "so a row the TYPE forbids can be fed in from a store, a fixture or
-// a JSON round trip". A live measurement is exactly that case, and the census's
-// own `evaluatedRows === rowCount` tooth is what proves a measured row narrowed
-// through `isAuthorityTopologyRow` rather than being silently dropped. That
-// runtime guard remains the single authority on the row shape; nothing here
-// re-declares it.
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// THE ONE DISCRIMINATING FACT, REUSED RATHER THAN REINVENTED
-//
-// Task 020 already isolated it for the CLI surface, and its reasoning transfers
-// verbatim to the event catalog: a REPRESENTATION IS BOUND IFF ITS NAME IS
-// COMPUTED FROM THE AUTHORITY, AND UNBOUND IFF THE NAME IS BAKED AS A LITERAL.
-//
-// The corollary task 020 paid for the hard way is the reason this module cannot
-// be written against runtime values: `PHASE_EXPECTED_EVENTS['delegate']` and
-// `PHASE_EXPECTED_EVENTS['review']` are both `readonly EventType[]` by the time
-// a value exists — byte-identical in shape, one derived and one hand-written.
-// Provenance is erased at evaluation, exactly as it is erased by the time a
-// Commander tree exists. "The copies agree today" is what 024's `bound` arm
-// explicitly refuses to accept as a binding, and comparing values could not tell
-// the two apart even in principle. So: parse the source, classify the site.
-//
-// For the same reason this is the TypeScript parser and not a regex — the four
-// prior defects enumerated in `cli-derivation-guard.ts`'s header (`as` counted
-// in prose, `.command(` counted in a JSDoc block, DR-27's substring scanner)
-// are the cost of measuring text instead of structure. Comments are blanked
-// STRUCTURALLY here too: the parser classifies them as trivia, so they never
-// become nodes this walk can see. The fail-closed parse itself is task 020's
-// `parseOrThrow`, imported — not a second copy with its own recovery semantics.
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// PARTIAL BINDING IS NOT BINDING
-//
-// `PHASE_EXPECTED_EVENTS` was the trap this module exists to not fall into: two
-// of its six entries derived from a two-case switch in the reducer, four were
-// hand-written arrays, and the loop at module load validated only what the table
-// LISTED. It is now computed from `PHASE_EVENT_CONTRACTS`, which is where the
-// phase → event facts are DECLARED. The event-catalog row therefore measures the
-// contract's rows (each names its event as a literal — declared, validated at
-// load, never computed from the registry), and a separate `phase-events` row
-// measures whether the gate tables and the playbooks are computed from the
-// contract. Validation is still not a binding, and "a check exists" still does
-// not close a row.
-//
-// So {@link bindingFor} requires EVERY site to be derived. One literal site in a
-// population makes the representation `unbound`, and the co-located test pins
-// the all-but-one case specifically: deriving all but one row must NOT close it.
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// NON-EMPTY DENOMINATORS
-//
-// Every measurement below throws rather than returning an empty result. A proof
-// that resolves zero subjects reports zero unbound representations and reads as
-// a closed boundary — the `EMPTY_SEAM_DENOMINATOR` posture, and the failure mode
-// that would make this whole task vacuous. A renamed constant, a moved file or a
-// changed idiom must fail loudly, never quietly.
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// WHY `scripts/` AND NOT `src/architecture/`
-//
-// Same two objections that moved task 020's guard here, unchanged: this module
-// reads files off disk (`effect-ledger` requires a declared owner for every
-// filesystem effect in `src/**`) and imports `typescript`, a devDependency that
-// would become a runtime dependency of the shipped binary. It also imports
-// NOTHING from `src/` — not even a type — so its transitive module closure stays
-// disjoint from `architecture/authority-topology.ts`, which is what lets the
-// co-located test declare the two of them as genuinely independent DR-30 oracle
-// sources: a committed human measurement of the tree, and an executable one.
+// It lives in `tools/audit/` because it reads files and imports `typescript`, a
+// devDependency. It imports the shipped emission derivation, not a copy.
+// `event-registration.ts` holds only type imports, so this adds no runtime edge.
 
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
 import * as path from 'node:path';
@@ -110,9 +23,6 @@ import {
   scanGovernedSources,
   type DerivationScan,
 } from './cli-derivation-guard.js';
-// The SHIPPED emission derivation and its two vocabularies, imported rather than restated so this
-// analyser cannot drift from the rule it measures. `event-registration.ts` has zero runtime import
-// edges (every import in it is `import type`), so this costs the script nothing.
 import {
   EVENT_LIFECYCLES,
   EVENT_TIERS,
@@ -125,25 +35,10 @@ const LABEL = 'authority-live-proof';
 
 export { REPO_ROOT };
 
-// ─── Measured sites ──────────────────────────────────────────────────────────
-
-/**
- * How one site names the thing it represents.
- *
- * Deliberately the same two-valued distinction as {@link CommandSiteKind} in
- * task 020: `literal` is a name baked into the representation's own source,
- * `derived` is a name computed by an expression that reads it from somewhere
- * else. There is no third "validated" value, because validation of the entries
- * present is not a binding over the population.
- */
 /**
  * How a site holds its value. `literal` bakes the name. `derived` computes it
- * through a projection of the authority. `opaque` computes it too, but through
- * something the measurement does not recognise as a projection of the
- * authority — a conditional, an unrelated helper, a projection imported from
- * some other module — so it is neither baked nor bound. Only `derived` binds;
- * a measurement that cannot tell a projection from any other expression would
- * report a second declaration as bound the moment it stopped being a literal.
+ * through a projection of the authority. `opaque` computes it through something
+ * else, such as a conditional or an unrelated helper. Only `derived` binds.
  */
 export type SiteBinding = 'literal' | 'derived' | 'opaque';
 
@@ -153,30 +48,23 @@ export interface MeasuredSite {
   /** 1-based line of the site. */
   readonly line: number;
   readonly kind: SiteBinding;
-  /** The entry key or baked name; for a derived site, the deriving expression. */
+  /** The entry key or the baked name. For a derived site, the deriving expression. */
   readonly subject: string;
   /** The site's source text, for the failure message. */
   readonly expression: string;
   /**
-   * Offsets of {@link expression} within its own source.
-   *
-   * Carried so a SENSITIVITY CONTROL can rewrite the exact span the measurement
-   * classified, in memory, rather than guessing at it with a regex. A control
-   * that edited a different span than the one measured would prove nothing about
-   * the measurement, and several of these spans are byte-identical to each other
-   * (`review` and `overhaul-review` carry the same literal array), so text-based
-   * substitution cannot address them individually at all.
+   * Offsets of {@link expression} within its own source. A sensitivity control
+   * rewrites this exact span in memory. Several spans are byte-identical, so a
+   * text substitution cannot address each one.
    */
   readonly start: number;
   readonly end: number;
 }
 
 /**
- * Apply a counterfactual to the exact spans a measurement classified.
- *
- * Edits are applied back-to-front so earlier offsets stay valid. Sites from more
- * than one file are rejected: splicing offsets from file A into file B would
- * silently corrupt the source and produce a measurement of nothing real.
+ * Applies a counterfactual to the exact spans that a measurement classified.
+ * Edits go back to front, so earlier offsets stay valid. Sites from more than one
+ * file are rejected, because offsets are per source.
  */
 export function spliceSites(
   source: string,
@@ -207,7 +95,7 @@ export function spliceSites(
   return out;
 }
 
-/** 024's `RepresentationBinding`, as produced by a measurement. */
+/** The `RepresentationBinding` shape, as a measurement produces it. */
 export type MeasuredBinding =
   | { readonly kind: 'authoritative' }
   | { readonly kind: 'bound'; readonly boundTo: string; readonly how: string }
@@ -243,12 +131,8 @@ export function derivedSites(rep: MeasuredRepresentation): readonly MeasuredSite
 }
 
 /**
- * The binding a measured population implies.
- *
- * `bound` requires EVERY site to be derived. This is the partial-binding tooth:
- * two derived entries out of six is not a binding over the six, and a census
- * that accepted it would be reporting the population it can see rather than the
- * population G5 asks about.
+ * The binding that a measured population implies. `bound` requires each site to
+ * be derived. Two derived entries out of six are not a binding over the six.
  */
 export function bindingFor(
   sites: readonly MeasuredSite[],
@@ -284,8 +168,6 @@ function requireSites(sites: readonly MeasuredSite[], what: string): readonly Me
   return sites;
 }
 
-// ─── Generic source measurements ─────────────────────────────────────────────
-
 function relative(file: string): string {
   return file.split(path.sep).join('/');
 }
@@ -302,13 +184,9 @@ function propertyName(name: ts.PropertyName): string | undefined {
 }
 
 /**
- * Is this initializer a BAKED name, or one computed from somewhere else?
- *
- * A string literal, or an array whose every element is a string literal (or an
- * object literal of string literals), is baked. Anything else — a call, an
- * identifier, a property access, a spread — computes its value from another
- * expression, which is the only thing that can make a representation follow its
- * authority.
+ * Tells whether an initializer bakes a name or computes it. A string literal, or
+ * an array or object literal of string literals, is baked. Any other expression
+ * computes its value, and only a computed value can follow its authority.
  */
 export function classifyInitializer(node: ts.Expression): SiteBinding {
   if (ts.isStringLiteralLike(node)) return 'literal';
@@ -330,10 +208,9 @@ export function classifyInitializer(node: ts.Expression): SiteBinding {
 }
 
 /**
- * How a `derived` initializer is re-read against the shapes that actually reach
- * an authority. Receives the initializer with its parent pointers set, so a
- * binder can walk up to the scope that declared a receiver, and the subject the
- * site measures (the table name, or the property).
+ * Reads a `derived` initializer again against the shapes that reach an
+ * authority. It gets the initializer with parent pointers set, so it can walk up
+ * to the scope that declares a receiver. It also gets the measured subject.
  */
 export type DerivedSiteBinder = (initializer: ts.Expression, subject: string) => SiteBinding;
 
@@ -346,8 +223,7 @@ function bindDerived(
   return kind === 'derived' && bind !== undefined ? bind(initializer, subject) : kind;
 }
 
-/** Find `export const <name> … = { … }` and return the object literal. */
-/** `Object.freeze(<expr>)` -> `<expr>`; anything else unchanged. */
+/** `Object.freeze(<expr>)` -> `<expr>`. Any other node stays unchanged. */
 function unwrapObjectFreeze(node: ts.Expression | undefined): ts.Expression | undefined {
   if (node === undefined || !ts.isCallExpression(node)) return node;
   const callee = node.expression;
@@ -356,6 +232,11 @@ function unwrapObjectFreeze(node: ts.Expression | undefined): ts.Expression | un
   if (callee.name.text !== 'freeze') return node;
   return node.arguments[0] ?? node;
 }
+/**
+ * Finds the variable declaration `<name>` and returns its object literal. An
+ * `Object.freeze({ … })` wrapper is unwrapped, because freezing is a runtime
+ * choice and not a different declaration shape.
+ */
 function findExportedObjectLiteral(
   sourceFile: ts.SourceFile,
   name: string,
@@ -364,10 +245,6 @@ function findExportedObjectLiteral(
   const visit = (node: ts.Node): void => {
     if (found !== undefined) return;
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name) {
-      // `Object.freeze({ … })` is unwrapped: the freeze call is a runtime immutability decision,
-      // not a different declaration shape, and a measurement that silently found nothing because
-      // the authority gained a `freeze` would be the exact proxy failure this module guards
-      // against. Both forms are in the tree today (`EVENT_ANNOTATIONS` is frozen).
       const init = unwrapObjectFreeze(node.initializer);
       if (init !== undefined && ts.isObjectLiteralExpression(init)) found = init;
     }
@@ -412,13 +289,10 @@ export function measureObjectLiteralEntries(
 }
 
 /**
- * Every declared event row in a source file: an object literal carrying both a
- * `type` and a `when` property. The phase event contract declares its rows that
- * way — inline under a phase, or as a module-scope constant shared by several
- * phases — and each is one site, classified by how its `type` is written. A
- * string literal is a baked name; anything else is computed. Zero rows throws.
- * An object whose `when` is not a string literal is a projection of a row (the
- * derivations copy rows that way), not a declared one, and is not counted.
+ * Each declared event row in a source file: an object literal with a `type` and
+ * a `when` property. Each row is one site, classified by how its `type` is
+ * written. Zero rows throws. An object whose `when` is not a string literal is a
+ * copy of a row, such as `when: row.when`, and does not count.
  */
 export function measureDeclaredEventRows(source: string, file: string): readonly MeasuredSite[] {
   const sourceFile = parseOrThrow(source, file, LABEL);
@@ -430,8 +304,6 @@ export function measureDeclaredEventRows(source: string, file: string): readonly
       );
       const type = assignments.find((p) => propertyName(p.name) === 'type');
       const when = assignments.find((p) => propertyName(p.name) === 'when');
-      // A declared row states its `when` in prose. The derivations copy rows
-      // with `when: row.when`, which is a projection, not a declaration.
       if (type !== undefined && when !== undefined && ts.isStringLiteralLike(when.initializer)) {
         const init = type.initializer;
         sites.push({
@@ -452,10 +324,9 @@ export function measureDeclaredEventRows(source: string, file: string): readonly
 }
 
 /**
- * One site per named exported constant: how its whole initializer is written.
- * A call expression is a derivation; an object or array literal is a baked
- * table. A name that is not exported from the file throws — the constant was
- * renamed, and a measurement over the wrong name is the instrument dying green.
+ * One site for each named constant: how its whole initializer is written. A call
+ * is a derivation, and an object or array literal is a baked table. A missing
+ * name throws, because the constant was renamed or moved.
  */
 export function measureExportedInitializers(
   source: string,
@@ -494,16 +365,10 @@ export function measureExportedInitializers(
 }
 
 /**
- * Keys of a named exported object literal whose value is an object declaring `lifecycle` and
- * `tier`, mapped to the emission source those two axes DERIVE.
- *
- * The replacement for reading a hand-written `source` column (task 011, DR-2): the column no
- * longer exists, and the fact it used to transcribe is the tier/lifecycle pair parsed here. The
- * composition is NOT re-implemented — `resolveEmissionSource` is imported from the shipped module
- * that owns it, so this analyser cannot drift from the derivation it is measuring.
- *
- * Same fail-closed denominator as before: zero entries throws rather than reporting an empty
- * catalog, and an entry missing either axis throws rather than being silently skipped.
+ * Maps each key of a named object literal to the emission source that its
+ * `lifecycle` and `tier` derive. It imports `resolveEmissionSource` from the
+ * shipped module, so it cannot drift from the derivation it measures. Zero
+ * entries throw, and an entry with an unreadable axis throws.
  */
 export function measureDerivedEmissionSources(
   source: string,
@@ -591,12 +456,9 @@ export function measureStringValuedEntries(
 }
 
 /**
- * Classify every `<propertyName>: …` assignment in a file, wherever it occurs.
- *
- * The generic form, for a representation carried by a property of some
- * declaration rather than by a top-level constant. `p: [{ … }]` is a literal
- * site; `p: computedFrom(x)` is a derived one. Emission rows had this shape
- * until they moved behind a contract; see `measureActionEmissions`.
+ * Classifies each `<propertyName>: …` assignment in a file. This form is for a
+ * representation that a property carries, not a top-level constant.
+ * `p: [{ … }]` is a literal site, and `p: computedFrom(x)` is a derived one.
  */
 export function measurePropertyAssignments(
   source: string,
@@ -625,27 +487,13 @@ export function measurePropertyAssignments(
 }
 
 /**
- * Every `ActionEmission` row declared on an action contract.
+ * Each `ActionEmission` row declared on an action contract.
  *
- * The population is the ROW, not the `emissions:` assignment carrying it. A row
- * is what names an event, and the assignments reach them through four shapes —
- * `declared({ … })` inline, `declared(...NAMED_ROWS)` spreading a file-local
- * constant, a bare reference to one, and `none('…')` declaring an empty set.
- * Anchoring on the row measures all four without resolving any of them, and a
- * fifth shape is counted the moment it declares a row. Anchoring on the
- * assignment instead would have to resolve each spread back to its constant to
- * see the event name at all, and would score every one of them `derived` — the
- * name of the wrapper, not the fact about the name inside it.
- *
- * A row is identified structurally: an object literal carrying both `event` and
- * `condition`, the two members `ActionEmission` requires that no other
- * declaration in this tree pairs. Matching `event:` alone would also sweep in
- * the postcondition rows (`ensures: declared({ source: 'event-append', …,
- * event: '…' })`) and the request schemas (`event: coercedRecord()`), which are
- * different representations on different boundaries.
- *
- * `event: 'workflow.started'` is a literal site; `event: eventFor(name)` would
- * be a derived one.
+ * The population is the row, not the `emissions:` assignment. Assignments reach
+ * rows through `declared({ … })`, a spread of a named constant, a bare
+ * reference, or `none('…')`. An anchor on the row measures each shape without
+ * resolving it. A row is an object literal with both `event` and `condition`.
+ * `event:` alone also matches postcondition rows and request schemas.
  */
 export function measureActionEmissions(source: string, file: string): readonly MeasuredSite[] {
   const sourceFile = parseOrThrow(source, file, LABEL);
@@ -689,9 +537,7 @@ function emissionRowEvent(node: ts.ObjectLiteralExpression): ts.PropertyAssignme
   return hasCondition ? event : undefined;
 }
 
-// ─── Markdown (the representation with no expressions at all) ────────────────
-
-/** A dotted token that could be an event type. */
+/** A dotted token that can be an event type. */
 const EVENT_TOKEN = /[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+/g;
 
 export interface SkillDoc {
@@ -701,19 +547,12 @@ export interface SkillDoc {
 }
 
 /**
- * Every model-emitted event name written in skill prose.
+ * Each model-emitted event name in skill prose. Each site is `literal`, because
+ * Markdown has no expressions and no import edge to the event registry.
  *
- * Classified `literal` unconditionally, and that is a STRUCTURAL fact rather
- * than a measurement outcome: Markdown carries no expressions, so a name written
- * in prose cannot be computed from anything. A `.md` file has no import edge to
- * the event registry either, so no derivation can exist even in principle. What
- * the scan establishes is that the representation EXISTS.
- *
- * The non-empty tooth is on the CORPUS, not on the result, and the distinction
- * matters: an empty corpus is a broken scan (the authored skills tree moved) and
- * must fail closed, whereas a non-empty corpus in which no document names an
- * event is the honest report that this representation is not present. The
- * counterfactual control depends on being able to tell those two apart.
+ * The non-empty check is on the corpus, not on the result. An empty corpus is a
+ * broken scan and throws. A corpus in which no document names an event is a true
+ * report that the representation is absent.
  */
 export function measureProseEventMentions(
   docs: readonly SkillDoc[],
@@ -760,8 +599,6 @@ export function measureProseEventMentions(
   return sites;
 }
 
-// ─── Reading the tree ────────────────────────────────────────────────────────
-
 /** Every source the event-catalog measurement reads, repo-relative. */
 export const EVENT_CATALOG_SOURCES: {
   readonly authority: string;
@@ -771,32 +608,21 @@ export const EVENT_CATALOG_SOURCES: {
   readonly proseRoot: string;
 } = Object.freeze({
   authority: 'src/events/schemas.ts',
-  // Where the per-event emission facts are DECLARED since task 011 (DR-2). `schemas.ts` still
-  // exports `EVENT_EMISSION_REGISTRY` — it is still the authority binding, and the row's
-  // representation id is unchanged — but its value is now
-  // `deriveEmissionRegistry(EventTypes, ANNOTATED_EVENTS.registrationOf)`, so parsing that file for
-  // string-valued entries measures a literal that no longer exists and reports zero.
-  //
-  // This is the measure-the-proxy failure mode in its purest form, and it fired exactly as it
-  // should: the empty-denominator guard threw rather than reporting a clean catalog of nothing.
-  // The fix is to measure the structural fact — the tier/lifecycle pair each event declares —
-  // and to derive the source through the SHIPPED derivation rather than restating it here.
+  /**
+   * The per-event emission facts. `schemas.ts` derives `EVENT_EMISSION_REGISTRY`
+   * from them, so the measurement reads the tier and lifecycle pair of each event.
+   */
   annotations: 'src/events/event-annotations.ts',
-  // The action descriptors, which is where the emission rows live. A DIRECTORY,
-  // not a file: the declarations are split into a module per action family, so
-  // any single path would measure a fraction of the representation.
-  //
-  // The rows used to be a sibling `autoEmits:` array on each descriptor and are
-  // now `emissions:` inside the action contract, reached through `declared(…)`
-  // / `none(…)`. Scanning for the old property name found zero sites and the
-  // empty-denominator guard threw — the annotations entry above records the
-  // same failure mode from the same cause. What is measured is therefore the
-  // ROW rather than whichever property currently carries it, so the next move
-  // of the wrapper does not silently re-open this.
+  /**
+   * A directory of action descriptors, one module for each action family. The
+   * measurement reads each emission row, not the property that carries it.
+   */
   emissions: 'src/registry/actions',
   phaseExpectedEvents: 'src/workflow/topology/phase-events.ts',
-  // The AUTHORED skills tree. `skills/<runtime>/` is generated from it, so
-  // measuring both would count one representation several times.
+  /**
+   * The authored skills tree. The rendered trees come from it, so a scan of both
+   * counts one representation more than once.
+   */
   proseRoot: 'content',
 });
 
@@ -821,12 +647,9 @@ function readTypeScriptTree(dir: string): string {
 }
 
 /**
- * Read a representation's source. A representation may be one file or a
- * DIRECTORY of them: emission rows are declared on action descriptors, and
- * those are split across a module per action family. Naming the directory
- * keeps the measurement over the whole representation, where naming one file
- * would silently shrink the denominator every time a family is split out —
- * the empty-denominator guard catches the total loss, but not a partial one.
+ * Reads the source of a representation: one file, or each `.ts` file of a
+ * directory. A directory keeps the whole representation in the measurement when
+ * a family splits into a new module.
  */
 function readOrThrow(repoRoot: string, rel: string): string {
   const abs = path.join(repoRoot, rel);
@@ -881,9 +704,7 @@ export function readEventCatalogSources(repoRoot: string = REPO_ROOT): EventCata
   };
 }
 
-// ─── The event-catalog boundary, measured ────────────────────────────────────
-
-/** The representation ids task 024's committed row uses. Matched exactly. */
+/** The representation ids of the committed row. They must match exactly. */
 export const EVENT_CATALOG_REPRESENTATION_IDS: {
   readonly authority: string;
   readonly emissions: string;
@@ -904,15 +725,11 @@ export interface EventCatalogMeasurement extends MeasuredBoundary {
 }
 
 /**
- * Measure the event-catalog boundary from source.
- *
- * The authority is `EVENT_EMISSION_REGISTRY`, read from its own declaration
- * rather than imported: importing it would drag zod and the whole event-store
- * module graph into a build-tooling script, and — more to the point — the
- * runtime value cannot answer the question being asked. A parsed key set is
- * a static under-approximation (`registerEventType` can add custom types at
- * runtime), which is stated here rather than smoothed over; the co-located test
- * cross-checks it against the live imported registry.
+ * Measures the event-catalog boundary from source. The authority is measured
+ * from the annotations it derives from, not imported. An import pulls zod and
+ * the event-store graph into a build script, and a runtime value cannot show
+ * provenance. The parsed key set omits types that `registerEventType` adds at
+ * runtime. The co-located test compares it with the live registry.
  */
 export function measureEventCatalog(sources: EventCatalogSources): EventCatalogMeasurement {
   const registeredEvents = measureDerivedEmissionSources(
@@ -946,9 +763,6 @@ export function measureEventCatalog(sources: EventCatalogSources): EventCatalogM
       binding: { kind: 'authoritative' },
       sites: [
         {
-          // The BINDING is still exported from `schemas.ts` (hence the unchanged representation
-          // id); the per-event facts behind it are declared in the annotations module, which is
-          // what was measured.
           file: EVENT_CATALOG_SOURCES.annotations,
           line: 1,
           kind: 'derived',
@@ -1022,17 +836,6 @@ export function measureEventCatalog(sources: EventCatalogSources): EventCatalogM
   };
 }
 
-// ─── The phase-events boundary, measured ─────────────────────────────────────
-//
-// `PHASE_EVENT_CONTRACTS` declares which model-emitted events a phase expects
-// and which the runtime emits on the model's behalf. Three representations used
-// to hold their own copy — the gate tables, the playbook rows, the skill prose —
-// and disagreed. This row measures whether each is COMPUTED from the contract:
-// the gate's two exported tables by their initializer, every playbook `events:`
-// and `autoEmittedEvents:` row by its initializer, and the prose by the only
-// thing Markdown can offer, which is a count of the contract's event names it
-// carries. The prose is compared to the contract by a test; nothing computes it.
-
 /** Every source the phase-events measurement reads, repo-relative. */
 export const PHASE_EVENTS_SOURCES: {
   readonly contract: string;
@@ -1072,10 +875,10 @@ export const PHASE_EVENTS_REPRESENTATION_IDS: {
 /** The module every consumer must import the contract's projections from. */
 export const CONTRACT_MODULE_SUFFIX = 'topology/phase-events.js';
 
-/** The contract table itself: the one argument a gate projection may take. */
+/** The contract table. A gate projection takes only this argument. */
 export const CONTRACT_TABLE = 'PHASE_EVENT_CONTRACTS';
 
-/** Each gate table and the one contract projection that may compute it. */
+/** Each gate table and the one contract projection that can compute it. */
 export const GATE_TABLE_PROJECTIONS: Readonly<Record<string, string>> = Object.freeze({
   PHASE_EXPECTED_EVENTS: 'expectedEventsByPhase',
   EVENT_DESCRIPTIONS: 'hintDescriptions',
@@ -1085,11 +888,10 @@ export const GATE_TABLE_PROJECTIONS: Readonly<Record<string, string>> = Object.f
 export const GATE_TABLES: readonly string[] = Object.freeze(Object.keys(GATE_TABLE_PROJECTIONS));
 
 /**
- * Each playbook property and the ONE contract projection that may compute it.
- * Not a shared pool: `events` instructs the model and `autoEmittedEvents`
- * discloses what the runtime fires, and a row that calls the other one's
- * projection has swapped model-owned for runtime-owned semantics — which is
- * the disagreement the contract exists to end, not a bound representation.
+ * Each playbook property and the one contract projection that can compute it.
+ * `events` instructs the model, and `autoEmittedEvents` discloses what the
+ * runtime emits. A row that calls the projection of the other property swaps
+ * model-owned and runtime-owned meaning, so it is not bound.
  */
 export const PLAYBOOK_PROPERTY_PROJECTIONS: Readonly<Record<string, string>> = Object.freeze({
   events: 'phaseEventInstructions',
@@ -1101,7 +903,7 @@ export const PLAYBOOK_PROPERTIES: readonly string[] = Object.freeze(
   Object.keys(PLAYBOOK_PROPERTY_PROJECTIONS),
 );
 
-/** The contract projections a playbook row may call, across all properties. */
+/** The contract projections that a playbook row can call, across all properties. */
 export const PLAYBOOK_PROJECTIONS: readonly string[] = Object.freeze(
   Object.values(PLAYBOOK_PROPERTY_PROJECTIONS),
 );
@@ -1120,7 +922,7 @@ export function namedImportsFrom(source: string, file: string, moduleSuffix: str
   return names;
 }
 
-/** The type of the measured playbook population; the serializer copies rows off a value of this type. */
+/** The type of the measured playbook population. The serializer copies rows off a value of this type. */
 export const PLAYBOOK_TYPE = 'PhasePlaybook';
 
 /** A copy of a measured row: `<receiver>.<property>` with `<receiver>` declared as `receiverType`. */
@@ -1136,24 +938,21 @@ export interface ProjectionShape {
   /** When set, the projection call's one argument must be exactly this name. */
   readonly argument?: string;
   /**
-   * When set, `<receiver>.<property>` — optionally mapped through a named clone,
-   * `<receiver>.<property>.map(clone)` — is a copy of a row already in the
-   * population, provided `<receiver>` is declared in an enclosing scope with the
-   * population's type. Read off anything else, the same property name is a
+   * When set, `<receiver>.<property>`, or `<receiver>.<property>.map(clone)`, is
+   * a copy of a row in the population. The receiver must be declared in an
+   * enclosing scope with the population type. Otherwise the same property is a
    * second table.
    */
   readonly copies?: RowCopyShape;
 }
 
 /**
- * Re-read a `derived` initializer against the shapes that actually reach the
- * authority. `classifyInitializer` can only say "not a literal"; a conditional
- * that carries a baked name, an unrelated helper, a projection imported from
- * anywhere but the authority's module, or a projection call wrapped in a chain,
- * a spread or a fallback that adds rows of its own is not a literal either, and
- * would read as bound. The WHOLE initializer is read: it is exactly one call of
- * an imported projection, or exactly one copy of a measured row. Anything else
- * is `opaque`, which `bindingFor` counts as unbound.
+ * Reads a `derived` initializer again against the shapes that reach the
+ * authority. The whole initializer must be exactly one call of an imported
+ * projection, or exactly one copy of a measured row. A conditional, an unrelated
+ * helper, or a wrapped call is `opaque`, which `bindingFor` counts as unbound. A
+ * playbook projection takes the phase as a name or a string, never an expression
+ * that can carry an event.
  */
 export function bindThroughProjection(initializer: ts.Expression, shape: ProjectionShape): SiteBinding {
   const node = unwrapParentheses(initializer);
@@ -1165,8 +964,6 @@ export function bindThroughProjection(initializer: ts.Expression, shape: Project
   if (shape.argument !== undefined) {
     return ts.isIdentifier(argument) && argument.text === shape.argument ? 'derived' : 'opaque';
   }
-  // A playbook projection takes the phase — a name or a string, never an
-  // expression that could carry an event.
   return ts.isIdentifier(argument) || ts.isStringLiteralLike(argument) ? 'derived' : 'opaque';
 }
 
@@ -1194,19 +991,12 @@ function copiesMeasuredRow(node: ts.Expression, copies: RowCopyShape): boolean {
 }
 
 /**
- * Whether a `.map()` callback hands every row back with its event facts
- * intact. A copy is only a copy if nothing is rewritten on the way through:
- * a callback free to set `type` or `when` is a second author of the phase →
- * event facts wearing the shape of a clone, and the census would report the
- * rewritten rows as bound to the contract they no longer agree with.
- *
- * Accepted, and nothing else: a one-parameter arrow or function expression
- * returning an object literal whose every element is a spread — of the
- * parameter itself, or of a guarded object literal that only re-copies the
- * parameter's own same-named property (`e.fields !== undefined && { fields:
- * [...e.fields] }`, the deep-copy the live serializer does). A named callback
- * is resolved to its declaration first; one that resolves to nothing readable
- * is not a clone.
+ * Whether a `.map()` callback returns each row with its event facts unchanged. A
+ * callback that can set `type` or `when` is a second author of the facts. Only a
+ * one-parameter arrow or function expression is accepted. It must return an
+ * object literal of spreads: of the parameter, or of a guarded object literal
+ * that copies the same-named property of the parameter. A named callback
+ * resolves to its declaration first.
  */
 function clonesRowsUnchanged(callback: ts.Expression): boolean {
   const declared = unwrapParentheses(callback);
@@ -1339,7 +1129,14 @@ function typeNameOf(type: ts.TypeNode | undefined): string | undefined {
     : undefined;
 }
 
-/** Measure the phase-events boundary from source. */
+/**
+ * Measures the phase-events boundary from source. `PHASE_EVENT_CONTRACTS`
+ * declares the events that each phase expects and that the runtime emits. The
+ * gate tables and the playbook rows must be computed from the contract, through
+ * a projection that the file imports from the contract module. The gate
+ * projection must take the contract table itself. A test compares the skill
+ * prose with the contract.
+ */
 export function measurePhaseEvents(sources: PhaseEventsSources): MeasuredBoundary {
   const contractRows = measureDeclaredEventRows(sources.contract, PHASE_EVENTS_SOURCES.contract);
   const contractEvents = new Set(
@@ -1352,8 +1149,6 @@ export function measurePhaseEvents(sources: PhaseEventsSources): MeasuredBoundar
         'names, and an empty set would make it vanish rather than be found unbound.',
     );
   }
-  // A derived site binds only through a projection the file imports from the
-  // contract module; the gate's projection must take the contract table itself.
   const gateImports = namedImportsFrom(sources.gate, PHASE_EVENTS_SOURCES.gate, CONTRACT_MODULE_SUFFIX);
   const gateSites = measureExportedInitializers(
     sources.gate,
@@ -1377,7 +1172,6 @@ export function measurePhaseEvents(sources: PhaseEventsSources): MeasuredBoundar
   const playbookSites = PLAYBOOK_PROPERTIES.flatMap((property) =>
     measurePropertyAssignments(sources.playbooks, PHASE_EVENTS_SOURCES.playbooks, property, (initializer) =>
       bindThroughProjection(initializer, {
-        // This property's own projection, and only if the file imports it.
         projections: new Set(
           [PLAYBOOK_PROPERTY_PROJECTIONS[property]].filter(
             (name): name is string => name !== undefined && playbookImports.has(name),
@@ -1467,21 +1261,18 @@ export function measurePhaseEventsLive(repoRoot: string = REPO_ROOT): MeasuredBo
   return measurePhaseEvents(readPhaseEventsSources(repoRoot));
 }
 
-// ─── The effect-event boundary, measured ─────────────────────────────────────
-
 /** Every source the effect-event measurement reads, repo-relative. */
 export const EFFECT_EVENT_SOURCES: {
   readonly carrier: string;
   readonly vcsLedger: string;
   readonly promotion: string;
 } = Object.freeze({
-  // The carrier itself: where `EffectPlan.emits` is declared and where the commit
-  // gate that makes it authoritative is thrown from.
+  /** The carrier. It declares `EffectPlan.emits` and throws the commit gate. */
   carrier: 'src/dispatch/core/effect-carrier.ts',
-  // The two owners that declare emissions on a plan. They are named individually
-  // rather than scanned for, because a directory scan would report a shrinking
-  // denominator as a clean measurement the moment an owner moved — and there are
-  // two, so the population is small enough to name and large enough to disagree.
+  /**
+   * The two owners that declare emissions on a plan. They are named, not
+   * scanned, so a moved owner fails the read and does not shrink the denominator.
+   */
   vcsLedger: 'src/vcs/mutation-owner.ts',
   promotion: 'src/install/atomic-promotion.ts',
 });
@@ -1519,13 +1310,10 @@ export function readEffectEventSources(repoRoot: string = REPO_ROOT): EffectEven
 }
 
 /**
- * The identifier a plan-declared emission is handed to a sink under.
- *
- * A sink derives the fact it records IFF it reads the emission it was handed.
- * The property is named rather than inferred: `emission.when` selects the
- * CONDITION and `emission.event` selects the IDENTITY, and only the second makes
- * the recorded fact follow the plan. A sink that reads `when` alone still bakes
- * the name of whatever it records.
+ * The property that names the identity of a plan-declared emission in a sink.
+ * `emission.when` selects the condition, and `emission.event` selects the
+ * identity. Only a sink that reads the identity records a fact that follows the
+ * plan.
  */
 const EMISSION_IDENTITY_PROPERTY = 'event';
 
@@ -1541,7 +1329,6 @@ function sinkReadsEmissionIdentity(
   if (param === undefined) {
     return { derived: false, subject: 'sink takes no emission parameter' };
   }
-  // `({ event }) => …` — the identity is bound straight out of the parameter.
   if (ts.isObjectBindingPattern(param.name)) {
     const binds = param.name.elements.some((el) =>
       el.propertyName === undefined
@@ -1579,21 +1366,12 @@ function sinkReadsEmissionIdentity(
 }
 
 /**
- * Every emission sink an owner builds, classified by whether the fact it
- * records is NAMED BY THE PLAN.
- *
- * This is the module's one discriminating fact — a name is bound iff it is
- * computed from the authority — applied to the append direction: a
- * sink that appends `emission.event` records a name COMPUTED from the plan and
- * follows it; a sink that ignores the emission bakes whatever it records, and no
- * change to the plan can move it. The two are byte-identical in their effect on
- * the commit gate — both mint a receipt — so the gate cannot tell them apart and
- * this measurement is the only thing that can.
- *
- * Classified from the SINK rather than from the append call, deliberately. An
- * owner may append through a private helper (the VCS owner does), so following
- * the store call would measure the helper's parameter and report `derived` for
- * any owner that happened to route through one.
+ * Each emission sink that an owner builds, classified by whether the plan names
+ * the fact that it records. A sink that appends `emission.event` follows the
+ * plan. A sink that ignores the emission bakes its record. The commit gate
+ * cannot tell them apart, because both mint a receipt. The measurement reads the
+ * sink, not the append call, because an owner can append through a private
+ * helper.
  */
 export function measureEmissionSinks(source: string, file: string): readonly MeasuredSite[] {
   const sourceFile = parseOrThrow(source, file, LABEL);
@@ -1630,16 +1408,10 @@ export function measureEmissionSinks(source: string, file: string): readonly Mea
 }
 
 /**
- * The commit gate, measured rather than assumed.
- *
- * `EffectPlan.emits` is only an AUTHORITY because a plan cannot produce a
- * committed value without a receipt for what it declared — that is what
- * `UnrecordedEmissionError` enforces, and without it the field would be a
- * comment. The field is required now, so the claim covers every plan rather
- * than only the ones that opted in; a plan may still declare that it records
- * nothing, but it may no longer decline to say. Deleting the gate must take the
- * authority claim with it, so its presence is a fail-closed precondition of the
- * measurement rather than a sentence in the row's prose.
+ * Counts the `throw new UnrecordedEmissionError` sites in the carrier. This
+ * commit gate makes `EffectPlan.emits` an authority: a plan cannot commit a value
+ * without a receipt for each declared emission. Zero sites throw, so a removal of
+ * the gate also removes the authority claim.
  */
 function requireCommitGate(source: string, file: string): number {
   const sourceFile = parseOrThrow(source, file, LABEL);
@@ -1669,25 +1441,12 @@ function requireCommitGate(source: string, file: string): number {
 }
 
 /**
- * Measure the effect-event boundary from source.
- *
- * The boundary asks whether the effect that was PLANNED and the event that
- * RECORDS it agree. Two independent facts answer it, and they are measured
- * separately because they can fail separately:
- *
- *   • the plan's `emits` set is authoritative over WHETHER a record happens —
- *     `runEffect` refuses the effect up front without a sink and reaches its
- *     return only on one receipt per declared emission. That is total over every
- *     declaring owner and has no escape, which is why {@link requireCommitGate}
- *     is a precondition rather than a representation;
- *   • whether the record's IDENTITY follows the plan is per-owner, and it is
- *     where the two owners part company.
- *
- * The type on `EffectEmission.event` is deliberately NOT offered as evidence of
- * either. It guarantees a plan cannot name an unregistered event, which is a
- * property of the catalog and cannot fail here — a check whose subject is
- * enforced by a type is not a check, and counting it would close the row on a
- * tautology.
+ * Measures the effect-event boundary from source. It asks whether the planned
+ * effect and the event that records it agree. Two facts answer it, and each can
+ * fail alone. The `emits` set of the plan controls whether a record happens, and
+ * {@link requireCommitGate} is a precondition for that. Whether the record
+ * identity follows the plan is a fact for each owner. The type on
+ * `EffectEmission.event` is not evidence, because a type cannot fail here.
  */
 export function measureEffectEvent(sources: EffectEventSources): MeasuredBoundary {
   const gates = requireCommitGate(sources.carrier, EFFECT_EVENT_SOURCES.carrier);
@@ -1751,21 +1510,19 @@ export function measureEffectEvent(sources: EffectEventSources): MeasuredBoundar
   };
 }
 
-// ─── The CLI-surface boundary, measured ──────────────────────────────────────
-
-/** The registry-side authority id task 024's committed row uses. */
+/** The registry-side authority id of the committed row. */
 export const CLI_REGISTRY_AUTHORITY = 'registry';
-/** The literal-side authority id task 024's committed row uses. */
+/** The literal-side authority id of the committed row. */
 export const CLI_LITERAL_AUTHORITY = 'adapters/cli/cli.ts hand-written `.command()` literals';
 
 /**
- * Build the CLI-surface row from task 020's live scan.
- *
- * The second authority is not asserted: it EXISTS iff the guard finds at least
- * one baked `.command('…')` name in the live composition root, and the authority
- * arm is computed from the count of authoritative representations exactly as
- * `sdkAuthority()` computes the sdk-generation row's. Retire the last literal
- * and this row reports `single` on its own — nobody has to remember to edit it.
+ * Builds the CLI-surface row from the live scan of `cli-derivation-guard.ts`.
+ * The second authority exists only when the scan finds a baked `.command('…')`
+ * name. The authority arm is computed from the count of authoritative
+ * representations, so the row reports `single` when the last literal goes. The
+ * literal representation id holds the live count, so a count drift changes the
+ * census tuple. The scan gives no offsets, so each site has the span -1, and
+ * {@link spliceSites} refuses it.
  */
 export function measureCliSurface(scan: DerivationScan): MeasuredBoundary {
   if (scan.sites.length === 0) {
@@ -1781,10 +1538,6 @@ export function measureCliSurface(scan: DerivationScan): MeasuredBoundary {
     );
   }
 
-  // Task 020's scan reports line/column, not offsets, and it is reused here
-  // UNCHANGED rather than widened for this task's convenience. The unusable
-  // span is recorded honestly (-1) so {@link spliceSites} refuses these sites
-  // outright instead of splicing at a plausible-looking wrong position.
   const toSite = (kind: SiteBinding) => (site: DerivationScan['sites'][number]): MeasuredSite => ({
     file: site.file,
     line: site.line,
@@ -1830,20 +1583,12 @@ export function measureCliSurface(scan: DerivationScan): MeasuredBoundary {
 
   if (scan.literals.length > 0) {
     representations.push({
-      // Formatted to reproduce the committed row's id EXACTLY, count included —
-      // so a drift in the live count changes the census tuple rather than
-      // hiding inside a number nothing compares.
       id: `the ${scan.literals.length} hand-written \`.command('…')\` literals in \`adapters/cli/cli.ts\``,
       binding: { kind: 'authoritative' },
       sites: scan.literals.map(toSite('literal')),
     });
   }
 
-  // The authority arm, COMPUTED from the count of authoritative representations
-  // rather than written down — the `sdkAuthority()` idiom. There is no branch
-  // here that can report `single` while two authoritative representations are
-  // present; `checkTopologyTotality`'s AUTHORITY_REPRESENTATION_DISAGREEMENT
-  // tooth would reject the row if there were.
   const authoritativeCount = representations.filter(
     (r) => r.binding.kind === 'authoritative',
   ).length;
@@ -1874,13 +1619,10 @@ export function measureCliSurfaceLive(repoRoot: string = REPO_ROOT): MeasuredBou
   return measureCliSurface(scanGovernedSources(repoRoot));
 }
 
-// ─── Substituting a measured row into the committed topology ─────────────────
-
 /**
- * Carried from the committed row, deliberately: `enforceFrom` is a SCHEDULE
- * claim and `provenance` is a claim about how the row is maintained. Neither is
- * a fact about the tree, so task 026 must not restate them — it measures the
- * authority and the representations and leaves the rest to task 024.
+ * Fields copied from the committed row. `enforceFrom` is a schedule claim and
+ * `provenance` is a maintenance claim. Neither is a fact about the tree, so the
+ * measurement does not restate them.
  */
 export interface CarriedRowFields {
   readonly enforceFrom: unknown;

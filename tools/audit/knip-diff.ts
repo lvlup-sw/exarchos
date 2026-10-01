@@ -1,65 +1,17 @@
 /**
- * knip-diff.ts — the DR-6/DR-8 dead-code gate.
+ * Dead-code gate. It runs `knip` (files, dependencies, exports, types) and diffs the findings
+ * against `knip-allowlist.json`. An unallowlisted finding or an expired allowlist entry exits 1.
+ * A missing binary, unparseable output, a bad config or allowlist, or a vacuous exemption exits 2.
+ * CI can then tell dead code from a broken gate.
  *
- * Runs `knip` (files + dependencies + exports + types) and diffs its findings
- * against `knip-allowlist.json`. The gate FAILS CLOSED — it exits non-zero, and
- * never silently passes — on any of:
+ * `knip-allowlist.json` exempts one finding by `{file, symbol}`, with an owner and an expiry.
+ * The `tags: ["-proof"]` rule in `knip.json` exempts a convention: exported `Expect<…>` proof
+ * aliases, which exist only so that `tsc` checks an invariant.
  *
- *   (a) an unallowlisted violation  → fix (delete the dead code) or allowlist it
- *   (b) an expired allowlist entry  → the review deadline passed; delete or renew
- *   (DR-8) the knip binary is missing → cannot verify the surface (tool-missing)
- *   (DR-8) knip emitted unparseable output → cannot trust the surface
- *   a malformed knip-allowlist.json → the exemption ledger itself is untrusted
- *   (DR-24) an exemption rule that matches NOTHING → see "the denominator" below
- *
- * (a)/(b) exit 1 (a real dead-code finding); the DR-8 "can't verify" causes exit
- * 2, so CI can tell "there is dead code" from "the gate itself broke". Both are
- * blocking. The pure functions (`parseKnipOutput`, `loadAllowlist`,
- * `readExclusionTags`, `diffAgainstAllowlist`) and the injectable
- * `runKnipDiff(deps)` are exported so the fail-closed paths are unit-testable
- * without spawning knip.
- *
- * ─── The two exemption shapes, and why they are not interchangeable ──────────
- *
- * `knip-allowlist.json` exempts ONE finding, by `{file, symbol}`, with an owner
- * and an expiry. It is the right instrument for a finding that is genuinely
- * one-of-a-kind: a CLI reached by subprocess, a corpus fixture read by path.
- *
- * `knip.json`'s `tags: ["-proof"]` exempts a CONVENTION. The repo's compile-time
- * proof aliases — exported `Expect<…>` type aliases that exist so `tsc` checks an
- * invariant the co-located test cannot, because `tsconfig.json` excludes
- * `*.test.ts` — are unreferenced BY CONSTRUCTION. knip is correct on its own
- * terms; the terms are what need stating. 94 as measured 2026-08-10 (via
- * `knip --tags +proof`; see "The denominator" below) and the population grows
- * with every proof written, so an allowlist row per alias is a ledger that
- * must be appended to forever — the drift this gate exists to remove. One config
- * rule states the convention once. The live count is not asserted anywhere —
- * `runKnipDiff` logs the measured denominator on every green run instead of
- * pinning a number that would go stale the day after it was written.
- *
- * ─── The denominator ────────────────────────────────────────────────────────
- *
- * A rule that exempts a convention is only as trustworthy as the evidence that it
- * still matches something. If `@proof` were renamed, or `knip.json`'s `project`
- * globs stopped resolving files, the sweep would report ZERO findings and pass
- * clean — the failure mode this program calls a vacuous gate.
- *
- * So the gate takes a SECOND knip reading, per exclusion tag, with the filter
- * INVERTED (`--tags +proof`), which reports exactly the unreferenced exports that
- * DO carry the tag. That set is the exemption's denominator, measured by the same
- * instrument that applies the exemption rather than by a separate scanner that
- * could disagree with it. An empty denominator FAILS CLOSED (exit 2).
- *
- * This single probe closes both holes named in DR-24: an exemption matching zero
- * symbols is empty, and a knip run resolving zero FILES cannot produce a tagged
- * finding either, so it is empty too. A run that analyses nothing cannot report
- * a non-empty denominator, and therefore cannot pass.
- *
- * Note what the gate deliberately does NOT do: it never infers "this is a proof"
- * from the `_`-prefixed naming convention. That is a PROXY for the structural
- * fact, and it is a demonstrably unsound one — `__resetTopologyCacheForTesting`
- * in `topology/loader.ts` is `_`-prefixed and is not a proof. Only the tag, which
- * an author writes deliberately, exempts anything.
+ * For each exclusion tag, the gate takes a second knip reading with `--tags +<name>`. This
+ * denominator lists the unreferenced exports that carry the tag. An empty denominator exits 2,
+ * because a renamed tag or a run that resolves no files also reports zero findings.
+ * The gate exempts a symbol only by its tag, never by a `_` name prefix.
  */
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -69,10 +21,9 @@ import { z } from 'zod';
 import { isEntryExpired, makeRegisterSchema } from './register-entry-schema.js';
 
 /**
- * Per-register schema. The knip allowlist keys each exemption on `{ symbol, file }`;
- * the shared `{ owner, rationale, expires XOR permanent }` contract comes from
- * {@link makeRegisterSchema}. Task 010's edge register will call the same seam
- * with its own key fields.
+ * Per-register schema. The knip allowlist keys each exemption on `{ symbol, file }`.
+ * The shared `{ owner, rationale, expires XOR permanent }` contract comes from
+ * {@link makeRegisterSchema}.
  */
 export const allowlistEntrySchema = makeRegisterSchema({
   symbol: z.string().min(1, '`symbol` is required'),
@@ -82,20 +33,18 @@ export type AllowlistEntry = z.infer<typeof allowlistEntrySchema>;
 
 export interface KnipViolation {
   readonly kind: 'file' | 'dependency' | 'export' | 'type';
-  /** For `kind === 'file'` this is the file path; otherwise the symbol / dep name. */
+  /** The file path for `kind === 'file'`. For the other kinds, the symbol or dependency name. */
   readonly symbol: string;
   readonly file: string;
   /**
-   * `| undefined` deliberately: {@link parseKnipOutput} sets this from
-   * `readLine`, which honestly returns `number | undefined` for a knip finding
-   * that carries no line. Under `exactOptionalPropertyTypes` an explicit
-   * `undefined` is not the same as an absent key, so the field must admit it.
-   * (Surfaced by task 066, the first typecheck this tree has ever had.)
+   * `| undefined` on purpose: {@link parseKnipOutput} sets it from `readLine`, which returns
+   * `undefined` for a finding with no line. Under `exactOptionalPropertyTypes`, an explicit
+   * `undefined` is not the same as an absent key.
    */
   readonly line?: number | undefined;
 }
 
-/** Thrown when knip output cannot be parsed into the expected shape (DR-8). */
+/** Thrown when knip output cannot be parsed into the expected shape. */
 export class KnipParseError extends Error {
   constructor(message: string) {
     super(message);
@@ -126,6 +75,7 @@ function readLine(item: unknown): number | undefined {
  * Parse knip's `--reporter json` stdout into a flat violation list. Throws
  * {@link KnipParseError} on anything that is not the expected `{ issues: [...] }`
  * shape so the caller can fail closed instead of treating garbage as "clean".
+ * A non-empty `files` array on an issue marks the whole file as unused.
  */
 export function parseKnipOutput(raw: string): KnipViolation[] {
   const trimmed = raw.trim();
@@ -159,7 +109,6 @@ export function parseKnipOutput(raw: string): KnipViolation[] {
       throw new KnipParseError('a knip issue is missing its `file`');
     }
     const file = issue.file;
-    // Whole-file-unused: knip reports a non-empty `files` array on that file's issue.
     if (Array.isArray(issue.files) && issue.files.length > 0) {
       violations.push({ kind: 'file', symbol: file, file });
     }
@@ -173,13 +122,10 @@ export function parseKnipOutput(raw: string): KnipViolation[] {
 
 /**
  * A knip exclusion tag, in the two forms the gate needs.
- *
- * knip resolves a raw config entry via its own `splitTags`: split on `,`, take
- * the FIRST `[a-zA-Z]+` run, prefix `@`. So `"-proof"` and `"-proof-alias"` both
- * name the tag `@proof`, and an entry with no leading `-` is an INCLUDE filter,
- * not an exemption. {@link readExclusionTags} mirrors that rule exactly — a guard
- * that normalised differently would take its denominator against a tag knip never
- * applied, and would report evidence for an exemption other than the live one.
+ * knip splits a raw config entry on `,`, takes the first `[a-zA-Z]+` run, and prefixes `@`.
+ * So `"-proof"` and `"-proof-alias"` both name `@proof`. An entry with no leading `-` is an
+ * include filter, not an exemption. {@link readExclusionTags} mirrors that rule, so the
+ * denominator measures the tag that knip applies.
  */
 export interface ExclusionTag {
   /** Bare name, as passed back to knip's `--tags +<name>` (`proof`). */
@@ -189,8 +135,8 @@ export interface ExclusionTag {
 }
 
 /**
- * Read the exclusion tags declared by `knip.json`. Policy is DATA the gate reads
- * from the same file knip reads; the tag name is nowhere hard-coded in the gate.
+ * Read the exclusion tags declared by `knip.json`. The gate reads the policy from the same
+ * file as knip and hard-codes no tag name.
  */
 export function readExclusionTags(knipConfig: unknown): ExclusionTag[] {
   if (!isRecord(knipConfig)) return [];
@@ -203,8 +149,6 @@ export function readExclusionTags(knipConfig: unknown): ExclusionTag[] {
   const tags: ExclusionTag[] = [];
   const seen = new Set<string>();
   for (const entry of entries.flatMap((t) => t.split(','))) {
-    // knip pushes to the EXCLUDE list only for a leading `-`; anything else is an
-    // include filter, which narrows what knip reports instead of exempting it.
     if (!entry.trim().startsWith('-')) continue;
     const match = /[a-zA-Z]+/.exec(entry);
     if (match === null) continue;
@@ -233,7 +177,7 @@ export interface DiffResult {
   readonly unallowlisted: readonly KnipViolation[];
   /** allowlist entries past their review deadline — these FAIL the gate. */
   readonly expired: readonly AllowlistEntry[];
-  /** allowlist entries knip no longer flags — a non-failing hygiene warning. */
+  /** allowlist entries that knip does not flag — a non-failing hygiene warning. */
   readonly stale: readonly AllowlistEntry[];
 }
 
@@ -263,7 +207,7 @@ export function diffAgainstAllowlist(
 export const EXIT_OK = 0;
 /** A real dead-code finding: an unallowlisted or expired exemption. */
 export const EXIT_VIOLATIONS = 1;
-/** Fail-closed: the gate itself could not verify the surface (DR-8). */
+/** Fail-closed: the gate itself cannot verify the surface. */
 export const EXIT_GATE_ERROR = 2;
 
 export interface KnipRun {
@@ -349,7 +293,11 @@ function measureDenominators(
   return { denominators };
 }
 
-/** Injectable gate body — no process/FS/child_process access of its own. */
+/**
+ * Injectable gate body — no process/FS/child_process access of its own.
+ * The remedies for an unallowlisted finding print in the failure output, where an author reads them.
+ * A green run also logs each denominator, so a reviewer can see the count move.
+ */
 export function runKnipDiff(deps: KnipDiffDeps): number {
   const run = deps.runKnip();
   if (!run.found) {
@@ -373,7 +321,6 @@ export function runKnipDiff(deps: KnipDiffDeps): number {
     return EXIT_GATE_ERROR;
   }
 
-  // ── the denominator, before anything is allowed to report clean ────────────
   let exclusionTags: ExclusionTag[];
   try {
     exclusionTags = readExclusionTags(deps.readKnipConfig());
@@ -426,9 +373,6 @@ export function runKnipDiff(deps: KnipDiffDeps): number {
     for (const v of unallowlisted) {
       deps.errlog(`    ${v.kind}  ${v.file} :: ${v.symbol}${v.line ? `:${v.line}` : ''}`);
     }
-    // The convention lives HERE, in the failure an author actually reads, rather
-    // than in a comment beside the aliases. A new proof alias lands in this list
-    // on its first CI run; this is where its author learns what to do with it.
     deps.errlog('  Three remedies, in order of preference:');
     deps.errlog(
       '    1. DELETE it. An exported symbol nothing references is dead code until shown ' +
@@ -461,9 +405,6 @@ export function runKnipDiff(deps: KnipDiffDeps): number {
   }
   if (failed) return EXIT_VIOLATIONS;
 
-  // Publish the denominator on the GREEN path too. A reviewer reading a passing
-  // CI log can see how many symbols each rule is exempting, and can falsify the
-  // claim by expecting that number to move when proofs are added or deleted.
   for (const { tag, exempted } of measured.denominators) {
     deps.log(
       `[knip-diff] denominator: \`${tag.jsDocTag}\` exempts ${exempted.length} unreferenced ` +
@@ -477,37 +418,30 @@ export function runKnipDiff(deps: KnipDiffDeps): number {
   return EXIT_OK;
 }
 
-// ─── production wiring (only runs when invoked as a CLI) ────────────────────
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..');
 const ALLOWLIST_PATH = path.join(HERE, 'knip-allowlist.json');
 const KNIP_CONFIG_PATH = path.join(REPO_ROOT, 'knip.json');
 const DEFAULT_INCLUDE = 'files,dependencies,exports,types';
 /**
- * The denominator reading only ever concerns tagged EXPORTS and TYPES — knip's
- * tag filter does not apply to `files` or `dependencies` findings, so widening
- * this would count symbols the exemption never touched.
+ * The denominator reading concerns only tagged exports and types. The tag filter of knip
+ * does not apply to `files` or `dependencies` findings.
  */
 const CENSUS_INCLUDE = 'exports,types';
 
+/** The `--include` value, or the default when the value is missing or empty. */
 function parseIncludeArg(argv: readonly string[]): string {
   const i = argv.indexOf('--include');
   if (i < 0) return DEFAULT_INCLUDE;
-  // Same truthiness semantics as before (a missing OR empty value falls back),
-  // written so the narrowing survives — `argv[i + 1]` is not a constant index,
-  // so the guard did not narrow the second read. Task 066.
   const value = argv[i + 1];
   return value !== undefined && value !== '' ? value : DEFAULT_INCLUDE;
 }
 
+/**
+ * Spawns knip. `EXARCHOS_KNIP_BIN` overrides the binary path, so the self-test can reach the
+ * tool-missing, unparseable-output and vacuous-exemption paths without uninstalling knip.
+ */
 function spawnKnip(args: readonly string[]): KnipRun {
-  // Binary path is overridable via EXARCHOS_KNIP_BIN so the DR-8 fail-closed
-  // paths (tool-missing / unparseable-output / vacuous-exemption) are exercisable
-  // from the unfiltered grep-gates `.test.sh` self-test without uninstalling knip:
-  // point it at a missing path (→ found:false, tool-missing), a stub that emits
-  // garbage (→ unparseable-output), or a stub that emits an EMPTY report
-  // (→ vacuous-exemption, the "knip resolved nothing" case). Mirrors the
-  // `--refgraph` / `--manifest` seams the sibling `.mjs` gates expose likewise.
   const binPath = process.env.EXARCHOS_KNIP_BIN ?? path.join(REPO_ROOT, 'node_modules', '.bin', 'knip');
   const res = spawnSync(binPath, [...args], {
     cwd: REPO_ROOT,
@@ -531,10 +465,9 @@ function defaultRunKnip(include: string): KnipRun {
 }
 
 /**
- * The INVERTED reading. `--tags +<name>` overrides knip.json's `tags` and tells
- * knip to report ONLY unreferenced exports that carry the tag — i.e. exactly the
- * population the `-<name>` rule exempts, measured by the same instrument that
- * applies the exemption.
+ * The inverted reading. `--tags +<name>` overrides the `tags` of knip.json and makes knip report
+ * only the unreferenced exports that carry the tag. That is the population that the `-<name>`
+ * rule exempts.
  */
 function defaultRunTagCensus(tagName: string): KnipRun {
   return spawnKnip([

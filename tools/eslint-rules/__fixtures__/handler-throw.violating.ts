@@ -1,19 +1,10 @@
-// Fixture: registered handlers that VIOLATE no-handler-throw (#1706 DR-1).
+// Fixture: registered handlers that violate no-handler-throw.
 //
-// Mirrors composite.ts's real registration-set shapes in miniature — the
-// ACTION_HANDLERS map (adaptXxx(handleYyy) wrapping AND a raw inline-arrow
-// value, composite.ts's `create_issue` shape), and the
-// `if (action === '<verb>') return envelopeWrap(await handleXxx(...), startedAt);`
-// branch shape the special-cased actions use — so the rule's
-// registration-set resolution + throw classification is exercised the same
-// way it runs over the real orchestrate/** tree, without this fixture
-// depending on that tree.
-//
-// The dispatcher below carries the branch shape deliberately: the
-// special-branch census is DERIVED from it (the action name comes from the
-// branch's own literal), so a fixture that dispatched a bare
-// `envelopeWrap(await handleXxx(...))` with no selecting branch would be
-// testing a shape the real dispatcher does not have.
+// It copies the registration shapes of composite.ts in miniature. The
+// `ACTION_HANDLERS` map holds `adapt(handleX)` values and a raw inline arrow.
+// The special actions use the branch
+// `if (action === '<verb>') return envelopeWrap(await handleX(...), startedAt);`. The rule derives the special-branch census from
+// the literal of each branch, so the dispatcher keeps that branch shape.
 
 type ToolResult =
   | { success: true; data?: unknown }
@@ -39,9 +30,7 @@ function envelopeWrap(result: ToolResult, _startedAt: number): ToolResult {
   return result;
 }
 
-// Case 1: a top-level throw — nothing guards it. A domain-validation failure
-// (`args.id` missing) is raised as a raw Error instead of ToolResult.error;
-// core/dispatch.ts's safety net would flatten it to a generic INTERNAL_ERROR.
+/** Case 1: an unguarded top-level throw for domain input. The dispatch safety net flattens it to a generic `INTERNAL_ERROR`. */
 async function handleTopLevelThrow(args: { id?: string }): Promise<ToolResult> {
   if (!args.id) {
     throw new Error('id is required');
@@ -49,12 +38,11 @@ async function handleTopLevelThrow(args: { id?: string }): Promise<ToolResult> {
   return { success: true };
 }
 
-// Case 2: a catch-clause throw that is NOT re-caught — the handler DOES try/
-// catch, but the catch re-throws instead of converting, so the failure still
-// escapes to dispatch.ts's safety net. Because this catch never returns a
-// ToolResult, the "try whose catch returns a ToolResult" exclusion does not
-// apply to the INNER try-block throw either — both throws below are reported
-// (fixing the catch to `return {success:false, ...}` would silence both).
+/**
+ * Case 2: the catch re-throws instead of a conversion. The catch returns no
+ * `ToolResult`, so the exclusion for a converting catch does not apply to the
+ * inner throw either. The rule reports both throws.
+ */
 async function handleCatchRethrow(args: { id?: string }): Promise<ToolResult> {
   try {
     if (!args.id) {
@@ -62,29 +50,25 @@ async function handleCatchRethrow(args: { id?: string }): Promise<ToolResult> {
     }
     return { success: true };
   } catch (err) {
-    throw err; // VIOLATION: re-thrown, not converted to ToolResult.error
+    throw err;
   }
 }
 
-// Case 3: a special-cased branch handler — dispatched from its own
-// `if (action === 'doctor')` branch, never registered through
-// ACTION_HANDLERS. Stand-in name/body; only the dispatch shape matters to the
-// rule's resolution.
+/** Case 3: a special-branch handler, dispatched from an `if (action === 'doctor')` branch and absent from `ACTION_HANDLERS`. */
 async function handleDoctor(args: { report?: string }): Promise<ToolResult> {
   if (!args.report) {
-    throw new Error('report is required'); // VIOLATION: top-level throw
+    throw new Error('report is required');
   }
   return { success: true, data: { report: args.report } };
 }
 
-// Case 8 (KILL FIXTURE for the derived census): a special-cased branch whose
-// handler name appears in NO hand-written roster — this is the shape
-// `invariants_amend` → `handleAmend` had when it shipped unscanned. With the
-// census derived from the dispatch branch it is scanned like any other, so
-// this throw is reported; with a hand-maintained handler list it is invisible.
+/**
+ * Case 8, the kill fixture for the derived census: a special-branch handler in no
+ * hand-written roster. Only a census derived from the dispatch branch finds its throw.
+ */
 async function handleAmend(args: { id?: string }): Promise<ToolResult> {
   if (!args.id) {
-    throw new Error('id is required'); // VIOLATION: found only via the DERIVED census
+    throw new Error('id is required');
   }
   return { success: true };
 }
@@ -103,43 +87,40 @@ async function dispatchSpecialBranch(
   return { success: false, error: { code: 'UNKNOWN_ACTION', message: action } };
 }
 
-// Case 5: a zero-arg factory shape (composite.ts's real `setup_worktree:
-// adaptSetupWorktree()`) — the map value is a `CallExpression` with NO
-// arguments, so there is no "last arg handler" to unwrap; the handler logic
-// lives in the closure the factory's OWN body returns. This closure's throw
-// must be found by resolving the callee to its declaration and unwrapping
-// its `return` statement — not silently dropped from the census.
+/**
+ * Case 5: the zero-arg factory shape of `setup_worktree: adaptSetupWorktree()`.
+ * The map value is a call with no arguments. The rule must resolve the callee and
+ * unwrap the closure that its `return` statement gives.
+ */
 function adaptZeroArgFactory(): ActionHandler {
   return async (args, _stateDir, _ctx) => {
     if (!args.id) {
-      throw new Error('id is required'); // VIOLATION: found via factory-return unwrap
+      throw new Error('id is required');
     }
     return { success: true };
   };
 }
 
-// Case 6: the bare `handleX as ActionHandler` identifier-cast shape
-// (composite.ts's real `prune_stale_workflows: handlePruneStaleWorkflows as
-// ActionHandler`) — proves the cast resolves to a scannable function.
+/** Case 6: the `handleX as ActionHandler` cast shape of `prune_stale_workflows`. The cast must resolve to a scannable function. */
 async function handleAsCastThrow(
   args: { id?: string },
   _stateDir: string,
   _ctx?: DispatchContext,
 ): Promise<ToolResult> {
   if (!args.id) {
-    throw new Error('id is required'); // VIOLATION
+    throw new Error('id is required');
   }
   return { success: true };
 }
 
-// Case 7: a destructured first param. `firstParamName` cannot name a single
-// `args` identifier for this shape, so the fail-loud-guard exemption must
-// default to NON-exempt (scanned) rather than exempting every sole-`if`
-// throw in the handler — this is a genuine domain-input validation throw
-// and must be reported, not silently skipped.
+/**
+ * Case 7: a destructured first parameter. `firstParamName` cannot name an `args`
+ * identifier, so the fail-loud guard exemption defaults to not exempt. The rule
+ * must report this domain-input throw.
+ */
 async function handleDestructuredParamThrow({ id }: { id?: string }): Promise<ToolResult> {
   if (!id) {
-    throw new Error('id is required'); // VIOLATION: destructured-param validation
+    throw new Error('id is required');
   }
   return { success: true };
 }
@@ -147,17 +128,16 @@ async function handleDestructuredParamThrow({ id }: { id?: string }): Promise<To
 const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   top_level_throw: adapt(handleTopLevelThrow),
   catch_rethrow: adapt(handleCatchRethrow),
-  // Case 4: an inline arrow VALUE assigned directly in the map (composite.ts's
-  // `create_issue` shape) — never wrapped by an adaptXxx() call. Carries both
-  // an EXEMPT fail-loud guard (condition never references `args`) and a
-  // genuine (args-derived) VIOLATION, to prove the two are told apart within
-  // the same handler.
+  /**
+   * Case 4: an inline arrow value in the map, the `create_issue` shape. Its `ctx`
+   * guard is exempt, and its throw on `args` is a violation. The rule must tell them apart.
+   */
   inline_arrow_throw: async (args, _stateDir, ctx) => {
     if (!ctx) {
-      throw new Error('DispatchContext required for this handler'); // exempt: precondition guard
+      throw new Error('DispatchContext required for this handler');
     }
     if (!args.id) {
-      throw new Error('id is required'); // VIOLATION: args-derived, not a wiring guard
+      throw new Error('id is required');
     }
     return { success: true };
   },

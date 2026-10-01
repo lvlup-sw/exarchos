@@ -12,23 +12,12 @@ export interface VitestProject {
 }
 
 /**
- * The vitest PROJECTS a config declares, by PARSE.
+ * Parses the vitest projects that a config declares.
  *
- * Two things make the naive version wrong, and both bit this module before the
- * project axis existed:
- *
- *   1. Only the `include` sitting DIRECTLY on a `test:` object is a suite glob.
- *      Both configs also carry `coverage: { include: ['src/**' + '/*.ts'] }` and
- *      `benchmark: { include: [...] }`; folding those in makes every source file
- *      look like a collected test.
- *   2. The project NAME matters, because `npm run test:process` expands to
- *      `vitest run --project process` — which runs the `process` project ONLY.
- *      Without the name, the `e2e-process` and `outcome-tests` jobs read as hosts
- *      of every root-suite test, and a genuinely filtered guard reads as covered
- *      by an unfiltered job that never runs it.
- *
- * A regex would also read the globs out of the long explanatory comments that
- * surround them in both files.
+ * Only an `include` directly on a `test:` object is a suite glob. A `coverage`
+ * or `benchmark` object can also hold an `include` array that matches source
+ * files. The project name matters, because `--project process` runs only that
+ * project. A parse also ignores globs in comments, which a regex reads.
  */
 export function parseVitestProjects(source: string, fileName: string): VitestProject[] {
   const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
@@ -84,16 +73,11 @@ export function vitestProjectSelectors(tail: string): string[] {
 }
 
 /**
- * Minimal glob matcher for the shapes the two vitest configs and the
- * `dorny/paths-filter` lists actually use (`dir/**` + `/*.test.ts`, `src/**`,
- * `AGENTS.md`). `**` crosses path separators, `*` does not, and `a/**` + `/b`
- * also matches `a/b` because the middle segment is optional.
- *
- * Tokenising the glob — rather than running a chain of `String.replace` passes
- * over a half-built pattern — is what keeps a metacharacter produced by an
- * EARLIER substitution from being re-consumed by a later one, which is the
- * classic way a hand-rolled glob compiler quietly starts matching the wrong
- * thing.
+ * A small glob matcher for the shapes that the vitest config and the
+ * `dorny/paths-filter` lists use. `**` crosses path separators and `*` does not.
+ * `a/**` + `/b` also matches `a/b`, because the middle segment is optional. The
+ * matcher tokenizes the glob, so a later step cannot consume a metacharacter
+ * that an earlier step produced.
  */
 export function globMatches(glob: string, path: string): boolean {
   let pattern = '';
@@ -124,13 +108,15 @@ export interface SuiteConfig {
   readonly projects: readonly VitestProject[];
 }
 
+/**
+ * Reads the projects of the root vitest config. A config that parses to zero
+ * projects throws, because an empty project set unhosts each test.
+ */
 export function loadSuiteConfigs(repoRoot: string = REPO_ROOT): SuiteConfig[] {
   const read = (dir: string): VitestProject[] => {
     const file = join(repoRoot, dir, 'vitest.config.ts');
     const projects = parseVitestProjects(readFileSync(file, 'utf8'), `${dir}/vitest.config.ts`);
     if (projects.length === 0) {
-      // Fail closed: a config the parser cannot read must not contribute an
-      // empty project set, which would silently unhost every co-located test.
       throw new Error(`${dir || '.'}/vitest.config.ts: parsed zero vitest projects`);
     }
     return projects;
@@ -144,8 +130,12 @@ export interface SuiteMembership {
   readonly projects: readonly string[];
 }
 
+/**
+ * Returns the suite and projects that collect a test path, or `null`. The suite
+ * with the longest directory goes first, so a package suite claims its own tests
+ * before the root suite.
+ */
 export function suiteForTest(testPath: string, suites: readonly SuiteConfig[]): SuiteMembership | null {
-  // Longest package dir first, so an MCP test is never claimed by the root suite.
   const ordered = [...suites].sort((a, b) => b.dir.length - a.dir.length);
   for (const suite of ordered) {
     const prefix = suite.dir === '' ? '' : `${suite.dir}/`;
@@ -159,5 +149,3 @@ export function suiteForTest(testPath: string, suites: readonly SuiteConfig[]): 
   }
   return null;
 }
-
-// ─── Hosting resolution ──────────────────────────────────────────────────────

@@ -2,14 +2,12 @@
 /**
  * @fileoverview Decides whether a comment's prose breaks the policy.
  *
- * Authored once and imported by both consumers — the CI gate and the ESLint
- * rule. Neither carries a pattern of its own: the rules live in the policy
- * datum, this module applies them, and a standing check proves no consumer has
- * grown a private copy.
+ * The CI gate and the ESLint rule both reach this module through `comment-analysis.mjs`.
+ * The patterns live in the policy datum, and this module applies them.
  *
- * Two classes are decided here. An ORDINAL names a planning artifact a future
- * reader cannot resolve. CHANGELOG narration describes what the code used to
- * do, which version control already records and a comment cannot keep true.
+ * It decides two classes. An ORDINAL names a planning artifact that a future
+ * reader cannot resolve. CHANGELOG narration describes earlier behavior, which
+ * version control already records.
  */
 
 import { compilePattern } from './comment-policy.mjs';
@@ -30,12 +28,9 @@ import { compilePattern } from './comment-policy.mjs';
  */
 
 /**
- * Every span of `text` covered by a permitted reference.
- *
- * These are computed first and win outright. A durable reference frequently
- * contains something that looks like an ordinal — an issue URL ends in digits,
- * a spec permalink carries a fragment — and reporting those would punish
- * exactly the citation style the policy is trying to encourage.
+ * Returns every span of `text` that a permitted reference covers. A forbidden match
+ * inside such a span is not reported. An issue URL or a spec permalink can contain
+ * text that looks like an ordinal, and the policy encourages those citations.
  *
  * @param {string} text
  * @param {{ allowedReferences: readonly { pattern: string, flags?: string, id: string }[] }} policy
@@ -65,11 +60,8 @@ function coveredBy(spans, start, end) {
 }
 
 /**
- * Render the message an author reads.
- *
- * The remedy is part of the message rather than a lookup elsewhere: the whole
- * point of the rule is that the author writes a constraint instead of an
- * identifier, and a bare "forbidden pattern" verdict does not tell them how.
+ * Renders the ordinal message and appends the remedy. The author must write a
+ * constraint in place of the identifier, so the message tells them how.
  *
  * @param {string} matched
  * @param {string | undefined} remedy

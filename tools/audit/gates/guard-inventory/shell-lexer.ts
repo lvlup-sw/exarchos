@@ -1,5 +1,10 @@
 import { posix } from 'node:path';
 
+/**
+ * Interpreters that take the program as a path argument, so `bash x.sh`, `node x.mjs` and
+ * `tsx x.ts` all run `x`. The list is hand-written. A missing interpreter makes a real call
+ * look unreachable, so the inventory reports a false wiring hole. It never hides a dead guard.
+ */
 export const SHELL_INTERPRETERS: readonly string[] = Object.freeze([
   'bash',
   'sh',
@@ -30,14 +35,8 @@ export const ROOT_ANCHOR = '.';
 
 /**
  * `#` comments removed, quote-aware.
- *
- * Removing them is the FIRST thing that happens to a wrapper script, because
- * `validate-no-legacy.sh` names `tools/audit/knip-diff.ts` in two comments and
- * never as a literal in a command. Any scan that runs before this one answers a
- * question about prose.
- *
- * A `#` opens a comment only at the start of a word — so `${x#y}` and `$#` stay
- * intact — and never inside quotes.
+ * The walk strips the comments of a wrapper script first, because a script can name a path in a comment and never run it.
+ * A `#` opens a comment only at the start of a word, so `${x#y}` and `$#` stay intact. A `#` inside quotes is not a comment.
  */
 export function stripShellComments(source: string): string {
   let out = '';
@@ -90,12 +89,7 @@ export function stripShellComments(source: string): string {
 
 /**
  * Join backslash line-continuations into one logical line.
- *
- * Not cosmetic. `validate-no-legacy.test.sh` writes
- * `AGENTS_BUNDLED_HITS=$(grep -inE "…" \` / `  "$REPO_ROOT/AGENTS.md" …)`, and
- * reading the second physical line on its own puts `AGENTS.md` in COMMAND
- * position — so the resolver reports the repo's agent guide as an executed
- * program. Continuations are joined before anything is classified.
+ * Without this step, the second physical line of a continued command reads as a new command, and an argument lands in command position.
  */
 export function joinShellContinuations(source: string): string {
   return source.replace(/\\\n/g, ' ');
@@ -107,6 +101,7 @@ export function joinShellContinuations(source: string): string {
  * Each segment has its own command head, which is what decides whether a path
  * argument is executed. Without this, `grep -q x file | node gate.mjs` presents a
  * single head (`grep`) and the pipeline's real invocation disappears.
+ * A doubled operator (`&&`, `||`) counts as one separator.
  */
 export function shellCommandSegments(line: string): string[] {
   const segments: string[] = [];
@@ -138,7 +133,6 @@ export function shellCommandSegments(line: string): string[] {
     if (ch === ';' || ch === '|' || ch === '&') {
       segments.push(current);
       current = '';
-      // Consume a doubled operator (`&&`, `||`) as one separator.
       if (line[i + 1] === ch) i += 1;
       continue;
     }
@@ -151,9 +145,8 @@ export function shellCommandSegments(line: string): string[] {
 /**
  * Split one shell line into words, quote-aware, dropping operators.
  *
- * Quotes are removed but `$NAME` is preserved, because expansion happens after
- * splitting — `"$KNIP_DIFF"` must survive as the single word `$KNIP_DIFF`, not as
- * a literal to be matched.
+ * The function removes quotes but keeps `$NAME`, because expansion happens after
+ * the split. `"$KNIP_DIFF"` becomes the single word `$KNIP_DIFF`.
  */
 export function shellWords(line: string): string[] {
   const words: string[] = [];
@@ -257,6 +250,7 @@ export function assignmentWord(word: string): { name: string; value: string } | 
  * Resolve an assignment whose value is a whole command substitution, for the two
  * directory anchors this repo's scripts actually use. Anything else is `null` —
  * an unmodelled `$(…)` must not become a guessed path.
+ * `$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)` resolves to the script directory, and `$(cd <dir> && pwd)` resolves to that directory.
  */
 export function resolveCommandSubstitution(
   raw: string,
@@ -266,9 +260,7 @@ export function resolveCommandSubstitution(
   const match = /^"?\$\((.*)\)"?$/s.exec(raw.trim());
   const inner = match?.[1];
   if (inner === undefined) return null;
-  // `$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)` — the script's own directory.
   if (/\bdirname\b/.test(inner) && /BASH_SOURCE|\$0/.test(inner)) return scriptDir;
-  // `$(cd <dir> && pwd)` — that directory, normalized.
   const cd = /^cd\s+(.+?)\s*&&\s*pwd$/.exec(inner.trim());
   const target = cd?.[1];
   if (target === undefined) return null;
@@ -277,5 +269,3 @@ export function resolveCommandSubstitution(
   const normalized = normalizeRepoPath(expanded);
   return normalized === null ? null : normalized === '' ? ROOT_ANCHOR : normalized;
 }
-
-/** One file a CI run-step reaches through one or more shell wrappers. */

@@ -1,14 +1,13 @@
-// Measures the prescribed call shape from the live tree and writes, or checks,
-// the checked-in census and its summary.
+// Measures the prescribed call shape from the live tree. It writes the census
+// and its summary. With `--check` it writes nothing and exits 1 on drift.
 //
 // Usage:
-//   npx tsx tools/audit/core/call-shape/measure.ts           # write
-//   npx tsx tools/audit/core/call-shape/measure.ts --check   # verify; exit 1 on drift
+//   npx tsx tools/audit/core/call-shape/measure.ts
+//   npx tsx tools/audit/core/call-shape/measure.ts --check
 //
-// The output carries no timestamp and no commit, so an unchanged tree
-// reproduces it byte for byte. Every file it reads is pinned by digest inside
-// the census, so an edit to a pinned skill fails the drift guard until the
-// census is regenerated and its diff read.
+// The output holds no timestamp and no commit, so an unchanged tree gives the
+// same bytes. The census pins its source files by sha256. An edit to a pinned
+// file fails the drift guard until you regenerate the census.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';

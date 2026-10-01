@@ -1,37 +1,17 @@
 #!/usr/bin/env node
 /**
- * consolidate-suite.mjs — de-diverge duplicate-location test pairs (DR-2 / DR-6).
+ * consolidate-suite.mjs: removes duplicate-location test pairs. A pair is one unit with a
+ * legacy copy at `src/__tests__/<area>/<base>.test.ts` and a co-located copy at
+ * `src/<area>/<base>.test.ts`. The pair id is `<area>/<basename>`.
  *
- * A "pair" is a single unit tested from TWO directories:
- *   - legacy copy      src/__tests__/<area>/<base>.test.ts
- *   - co-located copy   src/<area>/<base>.test.ts
+ *   --enumerate         Lists every pair where both files exist.
+ *   --plan <pair>       Classifies the pair as merge or relocate.
+ *   --emit <pair>       Writes the merged or relocated result and deletes the legacy copy.
+ *   --verify <pair>     Fails when a pre-image case is missing from the result.
  *
- * The pair identity key is strictly `(area, basename)`, so `workflow/schemas`
- * and `event-store/schemas` are DISTINCT pairs (likewise `workflow/tools` vs
- * `event-store/tools`). Enumeration is a real DIRECTORY INTERSECTION — never a
- * brace-glob (`git ls-files '{a,b}'` never expands the braces → vacuously empty).
- *
- * Modes:
- *   --enumerate            List every (area, basename) pair where BOTH files
- *                          exist — the authoritative inventory.
- *   --plan <pair>          Classify merge vs relocate by MODULE-SCOPE PREAMBLE
- *                          textual identity modulo import paths.
- *   --emit <pair>          Produce the de-diverged result (merge-append or
- *                          relocate-as-sibling) and remove the legacy copy.
- *   --verify <pair>        Assert every pre-image case survived into the PR-HEAD
- *                          result verbatim modulo import-path rewrites (or is a
- *                          textually-proven duplicate). This is the Task-004 gate.
- *
- * DESIGN CONSTRAINT (from adversarial review) — equivalence is TEXTUAL ONLY,
- * never a semantic/AST hash. Vitest module mocks are file-scoped and
- * non-composable, so a MERGE is sound ONLY when the two files' full module-scope
- * preambles are textually identical modulo import paths (guaranteeing no
- * divergent `vi.mock`/`vi.hoisted`/env stub and no colliding module-scope
- * symbol). Any preamble divergence forces RELOCATE — which never drops anything.
- *
- * The pure functions (`enumeratePairs`, `resolvePair`, `classifyPair`,
- * `computeEmit`, `verifyCases`, and the AST helpers) are exported so every path
- * is unit-testable without spawning a subprocess.
+ * Equivalence is textual only, never a semantic or AST hash. Vitest module mocks are
+ * file-scoped, so a merge is sound only when both module-scope preambles are identical
+ * modulo import paths. Any preamble difference forces a relocate, which drops nothing.
  */
 import { readFileSync, existsSync, readdirSync, statSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -42,18 +22,15 @@ import ts from 'typescript';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(SCRIPT_DIR, '..', '..');
-/** The source root the tool governs (repo-relative default; overridable for tests). */
+/** The source root that the tool governs. `--src` and `opts.srcRoot` override it. */
 export const DEFAULT_SRC_ROOT = path.join(REPO_ROOT, 'src');
-/**
- * Against the live tree the enumeration MUST find exactly this many remaining pairs.
- * 0 since the wave-3b de-divergence campaign (#1705) consolidated all 17 duplicate-location pairs.
- */
+/** The number of pairs that the enumeration must find in the live tree. */
 export const EXPECTED_PAIR_COUNT = 0;
 
 export const EXIT_OK = 0;
-/** A real finding: a lost/unproven case (verify) or a divergence needing action. */
+/** A real finding, such as a lost or unproven case in `--verify`. */
 export const EXIT_FINDING = 1;
-/** The gate/tool itself could not run: bad args, missing file, tool-missing. */
+/** The gate or tool cannot run: bad arguments, a missing file, or a missing tool. */
 export const EXIT_USAGE = 2;
 
 /** vi.* calls that participate in the module-scope preamble (mock/hoist/env). */
@@ -69,20 +46,18 @@ function toPosix(p) {
 }
 
 /**
- * Parse a TypeScript source (or a fragment) with parent pointers so chain and
- * position queries work. Uses `.tsx` off (plain `.ts`) to match the test files.
+ * Parses TypeScript source, or a fragment, with parent pointers so that chain and position
+ * queries work. It parses as plain `.ts`, like the test files.
  * @param {string} text
  * @param {string} [fileName]
  * @returns {ts.SourceFile}
  */
 function parse(text, fileName = 'frag.ts') {
-  return ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, /* setParentNodes */ true, ts.ScriptKind.TS);
+  return ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 }
 
-// ─── AST helpers ────────────────────────────────────────────────────────────
-
 /**
- * The leftmost identifier of a call/property/tagged chain, e.g. `it` for
+ * The leftmost identifier of a call, property or tagged chain, for example `it` for
  * `it.each([...])`, `it.skip`, `test.concurrent(...)`. Returns undefined when
  * the chain is not rooted at a bare identifier.
  * @param {ts.Node} expr
@@ -103,9 +78,8 @@ function rootIdentifier(expr) {
 
 /**
  * True when `node` sits in the callee/tag/object position of a parent that
- * CONTINUES the same call chain (e.g. the inner `it.each([...])` of
- * `it.each([...])(...)`). Such inner nodes are NOT the case — the outermost
- * call is. This de-duplicates the walk so each case is recorded once.
+ * continues the same call chain, for example the inner `it.each([...])` of
+ * `it.each([...])(...)`. The outermost call is the case, so the walk records each case once.
  * @param {ts.Node} node
  */
 function isChainContinuation(node) {
@@ -162,7 +136,7 @@ function isViPreambleCall(call) {
   );
 }
 
-/** @param {ts.CallExpression} call — is it a bare `beforeEach(...)` etc. lifecycle hook? */
+/** @param {ts.CallExpression} call — is it a bare lifecycle hook such as `beforeEach(...)`? */
 function isHookCall(call) {
   const callee = call.expression;
   return ts.isIdentifier(callee) && HOOK_NAMES.has(callee.text);
@@ -233,13 +207,10 @@ function extractPreambleText(sf) {
         for (const h of describeScopeHooks(call, sf)) parts.push(h);
         continue;
       }
-      // A top-level it/test is a CASE, not preamble → skip.
     }
   }
   return parts.join('\n');
 }
-
-// ─── import-path normalization (comparison) & rewriting (emit) ───────────────
 
 /**
  * Every relative-path string literal (`./…` or `../…`) in `text`, with the
@@ -289,9 +260,9 @@ export function normalizeImports(text, absFromDir) {
 }
 
 /**
- * Rewrite every relative specifier in `text` so it resolves to the SAME target
- * from `absToDir` as it did from `absFromDir` — the mechanical fixup applied when
- * a file (or a case) moves directories. Non-relative specifiers are untouched.
+ * Rewrites each relative specifier in `text` so that it resolves from `absToDir` to the same
+ * target as from `absFromDir`. This is the fixup when a file or a case moves. Non-relative
+ * specifiers stay as they are.
  * @param {string} text
  * @param {string} absFromDir
  * @param {string} absToDir
@@ -307,8 +278,6 @@ export function rewriteRelativeImports(text, absFromDir, absToDir) {
   }
   return out;
 }
-
-// ─── public text-level analysis ──────────────────────────────────────────────
 
 /**
  * Normalized (import-path-canonicalized) preamble text of a file.
@@ -332,7 +301,7 @@ export function normalizedCases(text, absDir) {
 /**
  * Classify a pair as `merge` (preambles textually identical modulo imports) or
  * `relocate` (any preamble divergence — divergent mock/hoist/env or a colliding
- * module-scope symbol). Textual only; never semantic.
+ * module-scope symbol). The check is textual only, never semantic.
  * @param {{ text: string, absDir: string }} legacy
  * @param {{ text: string, absDir: string }} canonical
  * @returns {'merge' | 'relocate'}
@@ -343,11 +312,9 @@ export function classifyPair(legacy, canonical) {
   return lp === cp ? 'merge' : 'relocate';
 }
 
-// ─── pair discovery ──────────────────────────────────────────────────────────
-
 /**
  * @typedef {Object} Pair
- * @property {string} area       Directory portion of the id (may be multi-segment).
+ * @property {string} area       Directory portion of the id (can be multi-segment).
  * @property {string} basename   File stem, minus `.test.ts`.
  * @property {string} id         `<area>/<basename>` — the CLI pair identifier.
  * @property {string} legacyPath Absolute path of the legacy `__tests__` copy.
@@ -357,9 +324,9 @@ export function classifyPair(legacy, canonical) {
  */
 
 /**
- * Enumerate every pair where BOTH the legacy `__tests__/<area>/<base>.test.ts`
- * AND the co-located `<area>/<base>.test.ts` exist. A real directory
- * intersection (recursive), keyed strictly on `(area, basename)`; sorted by id.
+ * Lists every pair where both the legacy `__tests__/<area>/<base>.test.ts` and the co-located
+ * `<area>/<base>.test.ts` exist, sorted by id. It is a recursive directory intersection.
+ * A file directly under `__tests__/` has no area, so it has no co-located copy.
  * @param {string} srcRoot
  * @returns {Pair[]}
  */
@@ -374,9 +341,9 @@ export function enumeratePairs(srcRoot) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) { walk(full); continue; }
       if (!entry.isFile() || !entry.name.endsWith('.test.ts')) continue;
-      const rel = toPosix(path.relative(legacyRoot, full)); // e.g. workflow/guards.test.ts
+      const rel = toPosix(path.relative(legacyRoot, full));
       const area = path.posix.dirname(rel);
-      if (area === '.') continue; // a bare __tests__/<base>.test.ts has no co-located mirror
+      if (area === '.') continue;
       const canonicalPath = path.join(srcRoot, rel);
       if (!existsSync(canonicalPath) || !statSync(canonicalPath).isFile()) continue;
       const basename = path.posix.basename(rel, '.test.ts');
@@ -418,8 +385,6 @@ export function resolvePair(srcRoot, id) {
   };
 }
 
-// ─── emit ────────────────────────────────────────────────────────────────────
-
 /**
  * @typedef {Object} EmitPlan
  * @property {'merge'|'relocate'} mode
@@ -459,7 +424,7 @@ function insertCases(canonicalText, canonicalSf, blocks, pair) {
   if (describes.length === 1) {
     const fn = describes[0].arguments.find((a) => ts.isArrowFunction(a) || ts.isFunctionExpression(a));
     if (fn && (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) && fn.body && ts.isBlock(fn.body)) {
-      const insertPos = fn.body.getEnd() - 1; // just before the closing `}`
+      const insertPos = fn.body.getEnd() - 1;
       const body = blocks.map((b) => `${indentBlock(b, '  ')};`).join('\n\n');
       const injection = `\n  ${banner}\n${body}\n`;
       return canonicalText.slice(0, insertPos) + injection + canonicalText.slice(insertPos);
@@ -470,9 +435,9 @@ function insertCases(canonicalText, canonicalSf, blocks, pair) {
 }
 
 /**
- * Compute the merge result: start from the co-located canonical file and append
- * the legacy cases, dropping only legacy cases textually identical (modulo
- * imports) to a case already present. Legacy `__tests__` copy is removed.
+ * Computes the merge result. It appends the legacy cases to the co-located file. It drops a
+ * legacy case that is textually identical, modulo imports, to a case already present or to an
+ * earlier legacy case. The plan deletes the legacy copy.
  * @param {Pair} pair
  * @param {string} legacyText
  * @param {string} canonicalText
@@ -489,7 +454,7 @@ function computeMerge(pair, legacyText, canonicalText) {
     const raw = node.getText(legacySf);
     const norm = normalizeImports(raw, pair.legacyDir);
     if (present.has(norm)) { dropped++; continue; }
-    present.add(norm); // also dedup identical cases repeated within the legacy file
+    present.add(norm);
     blocks.push(rewriteRelativeImports(raw, pair.legacyDir, pair.canonicalDir));
   }
   const merged = insertCases(canonicalText, canonicalSf, blocks, pair);
@@ -502,11 +467,10 @@ function computeMerge(pair, legacyText, canonicalText) {
 }
 
 /**
- * Compute the de-diverged emit plan for a pair (reads both files from disk;
- * does NOT mutate). `merge` when preambles are identical modulo imports;
- * otherwise `relocate` the legacy file into the co-located directory as a
- * distinct `<base>.legacy.test.ts` sibling (import paths rewritten). Either way
- * the legacy `__tests__` copy is deleted.
+ * Computes the emit plan for a pair. It reads both files and writes nothing. When the
+ * preambles are identical modulo imports, the mode is `merge`. Otherwise the mode is
+ * `relocate`, which moves the legacy file to a `<base>.legacy.test.ts` sibling with rewritten
+ * imports. Both modes delete the legacy copy.
  * @param {Pair} pair
  * @returns {EmitPlan}
  */
@@ -546,8 +510,6 @@ export function applyEmit(plan) {
   }
 }
 
-// ─── verify ──────────────────────────────────────────────────────────────────
-
 /**
  * @typedef {Object} VerifyReport
  * @property {boolean} ok
@@ -558,12 +520,9 @@ export function applyEmit(plan) {
  */
 
 /**
- * Assert every pre-image case (from EITHER side) survives into the result
- * verbatim modulo import-path rewrites, OR is a textually-proven duplicate
- * (identical case body AND identical file preamble, both modulo imports — the
- * only legitimate reason a specific case-copy may be absent, since the surviving
- * twin carries the same normalized body). Any pre-image case whose normalized
- * body is absent from the result is a LOST/UNPROVEN case → not ok.
+ * Checks that each pre-image case from both sides has its normalized body in the result.
+ * A case with no such body is lost or unproven. A proven duplicate has a surviving twin with
+ * the same normalized body, so this one check also covers duplicates.
  * @param {{ text: string, absDir: string }} legacyPre
  * @param {{ text: string, absDir: string }} canonicalPre
  * @param {{ text: string, absDir: string }[]} resultFiles
@@ -590,14 +549,7 @@ export function verifyCases(legacyPre, canonicalPre, resultFiles) {
 
   /** @type {{ side: 'legacy'|'canonical', text: string }[]} */
   const lost = [];
-  /**
-   * A pre-image case is preserved iff its normalized body is present in the
-   * result. A body absent from the result can NEVER be rescued by the
-   * proven-duplicate clause: that clause requires a surviving twin, and a
-   * surviving twin carries the same normalized body — which would make the body
-   * present. So "absent" is always a genuine loss.
-   * @param {string} norm @param {'legacy'|'canonical'} side @param {string} raw
-   */
+  /** @param {string} norm @param {'legacy'|'canonical'} side @param {string} raw */
   const check = (norm, side, raw) => {
     if (resultSet.has(norm)) return;
     lost.push({ side, text: raw });
@@ -608,7 +560,6 @@ export function verifyCases(legacyPre, canonicalPre, resultFiles) {
   legacyNorm.forEach((norm, i) => check(norm, 'legacy', legacyRaw[i] ?? norm));
   canonicalNorm.forEach((norm, i) => check(norm, 'canonical', canonicalRaw[i] ?? norm));
 
-  // Retained for report parity with the spec's duplicate-clause reasoning.
   void legacySet;
   void canonicalSet;
 
@@ -620,8 +571,6 @@ export function verifyCases(legacyPre, canonicalPre, resultFiles) {
     resultCases,
   };
 }
-
-// ─── CLI ─────────────────────────────────────────────────────────────────────
 
 const USAGE = `consolidate-suite — de-diverge duplicate-location test pairs (DR-2/DR-6)
 
@@ -685,8 +634,8 @@ function gitShow(ref, repoRelPath) {
 }
 
 /**
- * In-process CLI body. Returns an exit code; never calls `process.exit` so it is
- * unit-testable. All I/O goes through the injected `log`/`errlog`.
+ * In-process CLI body. It returns an exit code and does not call `process.exit`.
+ * All output goes through the injected `log` and `errlog`.
  * @param {string[]} argv
  * @param {{ srcRoot?: string, log?: (m: string) => void, errlog?: (m: string) => void }} [opts]
  * @returns {number}

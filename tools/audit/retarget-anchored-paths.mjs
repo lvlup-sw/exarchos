@@ -1,18 +1,12 @@
-// Second pass over directory-anchored path literals (task 020).
+// Second pass over directory-anchored path literals. It rewrites
+// `resolve(HERE, '…')` and `join(HERE, '…')` calls, where HERE is a module-level
+// binding to the directory of the file itself:
 //
-// `retarget-dirname-paths.mjs` handles the literal `__dirname` form. This one
-// handles the far more common shape in this tree: a module-level constant bound
-// to the file's own directory —
+//     const HERE = path.dirname(fileURLToPath(import.meta.url))
 //
-//     const HERE = path.dirname(fileURLToPath(import.meta.url));
-//     … path.resolve(HERE, '../../../../.exarchos/invariants.md')
-//
-// which is the same hazard wearing a different name. `__dirname` itself is
-// EXCLUDED here because the first pass already corrected those; re-mapping a
-// literal that was already moved would shift it a second time.
-//
-// One-shot: both passes assume the file content still holds PRE-move literals
-// for the anchors they match. Neither is idempotent, by construction.
+// `retarget-dirname-paths.mjs` handles `__dirname`, so this pass skips it.
+// A second re-map of a corrected literal moves it two times.
+// Run the pass one time only. It expects the pre-move literals, so it is not idempotent.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,9 +16,11 @@ import { mapPathTarget } from './move-table.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const APPLY = process.argv.includes('--apply');
 
-// `const X = path.dirname(fileURLToPath(import.meta.url))`
-// `const X = fileURLToPath(new URL('.', import.meta.url))`
-// `const X = dirname(fileURLToPath(import.meta.url))`
+/**
+ * Matches a `const` or `let` binding to the directory of the file itself.
+ * The value is `path.dirname(fileURLToPath(import.meta.url))`, the same call
+ * with a bare `dirname`, or `fileURLToPath(new URL('.', import.meta.url))`.
+ */
 const SELF_DIR_BINDING =
   /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:(?:path\.)?dirname\(\s*fileURLToPath\(\s*import\.meta\.url\s*\)\s*\)|fileURLToPath\(\s*new URL\(\s*'\.'\s*,\s*import\.meta\.url\s*\)\s*\))/g;
 

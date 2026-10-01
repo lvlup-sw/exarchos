@@ -1,18 +1,15 @@
-// Directory-move codemod for the structural refactor (Phase 1).
+// Moves directories and files under `src/` by the tables below, and rewrites the
+// relative specifiers. Each specifier resolves against the old directory of its
+// file, maps through the tables, and becomes relative to the new directory. A text
+// prefix sweep fails when a file moves and its target does not.
 //
-// Import rewriting is ARITHMETIC, not textual: each specifier is resolved
-// against its file's OLD directory, mapped through the move table, then
-// recomputed relative to that file's NEW directory. A textual prefix sweep gets
-// exactly one case wrong — the file moved but its target did not — and that is
-// most of the tree.
+// Module paths in no import position stay unchanged: `vi.doUnmock`, the argument of
+// `vi.importActual`, `readFileSync` paths, and fixture text. Run
+// `scan-unresolved-specifiers.mjs` after each move. A stale un-mock keeps a mock in
+// force, and the tests still pass.
 //
-// KNOWN BLIND SPOT (task 014): strings that are module paths but sit in no
-// import position. `vi.doUnmock(...)`, the ARGUMENT of `vi.importActual(...)`,
-// readFileSync paths, and fixture text are all invisible here. Run
-// `scan-unresolved-specifiers.mjs` after every move to catch them — a stale
-// un-mock leaves a mock silently in force and the affected tests still PASS.
-//
-// Set MOVES below, dry-run, then --apply.
+// Without `--apply`, it is a dry run. With `--apply`, it runs `git mv` first, so
+// history follows the content, and then writes each rewritten file at its new path.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,26 +20,14 @@ const SRC_REL = 'src';
 const SRC = path.join(ROOT, SRC_REL);
 const APPLY = process.argv.includes('--apply');
 
-/** oldDirName -> newRelativeDirPath (both relative to src/) */
-// Task 017 — L7 lifecycle verbs. (Task 012's table, kept for reference:
-// artifacts->storage/artifacts, event-store->events, and the five
-// views/telemetry/quality/session/task-store folds into projections/.)
+/** Old first-segment directory to new directory path, both relative to `src/`. */
 const MOVES = {};
 
 /**
- * oldRelativeFilePath -> newRelativeFilePath (both relative to src/).
- *
- * A WITHIN-directory regroup cannot be expressed by the directory table above,
- * which keys on the first path segment: `adapters/cli.ts` and
- * `adapters/mcp.ts` share a segment and split to different destinations. File
- * moves are consulted first and are exact — a path either appears here or it
- * does not move.
- *
- * Task 018 — split L8 so INV-2 is a directory-level fact: the contract is the
- * invocation surface, the CLI is a client of it. `json-schema.ts` stays at the
- * `adapters/` root: 14+ consumers across contract/, capabilities/, describe/,
- * projections/ and events/ read it, so filing it under either surface would
- * manufacture a cross-surface edge where none exists today.
+ * Old file path to new file path, both relative to `src/`. The directory table keys on
+ * the first path segment, so it cannot send `adapters/cli.ts` and `adapters/mcp.ts` to
+ * different directories. `json-schema.ts` stays in `adapters/`, because modules
+ * outside both surfaces read it.
  */
 const FILE_MOVES = {
   'adapters/mcp.ts': 'adapters/mcp/mcp.ts',
@@ -72,19 +57,15 @@ const FILE_MOVES = {
   'adapters/schema-to-flags.parity.test.ts': 'adapters/cli/schema-to-flags.parity.test.ts',
 };
 
-/** Map an absolute path through the move tables. Returns the same path if unmoved. */
+/**
+ * Maps an absolute path through the move tables, or returns it unchanged. A path
+ * outside `src/` does not move. The file table wins over the directory table. A `.js`
+ * path also matches its `.ts` key, because NodeNext imports a `.ts` module as `.js`.
+ */
 function mapAbs(abs) {
   const rel = path.relative(SRC, abs);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) return abs; // outside src/
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return abs;
   const relPosix = rel.split(path.sep).join('/');
-  // Exact file moves win over the directory table: a within-directory regroup
-  // splits paths that share a first segment.
-  //
-  // Specifiers are matched extension-insensitively. Under NodeNext a `.ts`
-  // module is imported as `.js`, so a resolved specifier arrives here with an
-  // extension the table's keys never carry — an exact-only lookup silently
-  // reports every such import as unmoved, which type-checks as a missing
-  // module rather than a wrong path.
   if (relPosix in FILE_MOVES) return path.join(SRC, FILE_MOVES[relPosix]);
   const asTs = relPosix.replace(/\.(js|mjs|cjs)$/, '.ts');
   if (asTs !== relPosix && asTs in FILE_MOVES) {
@@ -102,9 +83,10 @@ const tracked = execFileSync('git', ['-C', ROOT, 'ls-files'], { encoding: 'utf8'
 
 const rewritable = tracked.filter((f) => /\.(ts|tsx|mts|cts|js|mjs|cjs)$/.test(f));
 
-// Specifier positions we rewrite. Covers static import/export-from, dynamic
-// import(), require(), and vitest's vi.mock/vi.doMock — the last matters because
-// a stale mock path silently mocks nothing.
+/**
+ * Specifier positions to rewrite: static import and export-from, `import()`,
+ * `require()`, and `vi.mock` or `vi.doMock`. A stale mock path mocks nothing.
+ */
 const SPEC_RE = /(\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bvi\.(?:mock|doMock)\s*\(\s*|\bimport\s+)(['"])(\.[^'"]*)\2/g;
 
 let filesChanged = 0;
@@ -119,7 +101,6 @@ for (const relFile of rewritable) {
 
   let n = 0;
   const out = src.replace(SPEC_RE, (whole, lead, q, spec) => {
-    // Resolve the specifier against the file's OLD directory.
     const targetOld = path.resolve(path.dirname(oldAbs), spec);
     const targetNew = mapAbs(targetOld);
     const fileMoved = newAbs !== oldAbs;
@@ -144,7 +125,6 @@ if (!APPLY) {
   process.exit(0);
 }
 
-// 1) git mv FIRST so history follows the content — directories, then files.
 for (const [from, to] of Object.entries(MOVES)) {
   const dest = path.join(SRC, to);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
@@ -159,7 +139,6 @@ for (const [from, to] of Object.entries(FILE_MOVES)) {
   });
 }
 
-// 2) Write rewritten contents at each file's NEW path.
 for (const [oldAbs, content] of edits) {
   fs.writeFileSync(mapAbs(oldAbs), content, 'utf8');
 }

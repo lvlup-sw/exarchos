@@ -1,65 +1,15 @@
-// Cast-budget accounting for the `noUncheckedIndexedAccess` fix wave (DR-14).
+// Cast-budget accounting for the `noUncheckedIndexedAccess` fix.
 //
-// Enabling `noUncheckedIndexedAccess` turns every indexed access into
-// `T | undefined`. The fix wave prefers real narrowing (guards, `?.`, `??`,
-// `Map.get` checks, `for...of`) over escape hatches. The two escape hatches are
-// the non-null assertion `x!` and the `as` type assertion — both silence the
-// checker without proving anything. `as any` is barred outright.
+// The flag turns each indexed access into `T | undefined`. The fix prefers real
+// narrowing over the two escape hatches: the non-null assertion `x!` and the `as`
+// type assertion. Both silence the checker and prove nothing. `as any` is barred.
+// `tests/unit/tsconfig-strictness.test.ts` holds each count inside a baseline
+// window with a tight budget.
 //
-// To keep the wave honest we measure how many escape-hatch sites the wave
-// INTRODUCED versus the pre-change baseline, and gate that delta against a tight
-// budget (see `src/install/tsconfig-strictness.test.ts`).
-//
-// ---------------------------------------------------------------------------
-// WHAT THIS MODULE MEASURES (DR-24, task 058): type assertions in the PARSED
-// program. It counts AST nodes, not occurrences of the word "as".
-//
-// It did not always, and the previous behaviour is why this header is long.
-// Until task 058 the census matched
-//   /\bas\s+(?:const\b|unknown\b|any\b|[A-Za-z_$][\w$]*|\{|\[|\()/
-// against RAW SOURCE TEXT. Because `[A-Za-z_$][\w$]*` matches any identifier,
-// it counted as "type assertions" a great deal of text that asserts nothing:
-//
-//   measured on the task-057 integration tip — 3258 raw matches
-//     1730  genuine type assertions          <- the only ones that are debt
-//     1260  English prose inside comments    ("…tracked as a known gap…")
-//      140  namespace imports                (`import * as path from …`)
-//       68  import/export aliases            (`import { load as yamlLoad }`)
-//       60  text inside string/template literals
-//
-// 1528 of 3258 matches — 47% — were not assertions. The census also had 23
-// false NEGATIVES: its alternation has no branch for a quote or a digit, so
-// `x as 'created' | 'updated'` and `x as 5` (literal types) were never counted.
-//
-// The old header argued this was harmless because a DELTA cancels systematic
-// error. That argument does not hold, for two reasons. (1) The gate's two
-// assertions pin the count into the CLOSED window `[BASELINE, BASELINE + 5]`,
-// so the noise is not a constant that cancels — it is a live budget that any
-// edit to a comment can spend. A budget of 5 that a JSDoc sentence consumes is
-// not measuring type debt. (2) It made the census an instance of the very
-// defect class this program exists to remove: an enforcement instrument that is
-// declared, enforced, and measures a property other than the one it names.
-//
-// ---------------------------------------------------------------------------
-// WHY THIS MODULE NOW DEPENDS ON `typescript`. The previous header called it
-// "deliberately dependency-free (plain fs + regex) so it can be invoked both
-// from the vitest gate and from a one-off CLI to re-measure". That property is
-// preserved in substance: `typescript` is already a devDependency of BOTH
-// packages and is required by `npm run typecheck` — the sibling gate this
-// census accompanies — so every context that can run the ratchet already
-// resolves it, and `npx tsx tools/audit/tsconfig-strictness/count-casts.ts` still
-// works standalone. Three structural guards in this repo already parse with
-// `typescript` for the same reason (e.g. `single-composer-guard.test.ts`).
-//
-// The alternative — keep the regex, strip comments and literals first — means
-// re-deriving TypeScript's lexical grammar by hand: template-substitution
-// nesting (`${…}` re-enters expression context), the regex-literal-versus-
-// division ambiguity, escapes, apostrophes in comments. That is measurably
-// treacherous: while auditing this change, TypeScript's OWN `ts.createScanner`,
-// driven without parser context, desynced on template substitutions and
-// mis-attributed 1357 matches. Re-deriving a grammar by hand is how the
-// original defect arrived. `ts.isAsExpression` cannot disagree with the
-// compiler about what an assertion is.
+// The census counts type-assertion nodes in the parsed program, not the word "as".
+// A text match also counts prose, imports and literals, so a comment edit can spend
+// the budget. The module uses `typescript`, which the typecheck already needs,
+// because a hand-written lexer misreads template substitutions.
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -75,11 +25,9 @@ export interface CastCounts {
    */
   asCast: number;
   /**
-   * Assertions to `any` specifically — barred outright, must never increase.
-   * Counts `any` appearing ANYWHERE in the asserted type, so `as any[]` and
-   * `as Record<string, any>` are caught alongside bare `as any`; the text
-   * census matched `as any[]` too, and narrowing to the bare keyword here
-   * would have introduced a false negative.
+   * Assertions to `any`, which are barred and must never increase.
+   * It counts `any` anywhere in the asserted type, so `as any[]` and
+   * `as Record<string, any>` count too.
    */
   asAny: number;
 }
@@ -91,8 +39,7 @@ export interface ScanRoot {
 }
 
 const TS_FILE = /\.ts$/;
-// Test / bench / fixture files are not part of the typed surface the flag
-// governs, and their casts are not part of the fix wave.
+/** Test, bench and type-test files are outside the typed surface that the flag governs. */
 const SKIP_FILE = /\.(test|bench|type-test)\.ts$/;
 const SKIP_DIR = new Set(['node_modules', 'dist', '__tests__', '__shims__']);
 
@@ -121,12 +68,9 @@ function collectTsFiles(dir: string, out: string[]): void {
 }
 
 /**
- * `parseDiagnostics` is not on the public `ts.SourceFile` surface, but it is the
- * only way to tell a CLEAN parse from a RECOVERED one. `createSourceFile` never
- * throws: handed broken input it returns a partial tree with nodes silently
- * missing, which would under-report. An under-counting census is strictly worse
- * than an over-counting one — it permits real debt while still reporting green —
- * so a recovered parse is fatal here rather than quietly averaged in.
+ * `parseDiagnostics` is not public on `ts.SourceFile`, but it tells a clean parse
+ * from a recovered one. For broken input, `createSourceFile` returns a partial tree.
+ * A partial tree under-counts and lets real debt pass, so a recovered parse is fatal.
  */
 interface WithParseDiagnostics {
   readonly parseDiagnostics?: readonly ts.Diagnostic[];
@@ -137,7 +81,7 @@ function parseOrThrow(src: string, fileName: string): ts.SourceFile {
     fileName,
     src,
     ts.ScriptTarget.Latest,
-    /* setParentNodes */ false,
+    false,
     ts.ScriptKind.TS,
   );
   const diagnostics = (sourceFile as ts.SourceFile & WithParseDiagnostics).parseDiagnostics ?? [];
@@ -169,14 +113,15 @@ function mentionsAny(type: ts.TypeNode): boolean {
   return found;
 }
 
+/**
+ * Counts the casts in one source file. `x as T` and the legacy `<T>x` form are
+ * the same escape hatch, so both count.
+ */
 export function countCastsInSource(src: string, fileName = 'source.ts'): CastCounts {
   const sourceFile = parseOrThrow(src, fileName);
   const counts: CastCounts = { nonNull: 0, asCast: 0, asAny: 0 };
 
   const visit = (node: ts.Node): void => {
-    // `x as T` and the legacy `<T>x` are the same escape hatch; counting both
-    // closes the obvious evasion route around an `as`-only ratchet. There are
-    // zero `<T>x` sites in the scanned trees today, so this costs no baseline.
     if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
       counts.asCast++;
       if (mentionsAny(node.type)) counts.asAny++;
@@ -191,12 +136,9 @@ export function countCastsInSource(src: string, fileName = 'source.ts'): CastCou
 }
 
 /**
- * Sum cast counts across every non-test `.ts` file under the given roots.
- *
- * Throws if the census resolves no files — for the whole run or for any single
- * root. A root that silently resolves zero files (renamed directory, typo in a
- * path) would drop its entire subtree from the denominator and report a LOWER
- * count, which reads as "debt was paid down" and passes the ceiling clean.
+ * Sums the cast counts over each non-test `.ts` file under the roots.
+ * It throws when there are no roots or when one root finds no files. An empty root drops
+ * its subtree and reports a lower count, which passes the ceiling.
  */
 export function countCasts(roots: ScanRoot[]): CastCounts {
   if (roots.length === 0) {

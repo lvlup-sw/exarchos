@@ -1,16 +1,13 @@
 #!/usr/bin/env node
 /**
- * One-shot codemod: repoint the harness on-ramp roots at the authoring tree.
+ * One-shot codemod that repoints the harness on-ramp roots at the kinds under
+ * `content/harness/`.
  *
- * `runtimes/`, `hooks-src/` and `binding-src/` were three sibling roots at the
- * repository top level; they are now the three kinds under `content/harness/`.
+ * Each rule anchors on a trailing slash, a quote, a path-joining call, or a path
+ * shape. A bare `runtimes` token also names a config key, a variable, and
+ * directories that did not move.
  *
- * Anchored on the trailing slash or quote so a bare word cannot be caught: the
- * token `runtimes` also names a config key, a variable and half a dozen
- * directories that did not move, and rewriting those would be silent damage.
- *
- * Skips itself and every recorded baseline, for the reasons the sibling
- * codemod records.
+ * The codemod skips itself and each recorded baseline.
  *
  * Usage: node tools/audit/retarget-harness-onramps.mjs [--apply] [paths...]
  */
@@ -35,15 +32,15 @@ const REWRITES = [
   [new RegExp(`(['"\`])${BINDING_SRC}(/|\\1)`, 'g'), '$1content/harness/binding$2'],
   [new RegExp(`${HOOKS_SRC}/`, 'g'), 'content/harness/hooks/'],
   [new RegExp(`${BINDING_SRC}/`, 'g'), 'content/harness/binding/'],
-  // `runtimes` only where it is unambiguously the on-ramp ROOT. A bare quoted
-  // 'runtimes' is not enough: the same token is a config key, a type key and an
-  // options field, and rewriting one of those is silent damage rather than a
-  // visible break. So the anchor is either a path-joining call or a path shape.
+  /**
+   * A quoted bare `runtimes` changes only as an argument of a path-joining call.
+   * The same quoted token is also a config key, a type key, and an options field.
+   */
   [/(\b(?:join|resolve)\([^)]*?,\s*)(['"`])runtimes\2/g, '$1$2content/harness/runtimes$2'],
-  // Each of these must refuse to fire on a path an earlier rule already
-  // rewrote. Without the lookbehind the quoted rule produces
-  // `content/harness/runtimes/…`, and the glob rules below then match the
-  // `runtimes/…` inside their own output — one pass, two prefixes.
+  /**
+   * This rule and the two after it skip a path that an earlier rule rewrote.
+   * Without the lookbehind, one pass adds the prefix twice.
+   */
   [/(?<!content\/harness\/)(['"`])runtimes\/([^'"`]*)\1/g, '$1content/harness/runtimes/$2$1'],
   [/(?<!content\/harness\/)\bruntimes\/\*\.yaml/g, 'content/harness/runtimes/*.yaml'],
   [/(?<!content\/harness\/)\bruntimes\/\*\*/g, 'content/harness/runtimes/**'],

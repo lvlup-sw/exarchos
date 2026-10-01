@@ -1,15 +1,10 @@
-// Retarget the invariants catalog's `servers/exarchos-mcp/...` references onto
-// their post-fold homes.
+// Rewrites the `servers/exarchos-mcp/...` references in the invariants catalog to the paths
+// that `move-table.mjs` gives. The catalog is Markdown, and `dev-catalog-ref-paths.test.ts`
+// requires each reference to resolve on disk.
 //
-// The catalog is LIVE — `dev-catalog-ref-paths.test.ts` asserts every reference
-// resolves on disk — but it is Markdown, so the task-019 codemods (which walked
-// TypeScript import specifiers and path literals) never saw it. The mapping
-// comes from `move-table.mjs`, the same authority the fold itself used, so the
-// prose cannot disagree with the tree.
-//
-// Every destination is verified to exist before it is written. A mapping that
-// resolves to nothing is reported and left alone rather than substituted: a
-// wrong-but-plausible path would satisfy nothing and still read as repaired.
+// The script writes a destination only when it exists on disk. It reports a mapping that
+// resolves to nothing and leaves the reference unchanged, because a plausible wrong path
+// reads as repaired. A glob keeps its wildcard, so the existence check uses the fixed prefix.
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
@@ -39,7 +34,6 @@ for (const target of targets) {
       misses.push([match, 'no mapping in move-table']);
       return match;
     }
-    // A glob keeps its wildcard, so existence is checked on the fixed prefix.
     const probe = mapped.includes('*') ? mapped.slice(0, mapped.indexOf('*')) : mapped;
     if (!existsSync(resolve(REPO_ROOT, probe))) {
       misses.push([match, `maps to ${mapped}, which does not exist`]);

@@ -1,32 +1,18 @@
 #!/usr/bin/env node
 /**
- * Prefix-fingerprint CI gate (task T047, DR-12).
+ * CI gate for the rehydration prefix fingerprint.
  *
- * Invoked from the root `npm run validate` chain. The purpose of this gate
- * is to catch silent drift in the rehydration document's stable-prefix
- * inputs (JSON schema shape + MCP tool description bytes). Any such drift
- * invalidates downstream prompt caches; DR-12 requires that the drift be
- * acknowledged by updating `PREFIX_FINGERPRINT` alongside the template edit
- * that caused it. CI fails when the committed hash does not match the live
- * computation.
+ * The stable-prefix inputs of the rehydration document are the JSON schema shape
+ * and the MCP tool description bytes. A change to them invalidates downstream
+ * prompt caches. The gate fails until the same change updates the committed
+ * `PREFIX_FINGERPRINT` hash.
  *
- *   Exit 0 — committed hash matches computed hash.
- *   Exit 1 — divergence (prints expected + actual to stderr).
- *   Exit 2 — usage / environment error (tsx not found, file unreadable).
+ *   Exit 0: the committed hash matches the computed hash.
+ *   Exit 1: the hashes differ. The gate prints both to stderr.
+ *   Exit 2: a usage or environment error.
  *
- * How we reach the hash:
- *   - The canonical computation lives in
- *     `src/projections/rehydration/fingerprint.ts`.
- *   - A tiny TS entrypoint (`fingerprint-cli.ts`, co-located with the
- *     module) prints `computePrefixFingerprint()` to stdout.
- *   - This `.mjs` shells out to `tsx` (devDep at the repo root) to execute
- *     that entrypoint. We deliberately avoid importing a compiled dist so
- *     the validate chain does not depend on a prior build step.
- *
- * Flags (primarily for testability):
- *   --fingerprint-file <path>   Path to the committed hash file. Defaults
- *                               to the co-located `PREFIX_FINGERPRINT`.
- *   --help                      Show usage.
+ * The gate runs `src/projections/rehydration/fingerprint-cli.ts` under `tsx`, so
+ * it needs no prior build step.
  */
 import { spawnSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
@@ -52,22 +38,11 @@ const CLI_ENTRY = path.join(
 );
 
 /**
- * Resolve the tsx binary. Search order: root `node_modules/.bin/tsx` (the
- * devDep that is guaranteed installed by `npm install`), then the MCP
- * server's local `node_modules/.bin/tsx`, then `tsx` on PATH. We prefer
- * explicit paths over PATH so the check is reproducible across shells.
- *
- * @returns {string | null} absolute path to a tsx binary, or null if none.
- */
-/**
- * Resolve how to invoke `tsx`, returning `{ command, args }` for
- * `spawnSync`. Prefers the actual JS CLI entrypoint
- * (`tsx/dist/cli.mjs`) run via `process.execPath` over the
- * `node_modules/.bin/tsx` shim — the shim is a POSIX shebang script with
- * no `.exe`/`.cmd` extension, so Win32's executable resolution can't
- * launch it directly (no `shell: true` here). Invoking the `.mjs` CLI
- * with `node` sidesteps shim resolution entirely and works identically
- * on every platform.
+ * Resolves how to start `tsx` and returns `{ command, args }` for `spawnSync`.
+ * It prefers `tsx/dist/cli.mjs` under `process.execPath` to the
+ * `node_modules/.bin/tsx` shim. On win32 the shim has no `.exe` or `.cmd`
+ * extension, so it cannot start without `shell: true`. If no candidate exists,
+ * `spawnSync` resolves `tsx` on PATH.
  */
 function resolveTsx() {
   const candidates = [
@@ -83,7 +58,6 @@ function resolveTsx() {
   for (const candidate of candidates) {
     if (existsSync(candidate)) return { command: process.execPath, args: [candidate] };
   }
-  // PATH fallback — let spawnSync resolve the `tsx` shim itself.
   return { command: 'tsx', args: [] };
 }
 

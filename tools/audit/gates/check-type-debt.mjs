@@ -1,78 +1,17 @@
 #!/usr/bin/env node
 /**
- * check-type-debt — per-file `as unknown as` count-budget register (DR-9, DR-10).
+ * CI gate: a per-file budget for `as unknown as` casts in `src/`.
  *
- * The register's identity function is a PER-FILE COUNT BUDGET, not an entry
- * keyed on `{symbol,file}` / `{file,line,col}` / content-hash (DR-9's Rejected
- * Identities note: a symbol/file key can't distinguish multiple casts in one
- * file; `{file,line,col}` churns on unrelated edits — the 532-fix tsconfig
- * wave in PR #1714 would have invalidated such a register wholesale).
+ * Each file has one count budget, not one entry per cast. A symbol key cannot tell
+ * casts in one file apart, and a line key changes on unrelated edits.
  *
- * CENSUS (pinned — the exclusion list below IS the census definition; the
- * baseline is regenerable from it, never hand-edited):
- *   - roots: `src/**`
- *   - only `*.ts` files
- *   - excluding (at any depth) `*.test.ts`, `*.bench.ts`, `*.d.ts`,
- *     `__tests__/`, `__shims__/`, `__mocks__/`, `__shared__/`, `evals/`
- *     (eval-harness fixture code is not production debt; see EXCLUSION_GLOBS
- *     below for the exact globs), and
- *     `src/install/runtimes/embedded.ts` (generated output locked by `runtimes:guard`
- *     — its casts are codegen's, not hand debt).
+ * A file over its budget fails. A file with casts and no budget fails. A budget above
+ * the actual count prints a warning and does not fail, because cleanup lowers budgets
+ * in batches with `--update`.
  *
- * RATCHET SEMANTICS (mirrors the wave-1 ratchet idiom — `tools/audit/`
- * cycle-gate.ts / knip-diff.ts):
- *   - a file whose actual count EXCEEDS its baselined budget FAILS
- *     (over-budget: new debt introduced, or a shrunk budget not honored).
- *   - a file absent from the baseline with actual count > 0 FAILS
- *     (unbaselined debt: nothing authorizes casts in this file at all).
- *   - a "stale-high" budget (baseline ABOVE actual — the file improved but the
- *     budget was never ratcheted down) is a non-failing WARNING, not a FAIL.
- *     This deliberately follows knip-diff's `stale` precedent (a hygiene
- *     warning), not cycle-gate's `phantom` precedent (a hard FAIL), because:
- *       (a) DR-9's own acceptance criteria enumerate exactly four required
- *           self-test directions (over-budget FAILS, fresh-baseline PASSES,
- *           missing-baseline FAILS CLOSED, hash-mismatch FAILS CLOSED) — a
- *           stale-high FAIL is conspicuously absent from that list;
- *       (b) cycle-gate's phantom entries are RARE, discrete, named edges —
- *           failing forces prompt cleanup of a short exception ledger. Cast
- *           counts move on nearly every unrelated diff; treating every
- *           per-file improvement as a hard CI failure would make routine
- *           incremental cleanup adversarial instead of the deliberate,
- *           batched `--update` action the design calls for ("future fix
- *           waves ratchet it down mechanically").
- *     A stale-high budget is reported to stdout so it stays visible, but it
- *     never fails the gate.
- *
- * PROVENANCE (DR-10): the baseline records the generating script's
- * CENSUS-DEFINITION HASH (a stable digest of the roots/extension/exclusion-
- * glob list below) plus how it was produced (`--update`). The gate REJECTS a
- * baseline whose hash does not match its own, or that carries no hash at all
- * (provenance-less) — a baseline generated under a different census cannot
- * silently govern this one (FAIL CLOSED).
- *
- * FAIL-CLOSED (DR-8/DR-10): missing baseline, unparseable/malformed baseline
- * JSON, and census-hash mismatch all FAIL CLOSED (exit 2) with a message
- * naming the artifact and the reason — never a silent pass.
- *
- *   Exit 0 — clean (no over-budget / unbaselined file; stale-high budgets, if
- *            any, are logged as non-failing warnings).
- *   Exit 1 — one or more files are over budget or carry unbaselined debt.
- *   Exit 2 — fail-closed: missing/unparseable/provenance-less/mismatched
- *            baseline, or a usage error.
- *
- * Flags:
- *   --update             Regenerate the baseline from the current tree and
- *                         write it to --baseline (default: this repo's
- *                         checked-in `tools/audit/gates/type-debt-baseline.json`).
- *   --baseline <path>    Baseline file to read/write. Default: the checked-in
- *                         `tools/audit/gates/type-debt-baseline.json`.
- *   --repo-root <path>   Root the census roots (`src`, `scripts/
- *                         src`) resolve against. Default: this repo's root.
- *                         (Testability seam — production always uses the
- *                         real repo root.)
- *   --help               Show usage.
- *
- * Zero runtime dependencies: only Node built-ins (fs, path, crypto, url).
+ * The baseline records the census hash. A missing, malformed, or mismatched baseline
+ * fails closed. Exit 0 when clean, 1 on violations, and 2 on a fail-closed or usage
+ * error. `--baseline <path>` and `--repo-root <path>` set the inputs.
  */
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -88,13 +27,14 @@ export const EXIT_OK = 0;
 export const EXIT_VIOLATIONS = 1;
 export const EXIT_GATE_ERROR = 2;
 
-// ─── census definition (the exclusion list IS the census — DR-9) ───────────
-
 /** Repo-relative roots the census walks. */
 export const CENSUS_ROOTS = ['src'];
 /** Only files matching this glob are in the typed surface the register governs. */
 export const CENSUS_EXTENSION_GLOB = '**/*.ts';
-/** Exclusion globs — see the module header for the rationale of each. */
+/**
+ * Exclusion globs. Tests, benches, declarations, and the helper and fixture directories
+ * are not production debt. `embedded.ts` is generated output that `runtimes:guard` locks.
+ */
 export const EXCLUSION_GLOBS = [
   '**/*.test.ts',
   '**/*.bench.ts',
@@ -108,12 +48,8 @@ export const EXCLUSION_GLOBS = [
 ];
 
 /**
- * Translate a `**`/`*` glob into an anchored RegExp. Supports only the two
- * wildcard forms the census definition actually uses:
- *   - `**\/` — zero or more path segments (optional leading prefix)
- *   - `**` (not followed by `/`) — anything, including `/`
- *   - `*` — anything except `/`
- * Everything else is treated as a literal (regex-escaped).
+ * Converts a glob to an anchored RegExp. `**` and a slash match zero or more segments,
+ * `**` alone matches anything, and `*` matches anything except `/`. Other characters are literal.
  */
 export function globToRegExp(glob) {
   let re = '';
@@ -142,9 +78,8 @@ const CENSUS_EXTENSION_RE = globToRegExp(CENSUS_EXTENSION_GLOB);
 const EXCLUSION_RES = EXCLUSION_GLOBS.map((glob) => globToRegExp(glob));
 
 /**
- * Stable digest of the census DEFINITION (roots + extension + exclusion
- * globs) — NOT of the tree it is applied to. A baseline records this hash;
- * the gate rejects a baseline whose hash differs (DR-9 provenance).
+ * Returns a SHA-256 digest of the census definition (roots, extension, and exclusion
+ * globs), not of the tree. The gate rejects a baseline with a different hash.
  */
 export function computeCensusHash() {
   const payload = JSON.stringify({
@@ -166,10 +101,8 @@ function isExcluded(rel) {
 }
 
 /**
- * A configured census root is unavailable in a way that is NOT "legitimately
- * absent" (ENOENT) — it exists but can't be read, or isn't a directory. Failing
- * closed here (exit 2) keeps an I/O failure or path drift from silently dropping
- * an entire source tree from enforcement (DR-9/DR-10).
+ * A census path that exists but cannot be read, or a root that is not a directory. The
+ * gate exits 2, so an I/O fault does not silently drop a source tree from the count.
  */
 export class CensusError extends Error {
   constructor(message) {
@@ -178,15 +111,15 @@ export class CensusError extends Error {
   }
 }
 
+/**
+ * Adds the census files under `dir` to `out`. A directory that disappears during the
+ * walk is skipped. Any other read fault throws {@link CensusError}.
+ */
 function collectCensusFiles(dir, repoRoot, out) {
   let entries;
   try {
     entries = readdirSync(dir);
   } catch (err) {
-    // A subdirectory that vanished mid-walk (ENOENT — a race) is benign. Any
-    // other read failure on a directory we already confirmed exists is a real
-    // I/O fault — fail closed rather than under-count (DR-10). Configured
-    // ROOTS are validated up-front in `enumerateCensus`.
     if (err && err.code === 'ENOENT') return;
     throw new CensusError(`census directory ${dir} is unreadable (${err && err.message ? err.message : String(err)})`);
   }
@@ -210,7 +143,11 @@ function collectCensusFiles(dir, repoRoot, out) {
   }
 }
 
-/** Enumerate every census file (repo-relative posix path + absolute path). */
+/**
+ * Lists each census file as a repo-relative POSIX path and an absolute path. A root that
+ * does not exist counts as empty, so a partial tree works. An unreadable root, or a root
+ * that is not a directory, throws {@link CensusError}.
+ */
 export function enumerateCensus(repoRoot) {
   const out = [];
   for (const root of CENSUS_ROOTS) {
@@ -219,12 +156,6 @@ export function enumerateCensus(repoRoot) {
     try {
       stat = statSync(rootPath);
     } catch (err) {
-      // ENOENT — a configured root that simply does not exist in THIS tree is
-      // legitimately absent (empty), not a gate error: partial trees (a
-      // repo-root check with no `src`, or a fixture with
-      // only `src/`) depend on this. Any OTHER stat failure (EACCES, EIO, …)
-      // means the root IS present but unreadable — fail closed rather than
-      // silently drop an entire source tree from enforcement (DR-10).
       if (err && err.code === 'ENOENT') continue;
       throw new CensusError(
         `census root "${root}" is unreadable at ${rootPath} ` +
@@ -243,8 +174,6 @@ export function enumerateCensus(repoRoot) {
   return out;
 }
 
-// ─── counting ────────────────────────────────────────────────────────────────
-
 const AS_UNKNOWN_AS_RE = /\bas\s+unknown\s+as\b/g;
 
 /** Count `as unknown as` occurrences in a source string. */
@@ -253,14 +182,13 @@ export function countTypeDebt(source) {
   return matches ? matches.length : 0;
 }
 
-/** Build `{ rel -> count }` for every census file with count > 0. */
+/**
+ * Returns `{ rel -> count }` for each census file with a count above 0. A file read
+ * fault throws {@link CensusError}, so it exits 2 and does not count as a violation.
+ */
 export function measureTree(repoRoot) {
   const counts = new Map();
   for (const { rel, full } of enumerateCensus(repoRoot)) {
-    // A non-ENOENT read fault (EACCES/EIO) on a file that survived enumeration
-    // is an I/O gate error, not an over-budget violation — surface it as a
-    // CensusError (EXIT_GATE_ERROR) so the fail-closed taxonomy stays honest,
-    // mirroring the readdir guard in `enumerateCensus`.
     let source;
     try {
       source = readFileSync(full, 'utf8');
@@ -275,8 +203,6 @@ export function measureTree(repoRoot) {
   return counts;
 }
 
-// ─── baseline load/validate ──────────────────────────────────────────────────
-
 export class BaselineError extends Error {
   constructor(message) {
     super(message);
@@ -285,9 +211,8 @@ export class BaselineError extends Error {
 }
 
 /**
- * Validate a parsed baseline document. Throws {@link BaselineError} naming the
- * artifact + reason on any fail-closed condition: not an object, missing/
- * malformed `files`, or a missing/mismatched `censusHash` (DR-9 provenance).
+ * Validates a parsed baseline and returns `{ censusHash, files }`. It throws {@link BaselineError}
+ * for a non-object, a missing or different `censusHash`, or a malformed `files` map.
  */
 export function validateBaseline(raw, expectedHash, artifactLabel) {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -322,7 +247,7 @@ export function validateBaseline(raw, expectedHash, artifactLabel) {
   return { censusHash: raw.censusHash, files };
 }
 
-/** Read + JSON.parse a baseline file, throwing {@link BaselineError} on any I/O or parse failure. */
+/** Reads and parses a baseline file. It throws {@link BaselineError} on a read or parse failure. */
 export function readBaselineFile(baselinePath) {
   let raw;
   try {
@@ -343,8 +268,6 @@ export function readBaselineFile(baselinePath) {
   }
 }
 
-// ─── diff ────────────────────────────────────────────────────────────────────
-
 /**
  * @typedef {{ rel: string, budget: number, actual: number }} OverBudget
  * @typedef {{ rel: string, actual: number }} Unbaselined
@@ -352,7 +275,8 @@ export function readBaselineFile(baselinePath) {
  */
 
 /**
- * Diff the measured tree against a validated baseline.
+ * Compares the measured counts with the baseline budgets. A file with a nonzero budget
+ * and no casts left is stale-high with an actual count of 0.
  * @returns {{ overBudget: OverBudget[], unbaselined: Unbaselined[], staleHigh: StaleHigh[], compliant: number }}
  */
 export function diffAgainstBaseline(actualCounts, baselineFiles) {
@@ -373,8 +297,6 @@ export function diffAgainstBaseline(actualCounts, baselineFiles) {
       compliant++;
     }
   }
-  // Baseline entries with zero actual casts left (file fixed entirely, or
-  // deleted/excluded since baselining) are the actual===0 case of stale-high.
   for (const [rel, budget] of baselineFiles) {
     if (!actualCounts.has(rel) && budget > 0) {
       staleHigh.push({ rel, budget, actual: 0 });
@@ -384,8 +306,6 @@ export function diffAgainstBaseline(actualCounts, baselineFiles) {
 
   return { overBudget, unbaselined, staleHigh, compliant };
 }
-
-// ─── baseline (de)serialization ──────────────────────────────────────────────
 
 export function buildBaselineDocument(actualCounts, now = new Date()) {
   const files = {};
@@ -401,8 +321,6 @@ export function buildBaselineDocument(actualCounts, now = new Date()) {
     files,
   };
 }
-
-// ─── CLI ─────────────────────────────────────────────────────────────────────
 
 function printUsage() {
   process.stderr.write(

@@ -1,29 +1,15 @@
 #!/usr/bin/env node
 /**
- * check-no-duplicate-suites.mjs — duplicate-location ratchet (DR-1, Task 022).
+ * check-no-duplicate-suites.mjs: a ratchet against duplicate test locations.
  *
- * An (area, basename)-qualified intersection guard: it FAILS on any legacy
- * `src/__tests__/<area>/<base>.test.ts` twin of a co-located `src/<area>/
- * <base>.test.ts` subject that is not in the allowlist. Enumeration reuses
- * Task 001's `enumeratePairs` (`consolidate-suite.mjs`) so the ratchet and the
- * tool share ONE (area, basename) directory-intersection definition — never a
- * divergent copy and never a brace-glob (`git ls-files '{a,b}'` never expands
- * the braces → vacuously green).
+ * It fails on a legacy `src/__tests__/<area>/<base>.test.ts` twin of a co-located
+ * `src/<area>/<base>.test.ts` subject when the twin is not in the allowlist.
+ * It uses `enumeratePairs` from `consolidate-suite.mjs`, so the ratchet and that tool
+ * share one pair definition. It uses no brace glob, because `git ls-files '{a,b}'`
+ * does not expand the braces and matches nothing.
  *
- * The pair identity key is strictly `(area, basename)`, so `workflow/schemas`
- * and `event-store/schemas` are DISTINCT subjects (likewise `workflow/tools`
- * vs `event-store/tools`). An allowlist keyed on basename alone would conflate
- * them — the allowlist is keyed on the full `<area>/<basename>` pair id.
- *
- * THE ALLOWLIST IS EMPTY. All 17 pairs relocate in the de-divergence campaign;
- * the consolidated end-state has ZERO twins. The allowlist is intentionally
- * NOT seeded with the current 17 — seeding it would ratchet in the very defect
- * this campaign removes. It exists only as the shrink-to-zero seam the design
- * describes (DR-1): a temporary future twin could be parked here with a reason,
- * but the steady state is `[]`.
- *
- * The pure `findViolations` core is exported so the ratchet is unit-testable
- * against a synthetic tree without spawning a subprocess.
+ * The pair id is `<area>/<basename>`, so `workflow/schemas` and `event-store/schemas`
+ * are different subjects.
  */
 import { fileURLToPath } from 'node:url';
 import * as path from 'node:path';
@@ -39,18 +25,16 @@ import {
 export { EXIT_OK, EXIT_FINDING, EXIT_USAGE };
 
 /**
- * The shrink-to-zero allowlist of `<area>/<basename>` pair ids permitted to
- * still have a legacy `__tests__` twin. EMPTY by design — the consolidated
- * end-state has no twins. Frozen so no import can mutate it.
+ * Pair ids that can keep a legacy `__tests__` twin. It is empty, because the target
+ * tree has no twins. An entry for a current twin locks in the defect that the ratchet
+ * removes. Add an id only for a temporary twin, with a reason. It is frozen.
  * @type {readonly string[]}
  */
 export const ALLOWLIST = Object.freeze([]);
 
 /**
- * Every enumerated (area, basename) twin whose pair id is not in `allowlist`.
- * A pure set-difference over the tool's enumeration — the ratchet's whole
- * decision. Keyed on the full `<area>/<basename>` id so a same-basename pair in
- * a different area is never accidentally waived.
+ * Returns each pair whose `<area>/<basename>` id is not in `allowlist`.
+ * The match uses the full id, so an entry never waives a same-basename pair in another area.
  * @param {{ id: string, legacyPath: string, canonicalPath: string }[]} pairs
  * @param {readonly string[]} allowlist
  * @returns {{ id: string, legacyPath: string, canonicalPath: string }[]}
@@ -91,8 +75,8 @@ function parseArgs(argv) {
 }
 
 /**
- * In-process CLI body. Returns an exit code; never calls `process.exit` so it
- * is unit-testable. All I/O goes through the injected `log`/`errlog`.
+ * In-process CLI body. It returns an exit code and does not call `process.exit`.
+ * All output goes through the injected `log` and `errlog`.
  * @param {string[]} argv
  * @param {{ srcRoot?: string, log?: (m: string) => void, errlog?: (m: string) => void }} [opts]
  * @returns {number}

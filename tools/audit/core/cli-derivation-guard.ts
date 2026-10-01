@@ -1,94 +1,18 @@
-// tools/audit/core/cli-derivation-guard.ts
+// The source-level CLI derivation guard.
 //
-// DR-5 / G1 — the source-level CLI derivation guard.
+// The CLI composition root holds no literal `.command('<name>')` call. Each
+// command comes from a derivation helper (`registerActionCommand`, the
+// composite-tool loop, or the harness loop) that takes its name from a registry
+// declaration. `GOVERNED_SOURCES` and the allowlist file hold the policy as data.
 //
-// POLICY
-// ──────
-// The CLI composition root contains NO literal `.command('<name>')` call. Every
-// command is registered through a derivation helper — `registerActionCommand`,
-// the composite-tool loop, or the harness loop — that takes its name from a
-// registry declaration. The policy is DATA (`GOVERNED_SOURCES` below, plus the
-// allowlist file), not prose in a test body, so the governed surface and the
-// tolerated exceptions are both reviewable artifacts.
+// The guard parses the source, because a built Commander tree records no
+// provenance: `program.command('doctor')` and `program.command(cliName)` give
+// identical nodes. It uses the TypeScript parser, not a regex, so a call in a
+// comment never counts, and a recovered parse fails closed. It never resolves
+// `buildCli`, so it runs under plain `node` or `tsx` without Bun.
 //
-// ─────────────────────────────────────────────────────────────────────────────
-// WHY THIS GUARD IS SOURCE-LEVEL, AND WHY THE OBVIOUS FORMULATION FAILED
-//
-// An earlier revision specified G1 as "every command traces to a registry
-// declaration", checked by walking the Commander tree built by `buildCli`.
-// That policy PASSED ITS OWN KILL FIXTURE, for two independent reasons:
-//
-//   1. The hand-written `doctor`, `onboard` and `merge-orchestrate` commands all
-//      call `addFlagsFromSchema(cmd, action.schema, …)` against the registry
-//      action they promote. They genuinely DO trace to a registry declaration.
-//      The predicate was true of exactly the code it was written to reject.
-//   2. A built Commander tree records no provenance. `program.command('doctor')`
-//      and `program.command(cliName)` produce byte-identical nodes, so a
-//      tree-walk cannot observe hand-written-versus-derived AT ALL.
-//
-// It would have shipped green with its real subject surviving — the exact defect
-// it existed to remove. The discriminating fact is visible only in the SOURCE
-// (a string literal versus an identifier) and is erased by the time a tree
-// exists. Hence: parse the composition root, classify each `.command(` argument.
-//
-// A second, practical consequence: this guard never resolves `buildCli`, so it
-// carries no `bun:sqlite` dependency and needs neither Bun nor Vitest's alias
-// shim. It runs under plain `node`/`tsx`. See `docs/guides/ci-gate-hosting.md`
-// for the host-class decision — this is a "deps tail" gate (it needs
-// `typescript` resolvable), NOT a zero-dep-prefix gate.
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// WHY THE TYPESCRIPT PARSER AND NOT A REGEX
-//
-// This program has been bitten four times by guards that measured source TEXT
-// instead of the structural fact: `cli-vocab-guard` measured vocabulary rather
-// than derivation; the DR-14 cast census counted the English word "as" in
-// comments; DR-27's scanner counted substrings. A regex here would join that
-// list on day one, and the failure is already demonstrable: a naive
-// `/\.command\(/` over `adapters/cli/cli.ts` reports 15 sites, not 14, because a
-// JSDoc block at `cli.ts:55` writes `program.command(...)` in PROSE.
-//
-// Comments are not "blanked" by a stripping pass here — a hand-rolled stripper
-// means re-deriving TypeScript's lexical grammar (template-substitution
-// nesting, the regex-literal-versus-division ambiguity, escapes, apostrophes),
-// which is how the original defect class arrives. Instead comments are blanked
-// STRUCTURALLY: the parser classifies them as trivia, so they never become
-// `CallExpression` nodes and the walk below cannot see them. `ts.isCallExpression`
-// cannot disagree with the compiler about what a call is.
-//
-// `tools/audit/tsconfig-strictness/count-casts.ts` was converted from a regex to the
-// parser for exactly this reason; this module follows its idiom, including the
-// fail-closed treatment of a recovered parse.
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// WHY THIS LIVES IN `scripts/` AND NOT IN `src/architecture/`
-//
-// It was first written as `src/architecture/cli-derivation-seam.ts`, on the
-// reasoning that `*-seam.ts` is an established convention there for
-// "test-invoked source-lint gate run against production SOURCE" and would be
-// covered by the DR-7 module-intent allowlist class of the same name. Two
-// ownership censuses rejected that placement, correctly:
-//
-//   - `effect-ledger` (P04-01) flagged an INDETERMINATE owner: this module
-//     reads files off disk, and `src/**` is SHIPPED source where every
-//     filesystem effect must have a declared owner.
-//   - `effect-ledger`'s bare-import allowlist flagged `typescript` itself.
-//     That is the load-bearing objection: `typescript` is a devDependency, so
-//     importing the compiler into `src/**` would make it a RUNTIME dependency
-//     of the shipped server and pull it into the compiled binary.
-//
-// A gate that parses the tree is build/gate tooling, not shipped source. In
-// `scripts/` it sits beside `cli-vocab-guard.ts` — the guard whose defect this
-// one corrects, governing the same file — where a devDependency import is
-// correct and where the module is not a production module at all, so DR-7's
-// dead-in-prod question does not arise. Note the sibling is in `scripts/` for a
-// different reason (it MUST be `bun run`, because resolving `buildCli` drags in
-// `bun:sqlite`); this guard has no such constraint and runs under plain node.
-//
-// One honest consequence: the DR-30 `@oracle-sources` corpus covers
-// `repo/src`, `mcp/src`, `mcp/test` and `mcp/tests` — not `mcp/scripts`. The
-// co-located test still declares its two authorities, but nothing currently
-// enforces that declaration at this path.
+// The ratchet audits govern how the allowlist can change.
+// `tools/audit/core/cli-derivation-ratchet-guard.ts` runs them in CI.
 
 import { readFileSync, existsSync, realpathSync } from 'node:fs';
 import * as path from 'node:path';
@@ -106,16 +30,12 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** Repository root — `<repo>/tools/audit/core` → `<repo>`. */
 export const REPO_ROOT = path.resolve(HERE, '../../..');
 
-// ─── Policy, as data ─────────────────────────────────────────────────────────
-
 /**
  * The governed composition roots, repo-relative and forward-slashed.
  *
- * A list rather than a single constant so that a future composition root (a
- * second adapter, a split of `cli.ts`) is added here as DATA instead of being
- * silently ungoverned. Every entry must exist and must parse; a path that
- * resolves to nothing fails the scan rather than contributing zero sites (see
- * {@link scanGovernedSources}).
+ * A new composition root joins this list as data. Each entry must exist and
+ * parse. A path that resolves to nothing fails the scan, and does not count as
+ * zero sites (see {@link scanGovernedSources}).
  */
 export const GOVERNED_SOURCES: readonly string[] = Object.freeze([
   'src/adapters/cli/cli.ts',
@@ -125,31 +45,14 @@ export const GOVERNED_SOURCES: readonly string[] = Object.freeze([
 export const ALLOWLIST_PATH = 'tools/audit/core/cli-derivation-allowlist.json';
 
 /**
- * The KILL FIXTURE: command names that may never be allowlisted.
+ * The kill fixture: command names that the allowlist can never hold.
  *
- * `merge-orchestrate` is the guard's live failing subject. It is declared
- * TWICE — once as a registry action (`merge_orchestrate`, carrying
- * `posture: 'shared-mutating'`) and once by hand as `.command('merge-orchestrate')`
- * in the composition root. That duplication is precisely the finding DR-5
- * exists to remove; the registry declaration is the survivor.
- *
- * This constant exists because an earlier revision of the policy put
- * `merge-orchestrate` ON the allowlist. That single line neutralized the very
- * rejection DR-5 requires: the guard kept its kill fixture in the file, kept
- * reporting a number, and no longer rejected the one command whose rejection
- * was the point. A guard with no currently-failing subject has not been shown
- * to work — it has only been shown to run.
- *
- * So the exclusion is a MECHANISM, not a convention:
- *
- *   - {@link findDerivationViolations} never suppresses these names, whatever
- *     the allowlist says — the rejection cannot be switched off from data.
- *   - {@link readAllowlist} REFUSES a policy file that lists one, so the
- *     mistake is rejected loudly at authoring time instead of being silently
- *     ignored and read as consent.
- *
- * The remedy for a kill-fixture name is to DELETE the hand-written command
- * (DR-5's remediation), never to exempt it.
+ * `merge-orchestrate` is a registry action. A hand-written
+ * `.command('merge-orchestrate')` beside it is a second declaration, and the
+ * remedy is to delete the hand-written command. {@link findDerivationViolations}
+ * reports these names whatever the allowlist holds. {@link readPolicy} refuses a
+ * policy file that lists one in either map, so the mistake fails at authoring
+ * time.
  */
 export const KILL_FIXTURE_COMMANDS: readonly string[] = Object.freeze(['merge-orchestrate']);
 
@@ -158,18 +61,15 @@ export function isKillFixture(name: string): boolean {
   return KILL_FIXTURE_COMMANDS.includes(name);
 }
 
-// ─── Scan results ────────────────────────────────────────────────────────────
-
 /**
  * How a `.command(…)` site names its command.
  *
- * - `literal`  — a string literal or no-substitution template. The name is
- *   BAKED into the composition root; nothing ties it to a registry declaration.
- * - `derived`  — any other expression (identifier, property access, template
- *   with substitutions). The name is computed, so it comes from wherever that
- *   expression reads — the registry, by construction of the helpers.
- * - `indeterminate` — a `.command()` call with no first argument. The guard
- *   cannot prove derivation, so it fails closed rather than assuming the best.
+ * - `literal`: a string literal or a template with no substitution. The name is
+ *   fixed in the composition root, and nothing ties it to a registry declaration.
+ * - `derived`: any other expression. The name is computed, and the helpers read
+ *   it from the registry.
+ * - `indeterminate`: a `.command()` call with no argument. The guard cannot
+ *   prove derivation, so it fails closed.
  */
 export type CommandSiteKind = 'literal' | 'derived' | 'indeterminate';
 
@@ -198,23 +98,18 @@ export interface DerivationScan {
   readonly literals: readonly CommandSite[];
   /** Sites whose name is computed. */
   readonly derived: readonly CommandSite[];
-  /** Sites the guard could not classify. Non-empty is a fail-closed condition. */
+  /** Sites that the guard cannot classify. Non-empty is a fail-closed condition. */
   readonly indeterminate: readonly CommandSite[];
 }
 
-// ─── Fail-closed parsing ─────────────────────────────────────────────────────
-
 /**
- * Read `parseDiagnostics` without a type assertion.
+ * Reads `parseDiagnostics` without a type assertion.
  *
- * `parseDiagnostics` is not on the public `ts.SourceFile` surface, but it is the
- * only way to tell a CLEAN parse from a RECOVERED one: `createSourceFile` never
- * throws — handed broken input it returns a partial tree with nodes silently
- * missing, which would UNDER-report `.command(` sites and read as a clean run.
- *
- * `Reflect.get` into a local `unknown` keeps this honest under the wave's cast
- * budget (`as const` counts, so does `as X`): the value is narrowed by real
- * runtime checks rather than asserted.
+ * `parseDiagnostics` is not on the public `ts.SourceFile` surface. It is the
+ * only way to tell a clean parse from a recovered one. `createSourceFile` never
+ * throws: on broken input it returns a partial tree that under-reports
+ * `.command(` sites. `Reflect.get` into an `unknown` keeps the read inside the
+ * cast budget.
  */
 function readParseErrors(sourceFile: ts.SourceFile): { readonly count: number; readonly detail: string } {
   const raw: unknown = Reflect.get(sourceFile, 'parseDiagnostics');
@@ -229,15 +124,12 @@ function readParseErrors(sourceFile: ts.SourceFile): { readonly count: number; r
 }
 
 /**
- * Parse `source`, refusing a RECOVERED parse.
+ * Parses `source` and refuses a recovered parse.
  *
- * Exported so a second source-level measurement does not have to re-derive
- * fail-closed parse semantics (task 026's live authority proof reuses it). The
- * `label` prefixes the failure so the message still names the caller; it
- * defaults to this guard, so the existing behaviour and message are unchanged.
- * `setParentNodes` is for a measurement that must walk UP from a site — to the
- * scope that declared an identifier — and is off by default because the site
- * extractors here only walk down.
+ * Other source-level measurements reuse it, such as the live authority proof.
+ * `label` prefixes the failure message. `setParentNodes` is for a measurement
+ * that walks up from a site to the scope that declares an identifier. It is off
+ * by default, because the extractors here only walk down.
  */
 export function parseOrThrow(
   source: string,
@@ -257,14 +149,13 @@ export function parseOrThrow(
   return sourceFile;
 }
 
-// ─── Site extraction ─────────────────────────────────────────────────────────
-
-/** Is this call expression a `<something>.command(…)` invocation? */
+/**
+ * True for `x.command(…)`, `x?.command(…)` and `x['command'](…)`. The
+ * element-access form is an evasion of the property-access form.
+ */
 function isCommandCall(node: ts.CallExpression): boolean {
   const callee = node.expression;
-  // `x.command(…)` and `x?.command(…)`.
   if (ts.isPropertyAccessExpression(callee)) return callee.name.text === 'command';
-  // `x['command'](…)` — an evasion route around the property-access form.
   if (ts.isElementAccessExpression(callee)) {
     const arg = callee.argumentExpression;
     return ts.isStringLiteralLike(arg) && arg.text === 'command';
@@ -278,21 +169,13 @@ function classify(arg: ts.Expression | undefined): CommandSiteKind {
 }
 
 /**
- * Parse `source` and return every `.command(` site with its classification.
+ * Parses `source` and returns each `.command(` site with its kind.
  *
- * Pure over a source string — the self-tests drive it directly with seeded
- * input, so none of them needs to mutate a file on disk.
- *
- * THROWS on a source that yields ZERO `.command(` sites. This is the non-empty
- * denominator, and it lives HERE rather than in {@link scanGovernedSources}
- * because a tooth installed only in the outer function is bypassed by every
- * direct caller of the pure one: an empty string parses cleanly, returns zero
- * sites, produces zero violations, and reads as a clean run — which is exactly
- * the "moved or renamed composition root silently stops being governed" failure
- * the tooth exists to make impossible. Task 021 reported it as half-installed;
- * task 022 pushed it down. The check is therefore unconditional and has no
- * opt-out parameter: an escape hatch would restore the hole for whoever passed
- * it.
+ * It is pure over a source string, so the self-tests drive it with seeded input.
+ * It throws on a source with zero sites. The check lives here, not in
+ * {@link scanGovernedSources}, so a direct caller cannot bypass it. An empty
+ * scan reads as a clean run, and that is how a moved composition root silently
+ * stops being governed. The check has no opt-out parameter.
  */
 export function scanSourceForCommandSites(source: string, file: string): DerivationScan {
   const sourceFile = parseOrThrow(source, file);
@@ -334,25 +217,18 @@ export function scanSourceForCommandSites(source: string, file: string): Derivat
   };
 }
 
-/** `'feedback <message>'` → `feedback`; `'doctor'` → `doctor`. */
+/** `'feedback <message>'` gives `feedback`, and `'doctor'` gives `doctor`. */
 function firstToken(literal: string): string {
   return literal.trim().split(/\s+/)[0] ?? '';
 }
 
 /**
- * Scan every governed source under `repoRoot`.
+ * Scans each governed source under `repoRoot`.
  *
- * Throws — rather than returning an empty scan — when the source list is empty,
- * a governed file is missing, or a governed file yields ZERO `.command(` sites.
- * A guard that parses nothing reports no violations and passes clean, so a
- * moved or renamed composition root would read as "policy satisfied". The
- * non-empty denominator is the tooth that makes that impossible.
- *
- * The zero-site arm of that tooth is NOT re-implemented here: it lives in
- * {@link scanSourceForCommandSites}, which this function calls per file, so the
- * error surfaces exactly ONCE and names the offending file. A defensive second
- * copy here would be unreachable (dead policy that cannot be shown to work) and,
- * if it ever did fire, would report the same fact twice with two wordings.
+ * It throws when the source list is empty or a governed file is missing. A guard
+ * that parses nothing passes clean, so a moved composition root reads as "policy
+ * satisfied". The zero-site check lives in {@link scanSourceForCommandSites},
+ * which names the file, so this function does not repeat it.
  */
 export function scanGovernedSources(
   repoRoot: string = REPO_ROOT,
@@ -376,9 +252,6 @@ export function scanGovernedSources(
           'report a clean scan over a file that is not there.',
       );
     }
-    // `scanSourceForCommandSites` owns the zero-site refusal (see its doc
-    // comment) and names `rel` in the message, so nothing is added by checking
-    // again here.
     const scan = scanSourceForCommandSites(readFileSync(abs, 'utf8'), rel);
     all.push(...scan.sites);
   }
@@ -391,27 +264,10 @@ export function scanGovernedSources(
   };
 }
 
-// ─── Policy-data file references ─────────────────────────────────────────────
-//
-// Task 021 found that this policy file's `$comment` pointed at
-// `cli-derivation-seam.ts` — a module that had been RENAMED to
-// `cli-derivation-guard.ts` and no longer existed. Correcting that one string
-// would leave the class open: `$comment` is the text a future author reads to
-// decide whether their entry is legitimate, and nothing checked that what it
-// named was real. So the reference is BOUND instead — every file a policy file
-// names must resolve on disk, or the guard refuses to read the policy at all.
-//
-// This is not "measuring text instead of structure" (the failure mode this
-// program keeps hitting). The text IS the artifact under policy here: a token
-// like `servers/.../cli-derivation-guard.ts` is a claim that a file exists, and
-// the check verifies exactly that claim. Nothing is inferred about meaning.
-
 /**
- * Extensions that make a token inside policy prose a FILE REFERENCE.
- *
- * Data rather than a baked alternation so a policy file that starts pointing at
- * a workflow YAML or a design doc is covered by the same binding, without the
- * class being reopened one extension at a time.
+ * Extensions that make a token in policy prose a file reference. The list is
+ * data, so a new kind of referenced file gets the same check without a change
+ * to the pattern.
  */
 export const REFERENCED_EXTENSIONS: readonly string[] = Object.freeze([
   'ts',
@@ -442,21 +298,13 @@ export interface PolicyReferenceProblem {
 }
 
 /**
- * Check every file reference in `commentText` against the tree at `repoRoot`.
+ * Checks each file reference in `commentText` against the tree at `repoRoot`.
+ * The `$comment` is what a future author reads, so each file that it names must
+ * resolve.
  *
- * Two ways to fail:
- *
- *  - **Unverifiable.** A bare basename (`cli-derivation-guard.ts`) names no
- *    single place on disk, so it cannot be checked and cannot be followed by a
- *    reader either. Repo-relative paths are required.
- *  - **Stale.** A repo-relative path that does not exist — the shipped defect.
- *
- * Plus the **non-empty denominator**: prose that names NO file at all is
- * reported too. A policy file whose comment points nowhere gives its reader
- * nothing to follow, and — the load-bearing reason — it is indistinguishable
- * from a broken extractor. Without this arm, a regression in
- * {@link extractPolicyFileReferences} would silently check zero references and
- * report a clean run, which is the same defect one level up.
+ * - A bare basename names no single place on disk, so it cannot be checked.
+ * - A repo-relative path that does not exist is stale.
+ * - Prose that names no file fails too, because it looks like a broken extractor.
  */
 export function findPolicyReferenceProblems(
   commentText: string,
@@ -501,7 +349,7 @@ export function findPolicyReferenceProblems(
   return problems;
 }
 
-/** Normalize a `$comment` that may be a string or an array of lines. */
+/** Normalizes a `$comment` that is a string or an array of lines. */
 function readCommentText(parsed: unknown): string {
   const raw: unknown =
     typeof parsed === 'object' && parsed !== null ? Reflect.get(parsed, '$comment') : undefined;
@@ -514,54 +362,26 @@ function readCommentText(parsed: unknown): string {
   return '';
 }
 
-// ─── Allowlist: the waiver ledger ────────────────────────────────────────────
-//
-// Task 023 populated this policy file and made it a RATCHET. The shape follows
-// the two waiver ledgers this repository already ships — DR-4's
-// `src/output-schema-vacuity-allowlist.ts` and DR-2's
-// `src/architecture/report-coupling-seed.ts` — deliberately and to the letter:
-//
-//   • an entry is `{ owner, expires }`, keyed by the thing being waived;
-//   • a paid-down entry MOVES to a `retired` graveyard as `{ owner, retiredAt }`;
-//   • `expires` is capped by ONE pinned horizon, so no entry can renew itself;
-//   • the digest of `allowed ∪ retired` is pinned, so the list cannot grow or
-//     be swapped in place;
-//   • the finding codes are the same words.
-//
-// That sameness is the point. Three subjects under one rule is one authority;
-// three subjects each with their own field names, their own notion of "expired"
-// and their own repair advice would be three authorities for one policy, which
-// is the multiple-authority defect DR-6 exists to detect. The primitives are
-// still COPIED rather than shared across the three — recorded as a finding in
-// task 023's report, with the extraction that would collapse them.
-
 /** One tolerated hand-written verb: who owns removing it, and by when. */
 export interface CliWaiverEntry {
   /** Subsystem accountable for registering the verb through a derivation helper. */
   readonly owner: string;
   /**
-   * ISO date (YYYY-MM-DD) after which the waiver is expired — live THROUGH this
-   * day and dead the next. ENFORCED by {@link auditCliDerivationExpiry}, and
-   * capped by `CLI_DERIVATION_EXPIRY_HORIZON`: a date later than the horizon
-   * fails, so an entry cannot buy itself more time. Bringing a date FORWARD is
-   * always legal — it only shortens the debt's life.
+   * ISO date (YYYY-MM-DD) of the last day that the waiver is live.
+   * {@link auditCliDerivationExpiry} enforces it. A date later than
+   * `CLI_DERIVATION_EXPIRY_HORIZON` fails, so an entry cannot extend itself. An
+   * earlier date is always legal.
    */
   readonly expires: string;
 }
 
 /**
- * One PAID-DOWN verb.
+ * One paid-down verb.
  *
- * The graveyard exists for one reason: it keeps the SEED KEY SET invariant. The
- * pinned digest is taken over `keys(allowed) ∪ keys(retired)`, so a legal
- * paydown is a MOVE (digest unchanged) and an illegal addition is a GROWTH
- * (digest changed). That is the whole difference between "the list shrank" and
- * "the list was swapped", and it is not derivable from today's parse alone.
- *
- * It is not a suppression list. A retired verb that is STILL a hand-written
- * literal is not waived — {@link auditCliAllowlistMembership} reports it as
- * `RETIRED_BUT_LIVE`, so moving an entry here without doing the work fails
- * louder than leaving it alone.
+ * The pinned digest covers `keys(allowed) ∪ keys(retired)`. A legal paydown is
+ * thus a move that keeps the digest, and an addition changes it.
+ * {@link auditCliAllowlistMembership} reports a retired verb that is still a
+ * literal as `RETIRED_BUT_LIVE`, so this map is not a suppression list.
  */
 export interface CliRetiredEntry {
   /** Subsystem that owned the paydown. Carried over from the waiver. */
@@ -570,20 +390,22 @@ export interface CliRetiredEntry {
   readonly retiredAt: string;
 }
 
+/**
+ * The waiver ledger. An `allowed` entry is `{ owner, expires }`, keyed by the
+ * waived name. A paid-down entry moves to `retired` as `{ owner, retiredAt }`.
+ * One pinned horizon caps `expires`, and a pinned digest covers the key set of
+ * both maps.
+ */
 export interface CliDerivationPolicy {
   readonly allowed: Readonly<Record<string, CliWaiverEntry>>;
   readonly retired: Readonly<Record<string, CliRetiredEntry>>;
 }
 
 /**
- * Read one plain-object field off parsed JSON, without a type assertion.
- *
- * `Reflect.get` into a local `unknown` narrowed by real runtime checks keeps
- * this inside the wave's cast budget (`as const` counts, so does `as X`) and —
- * more importantly — means a policy file of the wrong SHAPE is refused rather
- * than reinterpreted. An array is rejected explicitly: `typeof [] === 'object'`,
- * so the obvious check admits the pre-task-023 `"allowed": []` shape and would
- * silently resolve zero waivers from it.
+ * Reads one plain-object field off parsed JSON, without a type assertion. A
+ * policy file of the wrong shape is refused, not reinterpreted. An array is
+ * rejected explicitly, because `typeof [] === 'object'` and an `"allowed": []`
+ * array yields zero waivers.
  */
 function readObjectField(
   parsed: unknown,
@@ -606,19 +428,13 @@ function readStringField(value: unknown, field: string): string | undefined {
 }
 
 /**
- * The whole policy — waivers and graveyard — read from {@link ALLOWLIST_PATH}.
+ * The whole policy, waivers and retired entries, read from {@link ALLOWLIST_PATH}.
  *
- * Fails closed on a missing or malformed file: a guard that silently treats an
- * unreadable allowlist as "allow nothing" would be fine, but one that treats it
- * as "allow everything" would not, and an unreadable policy file is a broken
- * gate either way. It also fails closed on a policy file whose `$comment` names
- * a file that does not exist — see {@link findPolicyReferenceProblems}.
- *
- * SHAPE is enforced here; CONTENT is enforced by the audits. An entry missing
- * `owner` or `expires` entirely is a broken file (the JSON has no type system to
- * catch it, which is what DR-4 gets for free from a `.ts` seed); an entry with
- * an EMPTY owner or an unparseable date is a finding, so the expiry audit can be
- * driven with those cases directly instead of only through a file on disk.
+ * It fails closed on a missing or malformed file, and on a `$comment` that names
+ * a missing file (see {@link findPolicyReferenceProblems}). This function checks
+ * the shape. The audits check the content, so an empty owner or a bad date is a
+ * finding, not a thrown error. It refuses a kill-fixture name in either map
+ * before it checks references, so a stale pointer never hides that refusal.
  */
 export function readPolicy(repoRoot: string = REPO_ROOT): CliDerivationPolicy {
   const abs = path.join(repoRoot, ALLOWLIST_PATH);
@@ -679,13 +495,6 @@ export function readPolicy(repoRoot: string = REPO_ROOT): CliDerivationPolicy {
     retired[name] = { owner, retiredAt };
   }
 
-  // The kill fixture is not exemptible, in EITHER map. Refusing the FILE (rather
-  // than quietly dropping the entry) is deliberate: a silently-ignored allowlist
-  // line reads to its author as granted, and the whole failure mode being
-  // guarded against here is an exemption that nobody noticed was load-bearing.
-  // `retired` is covered too because "retire it without doing the work" is the
-  // same act one map over — and the digest would reject it anyway, with a
-  // message about hashes rather than about DR-5.
   const exempted = [...Object.keys(allowed), ...Object.keys(retired)].filter(isKillFixture);
   if (exempted.length > 0) {
     throw new Error(
@@ -698,9 +507,6 @@ export function readPolicy(repoRoot: string = REPO_ROOT): CliDerivationPolicy {
     );
   }
 
-  // Every file the policy prose names must exist. Checked AFTER the kill-fixture
-  // rejection deliberately: a stale doc pointer must never be the error that
-  // surfaces in place of DR-5's load-bearing refusal.
   const referenceProblems = findPolicyReferenceProblems(readCommentText(parsed), repoRoot);
   if (referenceProblems.length > 0) {
     throw new Error(
@@ -716,18 +522,13 @@ export function readPolicy(repoRoot: string = REPO_ROOT): CliDerivationPolicy {
 }
 
 /**
- * Names tolerated as literals — the key set of {@link readPolicy}'s `allowed`.
- *
- * Kept as a distinct, set-shaped view because that is what
- * {@link findDerivationViolations} consumes: the DERIVATION policy only asks
- * whether a name is tracked, and giving it the whole ledger would let a future
- * edit make the derivation verdict depend on an owner or a date.
+ * The names tolerated as literals: the key set of `allowed` from
+ * {@link readPolicy}. The derivation check takes only this set, so its verdict
+ * cannot depend on an owner or a date.
  */
 export function readAllowlist(repoRoot: string = REPO_ROOT): ReadonlySet<string> {
   return new Set(Object.keys(readPolicy(repoRoot).allowed));
 }
-
-// ─── Violations ──────────────────────────────────────────────────────────────
 
 export interface DerivationViolation {
   readonly file: string;
@@ -739,8 +540,9 @@ export interface DerivationViolation {
 }
 
 /**
- * Every site that violates the policy: a baked literal not on the allowlist, or
- * a site the guard could not classify.
+ * Each site that breaks the policy: a literal that the allowlist does not hold,
+ * or a site that the guard cannot classify. A kill-fixture name is reported
+ * whatever the allowlist holds, so data cannot turn its rejection off.
  */
 export function findDerivationViolations(
   scan: DerivationScan,
@@ -749,10 +551,6 @@ export function findDerivationViolations(
   const violations: DerivationViolation[] = [];
 
   for (const site of scan.literals) {
-    // The allowlist is consulted for ordinary tracked debt only. A kill-fixture
-    // name is reported unconditionally, so the rejection survives the eventual
-    // population of the allowlist with the other tolerated literals and cannot
-    // be turned off by editing data.
     const killFixture = isKillFixture(site.name);
     if (!killFixture && allowlist.has(site.name)) continue;
     violations.push({
@@ -796,41 +594,7 @@ export function formatViolation(v: DerivationViolation): string {
   return `  ✗ ${label} at ${at}\n      ${v.detail}`;
 }
 
-// ═══ THE RATCHET (task 023) ══════════════════════════════════════════════════
-//
-// Everything above answers "is this command name derived?". Everything below
-// answers a different question — "may this tolerated set change, and how?" —
-// and the two verdicts are deliberately separate because only ONE of them can
-// be green today. `merge-orchestrate` is still hand-written in the composition
-// root and is not allowlistable, so the derivation policy has a live failing
-// subject BY DESIGN until DR-19 deletes it. The ratchet below is green now and
-// is the part wired blocking into CI, through
-// `tools/audit/core/cli-derivation-ratchet-guard.ts`.
-//
-// Three teeth, plus the non-empty denominators:
-//   1. MEMBERSHIP, both directions. An untracked literal fails; a tracked name
-//      that is no longer a literal goes STALE and must be deleted. There is no
-//      way to park a paid-down entry.
-//   2. SEED KEY-SET INTEGRITY. Tooth 1 compares the policy against TODAY, and
-//      therefore cannot see an in-place swap. The pinned digest can.
-//   3. EXPIRY, enforced rather than advisory, capped by one pinned horizon so a
-//      waiver cannot renew itself.
-
-// ─── Dates ───────────────────────────────────────────────────────────────────
-//
-// Dates are compared as ISO `YYYY-MM-DD` STRINGS, never as `Date` values.
-// Lexicographic order on that format is calendar order, so the comparison has
-// no timezone, no DST, no leap-second and no millisecond component — a guard
-// whose verdict depended on which side of midnight UTC the runner started would
-// be its own flake class.
-
-// The day rule is the shared ledger's, not this guard's. It was duplicated here
-// when task 023 declined to extract rather than let this guard acquire a
-// `bun:sqlite` edge; DR-6's ledger imports nothing, so that reason is gone and
-// the copy with it. Re-exported because five modules take these names from here.
 export { isIsoDay, isoDayUtc };
-
-// ─── Tooth 1: membership, in both directions ─────────────────────────────────
 
 /** A disagreement between the tracked set and the live parse. */
 export type CliMembershipFinding =
@@ -840,7 +604,7 @@ export type CliMembershipFinding =
 
 export interface CliMembershipAudit {
   readonly ok: boolean;
-  /** Literal command names in the live parse, EXCLUDING kill fixtures. Zero is a failure upstream. */
+  /** Literal command names in the live parse, kill fixtures excluded. */
   readonly literals: readonly string[];
   /** Names tracked as tolerated debt. */
   readonly tracked: readonly string[];
@@ -851,18 +615,12 @@ export interface CliMembershipAudit {
 }
 
 /**
- * Pin the policy against the live parse, in BOTH directions.
+ * Compares the policy with the live parse in both directions.
  *
- * The count this guard reports is DERIVED from the scan on every run and is
- * written down nowhere: a census whose subject count is a literal reports the
- * same number after the composition root is renamed, emptied, or fails to
- * parse. `scanSourceForCommandSites` already refuses a zero-site parse, so the
- * denominator here cannot be empty for the reason that matters.
- *
- * Kill fixtures are excluded from BOTH sides. They are not tracked debt — they
- * are a standing rejection, reported unconditionally by
- * {@link findDerivationViolations}, and folding them in here would make the
- * ratchet demand an allowlist entry for exactly the name that may not have one.
+ * The scan derives the count on each run, and nothing stores it. Kill fixtures
+ * are excluded from both sides. They are a standing rejection that
+ * {@link findDerivationViolations} reports, and they can never have an
+ * allowlist entry.
  */
 export function auditCliAllowlistMembership(
   scan: DerivationScan,
@@ -940,8 +698,6 @@ export function formatCliMembershipAudit(audit: CliMembershipAudit): string {
   return lines.join('\n');
 }
 
-// ─── Tooth 2: the seed key set is pinned ─────────────────────────────────────
-
 /** A condition that means the SEED's key set is no longer the one that was pinned. */
 export type CliSeedFinding =
   | { readonly code: 'SEED_KEY_SET_DRIFT'; readonly message: string }
@@ -960,23 +716,17 @@ export interface CliSeedIntegrityAudit {
 }
 
 /**
- * The seed key set's digest: `sha256` over the sorted, deduplicated names
- * joined by newlines.
- *
- * Order- and duplicate-insensitive on purpose — the pinned quantity is a SET,
- * so re-sorting the policy file or writing a name twice must not move the
- * digest. Only membership does.
+ * The digest of the seed key set: `sha256` over the sorted, deduplicated names
+ * joined by newlines. Order and duplicates do not change it, because the pinned
+ * quantity is a set.
  */
 export function cliDerivationSeedDigest(names: readonly string[]): string {
   return keySetDigest(names, CLI_DERIVATION_SEED_DIGEST_ALGORITHM);
 }
 
 /**
- * Audit the seed's key set against its frozen pin.
- *
- * All three inputs are injectable for the same reason the scanner is pure: a
- * self-test has to pose an in-place swap, and a swap cannot be posed against
- * the real policy file without editing the real policy file.
+ * Audits the seed key set against its frozen pin. The inputs are injectable, so
+ * a self-test can pose an in-place swap without an edit to the real policy file.
  */
 export function auditCliDerivationSeedIntegrity(
   waived: readonly string[],
@@ -1041,22 +791,6 @@ export function formatCliSeedIntegrityAudit(audit: CliSeedIntegrityAudit): strin
   return lines.join('\n');
 }
 
-// ─── Tooth 3: the expiry is ENFORCED, not advisory ───────────────────────────
-//
-// This tooth is deliberately separate from the two above because it is the only
-// one that is a function of TIME:
-//
-//   • membership and seed integrity are STRUCTURAL — same verdict forever, for
-//     a fixed pair of inputs. They belong in the unit suite, and they are there.
-//   • expiry is TEMPORAL — the same repository is green today and red in March
-//     2027, which is the entire point of a deadline. A wall-clock read inside
-//     the unit suite would turn "the debt came due" into "the test suite stopped
-//     working", and a developer who cannot run tests fixes the CLOCK, not the
-//     debt. So NOTHING in this module reads `new Date()`: `today` is a required
-//     first parameter, and the single production clock read lives at the gate
-//     entrypoint (`tools/audit/core/cli-derivation-ratchet-guard.ts`),
-//     which is the artifact that blocks the merge.
-
 /** A condition that makes an allowlist entry's deadline invalid or past due. */
 export type CliExpiryFinding =
   | { readonly code: 'EMPTY_ALLOWLIST'; readonly message: string }
@@ -1080,34 +814,20 @@ export interface CliExpiryAudit {
   readonly beyondHorizon: readonly string[];
   /** Names with an empty owner or an unparseable `expires`. Fails closed. */
   readonly malformed: readonly string[];
-  /** Whole days from `today` to `horizon`; negative once the horizon itself is past. */
+  /** Whole days from `today` to `horizon`. The value is negative after the horizon. */
   readonly daysToHorizon: number;
   readonly findings: readonly CliExpiryFinding[];
 }
 
 /**
- * Audit every allowlist entry's deadline as of a NAMED day.
+ * Audits the deadline of each allowlist entry as of the day `today`.
  *
- * `today` is required and has no default — see the section header. The
- * production call is `auditCliDerivationExpiry(isoDayUtc(new Date()), …)`, made
- * once, at the gate entrypoint.
- *
- * Four teeth:
- *   1. NON-EMPTY DENOMINATOR. An allowlist that resolves to zero entries makes
- *      "no expired waiver" true for the worst possible reason — a moved file, a
- *      broken parse, a renamed field. It FAILS. The legitimate zero state exists
- *      (DR-19, the debt fully paid), and it is not this: reaching zero deletes
- *      the policy file, the pin and this audit in one commit.
- *   2. WELL-FORMEDNESS. An empty owner or an `expires` that is not a real
- *      calendar day fails closed. An unowned waiver has nobody to come due for,
- *      and an unparseable date cannot be compared — neither may read as "fine".
- *   3. HORIZON. `expires` later than `CLI_DERIVATION_EXPIRY_HORIZON` fails. This
- *      is what stops a waiver from renewing itself: the entry cannot name a date
- *      of its own choosing, so extending the debt means moving ONE pinned
- *      constant in a file of frozen values, not ten lines in a policy file.
- *   4. EXPIRY. `expires` strictly before `today` fails. Inclusive of the expiry
- *      day itself — an entry marked `2027-02-28` is live THROUGH 2027-02-28 and
- *      dead on 2027-03-01, matching the field's documented meaning.
+ * `today` has no default, so no unit test reads the clock. The gate entrypoint
+ * `cli-derivation-ratchet-guard.ts` passes the UTC day. Dates compare as ISO
+ * `YYYY-MM-DD` strings, so a time zone cannot change a verdict. It fails on an
+ * empty allowlist, an empty owner, a bad date, an `expires` later than the
+ * horizon, and an `expires` before `today`. An entry is live through its
+ * `expires` day.
  */
 export function auditCliDerivationExpiry(
   today: string,
@@ -1231,8 +951,6 @@ export function formatCliExpiryAudit(audit: CliExpiryAudit): string {
   return lines.join('\n');
 }
 
-// ─── The composed ratchet verdict ────────────────────────────────────────────
-
 export interface CliRatchetVerdict {
   readonly ok: boolean;
   readonly membership: CliMembershipAudit;
@@ -1243,12 +961,9 @@ export interface CliRatchetVerdict {
 }
 
 /**
- * Compose the three teeth into one verdict at a NAMED day.
- *
- * Separate from the audits so each stays independently drivable, and separate
- * from the gate entrypoint so the composition itself is testable without a
- * clock. `ok` is the conjunction — a ratchet that passed while one tooth failed
- * would be the presence-not-substance defect this program keeps removing.
+ * Composes the membership, seed-integrity and expiry audits into one verdict as
+ * of `today`. `ok` is true only when all three pass. The verdict needs no clock,
+ * so tests can drive it directly.
  */
 export function auditCliRatchetAsOf(
   today: string,
@@ -1277,32 +992,7 @@ export function auditCliRatchetAsOf(
   });
 }
 
-// ─── CLI entrypoint ──────────────────────────────────────────────────────────
-//
-// Runnable so the DERIVATION policy can be executed, not only imported. It is
-// still NOT wired into `.github/workflows/ci.yml`, and after task 023 that is a
-// narrower and more precise statement than it was before:
-//
-//   Before, it exited 1 on all ELEVEN hand-written literals, because the
-//   allowlist was empty. Now ten of the eleven are tracked debt with an owner
-//   and an enforced deadline, and the ONE remaining violation is
-//   `merge-orchestrate` — the kill fixture, which is not allowlistable and must
-//   stay rejected. DR-5's own remediation for it is DELETION of the hand-written
-//   `.command('merge-orchestrate')` call, and no Wave-1 task owns that edit (see
-//   task 023's report). Until it lands, this entrypoint reports exactly one
-//   violation and exits 1 — which is the guard working, not the guard broken.
-//
-// The RATCHET half — the part that is green today and enforceable now — has its
-// own entrypoint at `tools/audit/core/cli-derivation-ratchet-guard.ts`,
-// which is wired blocking and unfiltered. This mirrors DR-4's split between the
-// census library and `tools/audit/core/output-schema-ratchet-guard.ts`.
-//
-// Host-class note for whoever wires THIS entrypoint once the kill fixture is
-// deleted (see `docs/guides/ci-gate-hosting.md`): it needs `typescript`
-// resolvable, so it belongs in the DEPS TAIL of the unfiltered `grep-gates` job,
-// NOT the zero-dep prefix. It needs neither Bun nor `bun:sqlite`, unlike the
-// sibling `cli-vocab-guard`.
-
+/** Runs the derivation check on the governed sources. It returns 0 when clean and 1 on a violation. */
 export function runGuard(): number {
   const scan = scanGovernedSources();
   const violations = findDerivationViolations(scan, readAllowlist());
@@ -1328,30 +1018,11 @@ export function runGuard(): number {
   return 1;
 }
 
-// THE ENTRYPOINT TAIL — and why it is not a filename comparison (task 074)
-//
-// The predicate used to be `process.argv[1].endsWith('cli-derivation-guard.ts')`,
-// which couples self-execution to the FILE'S NAME. Renaming the file — and
-// updating the `run:` step in ci.yml to match, which is what a rename means —
-// leaves a CI step that still exists, still runs, still resolves, prints NOTHING
-// and exits 0. Task 018 measured that on the sibling `output-schema-ratchet-guard`
-// and this guard reproduced it: a byte-identical copy under any other name
-// produced 0 bytes on stdout, 0 bytes on stderr, exit 0.
-//
-// {@link canonicalPath} also resolves symlinks, because Node reports the main
-// module's realpath while `argv[1]` keeps the link — comparing the two unresolved
-// would trade a filename-shaped silent no-op for a symlink-shaped one.
-//
-// NOTE FOR ANYONE EDITING BELOW: `process.exit` must stay a TOP-LEVEL call.
-// `scripts/guard-inventory.ts` classifies a module as a runnable gate by finding
-// exactly that (`hasDirectRunExit`, an AST walk that rejects a `process.exit`
-// nested inside a function), and a gate it cannot see drops out of DR-24's
-// CI-reachability proof.
-
 /**
- * A canonical absolute path for comparison: symlinks resolved where possible,
- * falling back to plain resolution for a path that does not exist on disk (so
- * an exotic `argv[1]` degrades to "not the entrypoint" rather than throwing).
+ * A canonical absolute path for comparison. It resolves symlinks, because Node
+ * reports the main module by its realpath while `argv[1]` keeps the link. A path
+ * that does not exist falls back to plain resolution, so it reads as "not the
+ * entrypoint" and does not throw.
  */
 function canonicalPath(candidate: string): string {
   const absolute = path.resolve(candidate);
@@ -1362,13 +1033,18 @@ function canonicalPath(candidate: string): string {
   }
 }
 
+/**
+ * True when this file is the main module. The check compares canonical paths,
+ * not the filename, so a renamed copy still runs. The run sets
+ * `process.exitCode`, not `process.exit`, so stdout drains first. The
+ * assignment stays outside any function, because `hasDirectRunExit` finds
+ * runnable gates that way.
+ */
 const isDirectRun =
   typeof process !== 'undefined' &&
   typeof process.argv[1] === 'string' &&
   canonicalPath(process.argv[1]) === canonicalPath(fileURLToPath(import.meta.url));
 
 if (isDirectRun) {
-  // `exitCode`, never `exit(…)` — see report-coupling-ratchet-guard.ts: exiting
-  // can sever stdout before the diagnostics drain.
   process.exitCode = runGuard();
 }

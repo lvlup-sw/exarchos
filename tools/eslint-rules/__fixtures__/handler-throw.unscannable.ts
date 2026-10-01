@@ -1,9 +1,8 @@
-// Two dispatch shapes the rule used to EXEMPT rather than scan. Both reach a
-// real handler, and neither was ever attributed to an action — so a throw
-// inside either handler would have been invisible to the gate.
+// Fixture: two dispatch shapes that reach a real handler. The census attributes
+// neither to an action, so the gate cannot see a throw inside either handler.
+// The rule must report each through `unattributedDispatch`.
 //
-// Its own fixture, like handler-throw.unattributed.ts, so these reports do not
-// perturb another fixture's exact-count assertion.
+// It has its own file, so these reports do not change the exact count of another fixture.
 
 type ToolResult =
   | { success: true; data?: unknown }
@@ -29,17 +28,13 @@ const handlers = {
   },
 };
 
-// (1) A member-expression callee. `dispatchedCalleeIdentifier` could not name
-// it, and the caller read that as "a pre-built envelope, nothing dispatched" —
-// so this call was skipped entirely rather than reported as unscannable.
+/** Shape 1: a member-expression callee, which `dispatchedCalleeIdentifier` cannot name. */
 async function dispatchThroughNamespace(rest: Record<string, unknown>): Promise<ToolResult> {
   const startedAt = Date.now();
   return envelopeWrap(await handlers.handleNamespaced(rest as { id?: string }), startedAt);
 }
 
-// (2) A plain local ALIAS. The table-dispatch exemption accepted any
-// function-local binding, so this qualified as though it came from
-// `ACTION_HANDLERS[action]` — it does not, and nothing censuses it.
+/** Shape 2: a plain local alias. It does not come from `ACTION_HANDLERS[action]`, so no census covers it. */
 async function dispatchThroughAlias(rest: Record<string, unknown>): Promise<ToolResult> {
   const startedAt = Date.now();
   const handler = handleAliased;

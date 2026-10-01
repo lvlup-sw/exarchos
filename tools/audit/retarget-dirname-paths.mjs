@@ -1,20 +1,13 @@
-// Directory-relative path literals invalidated by the task 019 move.
+// Rewrites directory-relative path literals in files that the move table relocated.
+// These are the `path.resolve(__dirname, '../..')` and `new URL('../..', import.meta.url)`
+// idioms. They resolve against the directory of the file like an import specifier, but sit
+// in no import position.
 //
-// These are the `path.resolve(__dirname, '../../../..')` / `new URL('../..',
-// import.meta.url)` idioms: relative paths resolved against the FILE's own
-// directory, exactly like an import specifier, but sitting in no import
-// position — so the specifier pass in `move-tree.mjs` never saw them.
-//
-// They are the most dangerous class in the whole move, for the reason task 020
-// gives: a stale repo-root depth STILL RESOLVES to a real directory (the parent
-// of the repo, or higher). It does not throw at the point of the mistake; it
-// silently reads the wrong tree, and the failure surfaces somewhere else as a
-// missing file. "Every literal resolves on disk" is structurally blind to it.
-//
-// The correction is the same arithmetic used for imports: resolve against the
-// file's OLD directory, map through the move table, recompute against its NEW
-// directory. It runs against the PRE-move paths, so it must be given the file's
-// original location — which is what `--from-head` recovers from git.
+// A stale repo-root depth still resolves to a real directory above the repo, so the mistake
+// does not throw where it happens. The script resolves each literal against the old directory
+// of the file, maps it through the move table, and recomputes it against the new directory.
+// A rewritten literal keeps a leading `./`. The script reads the old locations from `HEAD`.
+// Without `--apply`, it is a dry run.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,20 +17,23 @@ import { mapPathTarget } from './move-table.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const APPLY = process.argv.includes('--apply');
 
-// `resolve(base, 'a', 'b')` / `join(base, 'a')` where base is the file's own
-// directory, and `new URL('a/b', import.meta.url)`. The captured argument list
-// is re-parsed for its string literals so multi-segment calls work.
+/**
+ * `resolve(base, 'a', 'b')` / `join(base, 'a')` where base is the file's own
+ * directory, and `new URL('a/b', import.meta.url)`. The captured argument list
+ * is re-parsed for its string literals so multi-segment calls work.
+ */
 const DIRNAME_CALL = /\b(?:path\.)?(?:resolve|join)\(\s*__dirname\s*,\s*((?:'[^']*'\s*,?\s*)+)\)/g;
 const URL_CALL = /new URL\(\s*(\s*'[^']*'\s*)(,\s*import\.meta\.url\s*)\)/g;
 const STRINGS = /'([^']*)'/g;
 
-/** Files that moved, and where from. */
+/**
+ * Files that moved, and where from. The move table maps old paths to new paths,
+ * so the function inverts it over the paths in `HEAD`.
+ */
 function movedFiles() {
   const tracked = execFileSync('git', ['-C', ROOT, 'ls-files'], { encoding: 'utf8', maxBuffer: 256e6 })
     .split('\n')
     .filter(Boolean);
-  // The table maps OLD -> NEW. Invert it over the current tree: a file at NEW
-  // came from the OLD path that maps onto it.
   const oldOf = new Map();
   const head = execFileSync('git', ['-C', ROOT, 'ls-tree', '-r', '--name-only', 'HEAD'], {
     encoding: 'utf8',
@@ -63,7 +59,7 @@ const samples = [];
 for (const rel of tracked) {
   if (!REWRITABLE.test(rel)) continue;
   const oldRel = oldOf.get(rel);
-  if (!oldRel) continue; // did not move: its directory-relative paths still hold
+  if (!oldRel) continue;
   const oldDir = path.dirname(path.join(ROOT, oldRel));
   const newDir = path.dirname(path.join(ROOT, rel));
   if (oldDir === newDir) continue;
@@ -78,15 +74,12 @@ for (const rel of tracked) {
 
   let n = 0;
 
-  /** Recompute one segment list against the new directory. */
   const remap = (segs) => {
     const targetOld = path.resolve(oldDir, ...segs);
     const mappedRel = mapPathTarget(path.relative(ROOT, targetOld).split(path.sep).join('/'));
     const targetNew = path.join(ROOT, mappedRel);
     let next = path.relative(newDir, targetNew).split(path.sep).join('/');
     if (next === '') next = '.';
-    // path.relative strips the leading './' the source wrote; keep it so a
-    // same-directory reference still reads as one.
     if (!next.startsWith('.')) next = './' + next;
     return next;
   };

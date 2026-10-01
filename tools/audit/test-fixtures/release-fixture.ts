@@ -1,33 +1,18 @@
-// ─── Local "release" fixture builder for the installer acceptance suite ──────
+// Builds a local release fixture for the installer acceptance suite.
 //
-// DR-20 / T-28. The installers (`tools/release/get-exarchos.sh`, `get-exarchos.ps1`)
-// must reject a release on FOUR independent dimensions (manifest signature,
-// source identity, contract identity, asset digest) plus the release binding
-// and the artifact's own `sourceState`. Proving that requires driving the real
-// scripts against a real, signed, source-linked release — not a mock.
+// The installers (`tools/release/get-exarchos.sh`, `get-exarchos.ps1`) must reject a
+// release on four independent dimensions: manifest signature, source identity,
+// contract identity and asset digest. They also check the release binding and the
+// `sourceState` of the artifact. The proof drives the real scripts against a real,
+// signed, source-linked release.
 //
-// This module materializes exactly that: a directory laid out like the GitHub
-// Releases URL space (`download/<tag>/<asset>`) containing
+// The fixture uses the layout of the GitHub Releases URL space (`download/<tag>/<asset>`).
+// It holds artifacts with a real build-identity banner, `.sha512` sidecars, an
+// Ed25519-signed `exarchos-release-manifest.json`, and the publisher key plus a wrong key.
+// Each option seeds one fault, so a rejection names exactly the check under test.
 //
-//   - artifact bytes carrying a REAL `bun build --banner` build-identity stamp
-//     (produced by `tools/release/build-release-manifest.ts:buildIdentityBanner`),
-//   - a matching `.sha512` sidecar (so the pre-existing checksum gate passes
-//     and cannot be what a fault is attributed to),
-//   - a REAL Ed25519-signed `exarchos-release-manifest.json` built by the
-//     production producer primitives, and
-//   - the publisher public key plus an unrelated "wrong" key, so a test can
-//     substitute the pinned trust root.
-//
-// Every fault is seeded ONE DIMENSION AT A TIME (`ReleaseFixtureOptions`), so a
-// rejection can be attributed to exactly the check under test — the
-// discriminating-probe pattern T-27 established.
-//
-// It lives under `tools/audit/test-fixtures/` deliberately: root `package.json`
-// `files[]` carries `"!**/test-fixtures"`, so none of this ships to consumers.
-//
-// It is also directly invokable (`tsx tools/audit/test-fixtures/release-fixture.ts
-// --out <dir>`) so the shell-native harnesses can build the same fixture
-// without reimplementing signing.
+// The `files` list of the root `package.json` does not include `tools/`, so none of this ships.
+// Shell harnesses run `tsx tools/audit/test-fixtures/release-fixture.ts --out <dir>`.
 
 import { createHash, generateKeyPairSync } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -60,15 +45,13 @@ export function fixtureRepoRoot(): string {
   return resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 }
 
-/** Key id the fixture signs with; mirrors the `EXARCHOS_RELEASE_KEY_ID` default. */
+/** Key id that the fixture signs with. It matches the `EXARCHOS_RELEASE_KEY_ID` default. */
 export const FIXTURE_KEY_ID = 'exarchos.release.v1';
 
 /**
- * `collectSourceIdentity` digests every committed blob under
- * `SOURCE_TREE_ROOTS` (~1s). The acceptance suite builds a dozen fixtures that
- * all describe the same HEAD, so the collection is memoized per repo root.
- * Correctness is unaffected: both are pure functions of the committed tree,
- * which cannot change inside one test process.
+ * Identities memoized per repo root. `collectSourceIdentity` digests each committed
+ * blob under `SOURCE_TREE_ROOTS`, which takes about 1s. The committed tree cannot
+ * change inside one test process.
  */
 const identityCache = new Map<string, { source: SourceIdentity; contract: ContractIdentity }>();
 
@@ -86,15 +69,19 @@ function collectIdentitiesCached(repoRoot: string): {
   return fresh;
 }
 
-/** Seeded, single-dimension faults. Every field defaults to "no fault". */
+/**
+ * Seeded, single-dimension faults. Each fault field defaults to no fault.
+ * Artifact faults change the stamped bytes. Manifest faults change a field of a
+ * manifest that stays validly signed. The other faults change the key, the
+ * signature, or the asset bytes after signing.
+ */
 export interface ReleaseFixtureOptions {
   readonly outDir: string;
-  /** Release asset filenames, e.g. `exarchos-linux-x64`. */
+  /** Release asset filenames, such as `exarchos-linux-x64`. */
   readonly assets: readonly string[];
   /** Release tag the fixture is published under (default `v<pkg version>`). */
   readonly tag?: string;
 
-  // ── faults seeded INTO THE ARTIFACT ──────────────────────────────────────
   /** `sourceState` stamped into the artifact (default `clean`). */
   readonly sourceState?: 'clean' | 'modified';
   /** Build-identity marker (default v2). Set to a v1 marker to test downgrade. */
@@ -104,13 +91,11 @@ export interface ReleaseFixtureOptions {
   /** Emit an artifact with NO build-identity banner at all. */
   readonly omitIdentity?: boolean;
 
-  // ── faults seeded INTO THE SIGNED MANIFEST (still validly signed) ────────
   readonly manifestCommit?: string;
   readonly manifestTreeDigest?: string;
   readonly manifestContractDigest?: string;
   readonly manifestVersion?: string;
 
-  // ── faults seeded INTO THE SIGNATURE / BYTES ────────────────────────────
   /** Sign with a key the installer does not pin. */
   readonly signWithWrongKey?: boolean;
   /** Corrupt the base64 signature value after signing. */
@@ -130,7 +115,7 @@ export interface ReleaseFixture {
   readonly releaseDir: string;
   readonly tag: string;
   readonly keyId: string;
-  /** Path to the publisher public key the installer should pin. */
+  /** Path to the publisher public key, which the installer pins. */
   readonly trustRootPem: string;
   /** Path to an unrelated public key, for the wrong-trust-root probe. */
   readonly wrongTrustRootPem: string;
@@ -180,9 +165,11 @@ function flipBase64(value: string): string {
 }
 
 /**
- * Build a complete local release: artifacts + sidecars + signed manifest +
- * trust-root keys. Returns everything a test (or shell harness) needs to point
- * an installer at it.
+ * Builds a complete local release: artifacts, sidecars, a signed manifest and trust-root keys.
+ * The artifact banner and the manifest share one collection of the real identities,
+ * so they agree unless an option seeds a fault.
+ * A v1 marker gets a real v1 banner with no `sourceState` or `modifiedPaths` fields.
+ * A v2 shape with a v1 marker passes the `sourceState` check by accident.
  */
 export function buildReleaseFixture(options: ReleaseFixtureOptions): ReleaseFixture {
   const repoRoot = fixtureRepoRoot();
@@ -195,8 +182,6 @@ export function buildReleaseFixture(options: ReleaseFixtureOptions): ReleaseFixt
   mkdirSync(releaseDir, { recursive: true });
   mkdirSync(keyDir, { recursive: true });
 
-  // One collection of the REAL source/contract identity, shared by the
-  // artifact banner and the manifest, so they agree unless a fault is seeded.
   const { source, contract } = collectIdentitiesCached(repoRoot);
 
   const identity: EmbeddedBuildIdentity = {
@@ -212,11 +197,6 @@ export function buildReleaseFixture(options: ReleaseFixtureOptions): ReleaseFixt
     options.omitIdentity === true
       ? ''
       : buildIdentityBanner(
-          // A REAL v1 banner carries no `sourceState`/`modifiedPaths` fields at
-          // all (they were introduced by the v2 marker). Modelling v1 as
-          // "v2-with-a-different-marker" would let the installer pass on the
-          // sourceState check by accident, so the downgrade-by-omission case is
-          // reproduced faithfully here.
           identity.marker === BUILD_IDENTITY_MARKER
             ? identity
             : ({
@@ -237,7 +217,6 @@ export function buildReleaseFixture(options: ReleaseFixtureOptions): ReleaseFixt
     writeAsset(join(releaseDir, name), bytes);
   }
 
-  // Producer path: the real `collectReleaseAssets` digests the bytes on disk.
   const assets = collectReleaseAssets(releaseDir);
   const manifest = buildReleaseManifest({
     version: options.manifestVersion ?? version,
@@ -272,8 +251,6 @@ export function buildReleaseFixture(options: ReleaseFixtureOptions): ReleaseFixt
   const manifestPath = join(releaseDir, RELEASE_MANIFEST_FILENAME);
   writeFileSync(manifestPath, `${serializeSignedManifest(emitted)}\n`, 'utf8');
 
-  // Post-signature byte corruption: the sidecar is REGENERATED so the SHA-512
-  // gate still passes and only the signed manifest can catch the swap.
   if (options.corruptAssetAfterSigning !== undefined) {
     const target = join(releaseDir, options.corruptAssetAfterSigning);
     const bytes = readFileSync(target);
@@ -301,8 +278,7 @@ export function buildReleaseFixture(options: ReleaseFixtureOptions): ReleaseFixt
   };
 }
 
-// ─── Direct invocation (used by the shell-native harnesses) ──────────────────
-
+/** True when a process runs this file directly, as the shell harnesses do. */
 function invokedDirectly(): boolean {
   const entry = process.argv[1];
   if (entry === undefined) return false;

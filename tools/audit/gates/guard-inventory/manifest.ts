@@ -18,8 +18,6 @@ export function manifestPrimaries(manifestJson: unknown): string[] {
   return out.sort();
 }
 
-// ─── Channel 2: Wave-1 spec artifacts ────────────────────────────────────────
-
 export interface SpecTask {
   readonly id: string;
   /** The `**Wave …**` label in force at the heading, or `null` before any header. */
@@ -29,10 +27,10 @@ export interface SpecTask {
 }
 
 /**
- * Parse the spec's task table. Wave membership comes from the `**Wave N…**`
- * headers; `[ANCHOR]` tasks are tagged from their own heading. Both are
- * structural features of the document, so a re-ordered or renumbered task set
- * stays correctly attributed.
+ * Parse the task table of the spec. Wave membership comes from the `**Wave N…**`
+ * headers, and the `[ANCHOR]` tag comes from the heading of each task. Both are
+ * structural features of the document, so a reordered or renumbered task set
+ * keeps its attribution.
  */
 export function parseSpecTasks(specText: string): SpecTask[] {
   const tasks: { id: string; wave: string | null; isAnchor: boolean; files: string[] }[] = [];
@@ -68,14 +66,3 @@ export function parseSpecTasks(specText: string): SpecTask[] {
 export function wave1Tasks(tasks: readonly SpecTask[]): SpecTask[] {
   return tasks.filter((t) => t.wave !== null && t.wave.startsWith('1') && !t.isAnchor);
 }
-
-/**
- * True for a backtick span that is shaped like a repo-relative file path.
- *
- * The `**Files:**` lines also carry directories (`src/`), slash-commands
- * (`/exarchos:invariants`) and bare prose (`as`). Requiring a dotted extension,
- * no whitespace, no colon and no leading slash keeps those out WITHOUT a
- * hand-maintained rejection list — and, crucially, keeps a renamed real path IN
- * (it stays path-shaped, so it surfaces via {@link GuardInventory.unresolvedSpecArtifacts}
- * instead of vanishing).
- */

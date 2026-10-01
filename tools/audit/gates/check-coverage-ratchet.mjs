@@ -1,53 +1,19 @@
 #!/usr/bin/env node
 /**
- * check-coverage-ratchet — coverage non-regression ratchet (DR-5, DR-10).
+ * Coverage non-regression ratchet.
  *
- * Compares `coverage-summary.json` totals (produced by the vitest `v8`
- * provider's `json-summary` reporter — see `vitest.config.ts`)
- * against a checked-in baseline (`tools/audit/coverage-baseline.json`),
- * one comparison per standard v8/istanbul metric (`lines`, `statements`,
- * `functions`, `branches`).
+ * It compares the totals in `coverage-summary.json` with the baseline in
+ * `tools/audit/coverage-baseline.json`, for `lines`, `statements`, `functions`
+ * and `branches`. A metric regresses when `observed < baseline - epsilon`, and
+ * `epsilon = max(spread, 0.1)` percentage points. The code applies the floor,
+ * so a baseline with a zero spread cannot disarm the ratchet.
  *
- * Epsilon is MEASURED, then FLOORED: the baseline records a per-metric
- * `spread` (the observed variance across the ≥3 CI runs used to build it —
- * task 009's job, not this script's). This script derives
- * `epsilon_m = max(spread_m, 0.1 percentage points)` itself, at comparison
- * time — the floor is enforced in code, never trusted as a pre-baked baseline
- * field, so a baseline that (incorrectly) recorded a zero epsilon can never
- * disarm the ratchet. A metric regresses when
- * `observed_m < baseline_m - epsilon_m`.
+ * It fails closed on a missing or malformed summary or baseline. A baseline
+ * must record at least three distinct CI run-ids and a `spread` per metric.
  *
- * FAIL CLOSED (DR-10) — never skip-as-pass:
- *   - `coverage-summary.json` missing, unreadable, unparseable, or missing
- *     its `total` aggregate / a metric's numeric `pct` → fail-closed.
- *   - the baseline missing, unreadable, unparseable, missing `runIds`
- *     provenance (empty/absent), or missing a metric's measured `spread`
- *     (variance) → fail-closed. A baseline without provenance cannot govern
- *     the ratchet.
- * Every failure message names the artifact (path) and the reason.
- *
- * `--observe` mode (the DR-7-symmetric soak-window flag): the SAME verdict is
- * computed — regression, fail-closed, or pass — but the process always exits
- * 0. It logs what the blocking verdict would have been instead of enforcing
- * it. This is what lets task 007 wire this step into CI (with the observe
- * flag) before task 009 has captured the live baseline: an as-yet-absent
- * baseline degrades to an observed, logged fail-closed condition rather than
- * a broken build.
- *
- *   Exit 0 — no metric regressed beyond its floored epsilon (blocking mode),
- *            OR `--observe` mode (always, regardless of verdict).
- *   Exit 1 — a metric regressed beyond its floored epsilon (blocking mode).
- *   Exit 2 — fail-closed: missing/unparseable summary or baseline, or a
- *            baseline missing run-id/variance provenance (blocking mode).
- *
- * Flags:
- *   --summary <path>   Path to coverage-summary.json. Default
- *                       `coverage/coverage-summary.json`
- *                       (repo-relative).
- *   --baseline <path>  Path to the baseline JSON. Default
- *                       `tools/audit/coverage-baseline.json`.
- *   --observe          Log the verdict; always exit 0.
- *   --help             Show usage.
+ * Usage: `check-coverage-ratchet.mjs [--summary <path>] [--baseline <path>] [--observe]`.
+ * Exit 0 is a pass, 1 is a regression, and 2 is a fail-closed or usage error.
+ * `--observe` computes the same verdict, logs it, and always exits 0.
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -61,11 +27,11 @@ const DEFAULT_SUMMARY = path.join(
   'coverage',
   'coverage-summary.json',
 );
-// DR-2 (task 011) — the baseline sits with the other audit oracles under
-// `tools/audit/`, not beside the workspace it measures. Phase 1 relocates that
-// workspace; a baseline living inside it would have to move with it, and a
-// coverage ratchet that moves whenever the code moves is one more thing that
-// can silently stop governing.
+/**
+ * The baseline sits with the other audit oracles under `tools/audit/`, not
+ * beside the code it measures. A baseline that moves with the code can silently
+ * stop governing.
+ */
 const DEFAULT_BASELINE = path.join(REPO_ROOT, 'tools', 'audit', 'coverage-baseline.json');
 
 const EXIT_PASS = 0;
@@ -82,8 +48,6 @@ class RatchetRegression extends Error {
     this.rows = rows;
   }
 }
-
-// ── CLI ──────────────────────────────────────────────────────────────────────
 
 function printUsage() {
   process.stderr.write(
@@ -121,9 +85,7 @@ function parseArgs(argv) {
   return args;
 }
 
-// ── artifact loading (fail-closed, names the artifact + reason) ─────────────
-
-/** Read + JSON.parse a file, throwing RatchetFailClosed naming artifact + reason. */
+/** Reads and parses a JSON file. It throws `RatchetFailClosed` with the path and the reason. */
 function readJsonOrFailClosed(filePath, label) {
   if (!existsSync(filePath)) {
     throw new RatchetFailClosed(`${label} not found at ${filePath}`);
@@ -141,7 +103,7 @@ function readJsonOrFailClosed(filePath, label) {
   }
 }
 
-/** Validate coverage-summary.json shape; return { metric: pct }. */
+/** Validates the shape of the coverage summary and returns `{ metric: pct }`. */
 function extractSummaryTotals(summary, summaryPath) {
   if (!summary || typeof summary !== 'object' || !summary.total || typeof summary.total !== 'object') {
     throw new RatchetFailClosed(
@@ -164,8 +126,10 @@ function extractSummaryTotals(summary, summaryPath) {
 }
 
 /**
- * Validate baseline provenance (DR-10: reject a baseline missing run-ids or
- * variance) and return { metric: { pct, spread } }.
+ * Validates the baseline provenance and returns `{ metric: { pct, spread } }`.
+ * It rejects a baseline with fewer than three distinct run-ids, because one run
+ * carries no cross-run variance. It also rejects a metric with no measured
+ * `spread`.
  */
 function extractBaselineProvenance(baseline, baselinePath) {
   if (!baseline || typeof baseline !== 'object') {
@@ -182,10 +146,6 @@ function extractBaselineProvenance(baseline, baselinePath) {
         'coverage baseline must record the originating CI run-ids',
     );
   }
-  // DR-5 requires the baseline's variance be measured across ≥3 CI runs, so
-  // the provenance must record ≥3 DISTINCT run-ids. A single (or repeated) run
-  // id carries no cross-run variance — accepting it would let a one-run
-  // baseline govern the ratchet with an unmeasured spread. Fail closed.
   const distinctRunIds = new Set(runIds.map((id) => id.trim()));
   if (distinctRunIds.size < 3) {
     throw new RatchetFailClosed(
@@ -219,8 +179,6 @@ function extractBaselineProvenance(baseline, baselinePath) {
   return metrics;
 }
 
-// ── comparison ────────────────────────────────────────────────────────────
-
 function compare(observedTotals, baselineMetrics) {
   const rows = [];
   let regressed = false;
@@ -253,8 +211,7 @@ function formatReport(rows) {
   return lines.join('\n');
 }
 
-// ── verdict computation (side-effect free — throws, never exits) ───────────
-
+/** Computes the verdict. It throws on a regression or a fail-closed condition, and never exits. */
 function computeVerdict(args) {
   const summary = readJsonOrFailClosed(args.summary, 'coverage-summary.json');
   const observedTotals = extractSummaryTotals(summary, args.summary);
@@ -273,8 +230,6 @@ function computeVerdict(args) {
   }
   return report;
 }
-
-// ── CLI driver ───────────────────────────────────────────────────────────
 
 function main() {
   const args = parseArgs(process.argv);
