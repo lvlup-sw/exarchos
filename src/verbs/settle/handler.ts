@@ -752,7 +752,10 @@ export async function handleSettle(
   // ones the batch was held with, read back from the record below.
   const decisions = readDecisions(raw.decisions);
   if (typeof decisions === 'string') return invalid(decisions);
-  const deciding = decisions.length > 0;
+  const deciding = raw.decisions !== undefined;
+  if (deciding && decisions.length === 0) {
+    return invalid('decisions must name at least one pending deviation');
+  }
   if (deciding && (raw.claims !== undefined || raw.deviations !== undefined)) {
     return invalid(
       'a decision round carries decisions only: the claims and deviations it decides are the ' +

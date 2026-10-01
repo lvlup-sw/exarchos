@@ -1234,6 +1234,20 @@ describe('settle — the decision round', () => {
     expect(await settledRows()).toHaveLength(1);
   });
 
+  it('Settle_AnEmptyDecisionList_IsRefusedRatherThanSettledAsAClaimlessBatch', async () => {
+    await hold('batch-empty-decisions');
+    const onHeld = await decide('batch-empty-decisions', []);
+    expect(onHeld.success).toBe(false);
+    expect(onHeld.error?.code).toBe('INVALID_INPUT');
+    expect(onHeld.error?.message).toContain('at least one pending deviation');
+
+    const onNew = await decide('batch-never-submitted', []);
+    expect(onNew.success).toBe(false);
+    expect(onNew.error?.code).toBe('INVALID_INPUT');
+    expect(await settledRows()).toHaveLength(1);
+    expect(await rowsOf('deviation.decided')).toEqual([]);
+  });
+
   it('Settle_AMalformedDecision_IsRefusedWithoutAdjudicating', async () => {
     await hold('batch-malformed-decision');
     const malformed: unknown[] = [
