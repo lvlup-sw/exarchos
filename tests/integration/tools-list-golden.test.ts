@@ -320,6 +320,17 @@
 //
 // No tool or action was added or removed, no order changed, and no schema
 // moved: the request shape is byte-identical.
+//
+// ── `check_post_merge` names the repository it tests ──────────────────────
+//
+// MEASURED, not eyeballed: parsing both goldens and comparing per tool and per
+// field yields ONE changed field, `exarchos_orchestrate`'s description, and in
+// it TWO changed lines. The `check_post_merge` signature gains `repoRoot`. Its
+// digest row moves because the action now declares `repoRoot`, the `fs:read`
+// and `shell:exec` needs, and the `repoRoot` path resource. The gate runs the
+// resolved test command in that repository. The tool's `inputSchema` did not
+// move, because other actions already declare `repoRoot`. No tool or action was
+// added or removed, and no order changed.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';

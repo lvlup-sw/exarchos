@@ -11,6 +11,11 @@ vi.mock('../../../../src/verbs/pure/post-merge.js', () => ({
   checkPostMerge: (...args: unknown[]) => mockCheckPostMerge(...args),
 }));
 
+vi.mock('../../../../src/utils/process.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../src/utils/process.js')>()),
+  spawnCommandSync: vi.fn(() => ({ status: 0, stdout: '', stderr: '' })),
+}));
+
 // The gate now records durable evidence through the shared phase-gate runner
 // before any success carrier escapes. These cases are about the PROVIDER's
 // verdict, so the runner is stubbed down to its provider call — the same seam
@@ -55,8 +60,10 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
 // ─── Import after mocks ───────────────────────────────────────────────────
 
 import { handlePostMerge } from '../../../../src/verbs/gates/post-merge.js';
+import { spawnCommandSync } from '../../../../src/utils/process.js';
 
 const STATE_DIR = '/tmp/test-post-merge';
+const REPO_ROOT = '/repo';
 
 // ─── Test Helpers ────────────────────────────────────────────────────────────
 
@@ -112,7 +119,7 @@ describe('handlePostMerge', () => {
 
     // Act
     const result = await handlePostMerge(
-      { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
+      { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
     );
@@ -135,7 +142,7 @@ describe('handlePostMerge', () => {
 
     // Act
     const result = await handlePostMerge(
-      { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
+      { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
     );
@@ -158,7 +165,7 @@ describe('handlePostMerge', () => {
 
     // Act
     await handlePostMerge(
-      { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
+      { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
     );
@@ -186,7 +193,7 @@ describe('handlePostMerge', () => {
 
     // Act
     await handlePostMerge(
-      { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
+      { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
     );
@@ -203,7 +210,7 @@ describe('handlePostMerge', () => {
   it('handlePostMerge_MissingPrUrl_ReturnsError', async () => {
     // Arrange & Act
     const result = await handlePostMerge(
-      { featureId: 'feat-123', prUrl: '', mergeSha: 'abc1234' },
+      { featureId: 'feat-123', prUrl: '', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
     );
@@ -217,7 +224,7 @@ describe('handlePostMerge', () => {
   it('handlePostMerge_MissingMergeSha_ReturnsError', async () => {
     // Arrange & Act
     const result = await handlePostMerge(
-      { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: '' },
+      { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: '', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
     );
@@ -231,7 +238,7 @@ describe('handlePostMerge', () => {
   it('handlePostMerge_MissingFeatureId_ReturnsError', async () => {
     // Arrange & Act
     const result = await handlePostMerge(
-      { featureId: '', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
+      { featureId: '', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
     );
@@ -250,7 +257,7 @@ describe('handlePostMerge', () => {
 
     // Act
     await handlePostMerge(
-      { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
+      { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
     );
@@ -260,11 +267,52 @@ describe('handlePostMerge', () => {
     const callArgs = mockCheckPostMerge.mock.calls[0][0] as {
       prUrl: string;
       mergeSha: string;
+      repoRoot: string;
       runCommand: unknown;
     };
     expect(callArgs.prUrl).toBe('https://github.com/org/repo/pull/42');
     expect(callArgs.mergeSha).toBe('abc1234');
+    expect(callArgs.repoRoot).toBe(REPO_ROOT);
     expect(typeof callArgs.runCommand).toBe('function');
+  });
+
+  /** The adapter runs the command that checkPostMerge resolved, in the named repository. */
+  it('handlePostMerge_RunCommandAdapter_RunsInRepoRoot', async () => {
+    mockCheckPostMerge.mockReturnValue(makePassingResult());
+
+    await handlePostMerge(
+      { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
+      STATE_DIR,
+      mockStore as unknown as EventStore,
+    );
+    const { runCommand } = mockCheckPostMerge.mock.calls[0][0] as {
+      runCommand: (cmd: string, args: readonly string[]) => unknown;
+    };
+    runCommand('go', ['test', './...']);
+
+    expect(vi.mocked(spawnCommandSync)).toHaveBeenCalledWith(
+      'go',
+      ['test', './...'],
+      expect.objectContaining({ cwd: REPO_ROOT }),
+    );
+  });
+
+  /** Without a repository to test there is no verdict: the check never falls back to the server's directory. */
+  it('handlePostMerge_MissingOrRelativeRepoRoot_ReturnsErrorWithoutRunning', async () => {
+    for (const repoRoot of [undefined, '', '.', 'some/repo']) {
+      const result = await handlePostMerge(
+        { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot } as unknown as Parameters<
+          typeof handlePostMerge
+        >[0],
+        STATE_DIR,
+        mockStore as unknown as EventStore,
+      );
+
+      expect(result.success, String(repoRoot)).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(result.error?.message).toContain('repoRoot');
+    }
+    expect(mockCheckPostMerge).not.toHaveBeenCalled();
   });
 
   // ─── Test 6: gate.executed append failure withholds the success carrier ──
@@ -274,7 +322,7 @@ describe('handlePostMerge', () => {
     mockStore.append.mockRejectedValueOnce(new Error('store unavailable'));
 
     const result = await handlePostMerge(
-      { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
+      { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: REPO_ROOT },
       STATE_DIR,
       mockStore as unknown as EventStore,
     );

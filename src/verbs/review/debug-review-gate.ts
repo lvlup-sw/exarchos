@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { runCommandSync } from '../../utils/process.js';
 import { existsSync } from 'node:fs';
 import type { ToolResult } from '../../format.js';
+import { resolveRunnableCommand } from '../../config/test-runtime-resolver.js';
 import type { EventStore } from '../../events/store.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from '../gates/gate-runner.js';
@@ -143,12 +144,12 @@ function executeDebugReviewGate(args: DebugReviewGateArgs): ToolResult {
     results.push('- **SKIP**: Tests pass (--skip-run)');
     checks.skip++;
   } else if (changedFiles.length > 0) {
-    const testsPass = runTests(args.repoRoot);
-    if (testsPass) {
-      results.push('- **PASS**: Tests pass');
+    const run = runTests(args.repoRoot);
+    if (run.passed) {
+      results.push(`- **PASS**: Tests pass (${run.detail})`);
       checks.pass++;
     } else {
-      results.push('- **FAIL**: Tests pass — npm run test:run failed');
+      results.push(`- **FAIL**: Tests pass — ${run.detail}`);
       checks.fail++;
     }
   } else {
@@ -199,15 +200,24 @@ function getChangedFiles(repoRoot: string, baseBranch: string): string[] | null 
   }
 }
 
-function runTests(repoRoot: string): boolean {
+/**
+ * Run the test command the toolchain resolver resolves for `repoRoot`. No
+ * resolvable test command fails the check. `detail` names the command that ran,
+ * or the reason no command ran.
+ */
+function runTests(repoRoot: string): { readonly passed: boolean; readonly detail: string } {
+  const resolved = resolveRunnableCommand(repoRoot, 'test');
+  if (resolved.kind !== 'runnable') {
+    return { passed: false, detail: `no test command resolved: ${resolved.reason}` };
+  }
   try {
-    runCommandSync('npm', ['run', 'test:run'], {
+    runCommandSync(resolved.bin, resolved.args, {
       cwd: repoRoot,
       stdio: 'pipe',
     });
-    return true;
+    return { passed: true, detail: resolved.command };
   } catch {
-    return false;
+    return { passed: false, detail: `${resolved.command} failed` };
   }
 }
 

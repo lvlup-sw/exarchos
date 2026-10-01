@@ -426,6 +426,7 @@ describe('handleOrchestrate', () => {
         featureId: 'feat-123',
         prUrl: 'https://github.com/org/repo/pull/42',
         mergeSha: 'abc1234',
+        repoRoot: '/repo',
       };
 
       // Act
@@ -434,7 +435,7 @@ describe('handleOrchestrate', () => {
       // Assert
       expectEnvelopedSuccess(result, expected);
       expect(handlePostMerge).toHaveBeenCalledWith(
-        { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
+        { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', repoRoot: '/repo' },
         STATE_DIR,
         CTX.eventStore,
       );

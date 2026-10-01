@@ -1,6 +1,9 @@
 // ─── Debug Review Gate Tests ─────────────────────────────────────────────────
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 // ─── Mock node:child_process ────────────────────────────────────────────────
 
@@ -10,9 +13,10 @@ vi.mock('node:child_process', () => ({
 
 // ─── Mock node:fs ───────────────────────────────────────────────────────────
 
-vi.mock('node:fs', () => ({
-  existsSync: vi.fn(),
-}));
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return { ...actual, existsSync: vi.fn(actual.existsSync) };
+});
 
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -61,25 +65,42 @@ function mockOutput(s: string): never {
   return s as never;
 }
 
+const realFs = await vi.importActual<typeof import('node:fs')>('node:fs');
+const fixtureDirs: string[] = [];
+
+/** A real temporary repository holding `files`, removed after each test. */
+function fixtureRepo(files: Record<string, string>): string {
+  const dir = mkdtempSync(join(tmpdir(), 'debug-review-gate-'));
+  fixtureDirs.push(dir);
+  for (const [name, content] of Object.entries(files)) writeFileSync(join(dir, name), content);
+  return dir;
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('handleDebugReviewGate', () => {
+  let repoRoot: string;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(existsSync).mockImplementation(realFs.existsSync);
+    repoRoot = fixtureRepo({ '.exarchos.yml': "test: 'vitest run'\n" });
+  });
+
+  afterEach(() => {
+    for (const dir of fixtureDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
   // ─── Test 1: Test files found + tests pass → passed: true ───────────────
 
   it('returns passed when test files exist and tests pass', async () => {
-    vi.mocked(existsSync).mockReturnValue(true);
-
     vi.mocked(execFileSync)
       .mockReturnValueOnce(mockOutput('src/widget.ts\nsrc/widget.test.ts\nsrc/utils.ts\n'))
       .mockReturnValueOnce(mockOutput('Tests passed'));
 
     const result = await handleDebugReviewGate({
       featureId: FEATURE_ID,
-      repoRoot: '/repo',
+      repoRoot,
       baseBranch: 'main',
     }, STATE_DIR, eventStore);
 
@@ -99,15 +120,13 @@ describe('handleDebugReviewGate', () => {
   // ─── Test 2: No test files in diff → passed: false ─────────────────────
 
   it('returns failed when no test files in diff', async () => {
-    vi.mocked(existsSync).mockReturnValue(true);
-
     vi.mocked(execFileSync)
       .mockReturnValueOnce(mockOutput('src/widget.ts\nsrc/utils.ts\n'))
       .mockReturnValueOnce(mockOutput('Tests passed'));
 
     const result = await handleDebugReviewGate({
       featureId: FEATURE_ID,
-      repoRoot: '/repo',
+      repoRoot,
       baseBranch: 'main',
     }, STATE_DIR, eventStore);
 
@@ -125,13 +144,11 @@ describe('handleDebugReviewGate', () => {
   // ─── Test 3: No changed files → passed: false ──────────────────────────
 
   it('returns failed when no changed files found', async () => {
-    vi.mocked(existsSync).mockReturnValue(true);
-
     vi.mocked(execFileSync).mockReturnValueOnce(mockOutput(''));
 
     const result = await handleDebugReviewGate({
       featureId: FEATURE_ID,
-      repoRoot: '/repo',
+      repoRoot,
       baseBranch: 'main',
     }, STATE_DIR, eventStore);
 
@@ -148,18 +165,16 @@ describe('handleDebugReviewGate', () => {
 
   // ─── Test 4: Tests fail → passed: false ─────────────────────────────────
 
-  it('returns failed when npm test:run fails', async () => {
-    vi.mocked(existsSync).mockReturnValue(true);
-
+  it('returns failed when the resolved test command fails', async () => {
     vi.mocked(execFileSync)
       .mockReturnValueOnce(mockOutput('src/widget.ts\nsrc/widget.test.ts\n'))
       .mockImplementationOnce(() => {
-        throw new Error('npm run test:run failed');
+        throw new Error('vitest run failed');
       });
 
     const result = await handleDebugReviewGate({
       featureId: FEATURE_ID,
-      repoRoot: '/repo',
+      repoRoot,
       baseBranch: 'main',
     }, STATE_DIR, eventStore);
 
@@ -177,15 +192,13 @@ describe('handleDebugReviewGate', () => {
   // ─── Test 5: skipRun=true → skip test execution check ──────────────────
 
   it('skips test execution when skipRun is true', async () => {
-    vi.mocked(existsSync).mockReturnValue(true);
-
     vi.mocked(execFileSync).mockReturnValueOnce(
       mockOutput('src/widget.ts\nsrc/widget.test.ts\n'),
     );
 
     const result = await handleDebugReviewGate({
       featureId: FEATURE_ID,
-      repoRoot: '/repo',
+      repoRoot,
       baseBranch: 'main',
       skipRun: true,
     }, STATE_DIR, eventStore);
@@ -198,7 +211,7 @@ describe('handleDebugReviewGate', () => {
     };
     expect(data.passed).toBe(true);
     expect(data.checks.skip).toBe(1);
-    // execFileSync should only be called once (git diff), not for npm test
+    // execFileSync should only be called once (git diff), not for the test command
     expect(execFileSync).toHaveBeenCalledTimes(1);
   });
 
@@ -221,8 +234,6 @@ describe('handleDebugReviewGate', () => {
   // ─── Test 7: Various test file extensions are detected ──────────────────
 
   it('detects all supported test file extensions', async () => {
-    vi.mocked(existsSync).mockReturnValue(true);
-
     vi.mocked(execFileSync)
       .mockReturnValueOnce(mockOutput(
         'src/a.test.ts\nsrc/b.spec.ts\nscripts/c.test.sh\nsrc/d.test.js\nsrc/e.spec.js\n',
@@ -231,7 +242,7 @@ describe('handleDebugReviewGate', () => {
 
     const result = await handleDebugReviewGate({
       featureId: FEATURE_ID,
-      repoRoot: '/repo',
+      repoRoot,
       baseBranch: 'main',
     }, STATE_DIR, eventStore);
 
@@ -245,12 +256,51 @@ describe('handleDebugReviewGate', () => {
     expect(data.report).toContain('5 test file(s)');
   });
 
+  /** A Go module resolves `go test ./...` from the toolchain registry, and that command runs. */
+  it('runs the resolved test command for a Go module', async () => {
+    const goRepo = fixtureRepo({ 'go.mod': 'module example.com/fixture\n' });
+    vi.mocked(execFileSync)
+      .mockReturnValueOnce(mockOutput('widget.go\nscripts/widget.test.sh\n'))
+      .mockReturnValueOnce(mockOutput('ok  example.com/fixture'));
+
+    const result = await handleDebugReviewGate({
+      featureId: FEATURE_ID,
+      repoRoot: goRepo,
+      baseBranch: 'main',
+    }, STATE_DIR, eventStore);
+
+    expect(execFileSync).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(execFileSync).mock.calls[1]?.slice(0, 2)).toEqual(['go', ['test', './...']]);
+    expect((vi.mocked(execFileSync).mock.calls[1]?.[2] as { cwd?: string }).cwd).toBe(goRepo);
+    const data = result.data as { passed: boolean; report: string };
+    expect(data.passed).toBe(true);
+    expect(data.report).toContain('- **PASS**: Tests pass (go test ./...)');
+  });
+
+  /** No project markers and no configuration: the test check fails closed. */
+  it('fails the test check when no test command resolves', async () => {
+    const emptyRepo = fixtureRepo({});
+    vi.mocked(execFileSync).mockReturnValueOnce(mockOutput('src/widget.test.ts\n'));
+
+    const result = await handleDebugReviewGate({
+      featureId: FEATURE_ID,
+      repoRoot: emptyRepo,
+      baseBranch: 'main',
+    }, STATE_DIR, eventStore);
+
+    expect(execFileSync).toHaveBeenCalledTimes(1);
+    const data = result.data as { passed: boolean; report: string; checks: { fail: number; skip: number } };
+    expect(data.passed).toBe(false);
+    expect(data.checks.skip).toBe(0);
+    expect(data.report).toMatch(/- \*\*FAIL\*\*: Tests pass — no test command resolved: No project markers detected/);
+  });
+
   // ─── Test 8: Missing baseBranch → error ─────────────────────────────────
 
   it('returns error when baseBranch is empty', async () => {
     const result = await handleDebugReviewGate({
       featureId: FEATURE_ID,
-      repoRoot: '/repo',
+      repoRoot,
       baseBranch: '',
     }, STATE_DIR, eventStore);
 

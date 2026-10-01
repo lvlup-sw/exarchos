@@ -30,7 +30,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -89,6 +89,7 @@ describe('prepare_synthesis production path (DR-8 / #1756)', () => {
     // A tree that is NOT `process.cwd()` — the whole point of the fixture.
     repoRoot = mkdtempSync(path.join(os.tmpdir(), 'ps-prodpath-repo-'));
     cleanups.push(() => rmrf(repoRoot));
+    writeFileSync(path.join(repoRoot, '.exarchos.yml'), "test: 'vitest run'\ntypecheck: 'tsc --noEmit'\n");
 
     const eventStore = new EventStore(stateDir);
     await eventStore.initialize();
@@ -153,9 +154,17 @@ describe('prepare_synthesis production path (DR-8 / #1756)', () => {
     // The named legs, by the command each issues — so a future refactor that
     // drops one cannot pass on the count alone.
     const commands = observedExecSyncCommands();
-    expect(commands).toContain('npm run test:run');
-    expect(commands).toContain('npm run typecheck');
     expect(commands.some((c) => c.startsWith('git log '))).toBe(true);
+    expect(vi.mocked(execFileSync)).toHaveBeenCalledWith(
+      'vitest',
+      ['run'],
+      expect.objectContaining({ cwd: repoRoot }),
+    );
+    expect(vi.mocked(execFileSync)).toHaveBeenCalledWith(
+      'tsc',
+      ['--noEmit'],
+      expect.objectContaining({ cwd: repoRoot }),
+    );
     expect(vi.mocked(execFileSync)).toHaveBeenCalledWith(
       'git',
       expect.arrayContaining(['diff', '--name-only']),

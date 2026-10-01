@@ -16,7 +16,7 @@
 // seam that hid this defect. What these cases ask is what a caller gets.
 //
 // The two mocks below stand in for EXTERNAL WORK, never for the payment: the
-// post-merge regression check otherwise shells `npm run test:run`, and the VCS
+// post-merge regression check otherwise runs the repository's tests, and the VCS
 // factory otherwise reaches for `gh`. Both sit inside the provider closure, on
 // the far side of the seam under test.
 
@@ -271,6 +271,7 @@ describe('gates that declare durable evidence pay it on dispatch', () => {
       featureId: stream,
       prUrl: 'https://example.invalid/pull/1',
       mergeSha: 'abc1234',
+      repoRoot: process.cwd(),
     });
     expect(result.success).toBe(true);
   });

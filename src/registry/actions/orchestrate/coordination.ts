@@ -265,8 +265,8 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: true, gateClass: 'prepare-synthesis' },
-    // DR-5: invokes `npm run test:run` + typecheck under the hood; seconds
-    // to minutes on non-trivial repos.  CLI adapter emits heartbeats.
+    // Runs the resolved test and typecheck commands; seconds to minutes on
+    // non-trivial repos. The CLI adapter emits heartbeats.
     longRunning: true,
     outputSchema: vacuityWaiver('exarchos_orchestrate.prepare_synthesis'),
     annotations: LOCAL_MUTATION,

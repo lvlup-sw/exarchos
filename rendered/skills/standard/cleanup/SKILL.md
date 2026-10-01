@@ -83,9 +83,12 @@ exarchos_orchestrate({
   action: "check_post_merge",
   featureId: "<id>",
   prUrl: "<url>",
-  mergeSha: "<sha>"
+  mergeSha: "<sha>",
+  repoRoot: "<repo-root>"
 })
 ```
+
+`repoRoot` is the absolute path of a checkout that contains the merge commit. The check runs the test command that the toolchain resolver finds for that checkout. If no test command resolves, the test check fails and the finding tells you what to add to `.exarchos.yml`.
 
 This check is **advisory** — findings are reported but do not block cleanup. If findings are detected, log them for the user's awareness before proceeding.
 

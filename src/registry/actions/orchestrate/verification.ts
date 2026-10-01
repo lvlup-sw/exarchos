@@ -517,8 +517,8 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: true, gateClass: 'post-delegation' },
-    // DR-5: chains `npm run test:run` across every task worktree with a
-    // 120s per-worktree timeout; scales with the number of tasks.
+    // Runs the resolved test command in every task worktree with a 120s
+    // per-worktree timeout; scales with the number of tasks.
     longRunning: true,
     outputSchema: vacuityWaiver('exarchos_orchestrate.post_delegation_check'),
     annotations: COMPENSABLE_LOCAL,

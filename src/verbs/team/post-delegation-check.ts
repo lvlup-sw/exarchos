@@ -9,8 +9,9 @@
 
 import { existsSync } from 'node:fs';
 import { runCommandSync } from '../../utils/process.js';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { toPosix } from '../../utils/paths.js';
+import { resolveRunnableCommand } from '../../config/test-runtime-resolver.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
@@ -132,25 +133,33 @@ function checkWorktreeTests(
       continue;
     }
 
-    if (!existsSync(toPosix(join(wtPath, 'package.json')))) {
-      results.push(checkSkip(`Worktree tests: ${wt} (no package.json)`));
-      continue;
-    }
-
-    try {
-      runCommandSync('npm', ['run', 'test:run'], {
-        cwd: wtPath,
-        encoding: 'utf-8',
-        timeout: 120_000,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      results.push(checkPass(`Worktree tests: ${wt}`));
-    } catch {
-      results.push(checkFail(`Worktree tests: ${wt}`, 'npm run test:run failed'));
-    }
+    results.push(runWorktreeTests(wt, wtPath));
   }
 
   return results;
+}
+
+/**
+ * Run the test command the toolchain resolver resolves for one worktree. A
+ * worktree with no resolvable test command fails the check.
+ */
+function runWorktreeTests(wt: string, wtPath: string): CheckResult {
+  const label = `Worktree tests: ${wt}`;
+  const resolved = resolveRunnableCommand(wtPath, 'test');
+  if (resolved.kind !== 'runnable') {
+    return checkFail(label, `No test command resolved: ${resolved.reason}`);
+  }
+  try {
+    runCommandSync(resolved.bin, resolved.args, {
+      cwd: wtPath,
+      encoding: 'utf-8',
+      timeout: 120_000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return checkPass(`${label} (${resolved.command})`);
+  } catch {
+    return checkFail(label, `${resolved.command} failed`);
+  }
 }
 
 function checkStateConsistency(tasks: readonly TaskEntry[]): CheckResult {

@@ -13,6 +13,7 @@
 import type { VcsProvider, CiStatus, CiCheck as VcsCiCheck } from '../../vcs/provider.js';
 import { createVcsProvider } from '../../vcs/factory.js';
 import { runCommandSync } from '../../utils/process.js';
+import { resolveRunnableCommand } from '../../config/test-runtime-resolver.js';
 
 // ============================================================
 // Types
@@ -27,6 +28,8 @@ export interface CommandResult {
 export interface PostMergeOptions {
   prUrl: string;
   mergeSha: string;
+  /** The checkout to test. The test command is resolved and run here. */
+  repoRoot: string;
   /** Dependency-injected command runner for testing (used for test suite check). */
   runCommand?: (
     cmd: string,
@@ -53,10 +56,12 @@ export interface PostMergeResult {
 
 function defaultCommandRunner(
   cmd: string,
-  args: readonly string[]
+  args: readonly string[],
+  cwd: string,
 ): CommandResult {
   try {
     const stdout = runCommandSync(cmd, args as string[], {
+      cwd,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     }) as string;
@@ -82,8 +87,9 @@ const PASSING_STATUSES: ReadonlySet<VcsCiCheck['status']> = new Set(['pass', 'sk
 // ============================================================
 
 export async function checkPostMerge(options: PostMergeOptions): Promise<PostMergeResult> {
-  const { prUrl, mergeSha } = options;
-  const runCommand = options.runCommand ?? defaultCommandRunner;
+  const { prUrl, mergeSha, repoRoot } = options;
+  const runCommand =
+    options.runCommand ?? ((cmd: string, args: readonly string[]) => defaultCommandRunner(cmd, args, repoRoot));
   const vcs = options.provider ?? await createVcsProvider();
 
   const results: string[] = [];
@@ -149,17 +155,26 @@ export async function checkPostMerge(options: PostMergeOptions): Promise<PostMer
   // CHECK 2: Test Suite
   // --------------------------------------------------------
   function checkTestSuite(): void {
-    const testResult = runCommand('npm', ['run', 'test:run']);
-
-    if (testResult.exitCode !== 0) {
+    const resolved = resolveRunnableCommand(repoRoot, 'test');
+    if (resolved.kind !== 'runnable') {
       findings.push(
-        `FINDING [D4] [HIGH] criterion="test-suite" evidence="npm run test:run failed (merge-sha: ${mergeSha})"`
+        `FINDING [D4] [HIGH] criterion="test-suite" evidence="no test command resolved (merge-sha: ${mergeSha})"`
       );
-      checkFail('Test suite', 'npm run test:run failed');
+      checkFail('Test suite', `no test command resolved: ${resolved.reason}`);
       return;
     }
 
-    checkPass('Test suite (npm run test:run passed)');
+    const testResult = runCommand(resolved.bin, resolved.args);
+
+    if (testResult.exitCode !== 0) {
+      findings.push(
+        `FINDING [D4] [HIGH] criterion="test-suite" evidence="${resolved.command} failed (merge-sha: ${mergeSha})"`
+      );
+      checkFail('Test suite', `${resolved.command} failed`);
+      return;
+    }
+
+    checkPass(`Test suite (${resolved.command} passed)`);
   }
 
   // Execute checks
