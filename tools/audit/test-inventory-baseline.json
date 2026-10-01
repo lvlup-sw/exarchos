@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1285,
-    "parsedFiles": 1240,
+    "testFiles": 1286,
+    "parsedFiles": 1241,
     "shellFiles": 45,
-    "cases": 14187,
+    "cases": 14204,
     "dynamicTitles": 172,
     "unparseableFiles": 0
   },
@@ -22139,6 +22139,31 @@
         {
           "suite": "initializeContext — topology loader wired at startup (T58, DR-7)",
           "name": "Context_InitializeWithProjectRootButNoTopologyYaml_DoesNotThrow",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — topology loader wired at startup (T58, DR-7)",
+          "name": "Prune_NoTopologyYaml_ScoresAgainstTheBuiltinTopology",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — topology loader wired at startup (T58, DR-7)",
+          "name": "Prune_NoTopologyYaml_CustomWorkflowTypeInABuiltInPhaseIsNotACandidate",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — topology loader wired at startup (T58, DR-7)",
+          "name": "Prune_ValidTopologyYaml_ExplicitTopologyWins",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — topology loader wired at startup (T58, DR-7)",
+          "name": "Prune_ValidTopologyYaml_CustomWorkflowTypeIsStillScored",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — topology loader wired at startup (T58, DR-7)",
+          "name": "Prune_BrokenTopologyYaml_AbortsTopologyNotLoaded",
           "dynamic": false
         }
       ]
@@ -63619,12 +63644,32 @@
         },
         {
           "suite": "selectPruneCandidates",
+          "name": "SelectPruneCandidates_TypeOutsideCoveredWorkflowTypes_ExcludedAsWorkflowTypeNotInTopology",
+          "dynamic": false
+        },
+        {
+          "suite": "selectPruneCandidates",
+          "name": "SelectPruneCandidates_NoCoveredWorkflowTypes_ScoresEveryWorkflowType",
+          "dynamic": false
+        },
+        {
+          "suite": "selectPruneCandidates",
           "name": "SelectPruneCandidates_WithTopologyArgument_ReturnsCandidatesScoredByPhaseContract",
           "dynamic": false
         },
         {
           "suite": "handlePruneStaleWorkflows",
-          "name": "PruneStaleWorkflows_TopologyNotLoaded_SkipsPruningWithLoggedReason",
+          "name": "PruneStaleWorkflows_TopologyYamlFailedToLoad_SkipsPruningWithLoggedReason",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePruneStaleWorkflows",
+          "name": "PruneStaleWorkflows_NoTopologyYamlApplyMode_CustomWorkflowTypeInABuiltInPhaseIsNotCancelled",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePruneStaleWorkflows",
+          "name": "PruneStaleWorkflows_ExplicitTopology_CustomWorkflowTypeIsStillScored",
           "dynamic": false
         },
         {
@@ -63730,6 +63775,16 @@
         {
           "suite": "handlePruneStaleWorkflows",
           "name": "handlePrune_NoMalformed_StillEmitsDiagnosticsEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePruneStaleWorkflows",
+          "name": "handlePrune_DiagnosticsAppend_SettlesBeforeTheHandlerReturns",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePruneStaleWorkflows",
+          "name": "handlePrune_DiagnosticsAppendRejects_PruneStillSucceeds",
           "dynamic": false
         },
         {
@@ -83145,6 +83200,42 @@
         {
           "suite": "static call-shape census",
           "name": "CallShapeCensus_CheckedInSummary_IsRenderedFromTheSameCensus",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/topology/builtin.test.ts": {
+      "file": "tests/unit/workflow/topology/builtin.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "getBuiltinTopology",
+          "name": "BuiltinTopology_RegistryBuiltInTypes_AreTheFiveTheTopologyCovers",
+          "dynamic": false
+        },
+        {
+          "suite": "getBuiltinTopology",
+          "name": "BuiltinTopology_AtomicPhases_CarryTheFourteenDayLastActivityContract",
+          "dynamic": false
+        },
+        {
+          "suite": "getBuiltinTopology",
+          "name": "BuiltinTopology_EveryBuiltInState_IsCoveredIffItIsAtomic",
+          "dynamic": false
+        },
+        {
+          "suite": "getBuiltinTopology",
+          "name": "BuiltinTopology_CustomWorkflowTypePhases_AreNotCovered",
+          "dynamic": false
+        },
+        {
+          "suite": "getBuiltinTopology",
+          "name": "BuiltinTopology_ParsesUnderTheLoaderSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveStalenessTopology",
+          "name": "StalenessScope_NoTopologyFileRequested_CoversOnlyTheBuiltInWorkflowTypes",
           "dynamic": false
         }
       ]

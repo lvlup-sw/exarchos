@@ -1811,7 +1811,7 @@
   },
   "src/verbs/team/prune-stale-workflows.ts": {
     "comments/comment-content": {
-      "count": 16
+      "count": 15
     }
   },
   "src/verbs/team/request-synthesize.ts": {

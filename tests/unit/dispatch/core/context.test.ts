@@ -3,6 +3,8 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import type { ToolResult } from '../../../../src/format.js';
+import type { PruneHandlerDeps } from '../../../../src/verbs/team/prune-stale-workflows.js';
 
 // Mock the state-store module to spy on configureStateStoreBackend
 vi.mock('../../../../src/workflow/state-store.js', async (importOriginal) => {
@@ -597,4 +599,179 @@ phases:
       await rmrfAsync(projectRoot);
     }
   });
+
+  it('Prune_NoTopologyYaml_ScoresAgainstTheBuiltinTopology', async () => {
+    const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
+    const { handlePruneStaleWorkflows } = await import('../../../../src/verbs/team/prune-stale-workflows.js');
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-prune-none-'));
+
+    try {
+      const ctx = await initializeContext(tmpDir, { projectRoot });
+      const result = await handlePruneStaleWorkflows(
+        { dryRun: true, now: PRUNE_NOW },
+        tmpDir,
+        ctx,
+        pruneDepsListing([
+          { featureId: 'plan-under-14d', workflowType: 'feature', phase: 'plan', minutesIdle: 20_100 },
+          { featureId: 'plan-review-over-14d', workflowType: 'feature', phase: 'plan-review', minutesIdle: 20_200 },
+          { featureId: 'triage-over-14d', workflowType: 'debug', phase: 'triage', minutesIdle: 30_000 },
+          { featureId: 'gathering-fresh', workflowType: 'discovery', phase: 'gathering', minutesIdle: 60 },
+        ]),
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.data).not.toHaveProperty('aborted');
+      expect(candidateIds(result)).toEqual(['plan-review-over-14d', 'triage-over-14d']);
+    } finally {
+      await rmrfAsync(projectRoot);
+    }
+  });
+
+  it('Prune_NoTopologyYaml_CustomWorkflowTypeInABuiltInPhaseIsNotACandidate', async () => {
+    const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
+    const { handlePruneStaleWorkflows } = await import('../../../../src/verbs/team/prune-stale-workflows.js');
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-prune-none-custom-'));
+
+    try {
+      const ctx = await initializeContext(tmpDir, { projectRoot });
+      const result = await handlePruneStaleWorkflows(
+        { dryRun: true, now: PRUNE_NOW },
+        tmpDir,
+        ctx,
+        pruneDepsListing([
+          { featureId: 'custom-plan-over-14d', workflowType: 'custom-flow', phase: 'plan', minutesIdle: 30_000 },
+          { featureId: 'feature-plan-over-14d', workflowType: 'feature', phase: 'plan', minutesIdle: 30_000 },
+        ]),
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.data).not.toHaveProperty('aborted');
+      expect(candidateIds(result)).toEqual(['feature-plan-over-14d']);
+    } finally {
+      await rmrfAsync(projectRoot);
+    }
+  });
+
+  it('Prune_ValidTopologyYaml_ExplicitTopologyWins', async () => {
+    const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
+    const { handlePruneStaleWorkflows } = await import('../../../../src/verbs/team/prune-stale-workflows.js');
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-prune-valid-'));
+    await fs.writeFile(path.join(projectRoot, 'topology.yaml'), IMPLEMENTING_ONLY_TOPOLOGY, 'utf-8');
+
+    try {
+      const ctx = await initializeContext(tmpDir, { projectRoot });
+      const result = await handlePruneStaleWorkflows(
+        { dryRun: true, now: PRUNE_NOW },
+        tmpDir,
+        ctx,
+        pruneDepsListing([
+          { featureId: 'implementing-over-1h', workflowType: 'oneshot', phase: 'implementing', minutesIdle: 120 },
+          { featureId: 'plan-over-14d', workflowType: 'feature', phase: 'plan', minutesIdle: 30_000 },
+        ]),
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.data).not.toHaveProperty('aborted');
+      expect(candidateIds(result)).toEqual(['implementing-over-1h']);
+    } finally {
+      await rmrfAsync(projectRoot);
+    }
+  });
+
+  it('Prune_ValidTopologyYaml_CustomWorkflowTypeIsStillScored', async () => {
+    const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
+    const { handlePruneStaleWorkflows } = await import('../../../../src/verbs/team/prune-stale-workflows.js');
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-prune-valid-custom-'));
+    await fs.writeFile(path.join(projectRoot, 'topology.yaml'), IMPLEMENTING_ONLY_TOPOLOGY, 'utf-8');
+
+    try {
+      const ctx = await initializeContext(tmpDir, { projectRoot });
+      const result = await handlePruneStaleWorkflows(
+        { dryRun: true, now: PRUNE_NOW },
+        tmpDir,
+        ctx,
+        pruneDepsListing([
+          { featureId: 'custom-implementing-over-1h', workflowType: 'custom-flow', phase: 'implementing', minutesIdle: 120 },
+          { featureId: 'feature-implementing-fresh', workflowType: 'feature', phase: 'implementing', minutesIdle: 30 },
+        ]),
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.data).not.toHaveProperty('aborted');
+      expect(candidateIds(result)).toEqual(['custom-implementing-over-1h']);
+    } finally {
+      await rmrfAsync(projectRoot);
+    }
+  });
+
+  it('Prune_BrokenTopologyYaml_AbortsTopologyNotLoaded', async () => {
+    const { initializeContext } = await import('../../../../src/dispatch/core/context.js');
+    const { handlePruneStaleWorkflows } = await import('../../../../src/verbs/team/prune-stale-workflows.js');
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-prune-broken-'));
+    await fs.writeFile(path.join(projectRoot, 'topology.yaml'), PARTIAL_TOPOLOGY, 'utf-8');
+
+    try {
+      const ctx = await initializeContext(tmpDir, { projectRoot });
+      const result = await handlePruneStaleWorkflows(
+        { dryRun: true, now: PRUNE_NOW },
+        tmpDir,
+        ctx,
+        pruneDepsListing([
+          { featureId: 'plan-over-14d', workflowType: 'feature', phase: 'plan', minutesIdle: 30_000 },
+        ]),
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ aborted: true, reason: 'topology_not_loaded' });
+    } finally {
+      await rmrfAsync(projectRoot);
+    }
+  });
 });
+
+const PRUNE_NOW = '2026-04-11T12:00:00.000Z';
+
+const IMPLEMENTING_ONLY_TOPOLOGY = `
+phases:
+  implementing:
+    staleness:
+      expectedMaxDwellMinutes: 60
+      freshnessRequires: all
+      signals:
+        - name: lastActivity
+          thresholdMinutes: 60
+`;
+
+/**
+ * Prune deps that list the given workflows, each idle for `minutesIdle`
+ * before `PRUNE_NOW`. The secondary signals are absent and the safeguards
+ * pass, so `lastActivity` alone decides each verdict.
+ */
+function pruneDepsListing(
+  workflows: ReadonlyArray<{ featureId: string; workflowType: string; phase: string; minutesIdle: number }>,
+): PruneHandlerDeps {
+  const nowMs = new Date(PRUNE_NOW).getTime();
+  return {
+    handleList: async () => ({
+      success: true,
+      data: workflows.map((w) => ({
+        featureId: w.featureId,
+        workflowType: w.workflowType,
+        phase: w.phase,
+        stateFile: `/tmp/${w.featureId}.state.json`,
+        _checkpoint: { lastActivityTimestamp: new Date(nowMs - w.minutesIdle * 60_000).toISOString() },
+      })),
+    }),
+    handleCancel: vi.fn(),
+    readBranchName: async () => undefined,
+    safeguards: { hasOpenPR: async () => false, hasRecentCommits: async () => false },
+    readPhaseTransitionTimestamp: async () => undefined,
+    readBranchActivityTimestamp: async () => undefined,
+  };
+}
+
+/** The feature ids a prune result lists as candidates, in result order. */
+function candidateIds(result: ToolResult): string[] {
+  const data = result.data as { candidates?: Array<{ featureId: string }> };
+  return (data.candidates ?? []).map((c) => c.featureId);
+}

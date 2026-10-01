@@ -25,15 +25,11 @@ import { readStateFile } from '../../workflow/state-store.js';
 import { isTerminalPhase as baseIsTerminalPhase } from '../../workflow/terminal-phases.js';
 import { orchestrateLogger } from '../../logger.js';
 import { defaultSafeguards, type PruneSafeguards } from './prune-safeguards.js';
-import { getTopology } from '../../workflow/topology/loader.js';
+import { resolveStalenessTopology, type StalenessScope } from '../../workflow/topology/builtin.js';
 import type { Topology } from '../../workflow/topology/phase-contract.js';
 import { scoreEntryThroughTopology } from '../../pruner/coordinator.js';
 import type { StalenessState } from '../../pruner/score.js';
 export type { PruneSafeguards } from './prune-safeguards.js';
-
-// 14 days in minutes — the default staleness threshold applied when a phase's
-// topology `staleness` contract does not narrow it further.
-const DEFAULT_THRESHOLD_MINUTES = 20_160;
 
 /**
  * Minimal subset of a workflow list entry needed for prune selection.
@@ -74,6 +70,12 @@ export interface PruneConfig {
   includeOneShot?: boolean;
   /** Phases to exclude from prune candidates. Entries in these phases are excluded with reason 'phase-excluded'. */
   phaseExclusions?: readonly string[];
+  /**
+   * The workflow types the topology covers. When set, an entry of any other
+   * type is excluded with reason 'workflow-type-not-in-topology'. When
+   * absent, every workflow type is scored.
+   */
+  coveredWorkflowTypes?: ReadonlySet<string>;
 }
 
 export interface PruneCandidate {
@@ -88,17 +90,20 @@ export interface PruneExclusion {
   featureId: string;
   /**
    * Why the entry was excluded from prune candidates.
-   * - `terminal`             — phase is a terminal node (completed/cancelled)
-   * - `fresh`                — staleness contract verdict was "fresh"
-   * - `oneshot-excluded`     — `config.includeOneShot === false` and entry is oneshot
-   * - `phase-excluded`       — caller-supplied `config.phaseExclusions` matched
-   * - `phase-not-in-topology` — entry's recorded phase is absent from the loaded
-   *                            topology (e.g. topology.yaml renamed/removed the
-   *                            phase after the workflow started). DIM-7
-   *                            resilience: skip this entry rather than crashing
-   *                            the batch on the scorer's throw.
+   * - `terminal`: the phase is terminal (completed or cancelled).
+   * - `fresh`: the staleness contract found the entry fresh.
+   * - `oneshot-excluded`: `includeOneShot` is false and the entry is a oneshot.
+   * - `phase-excluded`: the phase is in `phaseExclusions`.
+   * - `workflow-type-not-in-topology`: the topology does not cover the workflow type.
+   * - `phase-not-in-topology`: the topology has no contract for the phase.
    */
-  reason: 'terminal' | 'fresh' | 'oneshot-excluded' | 'phase-excluded' | 'phase-not-in-topology';
+  reason:
+    | 'terminal'
+    | 'fresh'
+    | 'oneshot-excluded'
+    | 'phase-excluded'
+    | 'workflow-type-not-in-topology'
+    | 'phase-not-in-topology';
 }
 
 export interface PruneSelection {
@@ -146,7 +151,8 @@ function isTerminalPhase(phase: string): boolean {
  *   1. terminal phase  → reason: 'terminal'
  *   2. phase exclusion → reason: 'phase-excluded'
  *   3. oneshot filter  → reason: 'oneshot-excluded' (only when `includeOneShot === false`)
- *   4. freshness       → reason: 'fresh'
+ *   4. coverage        → reason: 'workflow-type-not-in-topology', then 'phase-not-in-topology'
+ *   5. freshness       → reason: 'fresh'
  *
  * #1334 (β-07, v2.10.0-preview.1): the multi-signal staleness verdict is
  * now read off the typed `PhaseContract` declared on the topology, via
@@ -193,6 +199,11 @@ export function selectPruneCandidates(
 
     if (!includeOneShot && entry.workflowType === 'oneshot') {
       excluded.push({ featureId: entry.featureId, reason: 'oneshot-excluded' });
+      continue;
+    }
+
+    if (config.coveredWorkflowTypes !== undefined && !config.coveredWorkflowTypes.has(entry.workflowType)) {
+      excluded.push({ featureId: entry.featureId, reason: 'workflow-type-not-in-topology' });
       continue;
     }
 
@@ -875,21 +886,9 @@ export async function handlePruneStaleWorkflows(
   //   - 'skip': malformed silently excluded, diagnostics omitted from response
   const malformedHandling = pruneConfig?.malformedHandling ?? 'report';
 
-  // #1334 (β-07/β-08): load the typed topology for staleness scoring.
-  // The selector now reads per-phase `PhaseContract`s off the topology
-  // and delegates verdicts to `scoreEntryThroughTopology`. The CLI fast
-  // path (e.g. running `prune` outside a fully-bootstrapped MCP server)
-  // may invoke this handler before the lifecycle has called
-  // `loadTopology()`. Rather than letting the loader's "Topology not
-  // loaded" throw escape and surface as an unhandled rejection, return
-  // a structured `{ aborted: true, reason: 'topology_not_loaded' }`
-  // envelope and emit a warning log so operators see why the prune ran
-  // produced no candidates. Field is `aborted` (not `skipped`) so it
-  // doesn't collide with `PruneHandlerResult.skipped: PruneSkipped[]` —
-  // INV-5b spec-aligned output contract.
-  let topologyForSelection: Topology;
+  let stalenessScope: StalenessScope;
   try {
-    topologyForSelection = getTopology();
+    stalenessScope = resolveStalenessTopology();
   } catch (err) {
     const reason = 'topology_not_loaded';
     orchestrateLogger.warn(
@@ -935,17 +934,16 @@ export async function handlePruneStaleWorkflows(
     }),
   );
 
-  // 2. Pure selection. #1334 (β-07): topology now drives staleness verdicts
-  // through the typed `PhaseContract`. The handler retrieves the loaded
-  // topology via `getTopology()`; if the loader has not run, the
-  // accessor throws and β-08 turns that into a structured skip envelope.
-  const topology = topologyForSelection;
+  // 2. Pure selection.
   const { candidates: selectedCandidates } = selectPruneCandidates(
     enrichedEntries,
-    topology,
+    stalenessScope.topology,
     {
       ...(includeOneShot !== undefined ? { includeOneShot } : {}),
       ...(pruneConfig?.phaseExclusions ? { phaseExclusions: pruneConfig.phaseExclusions } : {}),
+      ...(stalenessScope.coveredWorkflowTypes !== undefined
+        ? { coveredWorkflowTypes: stalenessScope.coveredWorkflowTypes }
+        : {}),
     },
     now,
   );
@@ -998,12 +996,12 @@ export async function handlePruneStaleWorkflows(
             : {}),
         };
 
-  // Emit prune.diagnostics event (fire-and-forget). Always emitted when
+  // Emit prune.diagnostics event. Always emitted when
   // an eventStore is available and diagnostics are not suppressed — even
   // when malformedCount is 0, so dashboards and audit queries can track
   // that a prune evaluation ran.
   if (ctx?.eventStore && diagnostics) {
-    ctx.eventStore
+    await ctx.eventStore
       .append('_prune', {
         type: 'prune.diagnostics',
         data: {
@@ -1014,8 +1012,7 @@ export async function handlePruneStaleWorkflows(
         },
       })
       .catch(() => {
-        // Fire-and-forget: diagnostics event emission failure must not
-        // affect the prune pipeline outcome.
+        // A failed diagnostics append must not affect the prune outcome.
       });
   }
 
