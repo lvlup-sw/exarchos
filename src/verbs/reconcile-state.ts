@@ -1,20 +1,18 @@
-// ─── Reconcile State Handler ────────────────────────────────────────────────
-//
-// Validates a workflow state file against git reality. Checks that the state
-// file exists and is valid JSON, the phase is valid for the workflow type,
-// task branches exist in git, worktrees exist on disk and in git, and
-// in-progress tasks have branches assigned.
-//
-// Ported from scripts/reconcile-state.sh
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Checks a workflow state against git. It resolves the state from a state file or the event store,
+ * then checks:
+ *
+ * - the phase against the workflow type
+ * - the task branches in git
+ * - the active worktrees on disk and in git
+ * - a branch for each in-progress task
+ */
 
 import { existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../events/store.js';
 import { resolveWorkflowState } from './resolve-state.js';
-
-// ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface ReconcileStateArgs {
   readonly stateFile?: string;
@@ -41,15 +39,11 @@ interface WorkflowState {
   readonly worktrees?: Readonly<Record<string, Worktree>>;
 }
 
-// ─── Valid Phases ───────────────────────────────────────────────────────────
-
 const VALID_PHASES: Readonly<Record<string, readonly string[]>> = {
   feature: ['plan', 'plan-review', 'delegate', 'review', 'synthesize', 'completed', 'cancelled', 'blocked'],
   debug: ['triage', 'investigate', 'rca', 'design', 'debug-implement', 'debug-validate', 'debug-review', 'hotfix-implement', 'hotfix-validate', 'synthesize', 'completed', 'cancelled', 'blocked'],
   refactor: ['explore', 'brief', 'polish-implement', 'polish-validate', 'polish-update-docs', 'overhaul-plan', 'overhaul-delegate', 'overhaul-review', 'overhaul-update-docs', 'synthesize', 'completed', 'cancelled', 'blocked'],
 };
-
-// ─── Check Result Accumulator ───────────────────────────────────────────────
 
 interface CheckAccumulator {
   pass: number;
@@ -67,8 +61,6 @@ function checkFail(acc: CheckAccumulator, name: string, detail?: string): void {
   acc.results.push(`- **FAIL**: ${name}${suffix}`);
   acc.fail += 1;
 }
-
-// ─── Individual Checks ─────────────────────────────────────────────────────
 
 function checkPhaseValid(acc: CheckAccumulator, state: WorkflowState): void {
   const workflowType = state.workflowType ?? 'feature';
@@ -120,6 +112,10 @@ function checkTaskBranches(acc: CheckAccumulator, state: WorkflowState, repoRoot
   }
 }
 
+/**
+ * Checks each active worktree on disk and in `git worktree list`. When that git command fails, each
+ * worktree that exists on disk reports as not a git worktree.
+ */
 function checkWorktreesExist(acc: CheckAccumulator, state: WorkflowState, repoRoot: string): void {
   const worktrees = state.worktrees ?? {};
   const activeWorktrees = Object.values(worktrees).filter((wt) => wt.status === 'active' && wt.path);
@@ -129,7 +125,6 @@ function checkWorktreesExist(acc: CheckAccumulator, state: WorkflowState, repoRo
     return;
   }
 
-  // Get git worktree list
   let gitWorktreePaths: string[] = [];
   try {
     const output = execFileSync('git', ['-C', repoRoot, 'worktree', 'list', '--porcelain'], {
@@ -141,7 +136,6 @@ function checkWorktreesExist(acc: CheckAccumulator, state: WorkflowState, repoRo
       .filter((line) => line.startsWith('worktree '))
       .map((line) => line.replace('worktree ', ''));
   } catch {
-    // If git worktree list fails, treat all as missing
   }
 
   const missingWorktrees: string[] = [];
@@ -161,14 +155,6 @@ function checkWorktreesExist(acc: CheckAccumulator, state: WorkflowState, repoRo
     checkFail(acc, 'Worktrees exist', `Missing worktree paths: ${missingWorktrees.join(', ')}`);
   }
 }
-
-// #1504/#1554 — the #1359 projection-drift check was RETIRED here. It compared
-// the canonical on-disk `.state.json` task list against the pipeline view
-// projection to catch file↔events divergence. Under event-store-first
-// resolution (#1504) the "canonical" side IS a projection, and #1554 collapses
-// the folds so projections cannot diverge by construction — so the check is
-// defeated-by-construction and no longer meaningful. Its dedicated test
-// (reconcile-state.projection-drift.test.ts) was removed with it.
 
 function checkTaskStatusConsistency(acc: CheckAccumulator, state: WorkflowState): void {
   const tasks = state.tasks ?? [];
@@ -193,12 +179,9 @@ function checkTaskStatusConsistency(acc: CheckAccumulator, state: WorkflowState)
   }
 }
 
-// ─── Handler ────────────────────────────────────────────────────────────────
-
 export async function handleReconcileState(args: ReconcileStateArgs): Promise<ToolResult> {
   const { stateFile, featureId, eventStore, repoRoot } = args;
 
-  // Resolve state via file or event store fallback
   const resolveResult = await resolveWorkflowState({ stateFile, featureId, eventStore });
   if ('error' in resolveResult) {
     return resolveResult.error;
@@ -210,22 +193,14 @@ export async function handleReconcileState(args: ReconcileStateArgs): Promise<To
 
   checkPass(acc, 'State resolved');
 
-  // Check 2: Phase validity
   checkPhaseValid(acc, state);
 
-  // Check 3: Task branches
   checkTaskBranches(acc, state, repoRoot);
 
-  // Check 4: Worktrees
   checkWorktreesExist(acc, state, repoRoot);
 
-  // Check 5: Task status consistency
   checkTaskStatusConsistency(acc, state);
 
-  // (Check 6 — the #1359 projection-drift check — was retired under #1504/#1554;
-  // see the note above checkTaskStatusConsistency.)
-
-  // Build markdown report
   const passed = acc.fail === 0;
   const total = acc.pass + acc.fail;
   const statusLine = passed

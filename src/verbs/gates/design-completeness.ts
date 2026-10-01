@@ -1,13 +1,9 @@
-// ─── Design Completeness Gate — DEPRECATED alias (DR-9, #1581 task 013) ──────
-//
-// The design+plan collapse (DR-4/DR-6) retired the standalone
-// design-completeness gate: its acceptance-criteria ("error-coverage") check is
-// folded into `check_plan_coverage` (task 011), and it is excised from the gate
-// chains (task 014). This handler is kept for ONE minor version as a deprecated
-// alias that DELEGATES to `check_plan_coverage` so external callers/scripts that
-// still invoke `check_design_completeness` keep working instead of hitting an
-// UNKNOWN_ACTION. Removal of the alias is a tracked follow-up.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * check_design_completeness: a deprecated alias that delegates to
+ * `check_plan_coverage`. Design and plan are one unified spec artifact, and
+ * plan coverage holds the acceptance-criteria check. The alias keeps old
+ * callers working instead of failing with UNKNOWN_ACTION.
+ */
 
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
@@ -18,14 +14,12 @@ export const DESIGN_COMPLETENESS_DEPRECATION_NOTICE =
   'check_design_completeness is deprecated and now delegates to check_plan_coverage on the unified docs/specs/ artifact (the acceptance-criteria check folded into plan-coverage in #1581). Migrate callers to check_plan_coverage; this alias will be removed in a future minor version.';
 
 /**
- * Deprecated alias for `check_plan_coverage`.
- *
- * In the collapsed world design and plan are ONE `docs/specs/` artifact, so the
- * resolved artifact path is passed to plan-coverage as BOTH `designPath` and
- * `planPath`. Resolution priority: explicit `designPath`/`planPath` arg →
- * `artifacts.plan`/`artifacts.design` recorded in workflow state. The
- * delegated plan-coverage result is returned verbatim with a `deprecated`
- * marker + notice so callers can detect (and migrate off) the alias.
+ * Deprecated alias for `check_plan_coverage`. Design and plan are one spec
+ * artifact, so the resolved path goes to plan coverage as both `designPath`
+ * and `planPath`. The path comes from the `designPath` or `planPath` argument,
+ * then from `artifacts.plan` or `artifacts.design` in the workflow state. A
+ * state read error returns as is, not as a missing artifact. The result
+ * carries a `deprecated` marker and the notice.
  */
 export async function handleDesignCompleteness(
   args: { featureId: string; stateFile?: string; designPath?: string; planPath?: string },
@@ -39,17 +33,12 @@ export async function handleDesignCompleteness(
     };
   }
 
-  // Resolve the unified artifact path: explicit arg first, then the workflow
-  // state's recorded artifacts (plan preferred — it is the unified spec under
-  // the collapse — then design for legacy two-artifact resume, DR-9 / task 020).
   let artifactPath = args.designPath || args.planPath;
   if (!artifactPath) {
     const streamId = args.featureId;
     const stateFile = args.stateFile ?? `${stateDir}/${streamId}.state.json`;
     const resolved = await resolveWorkflowState({ stateFile, featureId: streamId, eventStore });
     if ('error' in resolved) {
-      // Propagate an infrastructure read failure rather than masking it as a
-      // missing-artifact INVALID_INPUT.
       return resolved.error;
     }
     const artifacts = resolved.state.artifacts;
@@ -72,8 +61,6 @@ export async function handleDesignCompleteness(
     };
   }
 
-  // Delegate to check_plan_coverage. plan-coverage owns the substantive
-  // coverage check AND the folded acceptance-criteria finding (task 011).
   const result = await handlePlanCoverage(
     { featureId: args.featureId, designPath: artifactPath, planPath: artifactPath },
     stateDir,

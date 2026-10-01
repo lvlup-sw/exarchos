@@ -1,21 +1,12 @@
-// ─── check_test_adequacy — kill-probe gate ───────────────────────────────────
-//
-// Verification-ladder slice 1, Bundle B2. Proves a task's tests are NOT vacuous
-// using "mutation testing at N=1": revert ONLY the task's SOURCE hunks (keeping
-// the test hunks), re-run the new/changed tests, and assert at least one goes
-// red. A test that survives the source revert asserted nothing about the change.
-//
-// This module is built bottom-up across tasks 011–013:
-//   • task 011 — splitHunks (pure file-level test/source classification)
-//
-// `splitHunks` is exported cleanly so a sibling bundle (mock-boundary) can reuse
-// the same classification without re-deriving the test globs.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The kill-probe gate for `check_test_adequacy`. It proves that the tests of a task are not vacuous, with mutation testing at N=1.
+ * The probe reverts only the source files of the task and keeps the test files. Then it runs the new or changed tests and expects at least one to go red.
+ * A test that survives the source revert asserts nothing about the change.
+ * `splitHunks` is exported so the mock-boundary gate can reuse the same classification.
+ */
 
 import type { GitExec } from '../pure/execute-merge.js';
 import { assertNever } from '../../contract/error-families.js';
-
-// ─── splitHunks (task 011) ───────────────────────────────────────────────────
 
 /**
  * Default test-file globs when the resolved toolchain/config supplies none.
@@ -60,7 +51,6 @@ function globToRegExp(glob: string): RegExp {
     const ch = glob[i] ?? '';
     if (ch === '*') {
       if (glob[i + 1] === '*') {
-        // `**/` consumes zero-or-more leading segments; bare `**` matches all.
         if (glob[i + 2] === '/') {
           out += '(?:.*/)?';
           i += 2;
@@ -73,7 +63,6 @@ function globToRegExp(glob: string): RegExp {
       }
       continue;
     }
-    // Escape regex metacharacters so the rest is matched literally.
     out += ch.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
   }
   out += '$';
@@ -81,10 +70,8 @@ function globToRegExp(glob: string): RegExp {
 }
 
 /**
- * Classify a task diff's changed files into test vs source at the FILE level
- * (a file is wholly test or wholly source — never split mid-file). Pure: takes
- * the changed-file list and optional test globs, returns the partition. No git
- * calls, no fs access.
+ * Classifies the changed files of a task diff as test or source at the file level. A file is wholly test or wholly source.
+ * The function is pure. It makes no git calls and no file system reads.
  *
  * @param changedFiles - repo-relative paths changed by the task diff
  * @param options.testGlobs - optional override for the test-file globs
@@ -112,26 +99,11 @@ export function splitHunks(
 }
 
 /**
- * Resolve the test globs the PROBE should classify with, given the globs a
- * detected toolchain prescribes.
- *
- * SUBJECT FAULT (fixed here): `testGlobsForToolchain` returns a REPLACEMENT set
- * (`splitHunks` uses `options.testGlobs ?? DEFAULT_TEST_GLOBS`). Threading it
- * straight through meant that in ANY repo whose root marker resolves to a
- * toolchain with a prescribed layout (python `pyproject.toml`, rust
- * `Cargo.toml`, ruby `Gemfile`, …), the co-located conventions
- * (`*.test.*`, `*.spec.*`, `__tests__/**`) STOPPED being recognised. A polyglot
- * repo — python at the root, co-located `*.test.ts` beside the source — had
- * every one of its test files classified as SOURCE, so the probe resolved ZERO
- * test files and reported `no-new-tests` for a task that plainly added tests.
- * The gate was probing the wrong subject; at low/unset tier that surfaced as a
- * vacuous PASS.
- *
- * The toolchain layout is ADDITIVE, not authoritative-exclusive: a repo can
- * have both `tests/test_foo.py` AND `src/calc.test.ts`, and both are tests.
- * Union (deduped, defaults first) is the only classification that is correct
- * for both. Misclassifying a test as source is the failure mode that produces
- * false PASSES, so the union errs in the safe direction.
+ * Resolves the test globs for the probe from the globs that a detected toolchain prescribes.
+ * `testGlobsForToolchain` returns a replacement set, and `splitHunks` uses it in place of the defaults.
+ * With only the toolchain globs, a polyglot repo (python at the root, `*.test.ts` beside the source) classifies each co-located test as source.
+ * So the result is the union of the defaults and the toolchain globs, deduplicated, with the defaults first.
+ * A test misclassified as source gives a false pass, so the union errs in the safe direction.
  */
 export function resolveProbeTestGlobs(
   toolchainGlobs: readonly string[] | null | undefined,
@@ -144,19 +116,6 @@ export function resolveProbeTestGlobs(
   return merged;
 }
 
-// ─── snapshot / revert / restore (task 012, INV-14) ──────────────────────────
-//
-// The probe MUST be able to restore the working tree to exactly what it was
-// before the mutation, even if the test-run step throws. We capture the tree
-// with `git stash create` (object-only — it produces a commit object and
-// mutates NO ref, so it is NOT the banned `stash push`/`stash pop`). Reverting
-// source files is a targeted `git checkout <base> -- <files>` (never
-// `reset --hard`). Restore re-checks-out the snapshot tree.
-//
-// All three are total: they translate git failures into structured discriminants
-// rather than throwing, so the orchestrator can run them under a finally and
-// always reach restore.
-
 /** Discriminants for the gate's failure modes (carried on the result). */
 export type AdequacyDiscriminant =
   | 'no-new-tests'
@@ -166,40 +125,19 @@ export type AdequacyDiscriminant =
   | 'base-missing';
 
 /**
- * Risk tiers that require the kill probe to actually run. On these tiers an
- * INDETERMINATE probe is a blocking failure rather than an advisory skip
- * (WFQ-005): a medium/high task whose probe did not run has not been verified,
- * and reporting that as a pass is the "false advisory success" the gate exists
- * to prevent.
+ * Risk tiers that require the kill probe to run. On these tiers an indeterminate probe blocks and does not degrade to an advisory skip.
+ * A medium or high task whose probe did not run is unverified, and a pass for it is a false advisory success.
  */
 const PROBE_REQUIRED_TIERS: ReadonlySet<string> = new Set(['medium', 'high']);
 
-// ─── ProbeVerdict — "could not run" is not "ran and passed" ──────────────────
-//
-// The root defect class this union closes: `passed: boolean` gave "the probe
-// ran and proved the tests non-vacuous" and "the probe could not run at all"
-// ONE channel, so a SKIPPED check was representable as a SUCCESS. Every path
-// that fell through to `passed: true` without a kill was, structurally, a
-// vacuous pass waiting to happen.
-//
-// `ProbeVerdict` makes that unrepresentable: a probe that did not run yields
-// `indeterminate`, which has NO `passed` field to set. The boolean the gate
-// eventually reports is DERIVED from this union plus the risk tier
-// (`interpretProbeVerdict`) and can never be authored independently of it.
-
 /**
- * The verdict of a kill probe. The SINGLE authority for whether a task's tests
- * were proven non-vacuous.
+ * The verdict of a kill probe, and the single authority on whether the tests of a task are non-vacuous.
+ * A probe that did not run gives `indeterminate`, which has no `passed` field. So a skipped check cannot look like a success.
  *
- * - `passed`        — the probe RAN: source was reverted, the scoped tests went
- *                     red, and the worktree restored cleanly. Real proof.
- * - `failed`        — the probe RAN and the tests SURVIVED the source revert
- *                     (or the run was otherwise conclusively bad). Real
- *                     disproof.
- * - `indeterminate` — the probe DID NOT RUN (or could not be trusted). NOT a
- *                     pass and NOT a failure of the tests: an absence of
- *                     evidence. Whether that blocks is a TIER policy decision
- *                     ({@link interpretProbeVerdict}), never a probe decision.
+ * - `passed`        — the probe ran: it reverted the source, the scoped tests went red, and the worktree restored cleanly.
+ * - `failed`        — the probe ran and the tests survived the source revert, or the result is otherwise conclusively bad.
+ * - `indeterminate` — the probe did not run, or its result cannot be trusted. It is an absence of evidence.
+ *                     {@link interpretProbeVerdict} decides by tier whether it blocks.
  */
 export type ProbeVerdict =
   | { readonly kind: 'passed'; readonly probedTests: readonly string[] }
@@ -210,24 +148,19 @@ export type ProbeVerdict =
       readonly detail: string;
     };
 
-/** How an indeterminate cause is treated when the tier does NOT require the probe. */
+/**
+ * How an indeterminate cause is treated when the tier does not require the probe.
+ * `advisory-skippable` is a valid "nothing to do", which can degrade to a labelled advisory skip.
+ * `always-blocking` means the probe had to run and did not. It fails closed at every tier.
+ */
 type IndeterminateHandling =
-  /** A legitimate "nothing to do" — may degrade to a labelled advisory skip (INV-4). */
   | 'advisory-skippable'
-  /** The probe was SUPPOSED to run and could not. Fails closed at EVERY tier. */
   | 'always-blocking';
 
 /**
- * Per-cause handling policy. Keyed by {@link AdequacyDiscriminant} as a total
- * `Record`, so adding a discriminant without deciding its handling is a COMPILE
- * error rather than a silent default-to-advisory (the exact hole that lets a
- * new "could not run" mode be laundered into a pass).
- *
- * Only `no-new-tests` is ever advisory: it is the one cause that means "there
- * was legitimately nothing to probe". A diff we could not compute, a revert we
- * could not apply, and a worktree we could not restore are all EXECUTION
- * failures of a probe that was supposed to run — they fail closed on every
- * tier, including low.
+ * The handling policy for each cause. It is a total `Record`, so a new discriminant without a decision is a compile error, not a silent advisory default.
+ * Only `no-new-tests` is advisory, because it means there was nothing to probe.
+ * A diff, revert, or restore that fails is an execution failure of a probe that had to run. It fails closed on every tier, including low.
  */
 const INDETERMINATE_HANDLING: Readonly<Record<AdequacyDiscriminant, IndeterminateHandling>> = {
   'no-new-tests': 'advisory-skippable',
@@ -238,12 +171,8 @@ const INDETERMINATE_HANDLING: Readonly<Record<AdequacyDiscriminant, Indeterminat
 };
 
 /**
- * What the gate DOES about a verdict.
- *
- * `advisory-skip` is deliberately its own disposition rather than a flavour of
- * `proved`: it carries `passed: true` for ladder-routing compatibility, but it
- * is labelled a SKIP everywhere it surfaces so no reader (human or machine) can
- * mistake it for evidence of test adequacy.
+ * What the gate does about a verdict.
+ * `advisory-skip` is a separate disposition, not a kind of `proved`. It carries `passed: true` for ladder routing, but every surface labels it a skip.
  */
 export type AdequacyDisposition = 'proved' | 'blocked' | 'advisory-skip';
 
@@ -259,20 +188,13 @@ export interface AdequacyInterpretation {
 }
 
 /**
- * Apply risk-tier policy to a {@link ProbeVerdict}. The ONLY place a probe
- * outcome becomes a boolean.
+ * Applies the risk-tier policy to a {@link ProbeVerdict}. This is the only place where a probe outcome becomes a boolean.
+ *   • `passed`        → proved.
+ *   • `failed`        → blocked at every tier.
+ *   • `indeterminate` → blocked at a required tier (medium or high). At a low or unset tier, an `advisory-skippable` cause
+ *                       degrades to a labelled advisory skip, and an `always-blocking` cause still blocks.
  *
- * Rules (WFQ-005):
- *   • `passed`        → proved (blocking-clean).
- *   • `failed`        → blocked. Always. No tier downgrades a real disproof.
- *   • `indeterminate` → blocked at a REQUIRED tier (medium/high) — a task whose
- *                       probe did not run is unverified, full stop. At low/unset
- *                       tier an `advisory-skippable` cause degrades to an
- *                       explicitly-labelled advisory SKIP; an `always-blocking`
- *                       cause still blocks.
- *
- * Exhaustive over the union (`assertNever`), so a future variant cannot be
- * silently ignored.
+ * The switch is exhaustive (`assertNever`), so a new variant cannot pass silently.
  */
 export function interpretProbeVerdict(
   verdict: ProbeVerdict,
@@ -316,8 +238,6 @@ export function interpretProbeVerdict(
   }
 }
 
-// ─── Verdict recovery for externally-authored carriers ───────────────────────
-
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -344,22 +264,12 @@ function readDiscriminant(value: unknown): AdequacyDiscriminant | undefined {
 }
 
 /**
- * Recover the authoritative {@link ProbeVerdict} from a probe carrier.
- *
- * `runProbe` always stamps `verdict`, so the first branch is the production
- * path. The reconstruction exists for carriers authored OUTSIDE this module
- * (test doubles that fabricate the legacy `ProbeResult` wire shape), and it is
- * deliberately TOTAL and FAIL-CLOSED:
- *
- *   • it NEVER reads `passed`. A fabricated "vacuous pass"
- *     (`{passed:true, discriminant:'no-new-tests'}`) reconstructs to
- *     INDETERMINATE and is re-subjected to tier policy — the legacy shape
- *     cannot smuggle a skipped check past the gate as success.
- *   • a known discriminant → `indeterminate` (the probe did not run).
- *   • an UNRECOGNISED discriminant → `failed` (blocking), never a pass: an
- *     unknown "could not run" mode must not degrade to advisory.
- *   • otherwise the only remaining evidence is the observed kill, so
- *     `redObserved && restoredClean` → `passed`, else `failed`.
+ * Recovers the authoritative {@link ProbeVerdict} from a probe carrier.
+ * `runProbe` always stamps `verdict`, so the first branch is the production path.
+ * The rebuild serves carriers from outside this module, such as test doubles with the legacy `ProbeResult` shape. It is total and fails closed:
+ *   • It never reads `passed`. A fake vacuous pass (`{passed:true, discriminant:'no-new-tests'}`) becomes indeterminate and meets the tier policy again.
+ *   • A known discriminant gives `indeterminate`. An unknown discriminant gives `failed`, never a pass.
+ *   • Otherwise `redObserved && restoredClean` gives `passed`, and anything else gives `failed`.
  */
 export function verdictOf(carrier: unknown): ProbeVerdict {
   const record = isRecord(carrier) ? carrier : {};
@@ -414,14 +324,10 @@ export interface RestoreResult {
 }
 
 /**
- * Capture the current working tree as an object-only snapshot.
- *
- * `git stash create` writes a commit object whose tree is the dirty working
- * tree and returns its sha WITHOUT touching `refs/stash` or any other ref —
- * the refuse-to-discard property INV-14 requires (no `stash push`/`pop`, which
- * mutate shared stash storage across worktrees). On a clean tree it returns
- * empty stdout; we fall back to HEAD's own tree so restore is always
- * well-defined.
+ * Captures the current working tree as an object-only snapshot. It does not throw.
+ * `git stash create` writes a commit object of the dirty tree and returns its sha, and changes no ref.
+ * `stash push` and `stash pop` change the stash storage that all worktrees share, so the probe does not use them.
+ * On a clean tree, `stash create` prints nothing, so the snapshot is the HEAD commit.
  */
 export function snapshotWorkingTree(gitExec: GitExec, repoRoot: string): SnapshotResult {
   try {
@@ -433,7 +339,6 @@ export function snapshotWorkingTree(gitExec: GitExec, repoRoot: string): Snapsho
     if (sha) {
       return { stashSha: sha };
     }
-    // Clean tree — snapshot HEAD (its commit sha is a valid restore source).
     const head = gitExec(repoRoot, ['rev-parse', 'HEAD']);
     if (head.exitCode !== 0) {
       return { error: `git rev-parse HEAD exited ${head.exitCode}: ${head.stdout.trim()}` };
@@ -447,11 +352,10 @@ export function snapshotWorkingTree(gitExec: GitExec, repoRoot: string): Snapsho
 }
 
 /**
- * Revert ONLY the given source files to their state at `baseRef`. Paths present
- * at the base are restored via targeted checkout; task-added tracked paths are
- * removed from the index/worktree so the probe faithfully recreates the base
- * even when the implementation introduces a new module. Never `reset --hard`.
- * Unknown paths and git failures surface as `revert-conflict`.
+ * Reverts only the given source files to their state at `baseRef`. It never runs `reset --hard`.
+ * A path that exists at the base gets a targeted checkout. A tracked path that the task added is removed, so the probe recreates the base.
+ * A path that is absent from the base and from the current index is a `revert-conflict`, as is a git failure.
+ * An empty file list is a trivial success.
  */
 export function revertSourceFiles(
   gitExec: GitExec,
@@ -460,8 +364,6 @@ export function revertSourceFiles(
   sourceFiles: readonly string[],
 ): RevertResult {
   if (sourceFiles.length === 0) {
-    // Nothing to revert is not a conflict — caller decides whether that's a
-    // probe-skip; here it is trivially successful.
     return { ok: true };
   }
   try {
@@ -491,9 +393,6 @@ export function revertSourceFiles(
         continue;
       }
 
-      // A path absent from the base is a valid task addition only when it is
-      // tracked in the current index. A typo/nonexistent path remains a
-      // conflict rather than being silently accepted.
       const trackedNow = gitExec(repoRoot, [
         'ls-files',
         '--error-unmatch',
@@ -579,14 +478,6 @@ export function restoreWorkingTree(
   }
 }
 
-// ─── runProbe (task 013) ─────────────────────────────────────────────────────
-//
-// The orchestration that ties the kill probe together: split the task diff,
-// snapshot the worktree, revert ONLY the source hunks, run the new/changed
-// tests, observe whether they go red, and ALWAYS restore. The test runner and
-// the changed-file list are injected so this composition is unit-testable
-// without shelling out to a real test command.
-
 /** Result of running the (scoped) test command during the probe. */
 export interface TestRunResult {
   /** True when the scoped test run PASSED (all green). */
@@ -596,9 +487,7 @@ export interface TestRunResult {
 }
 
 /**
- * Injected runner that executes the resolved test command, scoped to the
- * new/changed test files where the runner allows. Async to match real
- * shell-outs; receives the repo + the test files to scope to.
+ * The injected runner of the resolved test command. It scopes the run to the new or changed test files where the runner allows.
  */
 export type TestRunFn = (input: {
   readonly repoRoot: string;
@@ -612,7 +501,7 @@ export interface ProbeArgs {
   readonly baseRef: string;
   /** Repo-relative files changed by the task diff. */
   readonly changedFiles: readonly string[];
-  /** Runs the scoped test command; returns pass/fail. */
+  /** Runs the scoped test command and returns pass or fail. */
   readonly runTests: TestRunFn;
   /** Optional test-glob override forwarded to {@link splitHunks}. */
   readonly testGlobs?: readonly string[];
@@ -623,27 +512,21 @@ export interface ProbeArgs {
    */
   readonly riskTier?: string;
   /**
-   * True when the caller could not compute the task diff at all (git failure).
-   * Distinguishes "this task genuinely changed nothing" from "we could not
-   * see what it changed" — the latter must never pass (WFQ-005).
+   * True when the caller cannot compute the task diff (a git failure).
+   * It separates a task that changed nothing from a diff that is unknown. An unknown diff never passes.
    */
   readonly diffFailed?: boolean;
 }
 
 export interface ProbeResult {
   /**
-   * The SINGLE authority for this result. Every other verdict-bearing field
-   * below is DERIVED from it (plus the risk tier) — see {@link toProbeResult}.
-   * Consumers should switch on `verdict.kind` exhaustively rather than reading
-   * the derived boolean, which exists for wire compatibility.
+   * The single authority for this result. Each other verdict field below derives from it and the risk tier, in {@link toProbeResult}.
+   * An exhaustive switch on `verdict.kind` is better than the derived boolean, which exists for wire compatibility.
    */
   readonly verdict: ProbeVerdict;
   /**
-   * DERIVED. The gate verdict as a boolean. PASS means EITHER the probe proved
-   * the tests are non-vacuous, OR the verdict was an explicitly-labelled
-   * advisory skip ({@link skipped} — never proof). Read {@link disposition} to
-   * tell those apart; that is precisely the distinction this boolean cannot
-   * carry.
+   * Derived. The gate verdict as a boolean. A pass is either a proof or a labelled advisory skip ({@link skipped}, never proof).
+   * Read {@link disposition} to tell them apart. This boolean cannot carry that difference.
    */
   readonly passed: boolean;
   /** DERIVED. What the gate does about {@link verdict}. */
@@ -662,16 +545,13 @@ export interface ProbeResult {
   /** DERIVED. Set iff the verdict is indeterminate — names the cause. */
   readonly discriminant?: AdequacyDiscriminant;
   /**
-   * Human-readable diagnosis carried for the advisory discriminants (currently
-   * `no-new-tests`), so the verdict is self-explanatory in the gate.executed
-   * payload and the handler response. Absent for the ordinary pass/kill paths.
+   * The diagnosis from {@link interpretProbeVerdict}. It is present for a `failed` or `indeterminate` verdict, and absent for a proof.
    */
   readonly report?: string;
 }
 
 /**
- * Observable facts a probe run produces alongside its verdict. These are
- * DIAGNOSTICS, not verdict channels — none of them may be read as pass/fail.
+ * Facts that a probe run observes beside its verdict. They are diagnostics, not verdict channels. They must not be read as pass or fail.
  */
 interface ProbeFacts {
   readonly probedTests: string[];
@@ -680,9 +560,8 @@ interface ProbeFacts {
 }
 
 /**
- * Derive the wire-compatible {@link ProbeResult} from the authoritative
- * {@link ProbeVerdict}. The ONLY constructor of a `ProbeResult` — no call site
- * may author `passed` by hand, so "did not run" can never be typed as success.
+ * Derives the wire-compatible {@link ProbeResult} from the authoritative {@link ProbeVerdict}.
+ * It is the only constructor of a `ProbeResult` in this module. No call site sets `passed` by hand, so "did not run" cannot be typed as success.
  */
 function toProbeResult(
   verdict: ProbeVerdict,
@@ -717,36 +596,21 @@ export function probeNotRun(cause: AdequacyDiscriminant, detail: string, riskTie
 }
 
 /**
- * Run the kill probe.
+ * Runs the kill probe. The test runner and the changed-file list are injected, so unit tests need no real test command.
  *
- * Sequence (with INV-14 restore in a finally — restore ALWAYS runs):
- *   1. split the diff into test vs source files
- *   2. if there are no new/changed test files → indeterminate `no-new-tests`
- *   3. snapshot the working tree (object-only)
- *   4. revert the source files to `baseRef`; on conflict → restore + indeterminate
- *      `revert-conflict`
- *   5. run the scoped tests; `redObserved = !passed`
- *   6. restore the working tree; `restoredClean = restore.restored`
+ *   1. Split the diff into test and source files (no new or changed test file gives indeterminate `no-new-tests`).
+ *   2. Snapshot the working tree (a failed snapshot stops the probe before any change).
+ *   3. Revert the source files to `baseRef` (a conflict gives indeterminate `revert-conflict`).
+ *   4. Run the scoped tests (`redObserved` is true when they fail).
+ *   5. Restore the working tree in a `finally`, so the restore runs even when the test run throws.
  *
- * The probe reports a {@link ProbeVerdict}, NOT a boolean:
- *   • red observed + clean restore  → `passed`        (real proof)
- *   • tests stayed green            → `failed`        (real disproof)
- *   • anything that stopped the probe from running    → `indeterminate`
- *
- * Whether an `indeterminate` verdict blocks is a TIER decision made by
- * {@link interpretProbeVerdict}, applied here only to derive the legacy
- * `passed` boolean. A medium/high task whose probe did not run is ALWAYS
- * blocked; a low/unset-tier task degrades to an explicitly-labelled advisory
- * SKIP (INV-4 degrade discipline) — which is reported as a skip, never as
- * proof of test adequacy (WFQ-005).
+ * Red with a clean restore gives `passed`. Green tests give `failed`. Anything that stops the probe gives `indeterminate`.
+ * A failed diff always blocks. {@link interpretProbeVerdict} applies the tier to derive the legacy `passed` boolean.
  */
 export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
   const { gitExec, repoRoot, baseRef, changedFiles, runTests, testGlobs } = args;
   const riskTier = args.riskTier;
 
-  // Could not compute the diff at all. An unreadable diff is NOT evidence of a
-  // well-tested task — indeterminate (and `always-blocking`), never laundered
-  // into an advisory pass (WFQ-005 "false advisory success").
   if (args.diffFailed === true) {
     return toProbeResult(
       {
@@ -761,9 +625,6 @@ export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
 
   const { testFiles, sourceFiles } = splitHunks(changedFiles, { testGlobs });
 
-  // No new/changed tests — the probe has nothing to kill. INDETERMINATE: the
-  // check did not run, so it proves nothing. Tier policy decides whether that
-  // blocks (medium/high) or degrades to a labelled advisory skip (low/unset).
   if (testFiles.length === 0) {
     return toProbeResult(
       {
@@ -780,7 +641,6 @@ export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
 
   const snap = snapshotWorkingTree(gitExec, repoRoot);
   if ('error' in snap) {
-    // Could not snapshot — refuse to mutate a tree we cannot restore.
     return toProbeResult(
       {
         kind: 'indeterminate',
@@ -795,15 +655,9 @@ export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
 
   let redObserved = false;
   let revertDetail: string | undefined;
-  // Default to a not-restored result so that if the finally never assigns it
-  // (it always does, but the type system needs an initializer) the gate fails
-  // safe as restore-failed rather than falsely reporting a clean restore.
   let restore: RestoreResult = { restored: false, detail: 'restore did not run' };
 
   try {
-    // Mutation step: revert ONLY source. If there is no source to revert the
-    // probe still runs (a test-only task can still be vacuous), but with
-    // nothing reverted the tests cannot go red on the mutation — handled below.
     if (sourceFiles.length > 0) {
       const reverted = revertSourceFiles(gitExec, repoRoot, baseRef, sourceFiles);
       if (!reverted.ok) {
@@ -816,7 +670,6 @@ export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
       redObserved = !runResult.passed;
     }
   } finally {
-    // INV-14: restore ALWAYS runs, even if the test run threw.
     restore = restoreWorkingTree(gitExec, repoRoot, stashSha);
   }
 

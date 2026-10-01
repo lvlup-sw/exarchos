@@ -1,34 +1,17 @@
-// ─── The bounded action executor ────────────────────────────────────────────
-//
-// `execute_intent` runs a compiled segment leaf by leaf and commits ONE record
-// of what it did. Three properties are load-bearing, and each is paid for here
-// rather than assumed:
-//
-//   Replay is answered BEFORE the first effect. A claimed operation id returns
-//   its persisted receipt with nothing re-executed; the same id carrying a
-//   different request is rejected rather than silently re-run. Asking inside
-//   the commit would ask after all the work.
-//
-//   Each leaf runs under its own derived operation identity. That is the one
-//   deliberate exception to the fresh-id-per-dispatch rule, and it buys two
-//   things: the emission check for leaf N can no longer be satisfied by leaf
-//   1's events, and durable gate evidence ids stay stable across a crash-retry
-//   so a re-run dedupes rows instead of appending duplicates.
-//
-//   Both outcomes commit. A segment that halted on a blocking leaf still
-//   appends its operation event, so the log distinguishes "ran and failed"
-//   from "crashed mid-segment" — the latter leaves no claim and no event.
-//
-//   The run's interior is in custody BEFORE the record that names it. The
-//   per-leaf trace goes to the run-bundle store first; only once those bytes
-//   are durable does the operation event carrying their digest commit. A
-//   crash between the two leaves an orphan blob nothing references, never a
-//   committed reference to bytes that were never written.
-//
-// The registry is reached through the published root module. The handler table
-// is INJECTED by whoever owns it rather than read back from the composite that
-// routes here: reading it back was a runtime import edge closing a ring
-// between this module, that composite, and the dispatch core.
+/**
+ * The bounded action executor. `execute_intent` runs a compiled segment leaf by leaf and commits one record of the run.
+ * The replay check runs before the first effect. A claimed operation id returns its stored receipt and runs nothing again.
+ * The same id with a different request is refused.
+ *
+ * Each leaf runs under its own derived operation id. So the events of an earlier leaf cannot satisfy the emission check of a later leaf.
+ * The derived id is stable across a crash-retry, so durable gate evidence dedupes and does not duplicate.
+ *
+ * A segment that halts on a blocking leaf still commits its operation event. A crash mid-segment leaves no claim and no event.
+ * The per-leaf trace goes to the run-bundle store first. The operation event that names its digest commits only after that.
+ *
+ * The owner of the handler table injects it. A read back from the routing composite closes a runtime import ring.
+ * The `DispatchContext` import is type-only for the same reason.
+ */
 
 import { createHash, randomUUID } from 'node:crypto';
 
@@ -40,8 +23,6 @@ import {
 } from '../../dispatch/core/action-postconditions.js';
 import { evaluateDispatchAdmission } from '../../dispatch/core/dispatch-admission.js';
 import { outerCorrelation, stampFromAmbient } from '../../dispatch/core/outer-correlation.js';
-// Type-only, and deliberately so: the dispatch module routes to the composite
-// that routes here, so a value import of it would close a runtime ring.
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { isFeatureStream } from '../../dispatch/core/infra-streams.js';
 import { runExclusivePerOperation } from '../../dispatch/core/operation-serializer.js';
@@ -119,46 +100,31 @@ export type LeafHandlerTable = Readonly<Record<string, LeafHandler>>;
 
 export interface ExecuteIntentDeps extends CompileDeps {
   /**
-   * The table a compiled leaf is invoked through. Injected rather than read
-   * back, and required for that reason: the orchestrate composite owns the
-   * live table and routes to this module, so reaching back for it would close
-   * a runtime import ring between the two. Tests supply their own fixture
-   * table through the same parameter.
-   *
-   * The compiler reads the same table — through the optional member it declares
-   * — to refuse a step this table could not have invoked, before any leaf runs.
+   * The table that runs a compiled leaf. It is injected and required, because the orchestrate composite owns the live table.
+   * That composite routes to this module, so a read back from it closes a runtime import ring. Tests pass a fixture table here.
+   * The compiler reads the same table to refuse a step that the table cannot run, before any leaf runs.
    */
   readonly handlers: LeafHandlerTable;
   /**
-   * The tool `handlers` belongs to. Optional on {@link CompileDeps} — a
-   * caller compiling only to inspect a segment owns no table at all — but
-   * required here: this module runs a leaf through the table, and it checks
-   * the leaf's own tool against this name immediately before that lookup, as
-   * defence in depth alongside the compiler's own refusal of the mismatch.
+   * The tool that owns `handlers`. It is optional on {@link CompileDeps}, because a caller that only inspects a segment owns no table.
+   * It is required here. The executor compares the tool of each leaf with this name just before the lookup, as a second check after the compiler.
    */
   readonly handlerTool: string;
   /**
-   * Where the run's interior is written before the operation record commits.
-   * Absent, the store is the one the event store itself is bound to — the
-   * ledger that will name the bytes owns the root they live under, so the two
-   * cannot be pointed at different directories. Present, it is a test seam:
-   * the one way to make the write fail without making the filesystem fail.
+   * Where the run trace goes before the operation record commits.
+   * When absent, the executor uses the bundle store of the event store, so the record and its bytes share one root.
+   * Tests set it to make the write fail without a filesystem fault.
    */
   readonly bundleStore?: RunBundleStore;
   /**
-   * Where the segment's steering came from, recorded on the receipt and the
-   * operation record. Absent, `caller-args` — the executor's own public path.
-   * A composing caller that read the tier off a pinned capsule says so here,
-   * so the record never claims a runtime supplied terms it was judged by.
+   * The source of the segment steering, recorded on the receipt and the operation record. When absent, it is `caller-args`.
+   * A caller that reads the tier from a pinned capsule sets it here. Then the record does not claim that the runtime supplied those terms.
    */
   readonly steeringSource?: ReceiptSteering['source'];
 }
 
 /**
- * The production collaborator set, closed over the caller's handler table and
- * the tool it belongs to. The registry-backed compile deps belong to this
- * module; the handler table and its owning tool do not, so the caller passes
- * both in.
+ * Builds the production deps: the registry-backed compile deps, plus the handler table and the tool that owns it.
  */
 export function productionExecuteDeps(
   handlers: LeafHandlerTable,
@@ -166,8 +132,6 @@ export function productionExecuteDeps(
 ): ExecuteIntentDeps {
   return { ...PRODUCTION_COMPILE_DEPS, handlers, handlerTool };
 }
-
-// ─── Request validation ─────────────────────────────────────────────────────
 
 function invalid(message: string): ToolResult {
   return { success: false, error: { code: 'INVALID_INPUT', message } };
@@ -182,8 +146,6 @@ function readString(raw: Record<string, unknown>, key: string): string | undefin
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
-
-// ─── Digest ─────────────────────────────────────────────────────────────────
 
 /**
  * The replay comparison key: the request's substance, and only its substance.
@@ -203,12 +165,9 @@ function requestDigestOf(
 }
 
 /**
- * A leaf's own operation identity, derived from the caller's.
- *
- * Colon-separated because the admission id grammar accepts a colon and rejects
- * a slash, and derived rather than fresh because it has to be the SAME id when
- * the caller retries after a crash — that stability is what makes the gate
- * evidence ids dedupe instead of duplicating.
+ * Derives the operation id of one leaf from the caller's id.
+ * The separator is a colon, because the admission id grammar accepts a colon and rejects a slash.
+ * The id is derived, not fresh, so a retry after a crash gets the same id and the gate evidence ids dedupe.
  */
 export function derivedLeafOperationId(
   operationId: string,
@@ -219,19 +178,10 @@ export function derivedLeafOperationId(
 }
 
 /**
- * The longest caller-supplied operation id this action accepts.
- *
- * The admission grammar's own ceiling is higher, and it is the wrong ceiling
- * here: what has to fit the event row's operation-id column is not the
- * caller's key but the DERIVED per-leaf id built from it — the key plus
- * `:leaf-<index>:<action>`. An id accepted at the grammar's ceiling therefore
- * produces leaf ids the store would reject, mid-segment, after effects.
- *
- * Bounded conservatively rather than exactly: the exact bound depends on the
- * compiled segment's longest action name and its leaf count, and the refusal
- * belongs BEFORE compilation, alongside the other request-shape refusals. The
- * gap this constant leaves under the row limit is wider than any suffix the
- * registry's longest action name and a three-digit leaf index can produce.
+ * The longest operation id that a caller can supply.
+ * The admission grammar allows more. But each derived leaf id adds `:leaf-<index>:<action>`, and that id must fit the operation-id column of the event row.
+ * The bound is conservative, not exact, because the refusal comes before compilation.
+ * The margin is wider than the suffix of the longest registered action name with a three-digit leaf index.
  */
 export const MAX_CALLER_OPERATION_ID_LENGTH = 128;
 
@@ -244,8 +194,6 @@ function leafCorrelation(outer: CorrelationContext, operationId: string): Correl
   };
 }
 
-// ─── Per-leaf emission obligations ──────────────────────────────────────────
-
 interface Capture {
   readonly type: string;
   readonly streamId: string;
@@ -253,20 +201,12 @@ interface Capture {
 }
 
 /**
- * The events this leaf's own registration promises unconditionally. Read off
- * the leaf's declaration, so a leaf that declares nothing owes nothing.
- *
- * The `ensures` axis is deliberately NOT folded in here. A postcondition is
- * observed the way the dispatch path observes one — see the ensures
- * observation in the leaf runner — because one of its two sources is durable
- * evidence rather than an event append, and a union that could only see the
- * append source exempted the other by skipping it.
+ * The events that the registration of this leaf promises unconditionally. A leaf that declares nothing owes nothing.
+ * The `ensures` axis is not included. The leaf runner observes a postcondition the way the dispatch path does, because one of its sources is durable evidence.
  */
 function obligedEmissions(leaf: CompiledLeaf): ReadonlySet<string> {
   return new Set<string>(unconditionalEmissions(verifierDeclaredEmissions(leaf.contract)));
 }
-
-// ─── Commit ─────────────────────────────────────────────────────────────────
 
 function buildSteering(
   args: Record<string, unknown>,
@@ -285,14 +225,10 @@ function buildSteering(
 }
 
 /**
- * The receipt facts a refusal has to carry INSIDE its error.
- *
- * A failed segment still ran: leaves executed, events landed, the operation
- * record committed. The envelope boundary keeps `data` only on the success
- * path, so a receipt left there is a receipt the caller never sees — and the
- * caller needs `operationId` to replay, `tailSequence` to keep reading the
- * log, and the per-leaf verdicts to know how far the segment got. Compact
- * rather than whole: the leaf list carries its event COUNT, not every event.
+ * The receipt facts that a refusal carries inside its error.
+ * A failed segment still ran leaves, appended events, and committed its record. The envelope boundary keeps `data` only on success.
+ * The caller needs `operationId` to replay, `tailSequence` to read on, and the leaf verdicts to see how far the segment got.
+ * The leaf list carries an event count, not every event.
  */
 function failureDetail(receipt: IntentReceipt): IntentFailureDetail {
   return {
@@ -328,9 +264,8 @@ function receiptResult(receipt: IntentReceipt): ToolResult {
 }
 
 /**
- * The digest-mismatch refusal, raised from two places that reach the same
- * conclusion: the pre-flight claim read, and the commit losing a race to a
- * concurrent call that claimed the same id for a different request.
+ * The digest-mismatch refusal. Two paths raise it. The first is the pre-flight claim read.
+ * The second is a commit that loses a race to a concurrent call with the same id and a different request.
  */
 function digestMismatchResult(operationId: string, disposition: string): ToolResult {
   return {
@@ -344,8 +279,16 @@ function digestMismatchResult(operationId: string, disposition: string): ToolRes
   };
 }
 
-// ─── Entry point ────────────────────────────────────────────────────────────
-
+/**
+ * Validates the request, compiles the intent, and runs the segment under the operation id.
+ * `featureId` wins over `streamId`, the same precedence as the dispatch stream resolver. Two values that disagree are refused.
+ * A reserved infrastructure stream is refused as the subject, before compilation.
+ * A caller operation id must pass the admission grammar, or the derived leaf ids are unusable.
+ *
+ * In one process, calls with the same operation id run in sequence. The second call then finds the claim of the first in its pre-flight.
+ * Two processes with the same id serialize only at the commit, and the loser learns that its effects ran.
+ * A durable in-progress reservation is absent on purpose. Without expiry, a crashed reservation looks like a running one.
+ */
 export async function handleExecuteIntent(
   raw: Record<string, unknown>,
   stateDir: string,
@@ -357,13 +300,6 @@ export async function handleExecuteIntent(
     return invalid('intent is required and must name a runbook');
   }
 
-  // Subject identity, resolved `featureId` FIRST — the same precedence the
-  // dispatch-layer stream resolver uses. Resolving the other way round let a
-  // request carrying both spellings commit its leaves to one stream while the
-  // dispatch emission check read the other, which turns a committed segment
-  // into a blocking violation after its effects have landed. Two spellings of
-  // one thing that disagree are not a precedence question at all, so a
-  // disagreement is refused rather than silently resolved.
   const featureId = readString(raw, 'featureId');
   const streamAlias = readString(raw, 'streamId');
   if (featureId !== undefined && streamAlias !== undefined && featureId !== streamAlias) {
@@ -378,11 +314,6 @@ export async function handleExecuteIntent(
       'streamId is required (featureId is accepted as an alias — the workflow stream id is the bare featureId)',
     );
   }
-  // Either spelling can smuggle a reserved infrastructure id in as the subject,
-  // and the compiler would bind every leaf to it — interleaving the operation
-  // claim, receipts, and leaf emissions with the records the reservation
-  // exists to keep separate. Refused here, before compilation, for the same
-  // reason every compile refusal fires before the first effect.
   if (!isFeatureStream(streamId)) {
     return invalid(
       `'${streamId}' is a reserved infrastructure stream, not a workflow subject — ` +
@@ -399,8 +330,6 @@ export async function handleExecuteIntent(
     intentArgs = rawArgs;
   }
 
-  // A caller-supplied key has to satisfy the same grammar the admission layer
-  // enforces, or the derived per-leaf ids built from it would be unusable.
   let operationId: string;
   if (raw.operationId === undefined) {
     operationId = randomUUID();
@@ -438,17 +367,7 @@ export async function handleExecuteIntent(
   const segment = compiled.segment;
   const requestDigest = requestDigestOf(intent, streamId, segment.args);
 
-  // Serialized per operation id so a concurrent call with the same key waits
-  // and then finds the first call's claim in its own pre-flight, instead of
-  // both passing an empty lookup and both running the segment. This closes
-  // the window within one process; a second PROCESS racing the same key is
-  // still serialized only at the commit, where the loser is told its effects
-  // ran. A durable in-progress reservation is deliberately absent: a crashed
-  // reservation would be indistinguishable from a running one without expiry
-  // machinery, and "no claim, no operation event" is what makes a crash
-  // distinguishable from every other outcome.
   return runExclusivePerOperation(operationId, async () => {
-    // Replay pre-flight, ahead of every effect.
     const claim = ctx.eventStore
       .getAppender()
       .ensureSqliteBackendSync()
@@ -485,8 +404,6 @@ export async function handleExecuteIntent(
   });
 }
 
-// ─── The segment loop ───────────────────────────────────────────────────────
-
 interface RunSegmentInput {
   readonly segment: CompiledSegment;
   readonly operationId: string;
@@ -507,9 +424,8 @@ interface LeafTiming {
 }
 
 /**
- * A leaf's outcome as the body of the run reports it. `disposition` is named
- * by every return path explicitly — there is no default, so a path that
- * forgot to say whether the handler ran does not compile.
+ * The outcome of one leaf as the run reports it. Each return path sets `disposition` explicitly.
+ * It has no default, so a path that does not say whether the handler ran does not compile.
  */
 interface LeafOutcome {
   readonly status: LeafStatus;
@@ -522,10 +438,8 @@ interface LeafOutcome {
 }
 
 /**
- * The leaf's verdict for the bundle. A failure is present exactly when the
- * status is not `passed`; the receipt keeps the flat shape it always had, the
- * bundle records the coupled one so a reader cannot be handed a passed leaf
- * carrying a failure.
+ * The verdict of a leaf for the bundle. A failure is present exactly when the status is not `passed`.
+ * The receipt keeps its flat shape. The bundle records the coupled shape, so a reader never gets a passed leaf with a failure.
  */
 function verdictOf(outcome: LeafOutcome): LeafVerdict {
   if (outcome.status === 'passed') {
@@ -628,20 +542,13 @@ interface RunLeafInput extends Omit<RunSegmentInput, 'requestDigest' | 'bundles'
 }
 
 /**
- * Fold the rows the leaf's own operation identity durably holds into the
- * observer capture, without double-counting.
+ * Adds the rows that the derived operation id of the leaf holds to the observer capture, without double counts.
+ * The observer sees what landed while the leaf ran, including a write stamped onto another operation.
+ * The store sees what the id holds. After a crash-retry, that includes the rows of the first attempt.
+ * An idempotent re-run collapses onto its first write, and the observer does not see a collapsed write.
  *
- * The two sources answer different questions. The observer sees what landed
- * WHILE the leaf ran, including a write the handler stamped onto some other
- * operation. The store, queried by the leaf's derived id, sees what the
- * identity HOLDS — which after a crash-retry includes the rows the first
- * attempt wrote, because an idempotent re-run under the same derived id
- * collapses onto its first write and a collapsed write is deliberately not
- * observed. Reading only the observer made a retried receipt report zero
- * events and a zero tail for rows that are plainly in the log.
- *
- * De-duplicated on the store's own identity for a row — its stream and its
- * sequence — so a row both sources saw is counted once.
+ * A row is unique by its stream and sequence, so a row that both sources saw counts once.
+ * An `emission.violated` row is skipped. The verifier writes it under the same id, but it is a record about the leaf.
  */
 function foldHeldRows(
   captures: Capture[],
@@ -650,9 +557,6 @@ function foldHeldRows(
 ): void {
   const seen = new Set(captures.map((capture) => `${capture.streamId}\u0000${capture.sequence}`));
   for (const row of held) {
-    // The verifier records `emission.violated` under the SAME derived identity
-    // it verifies, so a previous attempt's finding sits in the leaf's held
-    // rows — a bookkeeping row about the leaf, not something the leaf emitted.
     if (row.type === EMISSION_VIOLATION_EVENT) continue;
     const key = `${streamId}\u0000${row.sequence}`;
     if (seen.has(key)) continue;
@@ -662,34 +566,15 @@ function foldHeldRows(
 }
 
 /**
- * Whether a `reject-replay` leaf's effect can be shown to have already
- * happened, read off the leaf's own derived operation identity rather than
- * assumed from the segment-level operation claim.
+ * Returns the held rows when the effect of a `reject-replay` leaf already happened, or `undefined`.
+ * A crash-retry runs each leaf again under the same derived id. The only proof the executor can read is the unconditional rows under that id.
+ * A partial set is not proof. The leaf then goes back through its handler, where its own remote precheck still applies.
  *
- * A leaf whose contract refuses replay must not have its effect performed
- * twice. The executor's crash-retry model re-runs every leaf of a segment
- * that crashed before its claim committed — each leaf again under the SAME
- * derived operation identity as its first attempt, because that identity is
- * built from the caller's operation id, the leaf's position and its action
- * name, none of which change on a retry. The only thing the executor can read
- * as proof the effect already happened is that leaf's own
- * unconditionally-declared rows under that stable identity, so that is what
- * this reads — and a partial set is not proof: `undefined` sends the leaf
- * back through its handler, where a leaf with its own remote precheck (a
- * pull-request creator checking for an already-open request, for instance)
- * still has that precheck as its line of defence.
- *
- * Eliding skips the two things the non-elided path runs AFTER the handler:
- * `runEmissionVerifierInterceptor` and, when the leaf declares one,
- * `observeActionPostconditions`. The emissions half is covered by this
- * function's own "every owed event landed" check standing in for the
- * verifier's unconditional-emissions read. The postcondition half is not —
- * `ensures` is a durable-evidence axis the emissions check cannot stand in
- * for, so a leaf that declares one is refused elision entirely and always
- * takes the handler path, where its postcondition is actually observed.
- * No shipped `reject-replay` action combines a declared `ensures` with a
- * non-empty obliged set today, so this is a guard against the first one
- * that does, not a change in current behavior.
+ * Elision skips the emission verifier. The check that every owed event landed stands in for it.
+ * A leaf that declares `ensures` never elides, because the emission check cannot stand in for a durable-evidence postcondition.
+ * A leaf with no unconditional emission never elides, because an empty owed set is always complete.
+ * `safe-repeat` is idempotent, and `claim-required` relies on the segment claim, so only `reject-replay` needs this gate.
+ * The returned rows exclude `emission.violated`, because that row records a finding about the leaf.
  */
 async function replayElidedRows(input: {
   readonly leaf: CompiledLeaf;
@@ -700,16 +585,7 @@ async function replayElidedRows(input: {
   if (leaf.contract.replay.kind !== 'reject-replay') return undefined;
   if (leaf.contract.ensures.kind !== 'none') return undefined;
 
-  // `safe-repeat` is idempotent by the registry's own admission rule and
-  // needs no gate here; `claim-required` is already served by the
-  // segment-level operation claim above this function's caller. Only
-  // `reject-replay` has nothing else standing between a retry and a second
-  // effect.
   const owed = obligedEmissions(leaf);
-  // An action that declares no unconditional emission leaves no durable trace
-  // this gate could read. Without this branch, "every owed event is present"
-  // is vacuously true over an empty set, and the gate would treat a leaf that
-  // has never run as already done on its very first attempt.
   if (owed.size === 0) return undefined;
 
   const rows = await ctx.eventStore.query(leaf.observationStreamId, { operationId: derived });
@@ -717,12 +593,6 @@ async function replayElidedRows(input: {
   for (const type of owed) {
     if (!landed.has(type)) return undefined;
   }
-  // The verifier records its own `emission.violated` finding under this same
-  // derived id (`runEmissionVerifierInterceptor`, called from the non-elided
-  // path below) — a bookkeeping row ABOUT the leaf, not something the leaf
-  // emitted. `foldHeldRows` excludes it for the same reason on the non-elided
-  // path; folding it into an elided leaf's captures would report a prior
-  // attempt's finding as an event THIS run emitted.
   return rows
     .filter((row) => row.type !== EMISSION_VIOLATION_EVENT)
     .map((row) => ({ type: row.type, streamId: leaf.observationStreamId, sequence: row.sequence }));
@@ -750,17 +620,21 @@ function blockingGateRefusal(leaf: CompiledLeaf, result: ToolResult): string | u
   return `leaf '${leaf.action}' is a blocking gate and its verdict blocked (${verdict.join(', ')})`;
 }
 
+/**
+ * Runs one leaf under its derived operation id and reports its outcome.
+ * Admission uses the dispatch evaluator in segment order, so each leaf sees the state that earlier leaves left.
+ * Each receipt event names its stream, because a leaf can write to a shared infrastructure stream.
+ *
+ * The held rows are read before the emission verifier runs, because the verifier appends its own finding under the same id.
+ * A postcondition failure, and an emission failure in `block` mode, halt even when `onFail` is `continue`. That policy covers only the gate verdict.
+ * A postcondition observation that throws counts as a violation, because the leaf already ran its effects.
+ * In `advisory` mode, the receipt leaf records a missing emission, and the leaf does not fail for it.
+ */
 async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
   const { leaf, operationId, stateDir, ctx, outer, handlers, handlerTool } = input;
   const derived = derivedLeafOperationId(operationId, leaf.index, leaf.action);
   const captures: Capture[] = [];
 
-  // The stream travels with the sequence. A sequence is only meaningful inside
-  // the stream that minted it, and a leaf whose records land on a shared
-  // infrastructure stream reports sequences from THAT stream in the same
-  // receipt as a tail from the subject's — so a receipt that named only the
-  // number would hand the caller a position to resolve against the stream they
-  // asked about, where it means something else or nothing.
   const receiptEvents = (): ReceiptEvent[] =>
     captures.map((capture) => ({
       type: capture.type,
@@ -771,10 +645,6 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
   const failFor = (
     code: 'INTENT_SEGMENT_FAILED' | 'INTENT_EMISSION_CONTRACT_VIOLATED',
     message: string,
-    // A gate's advisory policy is about the gate's VERDICT. A leaf that broke
-    // its own emission or postcondition contract broke the log's integrity,
-    // and `onFail: 'continue'` never licensed that — so a halting integrity
-    // failure halts whatever the step's failure policy says.
     policy: 'runbook' | 'halt-regardless' = 'runbook',
   ): Omit<LeafOutcome, 'disposition'> => ({
     status: policy === 'runbook' && leaf.onFail === 'continue' ? 'advisory-failed' : 'failed',
@@ -784,8 +654,6 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
   });
 
   return runWithDispatchContext(leafCorrelation(outer, derived), async (): Promise<LeafOutcome> => {
-    // The same evaluator the dispatch path runs, called in execution order so a
-    // leaf's requirements are read against the state its predecessors left.
     const admission = await evaluateDispatchAdmission({
       tool: leaf.tool,
       actionName: leaf.action,
@@ -804,11 +672,6 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
       };
     }
 
-    // Compile already refuses a step whose tool disagrees with this table's
-    // owner (`INTENT_HANDLER_TOOL_MISMATCH`). This arm exists so the lookup
-    // just below can never be reached on a tool the table does not belong to,
-    // even for a caller that compiled a segment under one set of deps and
-    // executes it under another.
     if (leaf.tool !== handlerTool) {
       return {
         ...failFor(
@@ -842,8 +705,6 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
       };
     }
 
-    // Awaited inside the observer scope: an append that fires after the scope
-    // closes is an append the receipt would not know about.
     const result = await runWithAppendObserver(
       (observation) => {
         captures.push({
@@ -854,8 +715,6 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
       },
       () => handler(leaf.args, stateDir, ctx),
     );
-    // The handler's verdict, kept for the bundle: the receipt says the leaf
-    // failed, the trace says what the handler said when it did.
     const invoked: LeafDisposition = {
       kind: 'invoked',
       handler: {
@@ -866,25 +725,12 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
       },
     };
 
-    // Read what this leaf's identity holds BEFORE the verifier runs. The
-    // verifier appends its finding under the same ambient identity, so a read
-    // taken after it would count the verifier's own row as something the leaf
-    // emitted. Unconditional: the receipt's event list, its tail and its
-    // append count are owed on every path, not only where a contract is.
-    // On the leaf's OWN observation stream, which is the segment's stream for
-    // every leaf that addresses the subject and a shared infrastructure stream
-    // for one whose contract says its records land there. A leaf's receipt
-    // sequences are therefore sequences in that leaf's observation stream; the
-    // segment tail stays the segment stream's, and `runSegment` filters for it.
     foldHeldRows(
       captures,
       leaf.observationStreamId,
       await ctx.eventStore.query(leaf.observationStreamId, { operationId: derived }),
     );
 
-    // The interceptor records its own finding against the derived id. Run
-    // outside the observer scope so the violation row it may append is not
-    // counted as something the leaf emitted.
     const verdict = await runEmissionVerifierInterceptor(ctx.eventStore, {
       tool: leaf.tool,
       action: leaf.action,
@@ -905,12 +751,6 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
       };
     }
 
-    // The postconditions this leaf declared, observed the way the dispatch
-    // path observes them: the store for an event append, the persisted-evidence
-    // reader for durable evidence. Reusing that observation rather than
-    // re-deriving one is what keeps the durable-evidence source checked —
-    // every shipped gate leaf declares one, and a hand-rolled event-append
-    // comparison skipped all of them silently.
     if (leaf.contract.ensures.kind === 'declared') {
       let observation: ActionPostconditionObservation;
       try {
@@ -924,11 +764,6 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
           artifactResolver: evidenceArtifactResolver(stateDir),
         });
       } catch {
-        // An observation that cannot even be taken (an unreadable ledger, a
-        // resolver that throws outside its own per-reference guard) must halt
-        // rather than escape: this leaf already ran its effects, and letting
-        // the throw propagate past here would lose the halt-regardless
-        // classification and leave no receipt naming what was checked.
         observation = {
           status: 'violated',
           missing: applicableEnsures(leaf.contract.ensures, 'success'),
@@ -960,13 +795,6 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
       }
     }
 
-    // What the leaf's registration promises unconditionally, against what its
-    // own operation identity can be shown to hold. Both sources of `captures`
-    // count — the observer's view catches an event the handler stamped onto
-    // another operation, and the store's catches one a crash-retry collapsed
-    // onto its first write. Scoping survives either way: the store arm is
-    // queried by this leaf's derived id, so a predecessor's events still
-    // cannot answer for this leaf.
     const owed = obligedEmissions(leaf);
     const landed = new Set(
       captures
@@ -980,13 +808,6 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
       const message =
         `leaf '${leaf.action}' completed without the events it declares unconditionally: ` +
         `${undelivered.join(', ') || 'declared events did not land'}`;
-      // Whether this halts the segment is the project's emission-enforcement
-      // mode — the same resolver the dispatch path consults through
-      // `emissionViolationBlocks`, read directly here because the executor's
-      // subject is the union of the verifier's verdict and its own two-source
-      // comparison, not the verdict alone. Under `advisory` the finding is
-      // carried on the receipt leaf rather than dropped: a mode that chose not
-      // to fail is not a mode that chose not to report.
       if (resolveEmissionEnforcement(ctx.projectConfig) === 'block') {
         return {
           ...failFor('INTENT_EMISSION_CONTRACT_VIOLATED', message, 'halt-regardless'),
@@ -1015,12 +836,9 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
   });
 }
 
-// ─── The one operation record ───────────────────────────────────────────────
-
 /**
- * What the commit resolved to. A lost race is a distinct outcome rather than
- * a thrown error: the segment ran, and the caller is owed a typed refusal that
- * says so, not the substrate's mismatch exception surfacing as an internal one.
+ * The result of the commit. A lost race is its own outcome, not a thrown error.
+ * The segment ran, so the caller gets a typed refusal, not the mismatch exception of the store as an internal error.
  */
 type CommitOutcome =
   | { readonly kind: 'persisted'; readonly receipt: IntentReceipt }
@@ -1055,21 +873,13 @@ function bundleDocument(
 }
 
 /**
- * Write the run's interior to the bundle store, then append the operation
- * event under the CALLER's operation id as the claim key, carrying the receipt
- * as the claim's canonical result. A later call with the same id reads the
- * receipt straight back; one with the same id and a different request is
- * rejected by the digest recorded alongside it.
+ * Writes the run trace to the bundle store, then appends the operation event under the caller operation id as the claim key.
+ * The claim result is the receipt. A later call with the same id reads it back.
+ * A call with the same id and a different request fails on the recorded digest.
  *
- * The order is the point. `putThenReference` makes the bundle bytes durable
- * and only then runs the commit that names them, so the operation record can
- * never reference bytes that are not there. A bundle write that fails
- * therefore fails the whole commit — no claim, no event — and the caller sees
- * the same "crashed mid-segment" shape a thrown leaf leaves, which the retry
- * model already handles: run from the top under the same derived leaf ids.
- * Committing WITHOUT the reference instead would append a record the
- * integrity oracle condemns on sight, and a known violation is not a
- * degraded success.
+ * `putThenReference` makes the bytes durable before the commit that names them, so the record never names missing bytes.
+ * A failed bundle write fails the whole commit with no claim and no event. A retry then runs from the top under the same leaf ids.
+ * A commit without the reference is not an option, because the integrity oracle condemns such a record.
  */
 async function commitReceipt(
   input: RunSegmentInput,
@@ -1084,13 +894,16 @@ async function commitReceipt(
   );
 }
 
+/**
+ * Parses the event payload and commits it under the outer correlation, so the record and its leaf events share a correlation id.
+ * The schema version of the payload marks the custody epoch, so the integrity sweep can tell this row from a row before custody.
+ * `decideOnce` returns the canonical claim result. On a race, that is the receipt of the winner, so the caller gets a receipt that a replay can reproduce.
+ * A digest mismatch from a concurrent call is an answer for the caller, not an internal error.
+ */
 async function commitReferencedReceipt(
   input: RunSegmentInput,
   receipt: IntentReceipt & { readonly bundleRefs: readonly [BundleRefV1, ...BundleRefV1[]] },
 ): Promise<CommitOutcome> {
-  // The schema's own parse output is the event payload. Typing the binding as
-  // the record shape the event carries is what makes it one, so nothing has to
-  // be asserted across the seam.
   const data: Record<string, unknown> = OrchestrateIntentExecutedData.parse({
     operationId: receipt.operationId,
     intent: receipt.intent,
@@ -1106,15 +919,7 @@ async function commitReferencedReceipt(
     bundleRefs: receipt.bundleRefs,
   });
 
-  // Stamped and committed under the OUTER correlation packet. Off a real
-  // dispatch there is no ambient context to read, and the leaves already run
-  // under one derived from this packet — committing outside it left the
-  // operation record with no correlation id while every leaf event carried
-  // one, so the record and the work it describes could not be joined.
   return runWithDispatchContext(input.outer, async (): Promise<CommitOutcome> => {
-    // The payload version is the custody epoch: it says this row was written
-    // under the contract that requires a bundle reference, which is how the
-    // integrity sweep tells it from a row that settled before custody existed.
     const event = stampFromAmbient({
       type: INTENT_EXECUTED_SETTLEMENT.type,
       data,
@@ -1123,10 +928,6 @@ async function commitReferencedReceipt(
     });
 
     try {
-      // `decideOnce` RETURNS the claim's canonical result, which on a race is
-      // the winner's receipt rather than the one built here. Handing the caller
-      // the locally-built one would have them holding a receipt no claim
-      // records and no replay can reproduce.
       const persisted = await input.ctx.eventStore
         .getAppender()
         .decideOnce<IntentReceipt>(input.operationId, input.requestDigest, () => ({
@@ -1136,10 +937,6 @@ async function commitReferencedReceipt(
         }));
       return { kind: 'persisted', receipt: persisted };
     } catch (error) {
-      // A concurrent call claimed this id for a DIFFERENT request while this
-      // one was running. That is the same fault the pre-flight names, reached
-      // through a race rather than a retry, and it is the caller's answer —
-      // not an internal error.
       if (error instanceof OperationDigestMismatchError) return { kind: 'digest-mismatch' };
       throw error;
     }

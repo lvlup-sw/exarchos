@@ -1,10 +1,7 @@
-// ─── Post-Merge Gate Handler ────────────────────────────────────────────────
-//
-// Orchestrates the post-merge regression check (DR-4) at the
-// synthesize -> cleanup boundary. Calls the pure TypeScript
-// checkPostMerge function and emits gate.executed events for
-// flywheel integration.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The post-merge regression gate at the boundary between synthesize and cleanup. It runs the pure
+ * `checkPostMerge` check and records the gate result for the feature.
+ */
 
 import { isAbsolute } from 'node:path';
 import { spawnCommandSync } from '../../utils/process.js';
@@ -15,8 +12,6 @@ import { runPhaseGateWithEvidence } from './gate-runner.js';
 import { requireGateEvent, sameOperationGateKey } from './gate-utils.js';
 import { checkPostMerge } from '../pure/post-merge.js';
 import type { CommandResult } from '../pure/post-merge.js';
-
-// ─── Types ─────────────────────────────────────────────────────────────────
 
 interface PostMergeArgs {
   readonly featureId: string;
@@ -34,14 +29,9 @@ interface PostMergeResult {
   readonly report: string;
 }
 
-// ─── Command Runner Adapter ─────────────────────────────────────────────────
-
 /**
- * Wraps spawnSync to match the command runner signature expected by
- * the pure TypeScript checkPostMerge function. Routes through
- * `spawnCommandSync` so a resolved package-manager command launches its `.cmd`
- * shim on Windows. A raw `spawnSync` of such a shim throws EINVAL since
- * CVE-2024-27980 (Node >= 20.12.2). (#1623)
+ * The command runner for `checkPostMerge`. It uses `spawnCommandSync`, so a resolved package-manager command
+ * launches its `.cmd` shim on Windows. A raw `spawnSync` of such a shim throws EINVAL there since CVE-2024-27980.
  */
 function execCommandRunner(
   cmd: string,
@@ -62,14 +52,17 @@ function execCommandRunner(
   };
 }
 
-// ─── Handler ───────────────────────────────────────────────────────────────
-
+/**
+ * Runs the post-merge gate through the shared phase-gate runner. The observer reads
+ * `admission.evidence-recorded`, not a bare `gate.executed` append. The runner records that
+ * evidence before a success result returns. `repoRoot` must be an absolute path, because the gate runs
+ * the resolved test command there.
+ */
 export async function handlePostMerge(
   args: PostMergeArgs,
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  // Guard clauses: validate all required inputs
   if (!args.featureId) {
     return {
       success: false,
@@ -104,11 +97,6 @@ export async function handlePostMerge(
     };
   }
 
-  // Durable gate evidence is a declared postcondition here, and a bare
-  // `gate.executed` append does not pay it — the observer reads
-  // `admission.evidence-recorded`. The shared phase-gate runner records that
-  // before any success carrier escapes; the declared signal is still minted by
-  // the provider closure below.
   return runPhaseGateWithEvidence({
     streamId: args.featureId,
     gateClass: 'post-merge',
@@ -145,7 +133,6 @@ async function executePostMerge(
   const passed = checkResult.status === 'pass';
   const { findings, report } = checkResult;
 
-  // Build result
   const data: PostMergeResult = {
     passed,
     prUrl: args.prUrl,

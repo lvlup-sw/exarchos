@@ -1,41 +1,14 @@
 /**
- * run-bundle-integrity — the run-bundle resolvability oracle, reachable.
+ * run-bundle-integrity: the doctor check that runs the run-bundle integrity
+ * sweep (`EventStore.runBundleIntegrityCheck`). The sweep re-hashes every
+ * referenced bundle blob, so it runs only on request, never on append or
+ * replay. It finds a blob that is missing or corrupt after settlement.
  *
- * The oracle (`EventStore.runBundleIntegrityCheck`) walks every stream and
- * re-hashes every referenced bundle blob; nothing on the append or replay path
- * may pay that, so it runs only when a caller asks. This check is that caller
- * on every doctor path — the read-only diagnosis, `doctor --fix` and
- * `onboard`. Until the executor began writing bundles the sweep had nothing
- * to find and no one to run it; now that a settled operation names bytes by
- * digest, a blob deleted or corrupted after settlement is exactly what the
- * claim fast path cannot see and this check can.
- *
- * Verdict mapping, and why each lands where it does:
- *   - `true`     → Pass, naming the denominator it checked and how many
- *                  settlements predate custody (seen, exempt, not checked).
- *   - `'empty'`  → Pass, saying so explicitly. A sweep that examined nothing
- *                  is not a sweep that found nothing wrong; the message keeps
- *                  the two apart even though the status cannot.
- *   - `'skipped'`→ Skipped with the store's reason (the backend cannot
- *                  enumerate streams).
- *   - `false`    → Warning, with a remedy that depends on WHAT was found: a
- *                  referenced blob missing, corrupt or unreadable is a loss of
- *                  the run's interior — the operation record stays
- *                  authoritative and nothing can bring the bytes back — while
- *                  a custodial settlement that references nothing, or a
- *                  reference nobody can parse, is a defect in a writer, not a
- *                  loss. Both are Warnings rather than Fails because neither
- *                  is an install fault an operator can repair; the finding is
- *                  named on the `diagnostic.executed` row instead so the
- *                  ledger carries it. `incomplete` is reported as its own
- *                  verdict — a timeout names the one knob that widens it, a
- *                  thrown sweep names the fault — because its counts are
- *                  unknown rather than zero.
- *
- * The sweep budget is derived from the per-check budget the composer is
- * racing this check against, so the check's own honest "did not finish"
- * reaches the operator instead of the composer's generic timeout — at the
- * default and under `doctor --timeout-ms` alike.
+ * `true` and `'empty'` give Pass, and the message keeps "nothing to check"
+ * apart from "nothing wrong". `'skipped'` gives Skipped with the reason from
+ * the store. An incomplete sweep and `false` give Warning. They do not give
+ * Fail, because neither a lost blob nor a writer defect is an install fault
+ * that an operator can repair.
  */
 
 import path from 'node:path';
@@ -46,9 +19,9 @@ import type { DoctorProbes } from '../probes.js';
 import type { CheckResult } from '../schema.js';
 
 /**
- * The share of the composer's per-check budget the sweep may spend. Under one,
- * so the sweep's timeout fires — and its `incomplete` verdict is returned —
- * before the composer's race declares a generic timeout for this check.
+ * The share of the per-check budget of the composer that the sweep can spend.
+ * It is less than one, so the sweep times out and returns its `incomplete`
+ * verdict before the composer declares a generic timeout for this check.
  */
 export const SWEEP_SHARE_OF_CHECK_BUDGET = 0.75;
 
@@ -179,9 +152,7 @@ function preCustodyNote(count: number): string {
 }
 
 /**
- * The check, carrying its own identity for the composer's timeout path: a
- * check that overruns the composer's race is reported under the name and
- * category it declares, not under the function's binding name and a default
- * category.
+ * The check with its identity attached. If the check overruns the composer's
+ * race, the composer reports the timeout under this name and category.
  */
 export const runBundleIntegrity = Object.assign(runBundleIntegrityCheck, { meta: CHECK_IDENTITY });

@@ -1,15 +1,11 @@
-// ─── Assess Refactor Scope ──────────────────────────────────────────────────
-//
-// Assesses refactoring scope by counting files and modules to recommend
-// polish (<=5 files, single module) or overhaul (>5 files or cross-module).
-// Port of scripts/assess-refactor-scope.sh to a TypeScript orchestrate handler.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Assesses refactor scope from the count of files and of top-level modules.
+ * It recommends `polish` for at most 5 files in one module, and `overhaul` for a larger scope.
+ */
 
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { resolveWorkflowState } from '../resolve-state.js';
-
-// ─── Types ─────────────────────────────────────────────────────────────────
 
 export interface AssessRefactorScopeArgs {
   readonly files?: readonly string[];
@@ -26,10 +22,8 @@ interface AssessRefactorScopeResult {
   readonly report: string;
 }
 
-// ─── Helpers ───────────────────────────────────────────────────────────────
-
+/** The module of a path is its first segment, after the function converts backslashes and removes a drive letter or a leading slash. */
 function extractModule(filePath: string): string {
-  // Normalize backslashes and strip leading drive letters / absolute prefixes
   const normalized = filePath.replace(/\\/g, '/').replace(/^[A-Za-z]:\//, '').replace(/^\/+/, '');
   const firstSegment = normalized.split('/')[0];
   return firstSegment ?? filePath;
@@ -44,10 +38,8 @@ function getUniqueModules(files: readonly string[]): readonly string[] {
 }
 
 /**
- * Extract `explore.scopeAssessment.filesAffected` from an already-resolved
- * workflow-state object. The state itself is resolved by the canonical
- * `resolveWorkflowState` (file → event-store fallback) in the handler — this
- * helper is pure shape navigation, no disk access (INV-1).
+ * Reads `explore.scopeAssessment.filesAffected` from a resolved workflow state, with no disk access.
+ * It returns `null` when the field is absent or holds an item that is not a string.
  */
 function readFilesFromState(parsed: Record<string, unknown>): readonly string[] | null {
   if (
@@ -74,15 +66,13 @@ function readFilesFromState(parsed: Record<string, unknown>): readonly string[] 
   return null;
 }
 
-// ─── Handler ───────────────────────────────────────────────────────────────
-
+/**
+ * Takes the file list from `files`, or from workflow state through `resolveWorkflowState`.
+ * The state path works for a workflow with no `.state.json` file, because the resolver reads the event store.
+ */
 export async function handleAssessRefactorScope(
   args: AssessRefactorScopeArgs,
 ): Promise<ToolResult> {
-  // Resolve file list from the explicit `files` arg (preserved alt-path) or
-  // from workflow state. INV-1: state is materialized via the canonical
-  // resolver (file → event-store fallback), so the gate works for MCP-only
-  // workflows that never wrote a `.state.json` stamp.
   let fileList: readonly string[];
 
   if (args.files && args.files.length > 0) {
@@ -137,7 +127,6 @@ export async function handleAssessRefactorScope(
   const modules = getUniqueModules(fileList);
   const modulesCount = modules.length;
 
-  // Assess scope checks
   const checks: string[] = [];
 
   const fileCountPassed = filesCount <= 5;
@@ -154,11 +143,9 @@ export async function handleAssessRefactorScope(
     checks.push(`- **FAIL**: Cross-module span detected — ${modulesCount} modules: ${modules.join(', ')}`);
   }
 
-  // Determine recommendation
   const passed = fileCountPassed && singleModulePassed;
   const recommendedTrack: 'polish' | 'overhaul' = passed ? 'polish' : 'overhaul';
 
-  // Build report
   const reportLines: string[] = [
     '## Scope Assessment Report',
     '',

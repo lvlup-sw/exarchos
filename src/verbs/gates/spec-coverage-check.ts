@@ -1,9 +1,8 @@
-// ─── Spec Coverage Check Handler ────────────────────────────────────────────
-//
-// Pure TypeScript port of scripts/spec-coverage-check.sh.
-// Verifies test coverage for spec compliance by checking plan references
-// against on-disk test files and optional vitest execution.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * spec_coverage_check: checks the test files that a plan declares. At plan
+ * time it checks only the shape of each declared path. After implementation,
+ * each declared file must exist on disk, and its tests must run and pass.
+ */
 
 import { existsSync, readFileSync } from 'node:fs';
 import { runCommandSync } from '../../utils/process.js';
@@ -14,15 +13,12 @@ import type { EventStore } from '../../events/store.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 /**
- * The lifecycle point a coverage check runs at (WFQ-010):
- * - `plan`: plan-syntax + traceability validation. Declared test paths are
- *   validated for well-formedness only — a not-yet-created test file is a valid
- *   forward declaration and does NOT fail the check. Nothing touches disk.
- * - `post-implementation`: implementation-coverage validation. Declared test
- *   files must exist on disk AND their tests must actually run and pass.
+ * The lifecycle point of a coverage check.
+ * - `plan`: checks only the shape of each declared test path. A test file that
+ *   does not exist yet is a valid forward declaration.
+ * - `post-implementation`: each declared test file must exist on disk, and its
+ *   tests must run and pass.
  */
 export type SpecCoveragePhase = 'plan' | 'post-implementation';
 
@@ -33,10 +29,9 @@ export interface SpecCoverageCheckArgs {
   readonly repoRoot: string;
   readonly skipRun?: boolean;
   /**
-   * Which semantics to apply (WFQ-010). Named `coveragePhase`, not `phase`:
-   * the registration schema flattens field names across every action and
-   * `check_test_adequacy` already owns a free-form `phase: z.string()`, so the
-   * two collide on base type at server construction. See the registry entry.
+   * Which semantics to apply. The name is not `phase`, because the registration
+   * schema flattens field names across all actions. `check_test_adequacy` has a
+   * free-form `phase: z.string()`, and the two types collide at server start.
    */
   readonly coveragePhase?: SpecCoveragePhase;
 }
@@ -51,7 +46,7 @@ interface SpecCoverageResult {
   readonly phase: SpecCoveragePhase;
   readonly passed: boolean;
   readonly totalTests: number;
-  /** plan phase: well-formed count; post-implementation phase: on-disk count. */
+  /** In the plan phase, the well-formed count. After implementation, the on-disk count. */
   readonly found: number;
   /** post-implementation phase: declared-but-absent test files. */
   readonly missing: readonly string[];
@@ -60,28 +55,20 @@ interface SpecCoverageResult {
   readonly report: string;
 }
 
-// ─── Test File Extraction ───────────────────────────────────────────────────
-
 const TEST_FILE_PATTERN = /\*\*Test file:\*\*\s*`([^`]+)`/;
 const BACKTICK_PATH_PATTERN = /`([^`]+)`/g;
 
 /**
- * A path that names a test file: `foo.test.ts`, `foo.spec.tsx`, `foo.test.mjs`,
- * etc. Used both to pick test paths out of the unified spec's `**Files:**` list
- * and to validate plan-time path well-formedness.
+ * A path that names a test file, such as `foo.test.ts` or `foo.spec.tsx`. It
+ * picks test paths out of a plan and checks path shape at plan time.
  */
 const TEST_PATH_SUFFIX = /\.(test|spec)\.[cm]?[jt]sx?$/i;
 
 /**
- * Extract test file paths declared in a plan/spec markdown document.
- *
- * Recognizes two forms:
- * 1. The legacy explicit declaration: `**Test file:** `src/widget.test.ts``.
- * 2. The canonical unified spec's per-task `**Files:**` list, where test files
- *    appear as backticked paths among implementation files — any backticked
- *    path that names a test file (`*.test.*` / `*.spec.*`) is collected.
- *
- * Duplicates are collapsed, preserving first-seen order.
+ * Extracts the test file paths that a plan or spec declares, in first-seen
+ * order with no duplicates. It reads two forms:
+ * 1. The legacy `**Test file:**` declaration. It takes precedence for its line.
+ * 2. Any backticked path that names a test file, as in a `**Files:**` list.
  */
 export function extractTestFiles(planContent: string): readonly string[] {
   const files: string[] = [];
@@ -95,13 +82,11 @@ export function extractTestFiles(planContent: string): readonly string[] {
   };
 
   for (const line of planContent.split('\n')) {
-    // Legacy explicit declaration wins for the line.
     const explicit = TEST_FILE_PATTERN.exec(line);
     if (explicit?.[1] !== undefined) {
       add(explicit[1]);
       continue;
     }
-    // Unified `**Files:**` list: any backticked path naming a test file.
     for (const match of line.matchAll(BACKTICK_PATH_PATTERN)) {
       const candidate = match[1];
       if (candidate !== undefined && TEST_PATH_SUFFIX.test(candidate)) {
@@ -114,13 +99,10 @@ export function extractTestFiles(planContent: string): readonly string[] {
 }
 
 /**
- * Plan-time well-formedness of a declared test path (WFQ-010). Returns `null`
- * when the path is a valid forward declaration, or a human-readable reason
- * when it is not.
- *
- * Existence on disk is intentionally NOT considered here: at plan time a
- * not-yet-created test file is a legitimate declaration. Only the SHAPE of the
- * path is validated — repo-relative, no parent-escape, names a test file.
+ * Checks the shape of a declared test path at plan time. It returns `null` for
+ * a valid forward declaration, or a reason. The path must be repo-relative,
+ * must not escape with `..`, and must name a test file. It does not check that
+ * the file exists.
  */
 export function testPathWellFormednessError(testPath: string): string | null {
   const trimmed = testPath.trim();
@@ -138,8 +120,6 @@ export function testPathWellFormednessError(testPath: string): string | null {
   }
   return null;
 }
-
-// ─── Report Generation ─────────────────────────────────────────────────────
 
 function generateReport(
   phase: SpecCoveragePhase,
@@ -224,8 +204,11 @@ function generateReport(
   return lines.join('\n');
 }
 
-// ─── Handler ────────────────────────────────────────────────────────────────
-
+/**
+ * Runs the check through `runPhaseGateWithEvidence`. The runner records
+ * durable gate evidence before a success result returns. The action declares
+ * no catalog emissions, so it appends no `gate.executed` event of its own.
+ */
 export async function handleSpecCoverageCheck(
   args: SpecCoverageCheckArgs,
   stateDir: string,
@@ -238,12 +221,6 @@ export async function handleSpecCoverageCheck(
     };
   }
 
-  // The gate declares durable gate evidence as a postcondition and used to
-  // append nothing at all, so every caller that observes postconditions read a
-  // success carrier that had broken its own contract. Routing through the
-  // shared phase-gate runner records the evidence before any success carrier
-  // escapes. The runner is the only append here: this action declares no
-  // catalog emissions, so it still mints no `gate.executed` row of its own.
   return runPhaseGateWithEvidence({
     streamId: args.featureId,
     gateClass: 'spec-coverage',
@@ -260,10 +237,14 @@ export async function handleSpecCoverageCheck(
   });
 }
 
+/**
+ * Reads the plan and runs the check for `coveragePhase`. Only the
+ * post-implementation phase requires `repoRoot` to exist, so the plan check
+ * can run before the worktree exists.
+ */
 function executeSpecCoverageCheck(args: SpecCoverageCheckArgs): ToolResult {
   const { planFile, repoRoot, skipRun = false, coveragePhase: phase = 'post-implementation' } = args;
 
-  // Validate inputs
   if (!existsSync(planFile)) {
     return {
       success: false,
@@ -271,10 +252,6 @@ function executeSpecCoverageCheck(args: SpecCoverageCheckArgs): ToolResult {
     };
   }
 
-  // Only the post-implementation phase touches the filesystem, so it is the
-  // only phase that requires the repo root to exist on disk. Plan-time syntax
-  // validation runs before any task (and often before the worktree is laid
-  // down), so it must not depend on repoRoot existing.
   if (phase === 'post-implementation' && !existsSync(repoRoot)) {
     return {
       success: false,
@@ -282,7 +259,6 @@ function executeSpecCoverageCheck(args: SpecCoverageCheckArgs): ToolResult {
     };
   }
 
-  // Read plan and extract test files
   const planContent = readFileSync(planFile, 'utf-8') as string;
   const testFiles = extractTestFiles(planContent);
 
@@ -292,11 +268,8 @@ function executeSpecCoverageCheck(args: SpecCoverageCheckArgs): ToolResult {
 }
 
 /**
- * Plan-time syntax + traceability validation (WFQ-010). Confirms the plan
- * declares test files and that every declared path is a well-formed forward
- * declaration. Deliberately performs NO on-disk existence check and NO test
- * execution — a test file the implementation tasks will create later is a
- * valid planning declaration, not a failure.
+ * Plan-time check: the plan declares test files, and each declared path has a
+ * valid shape. It does not look for the files on disk and runs no tests.
  */
 function runPlanSyntaxCheck(
   planFile: string,
@@ -355,10 +328,9 @@ function runPlanSyntaxCheck(
 }
 
 /**
- * Post-implementation coverage validation (WFQ-010). Every declared test file
- * must exist on disk and, unless `skipRun`, its tests must actually run and
- * pass. This is the gate that must remain honest: real passing tests, not mere
- * declarations.
+ * Post-implementation check: each declared test file exists on disk. Unless
+ * `skipRun` is set, each file then runs with `npx vitest run`. The tests run
+ * only when no file is missing.
  */
 function runImplementationCoverageCheck(
   planFile: string,
@@ -370,7 +342,6 @@ function runImplementationCoverageCheck(
   let found = 0;
   const missingList: string[] = [];
 
-  // Check: plan references test files
   if (testFiles.length === 0) {
     checks.push({
       status: 'FAIL',
@@ -379,7 +350,6 @@ function runImplementationCoverageCheck(
     });
   }
 
-  // Check: each test file exists on disk
   for (const testFile of testFiles) {
     const fullPath = toPosix(join(repoRoot, testFile));
     if (existsSync(fullPath)) {
@@ -395,7 +365,6 @@ function runImplementationCoverageCheck(
     }
   }
 
-  // Check: tests pass (unless skipRun)
   if (skipRun) {
     checks.push({ status: 'SKIP', name: 'Test execution (--skip-run)' });
   } else if (testFiles.length > 0 && missingList.length === 0) {
@@ -411,7 +380,6 @@ function runImplementationCoverageCheck(
     }
   }
 
-  // Build report
   const report = generateReport(
     'post-implementation',
     planFile,

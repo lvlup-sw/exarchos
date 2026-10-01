@@ -1,19 +1,12 @@
 /**
- * `.exarchos.yml` catalog-registration writer (P2, T10).
+ * The `.exarchos.yml` catalog-registration writer for `invariants_scaffold` and
+ * `invariants_add`. It adds a `{ path, tier }` registration to
+ * `invariants.catalogs`.
  *
- * Shared by `invariants_scaffold` (T6) and `invariants_add` (T9). Appends a
- * `{ path, tier }` registration to `invariants.catalogs` when absent;
- * idempotent when already present (bare-string or object form).
- *
- * ## Comment preservation
- *
- * Uses the `yaml` package's `parseDocument` → mutate → `toString()` round-trip
- * (the `Document` API), NOT `parse` + `stringify`. `parse`+`stringify` discards
- * comments; the seeded onboarding comment stanza in a freshly-`init`-ed
- * `.exarchos.yml` (see `seed-exarchos-config.ts`) must survive an authoring
- * edit, so we round-trip the CST-backed `Document` instead.
- *
- * Pure-by-default: all fs access flows through injected `YmlWriterDeps`.
+ * It edits the `yaml` `Document` from `parseDocument` and writes `toString()`.
+ * `parse` with `stringify` drops comments, and the seeded comments of a new
+ * `.exarchos.yml` must stay after an edit. All fs access goes through the
+ * injected `YmlWriterDeps`.
  */
 import { parseDocument, isSeq } from 'yaml';
 import type { Document, YAMLSeq } from 'yaml';
@@ -39,9 +32,8 @@ export interface WireResult {
 }
 
 /**
- * Read the existing `path` of a catalog registration node (object or bare
- * string form) for dedupe comparison. Returns `undefined` for shapes we don't
- * recognise (defensive — never throws on a malformed entry).
+ * Reads the `path` of a catalog registration, in object or bare-string form.
+ * It returns `undefined` for a shape that it does not know, and does not throw.
  */
 function registrationPath(entry: unknown): string | undefined {
   if (typeof entry === 'string') return entry;
@@ -53,9 +45,8 @@ function registrationPath(entry: unknown): string | undefined {
 }
 
 /**
- * Read the declared `tier` of a catalog registration node, or `undefined`. A
- * bare-string entry has no tier (the resolver treats it as `'user'`); an object
- * entry carries an explicit `tier` (or omits it, also defaulting to `'user'`).
+ * Reads the declared `tier` of a catalog registration, or `undefined`. A
+ * bare-string entry has no tier. The resolver treats a missing tier as `'user'`.
  */
 function registrationTier(entry: unknown): 'dev' | 'user' | undefined {
   if (entry && typeof entry === 'object' && 'tier' in entry) {
@@ -66,9 +57,15 @@ function registrationTier(entry: unknown): 'dev' | 'user' | undefined {
 }
 
 /**
- * Append `registration` to `invariants.catalogs` in the `.exarchos.yml` at
- * `ymlPath`, preserving comments. Idempotent: if a registration for the same
- * `path` already exists (in either form), no write occurs.
+ * Adds `registration` to `invariants.catalogs` in the `.exarchos.yml` at
+ * `ymlPath`, and keeps comments. The match is on `path` only. A missing tier
+ * counts as `'user'`.
+ *   - Same path and tier: no write.
+ *   - Same path, other tier: it replaces the entry in place with the object
+ *     form, so a `'user'` path can change to `'dev'`.
+ *   - No match: it appends. A non-sequence `catalogs` value becomes the first
+ *     element of a new sequence from `createNode`. A plain array set through
+ *     `setIn` has no `.add`.
  */
 export function wireCatalogRegistration(
   ymlPath: string,
@@ -78,30 +75,15 @@ export function wireCatalogRegistration(
   const source = deps.exists(ymlPath) ? deps.read(ymlPath) : '';
   const doc: Document = parseDocument(source);
 
-  // Dedupe / upgrade on the live `catalogs` YAMLSeq so we can mutate an
-  // existing entry IN PLACE (preserving its position and any sibling comments).
-  // The dedupe is keyed on `path` only; if a same-path entry exists with a
-  // DIFFERENT tier, we UPGRADE it to the requested tier rather than skipping —
-  // otherwise a path first registered as `tier: 'user'` could never be promoted
-  // to `tier: 'dev'`. This mirrors the in-place upgrade in
-  // `resolveCatalogSources` (#1487 review — LOW). When path+tier already match,
-  // it is a no-op (idempotent).
   const existingSeq = doc.getIn(['invariants', 'catalogs'], true) as unknown;
   if (isSeq(existingSeq)) {
     for (const item of (existingSeq as YAMLSeq).items) {
       const json = (item as { toJSON?: () => unknown }).toJSON?.() ?? item;
       if (registrationPath(json) !== registration.path) continue;
-      // Same path. The resolver treats an absent tier (bare-string or
-      // tier-less object) as `'user'`, so compare against that effective tier;
-      // when it already matches the request, this is a no-op (idempotent) and
-      // we leave the bare-string/tier-less form untouched (no spurious write).
       const effectiveTier = registrationTier(json) ?? 'user';
       if (effectiveTier === registration.tier) {
         return { wrote: false, path: ymlPath, reason: 'already-registered' };
       }
-      // Same path, different (or absent) tier — upgrade in place. Replace the
-      // node with the requested `{ path, tier }` object form. A bare-string
-      // entry is likewise promoted to the object form so its tier is explicit.
       (existingSeq as YAMLSeq).set(
         (existingSeq as YAMLSeq).items.indexOf(item),
         doc.createNode({ path: registration.path, tier: registration.tier }),
@@ -111,17 +93,8 @@ export function wireCatalogRegistration(
     }
   }
 
-  // Ensure invariants.catalogs is a YAMLSeq before appending. A missing node
-  // is created as an empty sequence; a non-sequence existing value (scalar or
-  // map — e.g. a malformed `catalogs: ""` or `catalogs: {}`) is wrapped into a
-  // fresh sequence preserving the prior value as the first element, so `.add`
-  // never throws on a non-sequence node (robustness — #1487 review).
   let catalogsNode = doc.getIn(['invariants', 'catalogs'], true) as unknown;
   if (!isSeq(catalogsNode)) {
-    // Build the replacement via `createNode` so it is a real YAMLSeq (a plain
-    // JS array stored through `setIn` over an existing parent map lacks `.add`).
-    // A non-sequence existing value (scalar/map) is preserved as the first
-    // element; a missing node becomes an empty sequence.
     const prior =
       catalogsNode === undefined || catalogsNode === null
         ? []

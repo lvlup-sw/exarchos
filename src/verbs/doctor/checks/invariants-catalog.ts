@@ -1,22 +1,11 @@
 /**
- * invariants-catalog — do the configured invariant catalogs parse and merge
- * cleanly? (#1479)
+ * Doctor check: the configured invariant catalogs parse and merge without warnings.
+ * It reads `probes.invariants.resolve()`. Any warning gives a Warning result that names the first warning.
+ * A registered catalog with no warnings gives Pass. When no catalog is registered, the check gives Skipped.
  *
- * Resolves the effective catalog via `probes.invariants.resolve()`, which folds
- * every DR-9 degradation into a `warnings` list: malformed/missing user catalog
- * files and reserved-namespace ids (`INV-*` / `SDLC-*`) in a user catalog, plus
- * any typed `.exarchos.yml` deprecation. Any warning yields a doctor Warning
- * that names the offending catalog/id; a clean resolution of a registered
- * catalog Passes; when NO catalog is registered at all it Skips.
- *
- * The Skip signal is `configured`, NOT an entry count: the resolver projects to
- * a representative phase only to surface warnings, so a phase-filtered count
- * would misreport a configured-but-non-matching catalog as "nothing to
- * validate" (#1482 review).
- *
- * DR-31 / T-43: `configured` asks *"is a catalog REGISTERED?"*, never *"is the
- * `devCatalog` boolean enabled?"* — so the Skip reason below names registration
- * as the remedy. The boolean it used to name no longer exists as a mechanism.
+ * The Skip signal is `configured`, which tells if a catalog is registered. It is not an entry count.
+ * The resolver projects to one sample phase only to collect warnings.
+ * A count for that phase can be zero for a registered catalog that matches no entry.
  */
 
 import type { CheckFn } from './__shared__/make-stub-probes.js';

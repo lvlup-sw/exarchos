@@ -1,8 +1,6 @@
-// ─── Static Analysis Composite Action ────────────────────────────────────────
-//
-// Orchestrates static analysis checks (lint + typecheck) through the canonical
-// durable evidence runner.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Static analysis gate. It runs lint and typecheck through the durable gate producer, which records the gate evidence.
+ */
 
 import { runCommandSync } from '../../utils/process.js';
 import type { ToolResult } from '../../format.js';
@@ -12,20 +10,16 @@ import { runGatePreflight } from '../pure/gate-preflight.js';
 import { runStaticAnalysis } from '../pure/static-analysis.js';
 import type { RunCommandFn, CommandResult } from '../pure/static-analysis.js';
 
-// ─── Argument & Result Types ─────────────────────────────────────────────────
-
 interface StaticAnalysisArgs {
   readonly featureId: string;
   /**
-   * Repository root to analyze. A literal path is used verbatim; the special
-   * value `'auto'` resolves to the calling delegation's agent worktree (#1330);
-   * omitting it falls back to `process.cwd()` for non-delegation callers.
+   * Repository root to analyze. The gate uses a literal path as given.
+   * The value `'auto'` resolves to the agent worktree of the calling delegation. When absent, the root is `process.cwd()`.
    */
   readonly repoRoot?: string;
   /**
-   * Explicit agent worktree path. Preferred resolver seam for `repoRoot:'auto'`
-   * (threaded by the task-completion runbook in T-05). When absent, `'auto'`
-   * falls back to the latest `worktree.created` event for `taskId`.
+   * Explicit agent worktree path, which `repoRoot: 'auto'` uses first.
+   * When it is absent, `'auto'` uses the latest `worktree.created` event for `taskId`.
    */
   readonly worktreePath?: string;
   readonly taskId?: string;
@@ -42,30 +36,23 @@ interface StaticAnalysisResult {
   readonly skipCount: number;
   readonly report: string;
   /**
-   * True when the gate could not conclude. Two causes, both inconclusive:
-   * no recognized toolchain (DR-4), or a constituent check that never ran
-   * (DR-6 — a missing `lint`/`quality-check` script, or a `--skip-*` flag).
-   * Distinct from `passed:false` alone (which means a real failure) —
-   * callers must treat a skipped gate as inconclusive, not green. See DR-4 in
-   * docs/plans/archive/2026-05-04-v290-dogfood-bundle.md and DR-6 in
-   * docs/specs/2026-08-04-wiring-closure-and-unified-integration-suite.md.
+   * True when the gate is inconclusive. One cause is no recognized toolchain.
+   * The other cause is a constituent check that did not run, because of a missing npm script or a `--skip-*` flag.
+   * `passed: false` without `skipped` is a real failure. Callers must treat a skipped gate as inconclusive, not as a pass.
    */
   readonly skipped?: boolean;
   /** Reason code when `skipped` is true ('no-toolchain' | 'constituent-skipped'). */
   readonly skipReason?: string;
   /**
-   * True when the dimension is DEGRADED: a toolchain WAS detected and some
-   * constituent ran, but at least one did not. Renders distinctly from a
-   * whole-gate no-toolchain skip, and never as PASS.
+   * True when the gate detected a toolchain but one or more constituent checks did not run.
+   * It is distinct from a no-toolchain skip, and it is never a pass.
    */
   readonly degraded?: boolean;
 }
 
-// ─── Command Runner Adapter ─────────────────────────────────────────────────
-
 /**
- * Wraps execFileSync to match the RunCommandFn signature expected by
- * the pure TypeScript runStaticAnalysis function.
+ * Adapts `runCommandSync` to the `RunCommandFn` signature of `runStaticAnalysis`.
+ * A command that exits with an error gives its status and output, not a throw.
  */
 const execCommandRunner: RunCommandFn = (
   cmd: string,
@@ -89,19 +76,16 @@ const execCommandRunner: RunCommandFn = (
   }
 };
 
-// ─── Handler ─────────────────────────────────────────────────────────────────
-
+/**
+ * Runs `runGatePreflight` first. It rejects a missing `eventStore` or `featureId`, and resolves a `repoRoot` of `'auto'`.
+ * A `skip` status gives `passed: false` and `skipped: true`, because a skip is inconclusive and never a pass.
+ * With this mapping, `normalizeGateVerdict` gives `indeterminate` for a skip.
+ */
 export async function handleStaticAnalysis(
   args: StaticAnalysisArgs,
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  // Preflight (DR-10): fail-fast on a miswired DispatchContext (a missing
-  // eventStore is a wiring bug — without this guard the fire-and-forget emit
-  // below silently swallows the failure and the gate runs without telemetry; see
-  // PR #1185 / CR review 4177990662) / absent featureId, then resolve the
-  // worktree-aware 'auto' repoRoot (#1330 — a literal path or the process.cwd()
-  // default is preserved for existing callers).
   const pre = await runGatePreflight(
     {
       featureId: args.featureId,
@@ -127,7 +111,6 @@ export async function handleStaticAnalysis(
       eventStore,
     },
     async () => {
-      // Run the pure TypeScript static analysis function.
       const analysisResult = runStaticAnalysis({
         repoRoot,
         skipLint: args.skipLint,
@@ -135,7 +118,6 @@ export async function handleStaticAnalysis(
         runCommand: execCommandRunner,
       });
 
-      // Map 'error' status to SCRIPT_ERROR response.
       if (analysisResult.status === 'error') {
         return {
           success: false,
@@ -146,14 +128,6 @@ export async function handleStaticAnalysis(
         };
       }
 
-      // T-10 / DR-4: 'skip' with reason 'no-toolchain' means no recognized
-      // toolchain — the gate never ran.
-      // T-09 / DR-6: 'skip' with reason 'constituent-skipped' means a
-      // toolchain WAS detected but a constituent check did not run. Both are
-      // inconclusive, neither is green. Map to passed=false + skipped=true so
-      // callers and canonical evidence render SKIP/DEGRADED distinctly from
-      // PASS / FAIL, and so `normalizeGateVerdict` yields `indeterminate`
-      // (which blocks protected promotion exactly as a fail does).
       const skipped = analysisResult.status === 'skip';
       const passed = analysisResult.status === 'pass';
       const degraded = skipped && analysisResult.skipReason === 'constituent-skipped';

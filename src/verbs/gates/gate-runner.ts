@@ -87,17 +87,9 @@ export interface GateRunnerDependencies {
   readonly providerVersion?: string;
   readonly clock?: () => string;
   /**
-   * DR-1 opt-out for LEGACY providers that still emit their own `gate.executed`
-   * row from inside the provider body (the phase-gate adapter below —
-   * plan-coverage / provenance-chain / review-verdict / prepare-synthesis all
-   * call `emitGateEvent` themselves).
-   *
-   * Defaults to `true`: for every gate class whose provider does NOT self-emit,
-   * this runner is the SINGLE authoritative producer of the gate-executed
-   * signal. The flag exists so that ownership stays exactly one producer per
-   * gate class during the migration — flip it off here only while the provider
-   * still owns the emission, and delete the provider's `emitGateEvent` call
-   * (not this default) when it is migrated.
+   * Whether the runner appends the `gate.executed` signal. Defaults to `true`, and then the
+   * runner is the only producer of that signal for the gate class. Set it to `false` only for
+   * a legacy provider that emits its own row, so that each gate class keeps one producer.
    */
   readonly emitGateExecuted?: boolean;
 }
@@ -108,37 +100,17 @@ export function gateRunnerObservationSource(gateClass: string): string {
 }
 
 /**
- * Layer stamped on runner-owned `gate.executed` rows.
- *
- * The migrated gates are the verification ladder, so the observation layer names
- * it rather than reusing a phase name — the ladder gate runs in whatever phase
- * its caller is in.
+ * Layer stamped on runner-owned `gate.executed` rows. It names the verification ladder, not a
+ * phase, because a ladder gate runs in the phase of its caller.
  */
 export const GATE_RUNNER_GATE_LAYER = 'verification-ladder';
 
 /**
- * DR-1 — mint the gate-executed signal from the SAME persisted evidence record
- * that proves the gate ran.
- *
- * Before this, the migrated durable-runner producers appended ONLY
- * `admission.evidence-recorded`, while `task_complete` (tasks/tools.ts) gates on
- * `gate.executed` — so a legitimate `check_static_analysis` run could not be
- * seen by the `task_complete` that followed it. Deriving both rows here, from
- * one record, means the proof and the signal can never disagree: `passed` is
- * true iff the persisted verdict is `pass` (an `indeterminate` verdict is NOT a
- * pass), and the task binding is the evidence subject itself.
- *
- * A task-kind subject stamps `details.taskId` so the per-task reader matches it;
- * any other subject kind (commit/artifact/…) deliberately omits it and reads as
- * a project-wide gate, matching the documented tolerant-reader contract (#1189).
- *
- * DR-7 — a SKIPPED gate says so in `details`. The retired `emitPolicySkipIfNeeded`
- * stamped `skipped` + `discriminant` on the rows it minted; the runner that
- * replaced it carried neither, so "the policy routed this gate out of the
- * sequence" and "the gate ran" were indistinguishable to every reader of the
- * durable log. `skip` is read from the SAME carrier the verdict is derived from
- * ({@link readGateSkipDescriptor}), so the row's `passed:false` and its
- * `details.skipped:true` cannot tell different stories.
+ * Appends the `gate.executed` signal that `task_complete` reads, derived from the persisted
+ * evidence record. Thus the proof and the signal agree. `passed` is true only for a `pass`
+ * verdict. A task subject stamps `details.taskId`, and other subjects read as project-wide
+ * gates. A skipped gate stamps the skip descriptor of its carrier in `details`. The idempotency
+ * key derives from the evidence id, so a same-operation retry collapses onto one row.
  */
 async function appendGateExecutedSignal(
   eventStore: Pick<EventStore, 'append' | 'query'>,
@@ -174,8 +146,6 @@ async function appendGateExecutedSignal(
         },
       },
     },
-    // Keyed off the evidence id so a same-operation retry collapses onto the
-    // one row the first attempt wrote, exactly as the evidence append does.
     { idempotencyKey: `gate.executed:${evidence.evidenceId}` },
   );
 }
@@ -316,12 +286,14 @@ function persistenceFailure(error: unknown): ToolResult {
 }
 
 /**
- * The v2.12 audit/shadow gate chokepoint.
+ * The audit/shadow gate chokepoint. It runs one registry provider, converts its carrier to a
+ * proof verdict, and persists a subject-bound evidence record. Then it returns the carrier with
+ * evidence references. It does not evaluate transition admission.
  *
- * It executes exactly one registry owner, converts the existing carrier to a
- * proof verdict, persists a subject-bound record, and only then returns the
- * original carrier augmented with evidence references. It neither evaluates
- * transition admission nor changes phase-transition legality.
+ * No success carrier returns before the evidence append and the signal append complete. A
+ * same-operation retry derives the signal again from the stored record, which repairs a first
+ * attempt that stopped before the signal. The retry returns only the first artifact reference,
+ * because this runner writes at most one.
  */
 export async function runGate(
   request: GateRunRequest,
@@ -405,9 +377,6 @@ export async function runGate(
         sameSubject(record.evidence.subject, request.subject),
     );
     if (sameOperation !== undefined) {
-      // Same-operation retry: the evidence row already exists, so re-derive the
-      // signal from it. Idempotent by evidence id — this repairs the case where
-      // a first attempt persisted evidence but died before the signal landed.
       if (emitGateExecuted) {
         await appendGateExecutedSignal(
           dependencies.eventStore,
@@ -418,11 +387,6 @@ export async function runGate(
           readGateSkipDescriptor(providerResult),
         );
       }
-      // Only the first reference: this runner ever writes at most one
-      // (`artifactRefs` is an array on the shared schema, not because this
-      // producer emits more than one blob per row). Correct as long as that
-      // stays true — a second producer stamping more than one reference on
-      // the same row would need this to return the whole array instead.
       return attachGateEvidence(providerResult, [
         evidenceReference(
           sameOperation.record,
@@ -497,8 +461,6 @@ export async function runGate(
         : { supersedesEvidenceId: predecessor.evidence.evidenceId }),
     });
 
-    // Await the durable append. No success-shaped carrier can escape this
-    // function until the event-store promise has fulfilled.
     const event = await dependencies.eventStore.append(
       request.streamId,
       {
@@ -511,9 +473,6 @@ export async function runGate(
       { idempotencyKey: record.evidence.evidenceId },
     );
     const persistedRecord = AdmissionEvidenceRecordedData.parse(event.data);
-    // The gate-executed signal is part of the same durable boundary: no success
-    // carrier escapes before BOTH the proof record and the signal readers gate
-    // on (`task_complete`) have landed.
     if (emitGateExecuted) {
       await appendGateExecutedSignal(
         dependencies.eventStore,
@@ -536,12 +495,13 @@ export async function runGate(
 export const runGateWithEvidence = runGate;
 
 /**
- * Production adapter for existing phase-gate producers.
+ * Production adapter for phase-gate producers. It resolves the phase attempt from the event
+ * projection, with a backfill for a workflow that predates the stamp. The durable-gate adapter
+ * uses the same resolver. The artifact store is under the state directory, and the carrier of
+ * the provider stays authoritative.
  *
- * Phase-attempt identity is resolved from the canonical event projection, and
- * the repository-local artifact store is rooted under the workflow state
- * directory. The provider's established carrier remains authoritative; this
- * adapter only adds durable evidence references after persistence succeeds.
+ * It sets `emitGateExecuted: false`, because these providers emit their own `gate.executed` row
+ * or declare none. A runner row gives them a second producer or an undeclared row.
  */
 export async function runPhaseGateWithEvidence(
   request: PhaseGateProducerRequest,
@@ -552,12 +512,6 @@ export async function runPhaseGateWithEvidence(
   });
   if ('error' in resolved) return resolved.error;
 
-  // Backfills the pre-v2.12 attempt rather than hard-failing. A bare
-  // `resolved.state.phaseAttemptId` here answered EVIDENCE_SCOPE_UNAVAILABLE for
-  // every workflow that predates the stamp, wedging it out of all four migrated
-  // phase gates — `prepare_synthesis` among them, and that one blocks — while the
-  // sibling durable-gate adapter derived an attempt for the same state. One
-  // resolver now serves both so they cannot answer differently again.
   const parsedAttempt = PhaseAttemptIdSchema.safeParse(
     resolveActivePhaseAttemptId(request.streamId, resolved.state),
   );
@@ -599,18 +553,6 @@ export async function runPhaseGateWithEvidence(
       eventStore: request.eventStore,
       artifactStore: evidenceArtifactStore(request.stateDir),
       executeProvider: request.executeProvider,
-      // Never a SECOND producer. The phase-gate providers that mint a
-      // `gate.executed` row do it themselves (`emitGateEvent`, from inside the
-      // provider body), and the runner emitting one too would put two rows on
-      // the log for one gate run — exactly one producer per gate class.
-      //
-      // Not every provider routed through here mints one: `spec_coverage_check`
-      // declares no catalog emission and appends no `gate.executed` at all, so
-      // its class has zero producers rather than one. That is a declaration
-      // matching a handler, not a hole this flag papers over — flipping the
-      // flag for it would mint a row the action does not declare. Delete the
-      // provider-side emission and this line together when the emitters
-      // migrate.
       emitGateExecuted: false,
     },
   );

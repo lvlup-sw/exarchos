@@ -1,14 +1,11 @@
-// ─── Schema Sync Detection ────────────────────────────────────────────────────
-//
-// Detects if API files were modified that require schema sync.
-// Port of scripts/needs-schema-sync.sh to a TypeScript orchestrate handler.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Detects changed API files that need a schema sync. The changed files come from a diff file, or
+ * from `git diff --name-only` against the base branch.
+ */
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import type { ToolResult } from '../../format.js';
-
-// ─── Argument & Result Types ─────────────────────────────────────────────────
 
 interface NeedsSchemaSyncArgs {
   readonly repoRoot: string;
@@ -22,8 +19,6 @@ interface NeedsSchemaSyncResult {
   readonly apiFiles: readonly string[];
 }
 
-// ─── API Patterns ────────────────────────────────────────────────────────────
-
 const API_PATTERNS: readonly RegExp[] = [
   /Endpoints\.cs$/,
   /Models\/[^/]*\.cs$/,
@@ -31,8 +26,6 @@ const API_PATTERNS: readonly RegExp[] = [
   /Responses\/[^/]*\.cs$/,
   /Dtos\/[^/]*\.cs$/,
 ];
-
-// ─── Changed File Extraction ─────────────────────────────────────────────────
 
 function getChangedFilesFromDiff(diffContent: string): readonly string[] {
   const files = new Set<string>();
@@ -73,14 +66,11 @@ function getChangedFilesFromGit(
         .map((l) => l.trim())
         .filter(Boolean);
     } catch {
-      // Try next diff spec
     }
   }
 
   throw new Error(`git diff failed for base '${baseBranch}'`);
 }
-
-// ─── Pattern Matching ────────────────────────────────────────────────────────
 
 function findApiFiles(changedFiles: readonly string[]): readonly string[] {
   const matched: string[] = [];
@@ -91,8 +81,6 @@ function findApiFiles(changedFiles: readonly string[]): readonly string[] {
   }
   return matched;
 }
-
-// ─── Report Building ────────────────────────────────────────────────────────
 
 function buildReport(apiFiles: readonly string[]): string {
   const lines: string[] = ['## Schema Sync Check', ''];
@@ -111,8 +99,6 @@ function buildReport(apiFiles: readonly string[]): string {
 
   return lines.join('\n');
 }
-
-// ─── Handler ─────────────────────────────────────────────────────────────────
 
 export function handleNeedsSchemaSync(args: NeedsSchemaSyncArgs): ToolResult {
   if (!args.repoRoot) {

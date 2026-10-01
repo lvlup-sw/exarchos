@@ -1,10 +1,6 @@
 /**
- * Init output contract — single source of truth for ConfigWriteResult
- * and InitOutput shapes. Types are derived via `z.infer` so schema and
- * TypeScript cannot drift.
- *
- * Refinements enforce that a `failed` ConfigWriteResult always carries
- * a non-empty `error` string — no silent failures.
+ * Init output contract. The TypeScript types derive from the schemas through `z.infer`.
+ * A refinement makes a `failed` ConfigWriteResult carry a non-empty `error`.
  */
 
 import { z } from 'zod';
@@ -20,11 +16,9 @@ export const ConfigWriteResultSchema = z
     warnings: z.array(z.string()).optional(),
     error: z.string().optional(),
     /**
-     * DR-7: the writer converged overall (status 'written'/'skipped') but its
-     * consumer-side on-ramp block write (AGENTS.md) FAILED — an advisory-only
-     * failure that must NOT be conflated with success. The onboard reconcile gate
-     * reads this to keep retired lifecycle hooks in place when the replacement
-     * on-ramp block is not actually written (no hook-less + block-less window).
+     * True when the writer converged but its AGENTS.md on-ramp block write failed.
+     * The onboard reconcile gate then keeps the retired lifecycle hooks in place.
+     * A project thus does not lose the hooks before it has the block.
      */
     onrampFailed: z.boolean().optional(),
   })
@@ -54,7 +48,6 @@ export const InitOutputSchema = z.object({
   durationMs: z.number().int().nonnegative(),
 });
 
-// Derive TypeScript types
 export type ConfigWriteResult = z.infer<typeof ConfigWriteResultSchema>;
 export type InitOutput = z.infer<typeof InitOutputSchema>;
 

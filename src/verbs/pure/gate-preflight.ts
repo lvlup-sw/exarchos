@@ -1,31 +1,12 @@
-// ─── gate-preflight — the shared gate preflight (DR-10) ──────────────────────
-//
-// {@link runGatePreflight} is the fail-fast validation every per-task /
-// post-merge gate handler opened with (contract-drift, mock-boundary,
-// test-adequacy, check-integration-suite, static-analysis), collapsed into one
-// module WITHOUT changing behavior: reject a miswired `eventStore`
-// (MISWIRED_CONTEXT, named per handler), an absent `featureId` (INVALID_INPUT),
-// an absent `taskId` for the per-task gates (opt-in via `requireTaskId`), then
-// resolve the worktree-aware `repoRoot` (#1330) — returning the resolver's own
-// INVALID_INPUT on an unresolvable `'auto'`.
-//
-// A second helper, `emitPolicySkipIfNeeded`, lived here and is DELETED rather
-// than left standing. It owned the FIX-1a policy-skip emission until the durable
-// gate runner took that over: `appendGateExecutedSignal` now mints the skip row
-// from the SAME persisted evidence the verdict is derived from, which is what
-// closed the gap where "the policy routed this gate out" and "the gate ran" were
-// indistinguishable in the durable log (see gate-runner.ts, DR-7). No handler
-// has called the old emitter since; its only caller was its own test, so the
-// module-intent gate could not see it — a dead EXPORT inside a live module is
-// below that gate's resolution. Removing it is the disposition its own retirement
-// note already recorded.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The shared fail-fast preflight of the per-task and post-merge gate handlers.
+ * It refuses a miswired `eventStore`, an absent `featureId`, and an absent `taskId` when the gate asks for one.
+ * Then it resolves the worktree-aware `repoRoot`, and returns the resolver's own `INVALID_INPUT` for an unresolvable `'auto'`.
+ */
 
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { resolveRepoRoot } from '../gates/gate-utils.js';
-
-// ─── Preflight ───────────────────────────────────────────────────────────────
 
 /** Outcome of {@link runGatePreflight}: the resolved repoRoot, or a ready-to-return error. */
 export type GatePreflightOutcome =
@@ -35,29 +16,26 @@ export type GatePreflightOutcome =
 export interface GatePreflightParams {
   /** The feature/stream id — absent → INVALID_INPUT. */
   readonly featureId?: string | undefined;
-  /** The task id — forwarded to the `'auto'` repoRoot resolver; required only when {@link requireTaskId}. */
+  /** The task id. The `'auto'` repoRoot resolver reads it. It is required only when {@link requireTaskId} is true. */
   readonly taskId?: string | undefined;
   /** `repoRoot` input: a literal path, `'auto'`, or undefined (→ process.cwd()). */
   readonly repoRoot?: string | undefined;
   /** Explicit worktree path — preferred resolver seam for `repoRoot:'auto'`. */
   readonly worktreePath?: string | undefined;
-  /** Handler name stamped into the MISWIRED_CONTEXT message (e.g. `'handleContractDrift'`). */
+  /** The handler name in the MISWIRED_CONTEXT message, for example `'handleContractDrift'`. */
   readonly handlerName: string;
   /** When true, an absent `taskId` is an INVALID_INPUT — the per-task gate contract. */
   readonly requireTaskId?: boolean;
 }
 
 /**
- * Run the shared gate preflight: validate the DispatchContext + inputs and
- * resolve the worktree-aware repoRoot (#1330). Byte-preserves each handler's
- * original error envelopes:
+ * Runs the shared gate preflight and keeps the original error envelope of each handler:
  *   - miswired `eventStore` → `MISWIRED_CONTEXT: '<handlerName>: eventStore is required'`
  *   - absent `featureId`   → `INVALID_INPUT: 'featureId is required'`
  *   - absent `taskId` (when `requireTaskId`) → `INVALID_INPUT: 'taskId is required'`
  *   - unresolvable repoRoot → `INVALID_INPUT` carrying the resolver's message
  *
- * On success returns `{ ok: true, repoRoot }`; the handler proceeds. The
- * eventStore/featureId/taskId order matches every migrated handler exactly.
+ * On success, it returns `{ ok: true, repoRoot }`. The checks run in the order `eventStore`, `featureId`, `taskId`.
  */
 export async function runGatePreflight(
   params: GatePreflightParams,

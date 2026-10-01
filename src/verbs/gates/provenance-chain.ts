@@ -1,9 +1,7 @@
-// ─── Provenance Chain Gate ────────────────────────────────────────────────────
-//
-// Orchestrates design-to-plan provenance verification by calling the pure
-// TypeScript verifyProvenanceChain function and emitting gate.executed events
-// for the plan→plan-review boundary.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * The provenance-chain gate. It runs the pure `verifyProvenanceChain` check over the design and the plan.
+ * It records a `gate.executed` event at the boundary from plan to plan-review.
+ */
 
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -13,8 +11,6 @@ import { emitGateEvent, sameOperationGateKey } from './gate-utils.js';
 import { verifyProvenanceChain } from '../pure/provenance-chain.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
-
-// ─── Result Types ──────────────────────────────────────────────────────────
 
 interface ProvenanceMetrics {
   readonly requirements: number;
@@ -29,15 +25,15 @@ interface ProvenanceChainResult {
   readonly report: string;
 }
 
-// ─── Handler ───────────────────────────────────────────────────────────────
-
+/**
+ * Validates the inputs, reads both files, and runs the gate through the shared phase-gate runner.
+ * A missing `eventStore` is a wiring bug, not a transient error, so the handler fails fast with `MISWIRED_CONTEXT`.
+ */
 export async function handleProvenanceChain(
   args: { featureId: string; designPath: string; planPath: string },
   _stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  // Fail-fast on miswired DispatchContext: a missing eventStore here is a
-  // wiring bug, not a transient error. See PR #1185 / CR review 4177990662.
   if (!eventStore) {
     return {
       success: false,
@@ -108,15 +104,13 @@ export async function handleProvenanceChain(
   });
 }
 
+/**
+ * Runs the markdown provenance check. SQLite is the authoritative structured record, so markdown parsing is the permanent path for this authoring gate.
+ */
 async function executeProvenanceChain(
   args: { featureId: string; designPath: string; planPath: string },
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  // The YAML gate-sidecar layer (#1298) was abandoned in #1494 — SQLite is
-  // the authoritative structured record, so markdown parsing is the
-  // permanent authoring-gate path.
-
-  // Call pure TypeScript implementation
   const tsResult = verifyProvenanceChain({
     designFile: args.designPath,
     planFile: args.planPath,
@@ -157,7 +151,6 @@ async function executeProvenanceChain(
     sameOperationGateKey('provenance-chain'),
   );
 
-  // Return structured result
   const result: ProvenanceChainResult = {
     passed,
     coverage: metrics,

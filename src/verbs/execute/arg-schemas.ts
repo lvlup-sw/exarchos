@@ -1,37 +1,20 @@
-// ─── Typed argument schemas, one per compilable intent ──────────────────────
-//
-// The public surface takes `args`, not a free-form `Record<string, string>`.
-// An intent is executable here only if it appears in this table: the schema is
-// what turns caller text into the typed values the runbook's `<var>`
-// placeholders substitute, and what rejects an unknown key before any effect.
-//
-// Four intents ship. Adding another is adding a row here plus the runbook it
-// names — not a change to the compiler.
-//
-// None of them declares `featureId`. Subject identity is written LAST by the
-// compiler over every leaf that declares it, so an intent argument spelled the
-// same way would be overwritten anyway — and a schema that accepts a field it
-// cannot influence says the caller has a choice they do not have.
+/**
+ * Typed argument schemas, one for each compilable intent.
+ * An intent can run only when it has a row in this table. The schema turns caller text into
+ * the typed values for the `<var>` placeholders of the runbook. It refuses an unknown key
+ * before any effect. A new intent needs a row here and its runbook, not a compiler change.
+ * No schema declares `featureId`, because the compiler writes the subject identity last.
+ */
 
 import { z } from 'zod';
 
 import { CapsuleBaseRefSchema } from '../../contract/capsule/exarchos-capsule.js';
 
 /**
- * `task-completion` — the delegate-phase runbook: four per-task gates followed
- * by the terminal `task_complete`.
- *
- * `riskTier` and `boundaryTouching` are accepted from the caller because no
- * durable per-task stamp exists to read them from. The enum matches the one
- * the gate registrations declare, so a value that passes here is a value the
- * gate schemas will also accept.
- *
- * Both are REQUIRED, because every gate step in `task-completion` passes them
- * as `<var>` placeholders and the compiler refuses a placeholder it cannot
- * bind. Leaving them optional here said "omit these" to a caller reading the
- * schema and then refused the call anyway — the schema and the runbook
- * disagreed about the same fact. A runbook whose steps do not name them gets
- * its own schema; this one states what this runbook needs.
+ * Arguments for `task-completion`: four per-task gates, then `task_complete`.
+ * `riskTier` and `boundaryTouching` come from the caller, because no durable per-task stamp
+ * holds them. Both are required, because the gate steps bind them as `<var>` placeholders,
+ * and the compiler refuses an unbound placeholder. The enum matches the gate registrations.
  */
 export const TaskCompletionArgs = z
   .object({
@@ -41,38 +24,24 @@ export const TaskCompletionArgs = z
     riskTier: z.enum(['low', 'medium', 'high']),
     boundaryTouching: z.boolean(),
     /**
-     * The branch the task forked from, frozen in the capsule. Named `baseRef`
-     * rather than `baseBranch` because the compiler hands an argument to every
-     * leaf whose schema declares that key: only the kill probe's step binds it,
+     * The branch that the task forked from, frozen in the capsule. The key is `baseRef`, not `baseBranch`.
+     * The compiler gives an argument to each leaf whose schema declares that key. Only the kill-probe step binds it,
      * as `baseBranch: '<baseRef>'`, so the other gates keep their own base.
      */
     baseRef: CapsuleBaseRefSchema,
-    // The completion's provenance — artifacts, files, tests, implements,
-    // duration, the worktree — handed to the terminal `task_complete` leaf as
-    // its own `result`. No gate leaf declares a `result`, so the compiler
-    // forwards it to the one leaf that records it and to nothing else.
+    /** The completion provenance. Only the `task_complete` leaf declares `result`, so it alone gets this value. */
     result: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 
 /**
- * `quality-evaluation` — the review-phase runbook: static analysis, the
- * security scan, the convergence meta-gate, invariant conformance, and the
- * terminal review verdict.
+ * Arguments for `quality-evaluation`, the review-phase runbook.
+ * `high`, `medium` and `low` are required, because the verdict leaf schema requires them.
+ * `diffContent` is required, because the security-scan handler refuses at runtime without it.
  *
- * `high`, `medium` and `low` are REQUIRED because the verdict leaf's own
- * registered schema requires them, and the compiler validates each leaf against
- * that schema before any effect. `diffContent` is required for a reason the
- * registry does not state: the security-scan handler declares the field
- * optional and then refuses at runtime without it, so accepting a call that
- * omits it would only move the refusal past the point where earlier leaves have
- * already run.
- *
- * PRECONDITION the caller owes and this schema cannot express: the invariant
- * gate declares a `requires` on a resolved review gate. Nothing in this segment
- * produces that fact — the verdict leaf's own evidence does not satisfy it —
- * so the segment runs only against a stream that already carries passing gate
- * evidence for the active phase attempt under the review requirement.
+ * Precondition: the invariant gate `requires` a resolved review gate, and no leaf in this
+ * segment produces it. Thus the stream must already carry passing review gate evidence for
+ * the active phase attempt.
  */
 export const QualityEvaluationArgs = z
   .object({
@@ -88,13 +57,9 @@ export const QualityEvaluationArgs = z
   .strict();
 
 /**
- * `plan-closeout` — the plan-phase runbook: the two blocking plan gates over
- * the unified spec, then the traceability matrix.
- *
- * One field, because one path is the whole subject. Both gates and the matrix
- * generator address the SAME document under four different parameter
- * spellings; binding one variable onto all four is what keeps the caller from
- * being asked the same question twice and answering it differently.
+ * Arguments for `plan-closeout`: the two blocking plan gates, then the traceability matrix.
+ * The leaves name the spec path with four different parameters. One `specPath` binds to all
+ * four, so the leaves cannot get different paths.
  */
 export const PlanClosureArgs = z
   .object({
@@ -103,46 +68,16 @@ export const PlanClosureArgs = z
   .strict();
 
 /**
- * `synthesis-closeout` — the synthesize-phase runbook: validate the pull
- * request body, then open the request through the provider abstraction.
+ * Arguments for `synthesis-closeout`: validate the PR body, then open the PR.
+ * `prBody` binds to the `body` parameter of both leaves, so they cannot get different texts.
+ * `create_pr` can append an `## Intent` section from a captured intent. The body leaf gets
+ * `body`, not `pr`, so it does not read the body back from the remote. `title`, `baseBranch`
+ * and `headBranch` are required, because the `create_pr` schema requires them.
  *
- * `prBody` binds onto two leaf spellings of the SAME text — `validate_pr_body`
- * takes it as `body` and `create_pr` takes it as `body` too. One variable for
- * one document, exactly as `specPath` does for `plan-closeout`, so the two
- * leaves cannot be handed different texts. The create leaf may still ENRICH
- * what it opens: given a subject whose state carries a captured intent it
- * appends a grounded `## Intent` section before both its journal append and the
- * provider call, so the opened body is the validated body plus that section.
- *
- * `title`, `baseBranch` and `headBranch` are REQUIRED because `create_pr`'s own
- * registered schema requires them and the compiler validates each leaf against
- * that schema before any effect. An optional field here would only move the
- * refusal past the point where the body has already been validated.
- *
- * The body leaf is called with `body`, never `pr`. Given `pr` its handler
- * shells out to read the body back from the remote; given `body` it does not,
- * and this segment validates text the caller already holds — which is the only
- * thing there is to validate before the request exists.
- *
- * No `draft` and no `labels`. Every field here is one a leaf's schema requires;
- * an optional provider knob no leaf needs is surface with no contract behind
- * it.
- *
- * PRECONDITIONS the caller owes and this schema cannot express: the stream must
- * be in a phase the leaves' own bindings admit — `validate_pr_body` is bound to
- * the synthesis/review family — and it must not already own a pull request,
- * because `create_pr` reads that from projected state and refuses
- * `PR_ALREADY_OWNED`.
- *
- * A RESIDUAL OBLIGATION the caller still owes after a committed receipt:
- * recording the pull request in workflow state. The segment's last leaf
- * journals `pr.create.requested` / `pr.create.executed`, and the workflow-state
- * projection folds both to identity — no projected field is derived from
- * either. So `artifacts.pr` / `synthesis.prUrl` stay unset, and those are the
- * two fields the synthesize→completed guard reads and the two the
- * single-PR-owner refusal above reads. The URL is on the receipt and on the
- * `pr.create.executed` record; patching one of those fields from it is the
- * caller's step, and until it lands the workflow cannot leave synthesize.
+ * Preconditions: the phase must admit the leaves, and the stream must not own a PR yet. After
+ * a committed receipt, the caller must patch `artifacts.pr` or `synthesis.prUrl` from the
+ * receipt URL. The projection does not set them, and the workflow cannot leave synthesize
+ * without them.
  */
 export const SynthesisCloseoutArgs = z
   .object({

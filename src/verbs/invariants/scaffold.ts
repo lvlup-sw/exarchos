@@ -1,20 +1,13 @@
 /**
- * `invariants_scaffold` handler (P2, T6).
+ * The `invariants_scaffold` handler. It creates a starter invariant catalog file for a tier and
+ * registers the file in `.exarchos.yml`, with the same contract as `seedExarchosConfig`:
  *
- * Creates a v3-shaped starter invariant catalog file for a tier and
- * idempotently registers it in `.exarchos.yml`. Mirrors the
- * `seedExarchosConfig` contract:
+ * - It never overwrites an existing catalog file (`reason: 'already-exists'`).
+ * - The registration is idempotent and keeps comments, through `wireCatalogRegistration`.
+ * - All file-system effects go through the injected `ScaffoldDeps` hooks.
  *
- *   - NEVER overwrites an existing catalog file (`reason: 'already-exists'`).
- *   - Idempotent `.exarchos.yml` registration (comment-preserving via the
- *     shared `wireCatalogRegistration` writer — see exarchos-yml-writer.ts).
- *   - Pure-by-default: all fs side effects flow through injected `ScaffoldDeps`
- *     hooks so the handler is exercisable without touching disk.
- *
- * The starter file is emitted with one COMMENTED worked-example entry so the
- * author un-comments and edits rather than facing a blank file. The example is
- * `mode: audit` (pure judgment, always portable — INV-6) and tier-namespaced
- * (`U-1` for user, `INV-1` for dev).
+ * The starter file holds one commented example entry. The example uses the portable
+ * `mode: audit` and a tier-namespaced id (`U-N` for user, `INV-N` for dev).
  */
 import * as path from 'node:path';
 import { toPosix } from '../../utils/paths.js';
@@ -61,17 +54,11 @@ const DEFAULT_PATH: Record<'dev' | 'user', string> = {
 };
 
 /**
- * Build the v3-shaped starter catalog body. The body is wrapped in a proper
- * YAML frontmatter block (`---` … `---`) so `loadInvariants` (which parses via
- * `gray-matter`) can read it. The frontmatter declares `schema-version: 3` and
- * a valid-but-empty `invariants: []` list; the single worked example is left
- * commented out so the file parses cleanly until the author opts in by
- * un-commenting + editing.
+ * Builds the starter catalog body. The frontmatter declares `schema-version: 3` and an empty
+ * `invariants: []` list, so the file parses before the author uncomments the example.
  *
- * gray-matter only recognises a frontmatter block when the opening `---` is the
- * very first line of the file, so the human-guidance comments live INSIDE the
- * frontmatter as YAML comments (lines beginning with `#`) — they are ignored by
- * the YAML parser but stay visible to the author editing the file.
+ * gray-matter finds frontmatter only when the opening `---` is the first line. The guidance thus
+ * lives inside the frontmatter as YAML comments, which the parser ignores.
  */
 export function renderStarterCatalog(tier: 'dev' | 'user'): string {
   const exampleId = tier === 'dev' ? 'INV-1' : 'U-1';
@@ -143,9 +130,9 @@ function writeStarterCatalog(
 }
 
 /**
- * `invariants_scaffold` handler. Creates the starter catalog and registers it
- * in `.exarchos.yml`, returning a structured envelope with `next_actions`
- * (INV-12: `doctor`, `view invariants_effective`).
+ * Creates the starter catalog, registers it in `.exarchos.yml`, and returns `next_actions`.
+ * Without `allowReservedTier`, it refuses the reserved `dev` tier in a consumer repo before any
+ * file write.
  */
 export async function handleScaffold(
   args: HandleScaffoldArgs,
@@ -153,8 +140,6 @@ export async function handleScaffold(
 ): Promise<ToolResult> {
   const { tier, relPath } = resolveTargetPath(args);
 
-  // Reject authoring into exarchos's reserved `dev` namespace from a consumer
-  // repo BEFORE any fs write (#1489). Redirects to `tier: user`.
   const reserved = assertDevTierAllowed(
     {
       tier,
@@ -170,7 +155,6 @@ export async function handleScaffold(
 
   const catalog = writeStarterCatalog(catalogAbs, tier, deps);
 
-  // Reuse the shared comment-preserving `.exarchos.yml` writer.
   const ymlPath = toPosix(path.join(args.repoRoot, CONFIG_FILENAME));
   const ymlDeps: YmlWriterDeps = {
     exists: deps.exists,

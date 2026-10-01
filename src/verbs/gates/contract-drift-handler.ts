@@ -1,21 +1,12 @@
-// ─── check_contract_drift handler (task 023) ─────────────────────────────────
-//
-// Orchestrate action that runs the contract-drift gate for a task's
-// schema-boundary changes and persists canonical subject-bound evidence. The drift
-// composition itself lives in the pure-ish `contract-drift.ts`
-// (merge-base baseline / codegen / typecheck / breaking-diff legs); this
-// handler wires the production seams:
-//   • resolve repoRoot (supports the worktree-aware 'auto' mode, #1330)
-//   • resolve the contract + typecheck commands via resolveVerificationRuntime
-//   • shell out each leg (codegen → typecheck → breaking-diff)
-//   • persist evidence with trusted-operation idempotency (INV-8)
-//
-// The result is an INV-5b advisory carrier: success:true with data.passed
-// reflecting the gate verdict, never an error envelope for a drift finding
-// (drift is a finding, not a tool error). On pass it carries exactly ONE
-// next-actions steer: contracts verify SHAPE, not meaning — keep one semantic
-// test per boundary, delete redundant shape assertions.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * check_contract_drift: runs the contract-drift gate for the schema-boundary
+ * changes of a task. The drift legs live in `contract-drift.ts`. This handler
+ * resolves `repoRoot` and the contract and typecheck commands. It runs each leg
+ * as a command and persists the evidence through the durable gate producer.
+ *
+ * A drift finding is a verdict, not a tool error. Thus the result is
+ * `success: true` with the verdict in `data.passed`.
+ */
 
 import { runCommandSync } from '../../utils/process.js';
 import type { ToolResult } from '../../format.js';
@@ -34,16 +25,14 @@ import {
   type ContractDriftResult,
 } from './contract-drift.js';
 
-// ─── The one-semantic-test steer (task 023) ─────────────────────────────────
-//
-// Contracts pin the SHAPE of a boundary, not its meaning. Once a contract gate
-// guards the shape, redundant per-field shape assertions in unit tests are
-// noise — keep exactly one semantic test that exercises the boundary's behavior.
+/**
+ * The next action on a pass that is not a skip. A contract pins the shape of a
+ * boundary, not its meaning. Thus one semantic test of the boundary is enough,
+ * and unit-test shape assertions are redundant.
+ */
 export const ONE_SEMANTIC_TEST_STEER =
   'contracts verify shape, not meaning — keep exactly ONE semantic test for ' +
   'this boundary; delete redundant shape assertions';
-
-// ─── Args ────────────────────────────────────────────────────────────────────
 
 export interface ContractDriftHandlerArgs {
   readonly featureId: string;
@@ -53,16 +42,16 @@ export interface ContractDriftHandlerArgs {
   /** Base ref the branch diverged from (merge-base target). Defaults to 'main'. */
   readonly baseBranch?: string;
   /**
-   * Repo to check. A literal path is used verbatim; `'auto'` resolves the
-   * calling delegation's agent worktree (#1330); omitting it → process.cwd().
+   * The repository to check. The gate uses a literal path as given. `'auto'`
+   * resolves to the agent worktree of the calling delegation. When absent, the
+   * gate uses `process.cwd()`.
    */
   readonly repoRoot?: string;
   /** Explicit agent worktree path — preferred resolver seam for 'auto'. */
   readonly worktreePath?: string;
-  /** Legacy field; evidence idempotency uses trusted DispatchContext only. */
+  /** A legacy field. Evidence idempotency uses only the trusted DispatchContext. */
   readonly operationId?: string;
 
-  // ── Verification-ladder routing stamp (FIX-1a) ───────────────────────────
   /**
    * The task's stamped risk tier. When provided together with
    * {@link boundaryTouching}, the handler self-skips when the resolved
@@ -73,27 +62,23 @@ export interface ContractDriftHandlerArgs {
   /** The task's stamped boundary-touching flag. See {@link riskTier}. */
   readonly boundaryTouching?: boolean;
   /**
-   * The resolved project config (task 004). Threaded by the dispatch adapter so
-   * the self-skip routing consumes the SAME config-resolved policy the
-   * delegation stamp uses. Omitted → the resolver falls through to the built-in
-   * table.
+   * The resolved project config. The dispatch adapter passes it, so the
+   * self-skip uses the same policy as the delegation stamp. When absent, the
+   * resolver uses the built-in table.
    */
   readonly projectConfig?: ResolvedProjectConfig;
 
-  // ── Test seams (DI; production defaults below) ───────────────────────────
+  /** A test seam. The default is `defaultGitExec`. */
   readonly gitExec?: GitExec;
+  /** A test seam. The default is {@link defaultRunCommand}. */
   readonly runCommand?: CommandRunFn;
 }
 
-// ─── Production seams ──────────────────────────────────────────────────────
-//
-// `defaultGitExec` is shared from gate-utils (FIX-4 dedupe) — it was byte-
-// identical across the three per-task gate handlers.
-
 /**
- * Default command runner: split the resolved command and shell it out, scoped
- * to the repo, returning the combined stdout/stderr + exit code. Never throws
- * on non-zero exit — the gate reads the exit code as a leg verdict.
+ * The default command runner. It splits the command, runs it in the repository,
+ * and returns the exit code with the combined stdout and stderr. It does not
+ * throw on a non-zero exit, because the gate reads the exit code as the verdict
+ * of the leg.
  */
 const defaultRunCommand: CommandRunFn = async ({ repoRoot, command }) => {
   let cmd: string;
@@ -120,15 +105,16 @@ const defaultRunCommand: CommandRunFn = async ({ repoRoot, command }) => {
   }
 };
 
-// ─── Handler ──────────────────────────────────────────────────────────────
-
+/**
+ * Runs the shared gate preflight, which requires `taskId`. Then it runs the
+ * gate inside the durable gate producer. A policy skip gives a passing result
+ * with `skipped: true`.
+ */
 export async function handleContractDrift(
   args: ContractDriftHandlerArgs,
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  // Preflight (DR-10): validate the DispatchContext + inputs and resolve the
-  // worktree-aware 'auto' repoRoot (#1330). Byte-preserves the prior envelopes.
   const pre = await runGatePreflight(
     {
       featureId: args.featureId,

@@ -1,17 +1,9 @@
 /**
- * Shared MCP JSON config writer — read-modify-write pattern for runtimes
- * that store MCP server config in a JSON file (e.g. `.vscode/mcp.json`,
- * `.cursor/mcp.json`).
+ * Shared MCP JSON config writer, a read-modify-write for runtimes that keep MCP server config in a JSON file.
+ * Examples are `.vscode/mcp.json` and `.cursor/mcp.json`. Each concrete writer sets only its directory and runtime name.
  *
- * Extracted to eliminate duplication between CopilotWriter and CursorWriter.
- * Each concrete writer specifies only its target directory and runtime name.
- *
- * This module also owns the SINGLE-FILE config promotion the spec-named config
- * files share (DR-18) — see the section docstring on {@link promoteConfigFile}.
- * `claude-code.ts` publishes `~/.claude.json` through the same primitive, so the
- * three spec-named config files (`~/.claude.json`, `.vscode/mcp.json`,
- * `.cursor/mcp.json`) have ONE promotion implementation between them rather than
- * three tmp+rename open-codings.
+ * The module also owns {@link promoteConfigFile}, the single-file promotion for config files.
+ * `claude-code.ts` publishes `~/.claude.json` through the same function, so the three config files share one implementation.
  */
 
 import { basename, dirname, join } from 'node:path';
@@ -36,19 +28,10 @@ import {
   type PromotionIo,
 } from '../../../install/atomic-promotion.js';
 
-// ─── Shared types ───────────────────────────────────────────────────────────
-
 /**
- * Narrow fs surface for testability.
- *
- * The four required members are the original seam. The optional members are the
- * DR-16/DR-18 widening T-23 could not reach from `utils/atomic-write.ts`: this
- * writer injected `{ rename }` and nothing else, so its publish got an atomic
- * rename whose directory entry was never forced and whose failed temp file was
- * never cleaned up. An injected fs that cannot express those steps simply omits
- * them and gets exactly the guarantee it had before (see the `PublishIo`
- * docstring in `utils/atomic-write.ts`); {@link DEFAULT_FS} — the production
- * seam — supplies all of them.
+ * Narrow fs surface for tests.
+ * The optional members add temp-file cleanup and the directory fsync to a publish.
+ * An injected fs without them still gets an atomic rename, without those two steps. {@link DEFAULT_FS} supplies all members.
  */
 export interface McpJsonWriterFs {
   readFile(p: string, enc: BufferEncoding): Promise<string>;
@@ -57,22 +40,18 @@ export interface McpJsonWriterFs {
   mkdir(p: string, opts?: { recursive?: boolean }): Promise<void>;
   /** Delete a file. Enables temp/journal/backup cleanup. Optional. */
   remove?(p: string): Promise<void>;
-  /** fsync the parent DIRECTORY so a rename's entry is durable (DR-16). Optional. */
+  /** fsync the parent directory, so the entry from a rename is durable. Optional. */
   syncDirectory?(dir: string): Promise<DirectorySyncOutcome>;
 }
 
 export interface McpJsonWriterDeps {
   readonly fs?: McpJsonWriterFs;
   /**
-   * Filesystem seam for the DR-18 recovery entry point
-   * ({@link recoverInterruptedConfigPromotions}). Defaults to the real
-   * filesystem, because an interrupted promotion is a fact about the HOST — see
-   * that function's docstring.
+   * Filesystem seam for {@link recoverInterruptedConfigPromotions}.
+   * It defaults to the real filesystem, because an interrupted promotion is a fact about the host.
    */
   readonly promotionIo?: PromotionIo;
 }
-
-// ─── Constants ──────────────────────────────────────────────────────────────
 
 const EXARCHOS_MCP_ENTRY = {
   command: 'npx',
@@ -82,9 +61,10 @@ const EXARCHOS_MCP_ENTRY = {
 
 const DEFAULT_FS: McpJsonWriterFs = {
   readFile: (p, enc) => nodeFs.readFile(p, enc),
-  // Durable by construction: a staged copy whose bytes are still only in the page
-  // cache is not something a promotion may verify and then publish.
-  // `fs.promises.writeFile` does not fsync, so the handle is opened explicitly.
+  /**
+   * Writes and fsyncs the file, because a promotion must not verify and publish bytes that are only in the page cache.
+   * `fs.promises.writeFile` does not fsync, so the function opens the handle itself.
+   */
   writeFile: async (p, data) => {
     const handle = await nodeFs.open(p, 'w');
     try {
@@ -100,27 +80,13 @@ const DEFAULT_FS: McpJsonWriterFs = {
   syncDirectory: (dir) => fsyncDir(dir),
 };
 
-// ─── Config-file promotion (DR-18) ──────────────────────────────────────────
-
 /**
  * Scaffolding paths for a single-file config promotion.
+ * `journalPath` and `backupPath` must equal what the private `stagePlanFor` in `install/atomic-promotion.ts` derives.
+ * The real `recoverInterruptedPromotion` reads this journal, and a test pins the coupling.
  *
- * `journalPath` and `backupPath` are byte-identical to what
- * `install/atomic-promotion.ts`'s (private) `stagePlanFor` derives, because the
- * journal written here is consumed by the REAL `recoverInterruptedPromotion`
- * rather than by a re-implementation. That coupling is a genuine risk — the
- * derivation is private over there — so it is pinned by a test that drives the
- * real recovery function against a journal this module wrote.
- *
- * `stagePath` is UNIQUE PER ATTEMPT (`<pid>.<random>`). A fixed staged-copy name
- * is a bug, not a detail: two writers publishing the same config collide on it,
- * and the loser either publishes the winner's bytes or fails a publish whose
- * source another process already consumed.
- *
- * Built with POSIX joins rather than `path.join` so `path.dirname(x)` round-trips
- * to `parent` exactly — {@link afterDurable} compares those strings, and on
- * Windows `path.join` normalizes to backslashes while `dirname` of a
- * forward-slash path does not.
+ * `stagePath` is unique per attempt (`<pid>.<random>`). With a fixed name, two writers of the same config collide on the staged copy.
+ * The paths use POSIX joins, so `dirname` of each path equals `parent` exactly. {@link afterDurable} compares those strings.
  */
 export interface ConfigPromotionPaths {
   readonly target: string;
@@ -156,15 +122,9 @@ function uniqueSuffix(): string {
 }
 
 /**
- * The async filesystem seam a config promotion runs on.
- *
- * Required members are what every writer's injected fs already has. The optional
- * members are DURABILITY CAPABILITIES: a seam that cannot express them (an
- * in-memory test fs, or `WriterFs` from `../probes.js`, which this module may not
- * widen) omits them and gets the same algorithm minus the fsyncs — atomic, but
- * with durability unproven. That is the pattern `utils/atomic-write.ts` already
- * documents for `PublishIo.syncDirectory`, and it is not a silent downgrade: the
- * report says `not-applicable`, so the absence is visible to the caller.
+ * The async filesystem seam for a config promotion. The optional members are durability capabilities.
+ * A seam without them, such as an in-memory test fs, gets the same algorithm without the fsyncs.
+ * The result is atomic, but its durability is unproven, and the report says `not-applicable`.
  */
 export interface ConfigPromotionFs {
   /** Read a file as UTF-8. Rejects with an ENOENT-shaped error when absent. */
@@ -174,7 +134,7 @@ export interface ConfigPromotionFs {
   mkdir(p: string, opts?: { recursive?: boolean }): Promise<void>;
   /** fsync a just-written FILE, publishing its BYTES. Optional. */
   fsyncFile?(p: string): Promise<void>;
-  /** fsync a DIRECTORY, publishing a rename's NAME (DR-16). Optional. */
+  /** fsync a directory, which makes the name from a rename durable. Optional. */
   syncDirectory?(dir: string): Promise<DirectorySyncOutcome>;
   /** Delete a file — temp/journal/backup cleanup. Optional. */
   remove?(p: string): Promise<void>;
@@ -187,17 +147,13 @@ export interface DurabilityNotApplicable {
 }
 
 /**
- * How the parent-directory fsync fared, or that the seam has no way to do one.
- *
- * `not-applicable` is deliberately a THIRD state rather than being folded into
- * `unsupported`: `unsupported` means the HOST declined a real fsync (win32
- * reports `EPERM`), and reporting "the injected fs has no syncDirectory" as
- * `unsupported` would make a missing capability indistinguishable from a
- * degraded platform.
+ * The outcome of the parent-directory fsync, or `not-applicable` when the seam cannot do one.
+ * `not-applicable` is a separate state from `unsupported`, which means that the host declined a real fsync.
+ * Win32 declines with `EPERM`. A missing capability thus stays distinct from a degraded platform.
  */
 export type ConfigDurability = DirectorySyncOutcome | DurabilityNotApplicable;
 
-/** A completed publish step plus the durability it could prove. */
+/** A completed publish step, with the durability that it proved. */
 interface ConfigPublishStep {
   readonly published: string;
   readonly durability: ConfigDurability;
@@ -211,7 +167,7 @@ export interface ConfigPromotionReport {
   readonly promoted: boolean;
   /** True when an existing config was copied aside before the commit. */
   readonly backedUp: boolean;
-  /** DR-16 outcome for the COMMIT rename's parent-directory fsync. */
+  /** Outcome of the parent-directory fsync after the commit rename. */
   readonly directoryDurability: ConfigDurability;
 }
 
@@ -226,49 +182,15 @@ export interface ConfigPromotionOptions {
 }
 
 /**
- * THE SINGLE-FILE ANALOGUE OF `install/atomic-promotion.ts`.
- *
- * `promoteTreeSync` promotes a DIRECTORY: it stages into a sibling staging
- * *directory* and commits with `rename(stagingDir → target)`. Pointing it at
- * `~/.claude.json` would replace the user's config FILE with a DIRECTORY, so it
- * is not the reuse this case wants. What the config writers reuse instead is the
- * layer underneath — `utils/atomic-write.ts`'s {@link publishTempFile} — plus the
- * promotion module's JOURNAL FORMAT and its {@link recoverInterruptedPromotion}
- * recovery engine, which are file/tree agnostic (`exists`, `rename`, `removeTree`
- * all work on a plain file).
- *
- * The sequence, and what each failure leaves behind:
- *
- *   1. STAGE   — the new content is written to a sibling staged copy and fsync'd.
- *                The live config is untouched, so any failure here leaves it OLD.
- *   2. VERIFY  — the staged copy is read back and compared to the requested bytes.
- *                A short write (ENOSPC), a torn write, or a concurrent writer that
- *                clobbered the staged copy is caught HERE, before anything is
- *                published. This is the step the old writers had no analogue of:
- *                they wrote and renamed, so a truncated temp file became the live
- *                config.
- *   3. JOURNAL — the scaffolding paths are recorded, in the format and at the path
- *                `install/atomic-promotion.ts` derives, so an interruption is
- *                recoverable by the REAL recovery engine (see
- *                {@link recoverInterruptedConfigPromotions}).
- *   4. BACKUP  — the old config is COPIED aside (not renamed away). This is the one
- *                deliberate divergence from the tree engine, and it is load-bearing:
- *                `rename(target → backup)` would open a window where the user has NO
- *                config at all, which a single-file publish does not otherwise have.
- *                Copying keeps "the config file always exists" true at every instant
- *                while still leaving a complete previous version to recover from.
- *   5. COMMIT  — one atomic `rename(staged → target)`, retried through
- *                {@link publishTempFile} for Windows' concurrent-replace race, then
- *                the parent directory is fsync'd so the new NAME is durable too.
- *
- * Every step is ordered against the previous one's directory fsync via the
- * exported {@link afterDurable} guard (DR-16), not merely by statement order.
- *
- * RECOVERY IS NOT DONE HERE. The writers call
- * {@link recoverInterruptedConfigPromotions} before they read the existing config,
- * because a read-modify-write that reads BEFORE recovery merges into the wrong
- * base and then publishes it — the recovered file would be immediately
- * overwritten by a config built from the interrupted state.
+ * Promotes one config file. It reuses {@link publishTempFile}, and the journal format and recovery engine of `install/atomic-promotion.ts`.
+ * 1. Stage: write the new content to a unique sibling file and fsync it. A failure here leaves the live config unchanged.
+ * 2. Verify: read the staged copy back and compare it, so a short or torn write never goes live.
+ * 3. Journal: record the paths, so the real recovery engine can finish an interrupted promotion.
+ * 4. Backup: copy the old config aside. A rename leaves a moment with no config file, so the function copies it.
+ * 5. Commit: rename the staged copy onto the target in one atomic step, then fsync the parent directory.
+ * Each step waits for the durability of the previous step through {@link afterDurable}.
+ * On a failure after the stage, journal-driven recovery restores a complete file. A failed recovery leaves the journal for the next run.
+ * The function does not repair an earlier interruption. Callers run {@link recoverInterruptedConfigPromotions} before they read the config.
  */
 export async function promoteConfigFile(
   target: string,
@@ -279,7 +201,6 @@ export async function promoteConfigFile(
   const paths = configPromotionPaths(target, options.stagePath);
   await fs.mkdir(paths.parent, { recursive: true });
 
-  // 1–2. STAGE + VERIFY. A failure here must leave the live config untouched.
   try {
     await writeDurable(fs, paths.stagePath, content);
     const staged = await fs.readFile(paths.stagePath);
@@ -299,8 +220,6 @@ export async function promoteConfigFile(
     );
   }
 
-  // 3–5. JOURNAL → BACKUP → COMMIT, each ordered against the previous step's
-  // durable directory entry rather than against its line number.
   let directoryDurability: ConfigDurability = notApplicable(paths.parent);
   let backedUp = false;
   try {
@@ -320,14 +239,9 @@ export async function promoteConfigFile(
 
     directoryDurability = await publishStaged(fs, paths.stagePath, paths.target);
   } catch (err) {
-    // Bring the destination back to a complete state. Driven by the journal, so
-    // it restores the backup when the commit lost the target and finalizes
-    // otherwise. A recovery that itself fails deliberately leaves the journal in
-    // place for the next startup entry point to consume.
     try {
       recoverInterruptedConfigPromotions([paths.target], options.io);
     } catch {
-      /* leave the journal for a retry — never mask the original failure */
     }
     await bestEffortRemove(fs, paths.stagePath);
     throw new PromotionError(
@@ -337,8 +251,6 @@ export async function promoteConfigFile(
     );
   }
 
-  // Committed: the destination is fully NEW. Finalize is best-effort and must
-  // never throw — a leftover backup is still a complete destination.
   await bestEffortRemove(fs, paths.backupPath);
   await bestEffortRemove(fs, paths.journalPath);
 
@@ -373,9 +285,8 @@ async function publishConfigStep(
 }
 
 /**
- * The publish itself — `utils/atomic-write.ts`'s {@link publishTempFile}, now
- * injected with the `unlink` and `syncDirectory` capabilities T-23 recorded as
- * missing from these writers, instead of a bare `{ rename }`.
+ * Publishes through {@link publishTempFile}, with the `unlink` and `syncDirectory` capabilities of the seam when it has them.
+ * It returns the observed directory-fsync outcome, or `not-applicable`.
  */
 async function publishStaged(
   fs: ConfigPromotionFs,
@@ -403,13 +314,8 @@ async function publishStaged(
 }
 
 /**
- * Consume a step's durability before starting the next one — the async analogue
- * of the tree engine's barrier threading, delegating the actual check to the
- * exported {@link afterDurable} so there is ONE implementation of "this rename's
- * entry is durable in the directory I am about to write into".
- *
- * Skipped when the seam could not prove anything: there is nothing to check, and
- * inventing a passing barrier would be durability theatre.
+ * Checks the durability of a step before the next step starts, through the exported {@link afterDurable}.
+ * It skips the check when the seam proved nothing, because a passing check without proof is false.
  */
 function afterDurableConfig(step: ConfigPublishStep, directory: string): void {
   if (step.durability.status === 'not-applicable') return;
@@ -441,16 +347,14 @@ async function readIfPresent(
   }
 }
 
+/** Removes a file when the seam can. A failure here never hides the real failure. */
 async function bestEffortRemove(fs: ConfigPromotionFs, p: string): Promise<void> {
   if (!fs.remove) return;
   try {
     await fs.remove(p);
   } catch {
-    /* best-effort — never mask a real failure */
   }
 }
-
-// ─── The startup / doctor recovery entry point (DR-18) ──────────────────────
 
 export interface ConfigRecoveryFailure {
   readonly target: string;
@@ -466,28 +370,13 @@ export interface ConfigRecoveryReport {
 }
 
 /**
- * THE STARTUP/DOCTOR ENTRY POINT for `recoverInterruptedPromotion` on the
- * spec-named config files (DR-18's second acceptance criterion).
+ * Startup and doctor entry point for `recoverInterruptedPromotion` on the config files.
+ * The writers of these files call it before they read the existing config, also on a path that then skips the write.
+ * When nothing was interrupted, it costs one `exists()` on the journal path, so it is safe as an unconditional first step.
  *
- * Called at the head of every config writer — before the existing config is read
- * — so it runs on every path that reaches `getAllWriters()`: `onboard`'s GENERATE
- * stage and `doctor --fix`. It runs even when the write itself will be SKIPPED
- * (`~/.claude.json` with exarchos already registered), which is exactly the case
- * a recovery call buried inside the write path would miss.
- *
- * It is a no-op — one `exists()` on the journal path — when nothing was
- * interrupted, which is why it is safe as an unconditional first step.
- *
- * `io` defaults to the REAL filesystem even when the writer's own fs seam is an
- * injected in-memory one: an interrupted promotion is a fact about the host, and
- * there is no meaningful recovery of a machine other than the one running. For a
- * synthetic path (no such directory on the host) the journal cannot exist, so the
- * call is inert.
- *
- * Never throws. A startup repair that aborts onboarding is worse than one that
- * reports; failures are surfaced in {@link ConfigRecoveryReport.failures} and
- * propagated to the writer's `warnings`, and the journal survives so the next run
- * retries.
+ * `io` defaults to the real filesystem, also when the fs of the writer is in memory. An interrupted promotion is a fact about the host.
+ * For a path that does not exist on the host, the journal cannot exist, so the call does nothing.
+ * It never throws. It reports each failure in {@link ConfigRecoveryReport.failures} and leaves the journal for the next run.
  */
 export function recoverInterruptedConfigPromotions(
   targets: readonly string[],
@@ -513,8 +402,6 @@ export function recoverInterruptedConfigPromotions(
   return { checked, recovered, failures };
 }
 
-// ─── Base class ─────────────────────────────────────────────────────────────
-
 /**
  * Base config writer for runtimes that use a JSON file containing
  * `{ mcpServers: { ... } }`. Subclasses set `runtime` and `configDir`
@@ -522,7 +409,7 @@ export function recoverInterruptedConfigPromotions(
  */
 export abstract class McpJsonWriter implements RuntimeConfigWriter {
   abstract readonly runtime: AgentRuntimeName;
-  /** Directory relative to project root (e.g. '.vscode', '.cursor'). */
+  /** Directory relative to the project root, such as `.vscode` or `.cursor`. */
   protected abstract readonly configDir: string;
 
   protected readonly fs: McpJsonWriterFs;
@@ -533,22 +420,21 @@ export abstract class McpJsonWriter implements RuntimeConfigWriter {
     this.promotionIo = deps?.promotionIo;
   }
 
+  /**
+   * Recovers an interrupted promotion before it reads the existing config, because a merge over an interrupted state uses the wrong base.
+   * It then sets the `exarchos` entry in `mcpServers` and publishes through {@link promoteConfigFile}.
+   */
   async write(_deps: WriterDeps, options: WriteOptions): Promise<ConfigWriteResult> {
     const dirPath = toPosix(join(options.projectRoot, this.configDir));
     const configPath = toPosix(join(dirPath, 'mcp.json'));
 
-    // DR-18: recover any interrupted promotion BEFORE reading the existing
-    // config — a read-modify-write over an interrupted state merges the wrong
-    // base and publishes it. See `recoverInterruptedConfigPromotions`.
     const recovery = recoverInterruptedConfigPromotions(
       [configPath],
       this.promotionIo,
     );
 
-    // Ensure target directory exists
     await this.fs.mkdir(dirPath, { recursive: true });
 
-    // Read existing config or start fresh
     let existing: Record<string, unknown> = {};
     try {
       const raw = await this.fs.readFile(configPath, 'utf8');
@@ -560,7 +446,6 @@ export abstract class McpJsonWriter implements RuntimeConfigWriter {
       if (!isMissingPathError(err)) throw err;
     }
 
-    // Merge exarchos MCP entry
     const mcpServers =
       typeof existing.mcpServers === 'object' && existing.mcpServers !== null
         ? { ...(existing.mcpServers as Record<string, unknown>) }
@@ -570,8 +455,6 @@ export abstract class McpJsonWriter implements RuntimeConfigWriter {
     const merged = { ...existing, mcpServers };
     const content = JSON.stringify(merged, null, 2) + '\n';
 
-    // DR-18: stage → verify → journal → backup → commit, in place of the former
-    // fixed-name tmp write + bare rename.
     await promoteConfigFile(configPath, content, adaptWriterFs(this.fs), {
       ...(this.promotionIo ? { io: this.promotionIo } : {}),
     });
@@ -601,8 +484,6 @@ function adaptWriterFs(fs: McpJsonWriterFs): ConfigPromotionFs {
       : {}),
   };
 }
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
 
 export function isMissingPathError(err: unknown): boolean {
   if (typeof err !== 'object' || err === null || !('code' in err)) return false;

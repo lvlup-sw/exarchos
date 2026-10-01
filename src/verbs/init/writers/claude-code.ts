@@ -1,14 +1,12 @@
 /**
- * Claude Code RuntimeConfigWriter — deploys exarchos MCP server config,
- * commands, and skills to ~/.claude/.
+ * The Claude Code runtime config writer. It deploys the exarchos MCP server config, the commands, and the skills to `~/.claude/`.
+ * First it recovers an interrupted config promotion. Then it runs four phases:
+ *   1. MCP config: a read-modify-write of `~/.claude.json` with merge semantics, through {@link promoteConfigFile}.
+ *   2. Commands: a copy of the project `commands/` to `~/.claude/commands/`.
+ *   3. Skills: a copy of the project `skills/claude-code/` to `~/.claude/skills/`.
+ *   4. On-ramp: the `AGENTS.md` block and the `CLAUDE.md` shim in the project.
  *
- * Three deployment phases:
- *   1. MCP config — read-modify-write ~/.claude.json with merge semantics
- *   2. Commands — copy project commands/ to ~/.claude/commands/
- *   3. Skills — copy project skills/claude-code/ to ~/.claude/skills/
- *
- * Each phase is independent; a skipped MCP config does not block content
- * deployment. Atomic writes via tmp+rename prevent partial writes on crash.
+ * A skipped MCP config does not block the content phases.
  */
 
 import { join, dirname } from 'node:path';
@@ -39,18 +37,10 @@ interface ClaudeConfig {
   [key: string]: unknown;
 }
 
-// ─── Atomic write helper ──────────────────────────────────────────────────
-
 /**
- * Write JSON to disk atomically: serialize → write to `${path}.tmp` →
- * rename to `${path}`.
- *
- * SUPERSEDED by {@link promoteConfigFile} (DR-18) — a bare tmp+rename has no
- * stage/verify, no journal, no backup and no recovery, which is the whole of the
- * defect DR-18 exists to remove. `deployMcpConfig` no longer calls it. It is
- * retained ONLY because `claude-code.test.ts` pins it directly, and that file is
- * outside this change's declared scope; it should be deleted together with the
- * two `AtomicWriteJson_*` tests.
+ * Writes JSON to `${path}.tmp` and renames it to `${path}`.
+ * {@link promoteConfigFile} supersedes it, because a bare tmp+rename has no verify, journal, backup, or recovery.
+ * `deployMcpConfig` does not call it. Only `claude-code.test.ts` pins it, and it must go together with the two `AtomicWriteJson_*` tests.
  */
 export async function atomicWriteJson(
   deps: WriterDeps,
@@ -63,8 +53,6 @@ export async function atomicWriteJson(
   await publishTempFile(tmp, path, { rename: (from, to) => deps.fs.rename(from, to) });
 }
 
-// ─── The DR-18 promotion seam for ~/.claude.json ──────────────────────────
-
 /**
  * The path of the Claude Code CLI config. One derivation, used by the writer,
  * by the recovery entry point, and by tests.
@@ -74,24 +62,13 @@ export function claudeConfigPath(home: string): string {
 }
 
 /**
- * Build the {@link ConfigPromotionFs} `~/.claude.json` is promoted through.
+ * Builds the {@link ConfigPromotionFs} that promotes `~/.claude.json`.
+ * The bytes go through the writer's own `deps.fs` seam, which callers and tests use to steer this writer.
+ * `WriterFs` cannot express an fsync or a delete, so this function adds the three durability capabilities from `node:fs`.
  *
- * The bytes go through the writer's own `deps.fs` seam, unchanged — that seam is
- * how every existing caller (and every existing test) steers this writer, and
- * routing the write around it would make the injected fs a lie.
- *
- * `WriterFs` (declared in `../probes.js`, shared by every writer and outside this
- * change's scope) cannot express an fsync or a delete. T-23 recorded exactly this
- * gap. The three durability capabilities are therefore supplied HERE, from
- * `node:fs`, and only when the config's parent directory actually exists on the
- * HOST. That condition is not a test-detection hack, it is the precondition the
- * capabilities need to mean anything: an injected in-memory `WriterFs` writes to
- * paths the host has never heard of, so fsyncing them would throw ENOENT and
- * deleting them would either no-op or — worse — hit an unrelated host file.
- * Absent capabilities degrade exactly as `utils/atomic-write.ts` documents:
- * still atomic, durability reported as `not-applicable` rather than assumed.
- *
- * In production the parent is `$HOME`, so the capabilities are always present.
+ * It adds them only when the parent directory of the config exists on the host.
+ * An injected in-memory `WriterFs` writes to paths the host does not have. An fsync there throws ENOENT, and a delete can hit an unrelated host file.
+ * Without the capabilities, the write is still atomic, and durability reports `not-applicable`. In production the parent is `$HOME`, so they are present.
  */
 function claudeConfigPromotionFs(deps: WriterDeps, configPath: string): ConfigPromotionFs {
   const parent = dirname(configPath);
@@ -113,11 +90,8 @@ function claudeConfigPromotionFs(deps: WriterDeps, configPath: string): ConfigPr
 }
 
 /**
- * fsync a file the seam just wrote, publishing its BYTES.
- *
- * A file that is not on the host was written into an injected in-memory fs;
- * there are no bytes for the kernel to flush, so the step is not applicable
- * rather than failed. Everything else propagates.
+ * Fsyncs a file that the seam just wrote, to make its bytes durable.
+ * A file that is not on the host came from an injected in-memory fs, so the step is not applicable and returns. Other errors propagate.
  */
 async function fsyncHostFile(p: string): Promise<void> {
   if (!fsExistsSync(p)) return;
@@ -128,8 +102,6 @@ async function fsyncHostFile(p: string): Promise<void> {
     await handle.close();
   }
 }
-
-// ─── Helpers ──────────────────────────────────────────────────────────────
 
 function isMissingPathError(err: unknown): boolean {
   if (typeof err !== 'object' || err === null || !('code' in err)) return false;
@@ -186,11 +158,7 @@ async function dirExists(fs: WriterFs, p: string): Promise<boolean> {
   }
 }
 
-/**
- * Copy all files from `srcDir` to `destDir`, creating `destDir` if
- * needed. Non-recursive: copies only top-level files. For skills the
- * layout is deeper, so we use `copyDirRecursive`.
- */
+/** Copies the files of `srcDir` into `destDir` recursively, and creates `destDir` when needed. A missing `srcDir` copies nothing. */
 async function copyDirRecursive(
   fs: WriterFs,
   srcDir: string,
@@ -218,15 +186,20 @@ async function copyDirRecursive(
     if (isDir) {
       await copyDirRecursive(fs, srcPath, destPath);
     } else {
-      // Ensure parent dir exists for nested structures
       await fs.mkdir(dirname(destPath), { recursive: true });
       await fs.copyFile(srcPath, destPath);
     }
   }
 }
 
-// ─── Phase: MCP config ───────────────────────────────────────────────────
-
+/**
+ * Merges the exarchos entry into `~/.claude.json` and promotes the result: stage, verify, journal, backup, and commit.
+ * An existing entry stays unless `forceOverwrite` is set.
+ *
+ * `stagePath` pins the staged copy at `<target>.tmp`, because `claude-code.test.ts` asserts that path.
+ * The verify comes before the publish. So a concurrent writer that clobbers the staged copy makes the verify refuse.
+ * The live config is then old-complete or new-complete in every interleaving. Only the success of both writers is lost.
+ */
 async function deployMcpConfig(
   deps: WriterDeps,
   options: WriteOptions,
@@ -258,20 +231,6 @@ async function deployMcpConfig(
     },
   };
 
-  // DR-18: stage → verify → journal → backup → commit, replacing the former
-  // fixed-name tmp write + bare rename. The merge semantics above and the exact
-  // serialization below are unchanged — an atomic writer that atomically writes
-  // the wrong content is worse than the bug it fixes.
-  //
-  // `stagePath` pins the staged copy at the legacy `<target>.tmp` rather than the
-  // unique-per-attempt default. `claude-code.test.ts` asserts that exact path and
-  // is outside this change's declared files. The stage→VERIFY→publish sequence
-  // demotes the shared name from a SAFETY defect to a LIVENESS one: a concurrent
-  // writer can only clobber the staged copy BEFORE the verify, which then refuses
-  // to publish, so the live config is still old-complete or new-complete under
-  // every interleaving — what is lost is the guarantee that both writers succeed.
-  // `.vscode/mcp.json` and `.cursor/mcp.json` have nothing pinning their staged
-  // copy and use the unique default.
   await promoteConfigFile(
     configPath,
     JSON.stringify(mergedConfig, null, 2),
@@ -285,8 +244,6 @@ async function deployMcpConfig(
   return { wrote: true };
 }
 
-// ─── Phase: Commands ─────────────────────────────────────────────────────
-
 async function deployCommands(
   deps: WriterDeps,
   options: WriteOptions,
@@ -299,13 +256,10 @@ async function deployCommands(
   return true;
 }
 
-// ─── Phase: Skills ───────────────────────────────────────────────────────
-
 async function deploySkills(
   deps: WriterDeps,
   options: WriteOptions,
 ): Promise<boolean> {
-  // Claude Code skills live under skills/claude-code/ in the project
   const srcDir = toPosix(join(options.projectRoot, 'skills', 'claude-code'));
   if (!(await dirExists(deps.fs, srcDir))) return false;
 
@@ -314,21 +268,17 @@ async function deploySkills(
   return true;
 }
 
-// ─── Phase: on-ramp block (DR-5) ───────────────────────────────────────────
-
 /**
- * The DR-5 on-ramp seam: write the runtime-neutral `AGENTS.md` block plus the
- * `CLAUDE.md` `@AGENTS.md` shim into the consumer project. Injected so tests can
- * steer or stub it; the default writes real files (via `insertManagedBlock`).
+ * The on-ramp seam. It writes the runtime-neutral `AGENTS.md` block and the `CLAUDE.md` `@AGENTS.md` shim into the consumer project.
+ * Tests inject it to steer or stub it. The default writes real files.
  */
 export interface OnrampSeam {
   (projectRoot: string): {
     readonly wrote: boolean;
     /**
-     * DR-7: the AGENTS.md on-ramp block was NOT put in place (a write error or a
-     * missing canonical source) — distinct from a legitimate no-op (`wrote:false,
-     * failed:false`, e.g. a synthetic/absent project root). Propagated to the
-     * writer's `onrampFailed` so the onboard gate keeps retired hooks in place.
+     * True when an on-ramp surface is not in place: a write error on the `AGENTS.md` block or the shim, or a missing canonical source.
+     * A valid no-op (`wrote: false`, `failed: false`, for example an absent project root) is different.
+     * The writer copies it to `onrampFailed`, so the onboard gate keeps the retired hooks in place.
      */
     readonly failed: boolean;
     readonly warnings: readonly string[];
@@ -336,23 +286,25 @@ export interface OnrampSeam {
 }
 
 /**
- * The production on-ramp seam. Only writes into a project directory that
- * actually exists — the on-ramp files are consumer-owned project files, so a
- * synthetic/absent `projectRoot` (as unit tests use) no-ops rather than
- * attempting a doomed write. The canonical block content is loaded from
- * `binding/standard/block.md`; a missing asset fails open (advisory only).
+ * The production on-ramp seam. It writes only into a project directory that exists, because the on-ramp files belong to the consumer project.
+ * An absent or synthetic `projectRoot` is a valid no-op, not a failure, so it does not gate the removal of retired hooks.
+ * The block content comes from `binding/standard/block.md`. A missing asset writes nothing and returns `failed: true` with a warning.
  */
 export const defaultOnrampSeam: OnrampSeam = (projectRoot) => {
-  // Absent/synthetic project root → a legitimate no-op, NOT a failure: there is no
-  // consumer file to strand, so retired-hook removal (if any) is not gated by it.
   if (!projectRoot || !fsExistsSync(projectRoot)) {
     return { wrote: false, failed: false, warnings: [] };
   }
   return deployOnrampBlocks({ projectRoot });
 };
 
-// ─── Compositor ──────────────────────────────────────────────────────────
-
+/**
+ * Runs the recovery and the four phases, and reports the components it wrote.
+ * Recovery of an interrupted promotion runs first. An interruption can leave `~/.claude.json` absent with the old config in the backup.
+ * A read-modify-write of that state merges into an empty base, and turns a recoverable interruption into data loss.
+ * Recovery also runs before the already-registered skip, which returns before any write.
+ *
+ * On-ramp warnings never fail the overall write. A failed on-ramp sets `onrampFailed`, so the onboard gate keeps the retired hooks in place.
+ */
 export async function writeClaudeCode(
   deps: WriterDeps,
   options: WriteOptions,
@@ -364,20 +316,9 @@ export async function writeClaudeCode(
   const componentsWritten: string[] = [];
   const warnings: string[] = [];
 
-  // Phase 0: DR-18 startup/doctor recovery. FIRST, before phase 1 reads the
-  // existing config: an interrupted promotion can leave `~/.claude.json` absent
-  // with the previous config held in the backup, and a read-modify-write that
-  // reads that state merges into an empty base and then publishes it — silently
-  // converting a recoverable interruption into permanent data loss. It also has
-  // to run ahead of the already-registered SKIP below, which returns before any
-  // write happens at all and would otherwise leave the interruption unrepaired.
-  //
-  // Reached by `onboard`'s GENERATE stage and by `doctor --fix`, both of which
-  // drive this writer through `getAllWriters()`.
   const recovery = recoverInterruptedConfigPromotions([configPath], promotionIo);
   warnings.push(...recovery.failures.map((f) => f.error));
 
-  // Phase 1: MCP config
   const mcpResult = await deployMcpConfig(deps, options, promotionIo);
   if (mcpResult.error) {
     return {
@@ -394,23 +335,16 @@ export async function writeClaudeCode(
     warnings.push('exarchos MCP server already registered; use forceOverwrite to update');
   }
 
-  // Phase 2: Commands
   const commandsDeployed = await deployCommands(deps, options);
   if (commandsDeployed) {
     componentsWritten.push('commands');
   }
 
-  // Phase 3: Skills
   const skillsDeployed = await deploySkills(deps, options);
   if (skillsDeployed) {
     componentsWritten.push('skills');
   }
 
-  // Phase 4: On-ramp block (DR-5) — the runtime-neutral AGENTS.md block plus
-  // the CLAUDE.md @AGENTS.md shim. Advisory-only warnings never fail the OVERALL
-  // write (MCP/commands/skills stand on their own), but a failed AGENTS.md write
-  // is surfaced via `onrampFailed` so the onboard gate (DR-7) keeps retired hooks
-  // in place — a written-but-onramp-failed result must not read as full success.
   const onrampResult = onramp(options.projectRoot);
   if (onrampResult.wrote) {
     componentsWritten.push('onramp');
@@ -418,7 +352,6 @@ export async function writeClaudeCode(
   warnings.push(...onrampResult.warnings);
   const onrampFailedField = onrampResult.failed ? { onrampFailed: true as const } : {};
 
-  // Determine overall status
   if (componentsWritten.length === 0) {
     return {
       runtime: 'claude-code',
@@ -446,11 +379,8 @@ export const claudeCodeWriter: RuntimeConfigWriter = {
 };
 
 /**
- * Class wrapper used by init compositor — `new ClaudeCodeWriter()`.
- * Delegates to the same `writeClaudeCode` implementation. The optional
- * `onramp` seam is injectable for tests; production uses {@link defaultOnrampSeam}.
- * `promotionIo` is the DR-18 recovery/promotion filesystem seam; production uses
- * the real filesystem (`defaultPromotionIo()`).
+ * Class wrapper for the init compositor. It delegates to `writeClaudeCode`.
+ * Tests can inject the `onramp` seam and the `promotionIo` seam. Production uses {@link defaultOnrampSeam} and the real filesystem.
  */
 export class ClaudeCodeWriter implements RuntimeConfigWriter {
   readonly runtime = 'claude-code' as const;

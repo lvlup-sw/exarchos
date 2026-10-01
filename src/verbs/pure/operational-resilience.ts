@@ -1,13 +1,13 @@
 /**
- * Operational Resilience checker — pure TypeScript port of check-operational-resilience.sh.
+ * Operational-resilience checker. It scans the added lines of a unified diff for these
+ * error-handling anti-patterns:
  *
- * Scans a unified diff for anti-patterns in error handling:
  * - Empty catch blocks
- * - Swallowed errors (catch without rethrow/log/return)
- * - console.log in production source files
- * - Unbounded retry loops (while(true)/for(;;) without break/max)
+ * - Swallowed errors (a catch without a throw, a log, an error return, or a reject)
+ * - `console.log` in non-test source files
+ * - Unbounded retry loops (`while(true)` or `for(;;)` without a break or a maximum)
  *
- * Operates in diff-only mode (no filesystem access required).
+ * It reads only the diff, not the file system.
  */
 
 /** Severity levels for findings. */
@@ -28,10 +28,6 @@ export interface OperationalResilienceResult {
   /** Individual findings, empty when pass === true. */
   readonly findings: readonly OperationalResilienceFinding[];
 }
-
-// ============================================================
-// Internal: diff parsing
-// ============================================================
 
 interface ParsedFile {
   readonly name: string;
@@ -54,7 +50,6 @@ function parseDiff(diff: string): ParsedFile[] {
   for (const line of diff.split('\n')) {
     const headerMatch = line.match(/^diff --git a\/(.+?) b\//);
     if (headerMatch) {
-      // Flush previous file
       if (currentName) {
         const addedLines = currentAdded;
         files.push({
@@ -68,18 +63,15 @@ function parseDiff(diff: string): ParsedFile[] {
       continue;
     }
 
-    // Skip +++ header lines
     if (line.startsWith('+++')) {
       continue;
     }
 
-    // Count added lines (start with + but not ++)
     if (line.startsWith('+') && !line.startsWith('++')) {
       currentAdded.push(line.slice(1));
     }
   }
 
-  // Flush last file
   if (currentName) {
     const addedLines = currentAdded;
     files.push({
@@ -105,12 +97,6 @@ function isTestFile(name: string): boolean {
     name.includes('__tests__')
   );
 }
-
-// ============================================================
-// Individual checks
-// ============================================================
-
-// Regex patterns ported from the bash grep -E patterns
 
 /** Matches empty catch blocks: catch (...) { } or catch { } */
 const EMPTY_CATCH_RE = /catch\s*(\([^)]*\))?\s*\{\s*\}/;
@@ -151,12 +137,9 @@ function checkEmptyCatchBlocks(files: readonly ParsedFile[]): OperationalResilie
 }
 
 /**
- * Check 2: Swallowed errors — catch blocks without rethrow/log/return.
- *
- * Scans per-catch-block by splitting added lines around `catch` keywords
- * and checking each block individually for error handling patterns.
- * Files already flagged for empty catch blocks are excluded to avoid
- * double-reporting.
+ * Check 2: swallowed errors. It flags a catch when the 10 added lines from its `catch` keyword hold
+ * no error-handling pattern. It skips empty catches and each file already flagged for an empty
+ * catch.
  */
 function checkSwallowedErrors(
   files: readonly ParsedFile[],
@@ -168,14 +151,11 @@ function checkSwallowedErrors(
     if (!isSourceFile(file.name)) continue;
     if (emptyCatchFiles.has(file.name)) continue;
 
-    // Split added lines into segments around catch keywords and check each
     const lines = file.addedLines;
     for (let i = 0; i < lines.length; i++) {
       if (!HAS_CATCH_RE.test(lines[i] ?? '')) continue;
-      // Skip empty catches (handled by check 1)
       if (EMPTY_CATCH_RE.test(lines.slice(i, i + 3).join(' '))) continue;
 
-      // Check the next ~10 lines for error handling within this catch block
       const catchContext = lines.slice(i, i + 10).join('\n');
       if (!ERROR_HANDLING_RE.test(catchContext)) {
         findings.push({
@@ -211,13 +191,9 @@ function checkConsoleLog(files: readonly ParsedFile[]): OperationalResilienceFin
 }
 
 /**
- * Check 4: Unbounded retry loops (while(true)/for(;;) without break/max).
- *
- * Checks for loop-bounding patterns within ~20 lines of the loop match
- * rather than file-wide, so an unrelated `break` elsewhere in the file
- * doesn't mask a genuinely unbounded loop.
- *
- * Skips test files.
+ * Check 4: unbounded retry loops in non-test source files. The bound check reads only the 20 added
+ * lines from the loop header. An unrelated `break` elsewhere in the file thus does not hide an
+ * unbounded loop.
  */
 function checkUnboundedRetries(files: readonly ParsedFile[]): OperationalResilienceFinding[] {
   const findings: OperationalResilienceFinding[] = [];
@@ -226,12 +202,10 @@ function checkUnboundedRetries(files: readonly ParsedFile[]): OperationalResilie
     if (!isSourceFile(file.name)) continue;
     if (isTestFile(file.name)) continue;
 
-    // Scan line-by-line so we can check nearby context for bounds
     const lines = file.addedLines;
     for (let i = 0; i < lines.length; i++) {
       if (!UNBOUNDED_LOOP_RE.test(lines[i] ?? '')) continue;
 
-      // Check ~20 lines after the loop header for bounding patterns
       const loopContext = lines.slice(i, i + 20).join('\n');
       if (!LOOP_BOUND_RE.test(loopContext)) {
         findings.push({
@@ -245,12 +219,10 @@ function checkUnboundedRetries(files: readonly ParsedFile[]): OperationalResilie
   return findings;
 }
 
-// ============================================================
-// Public API
-// ============================================================
-
 /**
- * Run all operational-resilience checks on a unified diff string.
+ * Runs all operational-resilience checks on a unified diff string. The empty-catch check runs
+ * first. The swallowed-error check then skips the files that it flagged, with the names read from
+ * the finding messages.
  *
  * @param diff - A unified diff string (as produced by `git diff`).
  * @returns The aggregated check result.
@@ -262,11 +234,9 @@ export function checkOperationalResilience(diff: string): OperationalResilienceR
 
   const files = parseDiff(diff);
 
-  // Run empty catch check first so we can pass the set to swallowed errors
   const emptyCatchFindings = checkEmptyCatchBlocks(files);
   const emptyCatchFiles = new Set(
     emptyCatchFindings.map((f) => {
-      // Extract file name from message: "`filename` — ..."
       const match = f.message.match(/^`(.+?)`/);
       return match ? (match[1] ?? '') : '';
     }),
