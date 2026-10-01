@@ -2,13 +2,13 @@
  * The debug review gate. It checks that the diff of a debug fix changes at least one test file. It runs
  * `npm run test:run` when the diff is not empty and `skipRun` is not set.
  */
-import type { EventStore } from '../../events/store.js';
-import type { ToolResult } from '../../format.js';
-import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { resolveRunnableCommand } from '../../config/test-runtime-resolver.js';
 import { runCommandSync } from '../../utils/process.js';
+import { existsSync } from 'node:fs';
+import type { ToolResult } from '../../format.js';
+import { resolveRunnableCommand } from '../../config/test-runtime-resolver.js';
+import type { EventStore } from '../../events/store.js';
+import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from '../gates/gate-runner.js';
 
 export interface DebugReviewGateArgs {
