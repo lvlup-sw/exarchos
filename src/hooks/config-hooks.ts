@@ -18,6 +18,8 @@ export type ConfigHookRunner = (event: WorkflowEvent) => Promise<void>;
  *
  * Each hook gets `EXARCHOS_FEATURE_ID`, `EXARCHOS_PHASE`, `EXARCHOS_EVENT_TYPE`
  * and `EXARCHOS_WORKFLOW_TYPE`. `EXARCHOS_SKIP_HOOKS=true` turns off all hooks.
+ * The event tool calls the runner after a successful append. Hooks are external,
+ * so `EventStore.append()` must not call the runner.
  */
 export function createConfigHookRunner(
   config: ResolvedProjectConfig,

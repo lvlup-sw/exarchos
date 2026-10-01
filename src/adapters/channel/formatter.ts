@@ -38,8 +38,8 @@ export function formatNotification(
 }
 
 /**
- * Appends `data.error ?? data.reason` to the prefix when it is a string.
- * Otherwise it appends `data.summary ?? data.message` when that is a string.
+ * Appends `data.error ?? data.reason` to the `[streamId] type` prefix when that value is a string.
+ * Otherwise it appends `data.summary ?? data.message` when that value is a string.
  */
 function buildContent(
   event: EventLike,

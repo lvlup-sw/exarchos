@@ -161,7 +161,8 @@ export const EMISSION_ENFORCEMENT_MODES = ['block', 'advisory'] as const;
 
 /**
  * The `events:` block. It uses a dedicated mode key, not a boolean, because a boolean cannot tell
- * an explicit `false` from an unset value. The default is `block` in every environment.
+ * an explicit `false` from an unset value. The default is `block` in every environment, because a
+ * lenient dev default hides drift from the earliest check.
  */
 const EventsConfig = z
   .object({

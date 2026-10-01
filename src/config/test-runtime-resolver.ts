@@ -2,7 +2,7 @@
  * Resolves the test, typecheck and install commands of a repository, one field at a time.
  * The layer order, highest first: override > `.exarchos.yml` direct > user `toolchains:` > task runner > built-in registry > unresolved.
  * Toolchain identity and markers come from `./toolchains.ts`. The task-runner layer comes from `./task-runners.ts`.
- * The result is a {@link ResolvedRuntime} with the commands and the source of each one.
+ * The result is a {@link ResolvedRuntime} with the commands and the highest layer that supplied one.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -237,7 +237,8 @@ const NODE_SCRIPT_PROFILES: Record<
 
 /**
  * Runs the built-in detection. Node comes first, with package-manager and script checks. Then the registry detects the other toolchains in priority order.
- * A bun repo uses `bun run test:run` when that script exists. Otherwise `bun test` runs the Bun runner over vitest files, not the real suite.
+ * A bun repo uses `bun run test:run` when that script exists, because `bun test` runs the Bun runner over vitest files and not the real suite.
+ * Without that script, it uses `bun test`, which needs no `scripts.test` entry.
  * For pnpm, yarn and npm, a missing test script gives an unresolved test that still carries an install command.
  */
 function detect(repoRoot: string): DetectionResult {

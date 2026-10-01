@@ -160,7 +160,7 @@ export async function resolveStateDir(): Promise<string> {
 
 /**
  * Parses hook stdin as a JSON object, and returns `{}` for empty input.
- * The hook helpers copy the `cli.ts` helpers, so the hook path does not import `cli.ts` and its eval dependencies.
+ * It throws a `TypeError` when the JSON value is not an object.
  */
 function hookParseStdinJson(input: string): Record<string, unknown> {
   const trimmed = input.trim();
@@ -190,7 +190,7 @@ function hookReadStdin(): Promise<string> {
  * Runs the binary. Some commands take a fast path and never open the SQLite backend.
  *
  * Hook commands run with tight timeouts and need only the state directory.
- * `--version`, `-V` and a plain `version` print the version. Concurrent backend opens can race on WAL recovery and fail with SQLITE_BUSY_RECOVERY.
+ * `--version`, `-V` and a plain `version` print the version with no backend, because concurrent backend opens can race on WAL recovery and fail with SQLITE_BUSY_RECOVERY.
  *
  * `run-tests` runs the consumer test command for the PostToolUse hook. It is not a hook command, because hook commands only observe.
  * `verify-worktree-boundary` is the PreToolUse guard. It denies a write outside the worktree with exit code 2, and allows when stdin is a TTY.

@@ -69,8 +69,8 @@ export interface FollowLoopResult {
 
 /**
  * Change key of a task snapshot. It holds `status` and `statusMessage` with
- * `lastUpdatedAt`, so a store that keeps the timestamp on a message-only edit
- * still shows a change.
+ * `lastUpdatedAt`, so a store that does not update the timestamp on a
+ * message-only edit still shows a change.
  */
 function snapshotSignature(task: Task): string {
   return `${task.status}|${task.lastUpdatedAt}|${task.statusMessage ?? ''}`;
@@ -216,8 +216,8 @@ export interface InspectFollowHandle {
 }
 
 /**
- * A host-timer clock for the heartbeat. Its interval is not `unref`'d, so the
- * heartbeat holds the process open until an abort.
+ * A host-timer clock for the heartbeat. Its interval is not `unref`'d on purpose:
+ * the heartbeat holds the CLI process open until an abort.
  */
 export function defaultFollowClock(): SubscriptionClock {
   return {
@@ -234,9 +234,11 @@ export function defaultFollowClock(): SubscriptionClock {
  * synchronously during `subscribe`, then live events follow. A sequence cursor
  * drops each event at or below the last emitted sequence.
  *
- * The heartbeat takes its schedule and timestamp from the injected clock. A tick
- * after event activity emits nothing, so a heartbeat marks an idle gap. A throw
- * from `onFrame` in a tick is ignored, because the tick runs in a timer callback.
+ * The heartbeat takes its schedule and timestamp from the injected clock. It calls
+ * the clock methods on the clock object, so a clock can keep state on `this`. A tick
+ * after event activity emits nothing, so a heartbeat marks an idle gap. A tick
+ * ignores a throw from `onFrame`, because in a timer callback the throw becomes an
+ * uncaught process error.
  *
  * Abort and `dispose` share one `end` path. It disposes the subscription, stops the
  * heartbeat, removes the abort listener, and writes an `end` frame.

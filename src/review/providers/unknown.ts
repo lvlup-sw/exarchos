@@ -13,7 +13,7 @@ function summarize(body: string): string {
   return body.slice(0, DESCRIPTION_MAX_LENGTH);
 }
 
-/** Returns null for a comment that throws, so one bad body does not stop the batch. */
+/** `parse` returns null when it throws, so one bad comment does not stop the batch. */
 export const unknownAdapter: ProviderAdapter = {
   kind: 'unknown',
   parse(comment: VcsPrComment): ActionItem | null {

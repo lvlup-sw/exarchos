@@ -387,9 +387,10 @@ export class VcsMutationOwner {
 
   /**
    * The general mutation primitive, in the order mode, fencing, replay, intent, effect, terminal.
-   * The carrier drives the intent and the terminal as declared emissions. A recorder failure leaves
-   * the carrier as a throw, and this method maps it to an owner error code. The write of the
-   * failure terminal is best-effort, so if it fails, the caller still gets the effect error.
+   * A replay returns witness evidence, not a receipt, because no effect ran in this call.
+   * The carrier drives the intent and the terminal as declared emissions. When a ledger append
+   * fails, the carrier throws, and this method maps the throw to an owner error code. The write of
+   * the failure terminal is best-effort, so if it fails, the caller still gets the effect error.
    *
    * `effect` must probe before it mutates. A retry after an interrupted run calls it again, and it
    * must do nothing when the target state exists.

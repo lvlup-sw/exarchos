@@ -10,8 +10,8 @@ const execFileAsync = promisify(execFile);
 /**
  * Wall-clock budget for one CLI call (`gh`, `git`). It is the deepest child budget in the process tree.
  * A harness that spawns the binary with its own timeout must set that timeout greater than this value.
- * If the two are equal, the outer timer starts first and wins.
- * Then a slow CLI is killed before it returns its error envelope, and the harness reports a hang.
+ * If the two are equal, the outer timer starts first, at spawn, and wins.
+ * Then the outer timer kills a slow CLI before the CLI returns its error envelope, and the harness reports a hang.
  * See `tests/core/process/packaged-proof.test.ts`.
  */
 export const EXEC_TIMEOUT_MS = 30_000;

@@ -27,7 +27,7 @@ function truncate(body: string, max: number): string {
   return body.length > max ? body.slice(0, max) : body;
 }
 
-/** Returns null for a comment from another author, and for a bad body, so one bad comment does not stop the batch. */
+/** Returns null for a comment from another author. It also returns null for a bad body, so one bad comment does not stop the batch. */
 export const githubCopilotAdapter: ProviderAdapter = {
   kind: 'github-copilot',
   parse(comment: VcsPrComment): ActionItem | null {

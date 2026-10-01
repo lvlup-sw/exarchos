@@ -49,7 +49,7 @@ export type ReadReaderFn = (repoRelativePath: string) => string | undefined;
  *  - `FIELD_NOT_IN_CONTRACT`, `FIELD_OPTIONAL_IN_CONTRACT`: `data` does not declare the property, or declares it optional.
  *  - `READER_MISSING`, `READER_EMPTY`: a declared reader document does not exist, or is empty.
  *  - `FIELD_NOT_MENTIONED`: the reader does not name the field.
- *  - `DIRECTIVE_NOT_COLOCATED`: the reader names every token, but no single section holds all of them.
+ *  - `DIRECTIVE_NOT_COLOCATED`: the reader names the field, but no single section holds every token.
  */
 export type ClosureFindingCode =
   | 'EMPTY_OBLIGATIONS'

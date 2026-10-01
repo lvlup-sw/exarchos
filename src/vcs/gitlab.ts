@@ -100,7 +100,7 @@ export class GitLabProvider implements VcsProvider {
   }
 
   /**
-   * Creates the MR, then reads its `iid` and `webUrl` with `glab mr view --json`. `glab mr create` has no `--json` flag and no documented output.
+   * Creates the MR, then reads its `iid` and `webUrl` by the source branch with `glab mr view --json`. `glab mr create` has no `--json` flag and no documented output.
    * A failed read throws, because `PrResult.number` is required. `handleCreatePr` maps the throw to a VCS_ERROR.
    */
   async createPr(opts: CreatePrOpts): Promise<PrResult> {
@@ -244,8 +244,9 @@ export class GitLabProvider implements VcsProvider {
   }
 
   /**
-   * Reads all MR feedback from the `discussions` endpoint, 100 per page and at most 50 pages, so a large MR is not silently cut.
-   * A note with a diff `position` becomes `review-inline` with its path and line. Every other note becomes `issue-comment`.
+   * Reads all MR feedback from the `discussions` endpoint. It reads page after page, 100 per page, because one page of a large MR is not complete.
+   * A cap of 50 pages (5000 discussions) keeps a faulty pager from an endless loop.
+   * A note with a diff `position` and a path becomes `review-inline` with its path and line. Every other note becomes `issue-comment`.
    * The first non-system note of a discussion is the thread root, and each later note gets it as `parentId`.
    *
    * System notes are activity, not feedback, so the method skips them, as the GitHub endpoints do.

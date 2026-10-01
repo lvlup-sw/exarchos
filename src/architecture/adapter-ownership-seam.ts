@@ -128,7 +128,8 @@ const adapter = (
 
 /**
  * One entry per single-owned effect adapter. The owners are the exact modules that
- * perform the effect on the live tree, so both diagnostics stay live.
+ * perform the effect on the live tree. Thus a new occurrence elsewhere and a lost
+ * effect in an owner both fail the census.
  */
 export const ADAPTER_OWNERSHIP: readonly AdapterOwnershipRule[] = Object.freeze([
   adapter(

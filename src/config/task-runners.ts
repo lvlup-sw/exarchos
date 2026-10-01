@@ -1,6 +1,6 @@
 /**
  * Task-runner tier of the toolchain resolver. It works for any language.
- * If a repo commits a task runner with a conventional target, the resolver runs that target.
+ * If a repo commits a task runner with a conventional target, the resolver returns the command for that target.
  * Detection needs the runner file and the target in it:
  *
  *   Taskfile.yml   -> `task <target>`

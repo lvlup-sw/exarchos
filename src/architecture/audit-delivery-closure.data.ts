@@ -6,7 +6,7 @@
  * match this record. The `outputSchema` of the action must declare the field and its
  * enumerator as typed, required properties. Each reader document must name the
  * action, the field, the enumerator, and the re-entry seam inside one section.
- * The guard checks both places against this record, so a rename in either place fails.
+ * The guard checks both places against this record, so a rename in either place fails the guard.
  *
  * The re-entry seam is where the judgment of the reader lands so that it changes an
  * outcome. An instruction to read a field is not an instruction to act.

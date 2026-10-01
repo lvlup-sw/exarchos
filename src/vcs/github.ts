@@ -95,11 +95,11 @@ interface GhReplyResponse {
 }
 
 /**
- * Maps a `gh pr checks` `state` to a `CiCheck` status, after the state buckets
- * of `gh` (`pkg/cmd/pr/checks/aggregate.go`). SUCCESS is pass. ERROR, FAILURE,
- * TIMED_OUT and ACTION_REQUIRED are fail. SKIPPED and NEUTRAL are skipped.
- * Other values are not terminal, so they are pending. CANCELLED is fail,
- * because it is terminal and not a pass, so it must block the gate.
+ * Maps a `gh pr checks` `state` to a `CiCheck` status with the state buckets of
+ * `gh` (`pkg/cmd/pr/checks/aggregate.go`). SUCCESS is pass.
+ * ERROR, FAILURE, TIMED_OUT and ACTION_REQUIRED are fail. CANCELLED is also
+ * fail, because it is terminal and not a pass, so it must block the gate.
+ * SKIPPED and NEUTRAL are skipped. All other values are not terminal, so they are pending.
  */
 function mapState(state: string): CiCheck['status'] {
   switch (state.toUpperCase()) {

@@ -1,7 +1,8 @@
 /**
  * Adapts the MCP SDK `elicitation/create` request to the {@link ElicitationClient} that `dispatch/elicitation-dispatch.ts` uses.
- * The SDK import stays in `mcp/`, so dispatch depends only on transport-agnostic types.
- * The form-mode `requestedSchema` allows only a small subset of JSON Schema. A simple string field fits it, but a nested field needs a shaping pass here.
+ * The adapter lives in `mcp/`, so dispatch depends only on transport-agnostic types.
+ * The form-mode `requestedSchema` allows only a small subset of JSON Schema. A simple string field fits it.
+ * This adapter does not reshape the schema, so a nested field does not fit.
  */
 
 import type { ElicitationClient } from '../dispatch/elicitation-dispatch.js';

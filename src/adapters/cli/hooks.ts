@@ -4,7 +4,7 @@
  */
 
 /**
- * Hook commands that `main()` detects early. They skip backend initialization and the heavy eval dependencies.
+ * Hook commands that `main()` detects early. They skip the backend initialization.
  * Each one is a lifecycle observer and never blocks tool execution.
  * `subagent-stop` opens the event store to append a `subagent.tokens_used` event. It changes no workflow state and fails open on an error.
  */
@@ -27,7 +27,7 @@ export type HookResult =
  * Sends a hook command to its lifecycle handler, with `--plugin-root` and `--directive` read from argv.
  * The build puts the SessionStart binding directive into the rendered hook command. The handler returns it as `additionalContext`.
  *
- * The router imports the handlers lazily. It does not import `cli.ts`, which pulls in promptfoo and playwright through the eval handlers.
+ * The router imports each handler with a dynamic import, so a hook command loads only its own handler.
  * A handler `error` is an operational failure, not a policy decision. The router writes it to stderr and returns exit code 1.
  *
  * @param command     - The hook command name, for example 'session-start'

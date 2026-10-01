@@ -25,7 +25,7 @@ function tryJsonParseArray(val: string): unknown {
 
 /**
  * `z.record()` that also accepts a JSON object string.
- * The schema emits `{"type":"object"}`, not `{}`, so the LLM sends native objects.
+ * `zodToJsonSchema` emits `{"type":"object"}` for it, not `{}`, so the LLM sends native objects.
  */
 export function coercedRecord() {
   return z.preprocess(
@@ -71,6 +71,7 @@ function splitCsv(val: string): string[] {
 
 /**
  * Array of positive integers that accepts a native array, a JSON array string, or a CSV string.
+ * CLI flag values arrive here as raw strings.
  * A string that does not parse as a JSON array goes to {@link splitCsv}, so a bare `"1660"` also works.
  * {@link coercedPositiveInt} then converts each element, so the CSV and JSON forms give the same `number[]`.
  */
