@@ -100,10 +100,14 @@ them locally.
   frontmatter — frontmatter is reserved for entry points (`SKILL.md`, commands, rules).
 - **No directory holds more than 25 non-test files at its own level** — exemptions exist but each
   names a reason and pins its count (`tests/architecture/locality.test.ts`).
+- **Comments are a file header or a `/** */` description, nowhere else** — a description sits
+  directly above a module-level declaration, a member, a module-level literal element, or a
+  `describe`/`it`/`test` call. No comments inside function or test bodies, no trailing comments,
+  no section banners. Put the reason in the description, or delete the comment.
 - **Comments name no planning ordinal** — no `DR-<n>`, `task <n>`, `INV-<n>`, `wave <n>`, or
   `docs/specs/…` path. State the constraint in words; the policy and its rationale are in
-  `.exarchos/comment-policy.json`. `npm run lint:comments` enforces it. Existing violations sit in
-  `tools/audit/comment-quality/baseline.tsv`, which only shrinks: an edited comment must pass.
+  `.exarchos/comment-policy.json`. `npm run lint:comments` enforces both rules. Existing violations
+  sit in `tools/audit/comment-quality/baseline.tsv`, which only shrinks: an edited comment must pass.
 
 ## Workflow Dispatch
 

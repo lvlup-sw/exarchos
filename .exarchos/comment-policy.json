@@ -2,8 +2,55 @@
   "version": 2,
   "rule": "A code comment states its constraint in words and names no planning ordinal. Planning ordinals identify artifacts of a workflow that a future reader cannot resolve and that are renumbered as the plan is revised, so a citation accurate when written stops being so without anything changing. Durable external references are unaffected: they name something outside this repository's planning cycle and a reader can follow them.",
   "rules": [
-    "comment-content"
+    "comment-content",
+    "comment-placement"
   ],
+  "placement": {
+    "rule": "A comment is the file header, or a `/** */` description attached to a module-level declaration, a member, a module-level literal element, or a test call. A comment anywhere else describes code that cannot carry it: move the reason into a description, or delete the comment.",
+    "testCallees": [
+      "describe",
+      "it",
+      "test",
+      "suite",
+      "bench",
+      "beforeAll",
+      "beforeEach",
+      "afterAll",
+      "afterEach"
+    ],
+    "checks": [
+      {
+        "id": "banner",
+        "enabled": true,
+        "message": "Section banner. Delete it. To group code, split the file, or give each declaration its own `/** */` description."
+      },
+      {
+        "id": "trailing",
+        "enabled": true,
+        "message": "Comment on the same line as code. Move it into the `/** */` description of the declaration, or delete it."
+      },
+      {
+        "id": "in-body",
+        "enabled": true,
+        "message": "Comment inside a function body. Move the reason into the function's `/** */` description, or delete the comment if the code already says it."
+      },
+      {
+        "id": "non-jsdoc",
+        "enabled": true,
+        "message": "Description in `//` or `/* */` form. Write it as a `/** */` block."
+      },
+      {
+        "id": "detached",
+        "enabled": true,
+        "message": "Comment not attached to a declaration: a blank line follows it. Attach it as the `/** */` description of the next declaration, or delete it."
+      },
+      {
+        "id": "floating",
+        "enabled": true,
+        "message": "Comment on a statement that takes no description, such as an import, an expression, a parameter or a closing brace. Move it into a declaration's `/** */` description, or delete it."
+      }
+    ]
+  },
   "forbiddenOrdinals": [
     {
       "id": "design-requirement",
@@ -199,14 +246,16 @@
     {
       "glob": "tools/audit/__fixtures__/comment-hygiene/**",
       "rules": [
-        "comment-content"
+        "comment-content",
+        "comment-placement"
       ],
       "reason": "Kill fixtures carry verbatim offender text. A guard that flags its own fixtures cannot be tested."
     },
     {
       "glob": "tests/evals/**/runs/**",
       "rules": [
-        "comment-content"
+        "comment-content",
+        "comment-placement"
       ],
       "reason": "Verbatim captured agent output. It is evidence of what an agent produced, not authored code: rewriting it would destroy the record."
     }

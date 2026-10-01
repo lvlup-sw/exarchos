@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Self-test for tools/audit/gates/lint-comments.mjs. It drives the real gate over seeded fixtures:
-# a clean file, a new violation, a baselined block, a swap, a duplicate, a stale entry, a shell
-# comment after a heredoc, a hand-grown baseline entry, a missing config, and a pull request run
-# without its base branch. The trap restores every file that the test changes.
+# a clean file, a new violation, a baselined block, a swap, a duplicate, a stale entry, a comment
+# inside a function, a shell comment after a heredoc, a hand-grown baseline entry, a missing
+# config, and a pull request run without its base branch. The trap restores every changed file.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -34,8 +34,8 @@ check() { # <name> <expected-exit> <actual-exit>
   fi
 }
 gate() { node "$GATE" "$@" >"$TMP/out" 2>&1; echo $?; }
-expect_output() { # <name> <pattern>
-  if grep -q "$2" "$TMP/out"; then
+expect_output() { # <name> <extended-regex>
+  if grep -qE "$2" "$TMP/out"; then
     echo "  ok: $1"
     pass=$((pass + 1))
   else
@@ -68,7 +68,11 @@ check "LintComments_DuplicateOfBaselinedBlock_ExitsOne" 1 "$(gate --files "$FX" 
 
 printf '/** Fsync the parent first. */\nexport const a = 1;\n' > "$FX"
 check "LintComments_FixedButNotPruned_ExitsOne" 1 "$(gate --files "$FX" --no-admission --baseline "$OWN")"
-expect_output "LintComments_FixedButNotPruned_NamesTheStaleEntry" "baseline lists 1 block(s) with hash $HASH"
+expect_output "LintComments_FixedButNotPruned_NamesTheStaleEntry" "baseline lists 1 block\\(s\\) with hash $HASH"
+
+printf '/** Count to one. */\nexport function one() {\n  // step one\n  return 1;\n}\n' > "$FX"
+check "LintComments_CommentInsideAFunction_ExitsOne" 1 "$(gate --files "$FX" --no-admission --baseline "$TMP/empty.tsv")"
+expect_output "LintComments_CommentInsideAFunction_NamesThePlacementRule" "comments/comment-placement"
 
 printf '#!/usr/bin/env bash\ncat <<EOF\nit'"'"'s a body\nEOF\n# wave 3 cleanup\necho done\n' > "$FX_DIR/fixture.sh"
 check "LintComments_ShellCommentAfterHeredoc_ExitsOne" 1 "$(gate --files "$FX_DIR/fixture.sh" --no-admission --baseline "$TMP/empty.tsv")"
@@ -82,7 +86,7 @@ if git cat-file -e "HEAD:$BASELINE" 2>/dev/null; then
   awk -F'\t' -v f="$FILE" -v h="$ENTRY" -v c="$((COUNT + 1))" 'BEGIN { OFS = "\t" } $1 == f && $2 == h { $3 = c } { print }' \
     "$TMP/baseline.tsv" > "$BASELINE"
   check "LintComments_HandGrownEntry_ExitsOne" 1 "$(gate --files "$FILE" --base HEAD)"
-  expect_output "LintComments_HandGrownEntry_FailsAdmission" "grew from $COUNT to $((COUNT + 1))"
+  expect_output "LintComments_HandGrownEntry_FailsAdmission" "grew from $COUNT to $((COUNT + 1))|only $COUNT existed at HEAD"
   cp "$TMP/baseline.tsv" "$BASELINE"
 else
   echo "  skip: LintComments_HandGrownEntry (HEAD has no baseline to compare with)"

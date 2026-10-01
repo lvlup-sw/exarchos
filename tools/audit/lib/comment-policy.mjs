@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { globsMatch } from './lint-scope.mjs';
+import { PLACEMENT_CHECKS, PLACEMENT_RULE } from './comment-placement.mjs';
 
 /** Where the datum lives, relative to the repository root. */
 export const DEFAULT_POLICY_PATH = '.exarchos/comment-policy.json';
@@ -153,6 +154,41 @@ export function isExempt(policy, relPath, rule) {
 }
 
 /**
+ * The placement section: the test callees, and one enabled flag and message per check.
+ *
+ * @typedef {object} PlacementPolicy
+ * @property {readonly string[]} testCallees
+ * @property {ReadonlyMap<string, { enabled: boolean, message: string }>} checks
+ */
+
+/**
+ * Validate the placement section. It must declare every placement check, and no other.
+ *
+ * @param {unknown} raw
+ * @returns {PlacementPolicy}
+ */
+function readPlacement(raw) {
+  const section = requireObject(raw, 'placement');
+  const testCallees = requireArray(section.testCallees, 'placement.testCallees').map((name, index) => {
+    if (typeof name !== 'string' || name.length === 0) throw new PolicyError(`placement.testCallees[${index}] must be a name.`);
+    return name;
+  });
+  /** @type {Map<string, { enabled: boolean, message: string }>} */
+  const checks = new Map();
+  for (const rawCheck of requireArray(section.checks, 'placement.checks')) {
+    const check = requireObject(rawCheck, 'placement.checks');
+    const id = requireString(check, 'id', 'placement.checks');
+    if (!PLACEMENT_CHECKS.includes(id)) throw new PolicyError(`placement.checks.${id} is not a placement check.`);
+    if (checks.has(id)) throw new PolicyError(`placement.checks.${id} appears twice.`);
+    if (typeof check.enabled !== 'boolean') throw new PolicyError(`placement.checks.${id} requires an explicit boolean \`enabled\`.`);
+    checks.set(id, { enabled: check.enabled, message: requireString(check, 'message', `placement.checks.${id}`) });
+  }
+  const missing = PLACEMENT_CHECKS.filter((id) => !checks.has(id));
+  if (missing.length > 0) throw new PolicyError(`placement.checks does not declare: ${missing.join(', ')}.`);
+  return { testCallees: Object.freeze(testCallees), checks };
+}
+
+/**
  * Read, validate and return the policy.
  *
  * @param {string} [policyPath]
@@ -237,10 +273,13 @@ export function loadPolicy(policyPath = DEFAULT_POLICY_PATH) {
     };
   });
 
+  const placement = rules.includes(PLACEMENT_RULE) ? readPlacement(doc.placement) : undefined;
+
   return {
     version: typeof doc.version === 'number' ? doc.version : 0,
     rule: typeof doc.rule === 'string' ? doc.rule : '',
     rules,
+    placement,
     forbiddenOrdinals,
     allowedReferences,
     changelogPatterns,

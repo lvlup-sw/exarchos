@@ -97,9 +97,14 @@ export function analysisFor(context) {
     range: /** @type {[number, number]} */ (comment.range ?? [0, 0]),
   }));
   const blocks = groupBlocks(comments, sourceCode.text);
+  const syntax = {
+    ast: /** @type {import('../audit/lib/comment-placement.mjs').EsNode} */ (/** @type {unknown} */ (sourceCode.ast)),
+    comments,
+    text: sourceCode.text,
+  };
   /** @type {FileAnalysis} */
   const result = {
-    ...analyzeFile({ relPath, blocks, policy, entries: baseline.get(relPath) }),
+    ...analyzeFile({ relPath, blocks, policy, entries: baseline.get(relPath), syntax }),
     relPath,
     locOf: (block) => ({
       start: sourceCode.getLocFromIndex(block.start),
