@@ -360,6 +360,17 @@ async function stageTempFile(tmpPath: string, data: string | Uint8Array): Promis
 }
 
 /**
+ * Run `read` in the target's queue, so it never overlaps a publish to that
+ * target from this process. On Windows a file that a reader holds open cannot
+ * be replaced, so an in-process reader that skipped the queue could make our
+ * own publish fail with `EPERM`. Readers in other processes still rely on the
+ * bounded retry in {@link publishTempFile}.
+ */
+export function readPublished<T>(target: string, read: () => Promise<T>): Promise<T> {
+  return serializePerTarget(target, read);
+}
+
+/**
  * Replace `target` with `data`: stage a unique temp file next to it, then rename
  * the temp file over it. Stage and rename are one task in the target's queue, so
  * writers to one target run one at a time and the target ends with the bytes of

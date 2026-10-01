@@ -12,6 +12,7 @@ import {
   atomicReplace,
   atomicWriteFile,
   pendingPublishTargets,
+  readPublished,
   fsyncDir,
   fsyncDirSync,
   DIRECTORY_SYNC_UNSUPPORTED_CODES,
@@ -397,6 +398,33 @@ describe('publishTempFile — writers to one target are serialized (#2028)', () 
     release();
     await pending;
     expect(pendingPublishTargets()).toBe(before);
+  });
+
+  /** A read in the queue waits for the publish before it and holds back the publish after it. */
+  it('ReadPublished_InterleavedWithPublishesToOneTarget_NeverOverlapsARename', async () => {
+    const seam = recordingRename();
+    let reading = 0;
+    let overlapped = false;
+    const read = async (): Promise<void> => {
+      reading++;
+      if (seam.log.length % 2 === 1) overlapped = true;
+      await new Promise((resolve) => setImmediate(resolve));
+      reading--;
+    };
+    const rename = async (from: string, to: string): Promise<void> => {
+      if (reading > 0) overlapped = true;
+      await seam.rename(from, to);
+    };
+
+    await Promise.all(
+      Array.from({ length: 6 }, (_, i) => [
+        publishTempFile(`/q/read.json.${i}.tmp`, '/q/read.json', { rename }),
+        readPublished('/q/read.json', read),
+      ]).flat(),
+    );
+
+    expect(seam.log).toHaveLength(12);
+    expect(overlapped).toBe(false);
   });
 });
 
