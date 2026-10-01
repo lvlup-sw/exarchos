@@ -82,7 +82,7 @@ export function createCliDispatchContext(ctx: DispatchContext): DispatchContext 
  * - `WAIT_TIMEOUT` (17): the bounded `wait` expired before its predicate held.
  * - `WAIT_FAILED` (18): a terminal state that cannot satisfy the predicate arrived first.
  * The codes come from `projections/views/lifecycle/wait.ts`. They are above the generic band 0-3, so they never alias it.
- * {@link resolveExitCode} does not read this table. Tests check it against the contract registry.
+ * {@link resolveExitCode} does not read this table. A test checks it against `CONTRACT_EXIT_CODES` in `contract/error-families.ts`.
  */
 export const ERROR_CODE_EXIT_CODES: Readonly<Record<string, number>> = {
   WAIT_TIMEOUT: 17,
