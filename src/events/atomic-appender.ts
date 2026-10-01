@@ -403,6 +403,13 @@ export class AtomicAppender {
    * this field and `sqliteBackend` reference the canonical handle.
    */
   private sqliteBackendPromise?: Promise<SqliteBackend> | undefined;
+  /**
+   * Set by {@link close} and never cleared. A closed appender never opens a
+   * SQLite handle again. An operation that was still in flight when the
+   * appender closed fails with {@link AppenderClosedError}; it does not
+   * reopen `exarchos.db` behind the owner's back (#2026).
+   */
+  private closed = false;
   private readonly sqliteBackendInjected: boolean;
   /** Durability posture for lazily-constructed backends (DR-4). */
   private readonly synchronous?: 'normal' | 'full' | undefined;
@@ -1066,6 +1073,7 @@ export class AtomicAppender {
     if (this.sqliteBackendPromise) {
       return this.sqliteBackendPromise;
     }
+    this.assertOpen();
     // Build and assign the in-flight Promise SYNCHRONOUSLY before
     // awaiting — this is the single point where the singleton
     // invariant is enforced. The async IIFE captures all init work
@@ -1364,6 +1372,7 @@ export class AtomicAppender {
    */
   ensureSqliteBackendSync(): SqliteBackend {
     if (this.sqliteBackend) return this.sqliteBackend;
+    this.assertOpen();
     // Ensure the state dir exists before opening the DB (matches the
     // mkdir performed inside the async write path so read-before-write
     // callers don't ENOENT against a fresh tmp dir).
@@ -1388,19 +1397,15 @@ export class AtomicAppender {
   }
 
   /**
-   * Release the owned SQLite backend handle.
+   * Release the owned SQLite backend handle. Idempotent, synchronous and final.
    *
-   * Idempotent and synchronous. Closes the lazily-constructed
-   * {@link SqliteBackend} (releasing the `exarchos.db` / `-wal` / `-shm` OS
-   * file handles) and clears the cached references so any subsequent
-   * operation re-opens a fresh handle.
-   *
-   * Primarily a test-lifecycle affordance: on Windows an open SQLite handle
-   * blocks `fs.rm` of the containing temp dir with EPERM/EBUSY, because NTFS —
-   * unlike POSIX — forbids unlinking a file that still has an open handle.
-   * Closing the appender before teardown is the portable cleanup contract.
+   * After close, this appender never opens a handle again, so an operation
+   * still in flight cannot reopen `exarchos.db` after the owner released it.
+   * On Windows such a handle blocks `fs.rm` of the directory with EBUSY
+   * (#2026). The owner makes a new appender for later work.
    */
   close(): void {
+    this.closed = true;
     // Injected backends are caller-owned (see `sqliteBackendInjected`) — only
     // close a handle this appender constructed itself, so closing the
     // EventStore doesn't tear down a shared/injected backend.
@@ -1409,6 +1414,24 @@ export class AtomicAppender {
     }
     this.sqliteBackend = undefined;
     this.sqliteBackendPromise = undefined;
+  }
+
+  /** Throw {@link AppenderClosedError} when {@link close} has run. */
+  private assertOpen(): void {
+    if (this.closed) throw new AppenderClosedError(this.stateDir);
+  }
+}
+
+/**
+ * Raised when work reaches an {@link AtomicAppender} after its `close()`.
+ * The append paths report it as an `io-error` result.
+ */
+export class AppenderClosedError extends Error {
+  override readonly name = 'AppenderClosedError';
+  readonly code = 'APPENDER_CLOSED';
+
+  constructor(readonly stateDir: string) {
+    super(`event appender for ${stateDir} is closed; it does not open the store again`);
   }
 }
 

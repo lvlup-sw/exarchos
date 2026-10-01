@@ -638,7 +638,7 @@ export function setDurableAppendSuccessListener(
 function trackEvidenceAppend(
   work: Promise<unknown>,
   health: LiveShadowHealthCounter,
-): void {
+): Promise<void> {
   health.scheduledAppend();
   const settled = work.then(
     () => {
@@ -662,6 +662,7 @@ function trackEvidenceAppend(
   void settled.finally(() => {
     pendingEvidenceAppends.delete(settled);
   });
+  return settled;
 }
 
 /** Await every shadow-evidence append scheduled so far. Never throws. */
@@ -694,7 +695,7 @@ function emitShadowEvidence(args: {
   readonly context: TranslationContext;
   readonly record: ShadowDecisionRecord;
   readonly health: LiveShadowHealthCounter;
-}): void {
+}): Promise<void> {
   const { target, edge, key, state, context, record, health } = args;
 
   const streamId = (target.streamIdFor ?? defaultStreamIdFor)(state);
@@ -702,7 +703,7 @@ function emitShadowEvidence(args: {
   // Counted, so the evidence stream being empty is attributable.
   if (streamId === undefined) {
     health.unresolvedStream();
-    return;
+    return Promise.resolve();
   }
 
   const recordedAt = context.evaluatedAt;
@@ -802,7 +803,7 @@ function emitShadowEvidence(args: {
       })
     : undefined;
 
-  trackEvidenceAppend(
+  return trackEvidenceAppend(
     (async () => {
       await target.appender.append(
         streamId,
@@ -863,20 +864,22 @@ export interface LiveShadowDeps {
  * Observe one legacy transition against the evidence-backed admission engine and
  * record the pair. Only guarded edges present in the shared IR are shadowed;
  * unmodelled edges (universal cancel/cleanup, idempotent no-ops) are skipped.
- * Total and error-isolated: this never throws.
+ * Total and error-isolated: this never throws. The returned promise settles
+ * when the durable write has landed or failed, and it never rejects (#2026).
  */
 export function observeLiveTransition(
   observation: LegacyTransitionObservation,
   state: Record<string, unknown>,
   deps: LiveShadowDeps,
-): void {
+): Promise<void> {
+  let written: Promise<void> = Promise.resolve();
   try {
     const edge = getEdgeIR(
       observation.workflowType,
       observation.fromPhase,
       observation.toPhase,
     );
-    if (edge === undefined) return;
+    if (edge === undefined) return written;
 
     const key = edgeKey(edge.workflowType, edge.from, edge.to);
     const attempt: ShadowAttempt = {
@@ -914,7 +917,7 @@ export function observeLiveTransition(
     // in-memory sink write succeeding — the store is the substrate now, and the
     // ring buffer is a same-process cache in front of it.
     if (deps.evidence !== undefined) {
-      emitShadowEvidence({
+      written = emitShadowEvidence({
         target: deps.evidence,
         edge,
         key,
@@ -931,6 +934,7 @@ export function observeLiveTransition(
     // absence of transitions.
     deps.health.observationThrew();
   }
+  return written;
 }
 
 // ─── Production wiring ──────────────────────────────────────────────────────────
@@ -971,8 +975,8 @@ export function recordLiveTransition(
   observation: LegacyTransitionObservation,
   state: Record<string, unknown>,
   appender: ShadowEvidenceAppender | null | undefined,
-): void {
-  observeLiveTransition(observation, state, {
+): Promise<void> {
+  return observeLiveTransition(observation, state, {
     sink: liveShadowSink,
     health: liveShadowHealth,
     context: {

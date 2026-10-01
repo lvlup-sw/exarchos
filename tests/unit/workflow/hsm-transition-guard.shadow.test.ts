@@ -85,3 +85,63 @@ describe('HSMTransitionGuard_ShadowHook (P07-01)', () => {
     expect(withObserver.ok).toBe(false);
   });
 });
+
+/** An observer whose write lands one macrotask later, and a flag that says it landed. */
+function slowObserver(): { observer: () => Promise<void>; landed: () => boolean } {
+  let done = false;
+  return {
+    observer: () =>
+      new Promise<void>((resolve) => {
+        setTimeout(() => {
+          done = true;
+          resolve();
+        }, 0);
+      }),
+    landed: () => done,
+  };
+}
+
+describe('HSMTransitionGuard_ShadowHook waits for the observer write (#2026)', () => {
+  /** A refused transition used to return with the shadow write still running. */
+  it('ShadowObserver_DenyPath_WriteHasLandedWhenAttemptReturns', async () => {
+    const slow = slowObserver();
+    const result = await guard.attempt(featureId, 'plan', 'plan-review', {
+      state: { ...failState },
+      workflowType: 'feature',
+      eventStore: null,
+      shadowObserver: slow.observer,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(slow.landed()).toBe(true);
+  });
+
+  it('ShadowObserver_AllowPath_WriteHasLandedWhenAttemptReturns', async () => {
+    const slow = slowObserver();
+    const result = await guard.attempt(featureId, 'plan', 'plan-review', {
+      state: { ...passState },
+      workflowType: 'feature',
+      eventStore: null,
+      shadowObserver: slow.observer,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(slow.landed()).toBe(true);
+  });
+
+  it('ShadowObserver_RejectedWrite_DoesNotChangeTheResult', async () => {
+    const withObserver = await guard.attempt(featureId, 'plan', 'plan-review', {
+      state: { ...failState },
+      workflowType: 'feature',
+      eventStore: null,
+      shadowObserver: () => Promise.reject(new Error('shadow write failed')),
+    });
+    const withoutObserver = await guard.attempt(featureId, 'plan', 'plan-review', {
+      state: { ...failState },
+      workflowType: 'feature',
+      eventStore: null,
+    });
+
+    expect(withObserver).toEqual(withoutObserver);
+  });
+});

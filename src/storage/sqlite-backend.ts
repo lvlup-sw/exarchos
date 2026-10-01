@@ -239,6 +239,7 @@ export class SqliteBackend implements StorageBackend {
   // ─── Lifecycle ──────────────────────────────────────────────────────────
 
   initialize(): void {
+    this.assertOpen();
     try {
       this.db = new Database(this.dbPath);
       // Track the live handle from the moment it opens, so a partial-init
@@ -327,6 +328,13 @@ export class SqliteBackend implements StorageBackend {
         );
       }
       throw err;
+    }
+  }
+
+  /** Refuse to open a handle on a backend whose {@link close} has run (#2026). */
+  private assertOpen(): void {
+    if (this.closed) {
+      throw new Error(`SqliteBackend for ${this.dbPath} is closed; it does not open the file again`);
     }
   }
 

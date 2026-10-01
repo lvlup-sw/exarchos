@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1290,
-    "parsedFiles": 1245,
+    "testFiles": 1292,
+    "parsedFiles": 1247,
     "shellFiles": 45,
-    "cases": 14288,
+    "cases": 14300,
     "dynamicTitles": 172,
     "unparseableFiles": 0
   },
@@ -6683,6 +6683,32 @@
         {
           "suite": "SkillProse — the checked-by sentence names the gate row",
           "name": "SkillProse_SeededTableDisagreement_NamesTheRowAndTheEmitter",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/sqlite-owner-close-barrier.test.ts": {
+      "file": "tests/architecture/sqlite-owner-close-barrier.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "SQLite handle owners refuse to reopen after close (#2026)",
+          "name": "SqliteOwnerGuard_ScansTheSourceTreeAndTheKnownOwners",
+          "dynamic": false
+        },
+        {
+          "suite": "SQLite handle owners refuse to reopen after close (#2026)",
+          "name": "SqliteOwnerGuard_EveryOpenComesAfterTheCloseBarrier",
+          "dynamic": false
+        },
+        {
+          "suite": "SQLite handle owners refuse to reopen after close (#2026)",
+          "name": "SqliteOwnerGuard_Matcher_FindsSeededViolations",
+          "dynamic": false
+        },
+        {
+          "suite": "SQLite handle owners refuse to reopen after close (#2026)",
+          "name": "SqliteOwnerGuard_Matcher_AcceptsTheCleanTwin",
           "dynamic": false
         }
       ]
@@ -23646,6 +23672,32 @@
         {
           "suite": "aggregateStream<T> — read-only fold (Tasks 3.11 + 3.12)",
           "name": "AggregateStream_ReturnsInitialStateAndZeroVersion_OnEmptyStream",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/events/appender-close-barrier.test.ts": {
+      "file": "tests/unit/events/appender-close-barrier.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "a closed event store opens no SQLite handle (#2026)",
+          "name": "InFlightAppend_StoreClosedBeforeItReachesTheBackend_OpensNoHandle",
+          "dynamic": false
+        },
+        {
+          "suite": "a closed event store opens no SQLite handle (#2026)",
+          "name": "ClosedAppender_ReadBackendRequested_ThrowsInsteadOfOpening",
+          "dynamic": false
+        },
+        {
+          "suite": "a closed event store opens no SQLite handle (#2026)",
+          "name": "ClosedBackend_InitializeCalledAgain_ThrowsInsteadOfOpening",
+          "dynamic": false
+        },
+        {
+          "suite": "a closed event store opens no SQLite handle (#2026)",
+          "name": "ClosedStore_LaterCall_OpensAFreshHandleTheStoreOwns",
           "dynamic": false
         }
       ]
@@ -73070,6 +73122,11 @@
           "suite": "HSMTransitionGuard custom-guard early-return shadow (P07-02)",
           "name": "a throwing observer does NOT change the early-return result",
           "dynamic": false
+        },
+        {
+          "suite": "HSMTransitionGuard custom-guard early-return shadow (P07-02)",
+          "name": "UnregisteredCustomGuard_ObserverWrite_HasLandedWhenAttemptReturns",
+          "dynamic": false
         }
       ]
     },
@@ -73116,6 +73173,21 @@
         {
           "suite": "HSMTransitionGuard_ShadowHook (P07-01)",
           "name": "a THROWING observer does NOT change the transition result (deny path)",
+          "dynamic": false
+        },
+        {
+          "suite": "HSMTransitionGuard_ShadowHook waits for the observer write (#2026)",
+          "name": "ShadowObserver_DenyPath_WriteHasLandedWhenAttemptReturns",
+          "dynamic": false
+        },
+        {
+          "suite": "HSMTransitionGuard_ShadowHook waits for the observer write (#2026)",
+          "name": "ShadowObserver_AllowPath_WriteHasLandedWhenAttemptReturns",
+          "dynamic": false
+        },
+        {
+          "suite": "HSMTransitionGuard_ShadowHook waits for the observer write (#2026)",
+          "name": "ShadowObserver_RejectedWrite_DoesNotChangeTheResult",
           "dynamic": false
         }
       ]

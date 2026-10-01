@@ -307,29 +307,17 @@ export interface GuardContext {
     ctx: ResolveGateSetCtx,
   ) => readonly ResolvedGate[];
   /**
-   * P07-01 — a non-invasive shadow observer (Transition tasks 027/051). When
-   * present, the primitive surfaces the AUTHORITATIVE legacy allow/deny outcome
-   * of the composite-guard HSM walk to this callback AFTER the decision is made,
-   * for side-by-side shadow comparison against the evidence-backed admission
-   * engine. It is:
-   *   - OPTIONAL and defaulted-off: no production caller sets it, so behaviour is
-   *     byte-identical when it is absent (behaviour preservation);
-   *   - ERROR-ISOLATED: any throw from the observer is swallowed — a shadow
-   *     failure can never propagate into the production transition path;
-   *   - PASSIVE: the observer receives the legacy outcome and cannot alter it.
-   *
-   * DR-23 / T-31 — the observer ALSO receives `context.eventStore`, so the live
-   * shadow evidence it records is durable rather than process-scoped. The store
-   * is handed over here, at the seam that already holds it, rather than through
-   * a module-level binding: hidden global state is not a wiring closure.
-   * Observers that only need the observation may ignore the second parameter.
-   * All shadow adjudication, classification and recording live behind this seam
-   * in `admission/shadow-decision.ts`, never in this primitive.
+   * Optional shadow observer. The guard calls it once per decision with the
+   * legacy allow or deny outcome and the event store, so it can record durable
+   * shadow evidence. It cannot change the outcome, and a throw or a rejected
+   * promise is ignored. When it returns a promise, the guard waits for that
+   * promise before it returns. So no write that the observer started is still
+   * running when the caller closes the store (#2026).
    */
   readonly shadowObserver?: (
     observation: LegacyTransitionObservation,
     eventStore: EventStore | null,
-  ) => void;
+  ) => unknown;
   /**
    * DR-7 (INV-9) — admit the HSM's UNIVERSAL final-state edges.
    *
@@ -475,28 +463,19 @@ function resolveHSM(
  *     arrives in #1259's substrate refactor.
  */
 /**
- * P07-01/P07-02 — fire the non-invasive shadow observer, if one is present, for
- * a single legacy transition outcome. Centralised so EVERY authoritative legacy
- * decision site (the composite HSM walk AND the custom-guard early-return deny
- * paths) surfaces to the observer through one error-isolated seam. Passive: it
- * only reads the already-computed outcome, never alters it, and a throw from the
- * observer is swallowed so a shadow failure can never propagate into the
- * production transition path. A no-op when no observer is wired (production
- * default), so behaviour is byte-identical.
- *
- * DR-23 / T-31: `context.eventStore` is forwarded so the observer can make its
- * evidence DURABLE. This is the whole production wiring of the durable shadow
- * substrate — if this argument stops being forwarded, the registered
- * `admission.shadow-attempt` / `admission.disagreement-disposition` facts stop
- * being written, and `live-shadow-observer.test.ts` fails.
+ * Call the shadow observer, if one is set, and wait for any promise it returns.
+ * Every legacy decision site goes through this one function. It forwards
+ * `context.eventStore` so that the observer can make its evidence durable. A
+ * throw or a rejection is ignored: shadow observation never decides a
+ * transition.
  */
-function notifyShadowObserver(
+async function notifyShadowObserver(
   context: GuardContext,
   observation: LegacyTransitionObservation,
-): void {
+): Promise<void> {
   if (!context.shadowObserver) return;
   try {
-    context.shadowObserver(observation, context.eventStore);
+    await context.shadowObserver(observation, context.eventStore);
   } catch {
     // Intentionally swallowed — shadow observation is never authoritative.
   }
@@ -703,7 +682,7 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
           // P07-02: extend the shadow seam to the custom-guard early-return deny
           // path — the legacy decision here is an authoritative `deny`, so the
           // observer must see it for coverage parity with the composite walk.
-          notifyShadowObserver(context, {
+          await notifyShadowObserver(context, {
             workflowType: context.workflowType,
             fromPhase: currentPhase,
             toPhase: targetPhase,
@@ -737,7 +716,7 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
         // P07-02: extend the shadow seam to the unregistered-custom-guard
         // fail-closed deny path as well (documented out-of-scope seam) — the
         // legacy decision is an authoritative `deny`.
-        notifyShadowObserver(context, {
+        await notifyShadowObserver(context, {
           workflowType: context.workflowType,
           fromPhase: currentPhase,
           toPhase: targetPhase,
@@ -787,7 +766,7 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
     // side-by-side shadow comparison. Passive and error-isolated: it reads the
     // already-computed `result`, cannot alter it, and can never throw into this
     // path. Absent in every production caller, so behaviour is unchanged.
-    notifyShadowObserver(context, {
+    await notifyShadowObserver(context, {
       workflowType: context.workflowType,
       fromPhase: currentPhase,
       toPhase: targetPhase,
