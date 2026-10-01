@@ -187,6 +187,17 @@ describe('isBanner', () => {
     expect(isBanner('// ==========\n// Section\n// ==========')).toBe(true);
   });
 
+  it('IsBanner_TitleBetweenTwoDecorationRuns_IsABanner', () => {
+    expect(isBanner('// ── structurally VALID ──')).toBe(true);
+    expect(isBanner('// --- Inferred Types ---')).toBe(true);
+    expect(isBanner('// ─── Registry-level suite (leak, zero-subscriber guard, property) ─────────')).toBe(true);
+  });
+
+  it('IsBanner_ProseAfterAOneSidedRun_IsNotABanner', () => {
+    expect(isBanner('// ── Stand the REAL MCP server up over a REAL transport pair, then call it twice.')).toBe(false);
+    expect(isBanner('// -- see the note above --flag')).toBe(false);
+  });
+
   it('IsBanner_DecorationWithLongProse_IsNotABanner', () => {
     expect(isBanner('// ─── Cold start ───\n// The YAML loader is heavy, so the config path imports it only when a command needs it.')).toBe(false);
     expect(isBanner('// plain prose')).toBe(false);

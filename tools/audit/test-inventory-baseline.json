@@ -7,7 +7,7 @@
     "testFiles": 1312,
     "parsedFiles": 1266,
     "shellFiles": 46,
-    "cases": 14467,
+    "cases": 14469,
     "dynamicTitles": 162,
     "unparseableFiles": 0
   },
@@ -13374,6 +13374,16 @@
         {
           "suite": "isBanner",
           "name": "IsBanner_DecorationAndShortTitles_AreBanners",
+          "dynamic": false
+        },
+        {
+          "suite": "isBanner",
+          "name": "IsBanner_TitleBetweenTwoDecorationRuns_IsABanner",
+          "dynamic": false
+        },
+        {
+          "suite": "isBanner",
+          "name": "IsBanner_ProseAfterAOneSidedRun_IsNotABanner",
           "dynamic": false
         },
         {
