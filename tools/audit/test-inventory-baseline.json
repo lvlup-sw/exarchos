@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1283,
-    "parsedFiles": 1238,
+    "testFiles": 1284,
+    "parsedFiles": 1239,
     "shellFiles": 45,
-    "cases": 14159,
-    "dynamicTitles": 169,
+    "cases": 14169,
+    "dynamicTitles": 171,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -51896,6 +51896,11 @@
         },
         {
           "suite": "handleExecuteIntent commit",
+          "name": "CapsuleSteering_IsRecordedAsTheCapsules",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent commit",
           "name": "LeafEvents_CarryTheDerivedPerLeafOperationId",
           "dynamic": false
         },
@@ -51917,6 +51922,46 @@
         {
           "suite": "handleExecuteIntent onFail",
           "name": "ContinueFailure_IsAdvisoryAndTheSegmentProceeds",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent blocking gate verdicts",
+          "name": "BlockingGateThatBlocks_HaltsTheSegmentUnderStop",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent blocking gate verdicts",
+          "name": "BlockingGateThatBlocks_IsAdvisoryFailedUnderContinue",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent blocking gate verdicts",
+          "name": "ABlockedVerdictUnderContinue_DoesNotExcuseAMissingEmission",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent blocking gate verdicts",
+          "name": "BlockingGateThatDoesNotBlock_PassesTheLeaf (%s)",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent blocking gate verdicts",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "handleExecuteIntent blocking gate verdicts",
+          "name": "PassedFalseFromANonBlockingLeaf_StaysAdvisory (%s)",
+          "dynamic": false
+        },
+        {
+          "suite": "handleExecuteIntent blocking gate verdicts",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "handleExecuteIntent blocking gate verdicts",
+          "name": "ReplayOfABlockedSegment_ReproducesTheSameRefusal",
           "dynamic": false
         },
         {
@@ -60882,6 +60927,17 @@
         {
           "suite": "settlement adjudication",
           "name": "Adjudicate_AnOptionalFieldLeftOut_IsNotAFinding",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/blocking-gate.test.ts": {
+      "file": "tests/unit/verbs/settle/blocking-gate.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle — a blocking gate that blocks",
+          "name": "Settle_AKillProbeThatBlocks_RejectsTheBatchAndLeavesNoCompletion",
           "dynamic": false
         }
       ]
