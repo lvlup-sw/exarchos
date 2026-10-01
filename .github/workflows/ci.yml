@@ -122,6 +122,7 @@ jobs:
               - 'eslint.config.js'
               - 'CLAUDE.md'
               - '.claude/**'
+              - '.agents/**'
             mcp:
               - 'src/**'
               # `tests/unit/**` and `tests/integration/**` are the core suite's
@@ -1022,6 +1023,13 @@ jobs:
         run: bash tests/scripts/lint-comments.test.sh
       - name: Windows-portability lint self-test
         run: bash tests/scripts/check-eslint-windows.test.sh
+
+      # A skill in a directory that the upstream `skills` installer scans must be marked internal, or a
+      # user who installs from this repository gets it. The test also keeps the `.claude/skills` mirror
+      # byte-identical to `.agents/skills`. It runs here because a new scanned directory matches no
+      # path filter.
+      - name: Repo-local skills test
+        run: npx --no-install vitest run --project unit tests/architecture/repo-local-skills.test.ts
 
       # DR-15/DR-24 ratchets re-asserted UNFILTERED. Both live in root `src/` and were
       # hosted only by the `root`-path-filtered test-root lane, while the surfaces they
