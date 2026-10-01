@@ -1,7 +1,8 @@
 /**
  * The response contract of `check_invariant_conformance`. The registry declares
- * this `data` schema through `withCappedShape(...)`, so `auditPrompt` crosses
- * the tool boundary with a guaranteed presence, type, and name.
+ * `CheckInvariantConformanceOutputSchema`, the envelope of this `data` schema,
+ * through `withCappedShape(...)`. Thus `auditPrompt` crosses the tool boundary
+ * with a guaranteed presence, type, and name.
  *
  * The schema is in its own module. Thus the registry does not import the
  * handler, which imports the event store, the config loader, and the catalog

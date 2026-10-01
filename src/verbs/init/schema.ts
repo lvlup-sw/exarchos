@@ -16,9 +16,9 @@ export const ConfigWriteResultSchema = z
     warnings: z.array(z.string()).optional(),
     error: z.string().optional(),
     /**
-     * True when the writer converged but its AGENTS.md on-ramp block write failed.
-     * The onboard reconcile gate then keeps the retired lifecycle hooks in place.
-     * A project thus does not lose the hooks before it has the block.
+     * True when the writer converged but an on-ramp surface is not in place: the `AGENTS.md`
+     * block or the `CLAUDE.md` shim. The onboard reconcile gate then keeps the retired lifecycle
+     * hooks in place. A project thus does not lose the hooks before it has the on-ramp.
      */
     onrampFailed: z.boolean().optional(),
   })

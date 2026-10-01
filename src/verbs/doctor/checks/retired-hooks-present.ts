@@ -5,11 +5,12 @@
  * retired. SubagentStop stays for token attribution.
  *
  * A `Warning` with `fix` makes `diff` plan a removal step. `apply` routes that
- * step to `removeRetiredHooks` after the on-ramp block write. A hook matches
- * only when its command carries one of the {@link RETIRED_HOOK_MARKERS}.
- * Missing or unreadable settings, or no home directory, give `Pass`. Settings
- * that do not parse give `Skipped`, because a removal step over an unparsed
- * file is not safe.
+ * step to `removeRetiredHooks` after the on-ramp block write. If that write
+ * fails, the hooks stay, so the consumer always keeps the hooks or the block.
+ * A hook matches only when its command carries one of the
+ * {@link RETIRED_HOOK_MARKERS}. Missing or unreadable settings, or no home
+ * directory, give `Pass`. Settings that do not parse give `Skipped`, because a
+ * removal step over an unparsed file is not safe.
  *
  * The `name` must equal {@link RETIRED_HOOKS_CHECK_NAME}. The reconciler and
  * `installHook` use that key to route the removal.

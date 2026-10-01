@@ -72,7 +72,8 @@ function checkSkip(ctx: CheckContext, name: string): void {
 
 /**
  * Check 1: makes sure that the resolved state has the field shapes that the
- * later checks read. `tasks` must be an array, and `reviews` must be an object.
+ * later checks read. When present, `tasks` must be an array, and `reviews`
+ * must be an object.
  */
 function validateResolvedState(
   ctx: CheckContext,
@@ -381,7 +382,8 @@ async function checkPrStack(
 /**
  * Check 7: runs the test command, then the typecheck command, from
  * `resolveTestRuntime`. If the runtime is unresolved or has no test command,
- * the check is skipped. The commands run through `runCommandSync`, because
+ * the check is skipped. So the check never runs a guessed `npm` command in a
+ * pnpm or yarn repo. The commands run through `runCommandSync`, because
  * `execFile` refuses to start a `.cmd` package-manager shim on Windows since
  * CVE-2024-27980.
  */

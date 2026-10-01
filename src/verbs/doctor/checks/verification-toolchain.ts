@@ -28,7 +28,7 @@ function policyProvenanceSummary(
   return `policy: ${builtin}/${policyCells.length} cells builtin, ${config}/${policyCells.length} config`;
 }
 
-/** Copies the read-only probe cells into a new array, because the `policyCells` field of `CheckResult` is mutable. */
+/** The check. It copies the read-only probe cells into a new array, because the `policyCells` field of `CheckResult` is mutable. */
 export const verificationToolchain: CheckFn = async (probes, signal) => {
   const start = Date.now();
   const base = { category: 'verification' as const, name: 'verification-toolchain' };

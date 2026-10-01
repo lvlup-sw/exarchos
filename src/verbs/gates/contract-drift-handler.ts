@@ -76,9 +76,10 @@ export interface ContractDriftHandlerArgs {
 
 /**
  * The default command runner. It splits the command, runs it in the repository,
- * and returns the exit code with the combined stdout and stderr. It does not
- * throw on a non-zero exit, because the gate reads the exit code as the verdict
- * of the leg.
+ * and returns the exit code with stdout. On a non-zero exit, the output also
+ * holds stderr. It does not throw on a non-zero exit, because the gate reads
+ * the exit code as the verdict of the leg. A command that does not split gives
+ * exit code 1.
  */
 const defaultRunCommand: CommandRunFn = async ({ repoRoot, command }) => {
   let cmd: string;

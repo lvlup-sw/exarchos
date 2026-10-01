@@ -2,7 +2,7 @@
  * Doctor check: does the contract of each registered action still hold together in this build?
  *
  * The closure evaluator asks four questions per action. Is the contract total, with each
- * dimension present or reasoned-absent? Are its references live? Are its recovery edges in date?
+ * dimension present or reasoned-absent? Are its references live? Are its recovery edges not expired?
  * Do the shipped projections agree with the declaration?
  *
  * The check is read-only. It has no `--fix`, because a drifted contract needs a source change.

@@ -33,7 +33,7 @@ const TraceEventSchema = z
 
 /**
  * The verdict of the handler, kept verbatim. The executor does not own the codes that third-party handlers return, so a code is only a string.
- * A stricter rule rejects an empty code, and that aborts the commit after the leaf effects landed.
+ * The schema accepts an empty code, because a refusal here aborts the commit after the leaf effects landed.
  */
 const HandlerVerdictSchema = z
   .object({

@@ -21,7 +21,10 @@ interface CheckConvergenceArgs {
 
 type DimensionSummary = Record<string, { converged: boolean; gateCount: number; lastChecked: string | null }>;
 
-/** Summarizes each dimension. A dimension converges when it has gate results and each one passed. */
+/**
+ * Summarizes each dimension. When `phase` is set, only the gate results of that phase count. A
+ * dimension converges when it has gate results and each one passed.
+ */
 function applyPhaseFilter(
   dimensions: ConvergenceViewState['dimensions'],
   phase?: string,

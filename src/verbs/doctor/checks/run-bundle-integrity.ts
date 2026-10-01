@@ -6,9 +6,9 @@
  *
  * `true` and `'empty'` give Pass, and the message keeps "nothing to check"
  * apart from "nothing wrong". `'skipped'` gives Skipped with the reason from
- * the store. An incomplete sweep and `false` give Warning. They do not give
- * Fail, because neither a lost blob nor a writer defect is an install fault
- * that an operator can repair.
+ * the store. An incomplete sweep gives Warning, because its counts are unknown.
+ * `false` gives Warning, not Fail, because neither a lost blob nor a writer
+ * defect is an install fault that an operator can repair.
  */
 
 import path from 'node:path';

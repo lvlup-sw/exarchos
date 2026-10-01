@@ -55,7 +55,7 @@ export interface ContractDriftResult {
   readonly report: string;
   /** True when no contract command resolved, which gives an advisory pass. */
   readonly skipped?: boolean;
-  /** The merge-base sha used as the diff baseline (when computed). */
+  /** The merge-base sha, when git computes it. The report shows it, but the diff command does not use it. */
   readonly baseline?: string;
 }
 

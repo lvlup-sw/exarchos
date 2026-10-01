@@ -198,7 +198,7 @@ async function copyDirRecursive(
  *
  * `stagePath` pins the staged copy at `<target>.tmp`, because `claude-code.test.ts` asserts that path.
  * The verify comes before the publish. So a concurrent writer that clobbers the staged copy makes the verify refuse.
- * The live config is then old-complete or new-complete in every interleaving. Only the success of both writers is lost.
+ * The live config is then old-complete or new-complete in every interleaving. The only loss is the guarantee that both writers succeed.
  */
 async function deployMcpConfig(
   deps: WriterDeps,
@@ -379,7 +379,7 @@ export const claudeCodeWriter: RuntimeConfigWriter = {
 };
 
 /**
- * Class wrapper for the init compositor. It delegates to `writeClaudeCode`.
+ * Class wrapper that `getAllWriters` builds. It delegates to `writeClaudeCode`.
  * Tests can inject the `onramp` seam and the `promotionIo` seam. Production uses {@link defaultOnrampSeam} and the real filesystem.
  */
 export class ClaudeCodeWriter implements RuntimeConfigWriter {

@@ -290,10 +290,11 @@ function persistenceFailure(error: unknown): ToolResult {
  * proof verdict, and persists a subject-bound evidence record. Then it returns the carrier with
  * evidence references. It does not evaluate transition admission.
  *
- * No success carrier returns before the evidence append and the signal append complete. A
- * same-operation retry derives the signal again from the stored record, which repairs a first
- * attempt that stopped before the signal. The retry returns only the first artifact reference,
- * because this runner writes at most one.
+ * No success carrier returns before the evidence append completes, and the signal append too when
+ * `emitGateExecuted` is on. A same-operation retry derives the signal again from the stored record,
+ * which repairs a first attempt that stopped before the signal. The retry returns only the first
+ * artifact reference, because this runner writes at most one. A producer that writes more must
+ * return the whole array.
  */
 export async function runGate(
   request: GateRunRequest,

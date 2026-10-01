@@ -87,7 +87,7 @@ export function isSpawnFailure(err: { status?: number; code?: string }): boolean
 }
 
 /**
- * Wraps execFileSync to match the RunCommandFn signature. It returns a non-zero
+ * Wraps `runCommandSync` to match the RunCommandFn signature. It returns a non-zero
  * exit as a CommandResult and does not throw, because the vitest JSON summary
  * is still on stdout. A spawn failure sets `spawnError`, so the gate can tell
  * a missing test command apart from a process that ran. The 64 MiB `maxBuffer`
@@ -126,7 +126,7 @@ export const execCommandRunner: RunCommandFn = (
  * producer. The preflight rejects a miswired event store and an absent
  * `featureId`, and resolves `repoRoot`. `taskId` is optional for this gate.
  *
- * @param runCommand - The runner, execFileSync by default. Tests pass a stub.
+ * @param runCommand - The runner, {@link execCommandRunner} by default. Tests pass a stub.
  */
 export async function handleCheckIntegrationSuite(
   args: CheckIntegrationSuiteArgs,

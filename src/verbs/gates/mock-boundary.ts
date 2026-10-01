@@ -6,8 +6,8 @@
  * A mock of an unowned dependency (an npm package, a vendored tree) is the
  * high-risk case. An agent can mock its own wrong idea of an API that it never
  * read. A first-party mock is low risk, because its contract is
- * visible here. The caller supplies the diff, the first-party globs, and the
- * test globs. This module reads no files, runs no git, and loads no config.
+ * visible here. The caller supplies the diff, the first-party globs, and
+ * optionally the test globs. This module reads no files, runs no git, and loads no config.
  *
  * The detection family is `mock`, `stub`, `spy`, `fake`, `patch`, and
  * `monkeypatch`, matched case-insensitively at an identifier boundary. See

@@ -10,8 +10,9 @@
  * authority that no compiler binds to the first.
  *
  * The MCP adapter replaces a non-conforming envelope with INTERNAL_ERROR. A schema stricter than
- * the real handler output thus turns a correct response into an error, so each object is
- * `.passthrough()`. `withCappedShape` adds the capped-response fallback at the registry.
+ * the real handler output thus turns a correct response into an error. Each required field must
+ * appear on each success path of its handler, and each object is `.passthrough()`.
+ * `withCappedShape` adds the capped-response fallback at the registry.
  */
 
 import { z } from 'zod';

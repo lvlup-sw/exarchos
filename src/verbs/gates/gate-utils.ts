@@ -1,6 +1,7 @@
 /**
  * Shared helpers for gate handlers: git shell-outs, `gate.executed` appends, verdict
- * normalization, `repoRoot` resolution, graduation modes, and severity wrappers.
+ * normalization, evidence references, `repoRoot` resolution, graduation modes, severity
+ * wrappers, and policy skips.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -209,9 +210,9 @@ export function readGateSkipDescriptor(result: ToolResult): GateSkipDescriptor |
 }
 
 /**
- * Maps a gate carrier to the proof verdict. A provider error, a non-object data value, or data
- * with no verdict field gives `indeterminate`. The verdict fields are `passed`, then `ready`,
- * then `verdict`.
+ * Maps a gate carrier to the proof verdict. It reads boolean `passed`, then boolean `ready`, then
+ * a `verdict` of `APPROVED`, `NEEDS_FIXES` or `BLOCKED`. A provider error, a non-object data
+ * value, or data with none of these values gives `indeterminate`.
  *
  * A skipped carrier is `indeterminate`, even with `passed: true`, because the gate produced no
  * proof and no finding. Ladder gates return `{ passed: true, skipped: true }` when the policy
@@ -240,8 +241,8 @@ export function normalizeGateVerdict(result: ToolResult): 'pass' | 'fail' | 'ind
 }
 
 /**
- * Adds proof references to the provider envelope and keeps its data fields. A data value that
- * is not an object moves under `result`.
+ * Adds proof references to the provider envelope and keeps its data fields. A defined data value
+ * that is not a plain object, an array included, moves under `result`.
  */
 export function attachGateEvidence(
   result: ToolResult,

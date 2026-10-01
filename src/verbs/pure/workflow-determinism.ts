@@ -44,7 +44,7 @@ interface Finding {
 /**
  * Runs the four checks over the added lines of test files and builds the report.
  * Line numbers come from the hunk headers. A removed line does not advance the count.
- * The context lines and added lines of a file collect into a context. The time and random checks search it for fake timers or mocks.
+ * The context lines and added lines of a file collect into a context. The time and random checks search only the lines collected so far for fake timers or mocks.
  * The total is four checks, because the script-coverage check needs the repo.
  */
 export function checkWorkflowDeterminism(

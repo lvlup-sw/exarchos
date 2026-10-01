@@ -2,7 +2,7 @@
  * Detects when the CLI and the Claude Code plugin resolve different event-store paths.
  * When the paths differ, workflow state that one surface writes is invisible to the other.
  * The check only detects the split. It does not move or merge databases.
- * The fix sets `WORKFLOW_STATE_DIR`, which wins the precedence in both modes.
+ * The `fix` text tells the user to set `WORKFLOW_STATE_DIR`, which wins the precedence in CLI mode and in plugin mode.
  * The comparison reads `probes.env`, so the check does not change `process.env`.
  */
 
