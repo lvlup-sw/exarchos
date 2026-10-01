@@ -46,7 +46,6 @@ const EXPECTED_CONSUMERS = [
   'src/storage/sqlite/wire-types.ts',
   'src/verbs/merge/execute-merge.ts',
   'src/verbs/merge/merge-orchestrate.ts',
-  'src/verbs/worktree/manager.ts',
   'src/verbs/worktree/merge-serializer.ts',
   // P06-05 (structural-closure remediation): the admission chokepoint appends
   // the admission decision and the phase-lifecycle sibling in ONE `decideOnce`

@@ -1,14 +1,11 @@
 /**
- * On-ramp block drift check (Task 013, DR-5).
+ * Doctor check: does the on-ramp block in the consumer `AGENTS.md` match the
+ * canonical `binding/standard/block.md`?
  *
- * Read-only `doctor` finding: does the Exarchos on-ramp block installed in the
- * consumer's `AGENTS.md` still match the canonical `binding/standard/block.md`?
- * The comparison is a content-hash diff of the fence-stripped block body against
- * a freshly-computed hash of the canonical body — so a provenance-line change
- * (metadata) never registers as drift, but any change to the orientation prose
- * does. The canonical body has one source of truth (`binding/standard/block.md`,
- * loaded via {@link loadCanonicalBlockBody}); this check never carries a second
- * copy of the block content.
+ * The check compares a hash of the fence-stripped installed body with a hash of
+ * the canonical body. A change to the provenance line is not drift. A change to
+ * the orientation prose is drift. The canonical body comes only from
+ * {@link loadCanonicalBlockBody}.
  */
 
 import * as crypto from 'node:crypto';

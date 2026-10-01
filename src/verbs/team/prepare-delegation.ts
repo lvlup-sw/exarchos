@@ -1,10 +1,8 @@
-// ─── Prepare Delegation Composite Action ─────────────────────────────────────
-//
-// Orchestrates pre-delegation readiness checks by querying the
-// DelegationReadinessView projection, workflow state, and code quality view,
-// returning a unified readiness assessment with quality hints for subagent
-// prompt assembly.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The `prepare_delegation` composite action. It checks readiness before a delegation wave.
+ * It reads the delegation-readiness view, the workflow state, and the code-quality view.
+ * It returns one readiness result, with quality hints and task classifications for the subagent prompts.
+ */
 
 import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../../format.js';
@@ -69,29 +67,17 @@ import {
 import { dispatchShapeFor, type DispatchShape } from '../../runtime/agents/dispatch-shape.js';
 import type { AgentPosture } from '../../runtime/agents/types.js';
 
-// ─── DR-25: the posture this verb provisions ────────────────────────────────
-
 /**
- * A delegated wave dispatches mutating agents (implementer / fixer /
- * scaffolder), whose trust tier is `task-isolated` — the same posture their
- * specs declare. Held once so the emitted `posture` and the emitted `dispatch`
- * derive from ONE value and cannot drift.
- *
- * `satisfies` (not a `: AgentPosture` annotation) preserves the literal type
- * that `PrepareDelegationResult.posture` narrows to while still rejecting a
- * typo at compile time — the same idiom {@link DISPATCH_PHASE_KIND} uses.
+ * The posture of the mutating agents that a delegated wave dispatches.
+ * The emitted `posture` and `dispatch` both derive from this one value, so they cannot drift.
  */
 const DELEGATION_POSTURE = 'task-isolated' satisfies AgentPosture;
 
 /**
- * The launch shape the orchestrator MUST use for a delegated wave (DR-25):
- * a NAMED subagent WITH worktree isolation. The pair is the shape — a name
- * without a worktree is an unrunnable mailbox teammate, and a worktree without
- * a name cannot be addressed for merge. Read from the posture table.
+ * The launch shape that the orchestrator must use for a delegated wave: a named subagent with worktree isolation.
+ * A name without a worktree gives a mailbox teammate that cannot run. A worktree without a name cannot be addressed for merge.
  */
 const DELEGATION_DISPATCH: DispatchShape = dispatchShapeFor(DELEGATION_POSTURE);
-
-// ─── Result Interface ────────────────────────────────────────────────────────
 
 export type { DelegationReadinessState } from '../../projections/views/delegation-readiness-view.js';
 
@@ -102,28 +88,19 @@ export interface TaskInput {
   readonly blockedBy?: readonly string[];
   readonly files?: readonly string[];
   readonly testLayer?: 'acceptance' | 'integration' | 'unit' | 'property';
-  /**
-   * vls1-b1 (task 004): optional planner-supplied risk tier. When present it
-   * WINS over heuristic derivation — the planner has context the heuristic
-   * cannot infer. See {@link deriveRiskTier}.
-   */
+  /** The risk tier from the planner. When present, it wins over the heuristic in {@link deriveRiskTier}. */
   readonly riskTier?: RiskTier;
-  /**
-   * vls1-b1 (task 005): optional planner-supplied boundary flag. When present
-   * it WINS over heuristic derivation. See {@link deriveBoundaryTouching}.
-   */
+  /** The boundary flag from the planner. When present, it wins over the heuristic in {@link deriveBoundaryTouching}. */
   readonly boundaryTouching?: boolean;
 }
 
-/**
- * Advisory classification for a single task.
- * Note: effort omits 'max' intentionally — the heuristic classifier covers
- * scaffolder/implementer tiers only. 'max' effort (Opus-level deep reasoning)
- * is reserved for manual override, not automated classification.
- */
-/** vls1-b1: ordered risk tier for the verification ladder. */
+/** The ordered risk tier of the verification ladder. */
 export type RiskTier = 'low' | 'medium' | 'high';
 
+/**
+ * The advisory classification of one task.
+ * `effort` omits `max`, because the heuristic covers only the scaffolder and implementer tiers. Only a manual override sets `max`.
+ */
 export interface TaskClassification {
   readonly taskId: string;
   readonly complexity: 'low' | 'medium' | 'high';
@@ -131,45 +108,21 @@ export interface TaskClassification {
   readonly recommendedModel: 'opus' | 'sonnet' | 'haiku';
   readonly effort: 'low' | 'medium' | 'high';
   readonly reason: string;
-  /**
-   * vls1-b1 (task 003/004): verification-ladder risk tier. Derived from the
-   * task's blast radius (files, dependencies, test layer, high-risk globs),
-   * unless the planner supplied an explicit `riskTier` on the task.
-   */
+  /** The risk tier of the verification ladder, from the blast radius of the task, unless the planner stamped `riskTier`. */
   readonly riskTier: RiskTier;
-  /**
-   * vls1-b1 (task 005): true when the task crosses an I/O or schema boundary.
-   * Independent of {@link riskTier} — a low-blast task can still be
-   * boundary-touching.
-   */
+  /** True when the task crosses an I/O or schema boundary. It is independent of {@link riskTier}. */
   readonly boundaryTouching: boolean;
-  /**
-   * vls1-b1 (task 006/007): the ordered verification gate sequence the task
-   * must clear, resolved from the policy table by (riskTier, boundaryTouching).
-   */
+  /** The ordered verification gates that the task must clear, from the policy table for its tier and boundary flag. */
   readonly verificationSequence: readonly GateName[];
   /**
-   * DR-4: the shared-notes map key for this task's tier profile
-   * (`"<riskTier>|<boundaryTouching>"`). The orchestrator reconstructs the exact
-   * per-task implementer prompt by splicing `result.verificationNotes[<this key>]`
-   * into `result.implementerPromptTemplate` (see {@link verificationNoteKey} and
-   * {@link reconstructImplementerPrompt}) — lossless vs. the pre-DR-4 per-task
-   * full prompt.
-   *
-   * #1586 (root cause, still upheld): the prompt the orchestrator dispatches is
-   * TIER-SELECTED — the note keyed here off the resolved `riskTier`/
-   * `boundaryTouching` is the low/medium/high variant, never the static
-   * medium-RGR default. DR-4 only changed WHERE that note is carried (a shared,
-   * deduped map) — not WHICH note a task resolves.
+   * The key of the tier profile of this task in `result.verificationNotes`, in the form `"<riskTier>|<boundaryTouching>"`.
+   * The orchestrator splices that note into `result.implementerPromptTemplate` to rebuild the exact prompt of the task.
+   * The note is the variant for the resolved tier, never a static medium default.
    */
   readonly verificationNoteKey: string;
   /**
-   * DR-4: the full, tier-selected implementer prompt, present ONLY when the
-   * caller opts in via `detail: true` / `outputFormat: 'prompt-only'`. The
-   * default response omits it — the shared template + per-task
-   * {@link verificationNoteKey} losslessly reconstruct it — because returning
-   * ~1,560 identical tokens per task was the DR-4 defect. When present it is
-   * byte-identical to the reconstruction.
+   * The full implementer prompt for the tier, present only when the caller sets `detail: true` or `outputFormat: 'prompt-only'`.
+   * The default response omits it, because the shared template and the note key rebuild it byte for byte.
    */
   readonly implementerPrompt?: string;
 }
@@ -177,17 +130,11 @@ export interface TaskClassification {
 export interface PrepareDelegationResult {
   readonly ready: boolean;
   readonly readiness: DelegationReadinessState;
-  /**
-   * DR-25: the trust tier of the agents this wave dispatches. Emitted so the
-   * result is self-describing and its {@link dispatch} shape is checkable
-   * against it.
-   */
+  /** The trust tier of the agents that this wave dispatches, so a reader can check {@link dispatch} against it. */
   readonly posture: typeof DELEGATION_POSTURE;
   /**
-   * DR-25: the launch shape the orchestrator MUST use — named subagent PLUS
-   * worktree isolation. REQUIRED (not optional) on the declared result type, so
-   * the compiler forces every construction site to carry it; an optional field
-   * would let a future return path re-open the improvisation gap.
+   * The launch shape that the orchestrator must use: a named subagent with worktree isolation.
+   * The field is required, so the compiler makes each return path carry it.
    */
   readonly dispatch: DispatchShape;
   /**
@@ -200,38 +147,16 @@ export interface PrepareDelegationResult {
   readonly qualityHints?: Array<{ category: string; severity: string; hint: string }>;
   readonly isolation?: 'native';
   readonly taskClassifications?: readonly TaskClassification[];
-  /**
-   * DR-4: the SHARED implementer-prompt template, returned ONCE per response
-   * (was ~1,560 identical tokens re-rendered per task). Present whenever
-   * `taskClassifications` is. Combine with {@link verificationNotes} to
-   * reconstruct any task's exact prompt.
-   */
+  /** The shared implementer-prompt template, once in each response. It is present when `taskClassifications` is present. */
   readonly implementerPromptTemplate?: string;
   /**
-   * DR-4: the DISTINCT tier-selected verification notes used across the wave,
-   * keyed by `"<riskTier>|<boundaryTouching>"` (see {@link verificationNoteKey}).
-   * A wave clusters on a handful of tier profiles, so this is a few small
-   * entries — not one ~250-token note per task. `implementerPromptTemplate`
-   * with `verificationNotes[task.verificationNoteKey]` spliced in reproduces the
-   * pre-DR-4 per-task prompt byte-for-byte.
+   * The distinct verification notes of the wave, keyed by `"<riskTier>|<boundaryTouching>"`.
+   * The template with `verificationNotes[task.verificationNoteKey]` spliced in gives the full prompt of a task.
    */
   readonly verificationNotes?: Readonly<Record<string, string>>;
 }
 
-// ─── Task Classification ────────────────────────────────────────────────────
-
 import { TASK_SCAFFOLDING_KEYWORDS as SCAFFOLDING_KEYWORDS } from '../tasks/scaffolding-keywords.js';
-
-// ─── Risk-Tier & Boundary Derivation (vls1-b1, tasks 003–005) ───────────────
-//
-// Pure, config-free heuristics that classify a task's verification needs:
-//   - `deriveRiskTier`        — blast-radius tier (low | medium | high)
-//   - `deriveBoundaryTouching`— whether the task crosses an I/O / schema seam
-//
-// Both honor an explicit planner-supplied override on the TaskInput. The glob
-// sets below are the single source of truth for which file surfaces count as
-// high-risk, low-risk, or boundary-touching. Matching uses the shared anchored
-// `globToRegExp` compiler (no new glob dialect introduced).
 
 /**
  * File globs whose presence marks a task HIGH risk — schema/type/API/
@@ -243,11 +168,10 @@ export const HIGH_RISK_GLOBS: readonly string[] = [
   '**/*.d.ts',
   '**/api/**',
   '**/contracts/**',
-  // Schema/contract ARTIFACTS are shared-contract surfaces (the documented
-  // blast-radius gap) — they must reach the HIGH lane even though e.g.
-  // `openapi.yaml` would otherwise match the `**/*.yaml` LOW glob (high rules
-  // are evaluated before low). They also set boundaryTouching via
-  // BOUNDARY_GLOBS — the axes stay orthogonal. PR #1535 CR-4.
+  /**
+   * Schema and contract artifacts are high risk even when a low-risk YAML glob also matches them, because the high rules run first.
+   * They also mark a task boundary-touching through {@link BOUNDARY_GLOBS}.
+   */
   '**/*.proto',
   '**/openapi.*',
   '**/*.graphql',
@@ -280,11 +204,8 @@ export const BOUNDARY_GLOBS: readonly string[] = [
 ];
 
 /**
- * Memoised compiled matchers keyed by glob source string. In production the
- * keys come only from the exported const tables above (~15 entries); the size
- * bound is a backstop for exported-API callers supplying arbitrary patterns —
- * on overflow the cache clears and rebuilds (recompilation is cheap; unbounded
- * growth is not).
+ * The size bound of the compiled-glob cache. It protects against a caller of the exported API that passes arbitrary patterns.
+ * On overflow the cache clears, because recompilation is cheap.
  */
 const GLOB_MATCHER_CACHE_MAX = 256;
 const globMatcherCache = new Map<string, RegExp>();
@@ -303,51 +224,36 @@ function fileMatchesAny(file: string, globs: readonly string[]): boolean {
 }
 
 /**
- * Derive a task's verification-ladder risk tier.
- *
- * Precedence (first match wins):
- *   1. explicit planner `task.riskTier`  — always wins
- *   2. HIGH rules — ANY file matches {@link HIGH_RISK_GLOBS}, OR
- *      testLayer === 'acceptance', OR blockedBy.length >= 2, OR
- *      files.length >= 3
- *   3. LOW rules — there is at least one file AND EVERY file matches
- *      {@link LOW_RISK_GLOBS} (docs/config/rename-only)
- *   4. default — medium
- *
- * Ambiguity (mixed low + unknown files) falls through to medium.
- * Pure: no I/O, no config reads.
+ * Derives the risk tier of a task for the verification ladder. The first match wins:
+ * 1. The planner stamp `task.riskTier`.
+ * 2. High: a file matches {@link HIGH_RISK_GLOBS}, or `testLayer` is `acceptance`, or the task has 2 or more blockers or 3 or more files.
+ * 3. Low: the task has files, and each file matches {@link LOW_RISK_GLOBS}.
+ * 4. Medium in each other case.
  */
 export function deriveRiskTier(task: TaskInput): RiskTier {
   if (task.riskTier !== undefined) return task.riskTier;
 
   const files = task.files ?? [];
 
-  // ── HIGH rules ──
   if (files.some((f) => fileMatchesAny(f, HIGH_RISK_GLOBS))) return 'high';
   if (task.testLayer === 'acceptance') return 'high';
   if ((task.blockedBy?.length ?? 0) >= 2) return 'high';
   if (files.length >= 3) return 'high';
 
-  // ── LOW rules ── (all files must match low globs; empty file list is not low)
   if (files.length > 0 && files.every((f) => fileMatchesAny(f, LOW_RISK_GLOBS))) {
     return 'low';
   }
 
-  // ── default ──
   return 'medium';
 }
 
 /**
- * Derive whether a task is boundary-touching (crosses an I/O or schema seam).
+ * Derives whether a task crosses an I/O or schema boundary. The first match wins:
+ * 1. The planner stamp `task.boundaryTouching`.
+ * 2. `testLayer` is `integration` or `acceptance`.
+ * 3. A file matches {@link BOUNDARY_GLOBS}.
  *
- * Precedence (first match wins):
- *   1. explicit planner `task.boundaryTouching` — always wins
- *   2. testLayer is 'integration' or 'acceptance'
- *   3. ANY file matches {@link BOUNDARY_GLOBS} (adapters/clients/io/http or a
- *      schema artifact)
- *
- * INDEPENDENT of {@link deriveRiskTier}: a low-blast adapter edit is still
- * boundary-touching. Pure: no I/O, no config reads.
+ * The result is independent of {@link deriveRiskTier}.
  */
 export function deriveBoundaryTouching(task: TaskInput): boolean {
   if (task.boundaryTouching !== undefined) return task.boundaryTouching;
@@ -361,13 +267,8 @@ export function deriveBoundaryTouching(task: TaskInput): boolean {
 }
 
 /**
- * Resolves the recommended model for a given agent type from the agent config.
- * Falls back to `defaultModel` when no per-agent override exists.
- *
- * Legacy agent-keyed resolution. As of DR-1 (#1672) this NO LONGER drives
- * task-classification model choice — {@link resolveModelForTask} (tier-keyed)
- * does. `resolveModel` is retained for the non-dispatch surfaces (reviewer/fixer
- * dispatch, agent generation) that still key the model off the agent role.
+ * Resolves the model for an agent type from the agent config, with `defaultModel` as the fallback.
+ * It does not set the dispatched model. {@link resolveModelForTask} sets that model from the tier.
  */
 function resolveModel(
   agent: 'scaffolder' | 'implementer',
@@ -377,35 +278,20 @@ function resolveModel(
 }
 
 /**
- * DR-1 (#1672 / #1670): resolve the dispatch model for a task from its
- * verification-ladder `riskTier`, via the Task-001 `agents.tierModels` policy.
- *
- * This is the model that drives task classification, and it OVERRIDES the legacy
- * agent-keyed {@link resolveModel}. The `agent` split (scaffolder/implementer) is
- * resolved SEPARATELY by {@link classifyTaskCore} and is deliberately NOT
- * consulted here: the tier is authoritative for the model. That is the #1670 fix
- * — before this, every high-tier task that happened to carry a scaffolding
- * keyword collapsed to `haiku` (scaffolder→haiku), under-powering the dispatch;
- * now a high-tier scaffolding task keeps `agent=scaffolder` yet dispatches on the
- * high-tier model.
- *
- * `agent` is accepted for call-site symmetry with {@link resolveModel} and to
- * keep the classify-seam signature explicit. `tierModels` is always fully
- * populated (`DEFAULTS.agents.tierModels`, validated at `resolveConfig` time),
- * so this is a TOTAL lookup — never undefined.
+ * Resolves the dispatch model of a task from its `riskTier` through `agents.tierModels`.
+ * The tier wins over the agent split, so a high-tier scaffolding task keeps `agent=scaffolder` but gets the high-tier model.
+ * The function does not read `agent`. Config resolution fills `tierModels` for each tier, so the lookup is total.
  */
 function resolveModelForTask(
   agent: 'scaffolder' | 'implementer',
   riskTier: RiskTier,
   agentConfig: ResolvedProjectConfig['agents'],
 ): 'opus' | 'sonnet' | 'haiku' {
-  void agent; // tier is authoritative; the agent split is owned by classifyTaskCore.
+  void agent;
   return agentConfig.tierModels[riskTier];
 }
 /**
- * The agent/complexity/effort portion of a classification — the legacy
- * heuristic. The verification-ladder fields (riskTier/boundaryTouching/
- * verificationSequence) are layered on top in {@link classifyTask}.
+ * The agent, complexity, and effort part of a classification. {@link classifyTask} adds the verification-ladder fields.
  */
 type CoreClassification = Omit<
   TaskClassification,
@@ -417,28 +303,19 @@ type CoreClassification = Omit<
 >;
 
 /**
- * Legacy agent/complexity/effort heuristic.
+ * The agent, complexity, and effort heuristic. The first match wins:
+ * 1. `testLayer` is `acceptance`: high, implementer.
+ * 2. `testLayer` is `integration`: medium, implementer.
+ * 3. The title holds a scaffolding keyword: low, scaffolder.
+ * 4. The task has 2 or more blockers, or 3 or more files: high, implementer.
+ * 5. Medium, implementer in each other case.
  *
- * NOTE (DR-1, #1672): the `recommendedModel` set on each branch below is the
- * legacy agent-keyed value and is a PLACEHOLDER only — {@link classifyTask}
- * unconditionally overrides it with the tier-keyed {@link resolveModelForTask}
- * (see line ~475). Do NOT consume `CoreClassification.recommendedModel` as the
- * dispatched model: it is the pre-DR-1 agent-keyed value and reading it would
- * reintroduce the flat-model collapse (#1670) this fix removed. The dispatched
- * model is always the tier-keyed one on `TaskClassification`.
- *
- * Priority order:
- *   0. testLayer: "acceptance" → high/implementer (highest priority)
- *   1. Title contains scaffolding keywords → low/scaffolder
- *   2. blockedBy length >= 2 → high/implementer
- *   3. files length >= 3 → high/implementer
- *   4. Default → medium/implementer
+ * The `recommendedModel` here is a placeholder. {@link classifyTask} replaces it with the tier-keyed model, so it is not the dispatched model.
  */
 function classifyTaskCore(
   task: TaskInput,
   agentConfig: ResolvedProjectConfig['agents'],
 ): CoreClassification {
-  // Check testLayer first (highest priority)
   if (task.testLayer === 'acceptance') {
     const recommendedAgent = 'implementer' as const;
     return {
@@ -465,7 +342,6 @@ function classifyTaskCore(
 
   const titleLower = task.title.toLowerCase();
 
-  // Check scaffolding keywords
   const matchedKeyword = SCAFFOLDING_KEYWORDS.find(kw => titleLower.includes(kw));
   if (matchedKeyword) {
     const recommendedAgent = 'scaffolder' as const;
@@ -479,7 +355,6 @@ function classifyTaskCore(
     };
   }
 
-  // Check high-complexity signals
   if (task.blockedBy && task.blockedBy.length >= 2) {
     const recommendedAgent = 'implementer' as const;
     return {
@@ -504,7 +379,6 @@ function classifyTaskCore(
     };
   }
 
-  // Default: medium complexity
   const recommendedAgent = 'implementer' as const;
   return {
     taskId: task.id,
@@ -517,53 +391,29 @@ function classifyTaskCore(
 }
 
 /**
- * Deterministic heuristic classification for a single task.
- * Advisory — agents can override these recommendations.
- *
- * vls1-b1 (task 007): in addition to the legacy agent/complexity/effort
- * heuristic ({@link classifyTaskCore}), every classification now carries the
- * verification-ladder fields:
- *   - `riskTier`           — {@link deriveRiskTier} (honors explicit override)
- *   - `boundaryTouching`   — {@link deriveBoundaryTouching} (honors override)
- *   - `verificationSequence` — {@link resolveGateSet} for the IMPLEMENT kind
- *
- * task-004 (DR-4): the sequence is resolved by routing through
- * {@link resolveGateSet} keyed on the IMPLEMENT *kind*, not by calling the
- * verification-policy resolver directly. This makes the kind (not the
- * `delegate` phase name) the binding, so every IMPLEMENT-kind phase resolves
- * the same ladder by construction. The IMPLEMENT resolver delegates verbatim to
- * the CONFIG-RESOLVED verification policy, so the stamp is byte-identical to the
- * prior direct call: when `config` is omitted (or its relevant cell is unset)
- * the policy falls through to the frozen built-in table, and a `.exarchos.yml`
- * `verification:` cell override still changes what gets stamped onto the
- * delegation record.
- *
- * The legacy `complexity`/`effort` axis is preserved unchanged — `riskTier` is
- * a SEPARATE, blast-radius-driven axis (a scaffolding task can be low-effort
- * yet high-risk if it edits a schema, and vice versa).
- */
-/**
- * DR-4: the shared-notes map key for a task's tier profile. Two tasks with the
- * same `(riskTier, boundaryTouching)` share one verification note, so a wave's
- * distinct notes collapse to this small keyspace (six possible values). Exported
- * so the handler, the orchestrator's reconstruction, and tests all agree on the
- * key form.
+ * The key of a tier profile in the shared notes map.
+ * Tasks with the same `(riskTier, boundaryTouching)` share one note, so the key has six possible values.
  */
 export function verificationNoteKey(riskTier: RiskTier, boundaryTouching: boolean): string {
   return `${riskTier}|${boundaryTouching}`;
 }
 
-/** DR-4: per-task classification options. */
+/** Options for the classification of one task. */
 export interface ClassifyTaskOptions {
-  /**
-   * When true, additionally render the FULL tier-selected implementer prompt
-   * onto `implementerPrompt` (the `detail: true` / `outputFormat: 'prompt-only'`
-   * escape hatch). Off by default — the deduped template + note map is the
-   * token-optimal path and losslessly reconstructs the same prompt.
-   */
+  /** When true, the result also holds the full implementer prompt for the tier in `implementerPrompt`. The default is off. */
   readonly includeImplementerPrompt?: boolean;
 }
 
+/**
+ * Classifies one task with a deterministic, advisory heuristic.
+ * The result adds `riskTier`, `boundaryTouching`, and `verificationSequence` to the {@link classifyTaskCore} fields.
+ * The sequence comes from {@link resolveGateSet} for the `IMPLEMENT` kind, so each `IMPLEMENT` phase resolves the same ladder.
+ * That resolver applies the verification overrides of `.exarchos.yml`, and it uses the built-in table when `config` is absent.
+ *
+ * The tier-keyed model replaces the model of the agent split, so the model mix follows the tier distribution.
+ * The note text goes to the shared `verificationNotes` map, and only the key goes on each task.
+ * `riskTier` is a separate axis from `effort`: a low-effort scaffolding task can be high risk when it edits a schema.
+ */
 export function classifyTask(
   task: TaskInput,
   agentConfig: ResolvedProjectConfig['agents'] = DEFAULTS.agents,
@@ -575,23 +425,12 @@ export function classifyTask(
   const boundaryTouching = deriveBoundaryTouching(task);
   return {
     ...core,
-    // DR-1 (#1672/#1670): the tier policy OVERRIDES the model that
-    // classifyTaskCore derived from the agent split. classifyTaskCore still owns
-    // agent/complexity/effort, but the dispatched model now tracks blast-radius
-    // `riskTier` (planner stamps win, resolved above) — so the corpus model mix
-    // tracks the tier distribution instead of collapsing to a single model.
     recommendedModel: resolveModelForTask(core.recommendedAgent, riskTier, agentConfig),
     riskTier,
     boundaryTouching,
     verificationSequence: ladderGateNames(
       resolveGateSet('IMPLEMENT', { riskTier, boundaryTouching, config }),
     ),
-    // DR-4 (upholds #1586): the tier-selected verification note is keyed HERE off
-    // the resolved stamp so the dispatch layer consumes a note that already
-    // matches the task's blast radius. The note TEXT is deduped into the
-    // response's shared `verificationNotes` map (a wave clusters on a few tier
-    // profiles); only the tiny key rides per task. The full prompt is rendered
-    // inline solely on the opt-in detail path.
     verificationNoteKey: verificationNoteKey(riskTier, boundaryTouching),
     ...(opts?.includeImplementerPrompt
       ? {
@@ -603,58 +442,17 @@ export function classifyTask(
   };
 }
 
-// ─── DR-7: Fail-Closed at the Gate-Set Boundary ─────────────────────────────
-//
-// `classifyTask` routes each task's verification sequence through
-// `resolveGateSet(kind, …)`. That resolver can THROW — a deferred kind whose
-// resolver is not yet wired ('not-yet-wired'), or any other resolver fault.
-// Mapping the wave with a raw `.map(classifyTask)` lets such a throw propagate
-// out of the dispatch handler and fail the dispatch OPEN / silently.
-//
-// DR-7 makes the boundary FAIL CLOSED: the entire wave's classification is run
-// inside one guard. On ANY resolver throw, NO task classifications are stamped
-// (all-or-nothing — a partially-classified wave would be a fail-open hazard),
-// and the wrapper returns a structured `blocked` result the handler turns into
-// a `phase.blocked` event + an error envelope. On success it returns the
-// stamped classifications unchanged.
-//
-// The boundary phase kind is always `IMPLEMENT` here (the delegate/wave-dispatch
-// boundary). The kind is surfaced on the result so every IMPLEMENT-kind phase
-// boundary that adopts this wrapper records the same diagnostic shape.
-
 /**
- * The phase kind bound to the wave-dispatch boundary.
- *
- * `satisfies` (not a `: PhaseKind` annotation) preserves the `'IMPLEMENT'`
- * LITERAL type while still rejecting a typo at compile time. The literal is
- * load-bearing for DR-14: `mintCapabilitiesForKind(DISPATCH_PHASE_KIND)` narrows
- * to the exact posture, so `requireMutationCapabilities` in
- * {@link assertDispatchMutationCapabilities} compile-REJECTS the bundle the day
- * this is ever pointed at a read-only kind — worktree mutation is
- * unrepresentable from a read-only dispatch phase (INV-11, by construction).
+ * The phase kind of the wave-dispatch boundary.
+ * `satisfies` keeps the literal type, so `requireMutationCapabilities` rejects the bundle at compile time if this kind becomes read-only.
  */
 const DISPATCH_PHASE_KIND = 'IMPLEMENT' satisfies PhaseKind;
 
 /**
- * DR-14 / INV-11 (#1546): assert the dispatch phase kind grants mutation,
- * via the POLA capability bundle, before authorizing a wave of mutating-agent
- * (scaffolder/implementer) tasks.
- *
- * The wave-dispatch boundary is the production point where mutation authority is
- * handed to a subagent — the "central enforcement point" the resolver map
- * lacked. `phase.entered` freezes the kind's `posture` (the serializable seed);
- * here the bundle is MINTED from that posture and REQUIRED to carry mutation.
- * Two layers of enforcement:
- *   - compile-time: `requireMutationCapabilities` REJECTS a read-only bundle, so
- *     `DISPATCH_PHASE_KIND` can never silently become a read-only posture —
- *     worktree mutation is unrepresentable from a read-only phase (DR-14).
- *   - runtime: a handshake `deny` that revokes `fs:write` (e.g. a sandboxed
- *     client) yields a bundle without the mutation token; we fail the dispatch
- *     CLOSED rather than dispatch an agent that cannot write its worktree.
- *
- * Pure (the default handshake resolves the built-in posture table; an injected
- * handshake is for the runtime-deny path). Throws on a revoked mutation token;
- * the wave-dispatch caller folds the throw into a `phase.blocked` diagnostic.
+ * Asserts that the dispatch phase kind grants mutation before a wave of mutating agents dispatches.
+ * At compile time, `requireMutationCapabilities` rejects a read-only bundle.
+ * At runtime, a handshake that revokes `fs:write` gives a bundle without that token, and the function throws.
+ * The wave-dispatch caller turns the throw into a `phase.blocked` diagnostic.
  */
 export function assertDispatchMutationCapabilities(
   handshake: RuntimeHandshake = {},
@@ -685,31 +483,20 @@ export interface PhaseBlockedInfo {
   readonly error: { readonly code: string; readonly message: string };
 }
 
-/**
- * Discriminated result of the fail-closed classification boundary:
- * - `{ ok: true, classifications }`  — every task classified cleanly.
- * - `{ ok: false, blocked }`         — a resolver threw; nothing was stamped.
- */
+/** The result of the fail-closed classification: the classifications, or a block with no task stamped. */
 export type ClassifyTasksResult =
   | { readonly ok: true; readonly classifications: TaskClassification[] }
   | { readonly ok: false; readonly blocked: PhaseBlockedInfo };
 
 /**
- * Classify a whole wave of tasks at the gate-set boundary, FAILING CLOSED.
+ * Classifies a whole wave at the gate-set boundary and fails closed, with no I/O.
+ * A throw from {@link resolveGateSet} or from {@link assertDispatchMutationCapabilities} blocks the whole wave, and no task is stamped.
+ * The result then holds a {@link PhaseBlockedInfo} that the caller records as a `phase.blocked` event.
  *
- * Wraps the per-task {@link classifyTask} call (which routes through
- * {@link resolveGateSet}) so a resolver throw never propagates out of the
- * dispatch boundary. The guard is wave-wide and all-or-nothing: a single throw
- * blocks the entire wave (no partial classification) and yields a
- * {@link PhaseBlockedInfo} the caller records as a `phase.blocked` event.
- *
- * Pure: no I/O. The caller owns event emission and the response envelope.
- *
- * @param tasks the wave's tasks
- * @param agentConfig resolved agent config (model routing)
- * @param config resolved project config (verification overlay); absence is the
- *   ordinary built-in-table path — it MUST NOT trigger a fail-closed block
- * @param phase the lifecycle phase the dispatch is at (for the diagnostic)
+ * @param tasks the tasks of the wave
+ * @param agentConfig resolved agent config, for model routing
+ * @param config resolved project config. When it is absent, the built-in table applies, and the function does not block.
+ * @param phase the lifecycle phase of the dispatch, for the diagnostic
  */
 export function classifyTasksFailClosed(
   tasks: readonly TaskInput[],
@@ -719,10 +506,6 @@ export function classifyTasksFailClosed(
   opts?: ClassifyTaskOptions,
 ): ClassifyTasksResult {
   try {
-    // DR-14 (#1546): the dispatch kind must grant mutation before a wave of
-    // mutating-agent tasks is classified. Fails CLOSED into the same
-    // PhaseBlockedInfo path a resolver throw uses (a revoked fs:write token →
-    // blocked, never an agent dispatched without write authority).
     assertDispatchMutationCapabilities();
     return {
       ok: true,
@@ -742,23 +525,11 @@ export function classifyTasksFailClosed(
   }
 }
 
-// ─── Plan-Stamp Lift (#1636) ────────────────────────────────────────────────
-
 /**
- * Merge the planner's parsed per-task stamps onto the caller's task inputs.
- *
- * Precedence (highest first): an explicit field ALREADY on the `tasks[]` entry →
- * the parsed plan stamp → the classifier heuristic (applied later by
- * `deriveRiskTier`/`deriveBoundaryTouching` when neither supplied a value). Only
- * a MISSING field is filled from the stamp, so a caller that hand-supplies a
- * value is never overridden.
- *
- * Also emits a DISAGREEMENT advisory (informational — never blocks) when the
- * resolved `riskTier` differs from what the pure heuristic would have derived, so
- * an operator can see that a plan stamp overrode a divergent heuristic rather
- * than the override happening silently (issue #1636, proposed fix §3).
- *
- * Pure: no I/O (the caller reads the plan file and passes parsed stamps).
+ * Merges the parsed plan stamps onto the task inputs of the caller, with no I/O.
+ * A field already on the entry wins over the stamp, and the stamp wins over the heuristic. A stamp fills only a missing field.
+ * When the `riskTier` comes from the stamp and differs from the heuristic tier, the function adds an advisory. The advisory never blocks.
+ * The heuristic uses the original task, because the stamp context can hide a real difference.
  */
 export function applyPlanStamps(
   tasks: readonly TaskInput[],
@@ -784,13 +555,6 @@ export function applyPlanStamps(
       ...(!hasFiles && stamp.files.length > 0 ? { files: stamp.files } : {}),
       ...(!hasDeps && stamp.blockedBy.length > 0 ? { blockedBy: stamp.blockedBy } : {}),
     };
-    // Emit the advisory ONLY when the applied tier actually CAME FROM the plan
-    // stamp — a caller-supplied `riskTier` wins over the stamp and is not a "plan
-    // stamp override", so attributing it to the stamp would misdiagnose the source
-    // (CodeRabbit/Sentry). Compare against the heuristic derived from the ORIGINAL
-    // task `t` (no stamp-provided files/testLayer/deps) so it is genuinely PURE —
-    // deriving from `resolved` would fold the stamp's own context back in and could
-    // suppress a real divergence.
     const riskTierFromStamp = t.riskTier === undefined && stamp.riskTier !== undefined;
     if (riskTierFromStamp) {
       const heuristicTier = deriveRiskTier(t);
@@ -805,8 +569,6 @@ export function applyPlanStamps(
   return { tasks: merged, advisories };
 }
 
-// ─── Worktree Blocker Patterns ──────────────────────────────────────────────
-
 const WORKTREE_BLOCKER_PATTERNS = [
   'worktrees pending',
   'worktrees failed',
@@ -818,16 +580,9 @@ function isWorktreeBlocker(blocker: string): boolean {
 }
 
 /**
- * DR-T-3 (#1212, T-06): produce a state-vs-plan desync diagnostic when
- * the projection's plan.taskCount diverges from workflowState.tasks.length.
- *
- * Diagnostic-only: does NOT gate readiness on its own. The blocker is
- * appended to the visible list so an operator notices, but the ready
- * gate is computed without it.
- *
- * Suppressed at empty baseline (plan.taskCount === 0) to avoid noise on
- * fresh workflows where the projection hasn't seen task.assigned events
- * yet.
+ * A desync diagnostic for when `plan.taskCount` of the projection differs from the length of `workflowState.tasks`.
+ * The caller shows it in the blocker list but computes `ready` without it.
+ * It is empty when `plan.taskCount` is 0, because a new workflow has no `task.assigned` events yet.
  */
 function computeDesyncBlockers(
   workflowState: WorkflowStateView,
@@ -836,7 +591,7 @@ function computeDesyncBlockers(
   const stateTasks = Array.isArray(workflowState.tasks) ? workflowState.tasks.length : 0;
   const planCount = readiness.plan.taskCount;
 
-  if (planCount === 0) return []; // baseline — no diagnostic
+  if (planCount === 0) return [];
   if (stateTasks === planCount) return [];
 
   return [
@@ -844,18 +599,9 @@ function computeDesyncBlockers(
   ];
 }
 
-// ─── Wave Scoping (re-export) ───────────────────────────────────────────────
-//
-// WFQ-002: the wave-scoping core moved beside the projection it scopes
-// (`projections/views/delegation-readiness-view.ts`) so the `delegation_readiness` view
-// action and this handler share ONE implementation. Re-exported here because
-// `computeScopedWorktrees` is part of this module's established public
-// surface and its unit tests import it from here.
 export { computeScopedWorktrees, scopeReadinessToWave };
 export type { ScopedWorktreesResult } from '../../projections/views/delegation-readiness-view.js';
 
-
-// ─── Quality Hint Assembly ──────────────────────────────────────────────────
 
 function assembleQualityHints(
   qualityState: CodeQualityViewState | null,
@@ -891,19 +637,10 @@ function plannedTask(entry: unknown): { readonly id: string; readonly title: str
 }
 
 /**
- * Announce the planned tasks the stream has not yet heard of: one
- * `task.assigned` per task, ahead of the readiness fold that counts them, so
- * the delegate phase's event contract is met by this handler rather than by
- * a call the model has to remember before it. A task already announced — by
- * an earlier wave, or by hand — is not announced again: the projection reads
- * a second announcement as the task returning to `assigned`. Keyed per task,
- * so a retried dispatch lands on the same row.
- *
- * The read and the appends are one decision: each append is guarded by the
- * tail the read saw, so a writer that announces in the gap — the capsule
- * path, a hand append — makes the guard refuse, and the announcement is
- * decided again from a fresh read that hears that task. Bounded, so two
- * writers trading the tail cannot hold this handler.
+ * Appends one `task.assigned` for each task that the stream has not announced, before the readiness fold counts them.
+ * The function skips an announced task, because the projection reads a second announcement as a return to `assigned`.
+ * Each append has a per-task idempotency key and a guard on the tail that the read saw.
+ * When another writer appends in the gap, the guard refuses and the function reads again, up to `ANNOUNCE_ATTEMPTS` times.
  */
 async function announceTasks(
   store: EventStore,
@@ -928,7 +665,6 @@ async function announceTasks(
           { type: 'task.assigned', data: { taskId: task.id, title: task.title } },
           { idempotencyKey: `${streamId}:task.assigned:${task.id}`, expectedSequence: tail },
         );
-        // The guard held, so the row landed one past the tail it was guarded by.
         tail += 1;
       }
       return;
@@ -939,10 +675,8 @@ async function announceTasks(
 }
 
 /**
- * {@link announceTasks}, under the policy every append this handler makes on
- * its own account follows: a failure is logged, never propagated. A task the
- * announcement could not leave shows up in the readiness fold as a blocker,
- * which is where the caller reads it.
+ * Runs {@link announceTasks} and logs a failure without propagating it.
+ * A task that the function did not announce shows as a blocker in the readiness fold.
  */
 async function announceTasksBestEffort(
   store: EventStore,
@@ -959,10 +693,10 @@ async function announceTasksBestEffort(
   }
 }
 
-// Audit-trail events must persist before the handler returns so callers
-// that query the stream immediately after dispatch observe them
-// (read-your-writes). Failures are logged, never propagated — emission is
-// best-effort; the dispatch response itself is what the caller acts on.
+/**
+ * Appends an audit event and waits for it, so a caller that queries the stream after dispatch sees the event.
+ * A failure is logged and not propagated, because the caller acts on the dispatch response.
+ */
 async function emitAuditEvent(
   store: EventStore,
   streamId: string,
@@ -982,26 +716,11 @@ async function emitAuditEvent(
   }
 }
 
-// ─── Workflow Risk-Tier Persistence (DR-2) ──────────────────────────────────
-
 /**
- * Persist the workflow-level `riskTier` to `state.riskTier` via the
- * event-sourced `state.patched` single-writer path — the same generic
- * field-update event `workflow/tools.ts` emits (`data.patch` carries the
- * dot-path delta the projection folds). `state.riskTier` is the top-level field
- * the `/review` required-reviews contract reads (`resolveWorkflowRiskTier` →
- * `getRequiredReviews`), so stamping it here is what arms the high-tier
- * `mutation-adequacy` backstop.
- *
- * Each call appends a `state.patched` the projection folds last-write-wins, so
- * `state.riskTier` always reflects the latest derived tier. It is deliberately
- * NOT keyed by tier value: a value-based idempotency key dropped a *re-raised*
- * tier — a high → medium → high sequence cache-hit the second `high` and left
- * the tier stuck at `medium`, silently under-arming the `mutation-adequacy`
- * backstop (CodeRabbit RVC-R9). A redundant re-invocation that re-derives the
- * same tier just appends a value-identical patch, a harmless no-op under the
- * fold. Emission is best-effort like the surrounding audit events — the ready
- * dispatch path must not hard-depend on a write (a re-invocation re-stamps).
+ * Writes the workflow `riskTier` to `state.riskTier` through a best-effort `state.patched` event.
+ * The required-reviews contract of `/review` reads that field, so a high tier adds the `mutation-adequacy` review.
+ * The event has no idempotency key on the tier value, because such a key drops a tier that rises again after a fall.
+ * The fold is last-write-wins, so a repeated patch with the same value has no effect.
  */
 export async function persistWorkflowRiskTier(
   store: EventStore,
@@ -1014,8 +733,6 @@ export async function persistWorkflowRiskTier(
   });
 }
 
-// ─── Git Exec Helper ───────────────────────────────────────────────────────
-
 function createGitExec(): (args: readonly string[]) => string {
   return (args: readonly string[]): string => {
     return execFileSync('git', [...args], {
@@ -1025,13 +742,9 @@ function createGitExec(): (args: readonly string[]) => string {
   };
 }
 
-// ─── Handler ────────────────────────────────────────────────────────────────
-
 /**
- * #1542: native-isolation shared-checkout hazard. When the host is trusted to
- * materialize worktrees but none are confirmed ready at prepare-time, dispatch
- * can silently land agents in the shared checkout. Surfaced as a warning, never
- * a blocker (the host owns isolation; readiness can't be known here).
+ * The warning for native isolation when the host must create worktrees but none is ready at prepare time.
+ * Dispatch can then put agents in the shared checkout. The host owns isolation, so this is a warning and not a blocker.
  */
 function sharedCheckoutHazardWarning(expected: number): string {
   return (
@@ -1040,43 +753,41 @@ function sharedCheckoutHazardWarning(expected: number): string {
   );
 }
 
+/**
+ * Checks delegation readiness for a wave. It returns the readiness result, the dispatch shape, and the task classifications.
+ * The handler checks each task field, because a non-MCP caller passes `tasks` through an unchecked cast. A malformed task otherwise reports as a false `phase.blocked`.
+ *
+ * Under native isolation, the protected-branch and worktree-location guards do not run, and the base-ref guard runs.
+ * The server reads HEAD from its own launch checkout, so the protected-branch guard gives a false positive when the orchestrator works from a worktree.
+ * The protected-branch guard runs before the ancestry guard, because ancestry always passes when HEAD is on `main`.
+ * Each dispatch records one `dispatch.preflight` event. A guard that did not run records `passed: true`.
+ *
+ * The handler announces the planned tasks before the readiness fold counts them. The desync diagnostic and the shared-checkout warning do not change `ready`.
+ * A failed classification records `phase.blocked` and returns an error.
+ */
 export async function handlePrepareDelegation(
   args: {
     featureId: string;
     tasks?: TaskInput[];
     /**
-     * #1636: path to the decomposition markdown. When present, the planner's
-     * per-task `**Risk Tier:**` / `**Boundary Touching:**` stamps are lifted onto
-     * the matching `tasks[]` entries (an explicit field on the entry still wins;
-     * the parsed stamp wins over the heuristic). Absent, behavior is unchanged.
+     * The path to the decomposition markdown. When present, the planner stamps of each task go onto the matching `tasks[]` entry.
+     * An unreadable plan gives a warning, and the heuristic tiers apply.
      */
     planPath?: string;
     nativeIsolation?: boolean;
     /**
-     * task 004 (DR-2): an explicit workflow-level risk-tier override. When
-     * supplied it WINS over the derived max-of-tiers and is what gets persisted
-     * to `state.riskTier`. Absent, the tier is derived from the wave's task
-     * classifications. Validated below alongside the task fields.
+     * The workflow risk-tier override. It wins over the highest task tier and goes to `state.riskTier` as it is.
+     * So the handler rejects a value outside the vocabulary.
      */
     riskTier?: RiskTier;
-    /**
-     * DR-4: opt into the pre-DR-4 behavior of returning the FULL tier-selected
-     * implementer prompt inline on every `taskClassifications[]` entry. Off by
-     * default — the deduped `implementerPromptTemplate` + `verificationNotes`
-     * losslessly reconstruct it at a fraction of the tokens. Equivalent to
-     * `outputFormat: 'prompt-only'`.
-     */
+    /** When true, each `taskClassifications[]` entry also holds the full implementer prompt for its tier. The default is off. */
     detail?: boolean;
-    /**
-     * DR-4: `'prompt-only'` is an alias for `detail: true` — the caller wants
-     * the full per-task prompt inline. Any other value is rejected.
-     */
+    /** `'prompt-only'` has the same effect as `detail: true`. The handler also accepts `'full'`, the schema default, which has no effect. */
     outputFormat?: 'prompt-only';
   },
   stateDir: string,
   ctx?: DispatchContext,
 ): Promise<ToolResult> {
-  // Validate input
   if (!args.featureId) {
     return {
       success: false,
@@ -1084,16 +795,6 @@ export async function handlePrepareDelegation(
     };
   }
 
-  // Non-MCP callers (CLI / direct / tests) hand `tasks` through an unchecked
-  // cast, so the declared `TaskInput[]` type is not a runtime guarantee. (The MCP
-  // adapter's registration schema strips unknown keys, but those paths do not.)
-  // Validate the shape HERE with an explicit INVALID_INPUT — otherwise a
-  // malformed task throws downstream in computeScopedWorktrees / classifyTaskCore
-  // (e.g. `files.some(...)` on a non-array `files`) and surfaces as a misleading
-  // PREPARE_DELEGATION_FAILED or, worse, a fail-closed `phase.blocked` event.
-  // `phase.blocked` must stay reserved for genuine gate-set RESOLVER faults, so
-  // the guard also covers the optional STRING-ARRAY fields the heuristics call
-  // array methods on (`files`, `blockedBy`), not just `id`/`title`.
   const tasksInput: unknown = args.tasks;
   const isOptionalStringArray = (v: unknown): boolean =>
     v === undefined || (Array.isArray(v) && v.every((x) => typeof x === 'string'));
@@ -1114,11 +815,6 @@ export async function handlePrepareDelegation(
           riskTier?: unknown;
           boundaryTouching?: unknown;
         };
-        // Validate EVERY planner-supplied field the heuristics / resolver consume,
-        // not just id/title: a bad `riskTier` reaches resolveVerificationSequence
-        // (BASE_SEQUENCE_BY_TIER[riskTier] → throw), and a non-array `files`
-        // crashes the risk/boundary heuristics — both would otherwise be caught by
-        // the fail-closed wrapper and misreported as `phase.blocked`.
         return (
           typeof t.id !== 'string' ||
           typeof t.title !== 'string' ||
@@ -1140,9 +836,6 @@ export async function handlePrepareDelegation(
     };
   }
 
-  // task 004 (DR-2): the optional workflow-level riskTier override is persisted
-  // verbatim, so an out-of-vocabulary value must be rejected at the boundary
-  // rather than stamped onto state and silently ignored by getRequiredReviews.
   if (!isOptionalOneOf(args.riskTier, ['low', 'medium', 'high'])) {
     return {
       success: false,
@@ -1153,17 +846,12 @@ export async function handlePrepareDelegation(
     };
   }
 
-  // DR-4: validate the full-prompt escape-hatch flags at the boundary, matching
-  // the well-typed treatment the other optional fields get.
   if (!isOptionalBoolean(args.detail)) {
     return {
       success: false,
       error: { code: 'INVALID_INPUT', message: 'detail must be a boolean' },
     };
   }
-  // Accept the schema's full enum. `'prompt-only'` opts into the inlined
-  // detail; `'full'` (the schema default, injected by dispatch when omitted)
-  // is the deduped template + per-task deltas — same as the field being absent.
   if (!isOptionalOneOf(args.outputFormat, ['full', 'prompt-only'])) {
     return {
       success: false,
@@ -1182,8 +870,6 @@ export async function handlePrepareDelegation(
     const store = ctx.eventStore;
     const streamId = args.featureId;
 
-    // ─── DR-1: Branch Ancestry Preflight ────────────────────────────────
-    // Materialize workflow state early to get integrationBranch
     const { view: workflowState } = await foldToTail<WorkflowStateView>(
       store,
       materializer,
@@ -1194,13 +880,6 @@ export async function handlePrepareDelegation(
     const gitExec = createGitExec();
     const currentBranch = getCurrentBranch(gitExec);
 
-    // #1261: capture per-guard outcomes so a single `dispatch.preflight`
-    // event can be emitted regardless of which guard short-circuits.
-    // Guards that never run (because an earlier guard already blocked)
-    // record `passed: true` in the per-guard payload — they did not
-    // observe a failure, so calling them "failed" would mislead audit
-    // queries. The aggregate `passed` bit is the load-bearing
-    // observable for "did anything block this dispatch".
     const preflightStart = Date.now();
     const guardOutcomes: {
       ancestry: { passed: boolean };
@@ -1213,18 +892,9 @@ export async function handlePrepareDelegation(
       worktree: { passed: true },
       protectedBranch: { passed: true },
       mainWorktree: { passed: true },
-      // #1509/#1501: only runs on the nativeIsolation path; `true` here means
-      // "no failure observed" for dispatches that never run the guard.
       baseRef: { passed: true },
     };
 
-    /**
-     * Emit the single `dispatch.preflight` summary event. Inherits
-     * `operationId` automatically via the dispatch context AsyncLocalStorage
-     * stamp (B1 / #1291). Fire-and-forget at the call site — the helper
-     * itself awaits store.append so callers that query the stream after
-     * the dispatch return observe the event (read-your-writes).
-     */
     const emitDispatchPreflight = async (): Promise<void> => {
       const passed =
         guardOutcomes.ancestry.passed &&
@@ -1240,10 +910,6 @@ export async function handlePrepareDelegation(
             worktree: { passed: guardOutcomes.worktree.passed },
             protectedBranch: { passed: guardOutcomes.protectedBranch.passed },
             mainWorktree: { passed: guardOutcomes.mainWorktree.passed },
-            // #1509/#1501: the baseRef guard runs only on the nativeIsolation
-            // path. Omit it on non-native dispatches so telemetry reflects
-            // "not executed" by absence rather than a misleading passed:true
-            // (schema marks baseRef optional for exactly this reason).
             ...(args.nativeIsolation
               ? { baseRef: { passed: guardOutcomes.baseRef.passed } }
               : {}),
@@ -1254,23 +920,6 @@ export async function handlePrepareDelegation(
       });
     };
 
-    // #1129 C: refuse dispatch from a protected base branch (main/master).
-    // Runs before ancestry because 'integrationBranch descends from main'
-    // trivially passes when HEAD is on main — that case must be caught
-    // at HEAD inspection, not ancestry.
-    //
-    // DR-10 (refactor-pipeline-view-economy): skipped under nativeIsolation,
-    // mirroring the DR-2 worktree-location guard below. The host materializes
-    // each subagent worktree off the pinned base (`worktree.baseRef: head` →
-    // the integration tip, enforced by the DR-2b baseRef guard), so the
-    // orchestrator's HEAD is never inherited by dispatched agents. Crucially,
-    // the server reads HEAD via `createGitExec()` from its own launch cwd —
-    // the main checkout, which cannot hold the feature branch (already checked
-    // out in the orchestrator worktree) and so sits on `main` — not the
-    // orchestrator's worktree. This guard is therefore a guaranteed false
-    // positive whenever the orchestrator drives from a worktree while the
-    // server runs from the main checkout. Under native isolation the baseRef
-    // guard is the applicable base-safety check, not this one.
     if (!args.nativeIsolation) {
       const protectionResult = assertCurrentBranchNotProtected(currentBranch);
       if (protectionResult.blocked) {
@@ -1298,9 +947,6 @@ export async function handlePrepareDelegation(
       }
     }
 
-    // #1129 D: derive integration branch from workflow state, falling
-    // back to the current checked-out branch — never to featureId, which
-    // is a different namespace and produces misleading git-errors.
     const integrationBranch =
       workflowState.synthesis?.integrationBranch ?? currentBranch ?? args.featureId;
     const ancestryResult = await validateBranchAncestry(
@@ -1334,13 +980,8 @@ export async function handlePrepareDelegation(
       };
     }
 
-    // ─── DR-2: Worktree Location Assertion ──────────────────────────────
-    // Skip worktree check when nativeIsolation is true (Claude Code manages isolation)
     if (!args.nativeIsolation) {
       const worktreeResult = assertMainWorktree();
-      // `mainWorktree` is reserved for a future cross-cutting "canonical
-      // main worktree" assertion; today it shadows `worktree.passed` so
-      // the event-schema shape is stable from day one.
       guardOutcomes.worktree.passed = worktreeResult.isMain;
       guardOutcomes.mainWorktree.passed = worktreeResult.isMain;
       if (!worktreeResult.isMain) {
@@ -1367,13 +1008,6 @@ export async function handlePrepareDelegation(
         };
       }
     } else {
-      // ─── DR-2b (#1509/#1501): Native-isolation worktree base-pin guard ──
-      // Claude Code's `isolation: worktree` branches the subagent worktree
-      // from origin/HEAD (default branch = main) unless the consumer sets
-      // `worktree.baseRef: "head"`. Without the pin, a subagent dispatched
-      // onto a stacked/non-main integration branch gets a base missing every
-      // in-branch prerequisite — the #1509/#1501 failure. Fail loud here with
-      // the exact remediation rather than silently dispatching onto main.
       const baseRefResult = assertWorktreeBaseRefPinned();
       guardOutcomes.baseRef.passed = baseRefResult.pinned;
       if (!baseRefResult.pinned) {
@@ -1403,10 +1037,6 @@ export async function handlePrepareDelegation(
       }
     }
 
-    // Audit trail must name every guard actually executed on this path. Under
-    // native isolation the protected-branch + worktree-location guards are
-    // skipped (DR-10 / DR-2) and baseRef applies; otherwise protectedBranch runs
-    // first (see above), then ancestry, then worktree.
     const checksRun = args.nativeIsolation
       ? ['ancestry', 'baseRef']
       : ['protectedBranch', 'ancestry', 'worktree'];
@@ -1419,17 +1049,8 @@ export async function handlePrepareDelegation(
       },
     });
 
-    // #1261: emit the consolidated `dispatch.preflight` summary now that
-    // every guard has run and recorded its outcome. Single emission per
-    // dispatch — the aggregate `passed` will be `true` here.
     await emitDispatchPreflight();
 
-    // #1261: probe for shared-stash collisions in the current worktree.
-    // Advisory only — fires `stash.detected` when `git stash list`
-    // returns a non-empty listing. Cross-worktree stash storage is shared
-    // (`feedback_subagent_stash_hazard`), so an existing entry surfaces
-    // the moment of collision for later root-cause attribution. Failures
-    // are swallowed inside `probeStashAndEmit`; no dispatch impact.
     await probeStashAndEmit({
       store,
       streamId,
@@ -1437,7 +1058,6 @@ export async function handlePrepareDelegation(
       gitExec,
     });
 
-    // ─── DR-5: Checkpoint Gate ──────────────────────────────────────────
     const checkpointConfig: CheckpointEnforcementConfig = ctx?.projectConfig?.checkpoint ?? {
       operationThreshold: CHECKPOINT_OPERATION_THRESHOLD,
       enforceOnPhaseTransition: true,
@@ -1477,8 +1097,6 @@ export async function handlePrepareDelegation(
       warnings.push(`checkpoint: ${gateResult.warning}`);
     }
 
-    // The plan's tasks, and any this wave names that the plan does not,
-    // announced before the fold below counts them.
     const planned = (Array.isArray(workflowState.tasks) ? workflowState.tasks : [])
       .map(plannedTask)
       .filter((task): task is { readonly id: string; readonly title: string } => task !== undefined);
@@ -1487,7 +1105,6 @@ export async function handlePrepareDelegation(
       ...(args.tasks ?? []).map((task) => ({ id: task.id, title: task.title })),
     ]);
 
-    // Materialize delegation readiness from event stream
     const { view: readiness } = await foldToTail<DelegationReadinessState>(
       store,
       materializer,
@@ -1495,39 +1112,14 @@ export async function handlePrepareDelegation(
       DELEGATION_READINESS_VIEW,
     );
 
-    // DR-T-1 (#1205, T-03): plan-artifact presence is tracked by the
-    // delegation-readiness projection itself (T-02). The handler trusts
-    // the view as the single source of truth and does not run a parallel
-    // filesystem/state check. This eliminates the prior divergence where
-    // `prepare_delegation` and `delegation_readiness` reported different
-    // blocker lists for identical workflow state (axiom DIM-1, #1109 §2).
-    //
-    // DR-T-2 (#1206, T-05) / fix-005 (#1213): when a `tasks` arg is
-    // provided, scope the worktrees-pending blocker AND the numeric
-    // expected/ready counts to that subset. Prevents the documented
-    // "wave-by-wave dispatch" pattern from being blocked by the global
-    // per-stream count when only a subset is being prepared, and keeps
-    // the visible numeric surfaces in lockstep with the (possibly
-    // rewritten) blocker string so callers don't see "expected: 5 /
-    // ready: 2" alongside a "1 worktrees pending" blocker.
     const scoped = computeScopedWorktrees(readiness, args.tasks);
 
-    // When nativeIsolation is true, filter out worktree-related blockers
-    // (Claude Code handles worktree isolation natively via `isolation: "worktree"`).
     const baseBlockers = args.nativeIsolation
       ? scoped.blockers.filter(b => !isWorktreeBlocker(b))
       : scoped.blockers;
 
-    // ready is computed off the wave-scoped + native-filtered blockers,
-    // BEFORE appending the desync diagnostic — drift is informational, it
-    // does not gate dispatch on its own (per #1212 design).
     const effectiveReady = baseBlockers.length === 0;
 
-    // DR-T-3 (#1212, T-06): state-vs-plan desync diagnostic. Compares the
-    // projection's plan.taskCount (incremented by task.assigned events)
-    // against workflowState.tasks.length. When the two diverge after a
-    // plan-review revision, the operator should notice before dispatching
-    // against stale state.
     const desyncBlockers = computeDesyncBlockers(workflowState, readiness);
 
     const effectiveBlockers = [...baseBlockers, ...desyncBlockers];
@@ -1543,13 +1135,6 @@ export async function handlePrepareDelegation(
       },
     };
 
-    // #1542: under native isolation the host materializes worktrees DOWNSTREAM
-    // of this call, so worktree blockers are filtered (above) and `ready` can be
-    // true while `worktrees.ready === 0`. That exact state has silently
-    // dispatched agents into the shared checkout. Surface the hazard (INV-12:
-    // the readiness affordance must not lie) WITHOUT flipping `ready` (INV-11:
-    // the host owns isolation). The orchestrator-side verify-back step lives in
-    // the delegate skill's native-isolation path.
     if (
       args.nativeIsolation &&
       effectiveReadiness.worktrees.expected > 0 &&
@@ -1558,7 +1143,6 @@ export async function handlePrepareDelegation(
       warnings.push(sharedCheckoutHazardWarning(effectiveReadiness.worktrees.expected));
     }
 
-    // Build result
     if (!effectiveReady) {
       const result: PrepareDelegationResult = {
         ready: false,
@@ -1576,10 +1160,8 @@ export async function handlePrepareDelegation(
       };
     }
 
-    // Query telemetry state for hint generation (graceful degradation)
     const telemetryState = await queryTelemetryState(store, stateDir);
 
-    // Materialize code quality (best effort -- may have no events)
     let qualityState: CodeQualityViewState | null = null;
     try {
       qualityState = (await foldToTail<CodeQualityViewState>(
@@ -1589,16 +1171,12 @@ export async function handlePrepareDelegation(
         CODE_QUALITY_VIEW,
       )).view;
     } catch {
-      // Quality view may not exist for this stream -- that's fine
     }
 
-    // Ready -- include quality hints (with telemetry integration)
     const qualityHints = assembleQualityHints(qualityState, telemetryState);
 
-    // Determine task count from args or readiness view
     const taskCount = args.tasks?.length ?? readiness.plan.taskCount;
 
-    // Emit plan-coverage gate event (best-effort: emission failure must not break readiness)
     try {
       await emitGateEvent(store, streamId, 'plan-coverage', 'planning', true, {
         dimension: 'D1',
@@ -1606,30 +1184,11 @@ export async function handlePrepareDelegation(
         taskCount,
         gatePassRate: readiness.quality.gatePassRate,
       });
-    } catch { /* fire-and-forget */ }
+    } catch {}
 
-    // Compute task classifications when tasks are provided (advisory).
-    // vls1-b2 (task 003): thread the resolved project config so the
-    // verification sequence stamped on each classification honors any
-    // `.exarchos.yml` `verification:` cell override. When absent, the
-    // resolver falls through to the byte-identical built-in table.
-    //
-    // task 004: forward the config UNCONDITIONALLY — the resolver now
-    // optional-chains on `config?.verification?.policy`, so a present-but-
-    // partial config (one predating the `verification` overlay) is handled as
-    // no-config inside the resolver rather than throwing. The earlier call-site
-    // guard that forwarded config only when `verification` was present is no
-    // longer needed.
     const agentConfig = ctx?.projectConfig?.agents ?? DEFAULTS.agents;
     const projectConfig = ctx?.projectConfig;
 
-    // ─── #1636: lift planner stamps from the decomposition markdown ──────────
-    // When `planPath` is supplied, parse its per-task `**Risk Tier:**` /
-    // `**Boundary Touching:**` stamps and merge them onto the caller's tasks so
-    // the classifier's "planner value wins" branch is reachable. Best-effort: an
-    // unreadable plan leaves tasks unchanged (heuristic still applies) and only
-    // surfaces an advisory — the readiness dispatch path must not hard-depend on
-    // a plan read.
     let effectiveTasks = args.tasks;
     if (args.tasks && args.planPath) {
       try {
@@ -1644,16 +1203,9 @@ export async function handlePrepareDelegation(
       }
     }
 
-    // DR-4: return the full per-task prompt inline only when the caller opts in
-    // (`detail: true` or `outputFormat: 'prompt-only'`). The default response
-    // ships the deduped template + shared note map instead.
     const includeImplementerPrompt =
       args.detail === true || args.outputFormat === 'prompt-only';
 
-    // DR-7: classify the wave through the fail-closed boundary. A resolver
-    // throw (e.g. a deferred-kind 'not-yet-wired' fault) no longer propagates
-    // and fails the dispatch OPEN; instead the boundary records `phase.blocked`
-    // and refuses to proceed (no task classifications stamped).
     let taskClassifications: TaskClassification[] | undefined;
     if (effectiveTasks) {
       const classified = classifyTasksFailClosed(
@@ -1682,11 +1234,6 @@ export async function handlePrepareDelegation(
       taskClassifications = classified.classifications;
     }
 
-    // ─── DR-2: Derive + persist workflow-level riskTier (max-of-tiers) ──────
-    // Stamp `state.riskTier` once, here at prepare_delegation, so the `/review`
-    // boundary's tier-aware required-reviews contract appends the high-tier
-    // `mutation-adequacy` backstop. The explicit caller override wins over the
-    // derived max; absent both tasks and an override there is nothing to stamp.
     const workflowRiskTier =
       args.riskTier ??
       (taskClassifications ? deriveWorkflowRiskTier(taskClassifications) : undefined);
@@ -1694,12 +1241,6 @@ export async function handlePrepareDelegation(
       await persistWorkflowRiskTier(store, streamId, workflowRiskTier);
     }
 
-    // ─── DR-4: dedupe the implementer prompt across the wave ────────────────
-    // Return the shared template ONCE and the DISTINCT tier-selected notes ONCE
-    // each (keyed by tier profile), instead of ~1,560 near-identical tokens per
-    // task. The orchestrator reconstructs any task's exact prompt losslessly:
-    //   implementerPromptTemplate with verificationNotes[task.verificationNoteKey]
-    //   spliced in === the pre-DR-4 per-task prompt.
     let verificationNotes: Record<string, string> | undefined;
     if (taskClassifications) {
       verificationNotes = {};

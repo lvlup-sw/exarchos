@@ -1,26 +1,13 @@
-// ─── Plan-Format Stamp Parser (#1636) ────────────────────────────────────────
-//
-// Lifts the planner's per-task verification-routing stamps out of a decomposition
-// markdown document so they can reach `prepare_delegation` / `classifyTask`.
-//
-// Motivation (#1636): the planner authors `**Risk Tier:**` / `**Boundary
-// Touching:**` per task (task-template.md), and `deriveRiskTier` /
-// `deriveBoundaryTouching` honor an explicit value ("planner value always wins").
-// But nothing lifted those stamps out of the plan and onto the task objects, and
-// the MCP `tasks` schema stripped them — so the override branch was structurally
-// unreachable and every task fell through to the keyword/glob heuristic. This
-// module is the deterministic lift: no LLM in the hot path.
-//
-// SoT note: this owns the stamp regexes for the DISPATCH path. The plan-coverage
-// GATE (`task-decomposition.ts` `extractTaskRiskTier`, #1544) keeps its own
-// riskTier regex — different concern, frozen parity tests. Both accept the same
-// `**Risk Tier:** <tier>` / `**riskTier:** <tier>` spellings.
-//
-// Header note: the actual `docs/specs/` corpus authors task headers as `####`
-// with numeric ids (`#### Task 001: …`), while `parseTaskBlocks` (the gate path)
-// matches only `###` + `T-NN|NN`. This parser accepts BOTH `###` and `####` and
-// a broader id token so it works on the real corpus.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Reads the per-task routing stamps of the planner (`**Risk Tier:**`, `**Boundary Touching:**`,
+ * `**Test Layer:**`) from a decomposition markdown document. The stamps then reach
+ * `prepare_delegation` and `classifyTask`, where an explicit planner value wins over the heuristic.
+ * The parse is deterministic and uses no LLM.
+ *
+ * This module owns the stamp regexes for the dispatch path. The plan-coverage gate
+ * (`extractTaskRiskTier` in `task-decomposition.ts`) keeps its own regex, and both accept the same spellings.
+ * This parser accepts `###` and `####` task headers and a wider id token than `parseTaskBlocks`.
+ */
 
 import type { RiskTier } from '../../workflow/verification-policy.js';
 import {
@@ -32,13 +19,10 @@ import {
 export type TestLayer = 'acceptance' | 'integration' | 'unit' | 'property';
 
 /**
- * Normalise a task id for cross-form matching. `canonicaliseTaskId` collapses
- * `T-01`/`T01`/`01`/`1` → `1`, but it does NOT handle the spelled-out `task`
- * prefix the delegate skill emits (`id: "task-001"`): `^T-?` there strips only
- * the leading `t`, leaving `ask-001`. So a plan header `Task 001` (→ `1`) would
- * never match a caller's `task-001`. Strip a spelled-out `task<sep>` prefix
- * first (separator required, so a real word id like `taskrunner` is untouched),
- * then delegate to `canonicaliseTaskId` for the `T-?`/leading-zero collapse.
+ * Normalizes a task id for matching across forms. It removes a spelled-out `task` prefix with a
+ * separator, and then calls `canonicaliseTaskId`, which collapses a `T` or `T-` prefix and leading zeros.
+ * Without the first step, `canonicaliseTaskId` removes only the leading `t` of `task-<n>`.
+ * The separator is required, so a word id such as `taskrunner` does not change.
  */
 export function normalizeTaskId(id: string): string {
   return canonicaliseTaskId(id.replace(/^task[-_\s]+/i, ''));
@@ -46,7 +30,7 @@ export function normalizeTaskId(id: string): string {
 
 /** A task's planner-authored verification-routing stamps, lifted from the plan. */
 export interface TaskStamp {
-  /** Task id exactly as written in the plan header (e.g. "001", "T-03"). */
+  /** The task id exactly as the plan header writes it. */
   readonly id: string;
   /** `normalizeTaskId(id)` — the form used to match against caller task ids. */
   readonly canonicalId: string;
@@ -54,7 +38,7 @@ export interface TaskStamp {
   readonly title: string;
   /** `**Risk Tier:**` stamp, if present. */
   readonly riskTier?: RiskTier;
-  /** `**Boundary Touching:**` stamp, if present (may be explicitly `false`). */
+  /** The `**Boundary Touching:**` stamp, if present. It can be an explicit `false`. */
   readonly boundaryTouching?: boolean;
   /** `**Test Layer:**` stamp, if present. */
   readonly testLayer?: TestLayer;
@@ -64,16 +48,18 @@ export interface TaskStamp {
   readonly blockedBy: string[];
 }
 
-// A task header: `###`/`####`, then `Task`, then an id token, then a `:`/`—`/`-`
-// separator, then the title. `Task\s+` (whitespace-required) means `### Tasks`
-// (a section header) does not match.
+/**
+ * A task header: `###` or `####`, `Task`, an id token, a `:`, `—`, or `-` separator, and the title.
+ * `Task\s+` requires whitespace, so the `### Tasks` section header does not match.
+ */
 const TASK_HEADER = /^#{3,4}\s+Task\s+([0-9A-Za-z.\-]+)\s*[:—-]\s*(.+?)\s*$/;
-// A top-level section header (`#` / `##`) ends the preceding task block.
+/** A top-level section header (`#` or `##`) ends the task block before it. */
 const SECTION_HEADER = /^#{1,2}\s+\S/;
 
-// Stamp regexes. `(?![\w-])` (not `\b`): the value must end the token, so
-// `riskTier: low-priority` does NOT read as `low` — a malformed stamp falls
-// through to heuristic derivation instead of silently misclassifying (#1544).
+/**
+ * The stamp regexes end with `(?![\w-])` and not `\b`, so `riskTier: low-priority` does not read as
+ * `low`. A malformed stamp then falls through to the heuristic.
+ */
 const RISK_TIER_STAMP = /risk\s*tier\*{0,2}\s*:\s*\*{0,2}\s*(low|medium|high)(?![\w-])/i;
 const BOUNDARY_STAMP = /boundary\s*touching\*{0,2}\s*:\s*\*{0,2}\s*(true|false)(?![\w-])/i;
 const TEST_LAYER_STAMP =
@@ -129,9 +115,8 @@ export function parseTaskStamps(planMarkdown: string): TaskStamp[] {
 }
 
 /**
- * Look up a task's stamp by id, matching on the canonical form so callers may
- * pass `task-001` / `T001` / `001` interchangeably against a plan that authored
- * `Task 001`. Returns `undefined` when the plan has no such task.
+ * Finds the stamp of a task by its canonical id, so a caller can pass any id form that
+ * {@link normalizeTaskId} collapses. It returns `undefined` when the plan has no such task.
  */
 export function stampForTask(
   stamps: readonly TaskStamp[],

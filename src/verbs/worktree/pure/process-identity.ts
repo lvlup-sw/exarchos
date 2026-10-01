@@ -1,139 +1,72 @@
 /**
- * Portable process-identity primitive for worktree-lock ownership.
+ * Portable process identity for worktree-lock ownership.
+ * The kernel reuses PIDs, so a PID alone cannot prove that a lock owner is the same process.
+ * This module pairs the recorded PID with the create-time of the owner process, so a reused PID reads as a different, dead owner.
  *
- * A PID alone cannot decide whether the process that claimed a worktree lock is
- * still the same one: the kernel recycles PIDs once its counter wraps, so a
- * stale lock's PID may have been reassigned to an unrelated live process. This
- * module pairs the recorded PID with the owning process's **create-time**
- * fingerprint — the future-work that `utils/process.ts#isPidAlive` flags — so a
- * reused PID is correctly read as a *different* (dead) owner.
- *
- * The pure decision (`ownerLiveness`) takes an injected {@link ProcessSource} so
- * the liveness logic is unit-testable with platform-shimmed create-times and no
- * real OS calls. The default real source ({@link defaultProcessSource})
- * resolves create-time portably across linux / macOS / Windows behind that same
- * platform-agnostic signature.
- *
- * ## Liveness is THREE-state, not a boolean
- *
- * A PID probe has three outcomes, and collapsing the last two into "dead" can
- * release a still-live owner:
- *
- *   - **alive**   — the PID is present AND its create-time matches the recorded
- *                   fingerprint (provably the same process).
- *   - **dead**    — the PID is absent (the process exited) OR a present PID's
- *                   create-time differs (PID reuse by a newer process).
- *   - **unknown** — the create-time probe could not be RUN at all (permission
- *                   error, missing `ps` / PowerShell, unsupported platform). The
- *                   process may well still be alive; we just could not prove it
- *                   either way, so the caller MUST treat it as "do not reclaim"
- *                   (fail-closed) rather than as dead.
+ * Liveness has three states. `alive`: the PID is present and its create-time matches.
+ * `dead`: the PID is absent, or its create-time differs.
+ * `unknown`: the create-time probe cannot run, so the caller must not reclaim the lock.
+ * The pure decision takes an injected {@link ProcessSource}, so tests need no OS calls.
  */
 
 import { readFileSync } from 'node:fs';
 import { isPidAlive } from '../../../utils/process.js';
 import { runCommandSync } from '../../../utils/process.js';
 
-// ============================================================
-// Types
-// ============================================================
-
-/**
- * Identifies the process that owns a resource (e.g. a worktree lock), captured
- * at claim time.
- */
+/** The process that owns a resource, such as a worktree lock, as recorded at claim time. */
 export interface OwnerDescriptor {
   /** The PID recorded when ownership was claimed. */
   ownerPid: number;
   /**
-   * The owning process's create-time, captured at claim time. An opaque,
-   * platform-defined string (Linux jiffies-since-boot, macOS `lstart`, Windows
-   * FILETIME) — compared only for equality, never parsed.
+   * The create-time of the owner process at claim time.
+   * It is an opaque platform string (Linux clock ticks since boot, macOS `lstart`, Windows FILETIME), compared only for equality.
    */
   ownerStartedAt: string;
 }
 
-/**
- * Three-state liveness verdict for a recorded owner. `'unknown'` (the probe
- * could not run) is DISTINCT from `'dead'` (the process provably exited / was
- * reused) so callers never reclaim a worktree whose owner merely failed to
- * probe. See the module header.
- */
+/** Liveness verdict for a recorded owner. `'unknown'` is not `'dead'`, so a failed probe never lets a caller reclaim a worktree. */
 export type OwnerLiveness = 'alive' | 'dead' | 'unknown';
 
 /**
- * Outcome of probing a PID's create-time:
- *
- *   - `present` — the PID is held by a live process; `startedAt` is its opaque
- *     create-time fingerprint (compared only for equality).
- *   - `absent`  — no process holds that PID (it has exited).
- *   - `unknown` — the create-time could NOT be resolved (permission error,
- *     missing `ps`/PowerShell, unsupported platform). The process may still be
- *     alive — distinct from `absent` precisely so liveness can fail closed.
+ * Result of a create-time probe for a PID.
+ * `present`: a live process holds the PID, and `startedAt` is its create-time.
+ * `absent`: no process holds the PID.
+ * `unknown`: the create-time did not resolve, for example because of a permission error, a missing `ps` or PowerShell, or an unsupported platform.
+ * The process can still be alive, so liveness fails closed.
  */
 export type StartTimeProbe =
   | { readonly status: 'present'; readonly startedAt: string }
   | { readonly status: 'absent' }
   | { readonly status: 'unknown' };
 
-/**
- * Abstraction over the host process table. Injected so the liveness logic is
- * testable without touching the real OS. The signature is deliberately
- * platform-agnostic — no syscall shape leaks through it.
- */
+/** Injected view of the host process table, so tests of the liveness logic need no OS. The signature has no platform detail. */
 export interface ProcessSource {
-  /**
-   * Probe the process currently holding `pid` — see {@link StartTimeProbe}. The
-   * `present` create-time string is opaque and only ever compared for equality
-   * against a recorded `ownerStartedAt`.
-   */
+  /** Probes the process that holds `pid` now. See {@link StartTimeProbe}. */
   getStartTime(pid: number): StartTimeProbe;
 }
 
-// ============================================================
-// Pure decision
-// ============================================================
-
 /**
- * Decide the three-state {@link OwnerLiveness} of `owner`.
- *
- * - **alive** iff the PID is present AND its create-time equals the recorded
- *   `ownerStartedAt`.
- * - **dead** iff the PID is absent (the process exited) OR the create-time
- *   differs. A later create-time on the same PID means the kernel handed that
- *   PID to a *new* process (PID reuse) — the original owner is gone. The
- *   create-time equality check is what defeats reuse misattribution.
- * - **unknown** iff the create-time could not be probed at all. The owner may
- *   still be live, so callers MUST fail closed (treat as in-use, never release).
- *
- * Pure over its injected {@link ProcessSource}; performs no OS access itself.
+ * Decides the {@link OwnerLiveness} of `owner` through the injected {@link ProcessSource}.
+ * It returns `alive` only when the PID is present and its create-time equals `ownerStartedAt`.
+ * A different create-time means that the kernel gave the PID to a new process, so the owner is `dead`.
+ * An `unknown` probe returns `unknown`, and the caller must treat the owner as in use.
  */
 export function ownerLiveness(owner: OwnerDescriptor, source: ProcessSource): OwnerLiveness {
   const probe = source.getStartTime(owner.ownerPid);
   if (probe.status === 'absent') {
-    return 'dead'; // PID absent -> the owning process exited -> dead.
+    return 'dead';
   }
   if (probe.status === 'unknown') {
-    return 'unknown'; // probe could not run -> NOT proven dead -> fail closed.
+    return 'unknown';
   }
-  // PID present: alive only if it is the SAME process (same create-time).
-  // A mismatch means the PID was reused by a newer process -> owner is dead.
   return probe.startedAt === owner.ownerStartedAt ? 'alive' : 'dead';
 }
 
 /**
- * Resolve `pid`'s create-time fingerprint to a NON-EMPTY string, or `null` when
- * the platform cannot resolve it — the create-time-resolution seam a caller uses
- * to stamp `ownerStartedAt` on a reservation (DR-5).
- *
- * Coalesces every non-resolvable outcome to `null`: an `absent`/`unknown` probe,
- * OR a `present` probe whose create-time is the empty string. It NEVER returns
- * `''` — an empty create-time is a value NO liveness probe can equality-match, so
- * persisting it would be the `''`-vs-`.min(1)` invalid-raw-event class; `null`
- * threads cleanly through the null-ready `WorktreeReservedData.ownerStartedAt`
- * and is correctly read as "no attributable live owner" (fail-closed). Mirrors
- * the launcher's `holderStartedAt` resolution. Pure over the injected
- * {@link ProcessSource}; performs no OS access itself.
+ * Resolves the create-time of `pid` to a non-empty string, for the `ownerStartedAt` stamp on a reservation.
+ * It returns `null` for an `absent` or `unknown` probe, and for an empty create-time.
+ * It never returns `''`, because no probe can match an empty value, and the event schema rejects it.
+ * `WorktreeReservedData.ownerStartedAt` accepts `null`, which reads as no live owner.
  */
 export function resolveStartedAt(source: ProcessSource, pid: number): string | null {
   const probe = source.getStartTime(pid);
@@ -142,26 +75,15 @@ export function resolveStartedAt(source: ProcessSource, pid: number): string | n
     : null;
 }
 
-// ============================================================
-// Default real source (portable; thin)
-// ============================================================
-
 /**
- * Read the create-time fingerprint for a live PID, per platform. Returns `null`
- * when it cannot be resolved (absent PID, permission error, or unsupported
- * platform). Kept thin — the testable logic lives in {@link ownerLiveness};
- * this is exercised only through {@link defaultProcessSource}, which maps a
- * `null` (probe-could-not-run) here onto the `unknown` {@link StartTimeProbe}
- * status when the PID is otherwise present.
+ * Reads the create-time of a live PID for the platform, or returns `null` when it does not resolve.
+ * On Linux it reads field 22 (`starttime`) of `/proc/<pid>/stat`. The command field can hold spaces and parentheses, so it splits after the last `)`.
+ * On macOS it reads `ps -o lstart=`.
+ * On Windows it reads the PowerShell create-time as a FILETIME through `runCommandSync`, which handles the shim and quoting.
  */
 function readCreateTime(pid: number, platform: NodeJS.Platform): string | null {
   try {
     if (platform === 'linux') {
-      // /proc/<pid>/stat field 22 (1-indexed) is `starttime` — clock ticks
-      // since boot, stable for the life of the process. The comm field (2) is
-      // wrapped in parens and may itself contain spaces/parens, so split the
-      // tail AFTER the final ')'. After comm, tail[0] is `state` (field 3),
-      // so starttime is tail[22 - 3] = tail[19].
       const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
       const tail = stat.slice(stat.lastIndexOf(')') + 1).trim().split(/\s+/);
       const starttime = tail[19];
@@ -169,8 +91,6 @@ function readCreateTime(pid: number, platform: NodeJS.Platform): string | null {
     }
 
     if (platform === 'darwin') {
-      // macOS has no /proc; `ps -o lstart=` prints the process start timestamp
-      // (e.g. "Wed Jun 25 10:23:45 2026"), empty/erroring when the PID is gone.
       const out = runCommandSync('ps', ['-o', 'lstart=', '-p', String(pid)], {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
@@ -180,10 +100,6 @@ function readCreateTime(pid: number, platform: NodeJS.Platform): string | null {
     }
 
     if (platform === 'win32') {
-      // PowerShell exposes the create-time as a FILETIME — a monotonically
-      // increasing 64-bit integer, so a reused PID yields a strictly larger
-      // value. `runCommandSync` keeps the shim/quoting handling consistent with
-      // the rest of the codebase (#1623).
       const out = runCommandSync(
         'powershell',
         [
@@ -205,16 +121,9 @@ function readCreateTime(pid: number, platform: NodeJS.Platform): string | null {
 }
 
 /**
- * Default {@link ProcessSource} backed by the real OS.
- *
- * Liveness is probed with the portable signal-0 check (`isPidAlive`); only when
- * the PID is present is the create-time read (so an absent PID short-circuits to
- * `absent` without spawning a child process). A present PID whose create-time
- * cannot be read (permission / missing `ps`/PowerShell / unsupported platform)
- * resolves to `unknown` — NOT `absent` — so the caller fails closed instead of
- * reclaiming a possibly-live owner. The create-time read branches by
- * `process.platform` internally — the platform detail never reaches the
- * {@link ProcessSource} signature.
+ * Default {@link ProcessSource} for the real OS. It checks the PID with the signal-0 probe `isPidAlive` first.
+ * An absent PID returns `absent` and starts no child process.
+ * A present PID with an unreadable create-time returns `unknown`, not `absent`, so the caller fails closed.
  */
 export const defaultProcessSource: ProcessSource = {
   getStartTime(pid: number): StartTimeProbe {
@@ -223,7 +132,7 @@ export const defaultProcessSource: ProcessSource = {
     }
     const startedAt = readCreateTime(pid, process.platform);
     return startedAt === null
-      ? { status: 'unknown' } // PID present but create-time unreadable -> unknown.
+      ? { status: 'unknown' }
       : { status: 'present', startedAt };
   },
 };

@@ -1,12 +1,9 @@
-// ─── Response-economy declaration for `prepare` ──────────────────────────────
-//
-// The capsule IS the response. The harness runs the batch from it with no
-// further governance calls, so a budget that routinely cut it would turn the
-// two-call path into a three-call one. The budget is therefore sized to carry a
-// realistic batch in full, and the reducer is the exception path for a batch
-// too large to carry: it keeps what `settle` needs — the identity, the digest,
-// the task ids and the custody reference — and says that the full capsule is
-// in custody under that reference.
+/**
+ * Response-economy declaration for `prepare`. The capsule is the response, and the harness runs
+ * the batch from it with no other governance calls. The budget carries a realistic batch in full.
+ * For a larger batch, the reducer keeps the identity, the digest, the task ids and the custody
+ * reference that `settle` needs.
+ */
 
 import { SUMMARY_FIRST_PAGE_ITEMS } from '../../dispatch/core/economy.js';
 
@@ -26,7 +23,7 @@ export interface PreparedCapsuleReceiptSummary {
   readonly capsuleDigest: unknown;
   readonly definitionVersion: unknown;
   readonly tailSequence: unknown;
-  /** The custody reference survives the cap: it is the only pointer to the full capsule. */
+  /** The custody reference survives the cap. It is the only pointer to the full capsule. */
   readonly bundleRefs: unknown;
 }
 

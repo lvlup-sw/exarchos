@@ -1,33 +1,11 @@
-// ─── Decomposition & Risk Plausibility Signals (P02-06) ─────────────────────
-//
-// `check_task_decomposition` (see `task-decomposition.ts`) validates task
-// STRUCTURE (description / files / tests), the dependency DAG, and parallel
-// safety. It historically accepted whatever risk tier and boundary stamps a
-// planner declared — a plan where every one of 48 tasks is stamped
-// `riskTier: low` / `boundaryTouching: false`, or a single "task" whose file
-// set dwarfs every historical task, sailed through silently.
-//
-// This module adds calibrated PLAUSIBILITY signals on top of the structural
-// gate. Each signal is a pure, independently-testable predicate:
-//
-//   • breadth            — how many distinct modules/directories a task spans
-//   • behavior-count     — how many distinct behaviors a task claims
-//   • historical-size    — declared file count vs a calibrated baseline
-//   • risk-uniformity    — a blanket-low risk stamp across a large task set
-//   • boundary-uniformity— a blanket "touches no boundary" claim across a set
-//
-// The output is a STRUCTURED CHALLENGE (typed findings the caller can act on),
-// NOT a hard unconditional failure: the intent (exit criterion 9) is that an
-// implausible decomposition triggers a challenge rather than silent
-// acceptance. An author can suppress a specific challenge only by supplying a
-// recorded, non-empty override rationale — a missing or empty rationale never
-// suppresses. Suppressed challenges are retained in `overridden` (with their
-// rationale) so the override is auditable rather than invisible.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Plausibility signals for a task decomposition, on top of the structural gate in `task-decomposition.ts`.
+ * Each signal is a pure predicate: breadth, behavior count, historical size, risk uniformity, and boundary uniformity.
+ * An implausible decomposition returns a structured challenge, not a hard failure.
+ * Only a recorded, non-empty override rationale suppresses a challenge. The result keeps each suppressed challenge in `overridden`, with its rationale.
+ */
 
 import type { RiskTier } from '../../workflow/verification-policy.js';
-
-// ─── Types ───────────────────────────────────────────────────────────────
 
 /** The calibrated plausibility signals this module evaluates. */
 export type PlausibilitySignal =
@@ -57,23 +35,17 @@ const ALL_SIGNALS: readonly PlausibilitySignal[] = [
 export type OverrideMap = Readonly<Partial<Record<PlausibilitySignal, string>>>;
 
 /**
- * Calibrated thresholds for the plausibility signals. Injectable so callers
- * can supply repo-specific numbers; `DEFAULT_PLAUSIBILITY_BASELINE` is the
- * sane default used when none is supplied. Deterministic by construction — no
- * git-history shell-out at check time (see `deriveBaseline`).
+ * Calibrated thresholds for the plausibility signals. A caller can pass numbers for its repository.
+ * `DEFAULT_PLAUSIBILITY_BASELINE` applies when the caller passes none.
  */
 export interface PlausibilityBaseline {
-  /** Max distinct modules/directories a single task should span. */
+  /** The maximum number of distinct directories that one task can span. */
   readonly maxBreadth: number;
-  /** Max distinct behaviors a single task should claim. */
+  /** The maximum number of distinct behaviors that one task can claim. */
   readonly maxBehaviorCount: number;
   /** Max declared file count for a single task (historical-size outlier bound). */
   readonly maxFileCount: number;
-  /**
-   * Minimum task-set size at which uniform risk/boundary stamps become
-   * implausible enough to challenge. Below this, uniformity is unremarkable
-   * (a 3-task plan legitimately can be all-low).
-   */
+  /** The minimum number of tasks at which a uniform risk stamp or boundary stamp causes a challenge. */
   readonly uniformityMinTasks: number;
 }
 
@@ -133,25 +105,18 @@ export interface PlausibilityOptions {
   readonly planOverrides?: OverrideMap;
 }
 
-// ─── Pure Signal Primitives ──────────────────────────────────────────────
-
 /**
- * Directory ("module") a file path belongs to — everything up to the last
- * path separator. `src/a/x.ts` → `src/a`; a bare `x.ts` → `.`. Both `/` and
- * `\` are treated as separators so Windows-authored paths collapse identically.
+ * The directory of a file path: the text before the last separator, or `.` for a bare file name.
+ * The function converts `\` to `/` first, so a Windows path and a POSIX path give the same directory.
  */
 function directoryOf(path: string): string {
-  // Normalise `\` → `/` first so a Windows-authored `src\a\x.ts` and a
-  // POSIX `src/a/y.ts` collapse to the same directory string.
   const normalised = path.replace(/\\/g, '/');
   const idx = normalised.lastIndexOf('/');
   return idx === -1 ? '.' : normalised.slice(0, idx);
 }
 
 /**
- * Breadth: the number of DISTINCT directories a task's files span. Two files
- * in the same directory count once; a task scattered across many directories
- * is broad (and, past the baseline, implausibly so).
+ * Breadth: the number of distinct directories that the files of a task span. The function skips an empty path.
  */
 export function computeBreadth(files: readonly string[]): number {
   const dirs = new Set<string>();
@@ -163,17 +128,14 @@ export function computeBreadth(files: readonly string[]): number {
 }
 
 /**
- * A `Method_Scenario_Outcome` test identifier — the codebase's canonical
- * behavior token (PascalCase segments joined by underscores). Each DISTINCT
- * identifier is one claimed behavior.
+ * A `Method_Scenario_Outcome` test identifier: three PascalCase segments joined by underscores.
+ * Each distinct identifier is one claimed behavior.
  */
 const BEHAVIOR_TOKEN = /[A-Z][a-zA-Z]+_[A-Z][a-zA-Z]+_[A-Z][a-zA-Z]+/g;
 
 /**
- * Behavior count: the number of DISTINCT behavior tokens a task block claims.
- * Distinct (deduplicated) because the same behavior name typically appears
- * twice — once in a `[RED]` step and again in a verification checklist — and
- * that repetition is not two behaviors.
+ * Behavior count: the number of distinct behavior tokens in a task block.
+ * The function dedups, because one behavior name often occurs in a `[RED]` step and again in a checklist.
  */
 export function countBehaviors(block: string): number {
   const seen = new Set<string>();
@@ -184,18 +146,15 @@ export function countBehaviors(block: string): number {
   return seen.size;
 }
 
-// Stamp regexes mirror the sibling DISPATCH parser (`parse-task-stamps.ts`)
-// and the structural gate (`task-decomposition.ts`) so all three read the same
-// `**Risk Tier:** <tier>` / `**Boundary Touching:** <bool>` spellings. `(?![\w-])`
-// (not `\b`) makes a malformed suffix (`low-priority`) fall through rather than
-// silently misclassify.
+/**
+ * Matches the same `**Boundary Touching:** <bool>` spellings as `parse-task-stamps.ts`.
+ * `(?![\w-])` makes a malformed suffix fail to match, where `\b` misclassifies it.
+ */
 const BOUNDARY_STAMP = /boundary\s*touching\*{0,2}\s*:\s*\*{0,2}\s*(true|false)(?![\w-])/i;
 
 /**
- * Extract a task block's `**Boundary Touching:**` stamp, if present. Returns
- * `undefined` when the block carries no (well-formed) stamp — distinct from an
- * explicit `false`, so the uniformity signal can require ALL tasks to be
- * stamped before it fires.
+ * Reads the `**Boundary Touching:**` stamp of a task block.
+ * It returns `undefined` when the block has no well-formed stamp, so the uniformity signal can require a stamp on each task.
  */
 export function extractBoundaryTouching(block: string): boolean | undefined {
   const match = BOUNDARY_STAMP.exec(block);
@@ -203,10 +162,10 @@ export function extractBoundaryTouching(block: string): boolean | undefined {
   return match[1].toLowerCase() === 'true';
 }
 
-// Override line: `**Plausibility Override:** <signal>: <rationale>`. The signal
-// must be one of the known signals; the rationale is the remainder and must be
-// non-empty (a bare `signal:` with nothing after does NOT match, so an empty
-// rationale can never suppress).
+/**
+ * An override line: `**Plausibility Override:** <signal>: <rationale>`.
+ * A line with an empty rationale does not match, so it cannot suppress a challenge.
+ */
 const OVERRIDE_LINE =
   /^\s*\*{0,2}\s*plausibility\s+override\s*\*{0,2}\s*:\s*\*{0,2}\s*([a-z-]+)\s*[:\-–—]\s*(\S.*?)\s*$/i;
 
@@ -215,10 +174,8 @@ function isPlausibilitySignal(value: string): value is PlausibilitySignal {
 }
 
 /**
- * Parse `**Plausibility Override:** <signal>: <rationale>` lines out of a
- * markdown span into a signal→rationale map. Unknown signal names and
- * empty rationales are ignored. Later lines win over earlier ones for the
- * same signal.
+ * Parses the override lines of a markdown span into a map from signal to rationale.
+ * The function ignores an unknown signal and an empty rationale. For one signal, the last line wins.
  */
 export function parseOverrides(text: string): OverrideMap {
   const overrides: Partial<Record<PlausibilitySignal, string>> = {};
@@ -234,8 +191,6 @@ export function parseOverrides(text: string): OverrideMap {
   return overrides;
 }
 
-// ─── Baseline Derivation ─────────────────────────────────────────────────
-
 /** A deterministic sample of historical per-task sizes to calibrate against. */
 export interface HistoricalSizeSample {
   readonly fileCounts: readonly number[];
@@ -243,8 +198,8 @@ export interface HistoricalSizeSample {
 }
 
 /**
- * Nearest-rank percentile of a numeric sample. Deterministic; `p` in [0,1].
- * Returns 0 for an empty sample.
+ * The nearest-rank percentile of a numeric sample, with `p` in [0,1].
+ * It returns 0 for an empty sample.
  */
 function percentile(values: readonly number[], p: number): number {
   if (values.length === 0) return 0;
@@ -255,15 +210,9 @@ function percentile(values: readonly number[], p: number): number {
 }
 
 /**
- * Derive a calibrated baseline DETERMINISTICALLY from a historical size
- * sample. An outlier bound is set at the sample's 90th-percentile size scaled
- * by `slack` (default 2), floored at the `DEFAULT_PLAUSIBILITY_BASELINE`
- * constants so a sample of uniformly tiny tasks cannot produce an
- * implausibly-strict threshold. `overrides` win over the derived values.
- *
- * This is the injectable, deterministic alternative to shelling out to git
- * history at check time: a caller computes the sample once (however it likes)
- * and threads the result in.
+ * Derives a baseline from a historical size sample, with no git access at check time.
+ * Each outlier bound is the 90th-percentile size times `slack`, with `DEFAULT_PLAUSIBILITY_BASELINE` as the floor.
+ * The floor stops a sample of small tasks from making a threshold too strict. `overrides` win over the derived values.
  */
 export function deriveBaseline(
   sample: HistoricalSizeSample,
@@ -287,13 +236,9 @@ export function deriveBaseline(
   };
 }
 
-// ─── Assessment ──────────────────────────────────────────────────────────
-
 /**
- * Assess a decomposition for plausibility. Pure and deterministic: operates on
- * already-extracted structured inputs (see `extractPlausibilityInputs` in
- * `task-decomposition.ts` for the markdown bridge). Returns typed challenges;
- * never throws and never hard-fails.
+ * Assesses a decomposition for plausibility from the inputs that `extractPlausibilityInputs` extracts.
+ * The plan-level uniformity signals apply only when the task count reaches `uniformityMinTasks`.
  */
 export function assessDecompositionPlausibility(
   tasks: readonly PlausibilityTaskInput[],
@@ -314,7 +259,6 @@ export function assessDecompositionPlausibility(
     }
   };
 
-  // ── Per-task signals ──
   for (const task of tasks) {
     const overrides = task.overrides ?? {};
 
@@ -368,8 +312,6 @@ export function assessDecompositionPlausibility(
     }
   }
 
-  // ── Plan-level uniformity signals ──
-  // Only meaningful once the set is large enough that some variance is expected.
   if (tasks.length >= baseline.uniformityMinTasks) {
     const stampedTiers = tasks
       .map((t) => t.riskTier)

@@ -1,11 +1,12 @@
-// ─── Assess Stack Composite Action ──────────────────────────────────────────
-//
-// Orchestrates PR stack health assessment for the shepherd iteration loop.
-// Shepherd is NOT a separate HSM phase — it operates within the `synthesize`
-// phase. This action queries CI status, reviews, and comments per PR via
-// `VcsProvider`, then emits dual events: `ci.status` for ShepherdStatusView and
-// `ci.check_observed` for CodeQualityView/flywheel pass rate tracking.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The `assess_stack` composite action. It checks the health of a PR stack for
+ * the shepherd loop, which runs inside the `synthesize` phase.
+ *
+ * For each PR it queries CI, reviews, and comments through `VcsProvider`. It
+ * appends `ci.status` for each PR and `ci.check_observed` for each check. The
+ * result holds one truncated copy of each comment body, the check counts, and
+ * only the failing checks in detail, so the output stays small.
+ */
 
 import type { VcsProvider, CiStatus, PrComment as VcsPrComment } from '../../vcs/provider.js';
 import { createVcsProvider } from '../../vcs/factory.js';
@@ -19,17 +20,6 @@ import {
   DEFAULT_MAX_ITERATIONS,
 } from '../review/escalation-policy.js';
 
-// ─── Types (DR-2: minimal, single-copy comment shape) ───────────────────────
-//
-// The audit measured `assess_stack` returning 153,844 tokens on a 3-PR stack:
-// the same comment text was serialized up to 4× (`fullBody`, the embedded
-// `actionItem.raw` full-comment copy, the top-level `actionItems[].raw`
-// full-comment copy, and the truncated `body`), and every CI check was emitted
-// verbatim. DR-2 collapses this to ONE copy of each comment body (the truncated
-// `body` on `unresolvedComments`), replaces the dead `raw` copies with a
-// lightweight {@link CommentRef}, caps comments per PR with {@link CommentPage}
-// metadata, and reduces `checks` to counts + failing-check detail.
-
 export interface CiCheck {
   readonly name: string;
   readonly status: 'pass' | 'fail' | 'pending';
@@ -37,12 +27,9 @@ export interface CiCheck {
 }
 
 /**
- * DR-2 per-PR check roll-up. Passing/pending checks carry no actionable detail,
- * so the RESULT surfaces only their counts; failing checks (the only ones a
- * shepherd acts on) keep their full detail in {@link PrStatus.failingChecks}.
- * This is a result-shape economy only — `emitCiCheckObservedEvents` still emits
- * one `ci.check_observed` per check from the internal full set, so per-check
- * event fidelity is unchanged.
+ * The check counts for one PR. Only failing checks need action, so only they
+ * keep full detail, in {@link PrStatus.failingChecks}. Event emission still
+ * appends one `ci.check_observed` for each check.
  */
 export interface CheckCounts {
   readonly pass: number;
@@ -51,10 +38,9 @@ export interface CheckCounts {
 }
 
 /**
- * DR-2 per-PR comment-window descriptor. `assess_stack` caps the verbose,
- * body-carrying `unresolvedComments` list to a page so a single comment-heavy PR
- * cannot blow the output-token budget; `hasMore`/`offset`/`limit` steer the
- * shepherd loop to page through the rest (see the paging test).
+ * The comment window of one PR. `assess_stack` caps `unresolvedComments` to a
+ * page, so one PR with many comments cannot exceed the output budget.
+ * `hasMore`, `offset`, and `limit` let the shepherd loop read the next page.
  */
 export interface CommentPage {
   readonly total: number;
@@ -64,12 +50,10 @@ export interface CommentPage {
 }
 
 /**
- * DR-2 reference from an action item back to the unresolved comment that
- * produced it. Replaces the former `raw` full-comment copy: the comment body
- * lives ONCE, in `status.prs[…].unresolvedComments[…]` (matched by `commentId`
- * on the same PR). Consumers resolve the reference there instead of re-reading a
- * duplicated body. Carried on `ActionItem.raw` (typed `unknown`), so no shared
- * `ActionItem` shape change is needed.
+ * A reference from an action item to the unresolved comment that produced it.
+ * The comment body lives once, in `status.prs[…].unresolvedComments[…]`, with
+ * the same `commentId` on the same PR. The reference travels on
+ * `ActionItem.raw`, which has the type `unknown`.
  */
 export interface CommentRef {
   readonly pr: number;
@@ -82,18 +66,22 @@ interface PrReview {
 }
 
 interface PrComment {
-  readonly id: number;         // stable id; matches CommentRef.commentId for this PR
-  readonly body: string;       // truncated for display — the ONLY copy of the body
+  /** A stable id. It matches {@link CommentRef.commentId} for this PR. */
+  readonly id: number;
+  /** The truncated body. This is the only copy of the body in the result. */
+  readonly body: string;
   readonly isResolved: boolean;
-  // Adapter-parsed classification (#1159). Its `raw` full-comment copy is
-  // stripped (DR-2) — the top-level `actionItems[]` carries a {@link CommentRef}
-  // pointing back here instead of a second body copy.
+  /**
+   * The adapter classification, without its `raw` copy. The top-level action
+   * item carries a {@link CommentRef} back to this comment.
+   */
   readonly actionItem?: ActionItem;
-  // Observability only — carried through from the unified PR-feedback feed so
-  // callers can see which surface a comment came from and whether it threads a
-  // reply. NOT a dispatch branch: the harvest loop treats every source the same
-  // (INV-6). `source`/`parentId` are absent only when the provider omits them.
+  /**
+   * The feedback surface of the comment, for observability only. The harvest
+   * loop treats every source the same.
+   */
   readonly source?: VcsPrComment['source'];
+  /** The parent comment id of a threaded reply, for observability only. */
   readonly parentId?: number;
 }
 
@@ -108,10 +96,9 @@ export interface PrStatus {
 }
 
 /**
- * Internal per-PR working set (NOT serialized). Carries the FULL check and
- * unresolved-comment lists so event emission, action-item classification, and
- * the recommendation see everything; {@link buildPrStatus} projects it to the
- * minimal, windowed {@link PrStatus} that ships in the result.
+ * The internal working set for one PR, which is not serialized. It holds every
+ * check and unresolved comment for event emission, classification, and the
+ * recommendation. {@link buildPrStatus} projects it to the windowed {@link PrStatus}.
  */
 interface PrAssessment {
   readonly pr: number;
@@ -136,23 +123,17 @@ export interface AssessStackResult {
   readonly recommendation: 'request-approval' | 'fix-and-resubmit' | 'wait' | 'escalate';
 }
 
-// ─── Constants ──────────────────────────────────────────────────────────────
-
-// Module default auto-fix bound for the shepherd loop. It is the SAME value
-// `resolveEscalationPolicy` falls back to (`DEFAULT_MAX_ITERATIONS`); the live
-// bound is resolved per-dispatch from config (DR-3, #1595), not read from here.
+/**
+ * The default auto-fix bound for the shepherd loop, equal to the fallback of
+ * `resolveEscalationPolicy`. The handler resolves the live bound from config.
+ */
 const MAX_SHEPHERD_ITERATIONS = DEFAULT_MAX_ITERATIONS;
-
-// ─── Comment Truncation & Windowing (DR-2) ──────────────────────────────────
 
 const COMMENT_BODY_LIMIT = 200;
 
-// Default per-PR unresolved-comment page size. Omitting `limit` caps the
-// body-carrying list deterministically so one comment-heavy PR cannot blow the
-// output-token budget; `commentPage.hasMore` steers the shepherd loop to page.
+/** The page size for the unresolved comments of one PR when `limit` is absent. */
 const DEFAULT_COMMENT_PAGE_LIMIT = 20;
-// Upper bound on the per-PR comment window so a pathological explicit `--limit`
-// can't request an unbounded slice (DR-1/INV-17 economy applies to paging too).
+/** The highest page size, so an explicit `limit` cannot request an unbounded window. */
 const MAX_COMMENT_PAGE_LIMIT = 100;
 
 function truncateBody(body: string): string {
@@ -165,14 +146,12 @@ export interface CommentWindow {
   readonly offset: number;
 }
 
-// Resolve the per-PR comment window from the (optional, schema-declared) paging
-// inputs. Pagination values are floored FIRST, then validated, so a fractional
-// limit like `0.5` (which `Math.floor`s to 0 and would slice an EMPTY page,
-// hiding every comment) falls back to the default instead. A limit that floors
-// below 1 → DEFAULT_COMMENT_PAGE_LIMIT; a limit above the cap → clamped to
-// MAX_COMMENT_PAGE_LIMIT so a pathological `--limit 1e9` can't request an
-// unbounded window (DR-1/INV-17 economy applies to the paged surface too). An
-// offset that floors below 1 (missing, zero, negative, or fractional) → 0.
+/**
+ * Resolves the comment window from the optional paging inputs. The function
+ * floors each value before it checks it. A limit below 1 after the floor gets
+ * the default, so `0.5` does not give an empty page. A limit above the cap
+ * gets the cap. An offset below 1 after the floor becomes 0.
+ */
 export function resolveCommentWindow(limit?: number, offset?: number): CommentWindow {
   const flooredLimit =
     typeof limit === 'number' && Number.isFinite(limit) ? Math.floor(limit) : NaN;
@@ -200,23 +179,26 @@ function countChecks(checks: readonly CiCheck[]): CheckCounts {
   return { pass, fail, pending };
 }
 
-// DR-2: drop the `raw` full-comment copy from an adapter-parsed action item.
-// Everything downstream reads only the classified fields (description,
-// normalizedSeverity, file, line, reviewer, threadId); the raw comment body is
-// dead weight. The top-level action item re-attaches a lightweight CommentRef.
+/**
+ * Removes the `raw` comment copy from an adapter action item. Downstream code
+ * reads only the classified fields. The top-level action item gets a
+ * {@link CommentRef} instead.
+ */
 function withoutRaw(item: ActionItem): ActionItem {
   const { raw: _raw, ...rest } = item;
   return rest;
 }
 
-// ─── VcsProvider Query Helpers ──────────────────────────────────────────────
-
+/**
+ * Maps a provider check to a {@link CiCheck}. A skipped check counts as a pass,
+ * and an unknown status counts as pending.
+ */
 function mapCiCheck(check: { name: string; status: string; url?: string | undefined }): CiCheck {
   const statusMap: Record<string, 'pass' | 'fail' | 'pending'> = {
     pass: 'pass',
     fail: 'fail',
     pending: 'pending',
-    skipped: 'pass', // treat skipped as pass for overall status
+    skipped: 'pass',
   };
   return {
     name: check.name,
@@ -252,6 +234,15 @@ async function queryPrReviews(provider: VcsProvider, prNumber: number): Promise<
   }
 }
 
+/**
+ * Reads the PR feedback feed and classifies each comment with its reviewer
+ * adapter.
+ *
+ * Only `resolved === true` marks a comment as resolved. An absent value is
+ * unknown, and that comment still needs attention. An adapter that throws does
+ * not stop the batch. The function appends `provider.parse-error` and keeps
+ * the comment without an action item.
+ */
 async function queryPrComments(
   provider: VcsProvider,
   prNumber: number,
@@ -261,21 +252,10 @@ async function queryPrComments(
 ): Promise<PrComment[]> {
   try {
     const comments: VcsPrComment[] = await provider.getPrComments(String(prNumber));
-    // `getPrComments` now returns the unified, aggregated PR-feedback feed
-    // (issue-comment | review-inline | review-summary, with one-level threading)
-    // and a tri-state `resolved`. The github provider enriches review threads via
-    // GraphQL; other surfaces leave `resolved` absent. We honor that tri-state
-    // below: ONLY `resolved === true` is treated as resolved. Absent = unknown,
-    // and an unknown-resolution comment still needs attention, so it stays
-    // surfaced (absent ≠ false).
     const results: PrComment[] = [];
     for (const c of comments) {
       const kind = detectKind(c.author);
       const adapter = registry.forReviewer(kind);
-      // Outer defensive wrap: even though adapters self-guard in their own
-      // try/catch, a malformed comment or a bug in an adapter must not kill
-      // the entire batch. On throw we record `provider.parse-error` for
-      // observability and continue with actionItem=undefined (#1161).
       let actionItem: ActionItem | undefined;
       try {
         const parsed = adapter?.parse(c) ?? undefined;
@@ -312,10 +292,7 @@ async function queryPrComments(
       results.push({
         id: c.id,
         body: truncateBody(c.body),
-        // Tri-state gate: resolved ONLY when the provider explicitly says so.
-        // `resolved === false` and absent/unknown both stay unresolved.
         isResolved: c.resolved === true,
-        // DR-2: keep the classified fields but drop the raw full-comment copy.
         ...(actionItem ? { actionItem: withoutRaw(actionItem) } : {}),
         source: c.source,
         ...(c.parentId !== undefined ? { parentId: c.parentId } : {}),
@@ -357,10 +334,11 @@ async function assessPr(
   };
 }
 
-// DR-2: project the internal, full PrAssessment onto the minimal, windowed
-// PrStatus that ships in the result. Checks collapse to counts + failing detail;
-// the body-carrying unresolved-comment list is capped to the requested window
-// with `commentPage` metadata reporting the full total + `hasMore`.
+/**
+ * Projects the full {@link PrAssessment} onto the windowed {@link PrStatus}.
+ * Checks become counts plus the failing checks. The comment list is cut to the
+ * window, and `commentPage` reports the full total and `hasMore`.
+ */
 function buildPrStatus(a: PrAssessment, window: CommentWindow): PrStatus {
   const unresolvedComments = a.comments.slice(window.offset, window.offset + window.limit);
   return {
@@ -379,13 +357,15 @@ function buildPrStatus(a: PrAssessment, window: CommentWindow): PrStatus {
   };
 }
 
-// ─── Action Item Classification ─────────────────────────────────────────────
-
+/**
+ * Builds the action items: `ci-fix` for each failing check, `comment-reply`
+ * for each unresolved comment, and `review-address` for each change request.
+ * A comment without an adapter item gets MEDIUM severity.
+ */
 export function classifyActionItems(assessments: readonly PrAssessment[]): ActionItem[] {
   const items: ActionItem[] = [];
 
   for (const a of assessments) {
-    // CI failures -> ci-fix items
     for (const check of a.checks) {
       if (check.status === 'fail') {
         items.push({
@@ -398,10 +378,7 @@ export function classifyActionItems(assessments: readonly PrAssessment[]): Actio
       }
     }
 
-    // Unresolved comments -> comment-reply items
     for (const comment of a.comments) {
-      // Thread the adapter-parsed fields when present (#1159);
-      // fall back to MEDIUM when no adapter ran (registry omitted, edge case).
       const adapterItem = comment.actionItem;
       items.push({
         type: 'comment-reply',
@@ -414,13 +391,10 @@ export function classifyActionItems(assessments: readonly PrAssessment[]): Actio
         ...(adapterItem?.file ? { file: adapterItem.file } : {}),
         ...(adapterItem?.line !== undefined ? { line: adapterItem.line } : {}),
         ...(adapterItem?.threadId ? { threadId: adapterItem.threadId } : {}),
-        // DR-2: reference into unresolvedComments (matched by pr + commentId)
-        // instead of a second full-comment copy on `raw`.
         raw: { pr: a.pr, commentId: comment.id } satisfies CommentRef,
       });
     }
 
-    // Review changes requested -> review-address items
     for (const review of a.reviews) {
       if (review.state === 'CHANGES_REQUESTED') {
         items.push({
@@ -437,8 +411,11 @@ export function classifyActionItems(assessments: readonly PrAssessment[]): Actio
   return items;
 }
 
-// ─── Recommendation Logic ───────────────────────────────────────────────────
-
+/**
+ * Picks the next shepherd step. At the iteration bound it escalates. A critical
+ * or major item means fix and resubmit. Pending CI means wait. Otherwise it
+ * requests approval.
+ */
 export function computeRecommendation(
   actionItems: readonly ActionItem[],
   iterationCount: number,
@@ -456,7 +433,6 @@ export function computeRecommendation(
     return 'fix-and-resubmit';
   }
 
-  // Pending CI should block approval — wait for checks to complete
   const hasPendingCi = prStatuses?.some(pr => pr.overallCi === 'pending');
   if (hasPendingCi) {
     return 'wait';
@@ -465,8 +441,6 @@ export function computeRecommendation(
   return 'request-approval';
 }
 
-// ─── Schema Value Mapping ────────────────────────────────────────────────────
-
 function toCiStatusSchemaValue(
   status: 'pass' | 'fail' | 'pending',
 ): 'passing' | 'failing' | 'pending' {
@@ -474,8 +448,6 @@ function toCiStatusSchemaValue(
   if (status === 'fail') return 'failing';
   return 'pending';
 }
-
-// ─── Event Emission ─────────────────────────────────────────────────────────
 
 async function emitCiStatusEvents(
   eventStore: EventStore,
@@ -496,16 +468,12 @@ async function emitCiStatusEvents(
   }
 }
 
-// One row per observed CI check, beside the per-PR `ci.status` roll-up its
-// sibling appends from the same assessment pass.
-//
-// These were `gate.executed` rows carrying `layer: 'ci'` — a string nothing
-// validated and nothing read — so the code-quality view folded a GitHub check
-// into `gates[<check name>]` alongside the gates this repository runs itself. A
-// CI job named after one of ours merged two populations' pass rates into one
-// number, and nothing would have said so. The per-skill measurement that the
-// old `details.skill` existed for is kept: driving checks green IS the
-// shepherd's outcome (#1898 item 8).
+/**
+ * Appends one `ci.check_observed` row for each CI check, beside the per-PR
+ * `ci.status` rows. External checks have their own event type, so their pass
+ * rates do not mix with the gates that this repository runs. The field
+ * `skill: 'shepherd'` keeps the measurement for each skill.
+ */
 async function emitCiCheckObservedEvents(
   eventStore: EventStore,
   featureId: string,
@@ -529,13 +497,11 @@ async function emitCiCheckObservedEvents(
   }
 }
 
-// ─── Iteration Count from Event Store ───────────────────────────────────────
-
-// The loop's iteration count derives from the SINGLE event-sourced authority
-// (`countShepherdIterations`, DR-3 #1595) — the number of `shepherd.iteration`
-// events — NOT from any `iteration` value stamped in a payload. The shepherd-
-// status view folds the same rule, so the loop and `shepherd_status`/`ps` can
-// never disagree about how many iterations have run (INV-1: one counter).
+/**
+ * Counts the `shepherd.iteration` events with `countShepherdIterations`, not
+ * an `iteration` value in a payload. The shepherd status view uses the same
+ * rule, so the loop and `shepherd_status` agree on the count.
+ */
 async function getIterationCount(
   eventStore: EventStore,
   featureId: string,
@@ -543,8 +509,6 @@ async function getIterationCount(
   const events = await eventStore.query(featureId, { type: 'shepherd.iteration' });
   return countShepherdIterations(events);
 }
-
-// ─── Shepherd Lifecycle Helpers ──────────────────────────────────────────────
 
 async function hasShepherdStarted(
   eventStore: EventStore,
@@ -581,11 +545,12 @@ async function emitShepherdApprovalRequested(
   });
 }
 
-// DR-3 (#1595): on the bound-hit escalate path, emit a STRUCTURED escalation
-// (NOT a hang — INV-10). The handler records the reason + counts, then returns
-// its normal terminal result carrying `recommendation:'escalate'`; it does not
-// loop or wait. Idempotency-keyed on `iterationCount` so re-assessment at the
-// same count does not double-emit. Mirrors `emitShepherdApprovalRequested`.
+/**
+ * Appends a structured `shepherd.escalated` event when the loop reaches the
+ * auto-fix bound. The handler then returns its normal result and does not
+ * wait. The idempotency key holds `iterationCount`, so a second assessment at
+ * the same count appends nothing new.
+ */
 async function emitShepherdEscalated(
   eventStore: EventStore,
   featureId: string,
@@ -637,13 +602,19 @@ async function emitShepherdCompleted(
   });
 }
 
-// ─── Handler ─────────────────────────────────────────────────────────────────
-
+/**
+ * Assesses each PR of the stack and returns the shepherd recommendation.
+ *
+ * The handler has no provider gate. Each provider call works on GitLab and
+ * ADO, or fails soft. Classification and the recommendation use every
+ * unresolved comment, so a critical comment on a later page still counts. The
+ * result shows only the comment window that `limit` and `offset` select. The
+ * handler does not request approval after a merge or a `shepherd.completed` event.
+ */
 export async function handleAssessStack(
   args: {
     featureId: string;
     prNumbers: number[];
-    // DR-2 per-PR comment paging (schema-declared in registry.ts, Task 022).
     limit?: number;
     offset?: number;
     projectConfig?: ResolvedProjectConfig;
@@ -653,15 +624,6 @@ export async function handleAssessStack(
   provider?: VcsProvider,
   registry: ReviewAdapterRegistry = createReviewAdapterRegistry(),
 ): Promise<ToolResult> {
-  // No provider-identity gate here: every provider call in this handler is
-  // supported for GitLab/ADO (`checkCi`, `getReviewStatus`, `getPrComments`)
-  // or already fail-soft (`listPrs` via `queryPrMergeState`, and the
-  // check/review/comment query helpers, all catch → `null`/`[]`). The harvest
-  // loop is provider-branch-free (INV-6), so non-GitHub providers proceed and
-  // surface their PR/MR comments as action items. `requiresGitHub` still gates
-  // the `gh`-CLI-bound `check_pr_comments`/`validate_pr_stack` handlers.
-
-  // Input validation
   if (!args.featureId) {
     return {
       success: false,
@@ -679,16 +641,13 @@ export async function handleAssessStack(
   const vcs = provider ?? await createVcsProvider();
   const eventStore = injectedEventStore;
 
-  // Query current iteration count from event store
   const iterationCount = await getIterationCount(eventStore, args.featureId);
 
-  // Emit shepherd.started on first invocation (idempotent)
   const alreadyStarted = await hasShepherdStarted(eventStore, args.featureId);
   if (!alreadyStarted) {
     await emitShepherdStarted(eventStore, args.featureId);
   }
 
-  // Check if any PR is merged → emit shepherd.completed
   const mergeResults = await Promise.all(
     args.prNumbers.map(pr => queryPrMergeState(vcs, pr)),
   );
@@ -698,31 +657,19 @@ export async function handleAssessStack(
     await emitShepherdCompleted(eventStore, args.featureId, mergedPr);
   }
 
-  // Assess each PR (internal full working set — all checks, all unresolved
-  // comments). The serialized result is projected + windowed later.
   const assessments = await Promise.all(
     args.prNumbers.map(pr => assessPr(vcs, pr, registry, eventStore, args.featureId)),
   );
 
-  // Emit dual events (one ci.check_observed per check, from the FULL set)
   await emitCiStatusEvents(eventStore, args.featureId, assessments, iterationCount);
   await emitCiCheckObservedEvents(eventStore, args.featureId, assessments, iterationCount);
 
-  // Classify action items over the FULL comment set — the recommendation and
-  // the shepherd's fix/escalate decision must see every unresolved comment, not
-  // just the first page.
   const actionItems = classifyActionItems(assessments);
 
-  // Resolve the auto-fix bound from the shared escalation policy (DR-3, #1595):
-  // config-resolvable, falls back to the module default. The loop and the
-  // recommendation gate use the SAME resolved bound (INV-1; the bound is
-  // workload-agnostic — no per-workflow branch, INV-6).
   const { maxIterations } = resolveEscalationPolicy({
     configMaxIterations: args.projectConfig?.escalation?.maxIterations,
   });
 
-  // Compute recommendation from the FULL action-item set (a critical comment on
-  // a later page must still drive fix-and-resubmit on the first page).
   const recommendation = computeRecommendation(
     actionItems,
     iterationCount,
@@ -730,9 +677,6 @@ export async function handleAssessStack(
     maxIterations,
   );
 
-  // Emit shepherd.approval_requested when recommendation is request-approval
-  // Guard: never emit approval_requested when a PR is already merged (shepherd.completed wins)
-  // Also check event store for prior shepherd.completed to handle transient merge query failures
   if (recommendation === 'request-approval' && !anyMerged) {
     const completedEvents = await eventStore.query(args.featureId, { type: 'shepherd.completed' });
     if (completedEvents.length === 0) {
@@ -740,11 +684,6 @@ export async function handleAssessStack(
     }
   }
 
-  // Emit shepherd.escalated on the bound-hit path (DR-3, #1595): a STRUCTURED
-  // terminal escalation, NOT a hang (INV-10). The handler records the reason +
-  // counts here, then falls through to RETURN its normal terminal result with
-  // `recommendation:'escalate'` — it does not loop or wait. Idempotency on
-  // `iterationCount` prevents a double-emit if assessed again at the same count.
   if (recommendation === 'escalate') {
     await emitShepherdEscalated(
       eventStore,
@@ -755,11 +694,6 @@ export async function handleAssessStack(
     );
   }
 
-  // DR-2: build the MINIMAL, windowed result. Per-PR unresolved comments are
-  // capped to the requested window with `commentPage` metadata; the serialized
-  // `actionItems` cover the SAME window so a shepherd paging by `offset` reaches
-  // every unresolved actionable comment reference across pages. Non-comment
-  // items (ci-fix, review-address) are bounded and appear on every page.
   const window = resolveCommentWindow(args.limit, args.offset);
   const windowedAssessments = assessments.map(a => ({
     ...a,

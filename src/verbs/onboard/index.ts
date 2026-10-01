@@ -1,43 +1,11 @@
 /**
- * handleOnboard — the `onboard` verb dispatch-core handler (DR-2).
- *
- * Composes the Wave-1 pure reconciler (`dispatch/core/onboarding/reconcile.ts`) into the
- * full onboarding pipeline:
- *
- *   DETECT → CONFIG → GENERATE → INSTALL → VERIFY
- *
- * Stage map (the reconciler owns the *behavior*; this handler owns the *wiring*
- * — INV-2 facade):
- *   - DETECT/CONFIG/GENERATE/INSTALL are driven by `reconcileWithEvents`, which
- *     `detect`→`diff`→`apply`s the structured `ReconcilePlan` and emits the
- *     DR-7 two-event split (`onboard.requested` → side effect →
- *     `onboard.executed`) over an INJECTED event seam.
- *   - VERIFY re-runs the doctor checks and re-`diff`s; a residual *blocking*
- *     Fail makes the result a failure carrying the doctor diff in an INV-5b
- *     error envelope (`suggestedFix`). On success the handler returns the INV-5b
- *     carrier (`data` + `next_actions` pointing at `doctor`).
- *
- * Wiring seams (this handler is the seam OWNER per `reconcile.ts`'s contract):
- *   - The event seam (`ReconcileEventCtx`) is built over the REAL
- *     {@link DispatchContext.eventStore}: `emit` is a plain (never CAS-pinned)
- *     append to {@link ONBOARD_STREAM_ID}; `readStreamTail` is a FRESH read of
- *     that stream (the CAS-pin idempotency trap is sidestepped by construction).
- *   - The apply seam (`ApplyCtx`) is built from the init writers
- *     (`getAllWriters()` + `buildWriterDeps()`) plus the injected
- *     `installStep`/`installHook` hooks.
- *
- * All seams below are WIRED to their production implementations (the epic is
- * complete — no stubs remain in this module):
- *   - `installStep` runs the real skills/deps install (`./install.ts`).
- *   - `installHook` installs the real #1485 SessionStart binding (`./hooks.ts`).
- *   - `--new` scaffolds a greenfield repo then runs the identical pipeline
- *     against it (`./new.ts`).
- *   - The `onboard` action is registered (registry.ts) with its Zod flag schema
- *     and dispatched through `handleOrchestrate` (composite.ts) + the `exarchos
- *     onboard` CLI verb.
- *   - `doctor --fix` reuses this same `apply`/pipeline with `trigger:'doctor-fix'`
- *     (`../doctor/index.ts`), sharing the extracted event seam
- *     (`dispatch/core/onboarding/event-ctx.ts`).
+ * `onboard` verb handler. It wires the onboarding reconciler into the pipeline DETECT, CONFIG,
+ * GENERATE, INSTALL and VERIFY:
+ *   - `reconcileWithEvents` runs DETECT to INSTALL. It applies the `ReconcilePlan` between an
+ *     `onboard.requested` event and an `onboard.executed` event.
+ *   - VERIFY runs the doctor checks again. A blocking `Fail` gives a failure with a `suggestedFix`.
+ * The handler builds the event seam over `ctx.eventStore`, and the apply seam from the init writers
+ * and the install hooks. The module also re-exports `ONBOARD_STREAM_ID` beside the handler.
  */
 
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
@@ -64,96 +32,72 @@ import {
 import { buildOnboardEventCtx } from '../../dispatch/core/onboarding/event-ctx.js';
 import type { ReconcilePlan, ReconcileResult, Surface } from '../../dispatch/core/onboarding/types.js';
 
-// ─── Args ────────────────────────────────────────────────────────────────────
-
-/**
- * The `onboard` action arguments (DR-2 flag surface). Task 011 registers these
- * as a Zod schema on the `exarchos_orchestrate.onboard` action; this typed
- * shape is the contract that schema must mirror.
- */
+/** The `onboard` action arguments. The registry schema of the action must match this shape. */
 export interface HandleOnboardArgs {
-  /** DR-3 greenfield: scaffold `<name>` then run the identical pipeline. Real
-   * greenfield behavior is task 016; accepted + routed to a stub here. */
+  /** Greenfield: scaffold `<name>`, then run the same pipeline against it. */
   readonly new?: string;
-  /** Explicit agent-host runtime ids (DR-2 `--runtime`). Bypasses probing. */
+  /** Explicit agent-host runtime ids from `--runtime`. They bypass the probe. */
   readonly runtime?: readonly string[];
-  /** Explicit VCS id (DR-2 `--vcs`). Bypasses `.git` probing. */
+  /** Explicit VCS id from `--vcs`. It bypasses the `.git` probe. */
   readonly vcs?: string;
   /** Compute the plan but perform NO side effect and emit NO events. */
   readonly dryRun?: boolean;
-  /** Overwrite hand-edited config (DR-10) — preserves it otherwise. */
+  /** Overwrite hand-edited config. Without it, the run keeps that config. */
   readonly force?: boolean;
-  /** Skip the DR-8 SessionStart hook step (#1485). */
+  /** Skip the SessionStart hook step. */
   readonly noHooks?: boolean;
   /** Output projection hint (the carrier is shape-stable across both). */
   readonly format?: 'table' | 'json';
   /**
-   * Capability surface the run executes on (DR-6). `'cli'` runs cli-only steps
-   * (skills/deps install); any other surface downgrades them to an advisory.
-   * The MCP adapter (task 011) supplies its surface here; CLI passes `'cli'`.
+   * The surface of the run. `'cli'`, the default, runs the CLI-only install steps. Any other
+   * surface turns them into an advisory.
    */
   readonly surface?: Surface | 'cli';
 }
 
-// ─── Injected dependency bundle (testable seam) ───────────────────────────────
-
 /**
- * The injected dependency bundle for {@link handleOnboard}. Production callers
- * use {@link defaultOnboardDeps} (real writers + the real doctor composer + the
- * stub install/hook hooks that tasks 012/015 replace). Tests inject a fixture
- * repo, stub `runDoctorChecks`, and spy hooks.
- *
- * This is the single injection axis the handler exposes — keeping the
- * event-seam construction (over `ctx.eventStore`) internal so callers can't
- * accidentally CAS-pin the two-event split.
+ * The injected dependencies of {@link handleOnboard}. Production uses {@link defaultOnboardDeps}.
+ * The event seam is not in this bundle, so a caller cannot CAS-pin the two-event split.
  */
 export interface OnboardDeps {
-  /** Repo root the pipeline targets (the cwd for CLI; an explicit root in tests). */
+  /** Repo root of the pipeline: the cwd on the CLI, or an explicit root in tests. */
   readonly repoRoot: string;
   /** Writer deps for GENERATE (real-fs in prod, fixture-redirected in tests). */
   readonly writerDeps: WriterDeps;
   /** Init writers GENERATE routes through (the production set by default). */
   readonly writers: ReadonlyArray<RuntimeConfigWriter>;
   /**
-   * Produces the doctor `actual` check results that `diff` classifies. Called
-   * TWICE per non-dry-run pipeline: once for the plan (DETECT) and once for the
-   * VERIFY re-diff. The real composer runs the full roster; tests stub it.
+   * Returns the doctor check results that `diff` classifies. A run that is not a dry run calls it
+   * twice: once for the plan and once for VERIFY.
    */
   readonly runDoctorChecks: (repoRoot: string) => Promise<readonly CheckResult[]>;
-  /** Config seeder (defaults to the real `seedExarchosConfig` via `apply`). */
+  /** Config seeder. When absent, `apply` uses the real `seedExarchosConfig`. */
   readonly seed?: (repoRoot: string, force: boolean) => SeedResult;
-  /** CLI-only install hook (real `npx` install is task 015; no-op default). */
+  /** CLI-only install step. When absent, `apply` runs a no-op. */
   readonly installStep?: (step: import('../../dispatch/core/onboarding/types.js').PlanStep, ctx: ApplyCtx) => Promise<void>;
-  /** Lifecycle-hook installer (real #1485 binding is task 012; no-op default). */
+  /** Lifecycle-hook installer. When absent, `apply` runs a no-op. */
   readonly installHook?: (step: import('../../dispatch/core/onboarding/types.js').PlanStep, ctx: ApplyCtx) => Promise<void>;
   /** Threaded into `detectDesiredState` (runtime/vcs/command overrides). */
   readonly detectOptions?: DetectOptions;
   /**
-   * DR-3 greenfield scaffold seam (`--new <name>`). Seeds the salvageable
-   * initial scaffold into a FRESH `<name>/` dir and returns its root, or refuses
-   * cleanly over a non-empty target (DR-10). Defaults to {@link scaffoldNewRepo}
-   * resolving `<name>` against {@link OnboardDeps.repoRoot} (the run's cwd).
-   * Tests inject to control WHERE the new repo lands.
+   * Greenfield scaffold for `--new <name>`. It seeds a new `<name>/` directory and returns its root,
+   * or refuses a non-empty target. When absent, {@link scaffoldNewRepo} resolves `<name>` against
+   * {@link OnboardDeps.repoRoot}.
    */
   readonly scaffold?: (name: string) => ScaffoldNewResult;
 }
 
-// ─── Output shape ─────────────────────────────────────────────────────────────
-
-/**
- * The structured `onboard` result payload. Shape-stable across `--format
- * table|json` (the format flag is a projection hint, not a shape switch).
- */
+/** The `onboard` result payload. Its shape is the same for both `--format` values. */
 export interface OnboardOutput {
-  /** Whether this run scaffolded a greenfield repo (DR-3; always false today). */
+  /** True when this run scaffolded a greenfield repo. */
   readonly greenfield: boolean;
   /** Whether this was a dry-run (plan only, no writes, no events). */
   readonly dryRun: boolean;
-  /** The structured reconcile plan (= the structured doctor diff). */
+  /** The reconcile plan, which is the structured doctor diff. */
   readonly plan: ReconcilePlan;
-  /** The apply result; absent on the dry-run path. */
+  /** The apply result. It is absent on a dry run. */
   readonly result?: ReconcileResult;
-  /** The VERIFY re-diff summary (absent on dry-run — no apply, nothing to verify). */
+  /** The VERIFY summary. It is absent on a dry run, because nothing changed. */
   readonly verify?: OnboardVerify;
   /** Wall-clock duration of the whole pipeline, in milliseconds. */
   readonly durationMs: number;
@@ -169,23 +113,17 @@ export interface OnboardVerify {
   readonly blockingChecks: readonly string[];
 }
 
-// ─── VERIFY ───────────────────────────────────────────────────────────────────
-
 /**
- * VERIFY: re-run the doctor checks after apply and re-`diff`. A residual
- * *blocking* failure is a check that is still `Fail` (DR-2/DR-10: `Warning`
- * is non-blocking — the operator is advised but the onboard succeeds).
+ * VERIFY: runs the doctor checks after apply and calls `diff` again. Only a check that is still
+ * `Fail` blocks. A `Warning` does not block the onboard. It imports `diff` lazily, so the
+ * classification is the same one the plan used.
  */
 async function verify(
   deps: OnboardDeps,
   plan: ReconcilePlan,
 ): Promise<OnboardVerify> {
-  // The pure `diff` lives in the reconciler; import lazily to keep this module's
-  // import graph tight and to reuse the EXACT classification the plan used.
   const { diff } = await import('../../dispatch/core/onboarding/reconcile.js');
   const checks = await deps.runDoctorChecks(deps.repoRoot);
-  // `diff(desired, actual)` ignores `desired` today (the plan is derived from the
-  // remediable checks); pass the prior plan's notional desired-state placeholder.
   const residual = diff(
     { runtimes: [], vcs: 'git', commands: {} },
     checks,
@@ -198,13 +136,8 @@ async function verify(
   };
 }
 
-// ─── Apply seam ───────────────────────────────────────────────────────────────
-
-/** Build the {@link ApplyCtx} side-effect bundle for a run. */
+/** Builds the {@link ApplyCtx} for a run. `--no-hooks` replaces the hook installer with a no-op. */
 function buildApplyCtx(deps: OnboardDeps, args: HandleOnboardArgs): ApplyCtx {
-  // DR-8: `--no-hooks` neutralizes the hook installer (the hook step still
-  // routes, but its side effect is a no-op). The default hooks are no-ops too
-  // (tasks 012/015 fill them) — tests inject spies.
   const installHook = args.noHooks
     ? async (): Promise<void> => undefined
     : deps.installHook;
@@ -221,8 +154,6 @@ function buildApplyCtx(deps: OnboardDeps, args: HandleOnboardArgs): ApplyCtx {
   return ctx;
 }
 
-// ─── INV-5b carriers ──────────────────────────────────────────────────────────
-
 /** The `next_actions` carried on a successful onboard: a pointer to `doctor`. */
 function successNextActions(): NextAction[] {
   return [
@@ -235,9 +166,8 @@ function successNextActions(): NextAction[] {
 }
 
 /**
- * The INV-5b error envelope for a residual blocking Fail: a structured failure
- * carrying `suggestedFix` (re-run `doctor` to see the diff) + the still-failing
- * check names, never a silent partial success (DR-2/DR-10).
+ * The failure result for a blocking `Fail` after VERIFY. It names the failing checks and carries a
+ * `suggestedFix` that runs `doctor`, so a partial success is never silent.
  */
 function blockingResidualResult(output: OnboardOutput, verifyResult: OnboardVerify): ToolResult {
   return {
@@ -263,23 +193,9 @@ function blockingResidualResult(output: OnboardOutput, verifyResult: OnboardVeri
   };
 }
 
-// ─── Greenfield scaffold (DR-3, task 016) ─────────────────────────────────────
-
 /**
- * Greenfield scaffold (DR-3). Seeds the salvageable initial scaffold (dir +
- * `.exarchos.yml` seed + `.gitignore`) into a FRESH `<name>/` then hands the new
- * repo root back so the caller runs the IDENTICAL DR-2 pipeline against it. A
- * non-empty target is refused cleanly (DR-10) — the refusal is propagated as a
- * {@link ScaffoldNewResult} the handler turns into a structured `ToolResult`.
- *
- * `--new` is the ONLY difference between greenfield and adopt: this function
- * produces a freshly-seeded empty dir and nothing else, so running the pipeline
- * against it is byte-equivalent (modulo timestamps) to adopting an
- * equivalently-seeded empty dir. There is exactly one pipeline code path.
- *
- * The scaffold behavior lives in {@link scaffoldNewRepo} (in `./new.ts`); this
- * wrapper just resolves the default (`<name>` against `deps.repoRoot`, the run's
- * cwd) versus the injected `deps.scaffold` seam.
+ * Seeds a new `<name>/` directory through `deps.scaffold` or {@link scaffoldNewRepo}. The caller
+ * then runs the same pipeline against it, so greenfield and adopt share one code path.
  */
 function scaffoldGreenfield(name: string, deps: OnboardDeps): ScaffoldNewResult {
   return deps.scaffold
@@ -288,20 +204,9 @@ function scaffoldGreenfield(name: string, deps: OnboardDeps): ScaffoldNewResult 
 }
 
 /**
- * Retarget the injected deps at the freshly-scaffolded greenfield `repoRoot`.
- *
- * The greenfield dir is a NEW path (a child of the run's cwd), so the
- * project-scoped half of the pipeline — `repoRoot` (DETECT/CONFIG/VERIFY) AND
- * the GENERATE writers' `cwd` — must point at it, not the parent cwd.
- * Retargeting `writerDeps.cwd` here is what makes the GENERATE step write
- * `CLAUDE.md` / `.claude/` INTO the new dir.
- *
- * `writerDeps.home` is deliberately NOT retargeted: `home` is the user's
- * agent-host home (`~`), a per-USER global location, not a per-PROJECT one.
- * Scaffolding a new project does not create a new home. Home-scoped writes — most
- * notably the #1485 SessionStart binding at `<home>/.claude/settings.json` —
- * must still land in the real home, never inside the scaffolded project dir.
- * (Pinning `home` to the project root would install the hook in the wrong place.)
+ * Points `repoRoot` and the `cwd` of the writers at the new greenfield directory, so GENERATE writes
+ * into it. It keeps `writerDeps.home`, because home-scoped writes such as the SessionStart binding
+ * in `<home>/.claude/settings.json` belong in the real user home.
  */
 function retargetDeps(deps: OnboardDeps, repoRoot: string): OnboardDeps {
   return {
@@ -312,10 +217,8 @@ function retargetDeps(deps: OnboardDeps, repoRoot: string): OnboardDeps {
 }
 
 /**
- * The structured refusal `ToolResult` for a greenfield target that exists and is
- * non-empty (DR-10). Carries the scaffold error verbatim plus a `suggestedFix`
- * pointing at a plain `onboard` (adopt the existing dir in place) — no partial
- * scaffold was written, and no events were emitted.
+ * The refusal result for a non-empty greenfield target. It carries the scaffold error and a
+ * `suggestedFix` that runs a plain `onboard` on the existing directory.
  */
 function greenfieldRefusalResult(error: ScaffoldNewError): ToolResult {
   return {
@@ -331,18 +234,10 @@ function greenfieldRefusalResult(error: ScaffoldNewError): ToolResult {
   };
 }
 
-// ─── Handler (testable seam) ──────────────────────────────────────────────────
-
 /**
- * `handleOnboard(args, ctx, deps)` — the `onboard` verb pipeline.
- *
- * `deps` is the injection seam (default: {@link defaultOnboardDeps}). The
- * event seam is built INTERNALLY over `ctx.eventStore` so callers cannot
- * mis-wire the two-event split.
- *
- * Returns the INV-5b carrier on success (data + `next_actions`→`doctor`); a
- * residual blocking Fail returns the structured failure envelope with
- * `suggestedFix`.
+ * Runs the `onboard` pipeline. With `--new <name>`, it scaffolds first, and a non-empty target
+ * refuses before any pipeline step or event. A dry run returns the plan with no apply, no events
+ * and no VERIFY. A success points `next_actions` at `doctor`.
  */
 export async function handleOnboard(
   args: HandleOnboardArgs,
@@ -351,10 +246,6 @@ export async function handleOnboard(
 ): Promise<ToolResult> {
   const startedAt = Date.now();
 
-  // DR-3: greenfield is the ONLY pre-pipeline difference. When `--new <name>` is
-  // given, seed the salvageable scaffold into a FRESH `<name>/` and RETARGET the
-  // pipeline at that dir; everything below is the identical adopt pipeline. A
-  // non-empty target refuses cleanly (DR-10) BEFORE any pipeline step or event.
   const greenfield = typeof args.new === 'string' && args.new.length > 0;
   let effectiveDeps = deps;
   if (greenfield) {
@@ -378,10 +269,8 @@ export async function handleOnboard(
     ...(effectiveDeps.detectOptions ? { detectOptions: effectiveDeps.detectOptions } : {}),
   };
 
-  // DETECT → CONFIG → GENERATE → INSTALL (the two-event split + apply).
   const outcome = await reconcileWithEvents(input, eventCtx, applyCtx);
 
-  // Dry-run: surface the plan; no apply, no events, no VERIFY (nothing changed).
   if (input.dryRun) {
     const output: OnboardOutput = {
       greenfield,
@@ -396,7 +285,6 @@ export async function handleOnboard(
     };
   }
 
-  // VERIFY: re-run the doctor checks → re-diff → blocking-residual gate.
   const verifyResult = await verify(effectiveDeps, outcome.plan);
 
   const output: OnboardOutput = {
@@ -419,18 +307,10 @@ export async function handleOnboard(
   };
 }
 
-// ─── Production wiring ────────────────────────────────────────────────────────
-
 /**
- * The production `runDoctorChecks` seam — runs the real roster through the
- * shared {@link runChecksOnly} core, so there is one check source. The
- * `session-start-hook` check is what lands the default-on hook step.
- *
- * It uses the check-execution core directly rather than {@link handleDoctorWithChecks}
- * so onboard does NOT emit a read-only `diagnostic.executed` for each of its
- * DETECT/VERIFY check passes — onboard's audit trail is the
- * `onboard.requested` / `onboard.executed` split (INV-1 / INV-13). The
- * `repoRoot` the reconciler passes (e.g. an `--new` greenfield dir) is honoured.
+ * The production `runDoctorChecks`. It calls {@link runChecksOnly}, not `handleDoctorWithChecks`, so
+ * onboard emits no `diagnostic.executed` for its check passes. The audit trail of onboard is the
+ * `onboard.requested` and `onboard.executed` pair.
  */
 function defaultRunDoctorChecks(
   ctx: DispatchContext,
@@ -439,22 +319,10 @@ function defaultRunDoctorChecks(
 }
 
 /**
- * Production deps: real init writers + real writer deps + the real doctor
- * composer + the real DR-8 SessionStart hook installer (`installHook`) + the
- * real DR-2/DR-6 skills + deps install hook (`installStep`).
- *
- * `installHook` is wired by DEFAULT (#1485, task 012): when the `session-start-hook`
- * doctor check reports the binding missing, `diff` lands a `hook` PlanStep that
- * `apply` routes to this installer. `--no-hooks` neutralizes it upstream in
- * `buildApplyCtx`, so the default-on posture is owned here and the opt-out is a
- * single seam.
- *
- * `installStep` is wired by DEFAULT (task 015): an `install` PlanStep (skills
- * bundle / project deps) is routed to it by `apply`'s install router — but ONLY
- * on the CLI surface (`apply` downgrades it to a cli-only advisory off-CLI, so
- * this hook never needs a surface guard of its own). It reuses `installSkills`'
- * local-copy fast path + `npx` fallback and the Bundle B install-command
- * resolver. `repoRoot` is the dispatch cwd (the repo being onboarded).
+ * Production deps: the init writers, the real doctor checks, the SessionStart hook installer and
+ * the skills and deps installer. A missing SessionStart binding gives a `hook` step, which `apply`
+ * routes to `installHook`. `apply` routes an `install` step to `installStep` on the CLI surface
+ * only. `repoRoot` is the dispatch cwd.
  */
 export function defaultOnboardDeps(
   ctx: DispatchContext,
@@ -475,6 +343,4 @@ export function defaultOnboardDeps(
   };
 }
 
-// Re-export the stream id so callers (task 011 registry, view filters) have a
-// single import site alongside the handler.
 export { ONBOARD_STREAM_ID };

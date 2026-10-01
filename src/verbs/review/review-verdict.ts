@@ -1,9 +1,7 @@
-// ─── Review Verdict Composite Action ─────────────────────────────────────────
-//
-// Pure TypeScript review verdict computation — classifies review findings
-// into a routing verdict (APPROVED / NEEDS_FIXES / BLOCKED) and generates
-// a markdown report. No bash script dependency.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The review verdict action. It classifies review findings into a routing verdict (`APPROVED`,
+ * `NEEDS_FIXES`, or `BLOCKED`) and builds a markdown report.
+ */
 
 import type { ToolResult } from '../../format.js';
 import type { PluginFinding } from '../../review/check-catalog.js';
@@ -19,8 +17,6 @@ import {
   type FindingClass,
 } from './escalation-policy.js';
 
-// ─── Argument & Result Types ────────────────────────────────────────────────
-
 interface ReviewVerdictArgs {
   readonly featureId: string;
   readonly high: number;
@@ -29,28 +25,22 @@ interface ReviewVerdictArgs {
   readonly blockedReason?: string;
   readonly dimensionResults?: Record<string, { passed: boolean; findingCount: number }>;
   /**
-   * Findings from a plugin review pass. Optional `category`/`intentTouching`
-   * fields (when supplied by the caller — e.g. review issues carry a
-   * `category: 'spec' | 'tdd' | 'coverage'`) drive the escalation
-   * classification: a `category === 'spec'` (or `intentTouching === true`)
-   * finding is intent-touching and escalates immediately (DR-3, #1595).
+   * Findings from a plugin review pass. A finding with `category === 'spec'` or
+   * `intentTouching === true` is intent-touching and escalates at once.
    */
   readonly pluginFindings?: readonly (PluginFinding & {
     readonly category?: string;
     readonly intentTouching?: boolean;
   })[];
   /**
-   * Resolved project config — supplies the config-resolvable auto-fix bound
-   * (`escalation.maxIterations`) for the review fix-loop. Injected by the
-   * `adaptWithEventStoreAndConfig` dispatch adapter; an explicit arg-level value
-   * (e.g. from a test) wins. Absent ⇒ the policy falls through to its default.
+   * The resolved project config. It supplies the auto-fix bound `escalation.maxIterations` for the
+   * fix loop. The `adaptWithEventStoreAndConfig` dispatch adapter injects it, and an explicit value
+   * in the args wins. With no value, the policy uses its default.
    */
   readonly projectConfig?: ResolvedProjectConfig;
   /**
-   * Per-loop override of the auto-fix bound (highest precedence in
-   * {@link resolveEscalationPolicy}). Lets a single review invocation tighten or
-   * loosen the bound without a config edit; a garbage value falls through to the
-   * config/default layers.
+   * A per-loop override of the auto-fix bound, with the highest precedence in
+   * {@link resolveEscalationPolicy}. A value that is not valid falls through to the config and default layers.
    */
   readonly maxFixCycles?: number;
 }
@@ -63,18 +53,14 @@ interface ReviewVerdictResult {
   readonly blockedReason?: string;
   readonly report: string;
   /**
-   * Set on a `NEEDS_FIXES` verdict when the shared escalation policy says the
-   * fix-loop must stop auto-fixing and ask the user — either the auto-fix bound
-   * was hit OR a finding is intent-touching (DR-3). The review fix-loop
-   * MUST honor this instead of re-dispatching to `/delegate --fixes`. Absent on
-   * APPROVED/BLOCKED and on a still-auto-fixable NEEDS_FIXES.
+   * Set on `NEEDS_FIXES` when the loop must stop: the bound is hit, a finding is intent-touching, or
+   * the fix-cycle count is not available. The fix loop must then ask the user and not dispatch
+   * `/delegate --fixes` again. It is absent on `APPROVED`, `BLOCKED`, and an auto-fixable `NEEDS_FIXES`.
    */
   readonly escalate?: boolean;
   /** Human-readable reason for {@link escalate}, surfaced to the user. */
   readonly escalationReason?: string;
 }
-
-// ─── Verdict Logic ──────────────────────────────────────────────────────────
 
 /**
  * Compute the review verdict from finding counts.
@@ -99,16 +85,12 @@ export function computeVerdict(args: {
   return 'APPROVED';
 }
 
-// ─── Escalation Decision (DR-3) ─────────────────────────────────────────────
-
 /**
- * The escalation outcome a NEEDS_FIXES verdict carries: whether the fix-loop
- * may auto-fix (re-dispatch to the implementer once more) or must escalate to
- * the user, plus the bound state the report surfaces. Resolved from the shared
- * escalation policy (DR-3, #1595).
+ * The escalation outcome of a `NEEDS_FIXES` verdict: auto-fix once more, or escalate to the user.
+ * It also carries the bound state for the report.
  */
 interface FixLoopEscalation {
-  /** `escalate` ⇒ stop the loop and ask the user; `auto-fix` ⇒ re-dispatch. */
+  /** `escalate` stops the loop and asks the user. `auto-fix` dispatches the fixes again. */
   readonly action: 'auto-fix' | 'escalate';
   readonly reason: string;
   /** Fix cycles already run (event-sourced) — the iteration the policy decided on. */
@@ -119,16 +101,10 @@ interface FixLoopEscalation {
   readonly findingClass: FindingClass;
 }
 
-// ─── Report Generation ──────────────────────────────────────────────────────
-
 /**
- * Generate a markdown verdict report matching the bash script's output format.
- *
- * On `NEEDS_FIXES`, an optional {@link FixLoopEscalation} shapes the routing
- * instruction (DR-3): while UNDER the bound and mechanical, the report routes to
- * `/delegate --fixes` and surfaces the remaining budget; when the bound is hit
- * OR a finding is intent-touching, the report becomes an ask-user escalation —
- * NOT another fix loop.
+ * Builds the markdown verdict report. On `NEEDS_FIXES` under the bound, the report routes to
+ * `/delegate --fixes` and shows the remaining budget. When the escalation action is `escalate`, the
+ * report asks the user and does not start another fix loop.
  */
 export function generateVerdictReport(
   verdict: 'APPROVED' | 'NEEDS_FIXES' | 'BLOCKED',
@@ -148,7 +124,6 @@ export function generateVerdictReport(
     );
   } else if (verdict === 'NEEDS_FIXES') {
     if (escalation?.action === 'escalate') {
-      // Bound hit OR intent-touching — escalate to the user, do NOT loop.
       lines.push(
         '## Review Verdict: NEEDS_FIXES (escalating to user)',
         '',
@@ -162,7 +137,6 @@ export function generateVerdictReport(
         `**Finding summary:** ${args.high} high, ${args.medium} medium, ${args.low} low (${total} total)`,
       );
     } else {
-      // Under the bound with mechanical findings — re-dispatch as today, with budget.
       const budgetSuffix = escalation
         ? ` (fix cycle ${escalation.priorFixCount + 1}/${escalation.maxIterations})`
         : '';
@@ -187,15 +161,10 @@ export function generateVerdictReport(
   return lines.join('\n');
 }
 
-// ─── Fix-cycle counting (event-sourced) ──────────────────────────────────────
-
 /**
- * The SINGLE event-sourced source of how many fix cycles a spec review has
- * already run: the count of prior `review-verdict` `gate.executed` events whose
- * recorded verdict was `NEEDS_FIXES` (DR-3, #1595). Each NEEDS_FIXES pass emits
- * exactly one such event before re-dispatching, so this is the iteration the
- * escalation policy decides on — there is NO parallel counter. Pure over any
- * event array; only the `gateName` + `details.verdict` discriminants are read.
+ * Counts the fix cycles that a review already ran: the prior `review-verdict` gate events with the
+ * verdict `NEEDS_FIXES`. Each `NEEDS_FIXES` pass records one such event, so no other counter exists.
+ * It reads only `gateName` and `details.verdict`.
  */
 function countPriorFixCycles(
   events: ReadonlyArray<{ readonly data?: unknown }>,
@@ -213,13 +182,8 @@ function countPriorFixCycles(
 }
 
 /**
- * Classify a NEEDS_FIXES finding SET into a single {@link FindingClass} via the
- * shared {@link classifyFinding} feeder (DR-3). The set is `intent-touching`
- * (escalate immediately) if ANY finding is intent-touching — a spec-category or
- * explicitly-flagged finding must not be silently looped on, regardless of how
- * many mechanical findings accompany it. With no findings carrying a class
- * signal it defaults to `mechanical` (the bound, not immediate escalation,
- * governs).
+ * Classifies a finding set with {@link classifyFinding}. The set is `intent-touching` when any finding
+ * is intent-touching, whatever the number of mechanical findings. Otherwise it is `mechanical`, and the bound decides.
  */
 function classifyFindings(
   findings: readonly { readonly category?: string; readonly intentTouching?: boolean }[]
@@ -231,8 +195,10 @@ function classifyFindings(
   return 'mechanical';
 }
 
-// ─── Handler ───────────────────────────────────────────────────────────────
-
+/**
+ * Validates the finding counts and runs the verdict through the shared phase-gate runner, which
+ * records durable gate evidence.
+ */
 export async function handleReviewVerdict(
   args: ReviewVerdictArgs,
   stateDir: string,
@@ -277,12 +243,21 @@ export async function handleReviewVerdict(
   });
 }
 
+/**
+ * Adds the plugin finding counts to the native counts and computes the verdict. On `NEEDS_FIXES`,
+ * the escalation policy decides between one more auto-fix and an escalation to the user.
+ * When the event store cannot give the prior fix-cycle count, the verdict escalates. A count of 0
+ * on a failing store lets the loop auto-fix with no limit.
+ *
+ * It records the per-dimension events, a `review-verdict` summary event, and a failed
+ * `review-escalation` event on an escalation. An append failure goes to the runner as a failure carrier.
+ * The summary event has a same-operation key, so a retry does not add to the fix-cycle count.
+ */
 async function executeReviewVerdict(
   args: ReviewVerdictArgs,
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  // Input validation
   if (!args.featureId) {
     return {
       success: false,
@@ -301,7 +276,6 @@ async function executeReviewVerdict(
     };
   }
 
-  // Merge plugin finding counts into native counts
   let mergedHigh = args.high;
   let mergedMedium = args.medium;
   let mergedLow = args.low;
@@ -316,20 +290,9 @@ async function executeReviewVerdict(
     }
   }
 
-  // Compute verdict in pure TypeScript using merged counts
   const mergedCounts = { high: mergedHigh, medium: mergedMedium, low: mergedLow, blockedReason: args.blockedReason };
   const verdict = computeVerdict(mergedCounts);
 
-  // ── Bound the fix-loop via the shared escalation policy (DR-3, #1595) ──────
-  //
-  // Only NEEDS_FIXES routes back to the implementer; APPROVED/BLOCKED are
-  // terminal here. For a NEEDS_FIXES verdict, resolve the auto-fix bound, read
-  // the event-sourced prior fix-cycle count, classify the findings, and decide
-  // whether the loop may auto-fix once more or must escalate to the user.
-  // Fail-CLOSED: if the prior-cycle count can't be read we can't prove the loop
-  // is within bounds, so we pin to maxIterations and force escalation rather
-  // than reset to 0 (which would let a flaky store silently disable the bound).
-  // No `workflowType` branch (INV-6).
   let escalation: FixLoopEscalation | undefined;
   if (verdict === 'NEEDS_FIXES') {
     const policy = resolveEscalationPolicy({
@@ -343,10 +306,6 @@ async function executeReviewVerdict(
       const priorGateEvents = await eventStore.query(args.featureId, { type: 'gate.executed' });
       priorFixCount = countPriorFixCycles(priorGateEvents);
     } catch {
-      // Fail CLOSED: if the event-sourced cycle count can't be read we cannot
-      // prove the loop is within bounds. Silently resetting to 0 would, on a
-      // persistently failing store, let the loop auto-fix forever — disabling
-      // the DR-3 bound. Pin the count to the bound and force escalation instead.
       countUnavailable = true;
       priorFixCount = policy.maxIterations;
     }
@@ -383,8 +342,6 @@ async function executeReviewVerdict(
       : {}),
   };
 
-  // Preserve the existing per-dimension shadow events, but never swallow a
-  // persistence failure: the canonical runner converts it to a failure carrier.
   if (args.dimensionResults) {
     for (const [key, entry] of Object.entries(args.dimensionResults)) {
       await emitGateEvent(
@@ -403,7 +360,6 @@ async function executeReviewVerdict(
     }
   }
 
-  // Emit summary gate event.
   const pluginSources = args.pluginFindings?.length
     ? [...new Set(args.pluginFindings.map(f => f.source))]
     : undefined;
@@ -422,18 +378,9 @@ async function executeReviewVerdict(
       low: mergedLow,
       ...(pluginSources ? { pluginSources } : {}),
     },
-    // `countPriorFixCycles` counts these rows, so a crash-retry that re-ran the
-    // same operation would otherwise inflate the fix-cycle count that decides
-    // whether the loop escalates.
     sameOperationGateKey('review-verdict'),
   );
 
-  // Emit a structured escalation gate event (DR-3) so the ask-user escalation is
-  // event-sourced and surfaceable — distinct from the `review-verdict` summary
-  // above (which `countPriorFixCycles` reads). Only on an actual escalate
-  // decision; a still-auto-fixable NEEDS_FIXES emits no extra row. The gate is
-  // recorded as FAILED (passed:false) — escalation means the bounded loop could
-  // not converge unattended.
   if (escalation?.action === 'escalate') {
     await emitGateEvent(
       eventStore,

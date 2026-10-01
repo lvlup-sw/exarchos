@@ -1,4 +1,4 @@
-// ─── Stack MCP Tool Handlers ────────────────────────────────────────────────
+/** Handlers for the stack status and stack placement tools. */
 
 import { toCoverageFailure } from '../../projections/degraded-result.js';
 import { foldToTail } from '../../projections/fold-at-tail.js';
@@ -8,8 +8,10 @@ import { getOrCreateMaterializer } from '../../projections/views/tools.js';
 import { STACK_VIEW } from '../../projections/views/stack-view.js';
 import type { StackViewState } from '../../projections/views/stack-view.js';
 
-// ─── handleStackStatus ─────────────────────────────────────────────────────
-
+/**
+ * Returns the stack positions of a stream, or an empty list without a stream.
+ * `offset` applies before `limit`.
+ */
 export async function handleStackStatus(
   args: {
     streamId?: string;
@@ -31,12 +33,10 @@ export async function handleStackStatus(
 
     let positions = view.positions;
 
-    // Apply optional offset (before limit)
     if (args.offset !== undefined) {
       positions = positions.slice(args.offset);
     }
 
-    // Apply optional limit (after offset)
     if (args.limit !== undefined) {
       positions = positions.slice(0, args.limit);
     }
@@ -55,8 +55,7 @@ export async function handleStackStatus(
   }
 }
 
-// ─── handleStackPlace ──────────────────────────────────────────────────────
-
+/** Validates the input and appends a `stack.position-filled` event. */
 export async function handleStackPlace(
   args: {
     streamId: string;

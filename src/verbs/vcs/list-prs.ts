@@ -1,13 +1,9 @@
-// ─── VCS Action: list_prs ───────────────────────────────────────────────────
-//
-// Lists pull/merge requests via the VCS provider abstraction.
-// Read-only — does NOT emit events.
-//
-// DR-3: applies a default newest-first window so a large open-PR set never dumps
-// unbounded. `list_prs` carries no `limit`/`offset` schema params, so the window
-// is a fixed default cap here in the handler (internal callers that need the
-// full set call `provider.listPrs` directly and are unaffected). `page` metadata
-// keeps the total perceivable and a narrow affordance steers to a filter.
+/**
+ * Handler for the `list_prs` action. It lists pull requests through the VCS provider and emits no events.
+ * It returns at most `LIST_PRS_DEFAULT_LIMIT` PRs, newest first, because the action has no `limit` or `offset` parameter.
+ * The `page` metadata shows the total, and a narrow affordance suggests a filter.
+ * Internal callers that need the full set call `provider.listPrs` directly.
+ */
 
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
@@ -15,11 +11,7 @@ import type { PrSummary } from '../../vcs/provider.js';
 import { narrowAffordance } from '../../dispatch/core/economy.js';
 import { createVcsProvider } from '../../vcs/factory.js';
 
-/**
- * Default newest-first window applied when `list_prs` is called without a
- * narrowing filter. PR summaries are lighter than comments, but an org repo can
- * carry hundreds of open PRs, so the read is bounded by default.
- */
+/** Maximum number of PRs that `list_prs` returns. A repository can hold hundreds of open PRs. */
 export const LIST_PRS_DEFAULT_LIMIT = 20;
 
 export interface HandleListPrsArgs {
@@ -28,6 +20,7 @@ export interface HandleListPrsArgs {
   readonly base?: string;
 }
 
+/** Sorts by PR number, newest first, so the window does not depend on the provider order. */
 export async function handleListPrs(
   args: HandleListPrsArgs,
   ctx: DispatchContext,
@@ -41,8 +34,6 @@ export async function handleListPrs(
     });
 
     const total = all.length;
-    // Newest-first by PR number so the default window is deterministic
-    // regardless of provider list ordering.
     const ordered = [...all].sort((a, b) => b.number - a.number);
     const prs: PrSummary[] = ordered.slice(0, LIST_PRS_DEFAULT_LIMIT);
     const hasMore = prs.length < total;

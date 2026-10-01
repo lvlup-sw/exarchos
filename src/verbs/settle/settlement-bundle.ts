@@ -1,17 +1,14 @@
-// ─── The settlement bundle ───────────────────────────────────────────────────
-//
-// `settle` commits one ledger record and hands the caller one receipt. Neither
-// carries the interior of the adjudication: which claim was read against which
-// declared field, what evidence each cited, which deviation was proposed. That
-// detail is what an auditor needs and what a projection must not fold, so it
-// goes to the run-bundle store as content-addressed bytes and the ledger record
-// names those bytes by digest — the same custody the executor's record already
-// uses, through the same store.
-//
-// Strict throughout, and encoded as canonical JSON so one document always
-// produces one digest. A writer that could emit any shape could also emit a
-// shape no reader recognises, and two encodings of one document differing only
-// by key order would be two artifacts.
+/**
+ * The settlement bundle: the detail of one `settle` adjudication.
+ *
+ * The ledger record and the receipt do not carry the claims, the evidence that
+ * each claim cited, or the proposed deviations. An auditor needs that detail,
+ * and a projection must not fold it. So it goes to the run-bundle store as
+ * content-addressed bytes, and the ledger record names the bytes by digest.
+ *
+ * The schemas are strict. The encoding is canonical JSON, so one document
+ * always gives one digest.
+ */
 
 import { z } from 'zod';
 
@@ -23,7 +20,7 @@ import { SETTLEMENT_FINDING_KINDS } from './adjudicate.js';
 /** The `kind` discriminator every settlement bundle carries. */
 export const SETTLEMENT_BUNDLE_KIND = 'settlement-adjudication';
 
-/** The document version. Bumped when a reader of this shape could misread the next. */
+/** The document version. Change it when a reader of this shape can misread the next shape. */
 export const SETTLEMENT_BUNDLE_VERSION = '1.0';
 
 const FindingSchema = z
@@ -40,9 +37,8 @@ const EvidenceSchema = z
   .strict();
 
 /**
- * One claim as it was adjudicated — the arguments the verdict was reached from,
- * not the ones that were asked for. `fields` is a record of `unknown` because
- * the capsule, not this schema, is what declares a task's result shape.
+ * One claim as adjudicated: the arguments that the verdict came from. `fields`
+ * is a record of `unknown` because the capsule declares the result shape.
  */
 const ClaimTraceSchema = z
   .object({
@@ -67,9 +63,9 @@ const DecisionSchema = z
   .strict();
 
 /**
- * The denominator, persisted. A bundle recording zero findings over zero claims
- * and one recording zero findings over forty are different facts, and only the
- * counts tell them apart after the run is over.
+ * The persisted denominator. Zero findings over zero claims and zero findings
+ * over forty claims are different facts. After the run, only these counts tell
+ * them apart.
  */
 const CensusSchema = z
   .object({
@@ -80,14 +76,14 @@ const CensusSchema = z
     deviations: z.number().int().nonnegative(),
     /** Absent only on a bundle written before settlement verified anything. */
     verification: z.number().int().nonnegative().optional(),
-    /** Absent only on a bundle written before a held batch could be decided. */
+    /** Absent only on a bundle written before held batches took decisions. */
     decisions: z.number().int().nonnegative().optional(),
   })
   .strict();
 
 /**
- * How one accepted claim's verification ran. The segment's interior is in its
- * OWN bundle, named by `bundleRefs`; this trace records only how the
+ * How the verification of one accepted claim ran. The segment detail is in its
+ * own bundle, named by `bundleRefs`. This trace records only how the
  * settlement read it.
  */
 const VerificationTraceSchema = z
@@ -124,17 +120,18 @@ export const SettlementBundleV1Schema = z
     claims: z.array(ClaimTraceSchema),
     deviations: z.array(DeviationSchema),
     /**
-     * The decisions this round applied, empty on the round that submitted the
-     * batch; absent only on a bundle written before a batch could be decided.
+     * The decisions this round applied. It is empty on the round that submitted
+     * the batch, and absent only on a bundle written before held batches took
+     * decisions.
      */
     decisions: z.array(DecisionSchema).optional(),
     /** The decision round, present on that round's bundle alone. */
     round: z.number().int().positive().optional(),
     adjudicated: CensusSchema,
     /**
-     * Optional only for a bundle written before settlement verified anything;
-     * every bundle this build writes carries the list, empty when adjudication
-     * refused or held the batch before verification ran.
+     * Optional only for a bundle written before settlement verified anything.
+     * This build always writes the list. It is empty when adjudication refused
+     * or held the batch before verification ran.
      */
     verification: z.array(VerificationTraceSchema).optional(),
     settledAt: z.iso.datetime({ offset: true }),
@@ -144,10 +141,10 @@ export const SettlementBundleV1Schema = z
 export type SettlementBundleV1 = z.infer<typeof SettlementBundleV1Schema>;
 
 /**
- * The artifact identity carried beside the digest, built from the batch and the
- * capsule version so a reader holding a ledger record can name the bundle
- * without first resolving it. The store keys bytes by digest and never by this
- * id, so a collision here is a naming coincidence rather than a storage hazard.
+ * The artifact id beside the digest, built from the batch and the capsule
+ * version. A reader with a ledger record can name the bundle without resolving
+ * it. The store keys bytes by digest, not by this id, so a collision here is
+ * only a naming coincidence.
  */
 export function settlementBundleArtifactId(batchId: string, capsuleVersion: number): ArtifactId {
   return ArtifactIdSchema.parse(
@@ -156,9 +153,8 @@ export function settlementBundleArtifactId(batchId: string, capsuleVersion: numb
 }
 
 /**
- * Encode a document to the bytes the store will hash. Parsed through the schema
- * first, so a document the schema rejects never reaches custody: a digest of an
- * unreadable document is a reference nothing can follow.
+ * Encode a document to the bytes that the store hashes. The schema parses the
+ * document first, so a document that the schema rejects never reaches custody.
  */
 export function encodeSettlementBundle(document: SettlementBundleV1): Uint8Array {
   const validated = SettlementBundleV1Schema.parse(document);
@@ -166,9 +162,8 @@ export function encodeSettlementBundle(document: SettlementBundleV1): Uint8Array
 }
 
 /**
- * Decode bytes recovered from the store. Throws on anything the schema does not
- * admit — a reader that tolerated a partial document would report facts the
- * producer never wrote.
+ * Decode bytes from the store. Throws on anything the schema does not admit,
+ * so a partial document never reports facts that the producer did not write.
  */
 export function decodeSettlementBundle(bytes: Uint8Array): SettlementBundleV1 {
   const parsed: unknown = JSON.parse(Buffer.from(bytes).toString('utf8'));

@@ -1,16 +1,12 @@
-// ─── Typed output schema for `prepare` ───────────────────────────────────────
-//
-// `prepare` returns the `PreparedCapsuleReceipt` shape (`types.ts`). Mirrored
-// here as a Zod schema so the registration carries a substantive
-// `outputSchema`, following `settle/schemas.ts`: every object is
-// `.passthrough()`, so a field a later build adds cannot turn a working
-// response into an adapter-level INTERNAL_ERROR.
-//
-// The capsule itself is carried as an open record rather than re-validated
-// against the capsule contract. It was validated against that contract before
-// it reached custody, and a second, stricter check at the response boundary
-// would replace a recorded capsule with an error the day the contract gained a
-// field.
+/**
+ * The Zod output schema for `prepare`. It mirrors `PreparedCapsuleReceipt` in
+ * `types.ts`, so the registration carries a real `outputSchema`.
+ *
+ * Every object is `.passthrough()`, so a new field cannot cause an
+ * INTERNAL_ERROR in the adapter. The capsule is an open record. The capsule
+ * contract validated it before custody, and a second check here can reject a
+ * recorded capsule when the contract adds a field.
+ */
 
 import { z } from 'zod';
 import { EnvelopeSchema } from '../../contract/schemas/envelope.js';

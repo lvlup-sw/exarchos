@@ -1,14 +1,8 @@
-// ─── Binding the repository's invariants into a capsule's authority ─────────
-//
-// The built-in authority is the floor every compiled capsule carries. A
-// repository's resolved invariants catalog is bound ON TOP of it, by id and
-// summary only: a worker needs the statement it is held to, not the catalog's
-// enforcement machinery, and binding only those two fields keeps a capsule
-// independent of how that machinery is shaped.
-//
-// This is the whole knowledge binder for now. It binds invariants and nothing
-// else — no design records, no patterns, no glossary — and says so rather than
-// presenting a partial binding as a complete one.
+/**
+ * Binds the resolved invariants catalog of a repository on top of the built-in capsule authority.
+ * A capsule carries only the id and the summary of each invariant, so it does not depend on the enforcement shape of the catalog.
+ * This binder binds invariants and nothing else.
+ */
 
 import type { ExarchosCapsuleAuthorityV1 } from '../../contract/capsule/exarchos-capsule.js';
 
@@ -21,9 +15,8 @@ export interface CatalogInvariant {
 /**
  * The base authority with every catalog invariant appended, in catalog order.
  *
- * An id already present — in the base or earlier in the catalog — is bound
- * once. A blank summary is skipped: a statement nothing can be held to is not a
- * statement.
+ * An id that is already present, in the base or earlier in the catalog, binds once.
+ * The function skips an entry with a blank summary.
  */
 export function bindCatalogInvariants(
   base: ExarchosCapsuleAuthorityV1,

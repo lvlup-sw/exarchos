@@ -1,26 +1,14 @@
-// ─── Typed output schemas for the seven `surface: 'worktree'` actions (DR-1) ──
-//
-// The worktree "DR-10 surface" actions — acquire_worktree, release_worktree,
-// prune_worktrees, serialize_merge (exarchos_orchestrate) and worktrees, ps,
-// wait (exarchos_view) — used to advertise `EnvelopeSchema(z.unknown())`, an
-// untyped `data` payload. This module promotes each to a TYPED envelope schema
-// whose success `data` branch is shape-derived from the REAL handler return
-// (`handlers.ts` / `merge-serializer.ts`), while the INV-5b error envelope
-// (`validTargets` / `expectedShape` / `suggestedFix`) is modeled by the shared
-// `ErrorEnvelopeSchema` inside {@link EnvelopeSchema}'s discriminated union.
-//
-// Derivation discipline (do NOT over-constrain): the MCP adapter `safeParse`s
-// the REAL handler output against `outputSchema` and, on a miss, REPLACES the
-// result with an INTERNAL_ERROR (`adapters/mcp.ts`). A schema STRICTER than the
-// real output would therefore break production. Every data object is declared in
-// Zod's default strip mode with `.passthrough()`, so a future field addition is
-// tolerated, and fields that vary at runtime are `.optional()` / `.nullable()`.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Typed output schemas for the `surface: 'worktree'` actions. Each success `data` schema follows
+ * the real handler return in `handlers.ts` and `merge-serializer.ts`. The shared
+ * `ErrorEnvelopeSchema` inside {@link EnvelopeSchema} models the error branch. The MCP adapter
+ * replaces output that fails its `outputSchema` with an `INTERNAL_ERROR`. A schema stricter than
+ * the real output thus breaks production. For this reason, every data object uses `.passthrough()`,
+ * and fields that vary at runtime are optional or nullable.
+ */
 
 import { z } from 'zod';
 import { EnvelopeSchema } from '../../contract/schemas/envelope.js';
-
-// ─── Shared projection sub-schemas (mirror `projections/worktrees.ts`) ────────
 
 /** Launcher-liveness marker carried on a {@link WorktreeEntrySchema}. */
 const LaunchInFlightSchema = z
@@ -85,8 +73,6 @@ const PruneCandidateReportSchema = z
   })
   .passthrough();
 
-// ─── Per-action success `data` schemas ────────────────────────────────────────
-
 /** `acquire_worktree` success — adopt-then-reserve outcome (`handleAcquireWorktree`). */
 const AcquireWorktreeData = z
   .object({
@@ -118,24 +104,19 @@ const PruneWorktreesData = z
   .passthrough();
 
 /**
- * `serialize_merge` success — either the dry-run planned effect (DR-1 default,
- * Task 002) OR the executed-merge pass-through of `merge_orchestrate`'s data
- * annotated with the serializer's own `serializedMerge` lease metadata. The
- * composed `merge_orchestrate` payload is genuinely open (many success shapes),
- * so every field is optional and the object passes through — this is the "do
- * NOT over-constrain" seam that keeps the MCP adapter from replacing a real
- * merge result with an INTERNAL_ERROR.
+ * `serialize_merge` success: the planned effect of a dry run, or the `merge_orchestrate` data with
+ * the `serializedMerge` lease metadata added. The `merge_orchestrate` payload has many shapes, so
+ * every field is optional.
  */
 const SerializeMergeData = z
   .object({
-    // Dry-run planned-effect fields (Task 002 default).
     dryRun: z.boolean().optional(),
     integrationRef: z.string().optional(),
     sourceBranch: z.string().optional(),
     strategy: z.string().optional(),
     featureId: z.string().optional(),
     integrationHead: z.string().nullable().optional(),
-    // Executed-merge lease annotation (present on a real merge success).
+    /** Lease metadata, present on an executed merge. */
     serializedMerge: z
       .object({
         integrationRef: z.string(),
@@ -173,49 +154,32 @@ const InFlightOperationSchema = z
   .passthrough();
 
 /**
- * `ps` success — the DR-3 scope-parameterized fold. THREE shapes ride ONE
- * `.passthrough()` schema, selected by `scope`:
- *   - scope:'worktree' (WLM-6): inFlight/count/launches/launchCount/prunes/pruneCount;
- *   - scope:'workflow': workflows/workflowCount (+ echoed `scope`);
- *   - scope:'all' (default): workflows/workflowCount + operations/operationCount.
- * Every field is therefore optional — no single scope carries all of them — so a
- * response for any scope validates against this one schema (the MCP adapter
- * safeParses real output against it; an over-strict shape would break production).
- *
- * The `probe`/`reconcile`/`mergeReconcile` sub-results are NOT here any more:
- * every `ps` shape is now a pure read, and the reconcile passes answer on
- * `reconcile_worktrees` under {@link ReconcileWorktreesData}.
+ * `ps` success. One schema carries three shapes, selected by `scope`:
+ *   - `worktree`: `inFlight`, `count`, `launches`, `launchCount`, `prunes`, `pruneCount`.
+ *   - `workflow`: `workflows` and `workflowCount`.
+ *   - `all`, the default: the `workflow` fields plus `operations` and `operationCount`.
+ * The `workflow` and `all` shapes echo `scope`. No shape carries every field, so every field is
+ * optional. The reconcile results are in {@link ReconcileWorktreesData}.
  */
 const PsData = z
   .object({
-    // Scope discriminator (echoed on the workflow/all shapes; absent on the raw
-    // WLM-6 worktree shape, which predates the scope field).
     scope: z.string().optional(),
-    // Worktree scope (WLM-6) — now optional, present only for scope:'worktree'.
     inFlight: z.array(InFlightMergeSchema).optional(),
     count: z.number().optional(),
     launches: z.array(WorktreeEntrySchema).optional(),
     launchCount: z.number().optional(),
     prunes: z.array(InFlightPruneSchema).optional(),
     pruneCount: z.number().optional(),
-    // Workflows section (scope:'workflow'|'all').
     workflows: z.array(WorkflowFoldRowSchema).optional(),
     workflowCount: z.number().optional(),
-    // Operations section (scope:'all').
     operations: z.array(InFlightOperationSchema).optional(),
     operationCount: z.number().optional(),
   })
   .passthrough();
 
 /**
- * `reconcile_worktrees` success — the three ground-truth reconcile passes,
- * each reporting its own findings, followed by the POST-reconcile in-flight
- * columns. Unlike `PsData` every field is REQUIRED: this action has one shape,
- * and all three passes run on every invocation.
- *
- * The columns are re-folded after the passes so a single response can never
- * report the same entry as both in-flight and reconciled — the property that
- * made this path worth keeping intact when it moved off `ps`.
+ * `reconcile_worktrees` success: the findings of the three reconcile passes, then the in-flight
+ * columns after the passes. This action has one shape, so every field is required.
  */
 const ReconcileWorktreesData = z
   .object({
@@ -235,12 +199,9 @@ const ReconcileWorktreesData = z
   .passthrough();
 
 /**
- * `wait` success — the resolved outcome (DR-5). ALWAYS carries `resolved: true`
- * + `waitedMs`. The worktree scope stamps `until`/`integrationRef`; the generic
- * feature-scoped predicates stamp `predicate` (`phase`/`status`/`operation`) with
- * the matched target, plus an optional `perf` snapshot of the DR-1 subscription's
- * Tier-2 floor telemetry (surfaced when resolution rode a floor tick). All
- * optional + passthrough so every success shape validates against one schema.
+ * `wait` success. It always carries `resolved: true` and `waitedMs`. The worktree scope adds
+ * `until` or `integrationRef`. The feature-scoped predicates add `predicate` and its target, and
+ * can add a `perf` snapshot of the subscription. Every other field is optional.
  */
 const WaitData = z
   .object({
@@ -257,10 +218,8 @@ const WaitData = z
   .passthrough();
 
 /**
- * `worktrees` success — the governed-worktree fold. Task 006 adds a `summary`
- * variant + `limit`/`offset` echo when the inventory is capped, so those fields
- * are modeled optional here and the per-item detail (`worktrees`/`count`) is
- * likewise optional so the summary shape validates.
+ * `worktrees` success. A capped inventory returns a `summary` or a page with `total` and
+ * `truncated`, so every field is optional.
  */
 const WorktreesData = z
   .object({
@@ -274,13 +233,6 @@ const WorktreesData = z
   })
   .passthrough();
 
-// ─── Public per-action envelope output schemas ────────────────────────────────
-//
-// Each is `EnvelopeSchema(<data>)` — a `success` discriminated union whose
-// `true` branch types `data` and whose `false` branch is the shared
-// `ErrorEnvelopeSchema` (models `validTargets` / `suggestedFix` and passes
-// `expectedShape` through the error block — the INV-5b error envelope).
-
 export const AcquireWorktreeOutputSchema = EnvelopeSchema(AcquireWorktreeData);
 export const ReleaseWorktreeOutputSchema = EnvelopeSchema(ReleaseWorktreeData);
 export const PruneWorktreesOutputSchema = EnvelopeSchema(PruneWorktreesData);
@@ -290,18 +242,10 @@ export const ReconcileWorktreesOutputSchema = EnvelopeSchema(ReconcileWorktreesD
 export const WaitOutputSchema = EnvelopeSchema(WaitData);
 export const WorktreesOutputSchema = EnvelopeSchema(WorktreesData);
 
-// ─── Introspection helper (shared by the schema + parity conformance suites) ──
-
 /**
- * Does a `surface: 'worktree'` action's `outputSchema` advertise a TYPED
- * `data` payload (i.e. NOT `EnvelopeSchema(z.unknown())` or `EnvelopeSchema(z.any())`)?
- * Extracts the success branch of the `success`-discriminated envelope union and
- * inspects its `data` field: a typed schema is anything other than the two
- * structural escape hatches `z.unknown()` and `z.any()` — BOTH accept an
- * arbitrary payload, so either one would defeat the typed-output conformance guard.
- *
- * Robust to Zod v4's union internals — the success option is located by the
- * presence of a `data` key in its object shape (the error branch has none).
+ * True when an `outputSchema` types its success `data`, that is, when `data` is neither
+ * `z.unknown()` nor `z.any()`. Both accept any payload and defeat the typed-output conformance
+ * guard.
  */
 export function envelopeDataSchemaIsTyped(outputSchema: z.ZodType): boolean {
   const dataSchema = extractEnvelopeDataSchema(outputSchema);
@@ -310,9 +254,8 @@ export function envelopeDataSchemaIsTyped(outputSchema: z.ZodType): boolean {
 }
 
 /**
- * Pull the success-branch `data` sub-schema out of an `EnvelopeSchema(...)`
- * discriminated union, or `undefined` when the shape is not a recognizable
- * envelope union (e.g. a bare schema).
+ * Returns the success `data` schema of an `EnvelopeSchema(...)` union, or `undefined` for any other
+ * schema. It finds the success option by its `data` key, because the error option has none.
  */
 export function extractEnvelopeDataSchema(
   outputSchema: z.ZodType,

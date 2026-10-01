@@ -1,12 +1,9 @@
-// ─── Task Decomposition Composite Action ────────────────────────────────────
-//
-// Pure TypeScript implementation of task decomposition quality verification.
-// Validates task structure, dependency DAG, and parallel safety for the
-// plan->plan-review boundary (D5: Workflow Determinism).
-//
-// Replaces the previous bash script (`check-task-decomposition.sh`) dependency
-// with inline TypeScript logic returning structured results directly.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The task decomposition gate. It checks task structure, the dependency DAG, and parallel safety at
+ * the boundary from plan to plan review.
+ * The module also re-exports `canonicaliseTaskId` from `utils/task-id.ts`. It treats the `T-`, `T`,
+ * and bare forms of one id number, with or without leading zeros, as the same task.
+ */
 
 import { readFile } from 'node:fs/promises';
 import type { ToolResult } from '../../format.js';
@@ -26,8 +23,6 @@ import {
   type PlausibilityTaskInput,
 } from './decomposition-plausibility.js';
 
-// ─── Types ───────────────────────────────────────────────────────────────
-
 interface TaskDecompositionArgs {
   readonly featureId: string;
   readonly planPath: string;
@@ -35,7 +30,7 @@ interface TaskDecompositionArgs {
 
 /** A parsed task block from a plan file. */
 export interface TaskBlock {
-  /** Task ID (e.g. "T-01" or "1"). */
+  /** The task id from the header. */
   readonly id: string;
   /** Raw content of the task block (including the header line). */
   readonly content: string;
@@ -50,9 +45,8 @@ export interface TaskStructureResult {
   readonly hasTests: boolean;
   readonly testCount: number;
   /**
-   * #1544: the task's stamped verification-ladder tier, if the block declares
-   * one. Drives whether tests are REQUIRED for a PASS (high/unstamped require
-   * them; low/medium do not). `undefined` when the block carries no stamp.
+   * The stamped risk tier of the task, if the block declares one. A `high` or unstamped task needs
+   * tests to pass. A `low` or `medium` task does not.
    */
   readonly riskTier?: RiskTier;
   readonly status: 'PASS' | 'FAIL';
@@ -91,26 +85,17 @@ interface TaskDecompositionResult {
   readonly dagValid: boolean;
   readonly parallelSafe: boolean;
   /**
-   * P02-06: calibrated decomposition/risk plausibility findings. A STRUCTURED
-   * CHALLENGE (typed findings the caller can act on), NOT a hard failure — it
-   * does not flip `passed`. Implausible blanket risk/boundary stamps or
-   * oversized tasks surface here rather than being silently accepted.
+   * Plausibility findings for the decomposition and the risk stamps. They are typed findings for the
+   * caller, and they do not change `passed`.
    */
   readonly plausibility: PlausibilityAssessment;
   readonly report: string;
 }
 
-// ─── Constants ──────────────────────────────────────────────────────────
-
 /**
- * Closed-set allowlist of file extensions accepted as real file paths by
- * `extractFiles` and `validateTaskStructure`. Tokens whose suffix is not
- * on this list (e.g. `imageProvenance.isFirstParty` — a TypeScript
- * record-field reference in narrative prose) are intentionally rejected
- * to avoid false parallel-safety conflicts on dotted-identifier tokens.
- *
- * Extensions are mirrored across both call sites; centralising here keeps
- * the two regexes in lockstep (T-14 REFACTOR).
+ * The file extensions that `extractFiles` and `validateTaskStructure` accept as file paths. A token
+ * with another suffix, such as the field reference `imageProvenance.isFirstParty` in prose, is not a
+ * file. This prevents false parallel-safety conflicts. Both regexes use this one list.
  */
 export const FILE_EXTENSION_ALLOWLIST: readonly string[] = [
   'ts',
@@ -134,9 +119,7 @@ export const FILE_EXTENSION_ALLOWLIST: readonly string[] = [
   'go',
   'rs',
   'toml',
-  // #1544: non-JS/TS source languages — a pytest task's `.py` path was not
-  // recognized (✗ 0 files). Multi-char extensions unlikely to collide with the
-  // dotted-identifier-in-prose tokens the allowlist exists to reject.
+  /** Extensions of other source languages, such as the `.py` path of a pytest task. */
   'py',
   'rb',
   'java',
@@ -153,36 +136,18 @@ export const FILE_EXTENSION_ALLOWLIST: readonly string[] = [
  */
 const FILE_PATH_PATTERN_SOURCE = `\`([a-zA-Z0-9_./-]+\\.(?:${FILE_EXTENSION_ALLOWLIST.join('|')}))\``;
 
-// ─── Parse Task Blocks ──────────────────────────────────────────────────
-
 /**
- * A task-header id token: an optional `T`/`T-` prefix, then a **leading digit**,
- * then further id characters (digits, letters, dots, hyphens). Requiring the
- * token to start at a digit (behind the optional `T`) is what keeps non-task
- * `###`/`####` section headers like `### Task Structure` from being misread as a
- * task, while still accepting every id the real corpus uses — `001`, `1`,
- * `T-01`, `T01`, and the dotted `1.1` sub-numbering some legacy plans carry.
- *
- * This mirrors the broader id token in the SoT dispatch parser
- * (`parse-task-stamps.ts`), which documents this exact `###`-vs-`####` corpus
- * mismatch. The two parsers converge on the real **numeric-id** corpus (`001`,
- * `1`, `T-01`, `1.1`) so the plan-coverage GATE and the delegation DISPATCH path
- * read the same tasks; they intentionally differ on non-task-header rejection
- * (this parser requires a leading digit; `parse-task-stamps.ts` requires a
- * separator + title), so exotic letter-leading ids are handled differently — not
- * a case the corpus exercises.
+ * A task-header id token: an optional `T` or `T-` prefix, a leading digit, then digits, letters, dots,
+ * or hyphens. The leading digit keeps a section header such as `### Task Structure` from reading as a task.
+ * The token accepts numeric ids with or without the `T` prefix, and dotted sub-numbers such as `1.1`.
+ * `parse-task-stamps.ts` reads the same numeric ids, so the plan-coverage gate and the dispatch path
+ * read the same tasks. That parser rejects a non-task header by its separator and title, not by a leading digit.
  */
 const TASK_ID_TOKEN_SOURCE = String.raw`(?:T-?)?[0-9][0-9A-Za-z.\-]*`;
 
 /**
- * A task header at heading depth **3 (`###`, legacy plans) OR 4 (`####`, the
- * majority of the real `docs/specs/` corpus)**. `Task\s+` (whitespace required
- * after `Task`) means the section header `### Tasks` never matches. The id is
- * captured as group 1.
- *
- * Before #1670 this matched `/^###\s+Task\s+(T-[0-9]+|[0-9]+)/` — three hashes
- * only — so `extractTaskRiskTier` silently dropped tiers on the ~7 of 11 specs
- * authored entirely with `#### Task` headers (a corpus-wide gate failure).
+ * A task header at heading depth 3 (`###`) or 4 (`####`). `Task\s+` requires whitespace, so the
+ * section header `### Tasks` does not match. Group 1 captures the id.
  */
 const TASK_HEADER_PATTERN = new RegExp(
   String.raw`^#{3,4}\s+Task\s+(${TASK_ID_TOKEN_SOURCE})`,
@@ -200,11 +165,8 @@ const TASK_HEADING_PREFIX = new RegExp(
 const TASK_DEPTH_HEADING = /^#{3,4}\s/;
 
 /**
- * Extract task blocks from plan markdown content.
- *
- * Each task starts with `### Task <id>:` or `#### Task <id>:` (id may be
- * `T-XX`, `TXX`, a bare number, or dotted `N.M`) and ends at the next task
- * header (of either depth) or EOF.
+ * Extracts task blocks from plan markdown. A block starts at a `###` or `####` task header. It ends
+ * at the next task header of either depth, or at the end of the content.
  */
 export function parseTaskBlocks(content: string): TaskBlock[] {
   const lines = content.split('\n');
@@ -216,7 +178,6 @@ export function parseTaskBlocks(content: string): TaskBlock[] {
   for (const line of lines) {
     const match = TASK_HEADER_PATTERN.exec(line);
     if (match) {
-      // Save previous block
       if (currentId !== null) {
         blocks.push({ id: currentId, content: currentLines.join('\n') });
       }
@@ -227,7 +188,6 @@ export function parseTaskBlocks(content: string): TaskBlock[] {
     }
   }
 
-  // Save last block
   if (currentId !== null) {
     blocks.push({ id: currentId, content: currentLines.join('\n') });
   }
@@ -235,61 +195,24 @@ export function parseTaskBlocks(content: string): TaskBlock[] {
   return blocks;
 }
 
-// ─── Validate Task Structure ────────────────────────────────────────────
-
 /**
- * Extract the description span from a task block's lines.
+ * Extracts the description span of a task block as raw lines, before any word count.
+ * The span starts with the prose tail of the task heading, without backtick spans. Thus a heading
+ * that holds only file paths gives no description. The task-template shape puts its description there.
  *
- * The description span is the union of:
- *
- *  1. The **brief-description tail of the `### Task N: …` heading** — the
- *     text after the `### Task N:` prefix. (T-02 / #1486.)
- *  2. The **body span** — "everything between the task heading and the next
- *     field-header (`**Word:**`) or section header (`### `)", with the caveat
- *     that the FIRST field-header encountered is treated as a description
- *     introducer and is *included* in the span (its inline tail is captured;
- *     the prose after it is also captured). The SECOND field-header
- *     terminates the span.
- *
- * Together these handle four canonical block shapes:
- * - **task-template.md shape** (T-02 / #1486): the brief description lives IN
- *   the `### Task [N]: [Brief Description]` heading and the body opens
- *   immediately with `**Phase:**` (a NON-introducer field header). The body
- *   span is therefore empty, but the heading tail carries the description.
- *   Before T-02 the heading line was skipped wholesale and `**Phase:**`
- *   terminated the scan, so these template-verbatim tasks scored
- *   `Description: 0 words` and hard-FAILED the gate (`needsRework`). See
- *   `content/design/skills/plan/references/task-template.md`.
- * - Standard plan shape (`**Goal:**` + paragraph followed
- *   by `**Files:**`, `**Tests:**`, etc.) — Goal prose counts as description.
- * - Legacy explicit `**Description:**` shape — Description prose counts.
- * - Naked-prose shape (no field-headers at all) — full body counts.
- *
- * Returned as the array of captured raw lines (not yet word-counted) so
- * callers can decide how to render or score them.
+ * The body part runs to the next task-depth heading or field header (`**Label:**`). A first
+ * `**Goal:**` or `**Description:**` header does not end it. The span keeps the inline text of that
+ * header and runs to the next field header. Thus a task that opens with `**Files:**` does not count
+ * its file list as description.
  */
 export function extractDescriptionSpan(lines: readonly string[]): string[] {
   const descLines: string[] = [];
   let firstFieldSeen = false;
 
-  // T-02 (#1486): capture the heading's brief-description tail (text after
-  // `### Task N:`) as a description signal. The task-template.md shape puts
-  // the description in the heading, so without this the body-only span is
-  // empty for template-verbatim tasks. We do NOT count backtick-quoted file
-  // paths here (template headings are prose, not file lists), so this does
-  // not reopen the F20/#1213 hole guarded against below.
-  //
-  // #1670: recognise both `###` and `####` task headings so the heading-tail
-  // description is credited on the majority-4-hash corpus, not just legacy
-  // 3-hash plans.
   const firstLine = lines[0];
   const start = firstLine !== undefined && TASK_HEADING_LINE.test(firstLine) ? 1 : 0;
   if (start === 1 && firstLine !== undefined) {
     const headingTail = firstLine.replace(TASK_HEADING_PREFIX, '');
-    // Strip backtick-quoted spans (file paths like `src/a.ts`) before counting
-    // the tail as description — a heading that is nothing but a file list must
-    // NOT satisfy the description threshold (the F20/#1213 hole this comment
-    // claims to avoid). Only the prose remnant counts.
     const headingTailProse = headingTail.replace(/`[^`]*`/g, ' ').trim();
     if (headingTailProse.length > 0) {
       descLines.push(headingTailProse);
@@ -299,45 +222,19 @@ export function extractDescriptionSpan(lines: readonly string[]): string[] {
   for (let i = start; i < lines.length; i++) {
     const line = lines[i];
     if (line === undefined) continue;
-    // #1670: terminate the span at the next task-depth (`###`/`####`) heading —
-    // previously only `###` broke the scan, so a 4-hash sub-heading leaked into
-    // the description on the majority-4-hash corpus.
     if (TASK_DEPTH_HEADING.test(line)) {
       break;
     }
-    // F20 (#1213): capture the LABEL inside `**...:**` separately so we
-    // can distinguish description introducers (`**Goal:**`,
-    // `**Description:**`) from non-description structural headers
-    // (`**Files:**`, `**Tests:**`, `**Dependencies:**`,
-    // `**Parallelizable:**`, `**Acceptance criteria:**`, …).
-    //
-    // Previously the FIRST `**Field:**` line was treated as the
-    // description introducer regardless of label. Tasks that opened with
-    // `**Files:** \`a.ts\`, \`b.ts\`, \`c.ts\``, etc. inadvertently had
-    // their inline file list counted as description prose, satisfying
-    // the 10-word threshold and masking missing-description failures.
-    //
-    // Now: only `Goal` / `Description` (case-insensitive) introduce the
-    // span. Any other label terminates the scan immediately, leaving
-    // any preceding naked-prose lines as the description (handles the
-    // legacy "no field-headers at all" shape via the `else` branch
-    // below).
     const fieldMatch = /^\*\*(\w[\w\s]*?):\*\*\s?(.*)$/.exec(line);
     if (fieldMatch) {
       const label = (fieldMatch[1] ?? '').trim();
       const isDescriptionIntroducer = /^(goal|description)$/i.test(label);
       if (firstFieldSeen) {
-        // Second field-header — terminate the description span.
         break;
       }
       if (!isDescriptionIntroducer) {
-        // Non-description header reached before any introducer —
-        // terminate the scan WITHOUT swallowing this line. Any naked
-        // prose preceding it (already pushed to `descLines`) remains
-        // the description.
         break;
       }
-      // First description-introducer — drop the label, keep inline tail.
       firstFieldSeen = true;
       descLines.push(fieldMatch[2] ?? '');
       continue;
@@ -349,20 +246,15 @@ export function extractDescriptionSpan(lines: readonly string[]): string[] {
 }
 
 /**
- * Validate a task block for description quality, file targets, and test
- * expectations.
- *
- * Description parsing (DR-5 step 1): see `extractDescriptionSpan` above.
- *
- * File detection: backtick-quoted paths like `path/to/file.ext`
- *
- * Test detection: `[RED]` markers or `Method_Scenario_Outcome` patterns
- * (PascalCase segments joined by underscores).
+ * Checks a task block for description, file targets, and test expectations. A file target is a
+ * backtick-quoted path with an extension on {@link FILE_EXTENSION_ALLOWLIST}. A test expectation is a
+ * `[RED]` marker or a `Method_Scenario_Outcome` name.
+ * The block passes with file targets, plus tests when the tier is `high` or absent. A `low` or
+ * `medium` task needs no tests. The description word count is for information only.
  */
 export function validateTaskStructure(block: string): TaskStructureResult {
   const lines = block.split('\n');
 
-  // --- Description (span from heading to next structural header) ---
   const descText = extractDescriptionSpan(lines).join(' ');
   const descWords = descText
     .trim()
@@ -371,11 +263,6 @@ export function validateTaskStructure(block: string): TaskStructureResult {
   const descriptionWordCount = descWords.length;
   const hasDescription = descriptionWordCount > 10;
 
-  // --- File targets ---
-  // Match backtick-quoted paths whose suffix is on `FILE_EXTENSION_ALLOWLIST`.
-  // Without the allowlist, dotted-identifier tokens like
-  // `imageProvenance.isFirstParty` (record-field references in prose) used
-  // to match and pollute the file count / parallel-safety check.
   const filePattern = new RegExp(FILE_PATH_PATTERN_SOURCE, 'g');
   let fileCount = 0;
   for (const line of lines) {
@@ -386,7 +273,6 @@ export function validateTaskStructure(block: string): TaskStructureResult {
   }
   const hasFiles = fileCount > 0;
 
-  // --- Test expectations ---
   const redPattern = /\[RED\]/g;
   const msoPattern = /[A-Z][a-zA-Z]+_[A-Z][a-zA-Z]+_[A-Z][a-zA-Z]+/g;
   let testCount = 0;
@@ -403,14 +289,6 @@ export function validateTaskStructure(block: string): TaskStructureResult {
   }
   const hasTests = testCount > 0;
 
-  // #1544: the test requirement SCALES BY the task's verification-ladder tier.
-  // The universal `hasFiles && hasTests` hard-FAIL flagged every low/medium-tier
-  // task lacking tests — the over-flag that trained operators to ignore the gate
-  // (the same gate that false-FAILed this very feature's low-tier authoring
-  // tasks at plan-review). Under the ladder, low/medium tasks need not carry
-  // tests to PASS; high-tier — and, conservatively, UNSTAMPED — tasks still do.
-  // (The word-count threshold was already removed; it remains an informational
-  // column only.)
   const riskTier = extractTaskRiskTier(block);
   const testsRequired = riskTier !== 'low' && riskTier !== 'medium';
   const status = hasFiles && (!testsRequired || hasTests) ? 'PASS' : 'FAIL';
@@ -428,26 +306,13 @@ export function validateTaskStructure(block: string): TaskStructureResult {
 }
 
 /**
- * #1544: extract a task block's stamped verification-ladder `riskTier`, if any.
- *
- * Matches a real risk-tier stamp — the key, then a colon, then the tier word —
- * tolerating both spellings planners actually use: the camelCase `**riskTier:**
- * high` (used by existing plans) and the title-case `**Risk Tier:** high` that
- * the task template (`@skills/plan/references/task-template.md`)
- * literally prescribes — plus the markdown bold around either. The optional space
- * in `risk\s*tier` is load-bearing: without it a plan authored to the canonical
- * template reads as unstamped and a low-tier task wrongly fails (#1544).
- * Binding the tier to the key (rather than reading any tier word on a line that
- * merely mentions the term) avoids two misclassifications: prose like "the
- * riskTier governs high-blast tasks" no longer reads as `high`, and a line with
- * several tier words yields the one bound to the key. Returns `undefined` when
- * the block carries no stamp — the conservative path that still requires tests.
+ * Reads the stamped `riskTier` of a task block. It accepts `**riskTier:** high` and the template
+ * spelling `**Risk Tier:** high`, with or without bold. The tier must follow the key and a colon, so
+ * prose that names a tier word does not count. The tier word must end the token (`(?![\w-])`), so
+ * `riskTier: low-priority` does not read as `low`.
+ * It returns `undefined` when the block has no stamp, and then the task needs tests.
  */
 function extractTaskRiskTier(block: string): RiskTier | undefined {
-  // `(?![\w-])` (not plain `\b`): the tier word must end the token. `\b` would
-  // match before a hyphen, so `riskTier: low-priority` would wrongly read as
-  // `low`; rejecting a trailing hyphen/word-char makes a malformed stamp fall
-  // through to the conservative default instead of silently misclassifying.
   const stamp = /risk\s*tier\*{0,2}\s*:\s*\*{0,2}\s*(low|medium|high)(?![\w-])/i;
   for (const line of block.split('\n')) {
     const match = stamp.exec(line);
@@ -456,17 +321,9 @@ function extractTaskRiskTier(block: string): RiskTier | undefined {
   return undefined;
 }
 
-// ─── Dependency DAG Validation ──────────────────────────────────────────
-
 /**
- * fix-008 (review #1213): build the canonical-ID lookup tables in one place.
- *
- * Returns the `visitState` (canonical \u2192 0/1/2 cycle marker), the
- * `canonicalToOriginal` map (used to surface error messages with the
- * caller's original ID spelling), and the `depsMap` (canonical \u2192
- * canonical[] adjacency). May short-circuit with an `error` describing a
- * duplicate ID or unresolved dependency \u2014 both halt validation up front
- * before any DFS work runs.
+ * The canonical-id lookup tables: the DFS visit state, the map back to the original id spelling for
+ * messages, and the canonical adjacency.
  */
 type CanonicalMaps = {
   readonly kind: 'ok';
@@ -480,6 +337,7 @@ type CanonicalMapsError = {
   readonly result: DagValidationResult;
 };
 
+/** Builds the canonical-id tables. A duplicate id or an unresolved dependency stops the validation before the DFS. */
 function buildCanonicalMaps(
   tasks: readonly DagTask[],
 ): CanonicalMaps | CanonicalMapsError {
@@ -522,17 +380,10 @@ function buildCanonicalMaps(
 }
 
 /**
- * fix-008 (review #1213): iterative DFS over the canonical adjacency.
- *
- * `visit` is mutated in place (caller-owned). On detecting a cycle the
- * function returns a `DagValidationResult` carrying the offending edge
- * (in original-ID spelling); on a clean traversal it returns `null` so
- * the outer loop can advance to the next root.
- *
- * Stack entries are `[canonicalNode, phase]` where phase is `'enter'` for
- * descent and `'exit'` for the post-order mark; this lets the iterative
- * DFS mirror the recursive shape (pre-order discover, post-order finish)
- * without recursion overhead or stack-depth limits on large plans.
+ * An iterative DFS over the canonical adjacency from one root. It changes `visit` in place. It
+ * returns the cycle edge in the original id spelling, or `null` for a clean traversal.
+ * Each stack entry holds a phase: `enter` for descent and `exit` for the post-order mark. An
+ * explicit stack has no depth limit on a large plan.
  */
 function dfsCycleCheck(
   root: string,
@@ -552,12 +403,10 @@ function dfsCycleCheck(
 
     const state = visit.get(node);
 
-    // Already fully explored
     if (state === 2) {
       continue;
     }
 
-    // Cycle: node is in-progress (already on the DFS stack)
     if (state === 1) {
       return { valid: false, cyclePath: canonicalToOriginal.get(node) ?? node };
     }
@@ -569,7 +418,6 @@ function dfsCycleCheck(
     for (const dep of deps) {
       const depState = visit.get(dep);
       if (depState === 1) {
-        // Cycle found \u2014 report using original IDs.
         const nodeOriginal = canonicalToOriginal.get(node) ?? node;
         const depOriginal = canonicalToOriginal.get(dep) ?? dep;
         return { valid: false, cyclePath: `${nodeOriginal} \u2192 ${depOriginal}` };
@@ -584,22 +432,11 @@ function dfsCycleCheck(
 }
 
 /**
- * Validate that the dependency graph among tasks is a DAG (no cycles).
- *
- * Uses iterative DFS with explicit stack tracking. Each node has three states:
- * - 0 = unvisited
- * - 1 = in-progress (on the DFS stack)
- * - 2 = done (fully explored)
- *
- * A cycle is detected when we encounter a node that is in-progress. Map-
- * construction and the DFS itself are extracted to `buildCanonicalMaps`
- * and `dfsCycleCheck` so this function reads as orchestration only.
+ * Checks that the task dependency graph has no cycles. It compares canonical ids, so the forms of one
+ * id number are the same task. Messages use the original id spelling.
+ * Each node is unvisited (0), in progress on the DFS stack (1), or done (2). A node in progress means a cycle.
  */
 export function validateDependencyDAG(tasks: readonly DagTask[]): DagValidationResult {
-  // Cycle/unresolved comparisons run on the canonical ID
-  // (`canonicaliseTaskId`) so that `T-002`, `T002`, and `002` are treated
-  // as the same task. We keep a parallel map to recover the original ID
-  // for error messages.
   const maps = buildCanonicalMaps(tasks);
   if (maps.kind === 'error') return maps.result;
 
@@ -619,8 +456,6 @@ export function validateDependencyDAG(tasks: readonly DagTask[]): DagValidationR
 
   return { valid: true };
 }
-
-// ─── Parallel Safety Check ──────────────────────────────────────────────
 
 /**
  * Check for file conflicts between parallelizable tasks.
@@ -656,26 +491,11 @@ export function checkParallelSafety(tasks: readonly ParallelTask[]): ParallelSaf
   };
 }
 
-// ─── Internal Helpers ───────────────────────────────────────────────────
-
 /**
- * Extract dependency task IDs from a task block's **Dependencies:** field.
- *
- * Anchors strictly to the `**Dependencies:**` line — never falls back to
- * digit-scraping the wider block, which used to pull tokens like `24` out
- * of narrative prose ("`GetCslSloRollup24h`") and report them as unknown
- * dependencies.
- *
- * Matches both `T-NNN` and `TNNN` formats via a single word-boundary regex
- * (`\b(T-?\d+)\b`). The returned matches are verbatim — `T-001` stays
- * `T-001`, `T002` stays `T002`. The equivalence between `T-NNN`, `TNNN`,
- * and `NNN` (bare numeric IDs emitted by `parseTaskBlocks` for `### Task
- * 002:` headings) is handled at comparison time inside
- * `validateDependencyDAG`, not here, so this helper does not silently
- * mutate caller-visible IDs.
- *
- * Returns `[]` if no `T<id>`/`T-<id>` token is present (e.g. `none`,
- * empty, or "Task 1, Task 2"-style narrative without a recognised id).
+ * Extracts dependency ids from the `**Dependencies:**` line of a task block, and from no other line.
+ * It matches `T`-prefixed ids with or without a hyphen, and returns them verbatim.
+ * `validateDependencyDAG` compares the canonical forms. It returns `[]` for `none`, an empty line,
+ * or prose with no such id.
  */
 export function extractDependencies(block: string): string[] {
   const lines = block.split('\n');
@@ -692,27 +512,6 @@ export function extractDependencies(block: string): string[] {
   return [];
 }
 
-/**
- * Canonicalise a task ID for cycle/unresolved-dependency comparison.
- *
- * Three forms are treated as equivalent: `T-002`, `T002`, and `002`. The
- * canonical form strips an optional leading `T-?` and then strips leading
- * zeros (so `T-01`, `T01`, `01`, and `1` all collapse to `1`).
- *
- * This bridges `parseTaskBlocks` (which preserves the form as written —
- * `T-XX` or bare numeric) and `extractDependencies` (which preserves
- * verbatim `T-NNN`/`TNNN` tokens from the deps line). Without this
- * normalisation, plans that mix forms — e.g. a fixture with bare-numeric
- * task IDs and `T<id>`-prefixed dependency references — would report
- * spurious unresolved-dependency errors.
- *
- * Exported so cross-module comparators (e.g. `computeScopedWorktrees`,
- * which compares caller-supplied task IDs against projection-held
- * `readyTaskIds`) collapse mixed forms identically.
- *
- * The implementation lives in the dependency-free leaf `utils/task-id.ts` so
- * the views layer can share it without importing the orchestrate layer.
- */
 export { canonicaliseTaskId };
 
 /**
@@ -729,41 +528,21 @@ function isParallelizable(block: string): boolean {
 }
 
 /**
- * Extract backtick-quoted file paths from a task block.
- *
- * The path's suffix MUST be on a closed extension allowlist; tokens whose
- * suffix is anything else (e.g. `imageProvenance.isFirstParty` —
- * a TypeScript record-field reference in narrative prose) are not treated
- * as file paths. Without this filter the parallel-safety check produces
- * false conflicts on dotted-identifier tokens shared between tasks.
- *
- * If the block contains an explicit `**Files:**` section, paths declared
- * under that section take precedence over inferred matches found elsewhere
- * in the block — explicit declarations are the source of truth.
+ * Extracts backtick-quoted file paths with an extension on {@link FILE_EXTENSION_ALLOWLIST}.
+ * An explicit `**Files:**` section is authoritative, even when it declares no path. Thus `**Files:** none`
+ * does not pick up unrelated backticks in the body. The section runs from the header line, inline
+ * tail included, to the next task-depth heading or field header.
+ * With no `**Files:**` section, the function scans the whole block.
  */
 export function extractFiles(block: string): string[] {
-  // Prefer files declared under an explicit `**Files:**` section when
-  // present. Capture lines from the `**Files:**` header until the next
-  // field-header (`**Word:**`) or section header (`###`/`####`).
   const lines = block.split('\n');
   const filesSectionLines: string[] = [];
   let inFilesSection = false;
-  // F21 (#1213): track whether the block contained an explicit **Files:**
-  // header at all. If so, the section is AUTHORITATIVE — even when it
-  // declares zero allowlisted paths (e.g. `**Files:** none`, an empty
-  // section, or paths with non-allowlisted extensions only). Without
-  // this flag, an empty Files section silently fell through to
-  // whole-block inference and scraped unrelated backticks elsewhere in
-  // the body, producing false-positive parallel-conflict reports.
   let sawFilesSection = false;
   for (const line of lines) {
     if (/^\*\*Files:\*\*/i.test(line)) {
       inFilesSection = true;
       sawFilesSection = true;
-      // CodeRabbit #17 (#1213): if the **Files:** header line itself
-      // contains paths after the colon (inline form, e.g.
-      // `**Files:** \`a.ts\`, \`b.ts\``), capture them. Without this,
-      // single-line Files headers were silently dropped.
       const inlineTail = line.replace(/^\*\*Files:\*\*\s*/i, '');
       if (inlineTail.length > 0) {
         filesSectionLines.push(inlineTail);
@@ -771,11 +550,6 @@ export function extractFiles(block: string): string[] {
       continue;
     }
     if (inFilesSection) {
-      // Terminate at the next section header at EITHER depth (`###`/`####`, via
-      // TASK_DEPTH_HEADING) or field-header — a 4-hash sub-section on the
-      // majority-`####` corpus must end the Files scan, not be swept into it
-      // (same 3-hash-only bug DR-5 fixed for parseTaskBlocks; extractFiles was
-      // the sibling it missed).
       if (TASK_DEPTH_HEADING.test(line) || /^\*\*\w[\w\s]*:\*\*/.test(line)) {
         inFilesSection = false;
         continue;
@@ -785,11 +559,6 @@ export function extractFiles(block: string): string[] {
   }
 
   if (sawFilesSection) {
-    // Authoritative path: an explicit **Files:** section was present.
-    // Return whatever IT declares (possibly empty); do NOT fall through
-    // to whole-block inference. This prevents `**Files:** none` (or an
-    // empty section) from being silently overridden by unrelated
-    // backticks elsewhere in the task body.
     const filesSection = filesSectionLines.join('\n');
     const declared: string[] = [];
     const sectionPattern = new RegExp(FILE_PATH_PATTERN_SOURCE, 'g');
@@ -800,8 +569,6 @@ export function extractFiles(block: string): string[] {
     return declared;
   }
 
-  // Fallback: no explicit **Files:** section appeared at all. Scan the
-  // whole block for backtick-quoted paths with an allowlisted extension.
   const blockPattern = new RegExp(FILE_PATH_PATTERN_SOURCE, 'g');
   const files: string[] = [];
   let match: RegExpExecArray | null;
@@ -811,13 +578,9 @@ export function extractFiles(block: string): string[] {
   return files;
 }
 
-// ─── Plausibility Bridge (P02-06) ─────────────────────────────────────────
-
 /**
- * Bridge parsed task blocks into the structured `PlausibilityTaskInput`s the
- * plausibility assessor consumes. Reuses the structural gate's own extractors
- * (`extractFiles`, `extractTaskRiskTier`) so the plausibility signals read the
- * SAME files/tier the structure check reads — no parallel parser to drift.
+ * Maps task blocks to the inputs of the plausibility assessor. It uses `extractFiles` and
+ * `extractTaskRiskTier`, so the plausibility check and the structure check read the same files and tier.
  */
 export function extractPlausibilityInputs(
   blocks: readonly TaskBlock[],
@@ -837,10 +600,8 @@ export function extractPlausibilityInputs(
 }
 
 /**
- * Render the plausibility assessment as a markdown report section. Active
- * challenges are surfaced as `CHALLENGE` lines (the structured, non-silent
- * signal); overridden ones are listed with their recorded rationale so the
- * override is auditable rather than invisible.
+ * Renders the plausibility assessment as a markdown section. An active challenge gives a `CHALLENGE`
+ * line, and an overridden one gives an `OVERRIDDEN` line with its rationale.
  */
 function renderPlausibilitySection(assessment: PlausibilityAssessment): string[] {
   const lines: string[] = ['### Decomposition Plausibility'];
@@ -860,15 +621,16 @@ function renderPlausibilitySection(assessment: PlausibilityAssessment): string[]
   return lines;
 }
 
-// ─── Handler ─────────────────────────────────────────────────────────────
-
+/**
+ * Runs the gate through the shared phase-gate runner, which records durable gate evidence before a
+ * success carrier returns. A bare gate event append does not satisfy the declared postcondition.
+ */
 export async function handleTaskDecomposition(
   args: TaskDecompositionArgs,
   stateDir: string,
   eventStore: EventStore,
   baseline?: PlausibilityBaseline,
 ): Promise<ToolResult> {
-  // Guard clause: validate required inputs
   if (!args.featureId) {
     return {
       success: false,
@@ -876,14 +638,6 @@ export async function handleTaskDecomposition(
     };
   }
 
-  // The gate declares durable gate evidence as a postcondition, and a bare
-  // `gate.executed` append never paid it: the dispatch path observes declared
-  // postconditions after the handler returns and read a success carrier that
-  // had broken its own contract. Routing through the shared phase-gate runner
-  // records the evidence before any success carrier escapes, the same way the
-  // sibling gates do. The bounded intent executor observes the same
-  // postconditions the same way, so a segment that ever names this gate reads
-  // the repaired answer too — no segment names it today.
   return runPhaseGateWithEvidence({
     streamId: args.featureId,
     gateClass: 'task-decomposition',
@@ -901,6 +655,12 @@ export async function handleTaskDecomposition(
   });
 }
 
+/**
+ * Parses the plan markdown and checks the structure of each task, the dependency DAG, and parallel
+ * safety. The plausibility findings go in the report and the result, but they do not change `passed`.
+ * A `low` or `medium` task with no tests shows "n/a" in the Tests column, not a failure mark.
+ * When the gate event append fails, it returns the failure from `requireGateEvent`.
+ */
 async function executeTaskDecomposition(
   args: TaskDecompositionArgs,
   _stateDir: string,
@@ -914,11 +674,6 @@ async function executeTaskDecomposition(
     };
   }
 
-  // The YAML gate-sidecar layer (#1298) was abandoned in #1494 — SQLite is
-  // the authoritative structured record, so markdown parsing is the
-  // permanent authoring-gate path.
-
-  // Read plan file
   let planContent: string;
   try {
     planContent = await readFile(args.planPath, 'utf-8');
@@ -932,7 +687,6 @@ async function executeTaskDecomposition(
     };
   }
 
-  // Parse task blocks
   const blocks = parseTaskBlocks(planContent);
 
   if (blocks.length === 0) {
@@ -945,7 +699,6 @@ async function executeTaskDecomposition(
     };
   }
 
-  // Validate task structure
   let wellDecomposed = 0;
   let needsRework = 0;
   const structureRows: string[] = [];
@@ -965,8 +718,6 @@ async function executeTaskDecomposition(
     const filesStatus = result.hasFiles
       ? `\u2713 (${result.fileCount} files)`
       : `\u2717 (0 files)`;
-    // #1544: a low/medium-tier task without tests is not a FAIL \u2014 show it as
-    // not-required-for-tier rather than a bare \u2717 that contradicts the PASS.
     const testsStatus = result.hasTests
       ? `\u2713 (${result.testCount} tests)`
       : result.riskTier === 'low' || result.riskTier === 'medium'
@@ -980,14 +731,12 @@ async function executeTaskDecomposition(
 
   const totalTasks = blocks.length;
 
-  // Validate dependency DAG
   const dagTasks: DagTask[] = blocks.map((b) => ({
     id: b.id,
     deps: extractDependencies(b.content),
   }));
   const dagResult = validateDependencyDAG(dagTasks);
 
-  // Check parallel safety
   const parallelTasks: ParallelTask[] = blocks.map((b) => ({
     id: b.id,
     isParallel: isParallelizable(b.content),
@@ -995,7 +744,6 @@ async function executeTaskDecomposition(
   }));
   const safetyResult = checkParallelSafety(parallelTasks);
 
-  // Build report
   const reportLines: string[] = [
     '## Task Decomposition Report',
     '',
@@ -1027,10 +775,6 @@ async function executeTaskDecomposition(
   }
   reportLines.push('');
 
-  // P02-06: calibrated decomposition/risk plausibility. Structured challenge,
-  // NOT a hard failure — surfaced in the report and the returned `plausibility`
-  // field so implausible blanket stamps / oversized tasks are not silently
-  // accepted, while remaining overridable with a recorded rationale.
   const plausibility = assessDecompositionPlausibility(
     extractPlausibilityInputs(blocks),
     {
@@ -1063,7 +807,6 @@ async function executeTaskDecomposition(
 
   const report = reportLines.join('\n');
 
-  // Return structured result
   const result: TaskDecompositionResult = {
     passed,
     wellDecomposed,
