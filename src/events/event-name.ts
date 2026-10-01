@@ -1,116 +1,25 @@
-// ─── The event-name grammar (DR-3) — THE single authority ────────────────────
+// The event-name grammar, the single authority on event-name well-formedness.
 //
-// ## The grammar, and where it came from
+//     EventName := Namespace "." Segment ( "." Segment )?
+//     Namespace := Word
+//     Segment   := Word | Word ("-" Word)+ | Word ("_" Word)+
+//     Word      := [a-z]+
 //
-// DERIVED from the live catalog, not invented. Every clause below was re-measured against the 171
-// names `getValidEventTypes()` returns on a cold boot (`schemas.ts`); the measurement is recorded
-// per clause so a future reader can tell a rule with evidence from a rule with an opinion.
+// Each clause comes from a measurement of the live catalog. The catalog uses kebab and snake
+// segments, so the grammar accepts both, but one segment must use only one. A rename of a live
+// event breaks the replay of existing logs.
 //
-//     EventName   := Namespace "." Segment ( "." Segment )?
-//     Namespace   := Word
-//     Segment     := Word | Word ("-" Word)+ | Word ("_" Word)+
-//     Word        := [a-z]+
-//
-// | clause | measurement over the 171 |
-// |---|---|
-// | 2 or 3 dot-segments | 148 have 2, 23 have 3, **none** has 1 or 4+ |
-// | every segment non-empty | 0 names contain `..`, a leading `.`, or a trailing `.` |
-// | `Word` is `[a-z]+` | the whole-corpus character inventory is exactly `[a-z]`, `.`, `-`, `_` — **0 uppercase, 0 digits** |
-// | `Namespace` is a bare `Word` | 0 of the 50 distinct namespaces contain `-` or `_` |
-// | a segment does not mix `-` and `_` | 0 segments contain both (in fact 0 whole *names* do) |
-// | no dangling/doubled word separator | 0 segments start or end with `-`/`_`; 0 names contain `--`, `__`, `-_`, `_-` |
-//
-// The corpus is **not** unanimous about *which* word separator to use — 29 names are kebab
-// (`workflow.plan-review-dispatched`), 25 are snake (`workflow.checkpoint_requested`). That is a
-// house-style inconsistency, and this module deliberately does NOT legislate it away: picking one
-// would reject 25 (or 29) live, emitted, replayable event names, and INV-1 makes renaming them a
-// log-compatibility break rather than a tidy-up. The grammar admits both and constrains the thing
-// that is actually invariant — that a segment commits to ONE of them.
-//
-// ## The no-digits clause, re-examined against user-config evidence (DR-5)
-//
-// `Word := [a-z]+` excludes digits, and the retired `EVENT_NAME_PATTERN` admitted them. Adopting
-// the strict reading rejects names a user could legally have registered, so it was re-measured
-// against every population that can actually carry a custom name rather than re-asserted:
-//
-//   • 171 registered names on a cold boot — 0 digits, 0 multi-word namespaces, 0 names of 4+
-//     segments, 0 uppercase.
-//   • 79 distinct event names across 12,890 rows in two REAL persisted stores on this machine
-//     (`~/.claude/workflow-state/exarchos.db`, `~/.exarchos/state/exarchos.db`) — 0 digits, 0
-//     multi-word namespaces. These are names that were actually emitted and are actually on disk,
-//     which is a strictly stronger population than the catalog: it includes one name
-//     (`init.executed`) the catalog no longer declares.
-//     (The three `vcs.*` mutation-ledger names were part of this population when it was
-//     measured, registered at runtime by `vcs/mutation-owner.ts`. They are catalog built-ins
-//     now, so they are counted above rather than here; the measurement is unchanged either way,
-//     since they carry no digit and no multi-word namespace in either place.)
-//   • every custom event name this repo registers or documents through the `.exarchos.yml` /
-//     `exarchos.config.ts` `events:` surface — `deploy.started`, `deploy.finished` and
-//     `custom.hello`. 0 digits, 0 multi-word namespaces.
-//
-// So the clause is adopted with zero measured counterexamples and a real, named cost: a user whose
-// config registers `deploy.rollout2` upgrades into a hard registration failure. That cost is
-// written down in the migration note rather than assumed away, and the clause stays falsifiable —
-// {@link MALFORMED_EVENT_NAMES} carries `workflow.started2` explicitly, so widening the grammar to
-// admit a digit is a visible edit to a fixture table rather than a quiet character-class change.
-//
-// ## The two authorities are now one (DR-5)
-//
-// `schemas.ts` used to carry an independently-authored runtime validator:
-//
-//     const EVENT_NAME_PATTERN = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
-//
-// It had no `_` in either character class, so it rejected 25 of its own built-ins. It never failed
-// because `registerEventType` applied it ONLY to CUSTOM runtime registrations while the built-ins
-// are a `readonly` literal array never fed through it — a validator its own authoritative corpus
-// fails, invisible because it was never pointed at that corpus.
-//
-// It is gone. `registerEventType` now calls {@link assertWellFormedEventName}, so this grammar is
-// the only thing that decides whether a name may be registered, and `EVENT_NAME_PATTERN` survives
-// only as {@link EVENT_NAME_PATTERN} — a regex BUILT from this module's own alphabet, separator
-// set and segment bounds by {@link buildEventNamePattern}. It is a FORM of the grammar in the same
-// sense {@link LOWER_ALPHA} is a form of {@link LowerAlpha}, pinned by
-// `event-name.test.ts`'s agreement sweep rather than trusted, and it decides nothing on its own.
-//
-// The behaviour change is real and one-way-each: names with a digit, a multi-word namespace or
-// four segments stopped registering; snake_case names started. Already-persisted events are
-// untouched — the read path does not re-validate names (`store.query` folds rows through
-// `migrateEvents` and nothing consults the grammar), so INV-1 log compatibility holds by
-// construction. See `docs/migrations/2026-08-10-event-name-grammar.md`.
-//
-// ## The import edge, and why it points this way
-//
-// This module's only import is `import type`, exactly as `event-registration.ts` does and for the
-// same reason: `schemas.ts` is the event catalog, and a value import would make this grammar
-// depend on the catalog booting. The value edge runs the other way — `schemas.ts` imports THIS
-// module — so the grammar stays bootable on its own and there is no runtime cycle (dependency
-// -cruiser elides type-only edges; see `.dependency-cruiser.cjs`).
-//
-// `_EventName_EveryRegisteredType_IsWellFormed` below still quantifies over all 171 names at
-// compile time. The RUNTIME enumeration lives in `architecture/event-grammar-census.ts`, which is
-// the only way to see custom `registerEventType` names since those exist in no type.
-//
-// ## What this module deliberately does NOT do
-//
-//   • It does not census the registry, own a ratchet, or wire CI — that is the census.
-//   • It does not rename any event (INV-1: renaming a type breaks replay of existing logs).
-// ────────────────────────────────────────────────────────────────────────────
+// `registerEventType` calls {@link assertWellFormedEventName}, and {@link EVENT_NAME_PATTERN} is a
+// regex built from this grammar. The read path does not validate names again, so persisted events
+// still replay. The only import is `import type`, so the grammar does not depend on the catalog.
 
 import type { EventType } from './schemas.js';
 
-// ─── The alphabet, in DATA form ─────────────────────────────────────────────
-//
-// Annotated with explicit readonly tuple types rather than a const assertion: both produce the
-// same literal element types, and the annotation form keeps this module free of type assertions
-// entirely (the repo counts them — `src/tsconfig-strictness.test.ts`). Same idiom as
-// `EVENT_TIERS` / `SUBSTRATE_RATIONALES` in `event-registration.ts`.
-//
-// These exist because a TYPE cannot be iterated at runtime, and {@link classifyEventName} has to
-// decide the same question the type decides. Each tuple is pinned to its union by a mutual-
-// assignability proof at the bottom of this file, so the runtime checker cannot drift wider (or
-// narrower) than the grammar it claims to implement — extend either half alone and `tsc` fails.
-
-/** {@link LowerAlpha} as data — the 26 characters a {@link Word} may contain. */
+/**
+ * {@link LowerAlpha} as data, the 26 characters of a {@link Word}. {@link classifyEventName} reads
+ * these tuples at runtime, because a type cannot be iterated. A proof at the end of this file binds
+ * each tuple to its union.
+ */
 export const LOWER_ALPHA: readonly [
   'a',
   'b',
@@ -167,13 +76,15 @@ export const LOWER_ALPHA: readonly [
   'z',
 ];
 
-/** The character class of a {@link Word}: `[a-z]`. No digits — see the header's DR-5 re-examination. */
+/**
+ * The character class of a {@link Word}: `[a-z]`. The grammar refuses digits, and the
+ * `workflow.started2` fixture keeps that choice visible.
+ */
 export type LowerAlpha = (typeof LOWER_ALPHA)[number];
 
 /**
- * {@link WordSeparator} as data. BOTH are live in the catalog (29 kebab names, 25 snake), so this
- * tuple is a record of house-style drift, not an endorsement of it. Removing either member
- * rejects live event names and breaks replay (INV-1).
+ * {@link WordSeparator} as data. The catalog uses both members, so a removal of either one rejects
+ * live event names and breaks replay.
  */
 export const WORD_SEPARATORS: readonly ['-', '_'] = ['-', '_'];
 
@@ -189,12 +100,6 @@ export const MIN_NAME_SEGMENTS = 2;
 /** @see {@link MIN_NAME_SEGMENTS} */
 export const MAX_NAME_SEGMENTS = 3;
 
-// ─── The grammar, as types (THE authority) ──────────────────────────────────
-//
-// Read these top-down against the EBNF in the header; each type is one production. Everything
-// else in this file — the runtime classifier, the fixtures, the proofs — is checked against
-// these, never the other way round.
-
 /**
  * `Word := [a-z]+`. Character-by-character, so a single non-`[a-z]` anywhere rejects the whole
  * word. The empty string is NOT a word, which is what makes every "empty segment" and "dangling
@@ -209,9 +114,9 @@ type IsWord<S extends string> = S extends `${infer Head}${infer Tail}`
   : false;
 
 /**
- * `Word (Sep Word)*` for ONE fixed separator. `Sep` is a single literal, never the
- * `WordSeparator` union — a union in the match position makes the inference ambiguous and is how
- * a segment mixing `-` and `_` would sneak through. {@link IsSegment} picks the separator first.
+ * `Word (Sep Word)*` for one fixed separator. `Sep` is a single literal, not the `WordSeparator`
+ * union. A union in the match position makes the inference ambiguous and lets a mixed segment
+ * through. {@link IsSegment} picks the separator first.
  */
 type IsWordsJoinedBy<
   S extends string,
@@ -237,12 +142,8 @@ type IsSegment<S extends string> = S extends `${string}-${string}`
     : IsWord<S>;
 
 /**
- * `Namespace := Word` — a bare word, no `-` and no `_`.
- *
- * Measured: 0 of the 50 distinct namespaces carry a separator. This is the clause most likely to
- * be questioned as over-fitting, so it is worth naming what it buys: the namespace is the
- * catalog's top-level partition (`workflow`, `merge`, `admission`), and a multi-word namespace is
- * how a partition silently becomes two.
+ * `Namespace := Word`, a bare word with no `-` and no `_`. The namespace is the top-level
+ * partition of the catalog, and a multi-word namespace splits one partition into two.
  */
 type IsNamespace<S extends string> = IsWord<S>;
 
@@ -261,18 +162,12 @@ type IsNameTail<S extends string> = S extends `${infer A}.${infer B}`
   : IsSegment<S>;
 
 /**
- * Does `S` satisfy the DR-3 event-name grammar? `true` or `false`, decided entirely at compile
- * time. THE authority — {@link WellFormedEventName} and {@link classifyEventName} both answer to
- * this.
+ * Whether `S` satisfies the event-name grammar, decided at compile time. This is the authority:
+ * {@link WellFormedEventName} and {@link classifyEventName} both answer to it.
  *
- * Distributes over unions (`S` is a naked type parameter), so
- * `IsWellFormedEventName<'a.b' | 'BAD'>` is `boolean`, not `true`. The proofs below rely on that:
- * they wrap the result in a tuple so a union that is not uniformly `true` (or uniformly `false`)
- * cannot pass.
- *
- * Note that `IsWellFormedEventName<string>` is `false` — an unconstrained `string` does not match
- * the template, so the grammar rejects the type that accepts everything. That is the property a
- * `type WellFormedEventName = string` stub would not have.
+ * It distributes over unions, so `IsWellFormedEventName<'a.b' | 'BAD'>` is `boolean`. The proofs
+ * wrap the result in a tuple, so a mixed union cannot pass. `IsWellFormedEventName<string>` is
+ * `false`.
  */
 export type IsWellFormedEventName<S extends string> = S extends `${infer Namespace}.${infer Rest}`
   ? IsNamespace<Namespace> extends true
@@ -281,30 +176,15 @@ export type IsWellFormedEventName<S extends string> = S extends `${infer Namespa
   : false;
 
 /**
- * The well-formed subset of `N` — `N` itself when it is a single well-formed literal, `never`
- * when it is malformed, and the filtered union when `N` is a union.
- *
- * This is the form DR-3 names, and the form a declaration site uses:
- * `function emits<N extends string>(name: WellFormedEventName<N>)` accepts `'merge.executed'` and
- * does not accept `'mergeexecuted'`. It is a projection of {@link IsWellFormedEventName}, not a
- * second grammar — there is exactly one place the rules live.
+ * The well-formed subset of `N`: `N` for a well-formed literal, `never` for a malformed one, and
+ * the filtered union for a union. A declaration site uses it as a constraint, for example
+ * `function emits<N extends string>(name: WellFormedEventName<N>)`.
  */
 export type WellFormedEventName<N extends string> = N extends unknown
   ? IsWellFormedEventName<N> extends true
     ? N
     : never
   : never;
-
-// ─── The runtime mirror (the seam task 015 consumes) ────────────────────────
-//
-// Task 015 has to check names that no type can see: `registerEventType` accepts custom names at
-// runtime, and a string that arrives over stdio is not a literal. So the grammar needs a value-
-// level decision procedure as well as a type-level one.
-//
-// It is written clause-for-clause against the types above rather than as a single regex, so the
-// correspondence is auditable by reading rather than by trusting a character class. The two are
-// pinned by the fixture tables below: the SAME data drives the compile-time proofs and the
-// runtime tests, so a divergence between the type and the function fails one of them.
 
 /**
  * Why a name is malformed. One code per grammar clause, so a census can report which rule was
@@ -319,17 +199,17 @@ export const EVENT_NAME_DEFECTS: readonly [
   'DANGLING_WORD_SEPARATOR',
   'NON_LOWERCASE_ALPHA',
 ] = [
-  /** Fewer than {@link MIN_NAME_SEGMENTS} dot-separated segments — e.g. `workflowstarted`. */
+  /** Fewer than {@link MIN_NAME_SEGMENTS} dot-separated segments, for example `workflowstarted`. */
   'MISSING_SEPARATOR',
-  /** More than {@link MAX_NAME_SEGMENTS} — e.g. `a.b.c.d`. */
+  /** More than {@link MAX_NAME_SEGMENTS} segments, for example `a.b.c.d`. */
   'TOO_MANY_SEGMENTS',
   /** A zero-length segment — a leading dot, a trailing dot, or `..`. */
   'EMPTY_SEGMENT',
-  /** The first segment carries a `-` or `_` — e.g. `my-app.started`. */
+  /** The first segment carries a `-` or `_`, for example `my-app.started`. */
   'NAMESPACE_NOT_SINGLE_WORD',
-  /** One segment uses both word separators — e.g. `workflow.plan-review_dispatched`. */
+  /** One segment uses both word separators, for example `workflow.plan-review_dispatched`. */
   'MIXED_WORD_SEPARATORS',
-  /** A segment starts with, ends with, or doubles a word separator — e.g. `workflow.started-`. */
+  /** A segment starts with, ends with, or doubles a word separator, as in `workflow.started-`. */
   'DANGLING_WORD_SEPARATOR',
   /** A word contains something outside `[a-z]` — uppercase, a digit, or punctuation. */
   'NON_LOWERCASE_ALPHA',
@@ -338,7 +218,7 @@ export const EVENT_NAME_DEFECTS: readonly [
 /** {@link EVENT_NAME_DEFECTS} as a union. */
 export type EventNameDefect = (typeof EVENT_NAME_DEFECTS)[number];
 
-/** The verdict on one name. `ok: true` carries no defect; `ok: false` always names one. */
+/** The verdict on one name. A passing verdict carries no defect. A failing verdict names one. */
 export type EventNameVerdict =
   | { readonly ok: true; readonly name: string }
   | {
@@ -376,11 +256,10 @@ function reject(
 }
 
 /**
- * Decide one name against the DR-3 grammar and say WHY when it fails.
- *
- * The value-level twin of {@link IsWellFormedEventName}; the clause order matches
- * {@link EVENT_NAME_DEFECTS}. Task 015 maps this over the live registry — including the custom
- * types `registerEventType` adds, which are invisible to the compile-time proof.
+ * Decide one name against the grammar, and say why when it fails. This is the runtime twin of
+ * {@link IsWellFormedEventName}, for names that no type can see: custom types from
+ * `registerEventType` and strings from stdio. The clause order matches {@link EVENT_NAME_DEFECTS}.
+ * The check for an `undefined` namespace satisfies the type checker and is not reachable.
  */
 export function classifyEventName(name: string): EventNameVerdict {
   const segments = name.split(SEGMENT_SEPARATOR);
@@ -415,7 +294,6 @@ export function classifyEventName(name: string): EventNameVerdict {
   }
 
   const [namespace, ...tail] = segments;
-  // `segments.length >= MIN_NAME_SEGMENTS` was checked above, so this is defensive, not reachable.
   if (namespace === undefined) {
     return reject(name, 'MISSING_SEPARATOR', `'${name}' has no namespace segment.`);
   }
@@ -491,29 +369,15 @@ export function isWellFormedEventName(name: string): boolean {
   return classifyEventName(name).ok;
 }
 
-// ─── The registration seam (DR-5) ──────────────────────────────────────────
-//
-// `registerEventType` used to decide well-formedness with its own regex. It now calls
-// {@link assertWellFormedEventName}, which is why this module has a production importer at all.
-// The throw carries THREE things a bare "invalid name" does not: the clause that was broken, the
-// fact that the rule moved, and where to read what to do about it. A user hitting this on upgrade
-// is not making a typo — their name was legal yesterday — so an error that does not name the
-// migration sends them to read a regex that no longer exists.
-
 /**
- * Where a user whose event name stopped registering finds out what to do.
- *
- * Repo-relative, and deliberately part of the THROWN message rather than a doc-comment: an error
- * a user reads in a terminal cannot follow a `{@link}`.
+ * The guide for a user whose event name fails to register. The thrown message carries this
+ * repo-relative path, because a terminal reader cannot follow a `{@link}`.
  */
 export const EVENT_NAME_MIGRATION_NOTE = 'docs/migrations/2026-08-10-event-name-grammar.md';
 
 /**
- * A name the DR-3 grammar refuses, raised at the registration seam.
- *
- * Carries the structured {@link EventNameDefect} alongside the human message so a caller can
- * branch on the clause without parsing prose — the same reason the census consumes
- * {@link classifyEventName}'s verdict rather than a boolean.
+ * The error for a name that the grammar refuses at the registration seam. It carries the
+ * {@link EventNameDefect}, so a caller can branch on the clause without a parse of the message.
  */
 export class MalformedEventNameError extends Error {
   readonly eventName: string;
@@ -534,13 +398,9 @@ export class MalformedEventNameError extends Error {
 }
 
 /**
- * Throw unless `name` satisfies the DR-3 grammar. The production entry point.
- *
- * Total over `string`: {@link classifyEventName} returns a verdict for every input including the
- * empty string, so there is no name this can be handed that produces neither a pass nor a named
- * defect. That totality is what let `registerEventType` drop its separate empty-name and
- * lowercase pre-checks — each of those was a second rule deciding a question this grammar already
- * decides, which is the defect DR-5 closes.
+ * Throw unless `name` satisfies the grammar. This is the production entry point.
+ * {@link classifyEventName} returns a verdict for every string, the empty string too. So
+ * `registerEventType` needs no separate check for an empty or uppercase name.
  */
 export function assertWellFormedEventName(name: string): void {
   const verdict = classifyEventName(name);
@@ -548,22 +408,9 @@ export function assertWellFormedEventName(name: string): void {
   throw new MalformedEventNameError(verdict.name, verdict.defect, verdict.message);
 }
 
-// ─── The regex FORM of the grammar (derived, never authored) ────────────────
-//
-// `EVENT_NAME_PATTERN` is a public export of `schemas.ts` and the census reads it as a `RegExp`
-// object to measure the two authorities against each other. Deleting it would delete that
-// instrument; re-authoring it would recreate the defect. So it is BUILT from this module's own
-// data — the alphabet, the separator set, the segment bounds — and the census's divergence
-// measurement now reads zero by construction. If anyone ever re-authors it independently, the
-// measurement goes non-zero again and the ratchet's growth tooth fires.
-
 /**
- * Raised when the grammar's own vocabulary resolves empty.
- *
- * The non-empty-denominator rule at the construction site. An empty alphabet builds `[]+`, which
- * matches nothing; an empty separator set builds a pattern with no segment alternative at all. A
- * validator assembled from a vocabulary that resolved to zero members is a validator that stopped
- * working, and it must fail loudly rather than silently reject (or silently accept) everything.
+ * The error for a grammar vocabulary with no members. An empty alphabet builds `[]+`, which
+ * matches nothing. A validator built from an empty vocabulary must fail loudly.
  */
 export class EmptyGrammarVocabularyError extends Error {
   constructor(vocabulary: string) {
@@ -582,16 +429,12 @@ function escapeLiteral(character: string): string {
 }
 
 /**
- * Build the regex form of the grammar from its data.
+ * Build the regex form of the grammar from its data. Each input defaults to the live vocabulary,
+ * so a test can pass an empty alphabet without a change to the real grammar.
  *
- * Every input defaults to the live vocabulary, so the production call is
- * `buildEventNamePattern()`. They are injectable for the same reason the census's inputs are: the
- * co-located test has to drive an emptied alphabet and a narrowed separator set without mutating
- * the real grammar.
- *
- * Clause-for-clause with {@link IsSegment}: the segment alternation is one branch PER separator,
- * so a segment mixing `-` and `_` matches no branch and is rejected by the same rule the type
- * states. The `{min-1,max-1}` repetition is the dot-segment bound, minus the namespace.
+ * The segment alternation has one branch for each separator, so a mixed segment matches no
+ * branch. The bounds must be integers. JavaScript reads `{1.5,2}` as literal text, not as a
+ * quantifier, and the pattern then stops checking the segment count.
  */
 export function buildEventNamePattern(
   alphabet: readonly string[] = LOWER_ALPHA,
@@ -607,12 +450,6 @@ export function buildEventNamePattern(
         `min=${String(minSegments)}, max=${String(maxSegments)}.`,
     );
   }
-  // Integrality is load-bearing, not pedantry: `{1.5,2}` and `{1,Infinity}` are
-  // not quantifiers to JavaScript — the braces degrade to LITERAL characters, so
-  // the pattern stops constraining segment count and starts demanding the text
-  // "{1.5,2}" instead. That is the same failure `EmptyGrammarVocabularyError`
-  // exists to prevent: a validator that quietly stopped validating.
-  // `Number.isInteger` rejects fractions, Infinity and NaN in one predicate.
   if (!Number.isInteger(minSegments) || !Number.isInteger(maxSegments)) {
     throw new RangeError(
       `Segment bounds must be integers, or the generated quantifier degrades to ` +
@@ -630,23 +467,11 @@ export function buildEventNamePattern(
 }
 
 /**
- * The grammar as a regex. Re-exported by `schemas.ts` under the name the census already reads.
- *
- * NOT an authority. {@link classifyEventName} decides; this agrees with it, and
- * `event-name.test.ts` sweeps the whole live catalog plus every fixture through both to say so.
- * The two exist because a `RegExp` is what the census's `shippedPattern` seam is typed as, and
- * keeping that seam is what preserves the ratchet that would catch this pattern drifting away
- * from the grammar a second time.
+ * The grammar as a regex, built from the grammar data and never written by hand. `schemas.ts`
+ * re-exports it, and the event-grammar census reads it as a `RegExp`. It decides nothing:
+ * {@link classifyEventName} decides, and `event-name.test.ts` checks that the two agree.
  */
 export const EVENT_NAME_PATTERN: RegExp = buildEventNamePattern();
-
-// ─── The fixture tables (policy as DATA, read by both rungs) ────────────────
-//
-// These are the kill fixtures, and they are DATA rather than assertions inside a test body on
-// purpose: the compile-time proofs at the bottom of this file quantify over
-// `(typeof MALFORMED_EVENT_NAMES)[number]['name']`, and `event-name.test.ts` maps the runtime
-// classifier over the SAME tuples. Adding a row extends both rungs at once, and a row the type
-// accepts but the function rejects (or vice versa) fails one of them.
 
 /** One malformed name and the clause it violates. */
 interface MalformedFixture<N extends string, D extends EventNameDefect> {
@@ -657,12 +482,9 @@ interface MalformedFixture<N extends string, D extends EventNameDefect> {
 }
 
 /**
- * Names the grammar MUST reject, one per clause plus the four DR-3 names explicitly.
- *
- * A grammar with no demonstrated rejected subject has not been shown to work, and every entry
- * here is checked in BOTH directions: `_EventName_MalformedFixtures_AreAllRejected` proves `tsc`
- * refuses them, and the test file proves {@link classifyEventName} refuses them with the same
- * `defect` code.
+ * Names that the grammar must reject, with at least one for each clause. A compile-time proof
+ * shows that `tsc` refuses each name. The test shows that {@link classifyEventName} refuses it
+ * with the same `defect`.
  */
 export const MALFORMED_EVENT_NAMES: readonly [
   MalformedFixture<'workflowstarted', 'MISSING_SEPARATOR'>,
@@ -767,11 +589,8 @@ export const MALFORMED_EVENT_NAMES: readonly [
 ];
 
 /**
- * Names the grammar MUST accept — one real member of each shape the catalog exhibits.
- *
- * This table is a convenience for the runtime tests; it is NOT the acceptance authority.
- * `_EventName_EveryRegisteredType_IsWellFormed` quantifies over the whole 171-member `EventType`
- * union, which is the structural fact. A hand-copied sample would be a proxy for it.
+ * Names that the grammar must accept, one for each shape in the catalog. The runtime tests use
+ * this sample. The authority is the proof over the whole `EventType` union.
  */
 export const WELL_FORMED_EVENT_NAME_SAMPLES: readonly [
   'workflow.started',
@@ -789,25 +608,18 @@ export const WELL_FORMED_EVENT_NAME_SAMPLES: readonly [
   'pr.create.requested',
 ];
 
-// ─── Compile-time proofs (verified by `npm run typecheck`) ──────────────────
-//
-// These exported type aliases live in a non-test source file, so the build's `tsc` — the
-// static-analysis gate — actively verifies them; the project's tsconfig excludes `*.test.ts`, so
-// a `@ts-expect-error` in a test would NOT be gate-enforced. `Expect<T extends true>` is a
-// compile error unless T is `true`. Same idiom, and the same `_Name_Predicate` naming convention,
-// as the `_EventRegistration_*` proofs in `event-registration.ts`.
-
+/**
+ * A compile error unless `T` is `true`. The proofs are in a source file, because `tsconfig.json`
+ * excludes test files from the typecheck.
+ */
 type Expect<T extends true> = T;
 /** Set equality for unions of literals: mutual assignability, wrapped so neither side splits. */
 type MutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 
 /**
- * Every member of the union `N` is well-formed — AND `N` is not empty.
- *
- * The `[N] extends [never]` guard is load-bearing and is the non-empty-denominator rule expressed
- * at the type level. `never` is assignable to everything, so a distributive check over an empty
- * union collapses to `never` and `[never] extends [true]` is TRUE — an emptied fixture table, a
- * renamed export, or a mis-typed index would otherwise read as a clean proof. It fails instead.
+ * Every member of the union `N` is well-formed, and `N` is not empty. The `[N] extends [never]`
+ * guard is necessary, because an empty union makes the distributive check `true`. An emptied
+ * fixture table then reads as a clean proof.
  */
 type AllWellFormed<N extends string> = [N] extends [never]
   ? false
@@ -826,103 +638,64 @@ type AllMalformed<N extends string> = [N] extends [never]
 type MalformedFixtureNames = (typeof MALFORMED_EVENT_NAMES)[number]['name'];
 
 /**
- * `EventName_MalformedFixtures_AreAllRejected`.
- *
- * THE kill proof, and the whole point of the task: every name in {@link MALFORMED_EVENT_NAMES} is
- * refused by the grammar at compile time. It quantifies over the table, so a row added there is
- * proven here automatically.
- *
- * Falsifier: this alias is what a vacuous grammar fails. `type IsWellFormedEventName<S> = true`
- * (equivalently `WellFormedEventName = string`) makes it `false` and reddens `tsc` — which is the
- * property that distinguishes a grammar from a decoration.
- @proof
- * */
+ * Every name in {@link MALFORMED_EVENT_NAMES} fails the grammar at compile time. A vacuous grammar,
+ * such as `type IsWellFormedEventName<S> = true`, makes this proof fail.
+ * @proof
+ */
 export type _EventName_MalformedFixtures_AreAllRejected = Expect<
   AllMalformed<MalformedFixtureNames>
 >;
 
 /**
- * `EventName_EveryRegisteredType_IsWellFormed`.
- *
- * The acceptance direction, quantified over the REAL corpus: `EventType` is the union of all 171
- * names in `EventTypes`, so this is the structural fact rather than a sample of it. Register a
- * built-in event whose name breaks the grammar and the build fails here, naming the grammar
- * rather than waiting for the census to run.
- *
- * The `[N] extends [never]` guard inside {@link AllWellFormed} is what stops this from passing
- * vacuously if `EventType` ever resolves to `never` (a moved module, a broken re-export) — the
- * non-empty-denominator rule, applied to the 171.
- @proof
- * */
+ * Every built-in event name is well-formed. `EventType` is the union of all names in `EventTypes`,
+ * so a malformed built-in name fails the build here. The guard in {@link AllWellFormed} stops a
+ * vacuous pass when `EventType` is `never`.
+ * @proof
+ */
 export type _EventName_EveryRegisteredType_IsWellFormed = Expect<AllWellFormed<EventType>>;
 
 /**
- * `EventName_KillFixtures_AreNonEmpty`.
- *
- * States the denominator guard as its own proof rather than leaving it implicit inside
- * {@link AllMalformed}: the fixture union is genuinely inhabited. If {@link MALFORMED_EVENT_NAMES}
- * were emptied, `MalformedFixtureNames` would be `never` and the rejection proof above would be
- * quantifying over nothing.
- @proof
- * */
+ * The fixture union is not empty. Without this proof, an emptied {@link MALFORMED_EVENT_NAMES}
+ * makes the rejection proof quantify over nothing.
+ * @proof
+ */
 export type _EventName_KillFixtures_AreNonEmpty = Expect<
   [MalformedFixtureNames] extends [never] ? false : true
 >;
 
 /**
- * `EventName_WellFormedSamples_AreAllAccepted`.
- *
- * The sample table agrees with the grammar. Cheap, but it is what catches a sample row that stops
- * being representative after a grammar edit.
- @proof
- * */
+ * Every sample in {@link WELL_FORMED_EVENT_NAME_SAMPLES} is well-formed.
+ * @proof
+ */
 export type _EventName_WellFormedSamples_AreAllAccepted = Expect<
   AllWellFormed<(typeof WELL_FORMED_EVENT_NAME_SAMPLES)[number]>
 >;
 
 /**
- * `EventName_UnconstrainedString_IsNotWellFormed`.
- *
- * The anti-vacuity proof stated in its sharpest form: the grammar does not accept `string`. Any
- * implementation that degrades to "some string" — the exact defect DR-3 exists to prevent — makes
- * this alias `false`.
- @proof
- * */
+ * The grammar does not accept `string`. A grammar that accepts any string makes this proof fail.
+ * @proof
+ */
 export type _EventName_UnconstrainedString_IsNotWellFormed = Expect<
   IsWellFormedEventName<string> extends false ? true : false
 >;
 
 /**
- * `EventName_WellFormedEventName_FiltersAUnion`.
- *
- * {@link WellFormedEventName} is a faithful projection of the predicate: applied to a union of one
- * good and one bad name it yields exactly the good one. This pins the distributive behaviour that
- * makes it usable as a generic constraint — a non-distributive version would collapse the whole
- * union to `never` and silently reject valid names.
- @proof
- * */
+ * {@link WellFormedEventName} keeps the good member of a mixed union and drops the bad one. A
+ * version that does not distribute collapses the union to `never` and rejects valid names.
+ * @proof
+ */
 export type _EventName_WellFormedEventName_FiltersAUnion = Expect<
   MutuallyAssignable<WellFormedEventName<'merge.executed' | 'mergeexecuted'>, 'merge.executed'>
 >;
 
 /**
- * `EventName_RegisteredTypesSurvive_WellFormedEventName`.
- *
- * The two public forms agree on the real corpus: filtering the whole `EventType` union through
- * {@link WellFormedEventName} drops nothing. A clause that rejected even one live name would show
- * up here as a set inequality, which is a sharper failure than a boolean.
- @proof
- * */
+ * {@link WellFormedEventName} drops no member of the `EventType` union. A clause that rejects a
+ * live name shows here as a set inequality.
+ * @proof
+ */
 export type _EventName_RegisteredTypesSurvive_WellFormedEventName = Expect<
   MutuallyAssignable<WellFormedEventName<EventType>, EventType>
 >;
-
-// ─── The data forms are FORMS, not second authorities ──────────────────────
-//
-// Each alphabet tuple and its union are the same set, checked both directions. This is what makes
-// {@link classifyEventName} sound rather than optimistic: it can only accept a character the TYPE
-// also accepts. Extend either half alone and `tsc` fails here, at the pair, instead of letting the
-// runtime checker drift away from the grammar it implements.
 
 /** {@link LOWER_ALPHA} is exactly {@link LowerAlpha} — all 26, no more. @proof
  * */

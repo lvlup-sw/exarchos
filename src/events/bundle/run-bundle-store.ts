@@ -1,14 +1,10 @@
 /**
- * The run-bundle store: content-addressed custody for bytes a ledger event
+ * The run-bundle store: content-addressed custody for bytes that a ledger event
  * references by digest.
  *
- * This is composition over the repository's content-addressed artifact store,
- * not a second implementation of one. That store already owns the properties
- * this layer depends on — containment of every digest-derived path, a staged
- * write that is fsynced before an atomic rename publishes it, and a read that
- * re-hashes the persisted bytes before returning them. What this layer adds is
- * a named root under the state directory, a non-throwing resolvability probe
- * for the integrity oracle, and the write-ordering primitive below.
+ * It wraps the content-addressed artifact store, which owns path containment,
+ * durable atomic writes, and re-hashed reads. This layer adds a root under the
+ * state directory, a non-throwing probe for the integrity oracle, and write ordering.
  */
 
 import path from 'node:path';
@@ -22,10 +18,8 @@ import type { ArtifactId, ContentDigestV1 } from '../../workflow/admission/types
 import type { BundleRefV1 } from './digest-references.js';
 
 /**
- * Verdict of a resolvability probe. Distinguishing `missing` from `mismatch`
- * matters to the oracle: absent bytes and corrupted bytes are different
- * failures with different repairs, and collapsing them would report a
- * truncated blob as a deletion.
+ * Verdict of a resolvability probe. Absent bytes (`missing`) and corrupted bytes
+ * (`mismatch`) are different failures with different repairs.
  */
 export type BundleResolution = 'ok' | 'missing' | 'mismatch';
 
@@ -42,9 +36,8 @@ export class RunBundleStore {
   }
 
   /**
-   * Bind a store to the run-bundle root of a state directory. This is the only
-   * construction production code should use, so bundle bytes and the event
-   * ledger that names them cannot end up under different roots.
+   * Bind a store to the run-bundle root of a state directory. Production code
+   * must use only this constructor, so bundle bytes and their ledger share one root.
    */
   static forStateDir(stateDir: string, io?: ContentAddressedStoreIo): RunBundleStore {
     return new RunBundleStore(path.join(stateDir, RUN_BUNDLE_DIRNAME), io);
@@ -56,9 +49,8 @@ export class RunBundleStore {
   }
 
   /**
-   * Persist bytes and return their digest. When `expected` is supplied the
-   * write is rejected before anything reaches disk if the bytes do not hash
-   * to it.
+   * Persist bytes and return their digest. If the bytes do not hash to
+   * `expected`, the write fails before anything reaches disk.
    */
   async put(bytes: Uint8Array, expected?: ContentDigestV1): Promise<ContentDigestV1> {
     return expected === undefined
@@ -68,26 +60,19 @@ export class RunBundleStore {
 
   /**
    * Read the bytes behind a digest, re-hashing them first. Throws
-   * `ContentAddressedStoreError` for an absent or corrupted blob — callers
-   * that want a verdict instead of an exception use {@link has}.
+   * `ContentAddressedStoreError` for an absent or corrupted blob. Use {@link has}
+   * for a verdict instead of an exception.
    */
   async resolve(digest: ContentDigestV1, signal?: AbortSignal): Promise<Buffer> {
     return this.blobs.resolve(digest, signal);
   }
 
   /**
-   * Non-throwing resolvability probe — the integrity oracle's only read path.
+   * Non-throwing resolvability probe, and the only read path of the integrity oracle.
    *
-   * Only the two explicit content failures are converted to a verdict.
-   * Anything else (a permissions error, a malformed digest that somehow
-   * escaped schema parsing) propagates, because reporting an unreadable
-   * directory as a missing blob would let an environment fault masquerade as
-   * a custody violation.
-   *
-   * `signal` reaches the underlying file read, so a probe that is still
-   * pending when the caller cancels rejects with an `AbortError` instead of
-   * running to completion — the same propagation as any other non-content
-   * failure.
+   * Only the two content failures become a verdict. Any other error propagates,
+   * so an environment fault does not look like a custody violation. A cancelled
+   * `signal` rejects a pending probe with an `AbortError`.
    */
   async has(digest: ContentDigestV1, signal?: AbortSignal): Promise<BundleResolution> {
     try {
@@ -103,16 +88,11 @@ export class RunBundleStore {
   }
 
   /**
-   * Write ordering for bundle custody: the bytes are made durable BEFORE any
-   * ledger reference to them is committed.
+   * Make the bytes durable before `commit` writes any ledger reference to them.
    *
-   * `put` returns only after the staged file has been fsynced and atomically
-   * renamed into place, so by the time `commit` runs the digest it is handed
-   * is already resolvable. A crash between the two therefore leaves an orphan
-   * blob that nothing references — collectable, and harmless to read — and can
-   * never leave a committed reference pointing at bytes that were never
-   * written. Orphans are tolerated by design and are not integrity violations;
-   * the reverse order has no such benign failure.
+   * `put` returns after the fsync and the atomic rename, so the digest is
+   * resolvable when `commit` runs. A crash between the two leaves an orphan blob.
+   * An orphan is harmless and is not an integrity violation.
    */
   async putThenReference<T>(
     artifactId: ArtifactId,

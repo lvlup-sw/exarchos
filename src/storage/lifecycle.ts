@@ -2,19 +2,17 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { StorageBackend } from './backend.js';
 import type { WorkflowState } from '../workflow/types.js';
-import { logger } from '../logger.js';
-import { WorkflowStateSchema } from '../workflow/schemas.js';
 import { TELEMETRY_STREAM } from '../projections/telemetry/constants.js';
+import { WorkflowStateSchema } from '../workflow/schemas.js';
 import { atomicReplace } from '../utils/atomic-write.js';
-
-// ─── Lifecycle Policy ───────────────────────────────────────────────────────
+import { logger } from '../logger.js';
 
 export interface LifecyclePolicy {
   /** Days to keep completed workflows before compaction. */
   readonly retentionDays: number;
-  /** Maximum total storage size in MB before emitting a warning. */
+  /** Maximum total storage size in MB. No runtime code reads this field. */
   readonly maxTotalSizeMB: number;
-  /** Maximum number of telemetry events before rotation. */
+  /** Maximum number of telemetry events. No runtime code reads this field. */
   readonly maxTelemetryEvents: number;
   /** Days to keep telemetry events in SQLite before pruning. */
   readonly telemetryRetentionDays: number;
@@ -27,9 +25,7 @@ export const DEFAULT_LIFECYCLE_POLICY: LifecyclePolicy = {
   telemetryRetentionDays: 7,
 };
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-/** Check if a file exists. Only treats ENOENT as "not found"; rethrows other errors. */
+/** Checks if a file exists. Only ENOENT means "not found". Other errors propagate. */
 async function fileExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
@@ -62,13 +58,14 @@ async function unlinkIfExists(filePath: string): Promise<void> {
   }
 }
 
-// ─── Workflow Compaction ────────────────────────────────────────────────────
-
 /**
- * Compact a completed workflow by archiving its final state and event count,
- * then deleting the associated SQLite rows.
+ * Compacts a completed workflow. It archives the final state and event count, then
+ * deletes the state file and the SQLite rows.
  *
- * No-ops if the workflow is active or recently completed.
+ * It does nothing for an active workflow, or one completed less than `retentionDays`
+ * ago. The SQLite backend is the source of truth. Only the no-backend path reads
+ * `.state.json`, and that path archives zero events. A state that fails schema
+ * validation is not compacted, and the function logs a warning.
  */
 export async function compactWorkflow(
   backend: StorageBackend | undefined,
@@ -78,18 +75,10 @@ export async function compactWorkflow(
 ): Promise<void> {
   const stateFile = path.join(stateDir, `${featureId}.state.json`);
 
-  // Read state to check eligibility. The SQLite backend is the source of truth
-  // (#1504); the on-disk `.state.json` is read only on the no-backend
-  // (test/legacy) path. Production always wires a backend (index.ts), so no
-  // production compaction reads the file.
   let state: WorkflowState;
   if (backend) {
     const backendState = backend.getState(featureId);
-    if (!backendState) return; // no state row → nothing to compact
-    // Validate the backend row before any destructive archive/delete, exactly
-    // as the no-backend file path does below. A malformed row whose `phase` and
-    // `updatedAt` happen to look eligible must not be silently compacted away —
-    // skip and warn so the corruption is observable rather than erased.
+    if (!backendState) return;
     const parsed = WorkflowStateSchema.safeParse(backendState);
     if (!parsed.success) {
       logger.warn(
@@ -130,22 +119,16 @@ export async function compactWorkflow(
   const phase = state.phase as string | undefined;
   const updatedAt = state.updatedAt as string | undefined;
 
-  // Guard: only compact completed/cancelled workflows
   if (!phase || !isCompletedPhase(phase)) {
     return;
   }
 
-  // Guard: only compact if older than retention period
   if (!updatedAt || !isOlderThanDays(updatedAt, policy.retentionDays)) {
     return;
   }
 
-  // Count events from the SQLite backend (post-v2.11: SQLite is the only
-  // substrate). Fall back to 0 when no backend is wired (test fixtures
-  // that exercise the archive-write atomicity path without a backend).
   const eventCount = backend ? backend.queryEvents(featureId).length : 0;
 
-  // Write archive
   const archiveDir = path.join(stateDir, 'archives');
   await fs.mkdir(archiveDir, { recursive: true });
 
@@ -159,29 +142,24 @@ export async function compactWorkflow(
   const archivePath = path.join(archiveDir, `${featureId}.archive.json`);
   await atomicReplace(archivePath, JSON.stringify(archive, null, 2));
 
-  // Delete state file
   await unlinkIfExists(stateFile);
 
-  // Clean up backend rows if available
   if (backend) {
     backend.deleteStream(featureId);
     backend.deleteState(featureId);
   }
 }
 
-// ─── Batch Compaction ───────────────────────────────────────────────────────
-
 /**
- * Check all workflows for compaction eligibility and compact those that qualify.
- * Also checks total storage size and emits a warning if it exceeds the limit.
+ * Compacts each workflow that qualifies. The SQLite backend lists the workflows.
+ * Without a backend, a scan for `.state.json` files lists them. The function does not
+ * check the total storage size.
  */
 export async function checkCompaction(
   backend: StorageBackend | undefined,
   stateDir: string,
   policy: LifecyclePolicy,
 ): Promise<void> {
-  // Enumerate workflows. The SQLite backend is the source of truth (#1504);
-  // the `.state.json` directory scan is the no-backend (test/legacy) fallback.
   let featureIds: string[];
   if (backend) {
     featureIds = backend.listStates().map((s) => s.featureId);
@@ -198,24 +176,14 @@ export async function checkCompaction(
       .map((f) => f.replace('.state.json', ''));
   }
 
-  // Compact eligible workflows
   for (const featureId of featureIds) {
     await compactWorkflow(backend, stateDir, featureId, policy);
   }
-
-  // Storage-size warning: the substrate is SQLite WAL — operators inspect
-  // size via `du events.db*` or `sqlite3 events.db ".dbinfo"`. The
-  // policy.maxTotalSizeMB threshold is no longer applied at runtime;
-  // a SQLite-aware reimplementation is tracked as v2.12 follow-up.
 }
 
-// ─── Telemetry Rotation ────────────────────────────────────────────────────
-
 /**
- * Prune telemetry events older than `policy.telemetryRetentionDays`.
- *
- * Thin wrapper over `backend.pruneEvents`. Naming is retained for caller
- * compat (`index.ts` cron tick).
+ * Prunes telemetry events older than `policy.telemetryRetentionDays` through
+ * `backend.pruneEvents`. Without a backend, it does nothing.
  */
 export async function rotateTelemetry(
   backend: StorageBackend | undefined,

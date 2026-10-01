@@ -13,8 +13,7 @@ import { deriveWorkflowStatus, matchesWorkflowSummaryFilter } from './backend.js
 import type { SnapshotRecord } from '../projections/snapshot-schema.js';
 import { resolveMaxRecords } from './snapshot-retention.js';
 
-// ─── CAS Version Conflict Error ─────────────────────────────────────────────
-
+/** A compare-and-set version conflict on workflow state. */
 export class VersionConflictError extends Error {
   constructor(
     public readonly featureId: string,
@@ -28,21 +27,15 @@ export class VersionConflictError extends Error {
   }
 }
 
-// ─── Internal State Entry ───────────────────────────────────────────────────
-
 interface StateEntry {
   state: WorkflowState;
   version: number;
 }
 
-// ─── Internal Outbox Entry ──────────────────────────────────────────────────
-
 interface OutboxItem {
   id: string;
   event: WorkflowEvent;
 }
-
-// ─── InMemoryBackend ────────────────────────────────────────────────────────
 
 /**
  * Map-based in-memory implementation of StorageBackend.
@@ -62,8 +55,8 @@ export class InMemoryBackend implements StorageBackend {
   private readonly viewCache = new Map<string, ViewCacheEntry>();
 
   /**
-   * `${streamId}:${projectionId}:${projectionVersion}` -> SnapshotRecord[]
-   * Stores snapshot records in insertion order; readLatest scans for max sequence.
+   * `${streamId}:${projectionId}:${projectionVersion}` -> SnapshotRecord[], in
+   * insertion order. `readLatestProjectionSnapshot` scans for the highest sequence.
    */
   private readonly projectionSnapshots = new Map<string, SnapshotRecord[]>();
 
@@ -71,18 +64,17 @@ export class InMemoryBackend implements StorageBackend {
   private outboxIdCounter = 0;
 
   /**
-   * Monotonic Tier-2 poll-floor change token (see
-   * {@link StorageBackend.dataVersion}). Bumped on every {@link appendEvent}.
-   * In-memory has no cross-process notion, so — unlike SQLite's
-   * `PRAGMA data_version`, which ignores own-connection commits — this
-   * counter treats every append (including the observer's own) as a change.
-   * The floor loop's cursor guard makes the resulting redundant drains
-   * harmless (never a double delivery).
+   * Change token for {@link StorageBackend.dataVersion}, bumped on each
+   * {@link appendEvent}. Memory has no other process, so each append counts as a
+   * change, also an append by the observer. The cursor guard of the floor loop
+   * makes the extra drains harmless.
    */
   private appendVersion = 0;
 
-  // ─── Event Operations ───────────────────────────────────────────────────
-
+  /**
+   * Append an event, then bump the change token. This order makes sure that a
+   * `dataVersion()` reader never sees a new token before the event is visible.
+   */
   appendEvent(streamId: string, event: WorkflowEvent): void {
     let stream = this.events.get(streamId);
     if (!stream) {
@@ -90,9 +82,6 @@ export class InMemoryBackend implements StorageBackend {
       this.events.set(streamId, stream);
     }
     stream.push(event);
-    // Bump the change token AFTER the event is durably in the array so a
-    // concurrent dataVersion() read never observes a bumped token without
-    // the corresponding event being visible.
     this.appendVersion++;
   }
 
@@ -105,6 +94,11 @@ export class InMemoryBackend implements StorageBackend {
     return this.appendVersion;
   }
 
+  /**
+   * Query one stream. All filters run in JS after the fetch, because memory has
+   * no index. The correlation filters match the fields on the event object, so the
+   * rows are the same as on the indexed SQLite path.
+   */
   queryEvents(streamId: string, filters?: QueryFilters): WorkflowEvent[] {
     const stream = this.events.get(streamId);
     if (!stream) return [];
@@ -127,14 +121,6 @@ export class InMemoryBackend implements StorageBackend {
       result = result.filter((e) => e.timestamp <= filters.until!);
     }
 
-    // #1437 (Wave 4) — post-fetch correlation-tuple filter. The
-    // capability-equivalent counterpart to SqliteBackend's indexed-WHERE
-    // fast path (capability-equivalent, performance-different — InMemory
-    // has no index to consult). In-memory events carry the correlation
-    // fields directly on the WorkflowEvent object, so we filter the field
-    // off the object rather than re-parsing a payload column. Same
-    // INV-1 contract: the column/field is the filter handle, the value
-    // is whatever the event already carries.
     if (filters?.operationId !== undefined) {
       result = result.filter((e) => e.operationId === filters.operationId);
     }
@@ -167,13 +153,10 @@ export class InMemoryBackend implements StorageBackend {
   }
 
   /**
-   * Cross-stream query reducer (DR-3). Mirrors `SqliteBackend.queryEventsByType`'s
-   * structural prefix filter:
-   *
-   *   streamId === streamPrefix OR streamId.startsWith(streamPrefix + '/')
-   *
-   * Substring lookalikes (`<streamPrefix>-extra`) are excluded — the descendant
-   * relation requires a literal `/` separator.
+   * Cross-stream query, with the same prefix rule as `SqliteBackend.queryEventsByType`.
+   * A stream matches when it equals `streamPrefix` or starts with `streamPrefix + '/'`,
+   * so `<streamPrefix>-extra` does not match. The filters match as in
+   * {@link queryEvents}. Results sort by timestamp, then by sequence.
    */
   queryEventsByType(
     eventType: string,
@@ -190,16 +173,12 @@ export class InMemoryBackend implements StorageBackend {
         if (filters?.sinceSequence !== undefined && event.sequence <= filters.sinceSequence) continue;
         if (filters?.since && event.timestamp < filters.since) continue;
         if (filters?.until && event.timestamp > filters.until) continue;
-        // Correlation tuple filters (parity with queryEvents). Post-fetch
-        // JS filter — InMemoryBackend has no indexes, so capability-equivalent
-        // not performance-equivalent. SqliteBackend takes the indexed path.
         if (filters?.operationId !== undefined && event.operationId !== filters.operationId) continue;
         if (filters?.correlationId !== undefined && event.correlationId !== filters.correlationId) continue;
         if (filters?.causationId !== undefined && event.causationId !== filters.causationId) continue;
         collected.push(event);
       }
     }
-    // Stable global ordering: timestamp first, sequence as tie-break.
     collected.sort((a, b) => {
       const byTs = a.timestamp.localeCompare(b.timestamp);
       if (byTs !== 0) return byTs;
@@ -210,13 +189,16 @@ export class InMemoryBackend implements StorageBackend {
     return filters?.limit !== undefined ? sliced.slice(0, filters.limit) : sliced;
   }
 
-  // ─── State Operations ───────────────────────────────────────────────────
-
   getState(featureId: string): WorkflowState | null {
     const entry = this.states.get(featureId);
     return entry ? entry.state : null;
   }
 
+  /**
+   * Set state, with a compare-and-set check when `expectedVersion` is given. A
+   * first write without `expectedVersion` takes its version from `state._version`,
+   * so state seeded from disk keeps the persisted version counter.
+   */
   setState(featureId: string, state: WorkflowState, expectedVersion?: number): void {
     const entry = this.states.get(featureId);
     const currentVersion = entry ? entry.version : 0;
@@ -225,9 +207,6 @@ export class InMemoryBackend implements StorageBackend {
       throw new VersionConflictError(featureId, expectedVersion, currentVersion);
     }
 
-    // When seeding from disk (no existing entry, no expectedVersion),
-    // initialize backend version from state._version to stay in sync
-    // with the persisted version counter. (#948)
     let newVersion: number;
     if (!entry && expectedVersion === undefined) {
       const stateVersion = (state as Record<string, unknown>)._version;
@@ -251,19 +230,13 @@ export class InMemoryBackend implements StorageBackend {
   }
 
   /**
-   * Cross-workflow summary read (DR-3). Capability-equivalent counterpart to
-   * {@link SqliteBackend.listWorkflowSummaries}: derives the same
-   * {@link WorkflowSummary} fields from the in-memory state objects and event
-   * arrays and applies the filter in JS (there is no index to push down to).
-   *
-   * `workflowType`/`phase` come off the stored state object; `status` from the
-   * shared {@link deriveWorkflowStatus}; `createdAt` is the earliest event
-   * timestamp for the stream (the event envelope). The shared
-   * {@link matchesWorkflowSummaryFilter} applies the lifecycle axes and the
-   * `workflowType` axis is applied here in JS — together they reproduce the
-   * SQLite path's rows exactly (INV-2 facade equivalence), the guarantee the
-   * `ListWorkflowSummaries_BackendContract_SharedAcrossSqliteAndInMemory` test
-   * pins.
+   * Cross-workflow summary read, with the same rows as
+   * {@link SqliteBackend.listWorkflowSummaries}. `workflowType` and `phase` come
+   * from the stored state, and `status` from {@link deriveWorkflowStatus}.
+   * `createdAt` is the earliest event timestamp of the stream. ISO-8601 strings
+   * sort like SQLite `MIN(timestamp)`. Rows sort by `featureId`. This method
+   * filters `workflowType`, and {@link matchesWorkflowSummaryFilter} applies the
+   * lifecycle axes.
    */
   listWorkflowSummaries(filter: WorkflowSummaryFilter = {}): WorkflowSummary[] {
     const summaries: WorkflowSummary[] = [];
@@ -273,8 +246,6 @@ export class InMemoryBackend implements StorageBackend {
       const phase = typeof state.phase === 'string' ? state.phase : '';
       const workflowType = typeof state.workflowType === 'string' ? state.workflowType : '';
 
-      // Earliest event envelope = workflow creation instant. ISO-8601 sorts
-      // lexicographically, matching SQLite's MIN(timestamp).
       let createdAt: string | null = null;
       const events = this.events.get(featureId);
       if (events && events.length > 0) {
@@ -293,20 +264,15 @@ export class InMemoryBackend implements StorageBackend {
       });
     }
 
-    // Stable ORDER BY featureId ASC — parity with SqliteBackend.
     summaries.sort((a, b) => a.featureId.localeCompare(b.featureId));
 
     return summaries.filter((summary) => {
-      // workflow_type has no index in memory, so filter it in JS here; the
-      // shared predicate applies the lifecycle axes.
       if (filter.workflowType !== undefined && summary.workflowType !== filter.workflowType) {
         return false;
       }
       return matchesWorkflowSummaryFilter(summary, filter);
     });
   }
-
-  // ─── Outbox Operations ──────────────────────────────────────────────────
 
   addOutboxEntry(streamId: string, event: WorkflowEvent): string {
     let items = this.outbox.get(streamId);
@@ -321,6 +287,12 @@ export class InMemoryBackend implements StorageBackend {
     return id;
   }
 
+  /**
+   * Send queued events in FIFO order. An entry leaves the queue only after
+   * `appendEvents` resolves, so a failed send keeps it for the next drain, as in
+   * `SqliteBackend`. The drain stops at the first failure, because events sent
+   * past a stuck event reach the consumer out of `sequence` order.
+   */
   async drainOutbox(
     streamId: string,
     sender: EventSender,
@@ -331,13 +303,6 @@ export class InMemoryBackend implements StorageBackend {
       return { sent: 0, failed: 0 };
     }
 
-    // Take a non-mutating snapshot of the batch and only remove items
-    // after `appendEvents` resolves successfully. The earlier
-    // splice-then-send variant dropped failed entries permanently — even
-    // after switching to `await`, an async rejection would leave the
-    // entry already gone from `items` with no retry path. Aligning with
-    // SqliteBackend's "keep on failure" semantics keeps both backends
-    // behaviourally consistent for code under test.
     const batch = batchSize !== undefined ? items.slice(0, batchSize) : items.slice();
     let sent = 0;
     let failed = 0;
@@ -364,10 +329,6 @@ export class InMemoryBackend implements StorageBackend {
         if (idx >= 0) items.splice(idx, 1);
         sent++;
       } catch {
-        // Stop on first failure to preserve FIFO — letting later entries
-        // succeed past a stranded earlier event would surface them out of
-        // order at the consumer (events carry monotonic `sequence`).
-        // Remaining queued items wait for the next drain cycle.
         failed++;
         break;
       }
@@ -377,8 +338,6 @@ export class InMemoryBackend implements StorageBackend {
 
     return { sent, failed };
   }
-
-  // ─── View Cache Operations ──────────────────────────────────────────────
 
   getViewCache(streamId: string, viewName: string): ViewCacheEntry | null {
     const key = `${streamId}:${viewName}`;
@@ -390,17 +349,14 @@ export class InMemoryBackend implements StorageBackend {
     this.viewCache.set(key, { state, highWaterMark: hwm });
   }
 
-  // ─── Cleanup Operations ─────────────────────────────────────────────────
-
+  /**
+   * Delete a stream with its outbox, view-cache, and snapshot entries, as
+   * `SqliteBackend.deleteStream` does. Without the cache cleanup, a new stream
+   * with the same id gets stale views and folds against old snapshots.
+   */
   deleteStream(streamId: string): void {
     this.events.delete(streamId);
     this.outbox.delete(streamId);
-    // viewCache + projectionSnapshots use composite keys prefixed with
-    // `${streamId}:`. Iterate and drop matching entries so a delete /
-    // recreate cycle of the same streamId does not surface stale view
-    // state or fold against pre-delete projection history. Mirrors the
-    // SqliteBackend.deleteStream cleanup contract; CodeRabbit review
-    // #4278133032 on PR #1344.
     const streamPrefix = `${streamId}:`;
     for (const key of this.viewCache.keys()) {
       if (key.startsWith(streamPrefix)) this.viewCache.delete(key);
@@ -430,12 +386,11 @@ export class InMemoryBackend implements StorageBackend {
     return pruned;
   }
 
-  // ─── Projection Snapshot Accessors (Wave A, #1343) ──────────────────────
-
   /**
    * Return the snapshot record with the highest sequence for the given
    * (streamId, projectionId, projectionVersion) coordinate, or `undefined`
-   * when no record exists.
+   * when no record exists. The state is a copy, so a caller cannot change the
+   * stored record. `SqliteBackend` also returns a new object on each read.
    */
   readLatestProjectionSnapshot(
     streamId: string,
@@ -446,7 +401,6 @@ export class InMemoryBackend implements StorageBackend {
     const records = this.projectionSnapshots.get(key);
     if (!records || records.length === 0) return undefined;
 
-    // Find the record with the highest sequence.
     let latest = records[0];
     if (latest === undefined) return undefined;
     for (let i = 1; i < records.length; i++) {
@@ -455,10 +409,6 @@ export class InMemoryBackend implements StorageBackend {
         latest = rec;
       }
     }
-    // Defensive copy so callers cannot mutate the in-map record. SqliteBackend
-    // returns a freshly deserialized row per read; this branch must match
-    // that semantic for INV-2 (facade equivalence) and to prevent state
-    // corruption from downstream consumers that treat the record as mutable.
     return {
       ...latest,
       state: structuredClone(latest.state),
@@ -466,8 +416,10 @@ export class InMemoryBackend implements StorageBackend {
   }
 
   /**
-   * Append a snapshot record. When `opts.maxRecords` is provided, prune the
-   * oldest records (by sequence) so the total does not exceed the cap.
+   * Append a copy of a snapshot record, then remove the oldest records (lowest
+   * sequence) above the cap. The cap is `opts.maxRecords` when it is a positive
+   * integer, else {@link resolveMaxRecords}. A record at an existing sequence is
+   * a no-op, as with the SQLite `INSERT OR IGNORE`.
    */
   appendProjectionSnapshot(
     streamId: string,
@@ -484,27 +436,18 @@ export class InMemoryBackend implements StorageBackend {
       this.projectionSnapshots.set(key, records);
     }
 
-    // Idempotent append: a snapshot at a given sequence is deterministic
-    // from the events fold, so a re-write at the same `(coordinate,
-    // sequence)` is a no-op rather than a duplicate (matches SqliteBackend's
-    // INSERT OR IGNORE semantics).
     if (records.some((existing) => existing.sequence === record.sequence)) {
       return;
     }
 
-    // Defensive copy so a later caller mutation of `record.state` cannot
-    // corrupt the stored entry. Matches SqliteBackend's serialize-on-write
-    // semantic (INV-2 facade equivalence).
     records.push({ ...record, state: structuredClone(record.state) });
 
-    // Apply size cap: resolve maxRecords and trim oldest (lowest sequence).
     const max =
       opts?.maxRecords !== undefined && Number.isInteger(opts.maxRecords) && opts.maxRecords > 0
         ? opts.maxRecords
         : resolveMaxRecords();
 
     if (records.length > max) {
-      // Sort by sequence ascending, remove the excess oldest records.
       records.sort((a, b) => a.sequence - b.sequence);
       const prunedCount = records.length - max;
       records.splice(0, prunedCount);
@@ -512,13 +455,11 @@ export class InMemoryBackend implements StorageBackend {
     }
   }
 
-  // ─── Lifecycle ──────────────────────────────────────────────────────────
-
+  /** No-op for the in-memory backend. */
   initialize(): void {
-    // No-op for in-memory backend
   }
 
+  /** No-op for the in-memory backend. */
   close(): void {
-    // No-op for in-memory backend
   }
 }

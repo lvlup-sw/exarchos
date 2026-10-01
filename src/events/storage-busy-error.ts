@@ -1,46 +1,25 @@
-/**
- * Typed error raised by the R-2 primitive layer (`decide`, `withSession`)
- * when the substrate's bounded `BEGIN IMMEDIATE` retry budget exhausts
- * (audit §F2.1). Sibling to `ConcurrencyError` — distinct semantic shape
- * because the recovery posture is different:
- *
- *   - `ConcurrencyError` — OCC lost. Caller MUST re-fetch state and
- *     re-decide before retrying.
- *   - `StorageBusyError` — substrate contention. Caller may retry the
- *     SAME decision after backing off; the other writer commits on its
- *     own.
- *
- * The fixed `code: 'STORAGE_BUSY'` field lets middleware match on the
- * code without importing the class.
- *
- * Per design `docs/designs/archive/2026-05-10-v2-10-0-preview-2-marten-primitives.md`
- * §"StorageBusyError envelope" — the `wrap()` boundary maps this to
- * `STORAGE_BUSY` with `validTargets: ['retry']` and a back-off
- * suggestedFix.
- */
+/** Fields of a {@link StorageBusyError}. */
 export interface StorageBusyErrorOptions {
   readonly streamId: string;
-  /**
-   * Number of attempts the substrate exhausted before raising. For the
-   * current SQLite substrate this is bounded by
-   * `SQLITE_BUSY_RETRY_POLICY.maxAttempts` (5).
-   */
+  /** Attempts that the substrate used before it threw. SQLite caps it at `SQLITE_BUSY_RETRY_POLICY.maxAttempts`. */
   readonly attempts: number;
-  /**
-   * The underlying substrate error (e.g. the typed
-   * `SqliteBusyExhaustedError` from the substrate body). Carried so
-   * observers can inspect the original SQLITE_BUSY chain.
-   */
+  /** The substrate error, for example `SqliteBusyExhaustedError`, so observers can read the SQLITE_BUSY chain. */
   readonly cause: Error;
 }
 
+/**
+ * Thrown by `decide` and `withSession` when the bounded `BEGIN IMMEDIATE` retry
+ * budget of the substrate runs out. The caller can retry the same decision after
+ * a back-off, because the other writer commits on its own.
+ *
+ * A {@link ConcurrencyError} differs: the caller must re-fetch state first.
+ * `wrapError` maps this error to `STORAGE_BUSY` with `validTargets: ['retry']`.
+ */
 export class StorageBusyError extends Error {
   readonly code = 'STORAGE_BUSY' as const;
   readonly streamId: string;
   readonly attempts: number;
-  // Property is declared so it is enumerable and accessible on the
-  // typed instance; Node's `Error` accepts `cause` via the options bag
-  // (ES2022), but we also retain it as our own readable field.
+  /** An own field, so `cause` is enumerable on the typed instance. `super` also gets it through the options bag. */
   readonly cause: Error;
 
   constructor(opts: StorageBusyErrorOptions) {

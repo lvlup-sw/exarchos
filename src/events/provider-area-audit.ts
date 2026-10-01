@@ -1,43 +1,16 @@
 /**
- * Is a registration's `provider` claim consistent with where the event is
- * actually appended?
+ * Checks that the `provider` claim of a registration agrees with where the event
+ * is appended.
  *
- * ── What `provider` means, and what this may therefore conclude ─────────────
- *
- * A provider's IDENTITY is its composite tool (`event-registration.ts` says so
- * outright), and each provider is bound to the area whose filesystem effects it
- * owns — `exarchos_orchestrate → verbs/`. A tool dispatches into modules well
- * beyond its own area, so "the append is outside the declared provider's area"
- * is NOT by itself a fault. `review.routed` is appended from `review/` by an
- * action registered on `exarchos_orchestrate`; that is a tool reaching its own
- * callee, not a wrong annotation.
- *
- * So this audit deliberately does not draw that conclusion. It reports the two
- * things the measurement can actually support:
- *
- *   • {@link ProviderAreaContradiction} — the append happens inside a DIFFERENT
- *     provider's area. Two providers cannot both own one append, so exactly one
- *     of the two claims is false. This is a fault.
- *
- *   • {@link UngovernedAppendArea} — the append happens in an area no provider
- *     owns at all. Not a contradiction: it is the absence of a claim, and no
- *     annotation over the current vocabulary could be right, because the
- *     vocabulary has no name for that area. This is the structural gap, and it
- *     is reported so its size is a number rather than an impression.
- *
- * Separating them matters because the remedies are opposites. A contradiction
- * is repaired by correcting one side. An ungoverned append is repaired by
- * widening the model or moving the append — and "fixing" it by picking whatever
- * tool routes the call would assert an append site that does not exist, which
- * is the comparison agreeing with itself rather than with the tree.
- *
- * ── Absence is its own answer ───────────────────────────────────────────────
+ * A provider is a composite tool, and it owns one area of the tree. A tool can
+ * call modules outside its area, so an append outside the declared area is not a
+ * fault by itself. The audit reports two findings:
+ *   • {@link ProviderAreaContradiction}: the append is inside the area of a
+ *     different provider, so one of the two claims is false.
+ *   • {@link UngovernedAppendArea}: no provider owns the area. This is a gap in
+ *     the vocabulary, not an annotation error.
  *
  * An event with no measured append site is counted, never reported as a fault.
- * A `planned` registration correctly has no emitter; an `active` one with no
- * measured site means either nothing performs it or the census could not read
- * it. Both are unanswerable here and neither belongs beside an actionable
- * finding under the same name.
  */
 
 import type { AppendSiteCensus } from './append-site-census.js';
@@ -60,7 +33,7 @@ export interface ProviderAreaContradiction {
   readonly message: string;
 }
 
-/** The append lands in an area no provider owns, so no annotation could be right. */
+/** The append lands in an area no provider owns, so no annotation can be right. */
 export interface UngovernedAppendArea {
   readonly code: 'UNGOVERNED_APPEND_AREA';
   readonly event: string;
@@ -76,7 +49,7 @@ export interface UnmeasuredEmission {
 }
 
 export interface ProviderAreaAuditResult {
-  /** No contradiction was found. Ungoverned appends do NOT clear this flag — see below. */
+  /** No contradiction was found. Ungoverned appends do not affect this flag. */
   readonly ok: boolean;
   /** Capability registrations with a resolvable provider — the SUBJECT population. */
   readonly subjectCount: number;
@@ -86,32 +59,32 @@ export interface ProviderAreaAuditResult {
   /** Definite faults: one of the two claims is false. */
   readonly contradictions: readonly ProviderAreaContradiction[];
   /**
-   * The structural gap, reported rather than judged. Kept OFF {@link ok} on
-   * purpose: an ungoverned append is not something the annotator did wrong, and
-   * failing on it would demand a repair the vocabulary cannot express.
+   * The structural gap, reported and not judged. It does not affect {@link ok},
+   * because the vocabulary cannot express a repair for an ungoverned append.
    */
   readonly ungoverned: readonly UngovernedAppendArea[];
 }
 
-/** The provider that owns the area `module` sits in, if any. */
+/**
+ * The provider that owns the area `module` sits in, if any. The longest area
+ * wins, so the result does not depend on declaration order.
+ */
 function owningProviderOf(
   module: string,
   providers: readonly EffectProvider[],
 ): EffectProvider | undefined {
-  // Longest area first, so `projections/views/` wins over a hypothetical
-  // `projections/` rather than depending on declaration order.
   return [...providers]
     .sort((a, b) => b.area.length - a.area.length)
     .find((provider) => module.startsWith(provider.area));
 }
 
 /**
- * Compare every capability registration's provider against the measured append
- * sites for its event. Pure and total: returns a verdict, never throws.
+ * Compare the provider of every capability registration against the measured
+ * append sites for its event. It returns a verdict and never throws.
  *
- * Every population is a parameter with a live default, following the rest of
- * this layer: an audit that could only read one hard-wired input could not be
- * shown to be capable of reporting anything.
+ * Every population is a parameter with a live default, so a test can show that
+ * the audit reports findings. An id that names no provider is skipped, because
+ * the weld gate reports it.
  */
 export function auditProviderAreas(
   census: AppendSiteCensus,
@@ -127,8 +100,6 @@ export function auditProviderAreas(
   for (const [event, registration] of Object.entries(annotations)) {
     if (registration.tier !== 'capability') continue;
     const declared = providers.find((entry) => entry.tool === registration.provider);
-    // An id naming no provider is the weld gate's finding. Reporting it here as
-    // well would make an echo look like corroboration.
     if (declared === undefined) continue;
     subjectCount += 1;
 

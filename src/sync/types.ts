@@ -1,8 +1,6 @@
 import { z } from 'zod';
 import type { WorkflowEvent } from '../events/schemas.js';
 
-// ─── Remote Configuration ────────────────────────────────────────────────────
-
 export interface RemoteConfig {
   apiBaseUrl: string;
   apiToken: string;
@@ -16,8 +14,6 @@ export const RemoteConfigSchema = z.object({
   exarchosId: z.string().default('default'),
   timeoutMs: z.number().int().positive().default(5000),
 });
-
-// ─── Sync Configuration ─────────────────────────────────────────────────────
 
 export interface SyncConfig {
   mode: 'local' | 'remote' | 'dual';
@@ -35,8 +31,6 @@ export const SyncConfigSchema = z.object({
   remote: RemoteConfigSchema.optional(),
 });
 
-// ─── Sync State ──────────────────────────────────────────────────────────────
-
 export interface SyncState {
   streamId: string;
   localHighWaterMark: number;
@@ -45,15 +39,11 @@ export interface SyncState {
   lastSyncResult?: 'success' | 'partial' | 'failed';
 }
 
-// ─── Sync Result ─────────────────────────────────────────────────────────────
-
 export interface SyncResult {
   pushed: number;
   pulled: number;
   conflicts: ConflictInfo[];
 }
-
-// ─── Conflict Info ───────────────────────────────────────────────────────────
 
 export interface ConflictInfo {
   streamId: string;
@@ -62,8 +52,6 @@ export interface ConflictInfo {
   remoteEvent?: unknown;
   resolution: string;
 }
-
-// ─── Outbox Entry ────────────────────────────────────────────────────────────
 
 export interface OutboxEntry {
   id: string;
@@ -77,8 +65,7 @@ export interface OutboxEntry {
   error?: string | undefined;
 }
 
-// ─── Wire Format (matches C# ExarchosEventDto) ──────────────────────────────
-
+/** Wire format of an event. It matches the C# `ExarchosEventDto`. */
 export interface ExarchosEventDto {
   streamId: string;
   sequence: number;
@@ -94,8 +81,6 @@ export interface ExarchosEventDto {
   idempotencyKey?: string | undefined;
 }
 
-// ─── Workflow Registration ───────────────────────────────────────────────────
-
 export interface WorkflowRegistration {
   featureId: string;
   workflowType: string;
@@ -103,8 +88,7 @@ export interface WorkflowRegistration {
   streamVersion: number;
 }
 
-// ─── Event Sender (used by Outbox to decouple from BasileusClient) ──────────
-
+/** The sender that the Outbox uses, so the Outbox does not depend on `BasileusClient`. */
 export interface EventSender {
   appendEvents(
     streamId: string,
@@ -112,14 +96,10 @@ export interface EventSender {
   ): Promise<AppendEventsResponse>;
 }
 
-// ─── Append Events Response ──────────────────────────────────────────────────
-
 export interface AppendEventsResponse {
   accepted: number;
   streamVersion: number;
 }
-
-// ─── Pending Command ─────────────────────────────────────────────────────────
 
 export interface PendingCommand {
   id: string;

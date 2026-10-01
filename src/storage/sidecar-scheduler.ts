@@ -1,20 +1,12 @@
-// ─── Sidecar Drain Scheduler ────────────────────────────────────────────────
-//
-// Periodically drains sidecar files (`{streamId}.hook-events.jsonl`) into the
-// main EventStore. This prevents unbounded sidecar backlog in long-running
-// primary processes.
-//
-// Drain cycle:
-//   1. Rename sidecar -> drain file (atomic swap prevents concurrent writer loss)
-//   2. Parse and merge events from drain file into EventStore
-//   3. Unlink drain file after successful processing
+/**
+ * Drains sidecar files (`{streamId}.hook-events.jsonl`) into the main EventStore on an
+ * interval, so a long-running primary process keeps no sidecar backlog.
+ */
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { EventStore } from '../events/store.js';
 import type { WorkflowEvent } from '../events/schemas.js';
-
-// ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface DrainResult {
   readonly merged: number;
@@ -34,8 +26,6 @@ export interface PeriodicMergeOptions {
   readonly onDrain?: (result: DrainResult) => void;
 }
 
-// ─── Constants ──────────────────────────────────────────────────────────────
-
 const SIDECAR_SUFFIX = '.hook-events.jsonl';
 const DEFAULT_INTERVAL_MS = 5000;
 
@@ -48,20 +38,17 @@ function parseEnvInt(envVar: string, defaultValue: number): number {
   return parsed;
 }
 
-// ─── Scheduler ──────────────────────────────────────────────────────────────
-
 /**
- * Start a periodic drain of sidecar files into the EventStore.
+ * Starts a periodic drain of sidecar files into the EventStore.
  *
- * When `opts.immediate` is true, the first drain cycle runs before the handle
- * is returned. The function is async to support this — callers should `await`
- * the result.
+ * When `opts.immediate` is true, one best-effort drain runs before the function
+ * returns. A tick does nothing while a drain runs. The timer is `unref`ed, so it does
+ * not keep the process alive.
  *
- * @param stateDir   Directory containing sidecar files
- * @param eventStore EventStore to merge events into
- * @param intervalMs Drain interval in milliseconds (default: 5000, overridable via EXARCHOS_SIDECAR_DRAIN_INTERVAL_MS)
- * @param opts       Optional: `immediate` fires one drain before returning; `onDrain` receives observability data
- * @returns A handle with a `stop()` method to cancel the periodic drain
+ * @param stateDir   Directory that holds the sidecar files
+ * @param eventStore EventStore that receives the events
+ * @param intervalMs Drain interval in milliseconds. The default is `EXARCHOS_SIDECAR_DRAIN_INTERVAL_MS`, else 5000.
+ * @returns A handle with a `stop()` method that cancels the periodic drain
  */
 export async function startPeriodicMerge(
   stateDir: string,
@@ -71,7 +58,6 @@ export async function startPeriodicMerge(
 ): Promise<PeriodicMergeHandle> {
   const interval = intervalMs ?? parseEnvInt('EXARCHOS_SIDECAR_DRAIN_INTERVAL_MS', DEFAULT_INTERVAL_MS);
 
-  // Track active drain promise to prevent overlapping drains
   let activeDrain: Promise<void> | undefined;
   let stopped = false;
 
@@ -83,19 +69,15 @@ export async function startPeriodicMerge(
     }
   };
 
-  // Immediate drain: best-effort first cycle before arming the interval
   if (opts?.immediate) {
     await runDrain().catch(() => {});
   }
 
-  // Set up periodic interval
   const timer = setInterval(() => {
-    // Skip if a drain is already in progress or stopped
     if (stopped || activeDrain) return;
     activeDrain = runDrain().finally(() => { activeDrain = undefined; });
   }, interval);
 
-  // unref so the timer doesn't keep the process alive
   if (timer && typeof timer.unref === 'function') {
     timer.unref();
   }
@@ -108,11 +90,14 @@ export async function startPeriodicMerge(
   };
 }
 
-// ─── Drain Cycle ────────────────────────────────────────────────────────────
-
 /**
- * Execute a single drain cycle: find sidecar files, rename them to drain
- * files, parse events, merge into EventStore, and unlink drain files.
+ * Runs one drain cycle. For each sidecar file, it renames the file to a drain file,
+ * appends the events to the EventStore, and unlinks the drain file.
+ *
+ * The rename is a claim, not a publish, so it does not use `publishTempFile`. Each
+ * drain path is unique per process and time. A failed rename means that another
+ * drainer claimed the file. If the read fails, the drain file goes back to the
+ * sidecar path. An append counts as merged when the stream grows, else as skipped.
  */
 async function drainOnce(
   stateDir: string,
@@ -123,7 +108,6 @@ async function drainOnce(
   let totalSkipped = 0;
   let totalErrors = 0;
 
-  // Step 1: Find sidecar files
   let entries: string[];
   try {
     entries = await fs.readdir(stateDir);
@@ -143,32 +127,22 @@ async function drainOnce(
     const streamId = file.slice(0, -SIDECAR_SUFFIX.length);
     const sidecarPath = path.join(stateDir, file);
 
-    // Step 2: Rename to drain file (atomic swap -- new sidecar writes go to a fresh file)
     const drainFile = file.replace(
       SIDECAR_SUFFIX,
       `.hook-events.drain-${process.pid}-${Date.now()}.jsonl`,
     );
     const drainPath = path.join(stateDir, drainFile);
 
-    // Deliberately NOT routed through `publishTempFile`: this is not a publish.
-    // `drainPath` is unique per drainer (`drain-<pid>-<timestamp>`), so no two
-    // callers ever replace the same destination and the Windows concurrent-
-    // replace race it guards cannot arise. The rename is a claim, not a publish
-    // — losing it means another drainer got there first, which `continue`
-    // already handles correctly.
     try {
       await fs.rename(sidecarPath, drainPath);
     } catch {
-      // Sidecar may have been removed concurrently; skip
       continue;
     }
 
-    // Step 3: Read and parse drain file
     let content: string;
     try {
       content = await fs.readFile(drainPath, 'utf-8');
     } catch {
-      // Rename back so events are not orphaned in an unprocessable drain file
       await fs.rename(drainPath, sidecarPath).catch(() => {});
       totalErrors++;
       continue;
@@ -195,7 +169,6 @@ async function drainOnce(
         continue;
       }
 
-      // Step 4: Append to EventStore with idempotency protection
       try {
         const beforeEvents = await eventStore.query(streamId);
         const beforeSeq = beforeEvents.length;
@@ -219,7 +192,6 @@ async function drainOnce(
       }
     }
 
-    // Step 5: Unlink drain file after processing
     await fs.unlink(drainPath).catch(() => {});
   }
 

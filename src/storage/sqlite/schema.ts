@@ -1,10 +1,8 @@
-// ─── Schema DDL ─────────────────────────────────────────────────────────────
-
-// Exported (additively) for the install-freshness gate (P05-04, ART-009): the
-// install-identity record captures the schema version this binary understands
-// so a freshness check can compare it against a store's persisted identity. The
-// value remains the single source of truth for the store's own DDL/migration
-// ledger below.
+/**
+ * The schema version that this binary understands, and the single source of
+ * truth for the DDL and migration ledger. The install-freshness gate compares it
+ * against the persisted identity of a store.
+ */
 export const SCHEMA_VERSION = 6;
 
 export const SCHEMA_DDL = `

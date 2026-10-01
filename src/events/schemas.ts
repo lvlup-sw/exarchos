@@ -1,3 +1,11 @@
+/**
+ * The event catalog: every event type name and the Zod schema of each event payload.
+ *
+ * The `judgment` content schemas live in `judgment-content-schemas.ts`. This prevents a runtime
+ * import cycle with `event-annotations.ts`. This module re-exports them for existing importers.
+ * The re-exported `EVENT_NAME_PATTERN` is a regex form of the grammar in `event-name.ts`.
+ * `architecture/event-grammar-census.ts` reads it to compare the two forms.
+ */
 import * as path from 'node:path';
 import { z } from 'zod';
 import { WorkflowTypeSchema } from '../workflow/schemas.js';
@@ -34,11 +42,6 @@ import {
   TypecheckResultData,
 } from './judgment-content-schemas.js';
 
-// The DR-2 `judgment` content schemas moved to a leaf module so `event-annotations.ts` could stop
-// importing runtime values from THIS module — which is what lets this module import the
-// annotations below without closing a runtime cycle. Re-exported here so every existing
-// `from './schemas.js'` import resolves to the same objects. See
-// `judgment-content-schemas.ts` for the measurement behind the move.
 export {
   RemediationAttemptedDataSchema,
   RemediationSucceededDataSchema,
@@ -49,9 +52,7 @@ export {
   TypecheckResultData,
 };
 
-// ─── Event Type Discriminated Union ─────────────────────────────────────────
-
-/** Additive internal replay types; none are public admission actions in v2.12. */
+/** Internal replay types for admission. None of them is a public admission action in v2.12. */
 export const INTERNAL_ADMISSION_EVENT_TYPES = [
   'admission.requirement-resolved',
   'admission.evidence-recorded',
@@ -64,25 +65,19 @@ export const INTERNAL_ADMISSION_EVENT_TYPES = [
   'admission.disagreement-disposition',
   'admission.rollout-decision',
   'admission.enforcement-enabled',
-  // Cutover promotion path (#1739) — the FIRST-time readiness export record.
-  // Appended (auto, idempotency-keyed on store identity, never clock-derived)
-  // by the observer's durable-append success hook when all six cutover-gate
-  // conditions are first satisfied. See workflow/admission/cutover-auto-export.ts.
+  /**
+   * The first readiness export record of the cutover promotion path. The observer appends it when all
+   * six cutover-gate conditions first hold. Its idempotency key is the store identity, not the clock.
+   */
   'admission.cutover-ready',
 ] as const;
 
 /**
  * Server-owned VCS ledger facts.
  *
- * `foldVcsLedger` treats these as AUTHORITATIVE fencing and idempotency state:
- * a recorded `vcs.executed` lets a retry skip the git effect, a
- * `vcs.compensated` sticky-fails a key, and the epoch fences later mutations.
- * Adding them to the catalog so their schemas are validated also made them
- * appendable through the generic `exarchos_event.append` surface, which is
- * `ROLE_ANY` and rejects only RESERVED types. Left off this list, any caller
- * could mint a fact that suppresses or fences a real git mutation without
- * passing through `VcsMutationOwner` — the ledger would be authoritative over
- * input it does not own. Reserving them is what makes the fold's authority true.
+ * `foldVcsLedger` treats these facts as authoritative fencing and idempotency state. The generic
+ * `exarchos_event.append` surface rejects only reserved types. The reservation stops a caller from
+ * minting a fact that suppresses or fences a real git mutation outside `VcsMutationOwner`.
  */
 export const INTERNAL_VCS_LEDGER_EVENT_TYPES: readonly [
   'vcs.requested',
@@ -91,26 +86,13 @@ export const INTERNAL_VCS_LEDGER_EVENT_TYPES: readonly [
 ] = ['vcs.requested', 'vcs.executed', 'vcs.compensated'];
 
 /**
- * Server-owned execution-ledger facts.
+ * Server-owned execution-ledger facts. Each type is reserved, so that its only writer is the
+ * handler that owns the evidence:
+ * - `orchestrate.intent_executed`: the bounded executor commits it after the run bundle is in custody.
+ * - `execution.settled`: the settle handler commits it after capsule parse, adjudication and custody.
+ * - `workflow.prepared`: settlement adjudicates a capsule only when this record pins its digest.
  *
- * The bounded executor's operation record is committed by its own handler as
- * the claim-carrying row of a `decideOnce` transaction, with the run's bundle
- * bytes already in custody and named by digest. Appendable through the
- * generic `exarchos_event.append` surface, any caller could mint a settlement
- * for an operation that never ran, or fabricate a well-formed reference to
- * bytes nobody wrote — and the run-bundle integrity oracle would then be
- * reporting on input its producer does not own. Reserving the type is what
- * makes the record's custody claim true: the only writer is the one that put
- * the bytes first.
- *
- * `execution.settled` is reserved for the same reason: it is committed by the
- * settle handler after capsule parse, adjudication and custody, and the oracle
- * keys on it exactly as it does on the executor's record.
- *
- * `workflow.prepared` is reserved because settlement trusts it. A capsule is
- * adjudicated only when a prepared record pins its digest, so a record any
- * caller could append would let any caller pin any capsule, and the pin would
- * prove nothing.
+ * A caller that can append these types can fake a settlement or pin any capsule.
  */
 export const INTERNAL_EXECUTION_LEDGER_EVENT_TYPES: readonly [
   'orchestrate.intent_executed',
@@ -126,23 +108,23 @@ export const INTERNAL_EXECUTION_LEDGER_EVENT_TYPES: readonly [
   'deviation.decided',
 ];
 
-/** Server-owned cancellation process-manager facts (v2.12, DR-7). */
+/** Server-owned facts of the cancellation process manager. */
 export const INTERNAL_CANCELLATION_EVENT_TYPES = [
   'cancel.requested',
-  // P04-02 (EFF-005) — fencing token. A monotonically increasing epoch is
-  // allocated on ownership acquisition; a stale-epoch instance's writes are
-  // rejected by the process manager, so a takeover cannot be undercut by the
-  // instance it displaced.
+  /**
+   * The fencing token. Each ownership acquisition allocates a higher epoch. The process manager
+   * rejects writes from a stale epoch, so a displaced instance cannot undercut a takeover.
+   */
   'cancel.ownership-acquired',
   'cancel.compensation-requested',
   'cancel.compensation-completed',
   'cancel.compensation-failed',
-  // P04-02 (EFF-005) — bounded-retry record. Emitted before a re-attempt of a
-  // failed compensation effect so the attempt ladder is replayable.
+  /** The bounded-retry record. It comes before each new attempt of a failed compensation effect. */
   'cancel.compensation-retry-scheduled',
-  // P04-02 (EFF-005) — terminal-but-unresolved escalation. Retry exhaustion (or
-  // a non-retryable malformed result) lands here as a real, queryable state
-  // rather than being silently swallowed.
+  /**
+   * The terminal escalation. Retry exhaustion, or a malformed result that cannot be retried, ends in
+   * this queryable state.
+   */
   'cancel.manual-intervention-required',
   'cancel.ready',
 ] as const;
@@ -161,37 +143,25 @@ export const EventTypes = [
   'stack.enqueued',
   'workflow.transition',
   'workflow.fix-cycle',
-  // DR-1 — counted plan-review revise cycle. The plan-review analog of
-  // `workflow.fix-cycle`: emitted when the `plan-review → plan` revise edge is
-  // traversed (HSM `isRevision` flag). The workflow-state projection folds
-  // occurrences into `state.planReview.revisionCount`, the field the
-  // `revisionsExhausted` guard reads, so the revise loop is bounded by an
-  // event-sourced (replay-stable) count rather than advisory prose.
+  /**
+   * A counted revise cycle of plan review, emitted on the `plan-review → plan` revise edge. The
+   * projection folds it into `state.planReview.revisionCount`, which `revisionsExhausted` reads.
+   */
   'workflow.plan-revision',
-  // WLM-6 (DR-2) — counted plan-review dispatch. Emitted by the unskippable
-  // `prepare_review scope:plan` provisioning seam (verbs/team/prepare-review.ts)
-  // on EVERY provisioning of the front-of-pipeline adversarial plan-review, so
-  // the plan-review revision loop is bounded at the one server action an agent
-  // MUST call to re-review — closing the skippable-edge bypass the old
-  // `plan-review → plan` `isRevision` counter left open (an agent could
-  // re-provision + re-dispatch without ever traversing the counted edge). Each
-  // event carries a 0-based `ordinal`; the workflow-state projection folds the
-  // MAX ordinal into `planReview.revisionCount` (the field `revisionsExhausted`
-  // reads), so the ordinal-0 initial review is revision 0 (no counter increment)
-  // and every re-dispatch is +1. A deterministic idempotency key
-  // (`${featureId}:plan-review-dispatch:${ordinal}`, INV-8) collapses a
-  // same-ordinal crash-retry at the storage layer. `auto` — the handler owns the
-  // append; the model is never asked to hand-emit it.
+  /**
+   * A counted plan-review dispatch. The `prepare_review scope:plan` handler appends it on every
+   * provisioning of the plan review, so an agent cannot re-review without a count. The projection
+   * folds the maximum 0-based `ordinal` into `planReview.revisionCount`. The idempotency key
+   * `${featureId}:plan-review-dispatch:${ordinal}` collapses a crash retry of the same ordinal.
+   */
   'workflow.plan-review-dispatched',
   'workflow.guard-failed',
   'workflow.checkpoint',
-  // #1242 (F1 of #1239 spike) — auto-summarized handoff fallback. Emitted by a
-  // downstream summarizer subagent when a checkpoint fires with no operator-
-  // authored handoff (phase transitions / wave dispatches). The rehydration
-  // reducer folds it into `latestHandoff` ONLY when no operator handoff holds
-  // the slot — operator-authored content always takes precedence. The summary
-  // string is stored on the event (source of truth), so replay is deterministic
-  // over the stored payload even though the summarizer itself is not (INV-1).
+  /**
+   * An auto-summarized handoff. A summarizer subagent emits it when a checkpoint fires with no
+   * operator-authored handoff. The rehydration reducer folds it into `latestHandoff` only when no
+   * operator handoff holds the slot. The event stores the summary, so replay is deterministic.
+   */
   'workflow.handoff_summarized',
   'workflow.compound-entry',
   'workflow.compound-exit',
@@ -203,36 +173,22 @@ export const EventTypes = [
   'tool.invoked',
   'tool.completed',
   'tool.errored',
-  // PR3/T7 (#1364) — emitted alongside `tool.completed` when the handler
-  // returns the structured failure envelope `{success: false, error: {…}}`.
-  // `tool.errored` continues to count transport/protocol failures (JS throws)
-  // only; this event splits out action-level outcomes (MERGE_ROLLED_BACK,
-  // PREFLIGHT_FAILED, RESERVED_FIELD, etc.) so `view telemetry` can report
-  // them instead of silently rolling them up as completions.
+  /**
+   * Emitted beside `tool.completed` when the handler returns the failure envelope
+   * `{success: false, error: {…}}`. `tool.errored` counts only thrown errors.
+   */
   'tool.action_errored',
-  // Split out of `gate.executed` (#1898 item 8). The middleware appended the
-  // budget breach as a gate row carrying `details.dimension: 'D3'`, and the
-  // convergence view folded it as an unrecoverable failure of the Context
-  // Economy dimension. It is a per-tool runtime measurement and nothing else.
+  /** A per-tool runtime measurement of a budget breach. It is not a gate result. */
   'tool.budget_exceeded',
-  // #1262 — per-turn output-token sample. The schema, the type-map entry and two
-  // folds exist (`telemetry-projection.ts`, `workflow-state-projection.ts`), and
-  // the `output_tokens_high` quality hint (catalog:
-  // `projections/telemetry/quality-hints.ts`) reads the stream when a turn's
-  // `outputTokens` crosses the configured threshold — but NOTHING appends it:
-  // there is no append site in the governed tree. This comment used to name the
-  // telemetry middleware as the producer, which contradicted the `planned`
-  // lifecycle in `event-annotations.ts`. The annotation is the side the tree
-  // supports, so the producer claim is removed rather than the annotation
-  // relaxed. It matters now that the emission verifier is armed: a landed event
-  // whose lifecycle is not `active` is a violation, so promoting this to
-  // `active` on the strength of a stale comment would be a real fault.
+  /**
+   * A per-turn output-token sample. Two projections fold it, and the `output_tokens_high` quality
+   * hint reads it. No code appends it, so its lifecycle in `event-annotations.ts` is `planned`.
+   */
   'turn.completed',
-  // #1525 W2 Half 1 — per-subagent output-token total emitted by the restored
-  // SubagentStop hook (`lifecycle/subagent-stop.ts`). The handler parses the
-  // subagent's own transcript, sums output tokens, and resolves teammate identity
-  // by matching the subagent cwd to a dispatched worktree before appending to the
-  // feature stream. Folded by team-performance / delegation-timeline.
+  /**
+   * The output-token total of one subagent. The SubagentStop hook (`lifecycle/subagent-stop.ts`)
+   * sums it from the subagent transcript and matches the subagent cwd to a dispatched worktree.
+   */
   'subagent.tokens_used',
   'benchmark.completed',
   'team.spawned',
@@ -277,10 +233,10 @@ export const EventTypes = [
   'typecheck.result',
   'stack.submitted',
   'ci.status',
-  // Split out of `gate.executed` (#1898 item 8). The per-check detail beside
-  // the per-PR `ci.status` roll-up, appended by the same assessment pass. It
-  // was sharing the `gates[...]` namespace with the gates this repository runs
-  // itself, so a CI job named after one of ours merged two pass rates.
+  /**
+   * The detail of one CI check, beside the per-PR `ci.status` roll-up. It has its own type, so a CI
+   * job and a local gate with the same name do not share one pass rate.
+   */
   'ci.check_observed',
   'comment.posted',
   'comment.resolved',
@@ -289,12 +245,10 @@ export const EventTypes = [
   'pr.merged',
   'pr.commented',
   'issue.created',
-  // DR-7 (task 008) — the two-event onboard contract (INV-1 / INV-13).
-  // `onboard.requested` is the durable INTENT (the reconcile plan) recorded
-  // BEFORE the non-idempotent reconcile fires; `onboard.executed` is the RESULT
-  // recorded AFTER it succeeds. Emitted by the `onboard` composite (which
-  // subsumes init/doctor-fix/new-project). `init.executed` was retired in DR-5
-  // (task 018) alongside the init verb/handler — `onboard.*` is the audit trail.
+  /**
+   * The two-event onboard contract. `onboard.requested` records the reconcile plan before the
+   * reconcile runs. `onboard.executed` records the result after it succeeds.
+   */
   'onboard.requested',
   'onboard.executed',
   'checkpoint.enforced',
@@ -305,383 +259,252 @@ export const EventTypes = [
   'provider.parse-error',
   'dispatch.classified',
   'merge.preflight',
-  // Wave 4 audit §F1.2 two-event split — `merge.requested` is the durable
-  // INTENT recorded BEFORE the non-idempotent GitHub merge call fires. The
-  // `merge-orchestrator@v1` projection (Wave 2B / #1304) folds it as the
-  // transition into the new `requested` phase. Registered in Wave 2B.2 (this
-  // commit) ahead of Wave 4's `decide` migration so the reducer can validly
-  // fold it.
+  /**
+   * The durable intent, recorded before the GitHub merge call runs. The `merge-orchestrator@v1`
+   * projection folds it as the move into the `requested` phase.
+   */
   'merge.requested',
   'merge.executed',
   'merge.rollback',
-  // #1306 — successor to `merge.rollback` and, since DR-2 (task 006), the SOLE
-  // emitted recovery terminal. `merge.rollback` is now read-tolerant-not-
-  // emittable (schema + type-map kept for replay; nothing writes it).
+  /** The only recovery terminal that code emits. `merge.rollback` stays for replay, and nothing writes it. */
   'merge.recovered',
-  // #1308 — audit record of a transient-failure retry of the merge attempt.
-  // Records the retry `attempt` ordinal, the backoff `delayMs` before it, and
-  // the transient-failure `reason` (e.g. 'timeout') that triggered it. The
-  // emission site lands in a later #1308 task; this registration is additive.
+  /**
+   * The audit record of one retry after a transient failure. It holds the retry `attempt`, the
+   * backoff `delayMs`, and the `reason`.
+   */
   'merge.retry_attempt',
-  // Terminal lifecycle event — emitted by the executor (`handleExecuteMerge`)
-  // immediately after a successful `merge.executed` append. Folded by the
-  // `merge-orchestrator@v1` projection (#1304) as the transition into the
-  // terminal `completed` phase. Distinct from `merge.executed` (records the
-  // side effect) so the projection can model "side effect done" and
-  // "lifecycle formally terminated" as two states — matching INV-10's
-  // executing_started + paired terminal event pattern.
+  /**
+   * The terminal lifecycle event. `handleExecuteMerge` emits it directly after a successful
+   * `merge.executed` append, and the projection moves into the `completed` phase. `merge.executed`
+   * records the side effect, and this event records the end of the lifecycle.
+   */
   'merge.completed',
-  // #1309 — merge-executor liveness event. Emitted by `handleExecuteMerge`
-  // after the recovery point sha is recorded and BEFORE the first `vcsMerge`
-  // attempt, so a long-running merge is observable as "started but not yet
-  // terminated" — the INV-10 `<surface>.executing_started` + paired terminal
-  // (`merge.executed` / `merge.recovered`) pattern, mirroring
-  // `mutation.executing_started`. Audit-only: it does NOT transition the
-  // `merge-orchestrator@v1` projection phase.
+  /**
+   * Merge liveness. `handleExecuteMerge` emits it after it records the recovery point sha and before
+   * the first `vcsMerge` attempt. A terminal `merge.executed` or `merge.recovered` follows it. It
+   * does not change the projection phase.
+   */
   'merge.executing_started',
   'command.resolved',
-  // Durable event-store substrate (#1259) — deprecation telemetry + migration
-  // pipeline. T02 / T03 / T04 of the substrate plan.
+  /** Deprecation telemetry and migration events of the durable event store. */
   'hsm.deprecated_action_invoked',
   'spec.legacy_capabilities_array',
   'phase.contract_missing',
-  // Phase-kind binding (DR-7, epic #1546) — fail-closed at the gate-set
-  // boundary. Emitted when the IMPLEMENT-kind gate-set resolver throws while
-  // stamping a wave's verification sequence: the dispatch is REFUSED (fail
-  // closed) and this durable event records why, so an operator sees the
-  // blocked phase instead of a silently-failed-open dispatch.
+  /**
+   * The gate-set resolver of the IMPLEMENT kind threw, so the dispatch failed closed. This event
+   * records the reason, so an operator sees the blocked phase.
+   */
   'phase.blocked',
-  // Phase-kind binding S4 (DR-13, epic #1546) — resolve-then-freeze. The
-  // executeTransition boundary appends `phase.entered` carrying the obligation
-  // it resolved+froze for the target kind, and `phase.exited` on advance with
-  // the aggregate gate status. Replaying these left-folds the same obligation a
-  // live HSM observed (a later policy edit cannot rewrite a frozen phase).
+  /**
+   * `executeTransition` appends `phase.entered` with the obligation that it resolved and froze for
+   * the target kind. `phase.exited` carries the aggregate gate status. Replay folds the same
+   * obligation, so a later policy edit cannot rewrite a frozen phase.
+   */
   'phase.entered',
   'phase.exited',
   'migration.legacy_jsonl_imported',
   'migration.completed',
   'migration.failed',
-  // R-1 Marten primitive (#1313): emitted once per V3 → V4 stream that
-  // could not have its workflow_type recovered from a state file. Lets
-  // operators locate '__legacy' rows that need manual classification.
+  /**
+   * Emitted once for each V3 → V4 stream with no workflow_type in a state file. Operators use it to
+   * find the `__legacy` rows to classify by hand.
+   */
   'migration.workflow_type_unknown',
-  // #1437 — emitted once per chunk during the V5 -> V6 correlation-column
-  // backfill in `migrateV5ToV6`. Lands on the internal `__migration__`
-  // stream with `{rowsBackfilled, totalRowsRemaining}` so operators can
-  // observe progress of a long-running migration on multi-thousand-row
-  // production DBs (the EventSourcedTaskStore generates dense
-  // `task.polled` traffic that pushes single-shot backfills past the
-  // sub-second window).
+  /**
+   * Emitted once for each chunk of the V5 → V6 correlation-column backfill in `migrateV5ToV6`. It
+   * lands on the `__migration__` stream with `{rowsBackfilled, totalRowsRemaining}`, so operators can
+   * watch a long migration.
+   */
   'migration.correlation_backfill_progress',
-  // Wave B (#1342) two-event split for 5 non-idempotent VCS handlers.
-  // Each handler emits *.requested BEFORE invoking the side effect (durable
-  // intent, INV-1 LOW audit requirement) then *.executed AFTER it succeeds.
-  // B1: create-pr
+  /**
+   * The two-event split of five VCS handlers. Each handler emits `*.requested` before the side
+   * effect and `*.executed` after the side effect succeeds.
+   */
   'pr.create.requested',
   'pr.create.executed',
-  // B2: comment-on-pr
   'pr.comment.requested',
   'pr.comment.executed',
-  // B3: create-issue
   'issue.create.requested',
   'issue.create.executed',
-  // B4: delete-branch
   'branch.delete.requested',
   'branch.delete.executed',
-  // B5: remove-worktree
   'worktree.remove.requested',
   'worktree.remove.executed',
-  // WLM foundation — worktree lifecycle (adopt / reserve / release / orphan).
-  // These four share one payload shape (`worktreeId`, `path`, `featureId`,
-  // `ownerPid`, `ownerStartedAt`, `operationId`). They are the lease/ownership
-  // half of worktree lifecycle management; the GC/deletion half REUSES the
-  // `worktree.remove.requested`/`worktree.remove.executed` pair above (there is
-  // deliberately no `worktree.pruned` type). Like the remove pair, they are
-  // `auto` (deterministic plumbing) and keyed on the existing two-component
-  // `<eventType>:<operationId>` idempotency convention.
+  /**
+   * The lease and ownership half of worktree lifecycle management. These four events share one payload
+   * shape. Worktree deletion reuses the `worktree.remove.*` pair, so no `worktree.pruned` type exists.
+   * The idempotency key is `<eventType>:<operationId>`.
+   */
   'worktree.adopted',
   'worktree.reserved',
   'worktree.released',
   'worktree.orphan_detected',
-  // WLM operational-core (DR-4 / DR-7) — the serialized-merge lease pair that
-  // rides the singleton `worktrees` stream alongside the lifecycle family above.
-  // `worktree.merge_requested` is the CLAIM (intent + lease record: which
-  // operation holds the right to merge `sourceBranch` into `integrationRef`,
-  // and which live process holds it). `worktree.merge_executed` is the RELEASE
-  // (terminal outcome: merged / aborted / failed). `operationId` is the sole
-  // discriminator so two concurrent merges onto one `integrationRef` mint
-  // distinct keys and never collide. The CLAIM is appended via the event-store
-  // `decide` seam (its own `${streamId}:${reducerId}:${operationId}` key); the
-  // RELEASE is a plain keyed append `<eventType>:<operationId>` per the
-  // worktree-family convention.
+  /**
+   * The serialized-merge lease pair on the singleton `worktrees` stream. `worktree.merge_requested` is
+   * the claim: the operation and the live process that hold the right to merge `sourceBranch` into
+   * `integrationRef`. `worktree.merge_executed` is the release, with the terminal outcome. The only
+   * discriminator is `operationId`, so two concurrent merges onto one `integrationRef` get distinct
+   * keys. The claim goes through the `decide` seam, and the release is a plain keyed append.
+   */
   'worktree.merge_requested',
   'worktree.merge_executed',
-  // harness-launcher (DR-2) — the launcher's top-level worktree create pair plus
-  // the child-process liveness pair. `worktree.create.requested`/
-  // `worktree.create.executed` mirror the INV-13 `worktree.remove.*` intent/
-  // terminal pair (durable intent BEFORE the non-idempotent create; terminal
-  // AFTER it succeeds). This terminal is DISTINCT from the task-scoped
-  // `worktree.created` above (which requires `taskId`+`branch` and is
-  // task-worktree-only): the launcher creates a task-LESS top-level worktree, so
-  // it needs its own shared-stem create pair rather than reusing the task
-  // terminal. `launch.executing_started`/`launch.executed` are the liveness pair
-  // — `launch.executing_started` records the live child process
-  // (`holderPid`/`holderStartedAt`, mirroring `InFlightMerge`) so a dead-holder
-  // reconciler is expressible later; `launch.executed` is the terminal ("executed"
-  // = the child process exited). All four are `auto` deterministic plumbing.
+  /**
+   * The launcher pairs. `worktree.create.*` is the intent and terminal pair for the top-level worktree
+   * that the launcher creates. It is separate from `worktree.created`, which needs a `taskId` and a
+   * `branch`. `launch.executing_started` records the live child process (`holderPid` and
+   * `holderStartedAt`). `launch.executed` records that the child process exited.
+   */
   'worktree.create.requested',
   'worktree.create.executed',
   'launch.executing_started',
   'launch.executed',
-  // #1290 — emitted by `resolveWorkspace` (src/runtime/workspace/
-  // discovery.ts) when the dispatch boundary resolves a missing `featureId`
-  // from MCP roots or via the cwd-walk fallback. Records the source so audit
-  // queries can distinguish handshake-driven resolutions from cwd inference.
-  // Not emitted on multi-match (no single featureId to attribute) or zero-match.
+  /**
+   * `resolveWorkspace` emits it when the dispatch boundary resolves a missing `featureId` from MCP
+   * roots or from the cwd walk. It records the source. Zero matches or many matches emit nothing.
+   */
   'workspace.resolved',
-  // #1274 — dispatch elicitation hand-off (form mode). Emitted on a
-  // per-operation pseudo-stream (`elicitation/<operationId>`) so audit
-  // queries can correlate the request/response round-trip without
-  // contaminating the per-feature event log. `requested` lands BEFORE the
-  // `elicitation/create` MCP round-trip fires; `fulfilled` lands AFTER the
-  // client returns a value.
+  /**
+   * The elicitation hand-off in form mode, on the per-operation stream `elicitation/<operationId>`.
+   * `requested` lands before the `elicitation/create` round trip. `fulfilled` lands after the client
+   * returns a value.
+   */
   'elicitation.requested',
   'elicitation.fulfilled',
-  // Sentry MEDIUM #1424: pre-fix the dispatcher emitted `elicitation.fulfilled`
-  // even when the client returned `value === undefined` (decline / cancel),
-  // producing a misleading audit trail where round-trip failures looked like
-  // successes. The declined branch now emits this distinct event so
-  // downstream consumers can tell apart "the client supplied the value" from
-  // "the client refused / cancelled the round-trip."
+  /**
+   * Emitted when the client returns `value === undefined` (decline or cancel). It keeps a refusal
+   * apart from a fulfilled round trip.
+   */
   'elicitation.declined',
-  // #1272 — EventSourcedTaskStore lifecycle events. Distinct from the
-  // workflow-orchestration `task.assigned`/`task.claimed`/`task.progressed`/
-  // `task.completed`/`task.failed` family above, these four describe the
-  // SDK-protocol task lifecycle (see
-  // `@modelcontextprotocol/sdk/experimental/tasks/interfaces.ts:TaskStore`).
-  // The EventSourcedTaskStore in `src/projections/task-store/event-sourced-task-store.ts`
-  // emits these to durably back the in-memory projection it serves to the
-  // SDK; reads project state from the event stream alone (INV-1 event-sourcing
-  // integrity — see the REPLAY acceptance test in
-  // `event-sourced-task-store.test.ts`).
+  /**
+   * The lifecycle of an SDK-protocol task, separate from the workflow `task.*` family above.
+   * `EventSourcedTaskStore` emits these events, and its reads project state from the event stream only.
+   */
   'task.created',
   'task.polled',
   'task.result',
   'task.cancelled',
-  // #1261 — dispatch-guard preflight observability. `dispatch.preflight`
-  // records the per-guard pass/fail outcome (ancestry, worktree,
-  // protectedBranch, mainWorktree) plus an aggregate `passed` flag and
-  // total durationMs. `stash.detected` fires when the worktree under
-  // dispatch has a non-empty `git stash list` — the cross-worktree
-  // shared-stash hazard documented in project memory. Both inherit
-  // `operationId` from the active `DispatchContext` (#1291 / B1).
+  /**
+   * `dispatch.preflight` records the result of each dispatch guard, an aggregate `passed` flag, and the
+   * total `durationMs`. `stash.detected` fires when the worktree under dispatch has a non-empty
+   * `git stash list`. Both take `operationId` from the active `DispatchContext`.
+   */
   'dispatch.preflight',
   'stash.detected',
-  // invariants-catalog-wizard (P2 / #1479 follow-up) — invariant-authoring
-  // lifecycle. `invariant.authored` is appended by the `invariants_add`
-  // composite handler on commit (dryRun:false). `catalog.registered` is
-  // appended on the first registration of a catalog file in `.exarchos.yml`
-  // (by `invariants_add`). Both are server-deterministic (auto) — the handler
-  // owns the write, the model is never nagged to hand-emit them.
+  /**
+   * The `invariants_add` handler appends `invariant.authored` on commit. It appends
+   * `catalog.registered` on the first registration of a catalog file in `.exarchos.yml`.
+   */
   'invariant.authored',
-  // `invariant.amended` is appended by the `invariants_amend` composite handler
-  // on commit (task 068). Distinct from `invariant.authored` on purpose: an
-  // amendment is not an authoring, and an audit trail that recorded a
-  // correction as a fresh authoring would be a record that does not mean what
-  // it says. Carries the field names the patch replaced.
+  /**
+   * The `invariants_amend` handler appends it on commit, with the names of the replaced fields. An
+   * amendment is a separate fact from an authoring.
+   */
   'invariant.amended',
   'catalog.registered',
-  // verification-ladder slice 1 (task 020) — mutation-run liveness (INV-10).
-  // `mutation.executing_started` lands at the start of a (non-dry-run) mutation
-  // run driven by the `mutation-adequacy` gate handler
-  // (`verbs/gates/mutation-adequacy.ts`); `mutation.executed` is the paired
-  // terminal event carrying the pass/fail verdict + exit code. The pair makes
-  // a long-running mutation sweep observable as "started but not yet
-  // terminated" the same way merge.executing_started/executed does. Emitted
-  // best-effort — a run with no event store (invoked outside a workspace)
-  // skips emission and never crashes.
+  /**
+   * Mutation-run liveness. The `mutation-adequacy` gate handler appends `mutation.executing_started` at
+   * the start of a run that is not a dry run. `mutation.executed` carries the verdict and the exit
+   * code. A run with no event store skips both events.
+   */
   'mutation.executing_started',
   'mutation.executed',
-  // #1319 — agent→runtime friction back-channel (Trevin Principle 10b). Emitted
-  // by the `exarchos_workflow.feedback` action when an agent (or operator) files
-  // a friction report mid-run. Lands on the shared `meta/feedback` stream (NOT a
-  // feature stream) so reports are queryable across every workflow — the
-  // in-runtime, event-sourced counterpart to the manual `/exarchos:dogfood`
-  // transcript triage, which now reads this stream as input.
+  /**
+   * The `exarchos_workflow.feedback` action emits it when an agent or an operator files a friction
+   * report. It lands on the shared `meta/feedback` stream, so reports are queryable across workflows.
+   */
   'feedback.recorded',
-  // WLM slice 3 (DR-3, epic #1574) — prune-run liveness pair (INV-10). Rides the
-  // singleton `worktrees` stream alongside the worktree lifecycle family and is
-  // folded by `worktrees@v1` into `inFlightPrunes` (keyed by `operationId`).
-  // `prune.executing_started` records the live holder (the process running the
-  // `prune_worktrees` GC pass) so a long pass is observable as "started but not
-  // yet terminated"; `prune.executed` is the paired terminal that clears the
-  // in-flight marker (never a phantom). Makes an in-flight prune `ps`/`wait`-
-  // visible — the rolled-forward foundation deferral. Both are `auto`
-  // deterministic plumbing: the WorktreeManager owns both appends around the pass.
+  /**
+   * Prune-run liveness on the singleton `worktrees` stream. `worktrees@v1` folds the pair into
+   * `inFlightPrunes`, keyed by `operationId`. `prune.executing_started` records the process that runs
+   * the `prune_worktrees` pass. `prune.executed` clears the in-flight marker. The WorktreeManager owns
+   * both appends.
+   */
   'prune.executing_started',
   'prune.executed',
-  // The prune evaluation's own audit record — how many handleList entries were
-  // rejected as malformed and how many survived as candidates. Appended on every
-  // non-suppressed evaluation, including the clean one, so "a prune ran and found
-  // nothing" is distinguishable from "no prune ran". The append site pre-dates the
-  // catalog and reached the store through a widening assertion; registering the
-  // type is what lets the emission ledger see it at all.
+  /**
+   * The audit record of a prune evaluation: the count of malformed `handleList` entries and the count
+   * of candidates. Every evaluation that is not suppressed appends it, so a clean run leaves a record.
+   */
   'prune.diagnostics',
-  // DR-4 (wiring-closure T-06) — durable projection-health state.
-  //
-  // `_meta.projectionDegraded` was an EPHEMERAL per-response annotation:
-  // recomputed on every read from an in-memory LRU of materialized folds,
-  // persisted nowhere and consumed by nobody, so a stale fold could still be
-  // served as `success: true` to any consumer that did not read `_meta`. This
-  // pair publishes the SAME cursor/tail verdict durably, so an independent
-  // consumer — a different process, or the same process after a restart with a
-  // cold cache — can READ the degraded state instead of re-deriving it from a
-  // cache it does not share.
-  //
-  // Both ride the dedicated singleton `meta/projection-health` stream, NEVER
-  // the observed stream: appending to the stream under assessment would move
-  // the very `MAX(sequence)` tail the verdict is computed against, and each
-  // read would then observe a fresh disagreement and append again (an
-  // unbounded self-feeding loop). Same shared-meta-stream idiom as
-  // `feedback.recorded` on `meta/feedback`.
-  //
-  // `projection.degraded` is published when a stream's worst projection cursor
-  // disagrees with its durable event tail. `projection.recovered` is the paired
-  // RESOLUTION, published only when a stream that currently holds a degraded
-  // record has caught the tail — so the folded state is a real two-state
-  // machine rather than a sticky one-way flag that can never be cleared. Both
-  // are `auto` deterministic plumbing (the freshness publisher owns the
-  // appends; the model is never asked to hand-emit them) and both are
-  // idempotency-keyed on the observed cursor/tail pair (INV-8), so repeated
-  // detection of the SAME degraded cursor collapses onto one row at the storage
-  // layer instead of spamming the stream once per read.
-  //
-  // Deliberately distinct from `workflow.projection_degraded` (DR-18) above:
-  // that event records a REHYDRATION fallback (reducer throw / corrupt
-  // snapshot / unavailable stream) on the feature stream. This pair records
-  // CURSOR/TAIL disagreement of an already-materialized fold. Different fault,
-  // different stream, different consumer — merging them would force one enum to
-  // carry two unrelated failure vocabularies.
+  /**
+   * Durable projection health on the singleton `meta/projection-health` stream. `projection.degraded`
+   * records that the worst projection cursor of a stream disagrees with its durable event tail.
+   * `projection.recovered` records that the stream caught the tail again. An append to the observed
+   * stream moves its tail, so these events never go there. The idempotency key is the cursor and tail
+   * pair. `workflow.projection_degraded` is a different fault: a rehydration fallback.
+   */
   'projection.degraded',
   'projection.recovered',
-  // DR-6 (lifecycle-verbs, task 012) — the two-event `export` contract (INV-13
-  // two-event split, INV-8 idempotency). `export` writes a zip bundle
-  // (events.jsonl + state.json + metadata.json + artifacts/) to a path OUTSIDE
-  // `.exarchos/` — a non-idempotent external side effect. `export.requested` is
-  // the durable INTENT carrying the RESOLVED destination path, journaled BEFORE
-  // the write; `export.executed` is the RESULT carrying the written bundle's
-  // content hash, journaled AFTER. A crash between the two is recoverable: the
-  // next invocation observes `export.requested` without `export.executed` and
-  // runs an idempotent precheck (zip exists + hash matches the recorded
-  // `contentHash`) to re-emit or redo. Both are `auto` — the `export` composite
-  // handler owns both appends deterministically (task 013), so the model is
-  // never asked to hand-emit them. Keyed on the payload's `idempotencyKey`
-  // (INV-8): a crash-retry of the SAME logical export collapses onto one intent,
-  // while a fresh export invocation mints a distinct key and a new pair.
+  /**
+   * The two-event `export` contract. `export.requested` holds the resolved destination path and comes
+   * before the zip write outside `.exarchos/`. `export.executed` holds the content hash of the bundle.
+   * After a crash between the two, the next run checks the zip and the hash, then emits again or
+   * writes again. The payload `idempotencyKey` collapses a retry of the same export.
+   */
   'export.requested',
   'export.executed',
-  // The VCS mutation ledger — the durable intent/terminal record the single git
-  // & worktree mutation owner writes around every non-idempotent git effect.
-  // `vcs.requested` is the INTENT appended BEFORE the effect; `vcs.executed` and
-  // `vcs.compensated` are the two mutually-exclusive TERMINALS appended after it
-  // (success, and failure-with-compensation respectively). Folding the ledger
-  // stream yields the fencing epoch, the idempotency replay cache and the set of
-  // open intents, so an interrupted run converges on retry instead of leaving an
-  // on-disk worktree or branch nothing recorded.
-  //
-  // These three used to be registered through the store's runtime registration
-  // seam from the owner's constructor, which meant they carried no data schema,
-  // no entry in the type map and no coupling tier — invisible to every static
-  // reader of the catalog. They are declared here instead, so the catalog is the
-  // one place a VCS ledger name exists.
+  /**
+   * The VCS mutation ledger. The git and worktree mutation owner appends `vcs.requested` before each
+   * non-idempotent git effect. Then it appends one terminal: `vcs.executed` on success, or
+   * `vcs.compensated` on failure with compensation. The fold gives the fencing epoch, the replay cache
+   * and the open intents, so an interrupted run converges on retry.
+   */
   'vcs.requested',
   'vcs.executed',
   'vcs.compensated',
-  // The atomic tree-promotion record — the durable fact that a staged tree was
-  // swapped into a live destination by `install/atomic-promotion.ts`. That site
-  // builds a typed `EffectPlan` and runs it, and until now NOTHING named the
-  // effect: the one non-idempotent step of an install (the commit rename that
-  // makes a whole rendered tree visible at once) left no record anywhere.
-  //
-  // Deliberately NOT `admission.cutover-ready`, which is next to it in spirit
-  // and is a different fact. That event is a readiness EXPORT record — it says a
-  // cutover MAY proceed, is appended by the observer's auto-export hook on the
-  // store-wide admission stream, and is keyed on store identity. This one says a
-  // tree WAS promoted, is appended by the promoting code itself, and is keyed on
-  // the destination and the content digest of what now lives there. Reusing the
-  // readiness fact for the effect would make "allowed to promote" and "promoted"
-  // the same row.
+  /**
+   * Records that `install/atomic-promotion.ts` swapped a staged tree into a live destination. The key
+   * is the destination and the content digest. It is a separate fact from `admission.cutover-ready`,
+   * which says that a cutover can proceed.
+   */
   'promotion.executed',
-  // The emission-violation report — the durable record that a handler finished
-  // an operation without appending an event its own registration declares
-  // unconditionally. The post-dispatch verifier appends it; a violation is an
-  // Exarchos bug rather than agent misbehavior, which is why it is a recorded
-  // fact and not a thrown error the caller sees.
-  //
-  // It has to exist as a NAME in the catalog before anything can report through
-  // it. A verifier that discovered a missed emission and had nowhere to write
-  // the finding would be an assertion whose only output is a log line, and the
-  // whole point of the check is that the miss survives the run that found it.
+  /**
+   * A handler finished an operation without an event that its registration declares unconditionally.
+   * The post-dispatch verifier appends it. A violation is an Exarchos bug, so it is a recorded fact and
+   * not an error that the caller sees.
+   */
   'emission.violated',
-  // Phase-gate v2.12 proof substrate (DR-2 / DR-3). These are additive,
-  // internal replay contracts only. They are classified `planned` below:
-  // v2.12 does not expose admission actions, authorize generic appends, or
-  // consume `admission.enforcement-enabled` to alter transition behavior.
+  /**
+   * The admission proof substrate: internal replay contracts with the `planned` lifecycle. v2.12
+   * exposes no admission action, and no transition reads `admission.enforcement-enabled`.
+   */
   ...INTERNAL_ADMISSION_EVENT_TYPES,
-  // The bounded action executor's operation record — appended
-  // under the caller's operationId on both the committed and the failed path,
-  // so a fully-failed segment leaves a queryable fact instead of zero events.
+  /**
+   * The operation record of the bounded action executor. It is appended under the caller
+   * `operationId` on the committed path and on the failed path, so a failed segment leaves a fact.
+   */
   'orchestrate.intent_executed',
-  // The semantic plane's settlement record: one batch of returned claims,
-  // adjudicated against the capsule that was pinned when the work was
-  // compiled. Appended on every outcome — settled, rejected, or held for a
-  // deviation — because a refused batch is a fact the next call has to be able
-  // to read, and a settlement that only recorded its successes would leave the
-  // caller re-deriving why the last one did not take.
+  /**
+   * The settlement record: one batch of claims, adjudicated against the capsule pinned at compile
+   * time. It is appended for every outcome (settled, rejected, or held for a deviation), so the next
+   * call can read why a batch failed.
+   */
   'execution.settled',
-  // The semantic plane's compilation record: one capsule compiled from a
-  // workflow's outstanding work, its bytes in custody and its digest pinned.
-  // Settlement adjudicates a capsule only against this record, so the terms a
-  // batch is judged by are the terms it was compiled under.
+  /**
+   * The compilation record: one capsule, with its bytes in custody and its digest pinned. Settlement
+   * adjudicates a capsule only against this record.
+   */
   'workflow.prepared',
-  // The divergence loop's decision facts. A batch `settle` holds for a
-  // deviation leaves one proposal per deviation it waits on; the settle call
-  // that decides the batch leaves one decision per proposal. Both land with
-  // their emitter, under the rule the semantic kinds are held to.
+  /**
+   * The decision facts of the divergence loop. A held batch leaves one proposal for each deviation.
+   * The settle call that decides the batch leaves one decision for each proposal.
+   */
   'deviation.proposed',
   'deviation.decided',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
 
-// ─── Extensible Event Type Registry ──────────────────────────────────────────
-
 const BUILT_IN_EVENT_TYPES = new Set<string>(EventTypes);
 const customEventTypes = new Set<string>();
 
-/**
- * The DR-3 event-name grammar as a regex, re-exported under the name it has always had.
- *
- * NOT an authority any more, and no longer authored here (DR-5). Until task 075 this binding was
- * `/^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/` — an independently-written second rule for what an
- * event name may be, which rejected 25 of the built-ins in this very file and never noticed
- * because {@link registerEventType} pointed it only at CUSTOM names. It is now built from the
- * grammar's own alphabet and separator set by `buildEventNamePattern`, so it is a FORM of the one
- * authority rather than a rival to it.
- *
- * It is kept (rather than deleted) because `architecture/event-grammar-census.ts` reads it as a
- * `RegExp` object to measure the two forms against each other. That measurement reads zero today;
- * the point of keeping the instrument is that it stops reading zero the moment anyone re-authors
- * this pattern by hand. See `docs/migrations/2026-08-10-event-name-grammar.md`.
- */
 export { EVENT_NAME_PATTERN } from './event-name.js';
 
 /**
  * Register a custom event type at runtime.
  *
- * Built-in event types cannot be overridden and duplicate custom registrations are rejected.
- * Well-formedness is decided by the DR-3 grammar (`event-name.ts`) — the single authority — which
- * throws a {@link MalformedEventNameError} naming both the broken clause and the migration note.
+ * A built-in name or a duplicate custom name throws. The grammar in `event-name.ts` decides
+ * well-formedness and throws a {@link MalformedEventNameError} for a malformed name.
  */
 export function registerEventType(
   name: string,
@@ -701,19 +524,14 @@ export function registerEventType(
 
   customEventTypes.add(name);
 
-  // Register source in emission registry (cast to allow string indexing)
   (EVENT_EMISSION_REGISTRY as Record<string, EventEmissionSource>)[name] = options.source;
 
-  // Register schema if provided
   if (options.schema) {
     (EVENT_DATA_SCHEMAS as Record<string, z.ZodSchema>)[name] = options.schema;
   }
 }
 
-/**
- * Remove a custom event type. Only custom (non-built-in) types can be removed.
- * Used for test cleanup.
- */
+/** Remove a custom event type, for test cleanup. A built-in type throws. */
 export function unregisterEventType(name: string): void {
   if (BUILT_IN_EVENT_TYPES.has(name)) {
     throw new Error(`Cannot unregister built-in event type: '${name}'`);
@@ -723,65 +541,34 @@ export function unregisterEventType(name: string): void {
   delete (EVENT_DATA_SCHEMAS as Record<string, z.ZodSchema>)[name];
 }
 
-/**
- * Returns all valid event types: built-in + custom.
- */
+/** Returns all valid event types: built-in and custom. */
 export function getValidEventTypes(): string[] {
   return [...EventTypes, ...customEventTypes];
 }
 
-/**
- * Check if a name is a built-in event type.
- */
+/** Whether a name is a built-in event type. */
 export function isBuiltInEventType(name: string): boolean {
   return BUILT_IN_EVENT_TYPES.has(name);
 }
 
-// ─── Event Emission Source ───────────────────────────────────────────────────
-
-// `retired` — the data schema + type-map entry are KEPT so legacy event logs
-// remain replayable (INV-1), but nothing emits the event any more. Semantically
-// the mirror of `planned` (schema exists, not-yet-emitted): `retired` is
-// schema-exists, no-longer-emitted. Distinguishing the two keeps the emission
-// catalog honest — a `retired` event must never appear in any action's
-// `autoEmits` (the RegistryDrift test enforces `autoEmits ⊆ auto`).
+/**
+ * Where an event comes from. `planned` has a schema and no emitter yet. `retired` keeps its schema
+ * and type-map entry for replay, and nothing emits it. A `retired` event never appears in `autoEmits`.
+ */
 export type EventEmissionSource = 'auto' | 'model' | 'hook' | 'planned' | 'retired';
 
 /**
- * The emission source every registered event type carries.
+ * The emission source of every registered event type.
  *
- * **DERIVED, never independently authored (DR-2, task 011).** Until this task this binding was a
- * 370-line object literal of 170 hand-written string literals — a SECOND authority for a fact the DR-2 coupling
- * annotation already fixes, and the reason `benchmark.completed` could sit in the catalog
- * declaring `'hook'` while its measured coupling derived `'auto'`. Authoring a source that
- * disagrees with the tier is no longer detected-and-reported: there is no per-event source to
- * author, so the disagreement has no form to take. That is the same move DR-2 makes for
- * report-coupling ("there is no variant to construct"), applied to the emission axis.
- *
- * The two axes and the total tier -> source map are `event-registration.ts`
- * (`EMISSION_SOURCE_BY_TIER`, `resolveEmissionSource`); the per-event coupling claims, with the
- * emission-site and consumer-fold evidence behind each one, are `event-annotations.ts`. The
- * per-entry prose that used to live here documented the value this expression now computes; it
- * is preserved in git history at the task-011 commit and superseded by the annotation table,
- * which records WHY each event is welded where it is rather than only what it emits.
- *
- * **Totality is now by construction, which is strictly stronger than the literal it replaces.**
- * The old table was total over `EventType` because `tsc` required a key for every member of the
- * union — a hand-written list that happened to be complete. The registry is now BUILT FROM
- * `EventTypes` itself, so its key set cannot differ from the catalog's. {@link
- * deriveEmissionRegistry} additionally fails closed at load on an empty population (a moved or
- * renamed catalog must not read as a clean empty registry) and on any registered type the
- * annotations do not cover.
- *
- * Runtime-registered custom types are added by {@link registerEventType}, which is the only
- * remaining surface on which a source is supplied rather than derived — deliberately, because
- * `ExarchosConfig.events` lets a user declare `{ source: 'auto' | 'model' | 'hook' }` for an
- * event this repo knows nothing about and therefore cannot tier.
+ * Each source derives from the coupling tier in `event-annotations.ts`, through
+ * `resolveEmissionSource` in `event-registration.ts`. No source is authored here, so a source cannot
+ * disagree with its tier. The registry is built from `EventTypes`, so its keys match the catalog.
+ * {@link deriveEmissionRegistry} fails closed at load on an empty population or an unannotated type.
+ * Only {@link registerEventType} supplies a source directly, for a custom type from
+ * `ExarchosConfig.events`.
  */
 export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> =
   deriveEmissionRegistry(EventTypes, ANNOTATED_EVENTS.registrationOf);
-
-// ─── Base Event Schema ──────────────────────────────────────────────────────
 
 export const WorkflowEventBase = z.object({
   streamId: z.string().min(1).max(100),
@@ -796,18 +583,12 @@ export const WorkflowEventBase = z.object({
   ),
   correlationId: z.string().max(200).optional(),
   causationId: z.string().max(200).optional(),
-  // #1291 — dispatch-boundary three-field correlation. `operationId` is
-  // minted per `dispatch()` call (see `dispatch/dispatch-context.ts`) and
-  // stamped onto every event emitted transitively inside the dispatch via
-  // AsyncLocalStorage in `EventStore.append*`. Sibling to the existing
-  // `correlationId` / `causationId` fields rather than nested under
-  // `_meta` to preserve the prior shape's projection contracts (rehydrate,
-  // telemetry, audit views) which read these as top-level event keys.
-  //
-  // Optional because a dispatch wrapper is not always active — direct
-  // tests and migration tooling append events outside the dispatch
-  // boundary and must continue to work un-stamped (backward-compatible
-  // widening, INV-5b).
+  /**
+   * The dispatch correlation id. Each `dispatch()` call mints it, and `EventStore.append*` stamps it on
+   * each event in the dispatch through AsyncLocalStorage. It is top-level, beside `correlationId`, for
+   * the projections that read these keys. It is optional because direct tests and migration tooling
+   * append outside a dispatch.
+   */
   operationId: z.string().max(200).optional(),
   agentId: z.string().min(1).max(200).optional(),
   agentRole: z.string().max(50).optional(),
@@ -819,44 +600,38 @@ export const WorkflowEventBase = z.object({
   idempotencyKey: z.string().min(1).max(200).optional(),
 });
 
-// ─── Workflow-Level Event Data ──────────────────────────────────────────────
-
 export const WorkflowStartedData = z.object({
   featureId: z.string(),
   workflowType: WorkflowTypeSchema,
-  // DR-2 / DR-4: identity of the initial actionable phase entry. Optional for
-  // replay compatibility with pre-v2.12 streams; every new writer supplies it.
+  /**
+   * The identity of the initial actionable phase entry. It is optional for streams older than v2.12.
+   * Every new writer supplies it.
+   */
   phaseAttemptId: PhaseAttemptIdSchema.optional(),
   designPath: z.string().optional(),
-  // Oneshot-only: the synthesisPolicy chosen at init time. Must be persisted
-  // in the event stream so ES v2 rematerialization reconstructs the policy
-  // — otherwise the workflow silently reverts to the schema default
-  // (`on-request`) after `handleInit` → rehydrate round-trips. Silently
-  // accepted for non-oneshot workflow types but never populated by them.
+  /**
+   * The oneshot synthesis policy chosen at init. The stream must persist it, or rehydration falls back
+   * to the schema default `on-request`. Other workflow types do not set it.
+   */
   synthesisPolicy: z.enum(['always', 'never', 'on-request']).optional(),
-  // Repo identity (DR-5). OPTIONAL: populated by the composite layer at init
-  // from the serving process's working directory via `deriveRepoKey`
-  // (utils/paths.ts). Legacy events without it MUST still parse — the pipeline
-  // projection treats an absent `repoRoot` as unscoped. The field enters the
-  // model strictly as event data; no historical event is rewritten.
+  /**
+   * The repository identity, from `deriveRepoKey` on the server working directory at init. Older
+   * events do not have it, and the pipeline projection treats an absent `repoRoot` as unscoped.
+   */
   repoRoot: z.string().optional(),
 });
 
 export const TaskAssignedData = z.object({
   taskId: z.string().describe('Unique identifier for the task'),
   title: z.string().describe('Human-readable task title'),
-  // Optional. When present, downstream tools (e.g., setup_worktree) may
-  // honor this as the planned branch for the task — see the resolution
-  // priority documented on SetupWorktreeArgs (`args.branch >
-  // workflow.tasks[id].branch > default`). Aligns the event hint with the
-  // workflow-state shape so orchestrators can pre-emit the same branch
-  // they later set on the workflow.
+  /**
+   * The planned branch of the task. `setup_worktree` takes the first branch that is set: `args.branch`,
+   * then `workflow.tasks[id].branch`, then the default.
+   */
   branch: z.string().optional().describe('Git branch for this task (planned). Optional.'),
   worktree: z.string().optional().describe('Path to the git worktree for isolation'),
   assignee: z.string().optional().describe('Agent or user assigned to this task'),
 });
-
-// ─── Task-Level Event Data ──────────────────────────────────────────────────
 
 export const TaskClaimedData = z.object({
   taskId: z.string(),
@@ -881,7 +656,7 @@ export const TaskCompletedData = z.object({
     passed: z.boolean(),
   }).optional(),
   verified: z.boolean().optional(),
-  // Provenance chain fields (optional, backward-compatible)
+  /** Provenance: the requirement ids that this task implements. */
   implements: z.array(z.string()).optional(),
   tests: z.array(z.object({ name: z.string(), file: z.string() })).optional(),
   files: z.array(z.string()).optional(),
@@ -892,8 +667,6 @@ export const TaskFailedData = z.object({
   error: z.string().max(500),
   diagnostics: z.record(z.string(), z.unknown()).optional(),
 });
-
-// ─── Quality Gate Event Data ────────────────────────────────────────────────
 
 export const GateExecutedDetailsSchema = z.object({
   skill: z.string().optional(),
@@ -914,33 +687,10 @@ export const GateExecutedData = z.object({
   details: z.record(z.string(), z.unknown()).optional(),
 });
 
-// ─── Telemetry check records — the two `gate.executed` uses that never governed ───
-//
-// `gate.executed` carried a `layer: z.string()` that NOTHING validated and
-// NOTHING read, and that unread string was the only thing separating two
-// populations: gates the verification ladder runs, and checks we merely
-// observe. The separation was decorative, so the observations folded into the
-// governance views as if they were gate runs. See the two types below for what
-// each one was doing there.
-//
-// The payloads are shaped for what each site actually records rather than
-// inherited from `GateExecutedData`. A CI check has a PR number and no
-// duration; a budget breach has a byte count and no pass/fail (it is only
-// appended when it breached). Keeping the gate shape would have preserved the
-// vocabulary that caused the collision.
-
 /**
- * A tool response that exceeded its response-economy token budget.
- *
- * Was appended as `gate.executed` with `gateName: 'token-budget'` and
- * `details.dimension: 'D3'`. `D3` is a REAL convergence dimension (Context
- * Economy), so the convergence view folded the row into `dimensions.D3` as a
- * failed gate result — under a gate name nothing ever re-runs, which made the
- * failure unrecoverable. Once any response in a feature stream breached the
- * budget, D3 could never converge again and `overallConverged` was pinned
- * false. The legitimate path from runtime economy to the D3 verdict already
- * exists and is unaffected: the `context-economy` gate reads
- * `queryRuntimeMetrics` and appends its own governance verdict.
+ * A tool response that exceeded its response-economy token budget. It is a runtime measurement and
+ * not a gate result, so the convergence view does not fold it into `D3`. The `context-economy` gate
+ * reads `queryRuntimeMetrics` and appends the governance verdict for `D3`.
  */
 export const ToolBudgetExceededData = z.object({
   tool: z.string(),
@@ -952,14 +702,8 @@ export const ToolBudgetExceededData = z.object({
 });
 
 /**
- * The observed status of one CI check on one pull request.
- *
- * Was appended as `gate.executed` with `gateName` set to the CI check's name,
- * which put every GitHub check into the same `gates[...]` namespace as the
- * gates this repository runs itself. A CI job named after one of ours silently
- * merged two populations' pass rates. The per-skill measurement that motivated
- * the original `details.skill` is kept — it is the shepherd's outcome measure —
- * and only the gate-namespace half is dropped.
+ * The observed status of one CI check on one pull request. It is not a gate result, so a CI job
+ * cannot share a pass rate with a local gate of the same name.
  */
 export const CiCheckObservedData = z.object({
   pr: z.number().int(),
@@ -968,8 +712,6 @@ export const CiCheckObservedData = z.object({
   /** The skill whose outcome this check measures. */
   skill: z.string().optional(),
 });
-
-// ─── Stack Event Data ───────────────────────────────────────────────────────
 
 export const StackPositionFilledData = z.object({
   position: z.number().int(),
@@ -988,42 +730,39 @@ export const StackEnqueuedData = z.object({
   prNumbers: z.array(z.number().int()),
 });
 
-// ─── Workflow Internal Event Data ─────────────────────────────────────────
-
 export const WorkflowTransitionData = z.object({
   from: z.string(),
   to: z.string(),
   trigger: z.string(),
   featureId: z.string(),
-  // Identity allocated at the successful entry boundary. Optional solely for
-  // historical event compatibility; new transition writes always carry it.
+  /**
+   * The identity allocated at the entry boundary. It is optional only for historical events. New
+   * transition writes always carry it.
+   */
   phaseAttemptId: PhaseAttemptIdSchema.optional(),
 });
 
 export const WorkflowFixCycleData = z.object({
-  // Only meaningful inside a compound state; a top-level child has no parent
-  // compound, so absence is valid (#1339). Compound entry/exit always carry a
-  // defined id and keep their non-optional `z.string()`.
+  /** The parent compound state. A top-level child has no parent compound, so it omits this field. */
   compoundStateId: z.string().optional(),
   count: z.number().int(),
   featureId: z.string(),
 });
 
-// DR-1 — counted plan-review revise cycle. Mirrors WorkflowFixCycleData: the
-// emission boundary stamps the 1-based occurrence ordinal as `count`, and
-// `compoundStateId` is optional because plan-review is a top-level atomic phase
-// (no parent compound) — omitted rather than emitted as `undefined`.
+/**
+ * A counted revise cycle of plan review, with the same shape as `WorkflowFixCycleData`. `count` is
+ * the 1-based occurrence. Plan review is a top-level phase, so `compoundStateId` is absent.
+ */
 export const WorkflowPlanRevisionData = z.object({
   compoundStateId: z.string().optional(),
   count: z.number().int(),
   featureId: z.string(),
 });
 
-// WLM-6 (DR-2) — counted plan-review dispatch, emitted by the
-// `prepare_review scope:plan` provisioning seam. `ordinal` is the 0-based
-// dispatch index for this feature (0 = the initial review = revision 0, 1 = the
-// first re-dispatch = revision 1, …); the projection folds the MAX ordinal into
-// `planReview.revisionCount`. Non-negative because it is a count-derived index.
+/**
+ * A counted plan-review dispatch. `ordinal` is the 0-based dispatch index of the feature, and 0 is
+ * the initial review. The projection folds the maximum ordinal into `planReview.revisionCount`.
+ */
 export const WorkflowPlanReviewDispatchedData = z.object({
   featureId: z.string(),
   ordinal: z.number().int().nonnegative(),
@@ -1037,18 +776,9 @@ export const WorkflowGuardFailedData = z.object({
 });
 
 /**
- * Handoff payload (#1240) — optional sub-object on `workflow.checkpoint`.
- * Carries human-readable phase-exit notes alongside the structured counter
- * + phase + featureId. Per-field byte caps (DIM-7) prevent unbounded growth;
- * the rehydration projection (`latestHandoff` / `recentHandoffs`) derives
- * its content from this payload.
- *
- * CodeRabbit major on PR #1297: strictObject rejects unknown keys so a
- * malformed event payload (typo, future-version key, structured-clone
- * artifact) fails validation at the persisted-event boundary rather
- * than being silently truncated and folded into the rehydration
- * projection's `latestHandoff`. Mirrors the dispatch-side strictness
- * in `workflow/schemas.ts:CheckpointHandoffSchema` exactly.
+ * The optional handoff of `workflow.checkpoint`: phase-exit notes for the rehydration projection.
+ * Each field has a size cap. The strict object rejects unknown keys at the persisted-event boundary,
+ * the same as `CheckpointHandoffSchema` in `workflow/schemas.ts`.
  */
 export const HandoffEntryData = z.strictObject({
   context: z.string().max(2048).optional(),
@@ -1060,25 +790,18 @@ export const WorkflowCheckpointData = z.object({
   counter: z.number().int(),
   phase: z.string(),
   featureId: z.string(),
-  // Additive (#1240). Historical workflow.checkpoint events without handoff
-  // parse cleanly under .optional(). The event payload itself stays
-  // unversioned — only the rehydration projection envelope is versioned.
+  /**
+   * Older checkpoint events have no handoff. The payload has no version. Only the rehydration
+   * projection envelope has a version.
+   */
   handoff: HandoffEntryData.optional(),
 });
 
 /**
- * `workflow.handoff_summarized` (#1242) — auto-summarized handoff fallback.
- *
- * Emitted by a summarizer subagent (out of scope for #1242 — separate dispatch
- * path) when a checkpoint fires with no operator-authored handoff. Carries the
- * same `handoff` sub-object shape as `workflow.checkpoint` so the rehydration
- * reducer's `extractHandoff` folds both uniformly; `handoff` is REQUIRED here
- * (a summary event with no content is meaningless, though the reducer still
- * no-ops defensively on empty content).
- *
- * Replay determinism (INV-1 / Constraint 1): the summary string lives ON the
- * event — replay folds the stored payload, never re-invokes the (non-
- * deterministic) summarizer — so the projection is reproducible.
+ * An auto-summarized handoff. A summarizer subagent emits it when a checkpoint fires with no
+ * operator-authored handoff. It has the same `handoff` shape as `workflow.checkpoint`, so
+ * `extractHandoff` folds both. Here `handoff` is required. The event stores the summary, so replay
+ * never calls the summarizer again.
  */
 export const WorkflowHandoffSummarizedData = z.object({
   featureId: z
@@ -1143,7 +866,7 @@ const CancellationTrustedProvenance = {
   authorization: AuthorizationSnapshotV1Schema.optional(),
 } as const;
 
-/** Durable cancellation intent; always precedes compensation side effects. */
+/** Durable cancellation intent. It always comes before the compensation side effects. */
 export const CancelRequestedData = z
   .object({
     eventVersion: CancellationEventVersionSchema,
@@ -1218,18 +941,13 @@ export const CancelReadyData = z
   .strict()
   .readonly();
 
-// ─── P04-02 (EFF-005) — process-manager saga facts ──────────────────────────
-// A monotonic fencing epoch, a bounded-retry ladder, and an explicit
-// manual-intervention terminal, all recorded as replayable events so that
-// restart AND takeover fold to the same decisions (see cancel-process-manager.ts).
-
 const CancellationEpochSchema = z.number().int().positive();
 const CancellationInstanceIdSchema = z.string().trim().min(1).max(200);
 
 /**
- * Fencing-token allocation. `epoch` is strictly greater than every prior
- * ownership epoch on the stream; the process manager rejects any subsequent
- * write carrying a lower epoch (the classic distributed-lock fencing token).
+ * Fencing-token allocation. `epoch` is greater than every earlier ownership epoch on the stream. The
+ * process manager rejects a later write with a lower epoch, so restart and takeover fold to the same
+ * decisions.
  */
 export const CancelOwnershipAcquiredData = z
   .object({
@@ -1245,9 +963,8 @@ export const CancelOwnershipAcquiredData = z
   .readonly();
 
 /**
- * Durable record that a failed compensation attempt is being retried. `attempt`
- * is the 1-based index of the attempt that just failed; a re-attempt (attempt
- * + 1) follows. Bounded by `maxAttempts`.
+ * The durable record of a retry of a failed compensation attempt. `attempt` is the 1-based index of
+ * the attempt that failed, and attempt + 1 follows. `maxAttempts` bounds the retries.
  */
 export const CancelCompensationRetryScheduledData = z
   .object({
@@ -1267,10 +984,8 @@ export const CancelCompensationRetryScheduledData = z
   .readonly();
 
 /**
- * Terminal-but-unresolved compensation state. Reached when retries are
- * exhausted (or a non-retryable malformed result is observed). The saga can
- * never report `cancel.ready` while any action is in this state — it is a real,
- * queryable escalation, not a silently swallowed failure.
+ * The unresolved terminal state of a compensation, after retry exhaustion or a malformed result that
+ * cannot be retried. The saga never reports `cancel.ready` while an action is in this state.
  */
 export const CancelManualInterventionRequiredData = z
   .object({
@@ -1328,8 +1043,7 @@ export const WorkflowRehydratedData = z.object({
   projectionSequence: z.number().int().nonnegative(),
   deliveryPath: z.enum(['direct', 'ndjson', 'snapshot']),
   tokenEstimate: z.number().int().nonnegative(),
-  // T-10: optional playbook-presence flags (v2.12 lifecycle alignment).
-  // Emission wired by T-21; absent in legacy events (additive, no version bump).
+  /** Optional playbook-presence flags. Older events do not have them. */
   phaseHasPlaybook: z.boolean().optional(),
   phasePlaybookComposed: z.boolean().optional(),
 });
@@ -1340,10 +1054,8 @@ export const WorkflowSnapshotTakenData = z.object({
 });
 
 /**
- * Closed enum of degradation causes (DR-18, T054/T055/T056). Extending this
- * set is a coordinated change: add the literal here, add the matching
- * `DegradationCause` union member in `workflow/rehydrate.ts`, and surface
- * the new code in the audit/observability paths so dashboards don't fragment.
+ * The closed set of degradation causes. A new cause needs the literal here, a matching
+ * `DegradationCause` member in `workflow/rehydrate.ts`, and support in the audit paths.
  */
 export const WorkflowProjectionDegradedCause = z.enum([
   'reducer-throw',
@@ -1355,10 +1067,8 @@ export type WorkflowProjectionDegradedCause = z.infer<
 >;
 
 /**
- * Closed enum of fallback-source codes (DR-18). Mirrors the
- * `DegradationFallbackSource` union in `workflow/rehydrate.ts`. New entries
- * MUST be added in both places — the schema enforces the wire contract,
- * the union enforces the call-site contract.
+ * The closed set of fallback sources. It mirrors `DegradationFallbackSource` in
+ * `workflow/rehydrate.ts`, and a new entry must go in both places.
  */
 export const WorkflowProjectionDegradedFallbackSource = z.enum([
   'state-store-only',
@@ -1380,8 +1090,6 @@ export const SynthesizeRequestedData = z.object({
   timestamp: z.string().datetime(),
 });
 
-// ─── Review Event Data ─────────────────────────────────────────────────────
-
 export const ReviewRoutedData = z.object({
   pr: z.number().int().describe('Pull request number'),
   riskScore: z.number().min(0).max(1).describe('Computed risk score (0-1) for review routing'),
@@ -1390,14 +1098,6 @@ export const ReviewRoutedData = z.object({
   velocityTier: z.enum(['normal', 'elevated', 'high']).describe('Current review velocity tier'),
   semanticAugmented: z.boolean().describe('Whether semantic analysis augmented the routing'),
 });
-
-// `ReviewFindingData`, `ReviewEscalatedData` and `ReviewCompletedData` are DR-2 `judgment`
-// content schemas and now live in `judgment-content-schemas.ts` (re-exported above, so
-// `import { ReviewFindingData } from './schemas.js'` is unchanged). See that module's header for
-// the measured reason: they were the last runtime values `event-annotations.ts` took from here,
-// and this module now imports the annotations to derive `EVENT_EMISSION_REGISTRY`.
-
-// ─── Telemetry Event Data ──────────────────────────────────────────────────
 
 export const ToolInvokedData = z.object({
   tool: z.string(),
@@ -1416,12 +1116,11 @@ export const ToolErroredData = z.object({
   errorMessage: z.string(),
 });
 
-// PR3/T7 (#1364) — structured action-level failure paired with `tool.completed`.
-// Mirrors `tool.completed`'s perf fields so the projection can fold both events
-// off the same per-tool entry without re-deriving durationMs/responseBytes.
-// `errorCode` is the discriminator carried up from the handler's error envelope
-// (e.g., MERGE_ROLLED_BACK, PREFLIGHT_FAILED, RESERVED_FIELD); falls back to
-// 'UNKNOWN' when the handler emits an envelope without a code.
+/**
+ * A structured action failure, paired with `tool.completed`. It repeats the performance fields of
+ * `tool.completed`, so the projection folds both events into one per-tool entry. `errorCode` comes
+ * from the handler error envelope, or is `UNKNOWN` when the envelope has no code.
+ */
 export const ToolActionErroredData = z.object({
   tool: z.string(),
   durationMs: z.number(),
@@ -1430,28 +1129,22 @@ export const ToolActionErroredData = z.object({
   tokenEstimate: z.number(),
 });
 
-// #1262 — per-turn output-token sample (CodeRabbit F2).
-//
-// Emitted by the telemetry middleware when an agent turn completes. The
-// telemetry projection (`projections/telemetry/telemetry-projection.ts`) folds
-// `turnId` + `outputTokens` into `view.turns` for the `output_tokens_high`
-// quality hint. Anything else on the payload is ignored by the projection
-// today, so the schema is `.passthrough()` to keep the door open for
-// future per-turn samples (cache-read tokens, latency, etc.) without a
-// breaking schema bump.
+/**
+ * A per-turn output-token sample. The telemetry projection folds `turnId` and `outputTokens` into
+ * `view.turns` for the `output_tokens_high` quality hint. The schema is `.passthrough()`, so a later
+ * per-turn field needs no breaking change.
+ */
 export const TurnCompletedDataSchema = z.object({
   turnId: z.string().min(1).describe('Stable identifier for the turn (typically a UUID).'),
   outputTokens: z.number().nonnegative().describe('Total output tokens consumed by the turn.'),
 }).passthrough();
 export type TurnCompletedData = z.infer<typeof TurnCompletedDataSchema>;
 
-// #1525 W2 Half 1 — per-subagent output-token total, emitted by the restored
-// SubagentStop hook. The hook resolves teammate identity (teammateName/taskId)
-// by matching the subagent's `cwd` to a dispatched worktree on the feature stream
-// before appending, so the projection fold stays a clean single-stream left-fold.
-// `teammateName`/`taskId` are optional: a non-worktree-isolated subagent has an
-// ambiguous (shared) cwd and degrades to agentType-only attribution (INV-4).
-// `.passthrough()` keeps room for future per-subagent samples (cache tokens, etc).
+/**
+ * The output-token total of one subagent, from the SubagentStop hook. The hook matches the subagent
+ * `cwd` to a dispatched worktree to resolve `teammateName` and `taskId`. A subagent without its own
+ * worktree has a shared cwd, so it gets only `agentType` attribution.
+ */
 export const SubagentTokensUsedDataSchema = z.object({
   agentId: z.string().min(1).describe('Stable subagent invocation id from the SubagentStop hook (agent_id).'),
   outputTokens: z.number().int().nonnegative().describe('Summed output tokens across the subagent\'s own transcript.'),
@@ -1462,8 +1155,6 @@ export const SubagentTokensUsedDataSchema = z.object({
   cwd: z.string().optional().describe('Subagent working directory; the worktree path for isolated teammates.'),
 }).passthrough();
 export type SubagentTokensUsedData = z.infer<typeof SubagentTokensUsedDataSchema>;
-
-// ─── Benchmark Event Data ───────────────────────────────────────────────────
 
 export const BenchmarkCompletedData = z.object({
   taskId: z.string(),
@@ -1477,8 +1168,6 @@ export const BenchmarkCompletedData = z.object({
     passed: z.boolean(),
   })).min(1),
 });
-
-// ─── Team Event Data ────────────────────────────────────────────────────────
 
 export const TeamSpawnedData = z.object({
   teamSize: z.number().int().nonnegative().describe('Number of agents spawned in this team'),
@@ -1530,8 +1219,6 @@ export const TeamTeammateDispatchedData = z.object({
   model: z.string().describe('LLM model used for this teammate'),
 });
 
-// ─── Quality Regression Event Data ──────────────────────────────────────────
-
 export const QualityRegressionData = z.object({
   skill: z.string().describe('Skill where regression was detected'),
   gate: z.string().describe('Gate that started failing'),
@@ -1541,16 +1228,12 @@ export const QualityRegressionData = z.object({
   detectedAt: z.string().datetime().describe('ISO timestamp when the regression was detected'),
 });
 
-// ─── Quality Hint Event Data ─────────────────────────────────────────────
-
 export const QualityHintGeneratedData = z.object({
   skill: z.string(),
   hintCount: z.number().int().nonnegative(),
   categories: z.array(z.string()),
   generatedAt: z.string().datetime(),
 });
-
-// ─── Quality Refinement Event Data ──────────────────────────────────────────
 
 export const RefinementSuggestedDataSchema = z.object({
   skill: z.string().min(1),
@@ -1570,8 +1253,6 @@ export const RefinementSuggestedDataSchema = z.object({
   affectedPromptPaths: z.array(z.string()),
 });
 
-// ─── Shepherd Event Data ──────────────────────────────────────────────────
-
 export const ShepherdStartedData = z.object({
   featureId: z.string(),
 });
@@ -1587,9 +1268,10 @@ export const ShepherdApprovalRequestedData = z.object({
   prUrl: z.string(),
 });
 
-// DR-3 (#1595): structured bound-hit escalation. Hitting the auto-fix bound
-// emits this (a structured terminal, NOT a hang — INV-10) so shepherd_status/ps
-// can surface the WHY (reason + counts), not just the derived 'escalate' status.
+/**
+ * A structured escalation when the shepherd hits its auto-fix bound. It is a terminal, not a hang, so
+ * `shepherd_status` and `ps` can show the reason and the counts.
+ */
 export const ShepherdEscalatedData = z.object({
   featureId: z.string(),
   prNumbers: z
@@ -1608,8 +1290,6 @@ export const ShepherdCompletedData = z.object({
   prUrl: z.string(),
   outcome: z.string(),
 });
-
-// ─── Eval Event Data ────────────────────────────────────────────────────────
 
 export const EvalRunStartedData = z.object({
   runId: z.string().uuid(),
@@ -1662,27 +1342,19 @@ export const JudgeCalibratedDataSchema = z.object({
   rubricVersion: z.string(),
 });
 
-// ─── Diagnostic Event Data ──────────────────────────────────────────────────
-
 export const DiagnosticExecutedDataSchema = z.object({
   summary: DoctorOutputSchema.shape.summary,
   checkCount: z.number().int().nonnegative(),
   failedCheckNames: z.array(z.string()),
-  // Additive: rows appended before the field existed carry only the failed
-  // names. A Warning is a finding the operator is told about and the exit code
-  // does not carry, so without its name on the ledger a custody violation the
-  // doctor reported would leave no record of WHICH check reported it.
+  /**
+   * The names of the checks that reported a warning. The exit code does not carry a warning, so the
+   * ledger needs the names. Older rows have only the failed names.
+   */
   warningCheckNames: z.array(z.string()).optional(),
   durationMs: z.number().int().nonnegative(),
 });
 
-// ─── Invariant Authoring Event Data (invariants-catalog-wizard, P2) ──────────
-
-/**
- * `invariant.authored` — emitted by `invariants_add` on commit. Records which
- * invariant id was authored, into which catalog, at what tier, so the audit
- * trail can reconstruct the authoring history (INV-1 event-sourcing integrity).
- */
+/** `invariants_add` emits it on commit. It records the invariant id, the catalog, and the tier. */
 export const InvariantAuthoredDataSchema = z.object({
   id: z.string().min(1),
   catalog: z.string().min(1),
@@ -1692,14 +1364,9 @@ export const InvariantAuthoredDataSchema = z.object({
 });
 
 /**
- * `invariant.amended` — emitted by `invariants_amend` on commit (task 068).
- * Records which entry was corrected, in which catalog, and WHICH FIELDS the
- * amendment replaced, so the audit trail can reconstruct not just that an
- * entry changed but what part of it did (INV-1 event-sourcing integrity).
- *
- * Separate from `invariant.authored` deliberately: amending is not authoring,
- * and folding the two would make the history unable to distinguish a new rule
- * from a correction to an existing one.
+ * `invariants_amend` emits it on commit. It records the entry, the catalog, and the fields that the
+ * amendment replaced. It is separate from `invariant.authored`, so the history keeps a new rule apart
+ * from a correction.
  */
 export const InvariantAmendedDataSchema = z.object({
   id: z.string().min(1),
@@ -1708,34 +1375,22 @@ export const InvariantAmendedDataSchema = z.object({
   /** Top-level entry fields the patch replaced. Never empty. */
   fields: z.array(z.string().min(1)).min(1),
 });
-/**
- * `catalog.registered` — emitted on the first registration of a catalog file
- * in `.exarchos.yml` (by `invariants_add`). Records the registered path + tier.
- */
+/** `invariants_add` emits it on the first registration of a catalog file in `.exarchos.yml`. */
 export const CatalogRegisteredDataSchema = z.object({
   path: z.string().min(1),
   tier: z.enum(['dev', 'user']),
 });
 
-// ─── Onboard Event Data (DR-7, two-event contract) ──────────────────────────
-//
-// `init.executed` (the retired init composite's event) was removed in DR-5
-// (task 018). The onboard two-event contract below is its successor.
-
 /**
- * The onboard trigger surface. `onboard` reconciles an existing repo;
- * `onboard-new` scaffolds a fresh project; `doctor-fix` applies the structured
- * doctor diff. All three drive the same reconciler, distinguished only by this
- * tag so the audit trail records *why* the reconcile ran.
+ * The onboard trigger. `onboard` reconciles an existing repo, `onboard-new` scaffolds a new project,
+ * and `doctor-fix` applies the doctor diff. All three run the same reconciler.
  */
 const OnboardTriggerSchema = z.enum(['onboard', 'onboard-new', 'doctor-fix']);
 
 /**
- * `onboard.requested` — the durable INTENT recorded BEFORE the non-idempotent
- * reconcile fires (INV-1 / INV-13 two-event split). Carries the planned
- * {@link ReconcilePlan} so the timeline can reconstruct what was *intended*
- * even if execution crashes mid-flight. `idempotencyKey` lets a retry collapse
- * onto the same logical request.
+ * The durable intent, recorded before the reconcile runs. It carries the planned
+ * {@link ReconcilePlan}, so the timeline keeps the intent after a crash. `idempotencyKey` collapses a
+ * retry onto the same request.
  */
 export const OnboardRequestedDataSchema = z.object({
   trigger: OnboardTriggerSchema,
@@ -1746,10 +1401,8 @@ export const OnboardRequestedDataSchema = z.object({
 });
 
 /**
- * `onboard.executed` — the RESULT recorded AFTER the reconcile succeeds
- * (INV-1 / INV-13). Carries the {@link ReconcileResult} (applied / skipped /
- * residual steps + advisories), the wall-clock `durationMs`, and the same
- * `idempotencyKey` that paired it to its `onboard.requested` intent.
+ * The result, recorded after the reconcile succeeds. It carries the {@link ReconcileResult}, the
+ * `durationMs`, and the `idempotencyKey` of the paired `onboard.requested`.
  */
 export const OnboardExecutedDataSchema = z.object({
   trigger: OnboardTriggerSchema,
@@ -1761,11 +1414,6 @@ export const OnboardExecutedDataSchema = z.object({
   durationMs: z.number().int().nonnegative(),
 });
 
-// ─── Remediation Event Data ─────────────────────────────────────────────────
-//
-// `RemediationAttemptedDataSchema` / `RemediationSucceededDataSchema` are DR-2 `judgment`
-// content schemas and live in `judgment-content-schemas.ts` (re-exported above).
-
 export const SessionTaggedData = z.object({
   tag: z.string().min(1).max(100).describe('Tag label for the session (e.g., feature name)'),
   sessionId: z.string().min(1).describe('Session identifier'),
@@ -1774,23 +1422,13 @@ export const SessionTaggedData = z.object({
 });
 
 /**
- * session.machinery_consumed — emitted by the dispatch-core interceptor on the
- * first non-rehydrate handler invocation after a `workflow.rehydrated` event
- * lands (T-11 registration; T-12 emission). Marks "the rehydrated agent has
- * consumed the phase machinery and started doing real work" — useful for v2.12
- * lifecycle alignment (`ps`, `wait --condition=machinery_consumed`).
+ * The dispatch-core interceptor emits it on the first handler call, other than rehydrate, after a
+ * `workflow.rehydrated` event. It marks that the rehydrated agent started real work.
  *
- * `rehydrateSequence` — the **event-store sequence** of the preceding
- * `workflow.rehydrated` event (i.e. `event.sequence`, NOT the embedded
- * `data.projectionSequence`). Event-store sequence is globally monotonic
- * over the stream, so two rehydrates that fold the same number of events
- * still get distinct correlators — required for the per-rehydrate-cycle
- * idempotency cache in `dispatch/core/interceptors/session-machinery.ts`.
- * `firstActionVerb` — the tool/handler name of the first real action, e.g.
- * `"task_complete"`, `"exarchos_orchestrate"`. Non-empty string required so
- * observability queries can group by action type.
- * `firstActionAt` — ISO 8601 wall-clock timestamp of the first action, anchors
- * the machinery consumption to a point in time for `wait --condition` queries.
+ * `rehydrateSequence` is the event-store `sequence` of that `workflow.rehydrated` event, not its
+ * `data.projectionSequence`. The event-store sequence is unique on the stream, so the idempotency
+ * cache of `session-machinery.ts` keeps each rehydrate cycle apart. `firstActionVerb` names the
+ * first real action, and `firstActionAt` is its ISO 8601 time.
  */
 export const SessionMachineryConsumedDataSchema = z.object({
   rehydrateSequence: z.number().int().nonnegative(),
@@ -1800,18 +1438,9 @@ export const SessionMachineryConsumedDataSchema = z.object({
 
 export type SessionMachineryConsumedData = z.infer<typeof SessionMachineryConsumedDataSchema>;
 
-// ─── Readiness Event Data ───────────────────────────────────────────────────
-
 /**
- * worktree.created — the TASK-worktree terminal (UNCHANGED). Requires
- * `taskId` + `branch`: it records the per-task worktree an implementer boots into
- * and is classified `'model'` (the readiness path, not deterministic plumbing).
- *
- * Deliberately distinct from the launcher's top-level create pair
- * `worktree.create.requested`/`worktree.create.executed` (harness-launcher, DR-2):
- * that pair is the INV-13 intent/terminal for a task-LESS top-level worktree and
- * carries no `taskId`. Two different KINDS of worktree, two different terminals —
- * do NOT reuse this task terminal for the launcher's top-level creation.
+ * The terminal of a task worktree. It needs `taskId` and `branch`, and its source is `model`. The
+ * launcher uses the separate `worktree.create.*` pair for a top-level worktree with no task.
  */
 export const WorktreeCreatedData = z.object({
   taskId: z.string().describe('Task this worktree was created for'),
@@ -1825,9 +1454,6 @@ export const WorktreeBaselineData = z.object({
   status: z.enum(['passed', 'failed', 'skipped']).describe('Baseline test result: passed, failed, or skipped'),
   output: z.string().optional().describe('Test runner output from the baseline run'),
 });
-
-// `TestResultData` / `TypecheckResultData` are DR-2 `judgment` content schemas and live in
-// `judgment-content-schemas.ts` (re-exported above).
 
 export const StackSubmittedData = z.object({
   branches: z.array(z.string()).describe('Branch names in the submitted stack'),
@@ -1853,15 +1479,11 @@ export const CommentResolvedData = z.object({
   resolvedBy: z.enum(['author', 'outdated', 'manual']).describe('How the thread was resolved'),
 });
 
-// ─── Merge Orchestrator Event Data (DR-MO-2) ───────────────────────────────
-
-// DR-MO-1 AC#1 — preflight sub-result schemas, mirrored from the pure-helper
-// types (`AncestryResult`, `WorktreeAssertionResult`,
-// `CurrentBranchProtectionResult`, `DriftResult`). Re-defined here as Zod
-// shapes so the event payload is the canonical source of truth for
-// event-sourced timeline reconstruction — readers do not need to read the
-// workflow state file to learn *why* preflight failed.
-
+/**
+ * The preflight sub-results, as Zod copies of `AncestryResult`, `WorktreeAssertionResult`,
+ * `CurrentBranchProtectionResult` and `DriftResult`. The event payload holds the failure reason, so
+ * a reader does not need the workflow state file.
+ */
 const MergePreflightAncestryData = z.object({
   passed: z.boolean(),
   blocked: z.boolean().optional(),
@@ -1891,15 +1513,11 @@ const MergePreflightDriftData = z.object({
   detachedHead: z.boolean(),
 });
 
-// #1362 phase 1 — Windows ancestry-mismatch instrumentation. Optional debug
-// payload attached to `merge.preflight` when `EXARCHOS_PREFLIGHT_DEBUG=1`
-// AND ancestry failed. Failure-only gating is deliberate (DIM-8 / event-store
-// growth); verbose sub-modes belong on a separate `=2` channel.
-//
-// Field shape mirrors the `PreflightDebug` TypeScript type in
-// `verbs/pure/merge-preflight.ts`. Phase-1 captures the minimal data
-// needed to disambiguate Windows ref-resolution and merge-base failures
-// from filesystem-layer worktree mis-detection; phase-2 may extend.
+/**
+ * Debug data for a Windows ancestry mismatch. `merge.preflight` carries it only when
+ * `EXARCHOS_PREFLIGHT_DEBUG=1` and ancestry failed, to limit event-store growth. The shape mirrors
+ * `PreflightDebug` in `verbs/pure/merge-preflight.ts`.
+ */
 const MergePreflightDebugRefData = z.object({
   sha: z.string(),
   packed: z.boolean(),
@@ -1918,19 +1536,12 @@ export const MergePreflightDebugData = z.object({
 });
 
 /**
- * merge.preflight — captures the outcome of the preflight gate run before a
- * candidate merge. Preflight failures DO NOT route through merge.rollback;
- * they surface as `phase: 'aborted'` with `abortReason: 'preflight-failed'`
- * (handled in T11/T12). The event is recorded for observability either way.
+ * The outcome of the preflight gate before a candidate merge. A preflight failure does not go
+ * through `merge.rollback`. It ends as `phase: 'aborted'` with `abortReason: 'preflight-failed'`.
  *
- * The structured sub-results (`ancestry`, `currentBranchProtection`,
- * `worktree`, `drift`) are required when any guard runs (DR-MO-1 AC#1) so
- * downstream consumers can reconstruct the failure mode from the event log
- * alone. They are `.optional()` only to keep older events (emitted before
- * the schema widening) parseable.
- *
- * `failureReasons` carries the operator-facing diagnostic that
- * `describePreflightFailure` produces when `passed === false`.
+ * The sub-results are required when any guard runs, so the event log alone shows the failure mode.
+ * They are optional only so that older events parse. `failureReasons` holds the diagnostic from
+ * `describePreflightFailure` when `passed === false`.
  */
 export const MergePreflightData = z.object({
   taskId: z.string().optional(),
@@ -1942,25 +1553,16 @@ export const MergePreflightData = z.object({
   worktree: MergePreflightWorktreeData.optional(),
   drift: MergePreflightDriftData.optional(),
   failureReasons: z.array(z.string()).optional(),
-  // #1362 phase 1 — see MergePreflightDebugData. Optional so legacy events
-  // (and the common ancestry-passing case) remain parseable unchanged.
+  /** See `MergePreflightDebugData`. It is optional, so older events and passing runs parse. */
   debug: MergePreflightDebugData.optional(),
 });
 
 /**
- * merge.requested — Wave 4 / audit §F1.2 two-event split: the durable INTENT
- * recorded BEFORE the non-idempotent GitHub merge call. The `decide` closure
- * that produces this event is pure (safe to retry under `withStateRetry`);
- * the side effect (PR merge API) fires OUTSIDE the retry boundary; a second
- * `decide` then commits `merge.executed`.
- *
- * Folded by the `merge-orchestrator@v1` projection (#1304) as the transition
- * into the new `requested` phase between `preflight` and `executed`.
- *
- * `prNumber` is optional because preview.2 may emit this event for streams
- * that have not yet acquired a PR (e.g. local-only merge orchestration).
- * `taskId` / `featureId` are optional for the same reason — the design (lines
- * 538-543) provides them when the calling context knows them.
+ * The durable intent, recorded before the GitHub merge call. A pure `decide` closure produces it, so
+ * `withStateRetry` can retry it. The merge API call runs outside the retry boundary, and a second
+ * `decide` commits `merge.executed`. The projection folds it as the `requested` phase between
+ * `preflight` and `executed`. `prNumber`, `taskId` and `featureId` are optional, because a local
+ * merge can have no PR.
  */
 export const MergeRequestedData = z.object({
   sourceBranch: z
@@ -1992,29 +1594,16 @@ export const MergeRequestedData = z.object({
     .describe('Feature stream id; useful for cross-stream observability'),
 });
 
-// ─── Shared liveness instance key (DR-2 / INV-10) ────────────────────────────
-//
-// The SINGLE field the four INV-10 liveness pairs — merge / launch / mutation /
-// prune `<surface>.executing_started` + paired terminal — agree on. `instanceId`
-// is a canonical per-instance key so a uniform liveness view can correlate a
-// START event with its TERMINAL without per-surface knowledge of which native
-// field is the instance discriminator. Each emitter derives it from its own key:
-//   • merge    → taskId ?? `${sourceBranch}→${targetBranch}`
-//   • launch   → worktreeId
-//   • mutation → operationId
-//   • prune    → operationId
-//
-// This is ADDITIVE, not a uniform-shape rewrite: the surface-native fields
-// (sourceBranch, worktreeId, operationId, holderPid, …) are DELIBERATELY kept
-// as-is. Only this one field is shared — the payloads otherwise stay their own
-// distinct shapes (do not force a uniform shape where the real payloads differ).
-//
-// OPTIONAL + additive (INV-5b widening): every payload emitted BEFORE this
-// retrofit carried NO `instanceId`, so historical rows MUST still validate — no
-// migration, no schemaVersion bump. The emitters populate it going forward and
-// legacy rows fold as instanceId-absent. `.min(1)` rejects an empty/blank key:
-// an empty instance id is meaningless, and a wrong-typed value is a malformed
-// payload the boundary now rejects — the field the DR-2 revert-probe pins.
+/**
+ * The shared instance key of the four liveness pairs: merge, launch, mutation and prune. A liveness
+ * view uses `instanceId` to match a start event with its terminal. Each emitter derives it from its
+ * own key:
+ * - merge: `taskId`, or `sourceBranch→targetBranch`
+ * - launch: `worktreeId`
+ * - mutation and prune: `operationId`
+ *
+ * The native fields stay. The key is optional, so historical rows without it still validate.
+ */
 export const livenessInstanceFields = {
   instanceId: z
     .string()
@@ -2026,37 +1615,27 @@ export const livenessInstanceFields = {
 } as const;
 
 /**
- * merge.executed — records that a merge has been performed. `mergeSha` is
- * the resulting commit on the target branch; `rollbackSha` is the parent
- * commit captured prior to merge so a downstream rollback handler can rewind
- * to it deterministically via the INV-14 ladder (`git merge --abort` →
- * `git reset --keep <rollbackSha>`, never `--hard`).
+ * Records a performed merge. `mergeSha` is the new commit on the target branch. `rollbackSha` is the
+ * parent commit captured before the merge. A rollback rewinds to it with `git merge --abort`, then
+ * `git reset --keep <rollbackSha>`, and never with `--hard`.
  */
 export const MergeExecutedData = z.object({
   taskId: z.string().optional(),
   sourceBranch: z.string().min(1),
   targetBranch: z.string().min(1),
-  /** Operator-selected merge strategy. Captured for event-log fidelity so
-   * observability and replay don't have to re-derive it from state. */
+  /** The operator-selected merge strategy, kept so that replay does not derive it from state. */
   strategy: z.enum(['squash', 'rebase', 'merge']).optional(),
   mergeSha: z.string().min(1),
   rollbackSha: z.string().min(1),
-  // DR-2 — canonical liveness instance key (merge: taskId ?? `src→tgt`).
+  /** The liveness instance key: `taskId`, or `sourceBranch→targetBranch`. */
   ...livenessInstanceFields,
 });
 
 /**
- * merge.rollback — legacy recovery event, RETIRED as of DR-2 (task 006):
- * read-tolerant-not-emittable. Its data schema + type-map entry are KEPT so
- * pre-DR-2 event logs still replay to identical state (INV-1), but nothing
- * writes it any more — the recovery path now emits `merge.recovered` (below).
- * `reason` is a closed enum so observability dashboards don't fragment across
- * free-form text. Preflight failures are NOT a rollback cause — they
- * short-circuit before any merge occurs. `rollbackError` carries the
- * human-readable recovery-failure
- * detail (paired with the `recoveryError` discriminator below) when the INV-14
- * recovery ladder did not land cleanly: presence signals the worktree may be in
- * an indeterminate state, so consumers can page operators.
+ * The retired recovery event. Its schema and type-map entry stay for replay, and nothing writes it.
+ * The recovery path emits `merge.recovered`. `reason` is a closed enum, and a preflight failure is
+ * never a reason. `rollbackError` holds the failure detail when the recovery ladder did not finish
+ * cleanly. Then the worktree state can be indeterminate.
  */
 export const MergeRollbackData = z.object({
   taskId: z.string().optional(),
@@ -2065,32 +1644,22 @@ export const MergeRollbackData = z.object({
   rollbackSha: z.string().min(1),
   reason: z.enum(['merge-failed', 'verification-failed', 'timeout']),
   rollbackError: z.string().min(1).optional(),
-  // INV-14 discriminator on the recovery outcome — distinguishes the three
-  // cases the invariant names so downstream observability sees indeterminate
-  // worktrees explicitly rather than as silent successes. The producer in
-  // `pure/execute-merge.ts` runs the full ladder (`git merge --abort` →
-  // `git reset --keep <rollbackSha>`, never `--hard`) and emits:
-  // `'reset-keep-blocked'` when `reset --keep` refuses to discard local work,
-  // `'reset-failed'` when the reset errors, and `'unexpected-mid-merge-drift'`
-  // when HEAD ≠ the anchor after recovery. See INV-14 in
-  // `.exarchos/invariants.md` for the full primitive-ordering contract.
+  /**
+   * The recovery outcome. `pure/execute-merge.ts` runs `git merge --abort`, then
+   * `git reset --keep <rollbackSha>`. It emits `reset-keep-blocked` when `reset --keep` refuses to
+   * discard local work, `reset-failed` when the reset fails, and `unexpected-mid-merge-drift` when
+   * HEAD is not the anchor after recovery.
+   */
   recoveryError: z
     .enum(['reset-keep-blocked', 'reset-failed', 'unexpected-mid-merge-drift'])
     .optional(),
 });
 
 /**
- * merge.recovered — the #1306 successor to `merge.rollback`. Emitted when a
- * merge is reverted via the INV-14 recovery ladder. Same closed `reason` enum.
- * `recoveryPointSha` is the anchor the worktree was rewound to (was
- * `rollbackSha`); `recoveryErrorDetail` is the human-readable recovery-failure
- * string (was `rollbackError`) paired with the `recoveryError` discriminator.
- *
- * Since DR-2 (task 006) this is the SOLE emitted recovery terminal; the legacy
- * `merge.rollback` write path is retired (read-tolerant-not-emittable). Old
- * dual-emit streams still replay identically because the reducers fold both
- * events to the same terminal state. Vocabulary follows the canonical frame —
- * recovery point / recovery event, not saga compensation / rollback.
+ * The only recovery terminal that code emits, after the recovery ladder reverts a merge. It has the
+ * same closed `reason` enum as `merge.rollback`. `recoveryPointSha` is the anchor of the rewind.
+ * `recoveryErrorDetail` is the failure text beside the `recoveryError` discriminator. The reducers
+ * fold `merge.rollback` and this event to the same terminal state, so old streams replay the same.
  */
 export const MergeRecoveredData = z.object({
   taskId: z.string().optional(),
@@ -2099,19 +1668,15 @@ export const MergeRecoveredData = z.object({
   recoveryPointSha: z.string().min(1),
   reason: z.enum(['merge-failed', 'verification-failed', 'timeout']),
   recoveryErrorDetail: z.string().min(1).optional(),
-  // INV-14 discriminator on the recovery outcome — see MergeRollbackData above
-  // for the full primitive-ordering contract. Kept under the canonical name.
+  /** The recovery outcome, with the same values as in `MergeRollbackData`. */
   recoveryError: z
     .enum(['reset-keep-blocked', 'reset-failed', 'unexpected-mid-merge-drift'])
     .optional(),
 });
 
 /**
- * merge.retry_attempt — #1308 audit record of a transient-failure retry of the
- * merge attempt. `attempt` is the retry ordinal, `delayMs` is the backoff
- * applied before the retry fired, and `reason` is the transient-failure reason
- * that triggered the retry (e.g. `'timeout'`). The emission site lands in a
- * later #1308 task; this registration is additive (no behavior change).
+ * The audit record of one retry after a transient failure. `attempt` is the retry ordinal, `delayMs`
+ * is the backoff before the retry, and `reason` is the transient failure, for example `'timeout'`.
  */
 export const MergeRetryAttemptData = z.object({
   attempt: z.number().int().nonnegative(),
@@ -2120,29 +1685,13 @@ export const MergeRetryAttemptData = z.object({
 });
 
 /**
- * merge.completed — terminal lifecycle event emitted immediately after a
- * successful `merge.executed`. Folded by the `merge-orchestrator@v1`
- * projection (#1304) as the transition into the `completed` phase, which is
- * the projection's terminal state.
+ * The terminal lifecycle event, emitted directly after a successful `merge.executed`. The projection
+ * folds it as the move into its terminal `completed` phase. `merge.executed` records the side
+ * effect, and this event records the end of the lifecycle.
  *
- * Distinct from `merge.executed` (which records the side effect — the actual
- * merge against the target branch) so the projection can model the two
- * states separately: `executed` ("the merge happened") vs `completed`
- * ("the orchestrator has formally terminated this lifecycle"). The
- * separation matches INV-10's `<surface>.executing_started` + paired
- * terminal event pattern.
- *
- * In the current (preview.2) producer the two events are emitted adjacent
- * in `handleExecuteMerge`; future work may interpose post-merge
- * verification between them, at which point the `executed → completed`
- * transition gains operational meaning.
+ * The shape derives from `MergeExecutedData`, so a field change there reaches this event. It adds
+ * an optional `featureId` for cross-stream observability.
  */
-// Derived from `MergeExecutedData` to keep the adjacent event-pair contracts
-// in lockstep — any field-shape change to the executed payload (e.g., a
-// tighter mergeSha pattern, a renamed taskId) automatically propagates to
-// the terminal marker. Adds `featureId` (optional) for cross-stream
-// observability; merge.executed doesn't carry it because the executor's
-// stream context already pins the feature.
 export const MergeCompletedData = MergeExecutedData.pick({
   taskId: true,
   sourceBranch: true,
@@ -2156,18 +1705,9 @@ export const MergeCompletedData = MergeExecutedData.pick({
 });
 
 /**
- * merge.executing_started — #1309 merge-executor liveness event. Emitted by
- * `handleExecuteMerge` after the recovery point sha is recorded and BEFORE the
- * first `vcsMerge` attempt, so a long-running merge is observable as "started
- * but not yet terminated" — the INV-10 `<surface>.executing_started` + paired
- * terminal (`merge.executed` / `merge.recovered`) pattern, mirroring
- * `mutation.executing_started`.
- *
- * `recoveryPointSha` is the anchor HEAD the merge can be rewound to (the same
- * sha the terminal events carry as `rollbackSha` / `recoveryPointSha`).
- * `startedAt` is the ISO timestamp at which the merge attempt began. `taskId`
- * is optional (CLI direct-invocation has no task context), matching the other
- * merge events.
+ * Merge liveness. `handleExecuteMerge` emits it after it records the recovery point sha and before
+ * the first `vcsMerge` attempt. `recoveryPointSha` is the anchor for a rewind. `startedAt` is the
+ * ISO start time. `taskId` is optional, because a direct CLI call has no task.
  */
 export const MergeExecutingStartedData = z.object({
   taskId: z.string().optional(),
@@ -2175,22 +1715,13 @@ export const MergeExecutingStartedData = z.object({
   targetBranch: z.string().min(1),
   recoveryPointSha: z.string().min(1),
   startedAt: z.string().min(1),
-  // DR-2 — canonical liveness instance key (merge: taskId ?? `src→tgt`).
+  /** The liveness instance key: `taskId`, or `sourceBranch→targetBranch`. */
   ...livenessInstanceFields,
 });
 
-// ─── Wave B Two-Event Split Schemas (#1342) ──────────────────────────────────
-//
-// Each VCS side-effect handler emits *.requested BEFORE the side effect fires
-// (durable intent, INV-1 LOW) then *.executed AFTER the side effect succeeds.
-// On retry the *.requested event is already persisted; the handler's idempotent
-// check (B*.3, wired by the per-handler agents B1–B5) short-circuits re-invocation
-// using the prior result.
-
 /**
- * pr.create.requested — B1.1: durable intent recorded BEFORE `gh pr create`
- * fires. Carries the full PR intent so a recovery handler can reconstruct the
- * call from the persisted event alone (INV-1 LOW audit requirement).
+ * The durable intent before `gh pr create`. It holds the full PR intent, so recovery can rebuild the
+ * call from the event.
  */
 export const PrCreateRequestedData = z.object({
   operationId: z.string().uuid().describe('Idempotency key — stable across retries'),
@@ -2202,10 +1733,7 @@ export const PrCreateRequestedData = z.object({
   labels: z.array(z.string()).optional().describe('Label names to apply'),
 });
 
-/**
- * pr.create.executed — B1.1: records that `gh pr create` succeeded. Keyed by
- * `operationId` so the pair {requested, executed} is correlatable in the stream.
- */
+/** Records that `gh pr create` succeeded. `operationId` pairs it with the request. */
 export const PrCreateExecutedData = z.object({
   operationId: z.string().uuid().describe('Correlates to the pr.create.requested event'),
   prNumber: z.number().int().positive().describe('GitHub PR number'),
@@ -2213,10 +1741,8 @@ export const PrCreateExecutedData = z.object({
 });
 
 /**
- * pr.comment.requested — B2.1: durable intent recorded BEFORE `gh pr comment`
- * fires. The body field is the raw comment text; the handler embeds the
- * `<!-- exarchos-op:UUID -->` marker before posting (B2.3 idempotency check
- * queries existing comments for this marker to detect prior execution).
+ * The durable intent before `gh pr comment`. `body` is the raw comment text. The handler adds the
+ * `<!-- exarchos-op:UUID -->` marker before it posts, and the idempotency check searches for it.
  */
 export const PrCommentRequestedData = z.object({
   operationId: z.string().uuid().describe('Idempotency key — embedded as marker in posted comment'),
@@ -2232,9 +1758,7 @@ export const PrCommentRequestedData = z.object({
     ),
 });
 
-/**
- * pr.comment.executed — B2.1: records that the comment was successfully posted.
- */
+/** Records that the comment was posted. */
 export const PrCommentExecutedData = z.object({
   operationId: z.string().uuid().describe('Correlates to the pr.comment.requested event'),
   commentId: z.number().int().positive().describe('GitHub comment id'),
@@ -2242,10 +1766,8 @@ export const PrCommentExecutedData = z.object({
 });
 
 /**
- * issue.create.requested — B3.1: durable intent recorded BEFORE `gh issue create`
- * fires. Carries the full issue intent so recovery can reconstruct the call
- * (INV-1 LOW). B3.3 idempotency check: query existing issues for same
- * `operationId` marker in body or labels.
+ * The durable intent before `gh issue create`. It holds the full issue intent, so recovery can
+ * rebuild the call. The idempotency check searches existing issues for the `operationId` marker.
  */
 export const IssueCreateRequestedData = z.object({
   operationId: z.string().uuid().describe('Idempotency key — embedded as marker in issue body or label'),
@@ -2255,9 +1777,7 @@ export const IssueCreateRequestedData = z.object({
   assignees: z.array(z.string()).optional().describe('GitHub usernames to assign'),
 });
 
-/**
- * issue.create.executed — B3.1: records that the issue was successfully created.
- */
+/** Records that the issue was created. */
 export const IssueCreateExecutedData = z.object({
   operationId: z.string().uuid().describe('Correlates to the issue.create.requested event'),
   issueNumber: z.number().int().positive().describe('GitHub issue number'),
@@ -2265,10 +1785,8 @@ export const IssueCreateExecutedData = z.object({
 });
 
 /**
- * branch.delete.requested — B4.1: durable intent recorded BEFORE `git branch -D`
- * and/or `git push origin --delete` fires. B4.3 idempotency is natural: both
- * commands fail if the branch is already absent — the existing handler swallows
- * these; the two-event split formalizes the recovery path.
+ * The durable intent before `git branch -D`, `git push origin --delete`, or both. Both commands fail
+ * when the branch is absent, and the handler ignores that failure.
  */
 export const BranchDeleteRequestedData = z.object({
   operationId: z.string().uuid().describe('Idempotency key — stable across retries'),
@@ -2277,10 +1795,7 @@ export const BranchDeleteRequestedData = z.object({
   localOnly: z.boolean().optional().describe('When true, skip the push --delete step'),
 });
 
-/**
- * branch.delete.executed — B4.1: records the outcome of the delete operation.
- * Both flags may be false when the branch was already absent (natural idempotency).
- */
+/** Records the outcome of the delete. Both flags are false when the branch was already absent. */
 export const BranchDeleteExecutedData = z.object({
   operationId: z.string().uuid().describe('Correlates to the branch.delete.requested event'),
   branch: z.string().min(1).describe('Branch that was targeted'),
@@ -2289,18 +1804,12 @@ export const BranchDeleteExecutedData = z.object({
 });
 
 /**
- * worktree.remove.requested — B5.1: durable intent recorded BEFORE
- * `git worktree remove` fires. B5.3 idempotency check: `git worktree list` filter.
+ * The durable intent before `git worktree remove`. The idempotency check filters `git worktree list`.
  *
- * `worktreeId` is the OPTIONAL canonical (symlink-resolved, POSIX-separator)
- * projection key, stamped by the emitter (`WorktreeManager`) so the
- * `worktrees@v1` reducer can drop the entry by the ALREADY-CANONICAL key during
- * replay — without a `realpath()` filesystem call at fold time. That keeps the
- * cold rebuild deterministic from the event log alone (INV-1): once the worktree
- * is deleted, or on a host with a different symlink topology, re-deriving the key
- * from `worktreePath` via the live filesystem would fold differently. Optional
- * for backward compatibility: a legacy event without it still folds via the
- * `worktreePath` canonicalization fallback.
+ * `worktreeId` is the optional canonical projection key that `WorktreeManager` stamps. The
+ * `worktrees@v1` reducer drops the entry by this key and calls no `realpath()` at fold time. So the
+ * cold rebuild is deterministic from the event log alone. An older event without it falls back to a
+ * canonical form of `worktreePath`.
  */
 export const WorktreeRemoveRequestedData = z.object({
   operationId: z.string().uuid().describe('Idempotency key — stable across retries'),
@@ -2313,12 +1822,8 @@ export const WorktreeRemoveRequestedData = z.object({
 });
 
 /**
- * worktree.remove.executed — B5.1: records the outcome of the removal.
- * `removed: false` indicates the worktree was already absent (idempotent success).
- *
- * Carries the same OPTIONAL canonical `worktreeId` as the requested event so the
- * reducer drops the projection entry by the stored key during a filesystem-free
- * replay (see {@link WorktreeRemoveRequestedData}).
+ * Records the outcome of the removal. `removed: false` means that the worktree was already absent.
+ * It carries the same optional `worktreeId` as {@link WorktreeRemoveRequestedData}.
  */
 export const WorktreeRemoveExecutedData = z.object({
   operationId: z.string().uuid().describe('Correlates to the worktree.remove.requested event'),
@@ -2332,32 +1837,15 @@ export const WorktreeRemoveExecutedData = z.object({
 });
 
 /**
- * WLM foundation — worktree lifecycle event data.
+ * The shared payload of the worktree lifecycle events: adopted, reserved, released and
+ * orphan_detected. `worktreeId` is the canonical (symlink-resolved) worktree path. Deletion reuses
+ * the `worktree.remove.*` pair.
  *
- * `worktree.adopted` / `worktree.reserved` / `worktree.released` /
- * `worktree.orphan_detected` share one payload shape. `worktreeId` is DEFINED
- * as the canonical (symlink-resolved) worktree path: it is the stable identity
- * a later reducer canonicalizes the remove pair's `worktreePath` onto, which is
- * why GC deletion REUSES `worktree.remove.requested`/`worktree.remove.executed`
- * (no `worktree.pruned` type is introduced; the serialized-merge lease pair
- * `worktree.merge_requested`/`worktree.merge_executed` is defined separately
- * below as the WLM operational-core layer — DR-4 / DR-7).
+ * The idempotency key is `<eventType>:<operationId>`, and callers build it. Each invocation has its
+ * own `operationId`, so reserve, release, and reserve again give three keys.
  *
- * Idempotency: these events use the existing two-component
- * `<eventType>:<operationId>` key — exactly like `worktree.remove.requested:${operationId}`
- * in `workflow/compensation.ts`. The per-invocation `operationId` is the sole
- * discriminator, so a reserve → release → re-reserve sequence mints three
- * distinct operationIds and therefore three distinct keys (no silent collapse).
- * Keys are minted by callers; the schema's contract is only that every
- * lifecycle payload carries `operationId` so callers can build the key.
- *
- * `ownerPid` / `ownerStartedAt` identify the holding process. `ownerPid` is
- * non-null only on `worktree.reserved` (the reservation records who holds the
- * lease); `ownerStartedAt` is a NON-EMPTY create-time fingerprint on a reserved
- * event when the platform can resolve it, or null when it cannot (DR-5 — a
- * create-time-unresolvable platform reserves with `ownerStartedAt: null`, NEVER
- * the empty string `''`; the `.min(1).nullable()` shape mirrors the launcher's
- * `holderStartedAt`). The other three lifecycle events may pass null for both.
+ * `ownerPid` is non-null only on `worktree.reserved`. There, `ownerStartedAt` is a non-empty
+ * create-time fingerprint, or null when the platform cannot resolve it, and never `''`.
  */
 const WorktreeLifecycleBaseData = z.object({
   worktreeId: z.string().min(1).describe('Canonical (symlink-resolved) worktree path — stable identity'),
@@ -2391,28 +1879,13 @@ export const WorktreeOrphanDetectedData = WorktreeLifecycleBaseData.extend({
 });
 
 /**
- * WLM operational-core — serialized-merge lease event data (DR-4 / DR-7).
+ * The claim half of the serialized-merge lease. It is an intent to merge, and it also records the
+ * live process that can merge `sourceBranch` into `integrationRef`. `worktree.merge_executed` is the
+ * release half.
  *
- * `worktree.merge_requested` is the CLAIM half: an intent-to-merge record that
- * doubles as a lease (which live process is currently authorized to merge
- * `sourceBranch` into `integrationRef`). `worktree.merge_executed` is the
- * RELEASE half: the terminal outcome of that operation.
- *
- * Both ride the singleton `worktrees` stream alongside the lifecycle family and
- * are correlated by `operationId`. `operationId` is the SOLE discriminator, so
- * two distinct merge attempts onto the SAME `integrationRef` mint two distinct
- * operationIds and therefore two distinct idempotency keys — they never collapse
- * into one another, which is what serializes merges per branch without a literal
- * `<integrationRef>:…` key. The CLAIM is appended via the event-store `decide`
- * seam, which derives its own `${streamId}:${reducerId}:${operationId}` key; the
- * RELEASE is a plain keyed append `<eventType>:<operationId>` per the
- * worktree-family convention. The schema's only contract is that both payloads
- * carry `operationId` so callers can build those keys.
- *
- * `holderPid` / `holderStartedAt` identify the live process that holds the merge
- * lease (liveness ground truth for orphan reclamation). `worktreeId` is the
- * OPTIONAL canonical worktrees@v1 key, stamped when the merge is attributable to
- * a specific tracked worktree.
+ * Both events are on the singleton `worktrees` stream, and `operationId` is the only discriminator.
+ * Two merge attempts onto one `integrationRef` get two keys, so they never collapse. `holderPid` and
+ * `holderStartedAt` identify the lease holder for orphan reclamation.
  */
 export const WorktreeMergeRequestedData = z.object({
   integrationRef: z.string().min(1).describe('Integration ref the merge targets (the per-branch serialization key)'),
@@ -2432,13 +1905,8 @@ export const WorktreeMergeRequestedData = z.object({
 });
 
 /**
- * worktree.merge_executed — RELEASE half of the serialized-merge lease.
- *
- * Correlates back to its `worktree.merge_requested` via `operationId` and
- * records the terminal `status`. `mergeSha` is present only on `status: 'merged'`
- * (the resulting integration commit). `recoveryError` is an OPTIONAL diagnostic
- * captured when the lease was released during recovery of a dead holder rather
- * than by the original operation completing.
+ * The release half of the serialized-merge lease, paired by `operationId`. `mergeSha` is present
+ * only on `status: 'merged'`. `recoveryError` is set when dead-holder recovery released the lease.
  */
 export const WorktreeMergeExecutedData = z.object({
   integrationRef: z.string().min(1).describe('Integration ref the merge targeted (matches the requested event)'),
@@ -2457,17 +1925,10 @@ export const WorktreeMergeExecutedData = z.object({
     .describe('Canonical worktrees@v1 key the released lease was attributable to, when known'),
 });
 
-// ─── Harness-Launcher Event Data (DR-2) ─────────────────────────────────────
-
 /**
- * worktree.create.requested — the launcher's top-level worktree INTENT (INV-13).
- *
- * Mirrors {@link WorktreeRemoveRequestedData}: a durable intent recorded BEFORE
- * the non-idempotent `git worktree add` fires, correlated to its terminal by
- * `operationId`. This is the launcher's TASK-LESS top-level worktree — distinct
- * from the task-scoped `worktree.created` terminal (which requires `taskId` +
- * `branch`). `worktreeId` is the OPTIONAL canonical (symlink-resolved) key,
- * stamped so a later reducer folds by the stored id without a `realpath()` call.
+ * The intent before `git worktree add` for the top-level worktree of the launcher, paired by
+ * `operationId`. It is separate from `worktree.created`, which needs a task. `worktreeId` is the
+ * optional canonical key, so a reducer folds without a `realpath()` call.
  */
 export const WorktreeCreateRequestedData = z.object({
   operationId: z.string().uuid().describe('Idempotency key — stable across retries'),
@@ -2492,11 +1953,8 @@ export const WorktreeCreateRequestedData = z.object({
 });
 
 /**
- * worktree.create.executed — the launcher's top-level worktree TERMINAL (INV-13).
- *
- * The shared-stem terminal for {@link WorktreeCreateRequestedData}, correlated by
- * `operationId`. `created: false` indicates the worktree already existed
- * (idempotent success). A NEW terminal — NOT the task-scoped `worktree.created`.
+ * The terminal for {@link WorktreeCreateRequestedData}, paired by `operationId`. `created: false`
+ * means that the worktree already existed.
  */
 export const WorktreeCreateExecutedData = z.object({
   operationId: z.string().uuid().describe('Correlates to the worktree.create.requested event'),
@@ -2510,16 +1968,10 @@ export const WorktreeCreateExecutedData = z.object({
 });
 
 /**
- * launch.executing_started — launcher child-process liveness START.
- *
- * Mirrors the liveness fields of {@link InFlightMerge}: `holderPid` /
- * `holderStartedAt` identify the live child process the launcher spawned into the
- * top-level worktree, so a dead-holder reconciler can later reclaim an abandoned
- * launch by probing whether that PID (with matching start time, to defeat PID
- * reuse) is still alive. `worktreeId` binds the launch to its top-level worktree.
- * Emitted BEFORE the child is observed as terminated, so a long-running launch is
- * observable as "started but not yet terminated" — the INV-10
- * `<surface>.executing_started` + paired terminal pattern.
+ * Liveness start of the launcher child process. `holderPid` and `holderStartedAt` identify the
+ * child, like the fields of {@link InFlightMerge}. A dead-holder reconciler can probe them to
+ * reclaim an abandoned launch, and the start time defeats PID reuse. `worktreeId` binds the launch to
+ * its worktree.
  */
 export const LaunchExecutingStartedData = z.object({
   worktreeId: z.string().min(1).describe('Canonical worktrees@v1 key of the launch top-level worktree'),
@@ -2531,38 +1983,28 @@ export const LaunchExecutingStartedData = z.object({
     .describe(
       'Supervisor process start time (ISO 8601) — disambiguates PID reuse; non-empty when resolved, or null when the platform cannot resolve create-time (DR-6, never the empty string)',
     ),
-  // DR-2 — canonical liveness instance key (launch: worktreeId).
+  /** The liveness instance key: `worktreeId`. */
   ...livenessInstanceFields,
 });
 
 /**
- * launch.executed — launcher child-process liveness TERMINAL.
- *
- * The paired terminal for {@link LaunchExecutingStartedData}: "executed" = the
- * child process exited. Correlated back to its start by `worktreeId`, carrying the
- * process `exitCode` (null when terminated by signal / not captured).
+ * Liveness terminal of the launcher child process: the child exited. `worktreeId` pairs it with its
+ * start. `exitCode` is null after a signal, or when no code was captured.
  */
 export const LaunchExecutedData = z.object({
   worktreeId: z.string().min(1).describe('Canonical worktrees@v1 key of the launch top-level worktree'),
   exitCode: z.number().int().nullable().describe('Child process exit code, or null when signalled / not captured'),
-  // DR-2 — canonical liveness instance key (launch: worktreeId).
+  /** The liveness instance key: `worktreeId`. */
   ...livenessInstanceFields,
 });
 
-// ─── Command Resolver Event Data (#1199 T15) ────────────────────────────────
-
 /**
- * command.resolved — emitted by the test/typecheck/install runtime resolver
- * (#1199). Audit-only: captures where each command resolution came from so
- * downstream graceful-skip semantics (T17) can distinguish a configured
- * `null` from an unresolved command for which we should bail with
- * remediation guidance. Not folded by any state reducer.
+ * The runtime resolver for test, typecheck and install emits `command.resolved`. It records the
+ * source of each resolution. It is audit-only, and no state reducer folds it.
+ *
+ * The union discriminates on `source`, so the schema rejects a contradictory shape. Graceful-skip
+ * logic relies on `source === 'unresolved'` with `command === null` and a non-empty `remediation`.
  */
-// Discriminated on `source` so contradictory shapes (e.g. `source: 'config'`
-// + `command: null`, or `source: 'unresolved'` + a runnable command) are
-// rejected at the schema boundary. Downstream graceful-skip logic relies on
-// `source === 'unresolved'` implying `command === null` and a non-empty
-// `remediation`.
 const CommandResolvedBase = z.object({
   field: z.enum(['test', 'typecheck', 'install']),
   repoRoot: z.string().min(1),
@@ -2570,9 +2012,10 @@ const CommandResolvedBase = z.object({
 
 export const CommandResolvedEventSchema = z.discriminatedUnion('source', [
   CommandResolvedBase.extend({
-    // `toolchain-config` (user .exarchos.yml toolchains:) and `task-runner`
-    // (Taskfile/just/mise/Makefile) added with the layered resolver — additive
-    // enum widening on an existing event type, no schema-version bump.
+    /**
+     * `toolchain-config` is the user `toolchains:` in `.exarchos.yml`. `task-runner` is Taskfile, just,
+     * mise, or Makefile.
+     */
     source: z.enum(['config', 'detection', 'override', 'toolchain-config', 'task-runner']),
     command: z.string().min(1),
     remediation: z.string().optional(),
@@ -2585,20 +2028,10 @@ export const CommandResolvedEventSchema = z.discriminatedUnion('source', [
 ]);
 export type CommandResolvedEvent = z.infer<typeof CommandResolvedEventSchema>;
 
-// ─── Durable Event-Store Substrate Event Data (#1259) ───────────────────────
-
 /**
- * hsm.deprecated_action_invoked — telemetry for the HSM API single-path
- * migration (T02, DR-4 / DR-10). Each invocation of a deprecated action
- * (e.g. `workflow.set({phase})`) emits one of these so the migration window
- * can be measured before the legacy path is removed.
- *
- * `action` — the deprecated action identifier (e.g. `'set({phase})'`).
- * `invokedBy` — caller surface (e.g. `'orchestrator'`, `'cli'`, `'mcp'`).
- *
- * Fields are required strings (`min(1)`) so deprecation events without
- * actionable telemetry fail at the schema boundary rather than fragmenting
- * downstream dashboards with empty rows.
+ * Telemetry for the HSM single-path migration. Each call of a deprecated action, for example
+ * `workflow.set({phase})`, emits one event. Both fields are required non-empty strings, so an event
+ * without telemetry fails at the schema boundary.
  */
 export const HsmDeprecatedActionInvokedData = z.object({
   action: z.string().min(1).describe('Deprecated action identifier'),
@@ -2606,12 +2039,8 @@ export const HsmDeprecatedActionInvokedData = z.object({
 });
 
 /**
- * spec.legacy_capabilities_array — emitted during spec validation when a
- * spec uses the legacy `capabilities[]` array shape (T03, DR-6 / DR-10).
- * Drives capability-posture migration telemetry during the transition window.
- *
- * `capabilities` is allowed to be empty — an empty legacy-shape array is
- * still a legacy-shape signal worth recording.
+ * Emitted in spec validation when a spec uses the legacy `capabilities[]` array shape. An empty
+ * legacy array is still a legacy signal, so `capabilities` can be empty.
  */
 export const SpecLegacyCapabilitiesArrayData = z.object({
   specName: z.string().min(1).describe('Spec name carrying the legacy capabilities array'),
@@ -2619,45 +2048,18 @@ export const SpecLegacyCapabilitiesArrayData = z.object({
 });
 
 /**
- * phase.contract_missing — historical event type (T03, DR-7).
- *
- * v2.10 history: emitted once at lifecycle start per phase that lacked a
- * typed `staleness` contract; the pruner fell back to a single-signal
- * heuristic for those phases.
- *
- * v2.11 (Phase 5c, DR-7 hard-cut): NO LONGER EMITTED. The topology loader
- * now throws on any phase missing a `staleness` block, so the advisory
- * pathway is gone. The schema slot is RETAINED so replays of v2.10-era
- * event logs (and the historical schemas test) remain decodable. New
- * code MUST NOT emit this event type.
+ * A historical event type for a phase without a typed `staleness` contract. Nothing emits it,
+ * because the topology loader throws on such a phase. The schema stays so that v2.10 event logs
+ * decode. New code must not emit it.
  */
 export const PhaseContractMissingData = z.object({
   phaseName: z.string().min(1).describe('Phase missing a typed contract'),
 });
 
 /**
- * phase.blocked — fail-closed at the gate-set boundary (DR-7, epic #1546).
- *
- * Emitted by the wave-dispatch boundary (`handlePrepareDelegation` →
- * `classifyTasksFailClosed`) when the kind-keyed gate-set resolver
- * (`resolveGateSet(kind, …)`) throws while stamping a wave's verification
- * sequence. Rather than letting the exception propagate and fail the dispatch
- * OPEN / silently, the boundary REFUSES to proceed and records this durable
- * event so an operator sees the blocked phase and why.
- *
- * Required-string fields (`min(1)`) so a blocked-dispatch record without an
- * actionable reason fails at the schema boundary rather than landing an empty
- * audit row. `kind` is the {@link PhaseKind} whose resolver faulted; `phase` is
- * the lifecycle phase the dispatch was at; `error` carries the underlying
- * resolver fault so the failure is debuggable from the event log alone.
- */
-/**
- * The closed phase-kind set, mirrored from `workflow/phase-kind.ts`'s `PhaseKind`
- * union. Inlined (not imported) to keep this low-level event-store layer free of
- * a workflow/config dependency — `phase-kind.ts` transitively pulls in the
- * verification-policy + config resolvers, which must not become event-store deps.
- * A drift-guard test pins these options to `KIND_OBLIGATIONS` so the two cannot
- * silently diverge.
+ * The closed phase-kind set, a copy of `PhaseKind` in `workflow/phase-kind.ts`. It is inlined
+ * because `phase-kind.ts` pulls in resolvers that the event store must not depend on. A drift-guard
+ * test pins it to `KIND_OBLIGATIONS`.
  */
 export const PhaseBlockedKindSchema = z.enum([
   'IMPLEMENT',
@@ -2668,6 +2070,11 @@ export const PhaseBlockedKindSchema = z.enum([
   'GATHER',
 ]);
 
+/**
+ * The dispatch boundary (`classifyTasksFailClosed`) emits it when `resolveGateSet(kind, …)` throws
+ * while it stamps the verification sequence of a wave. The dispatch fails closed. `kind` is the
+ * faulted phase kind, `phase` is the lifecycle phase, and `error` holds the resolver fault.
+ */
 export const PhaseBlockedData = z.object({
   phase: z.string().min(1).describe('Lifecycle phase the dispatch was blocked at'),
   kind: PhaseBlockedKindSchema.describe('Phase kind whose gate-set resolver faulted'),
@@ -2680,27 +2087,7 @@ export const PhaseBlockedData = z.object({
     .describe('The underlying gate-set resolver fault that triggered the block'),
 });
 
-/**
- * phase.entered / phase.exited — resolve-then-freeze obligation record
- * (DR-13, epic #1546).
- *
- * `executeTransition` resolves the target kind's gate-set at the phase boundary
- * (DR-10) and FREEZES it by appending exactly one `phase.entered` carrying the
- * resolved obligation: the dispatching `resolver` name, the resolved
- * `resolvedGates` sequence, the `policySource` (built-in policy vs a
- * `.exarchos.yml` verification overlay), and the resolved `mode`. Replaying the
- * event log left-folds these into the same obligation a live HSM observed — a
- * later policy edit cannot retroactively change an in-flight or completed phase.
- * `phase.exited` is appended on phase advance with the aggregate gate status.
- *
- * `kind` reuses {@link PhaseBlockedKindSchema} (the inlined PhaseKind union,
- * drift-guarded against `KIND_OBLIGATIONS`). `resolver` is null for a kind with
- * no gates (GATHER). The per-family gate vocabulary stays owned by
- * `phase-kind.ts` / `review-contract.ts`, so each resolved `gate` is carried as
- * an opaque string at this vocabulary-light event-store layer; only the
- * four-member `family` discriminant is pinned (drift-guarded against the
- * `ResolvedGate` union in the schemas test).
- */
+/** The gate resolver that produced the obligation of a `phase.entered` event. */
 export const PhaseEnteredResolverSchema = z.enum([
   'verification-ladder',
   'plan-structure',
@@ -2711,12 +2098,17 @@ export const PhaseEnteredResolverSchema = z.enum([
 export const ResolvedGateFamilySchema = z.enum(['ladder', 'plan', 'review', 'synthesis']);
 
 /**
- * Phase-kind POLA posture (DR-14). Inlined to keep the event-store layer free of
- * an `agents/spec.ts` import; pinned to the `KIND_OBLIGATIONS` posture set by a
- * drift-guard test (mirrors `PhaseBlockedKindSchema`).
+ * The POLA posture of a phase kind. It is inlined, so the event store does not import
+ * `agents/spec.ts`. A drift-guard test pins it to the posture set of `KIND_OBLIGATIONS`.
  */
 export const PhaseEnteredPostureSchema = z.enum(['read-only', 'task-isolated', 'shared-mutating']);
 
+/**
+ * The resolve-then-freeze record. `executeTransition` resolves the gate-set of the target kind and
+ * appends one `phase.entered` with the obligation. Replay folds the same obligation, so a later
+ * policy edit cannot change a frozen phase. Each `gate` is an opaque string, because
+ * `phase-kind.ts` and `review-contract.ts` own the gate vocabulary.
+ */
 export const PhaseEnteredData = z.object({
   phase: z.string().min(1).describe('Lifecycle phase entered'),
   kind: PhaseBlockedKindSchema.describe('Phase kind whose obligation was resolved and frozen'),
@@ -2741,23 +2133,18 @@ export const PhaseEnteredData = z.object({
   posture: PhaseEnteredPostureSchema.describe(
     'The kind POLA posture (trust tier) frozen at entry — the bundle minted by capabilities/resolver.ts is derived from this (DR-14)',
   ),
-  // DR-3 (#1581): the feature-level planning depth, resolve-then-frozen at PLAN
-  // entry — the per-feature analog of per-task riskTier. Optional and present
-  // ONLY on the PLAN phase.entered (the single per-feature freeze point); absent
-  // on every other kind and on pre-#1581 logs, where the resolver defaults to
-  // 'standard'. Enum inlined to keep the event-store layer free of a workflow
-  // import (mirrors PhaseEnteredPostureSchema); pinned to DesignDepth by a test.
+  /**
+   * The planning depth of the feature, frozen at PLAN entry. Only the PLAN `phase.entered` has it.
+   * When it is absent, the resolver uses `standard`. A test pins the inlined enum to `DesignDepth`.
+   */
   designDepth: z
     .enum(['thin', 'standard', 'deep'])
     .optional()
     .describe('Feature planning depth frozen at PLAN entry (DR-3); absent ⇒ standard'),
-  // DR-10 (T-15): the danger COORDINATE the gate-set was resolved from, frozen
-  // alongside it. Without it the record is not self-describing — IMPLEMENT
-  // defers its sequence to the wave stamp and several resolvers ignore one axis
-  // — so a later attempt (or a replay) would have to RE-RESOLVE from current
-  // state, which is the DR-10 defect. `'unknown'` is a first-class member: the
-  // record states that nobody classified the task rather than fabricating the
-  // weakest tier. Optional so pre-T-15 logs keep validating.
+  /**
+   * The risk coordinate of the resolved gate-set, frozen with it, so a replay does not resolve again
+   * from current state. `unknown` records that nobody classified the task. Older logs do not have it.
+   */
   riskTier: z
     .enum(['low', 'medium', 'high', 'unknown'])
     .optional()
@@ -2778,21 +2165,12 @@ export const PhaseExitedData = z.object({
 });
 
 /**
- * migration.legacy_jsonl_imported — per-file completion event from the
- * JSONL→SQLite migration importer (T04, DR-9 / DR-10).
+ * The per-file completion event of the JSONL to SQLite importer. A file with zero events is a valid
+ * import.
  *
- * `eventCount` and `durationMs` are non-negative — a file with zero events
- * (e.g. an empty stream) is a valid import outcome.
- *
- * INV-1 portability (T65, CodeRabbit #3): `sourcePath` is **state-dir-relative**.
- * Absolute paths are rejected by the schema because they leak machine-specific
- * identifiers (home directories, usernames) into the durable event log and
- * prevent the SQLite store from being replayed on another machine — both
- * locally (a teammate pulling a copy of the store) and on the future
- * basileus-remote shared store (#1081). Both POSIX-absolute (e.g.
- * `/var/exarchos/...`) and Windows-absolute (e.g. `C:\Users\...`) forms are
- * rejected so the invariant holds regardless of which platform produced
- * the event.
+ * `sourcePath` is relative to the state directory. The schema rejects POSIX and Windows absolute
+ * paths, because they put machine-specific names into the event log and block replay on another
+ * machine.
  */
 export const MigrationLegacyJsonlImportedData = z.object({
   sourcePath: z
@@ -2809,10 +2187,8 @@ export const MigrationLegacyJsonlImportedData = z.object({
 });
 
 /**
- * migration.completed — final aggregate event after a successful run of the
- * JSONL→SQLite migration importer (T04, DR-9 / DR-10). Zero-file completion
- * is valid: the lock holder still records completion so siblings unblock
- * without re-running.
+ * The final aggregate event after a successful JSONL to SQLite migration. A run with zero files
+ * still records completion, so sibling processes unblock without a new run.
  */
 export const MigrationCompletedData = z.object({
   filesImported: z.number().int().nonnegative().describe('Total JSONL files successfully imported'),
@@ -2821,10 +2197,8 @@ export const MigrationCompletedData = z.object({
 });
 
 /**
- * migration.failed — emitted when the JSONL→SQLite migration importer
- * fails (T04, DR-9 / DR-10). Carries the operator-facing failure reason
- * (`min(1)` — empty reasons fragment observability) plus partial-progress
- * counters so operators can resume or retry from a known point.
+ * Emitted when the JSONL to SQLite importer fails. It holds the operator-facing reason and the
+ * partial counts, so an operator can retry from a known point.
  */
 export const MigrationFailedData = z.object({
   reason: z.string().min(1).describe('Operator-facing failure reason'),
@@ -2833,49 +2207,20 @@ export const MigrationFailedData = z.object({
 });
 
 /**
- * migration.workflow_type_unknown — emitted once during the V3 → V4
- * Marten R-1 migration (#1313) for each stream whose `workflow_type`
- * could not be recovered from a co-located state file. The row remains
- * at the `__legacy` sentinel until an operator hand-edits the state file
- * and re-runs the migration. Lets operators locate the rows that need
- * manual classification without scanning every row of the streams
- * registry.
- *
- * Event lives on the per-stream log (streamId is the affected feature)
- * so it appears alongside the workflow's other events in a single
- * `event.query`. The `data.streamId` field is redundant with the
- * envelope's streamId but is retained for cross-stream aggregator
- * reducers that index off data.* rather than envelope.streamId.
+ * Emitted once in the V3 → V4 migration for each stream with no `workflow_type` in its state file.
+ * The row stays at the `__legacy` sentinel until an operator edits the state file and runs the
+ * migration again. The event is on the affected stream. `data.streamId` repeats the envelope
+ * `streamId` for aggregators that index on `data`.
  */
 export const MigrationWorkflowTypeUnknownData = z.object({
   streamId: z.string().min(1).describe('Affected stream / featureId'),
 });
 
 /**
- * migration.correlation_backfill_progress — emitted once per chunk during
- * the V5 -> V6 backfill (`migrateV5ToV6`) of the three correlation-tuple
- * columns (#1437). Lands on the internal `__migration__` stream so the
- * progress trail is queryable via `event.query streamId=__migration__`
- * without contaminating per-feature event logs.
- *
- * Chunk size is fixed at 1,000 rows; each event records how many rows
- * the chunk just touched (`rowsBackfilled`) and how many still need
- * backfilling AFTER that chunk (`totalRowsRemaining`). The pair lets an
- * operator estimate remaining wall-clock from a single progress event
- * (chunkDuration = elapsed since previous event; remainingChunks =
- * ceil(totalRowsRemaining / chunkSize)).
- *
- * `rowsBackfilled` reflects the number of rows targeted by the chunk's
- * UPDATE, not SQLite's `changes()` count — the latter would exclude
- * legacy rows whose correlation columns are written from NULL to NULL
- * and understate per-chunk progress for those payloads.
- *
- * Emission stops naturally when the chunk-selection query returns zero
- * rows — the loop terminates and no final "completed" event is emitted
- * (the absence of further progress events is the completion signal).
- * This keeps the contract minimal; downstream aggregators that need a
- * terminal "done" marker can derive it from the ledger stamp at
- * `schema_version.version = 6` instead.
+ * Emitted once for each 1,000-row chunk of the V5 → V6 correlation-column backfill, on the
+ * `__migration__` stream. `rowsBackfilled` is the row count that the chunk UPDATE targets, not the
+ * SQLite `changes()` count. `totalRowsRemaining` is the count still to backfill after the chunk. No
+ * final event exists. The ledger stamp `schema_version.version = 6` marks completion.
  */
 export const MigrationCorrelationBackfillProgressData = z.object({
   rowsBackfilled: z.number().int().nonnegative().describe('Rows targeted by this chunk (chunk size, not SQLite changes())'),
@@ -2886,24 +2231,13 @@ export const MigrationCorrelationBackfillProgressData = z.object({
     .describe('Rows whose correlation_id is still NULL after this chunk'),
 });
 
-// ─── Workspace discovery (#1290) ────────────────────────────────────────────
-
 /**
- * Emitted by `resolveWorkspace` when the dispatch boundary resolves a
- * missing `featureId` from a single matching MCP root or via the cwd-walk
- * fallback. `source` records which branch produced the resolution so
- * audit queries can distinguish handshake-driven inference from cwd
- * inference. `path` is the absolute workspace root (the directory
- * containing `.exarchos.yml` or `docs/workflow-state/<id>.state.json`).
+ * `resolveWorkspace` emits it when the dispatch boundary resolves a missing `featureId` from one MCP
+ * root or from the cwd walk. `source` records the branch. `path` is the absolute workspace root.
  */
 export const WorkspaceResolvedData = z.object({
   source: z.enum(['roots', 'cwd']),
-  // CodeRabbit MINOR #1423: docstring above declares `path` as the
-  // absolute workspace root; pre-fix the schema only required `min(1)`
-  // so a relative path could slip past validation. Refine to accept
-  // either a POSIX absolute path (`/foo/bar`) or a Windows absolute
-  // path (`C:\foo`) — both shipped surfaces use `path.resolve()` so
-  // either form may legitimately appear depending on host platform.
+  /** An absolute POSIX or Windows path, because both surfaces use `path.resolve()`. */
   path: z
     .string()
     .min(1)
@@ -2914,19 +2248,11 @@ export const WorkspaceResolvedData = z.object({
   featureId: z.string().min(1),
 });
 
-// ─── Dispatch elicitation hand-off (#1274) ──────────────────────────────────
-
 /**
- * Emitted by `dispatch/elicitation-dispatch.ts` BEFORE the
- * `elicitation/create` MCP round-trip fires. `operationId` correlates the
- * request with its matching `elicitation.fulfilled`; `field` is the missing
- * required parameter the server is asking the client to supply; `schema`
- * is the JSON Schema fragment derived via `.pick({field: true})`.
- *
- * `schema` is intentionally typed as `Record<string, unknown>` (rather
- * than a tight JSONSchema7 zod shape) because the wire shape depends on
- * the action schema's surface and we don't want the audit-trail validator
- * to drift every time a new action's field gets elicited.
+ * `dispatch/elicitation-dispatch.ts` emits it before the `elicitation/create` round trip.
+ * `operationId` pairs it with `elicitation.fulfilled`. `field` is the missing required parameter.
+ * `schema` is a JSON Schema fragment from `.pick({field: true})`. Its type is a loose record, so the
+ * validator does not drift with each action schema.
  */
 export const ElicitationRequestedData = z.object({
   operationId: z.string().min(1),
@@ -2935,10 +2261,8 @@ export const ElicitationRequestedData = z.object({
 });
 
 /**
- * Emitted by `dispatch/elicitation-dispatch.ts` AFTER the client returns a
- * value through `elicitation/create`. `operationId` matches the request;
- * `value` is the elicited value (typed `unknown` since the schema is
- * caller-supplied and JSON-shaped).
+ * `dispatch/elicitation-dispatch.ts` emits it after the client returns a value. `operationId`
+ * matches the request. `value` is `unknown`, because the caller supplies the schema.
  */
 export const ElicitationFulfilledData = z.object({
   operationId: z.string().min(1),
@@ -2947,72 +2271,41 @@ export const ElicitationFulfilledData = z.object({
 });
 
 /**
- * Emitted by `dispatch/elicitation-dispatch.ts` AFTER the round-trip when
- * the client returned `value === undefined` (decline / cancel). Mirrors
- * the {@link ElicitationFulfilledData} shape minus the `value` so the
- * audit-trail keeps the operationId/field pairing for post-hoc query.
- * Sentry MEDIUM #1424 root cause: pre-fix all responses were logged as
- * fulfilled; this event makes the decline path observable.
+ * Emitted after the round trip when the client returned `value === undefined` (decline or cancel).
+ * It has the shape of {@link ElicitationFulfilledData} without `value`.
  */
 export const ElicitationDeclinedData = z.object({
   operationId: z.string().min(1),
   field: z.string().min(1),
 });
 
-// ─── EventSourcedTaskStore lifecycle (#1272) ───────────────────────────────
-//
-// Emitted by `src/projections/task-store/event-sourced-task-store.ts` to durably back
-// the SDK `TaskStore` projection. See the file header on
-// `projections/task-store/event-sourced-task-store.ts` for the lifecycle map and the
-// REPLAY acceptance test in `event-sourced-task-store.test.ts` for the
-// INV-1 event-sourcing-integrity contract these schemas enforce.
-//
-// `request` is typed `unknown` because it's the original JSON-RPC request
-// envelope from the SDK (caller-supplied, JSON-shaped); the schema cannot
-// usefully tighten it without taking a dependency on the SDK's request
-// type registry. The store stores it verbatim so a fresh `getTask` can
-// reconstruct what was originally asked. `ttl` matches the SDK contract
-// (`number | null`); null means "unlimited lifetime, no automatic
-// cleanup".
-
-/** Emitted on `createTask`. Captures the durable creation intent. */
+/**
+ * Emitted on `createTask`. `request` is the original JSON-RPC request, stored as it is, so `getTask`
+ * can rebuild the request. A `ttl` of null means an unlimited lifetime.
+ */
 export const TaskCreatedData = z.object({
   taskId: z.string().min(1),
   createdBy: z.string().min(1).optional(),
   ttl: z.union([z.number().int().nonnegative(), z.null()]),
   request: z.unknown(),
-  // CodeRabbit MAJOR #1431 follow-up: persist pollInterval so REPLAY
-  // (`projectTask` in `event-sourced-task-store.ts`) reconstructs the
-  // caller-supplied cadence. Pre-fix the value was only kept in the
-  // in-memory projection, so a process restart silently reverted every
-  // task to the 1000ms default. Optional so historical events without
-  // the field continue to project (back-compat with pre-fix
-  // `task.created` payloads).
+  /**
+   * The caller poll cadence, persisted so that replay in `projectTask` restores it. Without it, a
+   * restart gives the 1000 ms default. Older events do not have it.
+   */
   pollInterval: z.number().int().positive().optional(),
-  // FINDING-8 (#1438, T6): persist the JSON-RPC `requestId` so REPLAY
-  // recovers the original outbound correlation id verbatim instead of
-  // having to synthesize `replayed:${taskId}`. Optional because
-  // historical `task.created` events emitted before this fix do NOT
-  // carry the field — the synthesizer in `projectTask` remains the
-  // load-bearing back-compat fallback for those events (INV-1: events
-  // are immutable, so old events stay shaped as they were when written).
-  // SDK `RequestId` is `string | number` (JSON-RPC envelope), so we
-  // mirror that union here rather than narrowing to string.
+  /**
+   * The JSON-RPC `requestId`, so replay recovers the original correlation id. Older events do not
+   * have it, and `projectTask` then synthesizes `replayed:${taskId}`. The type mirrors the SDK
+   * `RequestId`.
+   */
   requestId: z.union([z.string(), z.number()]).optional(),
 });
 
 /**
- * Emitted on each `getTask` read. The canonical poll-ordering signal is
- * the event envelope's own `.sequence` field (assigned atomically by the
- * appender — see `event-sourced-task-store.ts` `getTask`). Consumers MUST
- * use `envelope.sequence` for ordering; `data.sequence` is retained as
- * optional ONLY for back-compat with historical events emitted before
- * CodeRabbit MAJOR #1431 follow-up which removed the placeholder. New
- * emits omit the payload field entirely.
+ * Emitted on each `getTask` read. The envelope `sequence` is the poll order, and consumers must use
+ * it. New events omit `data.sequence`.
  *
- * @deprecated Use `envelope.sequence` instead. Retained as optional for
- *             historical-event back-compat; will be removed once the
- *             retention window has rolled past the placeholder-era events.
+ * @deprecated Use `envelope.sequence`. The optional `sequence` field stays only for historical events.
  */
 export const TaskPolledData = z.object({
   taskId: z.string().min(1),
@@ -3020,10 +2313,8 @@ export const TaskPolledData = z.object({
 });
 
 /**
- * Emitted on terminal task transitions. `status` is the SDK terminal
- * surface (`completed | failed | cancelled`). `result` is the SDK
- * `Result` envelope on success; `error` is a human-readable message on
- * failure. Both are optional — `cancelled` terminals carry neither.
+ * Emitted on a terminal task transition. `result` is the SDK `Result` on success, and `error` is a
+ * message on failure. A `cancelled` terminal carries neither.
  */
 export const TaskResultData = z.object({
   taskId: z.string().min(1),
@@ -3037,27 +2328,16 @@ export const TaskCancelledData = z.object({
   taskId: z.string().min(1),
   reason: z.string().min(1).max(500),
 });
-// ─── Dispatch guard preflight observability (#1261) ─────────────────────────
 
 /**
- * Emitted by `verbs/team/dispatch-guard.ts` after the dispatch boundary
- * runs all preflight guards. Records the per-guard pass/fail outcome plus
- * an aggregate `passed` flag and total `durationMs` so audit queries can
- * (a) attribute dispatch blocks to a specific guard and (b) track
- * preflight latency over time without parsing structured logs.
+ * `verbs/team/dispatch-guard.ts` emits it after the dispatch boundary runs all preflight guards. It
+ * records each guard result, an aggregate `passed` flag, and the total `durationMs`. The guards:
+ * - `ancestry`: `validateBranchAncestry`
+ * - `worktree`: `assertMainWorktree`
+ * - `protectedBranch`: `assertCurrentBranchNotProtected`
+ * - `mainWorktree`: a reserved slot that mirrors `worktree.passed`
  *
- * The four guards mirror `prepare-delegation.ts` today:
- *   - `ancestry` — `validateBranchAncestry` (required upstream branches)
- *   - `worktree` — `assertMainWorktree` (refuse from a subagent worktree)
- *   - `protectedBranch` — `assertCurrentBranchNotProtected` (HEAD not on
- *     main/master)
- *   - `mainWorktree` — alias slot reserved for future cross-cutting
- *     "we are in the canonical main worktree" assertions; currently
- *     mirrors `worktree.passed` until further split is needed.
- *
- * Inherits `operationId` from the active `DispatchContext` (B1 / #1291)
- * via the `stampWithDispatchContext` helper in `events/store.ts`,
- * so no manual correlation threading is required at the emit site.
+ * `stampWithDispatchContext` in `events/store.ts` adds the `operationId` of the active dispatch.
  */
 export const DispatchPreflightData = z.object({
   guards: z.object({
@@ -3065,10 +2345,10 @@ export const DispatchPreflightData = z.object({
     worktree: z.object({ passed: z.boolean() }),
     protectedBranch: z.object({ passed: z.boolean() }),
     mainWorktree: z.object({ passed: z.boolean() }),
-    // #1509/#1501 — native-isolation worktree base-pin guard. Optional so
-    // the non-native dispatch path (which never runs it) remains
-    // schema-valid; populated only on the `nativeIsolation` path where
-    // Claude Code selects the worktree base.
+    /**
+     * The base-pin guard of a native-isolation worktree. Only the `nativeIsolation` path runs it, so it
+     * is optional.
+     */
     baseRef: z.object({ passed: z.boolean() }).optional(),
   }),
   passed: z.boolean(),
@@ -3076,45 +2356,27 @@ export const DispatchPreflightData = z.object({
 });
 
 /**
- * Emitted by `verbs/team/dispatch-guard.ts` when the worktree under
- * dispatch has a non-empty `git stash list`. Stash storage is shared
- * across worktrees in the same repository (documented project hazard:
- * `feedback_subagent_stash_hazard`), so any pre-existing stash entry
- * raises the risk that a sibling agent's WIP will be popped into the
- * current worktree. Emission is advisory — the dispatch is not blocked
- * — but operators can use the audit trail to correlate later
- * data-corruption incidents back to the moment of collision.
- *
- * `stashRef` is the ref of the most recent entry (e.g. `stash@{0}`).
+ * `verbs/team/dispatch-guard.ts` emits it when the worktree under dispatch has a non-empty
+ * `git stash list`. Worktrees of one repository share the stash, so a sibling agent can pop the
+ * wrong entry. The event is advisory and does not block the dispatch. `stashRef` is the newest entry.
  */
 export const StashDetectedData = z.object({
   worktreePath: z.string().min(1),
   stashRef: z.string().min(1),
 });
 
-// ─── Mutation-run liveness (verification-ladder slice 1, task 020 / INV-10) ──
-//
-// `mutation.executing_started` records the start of a mutation run driven by
-// the `mutation-adequacy` gate handler (`verbs/gates/mutation-adequacy.ts`);
-// `mutation.executed` is the paired terminal carrying the verdict. The pair
-// makes a long-running mutation sweep observable as a lifecycle, the same shape
-// as the merge orchestrator's executing/executed split.
-
 /** Emitted at the start of a (non-dry-run) mutation-adequacy run. */
 export const MutationExecutingStartedData = z.object({
-  /** The resolved mutation command being run (e.g. `npx stryker run`). */
+  /** The resolved mutation command, for example `npx stryker run`. */
   command: z.string().min(1),
   /** Repo root the command runs in. */
   repoRoot: z.string().min(1),
   /**
-   * The directory the runner actually executed in, which is NOT always
-   * `repoRoot` — a package-local mutation config moves it to the package dir.
-   * Declared because the handler emits it: an undeclared field is stripped by
-   * Zod, so the one fact that distinguishes "scored the repo" from "scored one
-   * package" was being dropped on the way into the stream.
+   * The directory where the runner executed. A package-local mutation config makes it the package
+   * directory, not `repoRoot`. Zod strips an undeclared field, so the schema declares it.
    */
   cwd: z.string().min(1).optional(),
-  // DR-2 — canonical liveness instance key (mutation: operationId).
+  /** The liveness instance key: `operationId`. */
   ...livenessInstanceFields,
 });
 
@@ -3128,25 +2390,15 @@ export const MutationExecutedData = z.object({
   passed: z.boolean(),
   /** The child process exit code. */
   exitCode: z.number().int(),
-  // DR-2 — canonical liveness instance key (mutation: operationId).
+  /** The liveness instance key: `operationId`. */
   ...livenessInstanceFields,
 });
 
 /**
- * `feedback.recorded` (#1319) — agent→runtime friction back-channel.
- *
- * `message` is the friction report itself (required, non-empty). `sessionContext`
- * is optional structured provenance: which workflow / action / errorCode the
- * agent was in when it hit the friction. `configuredEndpoint` records the
- * `.exarchos.yml` `feedback.upstream` URL captured at emit time (or `null` when
- * unset) so a later query can tell whether the report was eligible for upstream
- * federation; `upstreamDelivered` records whether the best-effort POST actually
- * succeeded (`false` when there was no endpoint, the POST failed, or it was
- * skipped — the local event write always succeeds regardless, INV-15 /
- * offline-first).
- *
- * Intentionally NOT `.strict()`: this is an append-only event payload, so a
- * future additive field must not retroactively invalidate replay of older rows.
+ * An agent friction report. `sessionContext` records the workflow, action and error code.
+ * `configuredEndpoint` is the `feedback.upstream` URL at emit time, or null. `upstreamDelivered`
+ * records whether the best-effort POST succeeded, and the local write always succeeds. The object
+ * is not strict, so an additive field keeps older rows valid.
  */
 export const FeedbackRecordedData = z.object({
   message: z.string().min(1),
@@ -3161,15 +2413,7 @@ export const FeedbackRecordedData = z.object({
   upstreamDelivered: z.boolean().optional(),
 });
 
-// ─── Prune-run liveness (WLM slice 3, DR-3 / INV-10) ────────────────────────
-//
-// `prune.executing_started` records the START of a `prune_worktrees` GC pass;
-// `prune.executed` is the paired TERMINAL. The pair rides the singleton
-// `worktrees` stream and is folded by `worktrees@v1` into `inFlightPrunes`
-// (keyed by `operationId`) so an in-flight prune is `ps`/`wait`-visible — the
-// INV-10 liveness idiom shared with the merge / launch / mutation pairs.
-
-/** Emitted at the START of a `prune_worktrees` GC pass (DR-3). */
+/** Emitted at the start of a `prune_worktrees` pass. */
 export const PruneExecutingStartedData = z.object({
   /** Correlation key + `inFlightPrunes` map key — one per prune pass. */
   operationId: z.string().min(1),
@@ -3178,23 +2422,17 @@ export const PruneExecutingStartedData = z.object({
   /** PID of the live process running the prune (liveness ground truth). */
   holderPid: z.number().int(),
   /**
-   * Holder process create-time (ISO 8601) — disambiguates PID reuse for a later
-   * dead-holder reconciler. Modeled as `null` (never `''`) when the platform
-   * cannot resolve it, mirroring the DR-5 `ownerStartedAt` / `holderStartedAt`
-   * null-ready contract.
+   * The holder process create time (ISO 8601), so a dead-holder reconciler can detect PID reuse. It
+   * is `null`, never `''`, when the platform cannot resolve it.
    */
   holderStartedAt: z.string().min(1).nullable(),
-  // DR-2 — canonical liveness instance key (prune: the existing operationId).
+  /** The liveness instance key: `operationId`. */
   ...livenessInstanceFields,
 });
 
 /**
- * The prune evaluation's audit record.
- *
- * `malformedEntries` mirrors the diagnostic entries the handler returns to its
- * caller: a rejected entry may have no readable `featureId` — that is precisely
- * why it was rejected — so the field is optional and the reasons carry the
- * detail.
+ * The audit record of a prune evaluation. A rejected entry can have no readable `featureId`, so that
+ * field is optional and `reasons` holds the detail.
  */
 export const PruneDiagnosticsData = z.object({
   malformedCount: z.number().int().nonnegative(),
@@ -3208,40 +2446,19 @@ export const PruneDiagnosticsData = z.object({
   advisory: z.string().optional(),
 });
 
-/** Paired TERMINAL: the `prune_worktrees` GC pass completed (DR-3). */
+/** The paired terminal: the `prune_worktrees` pass completed. */
 export const PruneExecutedData = z.object({
   operationId: z.string().min(1),
   /** How many worktrees the pass deleted (0 on a dry-run or a no-op pass). */
   deletedCount: z.number().int().nonnegative(),
-  // DR-2 — canonical liveness instance key (prune: the existing operationId).
+  /** The liveness instance key: `operationId`. */
   ...livenessInstanceFields,
 });
 
-// ─── Export event contract (DR-6, lifecycle-verbs task 012 / INV-13 / INV-8) ─
-//
-// `export` writes a zip bundle (events.jsonl + state.json + metadata.json +
-// artifacts/) to a path OUTSIDE `.exarchos/` — a non-idempotent external side
-// effect, so it follows the INV-13 two-event split. `export.requested` is the
-// durable INTENT (carrying the RESOLVED destination path) journaled BEFORE the
-// write; `export.executed` is the RESULT (carrying the written bundle's content
-// hash) journaled AFTER. On a crash between the two, the next invocation
-// observes `export.requested` without `export.executed` and runs an idempotent
-// precheck (the zip exists AND its hash matches the recorded `contentHash`) to
-// decide whether to re-emit `export.executed` or redo the write.
-//
-// Both payloads carry `idempotencyKey` (INV-8) — the emitter (task 013) derives
-// the storage key from it so a crash-retry of the SAME logical export collapses
-// onto one intent, while a fresh export invocation mints a distinct key and a
-// new pair. The schema's only contract is that the field is present + non-empty;
-// the emitter owns the key's construction.
-
 /**
- * `export.requested` — durable INTENT recorded BEFORE the non-idempotent zip
- * write (INV-13). Carries the RESOLVED destination `outputPath` so the timeline
- * reconstructs exactly WHERE the bundle was intended to land even if the write
- * crashes mid-flight (the default `./<featureId>-export.zip` is resolved to an
- * absolute path by the handler before this event is emitted). `idempotencyKey`
- * (INV-8) lets a crash-retry collapse onto the same logical request.
+ * The durable intent before the zip write. `outputPath` is the resolved absolute destination, so the
+ * timeline shows the target after a crash. `idempotencyKey` collapses a crash retry onto the same
+ * request, and the emitter builds the storage key from it.
  */
 export const ExportRequestedData = z.object({
   featureId: z.string().min(1).describe('The workflow/feature stream being exported'),
@@ -3260,13 +2477,9 @@ export const ExportRequestedData = z.object({
 });
 
 /**
- * `export.executed` — the RESULT recorded AFTER the zip write succeeds
- * (INV-13). Carries the written bundle's `contentHash` (the INV-13 crash
- * precheck compares it against the on-disk zip to decide re-emit vs redo), the
- * `eventCount` in the exported stream extract, the OPTIONAL `missingArtifacts`
- * (referenced artifact paths that did not exist on disk — tolerated and listed
- * in the bundle metadata), and the SAME `idempotencyKey` that paired it to its
- * `export.requested` intent.
+ * The result after the zip write succeeds. The crash precheck compares `contentHash` with the zip on
+ * disk. `missingArtifacts` lists referenced artifacts that were absent. `idempotencyKey` pairs it
+ * with its `export.requested`.
  */
 export const ExportExecutedData = z.object({
   featureId: z.string().min(1).describe('The workflow/feature stream that was exported'),
@@ -3292,24 +2505,11 @@ export const ExportExecutedData = z.object({
     .describe('Same key as the paired export.requested intent (INV-8)'),
 });
 
-// ─── VCS mutation ledger contract ───────────────────────────────────────────
-//
-// The intent/terminal record the single git & worktree mutation owner appends
-// around every non-idempotent git effect. The three payloads share a common
-// head — the mutation `kind`, the caller's `idempotencyKey` and the monotonic
-// fencing `epoch` — because the ledger fold reads exactly those three fields off
-// EVERY event in the stream regardless of which one it is: `epoch` maximises
-// into the current owner's fencing token, `idempotencyKey` keys the replay
-// cache, and `kind` discriminates the mutation family for the audit trail.
-//
-// The terminals then diverge on the one field each carries: `vcs.executed` holds
-// the effect's `result` (replayed verbatim to a duplicate request, so a repeated
-// key cannot mint a second worktree, branch, PR or merge) and `vcs.compensated`
-// holds the failure's `error`. Splitting the terminal in two rather than
-// carrying a status flag is what makes "already terminated as compensated"
-// distinguishable from "already executed" without inspecting a payload field.
-
-/** The fields every VCS ledger event carries — the ones the ledger fold reads. */
+/**
+ * The fields of every VCS ledger event, which the ledger fold reads. `epoch` gives the fencing
+ * token, `idempotencyKey` keys the replay cache, and `kind` names the mutation family. The two
+ * terminals are separate types, so "compensated" and "executed" differ without a status field.
+ */
 const vcsLedgerCommonFields = {
   kind: z
     .string()
@@ -3331,20 +2531,14 @@ const vcsLedgerCommonFields = {
 };
 
 /**
- * `vcs.requested` — the durable INTENT, appended BEFORE the git effect fires.
- *
- * An intent with no matching terminal is the recoverable state: the effect is
- * probe-before-mutate, so re-running the same key either no-ops or completes the
- * partial mutation, and the missing terminal is then recorded.
+ * The durable intent, appended before the git effect. An intent without a terminal is recoverable.
+ * The effect probes before it mutates, so a re-run of the key does nothing or completes the mutation.
  */
 export const VcsRequestedData = z.object({ ...vcsLedgerCommonFields });
 
 /**
- * `vcs.executed` — the success TERMINAL, appended AFTER the effect succeeds.
- *
- * `result` is the effect's own outcome carrier and is replayed verbatim to a
- * later request bearing the same key, which is what makes duplicate creates
- * impossible rather than merely unlikely.
+ * The success terminal, appended after the effect succeeds. A later request with the same key gets
+ * `result` back verbatim, so a duplicate create cannot occur.
  */
 export const VcsExecutedData = z.object({
   ...vcsLedgerCommonFields,
@@ -3355,47 +2549,23 @@ export const VcsExecutedData = z.object({
 });
 
 /**
- * `vcs.compensated` — the failure TERMINAL, appended after a failed effect and
- * any compensation it triggered (a multi-step create that fails partway undoes
- * the state it minted, so no orphaned worktree or branch survives).
- *
- * Deliberately sticky: unlike an `executed` terminal, this one is never
- * re-verified against reality and never falls through to a re-run.
+ * The failure terminal, appended after a failed effect and its compensation. A partial multi-step
+ * create undoes the state it made. This terminal is sticky: it is never checked again and never
+ * re-runs.
  */
 export const VcsCompensatedData = z.object({
   ...vcsLedgerCommonFields,
   error: z.string().optional().describe('Failure message captured from the effect carrier'),
 });
 
-// ─── Atomic tree-promotion contract ─────────────────────────────────────────
-//
-// `install/atomic-promotion.ts` stages a whole tree into a sibling directory,
-// verifies its content-addressed digest, then commits with a bounded sequence of
-// atomic renames. The commit rename is the one non-idempotent moment in an
-// install — before it the destination is fully OLD, after it fully NEW — and it
-// is the moment this event records.
-//
-// ONE event, not the intent/terminal pair the VCS ledger carries, and the
-// difference is a property of the operation rather than a shortcut. The promoter
-// already recovers its own interrupted attempts from an on-disk journal, so an
-// intent record would duplicate a durable structure that exists and is read; and
-// the operation has no compensated terminal to distinguish, because a failed
-// promotion rolls all the way back to the previous complete tree and leaves the
-// destination in the state it started in.
-
 /**
- * `promotion.executed` — the durable record that a staged tree was promoted.
+ * The durable record that `install/atomic-promotion.ts` promoted a staged tree. It records the
+ * commit rename, which is the one non-idempotent step of an install. It is one event, not a pair.
+ * The promoter recovers interrupted attempts from its own journal, and a failed promotion rolls back.
  *
- * The payload is the identity of the promotion, not a copy of the tree: WHERE it
- * landed, WHAT now lives there (the same content-addressed digest the promoter
- * verifies the stage against, so the record and the verification read one value),
- * WHO performed it, and whether it converged from an interrupted prior attempt.
- *
- * Deliberately omits the promoter's `directoryDurability`. That field reports
- * whether the host can fsync a directory handle — a platform capability, not a
- * fact about this promotion — and its vocabulary is owned by
- * `utils/atomic-write.ts` as a type with no runtime form. Restating it as an
- * enum here would be a second authority for a vocabulary that already has one.
+ * The payload is the identity of the promotion: the destination, the verified tree digest, the
+ * owner, and whether it recovered an earlier attempt. It omits `directoryDurability`, which is a
+ * platform capability that `utils/atomic-write.ts` owns.
  */
 export const PromotionExecutedData = z.object({
   target: z
@@ -3417,24 +2587,10 @@ export const PromotionExecutedData = z.object({
     ),
 });
 
-// ─── Emission-violation report ──────────────────────────────────────────────
-//
-// The durable finding that a handler completed an operation without appending
-// an event its own registration declares unconditionally. The post-dispatch
-// verifier is the only writer, and the fault it reports is ours: the handler
-// promised an emission the dispatch chain then failed to observe.
-//
-// Registered ahead of the verifier that appends it, because a check with
-// nowhere to write its finding degrades to a log line — the miss has to
-// outlive the run that noticed it or the whole assertion is unfalsifiable
-// after the fact.
-
 /**
- * Registration state of an event that landed although nothing should emit it.
- * Mirrors `NonEmittingLifecycle` in `emission-verifier.ts` exactly — the full
- * lifecycle axis minus `active`, which is the state a runtime emission agrees
- * with and so can never be the state named here. New members MUST be added in
- * both places.
+ * The registration state of an event that landed although its registration says that nothing emits
+ * it. It mirrors `NonEmittingLifecycle` in `emission-verifier.ts`: the lifecycle axis without
+ * `active`. A new member must go in both places.
  */
 export const NonEmittingLifecycle = z.enum(['planned', 'retired']);
 export type NonEmittingLifecycle = z.infer<typeof NonEmittingLifecycle>;
@@ -3447,27 +2603,12 @@ export const LifecycleViolationEntry = z.object({
 export type LifecycleViolationEntry = z.infer<typeof LifecycleViolationEntry>;
 
 /**
- * `emission.violated` — an operation finished with its emission contract
- * broken, on either of two independent axes: an unconditionally declared event
- * that never landed, or an event that landed although its own registration
- * says nothing emits it.
+ * An operation finished with its emission contract broken on one of two axes. Either an
+ * unconditionally declared event did not land, or an event landed that its registration says nothing
+ * emits. The payload names the action, the broken contract, and the `operationId` of the run.
  *
- * The payload has to answer all three of WHICH operation, WHAT went wrong, and
- * WHICH RUN it happened on, because a report naming only the action is
- * unactionable: the same action can declare several emissions, and "this
- * action missed something" does not say which contract broke or let a reader
- * join the finding back to the surrounding events of that dispatch.
- *
- * Both axis fields carry the FULL set rather than the first miss. Reporting
- * one name per violation would turn a handler that dropped three emissions
- * into a finding that reads as though it dropped one, and each repair would
- * reveal the next — the shape that makes a fault look smaller every time it is
- * examined.
- *
- * The two axes are independently optional-empty — a violation can be
- * lifecycle-only, missing-only, or both — but a report naming NEITHER is not a
- * violation at all, so the refinement below rejects that shape rather than
- * accepting a report with nothing to show for it.
+ * Each axis field holds the full set, not the first miss. Each axis can be empty, but the refinement
+ * rejects a report with no evidence on either axis.
  */
 export const EmissionViolatedData = z
   .object({
@@ -3498,20 +2639,11 @@ export const EmissionViolatedData = z
     },
   );
 
-// ─── Durable projection-health state (DR-4, wiring-closure T-06) ────────────
-//
-// The cursor/tail freshness verdict, made durable. `projections/freshness.ts`
-// computes it (pure comparison, no I/O) and `publishProjectionFreshness`
-// journals it to the singleton `meta/projection-health` stream — never to the
-// stream under assessment, whose tail the append would itself move.
-//
-// `reason` mirrors the `ProjectionDegradationReason` union in
-// `projections/freshness.ts` exactly. New members MUST be added in both places:
-// the enum enforces the wire contract, the union enforces the call-site
-// contract (same coordinated-change rule as the DR-18
-// `WorkflowProjectionDegradedCause` enum above).
-
-/** Closed enum of cursor/tail disagreement directions (DR-4). */
+/**
+ * The closed set of cursor and tail disagreement directions. It mirrors
+ * `ProjectionDegradationReason` in `projections/freshness.ts`, and a new member must go in both
+ * places.
+ */
 export const ProjectionDegradedReason = z.enum([
   /** The fold stops short of the durable tail — the answer omits recent events. */
   'projection-behind',
@@ -3521,15 +2653,10 @@ export const ProjectionDegradedReason = z.enum([
 export type ProjectionDegradedReason = z.infer<typeof ProjectionDegradedReason>;
 
 /**
- * `projection.degraded` — a stream's materialized folds disagree with its
- * durable event tail, recorded durably so a consumer that does not share the
- * in-memory materializer cache (another process, or this one after a restart)
- * can still tell "no tasks completed" from "the fold has not seen the events
- * that completed them".
- *
- * `streamId` is the ASSESSED stream (the event itself lives on
- * `meta/projection-health`), which is also the fold key: the latest
- * unresolved record per `streamId` IS the durable degraded state.
+ * The folds of a stream disagree with its durable event tail. The record is durable, so another
+ * process, or this one after a restart, can tell "no tasks completed" from "the fold has not seen
+ * the events". `streamId` is the assessed stream and the fold key. The event itself is on
+ * `meta/projection-health`.
  */
 export const ProjectionDegradedData = z.object({
   streamId: z
@@ -3557,11 +2684,8 @@ export const ProjectionDegradedData = z.object({
 });
 
 /**
- * `projection.recovered` — the paired RESOLUTION. Published only when a stream
- * that currently holds an unresolved `projection.degraded` record has caught
- * the tail, so the folded health state can return to healthy. Without it the
- * durable state would be a sticky one-way flag that no consumer could ever
- * clear.
+ * The paired resolution. It is published only when a stream with an unresolved
+ * `projection.degraded` record caught the tail, so the folded health state can return to healthy.
  */
 export const ProjectionRecoveredData = z.object({
   streamId: z
@@ -3572,13 +2696,11 @@ export const ProjectionRecoveredData = z.object({
   projectionCursor: z.number().int().nonnegative(),
 });
 
-// ─── Internal admission proof events (phase-gate v2.12, DR-2 / DR-3) ────────
-//
-// These schemas establish an additive replay contract. They deliberately do
-// not define public action arguments, authorize generic event append, evaluate
-// policy, or switch transition enforcement. The domain-bearing fields reuse
-// workflow/admission/types.ts so event and runtime unions cannot drift.
-
+/**
+ * The event version of the internal admission proof events. These schemas are a replay contract
+ * only: no public action arguments, no generic append, no policy evaluation, and no transition
+ * enforcement. The domain fields reuse `workflow/admission/types.ts`, so the unions cannot drift.
+ */
 export const AdmissionProofEventVersionSchema = z.literal('1.0');
 
 const AdmissionFactIdSchema = z
@@ -3615,14 +2737,14 @@ export const AdmissionRequirementResolvedData = z
   .strict()
   .readonly();
 
-/** Durable evidence fact; the runtime evidence union owns subject/provenance. */
+/** A durable evidence fact. The runtime evidence union owns the subject and the provenance. */
 export const AdmissionEvidenceRecordedData = z
   .object({
     eventVersion: AdmissionProofEventVersionSchema,
     evidence: AdmissionEvidenceV1Schema,
     /**
-     * Explicit append-only rerun link. Attribution comes from the superseding
-     * evidence producer snapshot; replay never rewrites the predecessor.
+     * The explicit append-only rerun link. Attribution comes from the producer snapshot of the
+     * superseding evidence. Replay never rewrites the predecessor.
      */
     supersedesEvidenceId: EvidenceIdSchema.optional(),
   })
@@ -3666,7 +2788,7 @@ export const AdmissionContradictionRecordedData = z
     phaseAttemptId: PhaseAttemptIdSchema,
     policyId: PolicyIdSchema,
     policyDigest: ContentDigestV1Schema,
-    /** Added for new writers; historical V1 facts derive it from evidenceIds. */
+    /** New writers add it. Historical V1 facts derive it from `evidenceIds`. */
     requirementId: RequirementIdSchema.optional(),
     subject: EvidenceSubjectV1Schema,
     evidenceIds: z.array(EvidenceIdSchema).min(2).readonly(),
@@ -3747,7 +2869,7 @@ export const AdmissionDisagreementDispositionData = z
   .strict()
   .readonly();
 
-/** Authorized, attributable rollout assessment; still inert in v2.12. */
+/** An authorized, attributable rollout assessment. It is inert in v2.12. */
 export const AdmissionRolloutDecisionData = z
   .object({
     eventVersion: AdmissionProofEventVersionSchema,
@@ -3767,8 +2889,8 @@ export const AdmissionRolloutDecisionData = z
   .readonly();
 
 /**
- * Replay shape for a future enablement fact. Merely registering this planned
- * schema does not make any v2.12 resolver consume it or enable enforcement.
+ * The replay shape of a future enablement fact. No v2.12 resolver reads it, and it enables no
+ * enforcement.
  */
 export const AdmissionEnforcementEnabledData = z
   .object({
@@ -3787,15 +2909,11 @@ export const AdmissionEnforcementEnabledData = z
   .readonly();
 
 /**
- * Cutover promotion path (#1739) — the first-time readiness export record.
- *
- * Appended by the observer's durable-append success hook when all six cutover
- * conditions are FIRST satisfied. Carries a REFERENCE to the exported report
- * (path + content digest) plus the load-bearing summary counts, not a copy of
- * the full report — the artifact on disk is the detail, the event is the fact.
- * The idempotency key is a pure function of store identity (never clock- or
- * random-derived, the T-49 lesson), so a repeat evaluation after readiness
- * collapses onto the stored row instead of duplicating it.
+ * The first readiness export record of the cutover promotion path. The observer appends it when all
+ * six cutover conditions first hold. It carries a reference to the exported report (path and content
+ * digest) and the summary counts, not the full report. The idempotency key derives only from the
+ * store identity, so a repeat evaluation collapses onto the stored row. No `z.infer` alias exists,
+ * because the only producer calls `AdmissionCutoverReadyData.parse` directly.
  */
 export const AdmissionCutoverReadyData = z
   .object({
@@ -3841,17 +2959,6 @@ export type AdmissionRolloutDecision = z.infer<
 export type AdmissionEnforcementEnabled = z.infer<
   typeof AdmissionEnforcementEnabledData
 >;
-// NOTE: deliberately no `AdmissionCutoverReady` z.infer alias — the sole
-// producer (`cutover-auto-export.ts`) builds the payload through
-// `AdmissionCutoverReadyData.parse` directly, so an exported alias would be
-// dead code (knip fails closed on unconsumed exports).
-
-// ─── Intent execution record (execute_intent) ──────────────────────────────
-//
-// `orchestrate.intent_executed` is the operation event a bounded intent
-// segment commits under the caller's operationId, on both the committed and
-// the failed path — the fact an execute_intent call ran, closing the old
-// zero-event refusal a fully-failed segment used to leave behind.
 
 /** One compiled leaf's outcome within an executed intent segment. */
 export const IntentExecutedLeafEntry = z
@@ -3867,9 +2974,8 @@ export const IntentExecutedLeafEntry = z
   .strict();
 
 /**
- * Caller-supplied steering, recorded for audit. No durable per-task riskTier/
- * boundaryTouching stamp exists yet — `source: 'caller-args'` names honestly
- * where these values came from rather than implying a resolved, stamped fact.
+ * Caller-supplied steering, recorded for audit. No durable per-task `riskTier` or
+ * `boundaryTouching` stamp exists, so `source` names where the values came from.
  */
 export const IntentExecutedSteering = z
   .object({
@@ -3890,6 +2996,10 @@ export const IntentExecutedSteering = z
   })
   .strict();
 
+/**
+ * The operation event that a bounded intent segment commits under the caller `operationId`. It is
+ * appended on the committed path and on the failed path, so each `execute_intent` call leaves a fact.
+ */
 export const OrchestrateIntentExecutedData = z
   .object({
     operationId: z
@@ -3915,17 +3025,12 @@ export const OrchestrateIntentExecutedData = z
     steering: IntentExecutedSteering.optional().describe(
       'Caller-supplied riskTier/boundaryTouching, when either was passed to execute_intent',
     ),
-    // Required, and at least one: this is a settlement endpoint the run-bundle
-    // integrity oracle keys on, and that oracle reports a custodial settlement
-    // with no reference as a violation. Requiring the field here means the
-    // executor cannot append a record the oracle would immediately condemn —
-    // the bytes must be in custody before the fact that names them exists.
-    // Per-type data is validated by the producer's own parse and by the
-    // generic append tool (where this type is reserved), never at the store,
-    // so rows appended before custody existed remain readable; the oracle
-    // tells them apart by the payload version the producer stamped.
-    // The key is the same constant the oracle reads under, so the writer and
-    // the reader cannot drift to two field names.
+    /**
+     * Required, with at least one entry. The run-bundle integrity oracle reports a custodial settlement
+     * without a reference as a violation, so the bytes must be in custody before this record exists.
+     * The producer parse and the generic append tool validate this field, not the store, so older rows
+     * stay readable. The key is the constant that the oracle reads.
+     */
     [BUNDLE_REF_FIELD]: z
       .array(BundleRefV1Schema)
       .min(1)
@@ -3937,20 +3042,6 @@ export const OrchestrateIntentExecutedData = z
   .strict();
 export type OrchestrateIntentExecuted = z.infer<typeof OrchestrateIntentExecutedData>;
 
-// ─── Settlement record (settle) ─────────────────────────────────────────────
-//
-// `execution.settled` is what one adjudicated batch leaves behind. The payload
-// is the SUMMARY a reader needs without opening anything: which capsule was
-// applied, how the batch came out, which tasks were accepted, and how many
-// findings of each kind there were. The findings themselves — and the claims
-// they were reached from — live in the referenced bundle, because an
-// adjudication interior is material to audit and must not become material a
-// projection folds.
-//
-// The counts are carried rather than the findings for a reason that outlives
-// the size argument: a payload that grew with the batch would make the ledger
-// row's size a function of how badly the work went.
-
 /** How many findings of one kind this settlement reported. */
 export const SettlementFindingCount = z
   .object({
@@ -3960,12 +3051,8 @@ export const SettlementFindingCount = z
   .strict();
 
 /**
- * What the adjudication actually looked at.
- *
- * Present so a zero-finding settlement cannot be read as a clean one without
- * checking. A batch that adjudicated nothing reports no findings, and so does a
- * batch that adjudicated everything and found nothing wrong; only the
- * denominator separates them, so it travels with the record.
+ * What the adjudication looked at. A batch that adjudicated nothing and a clean batch both report
+ * zero findings. Only this denominator tells them apart, so it travels with the record.
  */
 export const SettlementCensusData = z
   .object({
@@ -3995,6 +3082,12 @@ export const SettlementCensusData = z
   })
   .strict();
 
+/**
+ * The record of one adjudicated batch. The payload is a summary: the capsule, the outcome, the
+ * accepted tasks, and the finding count of each kind. The findings and the claims are in the
+ * referenced bundle, so no projection folds them. Counts keep the row size independent of how
+ * badly the work went.
+ */
 export const ExecutionSettledData = z
   .object({
     operationId: z
@@ -4035,12 +3128,10 @@ export const ExecutionSettledData = z
       .string()
       .min(1)
       .describe('Digest of {capsule identity, batch, claims} — the replay comparison key'),
-    // Required, and at least one, for the same reason the executor's record
-    // requires it: this is a settlement endpoint the run-bundle integrity
-    // oracle keys on, and that oracle reports a custodial settlement with no
-    // reference as a violation. Requiring the field here means the handler
-    // cannot append a record the oracle would immediately condemn — the
-    // adjudication interior is in custody before the fact naming it exists.
+    /**
+     * Required, with at least one entry, for the same reason as on the executor record. The
+     * adjudication bundle is in custody before this record exists.
+     */
     [BUNDLE_REF_FIELD]: z
       .array(BundleRefV1Schema)
       .min(1)
@@ -4083,9 +3174,10 @@ export const WorkflowPreparedData = z
       .string()
       .min(1)
       .describe('Digest of the compilation inputs — the replay comparison key'),
-    // Required, and at least one: the capsule and the definition it pins are
-    // in custody before this record exists, and a record naming no bytes
-    // would pin a capsule nobody can read back.
+    /**
+     * Required, with at least one entry. The capsule and its definition are in custody before this
+     * record exists, and a record that names no bytes pins an unreadable capsule.
+     */
     [BUNDLE_REF_FIELD]: z
       .array(BundleRefV1Schema)
       .min(1)
@@ -4097,15 +3189,11 @@ export const WorkflowPreparedData = z
   .strict();
 export type WorkflowPrepared = z.infer<typeof WorkflowPreparedData>;
 
-// ─── The divergence loop's decision facts ────────────────────────────────────
-//
-// A batch `settle` holds for a deviation is a batch waiting on a decision, and
-// the decision is a fact about that batch — not a new batch. Both rows name the
-// settlement the deviation belongs to and the deviation by a content-derived id,
-// so a decision round can name what it decides without restating it, and a
-// reader can pair every decision with its proposal.
-
-/** What every divergence fact says about the settlement it belongs to. */
+/**
+ * What every divergence fact says about its settlement. A decision is a fact about a held batch, not
+ * a new batch. Both facts name the settlement and a content-derived deviation id, so a reader can
+ * pair each decision with its proposal.
+ */
 const DeviationSettlementIdentity = {
   operationId: z.string().min(1).describe('The settle call this fact was recorded under'),
   workflowId: z.string().min(1).describe('Workflow the settled capsule compiled for'),
@@ -4141,10 +3229,7 @@ export const DeviationDecidedData = z
   .strict();
 export type DeviationDecided = z.infer<typeof DeviationDecidedData>;
 
-// ─── Event Data Schemas Map ─────────────────────────────────────────────────
-
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
-  // Workflow-level
   'workflow.started': WorkflowStartedData,
   'workflow.transition': WorkflowTransitionData,
   'workflow.fix-cycle': WorkflowFixCycleData,
@@ -4177,37 +3262,29 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'workflow.projection_degraded': WorkflowProjectionDegradedData,
   'synthesize.requested': SynthesizeRequestedData,
 
-  // Task-level
   'task.assigned': TaskAssignedData,
   'task.claimed': TaskClaimedData,
   'task.progressed': TaskProgressedData,
   'task.completed': TaskCompletedData,
   'task.failed': TaskFailedData,
 
-  // Quality gate
   'gate.executed': GateExecutedData,
 
-  // Stack
   'stack.position-filled': StackPositionFilledData,
   'stack.restacked': StackRestackedData,
   'stack.enqueued': StackEnqueuedData,
   'stack.submitted': StackSubmittedData,
 
-  // Telemetry
   'tool.invoked': ToolInvokedData,
   'tool.completed': ToolCompletedData,
   'tool.errored': ToolErroredData,
-  // PR3/T7 (#1364) — structured action-level failure event.
   'tool.action_errored': ToolActionErroredData,
   'tool.budget_exceeded': ToolBudgetExceededData,
-  // #1262 — per-turn output-token sample (CodeRabbit F2 on PR #1409).
   'turn.completed': TurnCompletedDataSchema,
   'subagent.tokens_used': SubagentTokensUsedDataSchema,
 
-  // Benchmark
   'benchmark.completed': BenchmarkCompletedData,
 
-  // Team
   'team.spawned': TeamSpawnedData,
   'team.task.assigned': TeamTaskAssignedData,
   'team.task.completed': TeamTaskCompletedData,
@@ -4216,26 +3293,21 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'team.task.planned': TeamTaskPlannedData,
   'team.teammate.dispatched': TeamTeammateDispatchedData,
 
-  // Quality
   'quality.regression': QualityRegressionData,
   'quality.hint.generated': QualityHintGeneratedData,
   'quality.refinement.suggested': RefinementSuggestedDataSchema,
 
-  // Review
   'review.completed': ReviewCompletedData,
   'review.routed': ReviewRoutedData,
   'review.finding': ReviewFindingData,
   'review.escalated': ReviewEscalatedData,
 
-  // Remediation
   'remediation.attempted': RemediationAttemptedDataSchema,
   'remediation.succeeded': RemediationSucceededDataSchema,
 
-  // Session
   'session.tagged': SessionTaggedData,
   'session.machinery_consumed': SessionMachineryConsumedDataSchema,
 
-  // Readiness
   'worktree.created': WorktreeCreatedData,
   'worktree.baseline': WorktreeBaselineData,
   'test.result': TestResultData,
@@ -4245,54 +3317,46 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'comment.posted': CommentPostedData,
   'comment.resolved': CommentResolvedData,
 
-  // Shepherd
   'shepherd.started': ShepherdStartedData,
   'shepherd.iteration': ShepherdIterationData,
   'shepherd.approval_requested': ShepherdApprovalRequestedData,
   'shepherd.escalated': ShepherdEscalatedData,
   'shepherd.completed': ShepherdCompletedData,
 
-  // Eval
   'eval.run.started': EvalRunStartedData,
   'eval.case.completed': EvalCaseCompletedData,
   'eval.run.completed': EvalRunCompletedData,
   'eval.judge.calibrated': JudgeCalibratedDataSchema,
 
-  // Diagnostic (exarchos doctor)
   'diagnostic.executed': DiagnosticExecutedDataSchema,
 
-  // Onboard (exarchos onboard composite, DR-7 two-event contract)
   'onboard.requested': OnboardRequestedDataSchema,
   'onboard.executed': OnboardExecutedDataSchema,
 
-  // Invariant authoring (invariants-catalog-wizard, P2)
   'invariant.authored': InvariantAuthoredDataSchema,
   'invariant.amended': InvariantAmendedDataSchema,
   'catalog.registered': CatalogRegisteredDataSchema,
 
-  // Mutation-run liveness (verification-ladder slice 1, task 020 / INV-10)
   'mutation.executing_started': MutationExecutingStartedData,
   'mutation.executed': MutationExecutedData,
 
-  // Agent→runtime friction back-channel (#1319)
   'feedback.recorded': FeedbackRecordedData,
 
-  // Review provider adapter unknown-tier (#1159)
+  /** A review provider adapter met an unknown tier. */
   'provider.unknown-tier': z.object({
     reviewer: z.string().min(1),
     rawTier: z.string().optional(),
     commentId: z.number().int(),
   }),
 
-  // Review provider adapter parse-error (#1161) — batch continues; this
-  // event records the single-comment failure for observability.
+  /** One review comment failed to parse. The batch continues. */
   'provider.parse-error': z.object({
     reviewer: z.string().min(1),
     commentId: z.number().int(),
     errorMessage: z.string().min(1),
   }),
 
-  // classify_review_items per-invocation observability (#1159)
+  /** Per-call observability of `classify_review_items`. */
   'dispatch.classified': z.object({
     groupCount: z.number().int().nonnegative(),
     directCount: z.number().int().nonnegative(),
@@ -4304,11 +3368,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
     }),
   }),
 
-  // Merge orchestrator (T03, DR-MO-2)
   'merge.preflight': MergePreflightData,
-  // Wave 4 audit §F1.2 two-event split — see MergeRequestedData definition.
-  // Registered in Wave 2B.2 so the `merge-orchestrator@v1` projection can
-  // fold it ahead of Wave 4's `decide` migration.
   'merge.requested': MergeRequestedData,
   'merge.executed': MergeExecutedData,
   'merge.rollback': MergeRollbackData,
@@ -4317,10 +3377,8 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'merge.completed': MergeCompletedData,
   'merge.executing_started': MergeExecutingStartedData,
 
-  // Command resolver (#1199 T15) — audit trail for runtime resolver decisions.
   'command.resolved': CommandResolvedEventSchema,
 
-  // Durable event-store substrate (#1259) — T02 / T03 / T04.
   'hsm.deprecated_action_invoked': HsmDeprecatedActionInvokedData,
   'spec.legacy_capabilities_array': SpecLegacyCapabilitiesArrayData,
   'phase.contract_missing': PhaseContractMissingData,
@@ -4333,7 +3391,6 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'migration.workflow_type_unknown': MigrationWorkflowTypeUnknownData,
   'migration.correlation_backfill_progress': MigrationCorrelationBackfillProgressData,
 
-  // Wave B (#1342) two-event split — VCS side-effect handlers.
   'pr.create.requested': PrCreateRequestedData,
   'pr.create.executed': PrCreateExecutedData,
   'pr.comment.requested': PrCommentRequestedData,
@@ -4345,64 +3402,50 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'worktree.remove.requested': WorktreeRemoveRequestedData,
   'worktree.remove.executed': WorktreeRemoveExecutedData,
 
-  // WLM foundation — worktree lifecycle (lease/ownership half).
   'worktree.adopted': WorktreeAdoptedData,
   'worktree.reserved': WorktreeReservedData,
   'worktree.released': WorktreeReleasedData,
   'worktree.orphan_detected': WorktreeOrphanDetectedData,
 
-  // WLM operational-core — serialized-merge lease pair (DR-4 / DR-7).
   'worktree.merge_requested': WorktreeMergeRequestedData,
   'worktree.merge_executed': WorktreeMergeExecutedData,
 
-  // harness-launcher (DR-2) — top-level worktree create pair + child liveness pair.
   'worktree.create.requested': WorktreeCreateRequestedData,
   'worktree.create.executed': WorktreeCreateExecutedData,
   'launch.executing_started': LaunchExecutingStartedData,
   'launch.executed': LaunchExecutedData,
 
-  // #1290 — workspace discovery resolution
   'workspace.resolved': WorkspaceResolvedData,
 
-  // #1274 — dispatch elicitation hand-off
   'elicitation.requested': ElicitationRequestedData,
   'elicitation.fulfilled': ElicitationFulfilledData,
   'elicitation.declined': ElicitationDeclinedData,
 
-  // #1272 — EventSourcedTaskStore lifecycle
   'task.created': TaskCreatedData,
   'task.polled': TaskPolledData,
   'task.result': TaskResultData,
   'task.cancelled': TaskCancelledData,
-  // #1261 — dispatch-guard preflight observability
   'dispatch.preflight': DispatchPreflightData,
   'stash.detected': StashDetectedData,
 
-  // WLM slice 3 (DR-3 / INV-10) — prune-run liveness pair.
   'prune.executing_started': PruneExecutingStartedData,
   'prune.executed': PruneExecutedData,
   'prune.diagnostics': PruneDiagnosticsData,
 
-  // DR-6 (lifecycle-verbs task 012) — export two-event contract (INV-13 / INV-8).
   'export.requested': ExportRequestedData,
   'export.executed': ExportExecutedData,
 
-  // The VCS mutation ledger — intent, then one of two terminals.
   'vcs.requested': VcsRequestedData,
   'vcs.executed': VcsExecutedData,
   'vcs.compensated': VcsCompensatedData,
 
-  // The atomic tree-promotion record.
   'promotion.executed': PromotionExecutedData,
 
-  // The emission-violation report.
   'emission.violated': EmissionViolatedData,
 
-  // DR-4 (wiring-closure T-06) — durable projection-health state.
   'projection.degraded': ProjectionDegradedData,
   'projection.recovered': ProjectionRecoveredData,
 
-  // Phase-gate v2.12 internal proof/admission replay contracts (DR-2 / DR-3).
   'admission.requirement-resolved': AdmissionRequirementResolvedData,
   'admission.evidence-recorded': AdmissionEvidenceRecordedData,
   'admission.transition-decided': AdmissionTransitionDecidedData,
@@ -4416,18 +3459,12 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'admission.enforcement-enabled': AdmissionEnforcementEnabledData,
   'admission.cutover-ready': AdmissionCutoverReadyData,
 
-  // The bounded action executor's operation record.
   'orchestrate.intent_executed': OrchestrateIntentExecutedData,
-  // The semantic plane's settlement record.
   'execution.settled': ExecutionSettledData,
-  // The semantic plane's compilation record.
   'workflow.prepared': WorkflowPreparedData,
-  // The divergence loop's decision facts.
   'deviation.proposed': DeviationProposedData,
   'deviation.decided': DeviationDecidedData,
 };
-
-// ─── TypeScript Types ───────────────────────────────────────────────────────
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventBase>;
 export type WorkflowStarted = z.infer<typeof WorkflowStartedData>;
@@ -4467,7 +3504,6 @@ export type ToolInvoked = z.infer<typeof ToolInvokedData>;
 export type ToolCompleted = z.infer<typeof ToolCompletedData>;
 export type ToolBudgetExceeded = z.infer<typeof ToolBudgetExceededData>;
 export type ToolErrored = z.infer<typeof ToolErroredData>;
-// PR3/T7 (#1364)
 export type ToolActionErrored = z.infer<typeof ToolActionErroredData>;
 export type BenchmarkCompleted = z.infer<typeof BenchmarkCompletedData>;
 export type TeamSpawned = z.infer<typeof TeamSpawnedData>;
@@ -4496,7 +3532,6 @@ export type JudgeCalibrated = z.infer<typeof JudgeCalibratedDataSchema>;
 export type RemediationAttempted = z.infer<typeof RemediationAttemptedDataSchema>;
 export type RemediationSucceeded = z.infer<typeof RemediationSucceededDataSchema>;
 export type SessionTagged = z.infer<typeof SessionTaggedData>;
-// SessionMachineryConsumedData is exported alongside its schema above (co-located).
 export type WorktreeCreated = z.infer<typeof WorktreeCreatedData>;
 export type WorktreeBaseline = z.infer<typeof WorktreeBaselineData>;
 export type TestResult = z.infer<typeof TestResultData>;
@@ -4507,10 +3542,8 @@ export type CiCheckObserved = z.infer<typeof CiCheckObservedData>;
 export type CommentPosted = z.infer<typeof CommentPostedData>;
 export type CommentResolved = z.infer<typeof CommentResolvedData>;
 export type DiagnosticExecuted = z.infer<typeof DiagnosticExecutedDataSchema>;
-// Onboard two-event contract (DR-7, task 008).
 export type OnboardRequested = z.infer<typeof OnboardRequestedDataSchema>;
 export type OnboardExecuted = z.infer<typeof OnboardExecutedDataSchema>;
-// invariants-catalog-wizard (P2) — authoring lifecycle event payloads.
 export type InvariantAuthored = z.infer<typeof InvariantAuthoredDataSchema>;
 export type InvariantAmended = z.infer<typeof InvariantAmendedDataSchema>;
 export type CatalogRegistered = z.infer<typeof CatalogRegisteredDataSchema>;
@@ -4533,7 +3566,6 @@ export type MigrationCompleted = z.infer<typeof MigrationCompletedData>;
 export type MigrationFailed = z.infer<typeof MigrationFailedData>;
 export type MigrationCorrelationBackfillProgress = z.infer<typeof MigrationCorrelationBackfillProgressData>;
 
-// Wave B (#1342) two-event split types
 export type PrCreateRequested = z.infer<typeof PrCreateRequestedData>;
 export type PrCreateExecuted = z.infer<typeof PrCreateExecutedData>;
 export type PrCommentRequested = z.infer<typeof PrCommentRequestedData>;
@@ -4545,65 +3577,50 @@ export type BranchDeleteExecuted = z.infer<typeof BranchDeleteExecutedData>;
 export type WorktreeRemoveRequested = z.infer<typeof WorktreeRemoveRequestedData>;
 export type WorktreeRemoveExecuted = z.infer<typeof WorktreeRemoveExecutedData>;
 
-// WLM foundation — worktree lifecycle (lease/ownership half).
 export type WorktreeAdopted = z.infer<typeof WorktreeAdoptedData>;
 export type WorktreeReserved = z.infer<typeof WorktreeReservedData>;
 export type WorktreeReleased = z.infer<typeof WorktreeReleasedData>;
 export type WorktreeOrphanDetected = z.infer<typeof WorktreeOrphanDetectedData>;
 
-// WLM operational-core — serialized-merge lease pair (DR-4 / DR-7).
 export type WorktreeMergeRequested = z.infer<typeof WorktreeMergeRequestedData>;
 export type WorktreeMergeExecuted = z.infer<typeof WorktreeMergeExecutedData>;
 
-// harness-launcher (DR-2) — top-level worktree create pair + child liveness pair.
 export type WorktreeCreateRequested = z.infer<typeof WorktreeCreateRequestedData>;
 export type WorktreeCreateExecuted = z.infer<typeof WorktreeCreateExecutedData>;
 export type LaunchExecutingStarted = z.infer<typeof LaunchExecutingStartedData>;
 export type LaunchExecuted = z.infer<typeof LaunchExecutedData>;
 
-// #1290 — workspace discovery
 export type WorkspaceResolved = z.infer<typeof WorkspaceResolvedData>;
 
-// #1274 — dispatch elicitation hand-off
 export type ElicitationRequested = z.infer<typeof ElicitationRequestedData>;
 export type ElicitationFulfilled = z.infer<typeof ElicitationFulfilledData>;
 export type ElicitationDeclined = z.infer<typeof ElicitationDeclinedData>;
 
-// #1272 — EventSourcedTaskStore lifecycle
 export type TaskCreated = z.infer<typeof TaskCreatedData>;
 export type TaskPolled = z.infer<typeof TaskPolledData>;
 export type TaskResult = z.infer<typeof TaskResultData>;
 export type TaskCancelled = z.infer<typeof TaskCancelledData>;
-// #1261 — dispatch-guard preflight observability
 export type DispatchPreflight = z.infer<typeof DispatchPreflightData>;
 export type StashDetected = z.infer<typeof StashDetectedData>;
 export type FeedbackRecorded = z.infer<typeof FeedbackRecordedData>;
 
-// WLM slice 3 (DR-3 / INV-10) — prune-run liveness pair.
 export type PruneExecutingStarted = z.infer<typeof PruneExecutingStartedData>;
 export type PruneExecuted = z.infer<typeof PruneExecutedData>;
 export type PruneDiagnostics = z.infer<typeof PruneDiagnosticsData>;
 
-// DR-6 (lifecycle-verbs task 012) — export two-event contract (INV-13 / INV-8).
 export type ExportRequested = z.infer<typeof ExportRequestedData>;
 export type ExportExecuted = z.infer<typeof ExportExecutedData>;
 
-// The VCS mutation ledger — intent, then one of two terminals.
 export type VcsRequested = z.infer<typeof VcsRequestedData>;
 export type VcsExecuted = z.infer<typeof VcsExecutedData>;
 export type VcsCompensated = z.infer<typeof VcsCompensatedData>;
 
-// The atomic tree-promotion record.
 export type PromotionExecuted = z.infer<typeof PromotionExecutedData>;
 
-// The emission-violation report.
 export type EmissionViolated = z.infer<typeof EmissionViolatedData>;
 
-// DR-4 (wiring-closure T-06) — durable projection-health state.
 export type ProjectionDegraded = z.infer<typeof ProjectionDegradedData>;
 export type ProjectionRecovered = z.infer<typeof ProjectionRecoveredData>;
-
-// ─── Event Data Map ─────────────────────────────────────────────────────────
 
 export type EventDataMap = {
   'workflow.started': WorkflowStarted;
@@ -4633,7 +3650,6 @@ export type EventDataMap = {
   'tool.invoked': ToolInvoked;
   'tool.completed': ToolCompleted;
   'tool.errored': ToolErrored;
-  // PR3/T7 (#1364)
   'tool.action_errored': ToolActionErrored;
   'tool.budget_exceeded': ToolBudgetExceeded;
   'benchmark.completed': BenchmarkCompleted;
@@ -4683,10 +3699,8 @@ export type EventDataMap = {
   'comment.posted': CommentPosted;
   'comment.resolved': CommentResolved;
   'diagnostic.executed': DiagnosticExecuted;
-  // Onboard two-event contract (DR-7, task 008).
   'onboard.requested': OnboardRequested;
   'onboard.executed': OnboardExecuted;
-  // invariants-catalog-wizard (P2) — authoring lifecycle events.
   'invariant.authored': InvariantAuthored;
   'invariant.amended': InvariantAmended;
   'catalog.registered': CatalogRegistered;
@@ -4707,7 +3721,6 @@ export type EventDataMap = {
   'migration.completed': MigrationCompleted;
   'migration.failed': MigrationFailed;
   'migration.correlation_backfill_progress': MigrationCorrelationBackfillProgress;
-  // Wave B (#1342) two-event split
   'pr.create.requested': PrCreateRequested;
   'pr.create.executed': PrCreateExecuted;
   'pr.comment.requested': PrCommentRequested;
@@ -4718,65 +3731,46 @@ export type EventDataMap = {
   'branch.delete.executed': BranchDeleteExecuted;
   'worktree.remove.requested': WorktreeRemoveRequested;
   'worktree.remove.executed': WorktreeRemoveExecuted;
-  // WLM foundation — worktree lifecycle (lease/ownership half).
   'worktree.adopted': WorktreeAdopted;
   'worktree.reserved': WorktreeReserved;
   'worktree.released': WorktreeReleased;
   'worktree.orphan_detected': WorktreeOrphanDetected;
-  // WLM operational-core — serialized-merge lease pair (DR-4 / DR-7).
   'worktree.merge_requested': WorktreeMergeRequested;
   'worktree.merge_executed': WorktreeMergeExecuted;
-  // harness-launcher (DR-2) — top-level worktree create pair + child liveness pair.
   'worktree.create.requested': WorktreeCreateRequested;
   'worktree.create.executed': WorktreeCreateExecuted;
   'launch.executing_started': LaunchExecutingStarted;
   'launch.executed': LaunchExecuted;
-  // #1290 — workspace discovery
   'workspace.resolved': WorkspaceResolved;
-  // #1274 — dispatch elicitation hand-off
   'elicitation.requested': ElicitationRequested;
   'elicitation.fulfilled': ElicitationFulfilled;
   'elicitation.declined': ElicitationDeclined;
-  // #1272 — EventSourcedTaskStore lifecycle
   'task.created': TaskCreated;
   'task.polled': TaskPolled;
   'task.result': TaskResult;
   'task.cancelled': TaskCancelled;
-  // #1261 — dispatch-guard preflight observability
   'dispatch.preflight': DispatchPreflight;
   'stash.detected': StashDetected;
   'feedback.recorded': FeedbackRecorded;
-  // WLM slice 3 (DR-3 / INV-10) — prune-run liveness pair.
   'prune.executing_started': PruneExecutingStarted;
   'prune.executed': PruneExecuted;
   'prune.diagnostics': PruneDiagnostics;
-  // DR-6 (lifecycle-verbs task 012) — export two-event contract (INV-13 / INV-8).
   'export.requested': ExportRequested;
   'export.executed': ExportExecuted;
-  // The VCS mutation ledger — intent, then one of two terminals.
   'vcs.requested': VcsRequested;
   'vcs.executed': VcsExecuted;
   'vcs.compensated': VcsCompensated;
-  // The atomic tree-promotion record.
   'promotion.executed': PromotionExecuted;
-  // The emission-violation report.
   'emission.violated': EmissionViolated;
 
-  // DR-4 (wiring-closure T-06) — durable projection-health state.
   'projection.degraded': ProjectionDegraded;
   'projection.recovered': ProjectionRecovered;
-  // The bounded action executor's operation record.
   'orchestrate.intent_executed': OrchestrateIntentExecuted;
-  // The semantic plane's settlement record.
   'execution.settled': ExecutionSettled;
-  // The semantic plane's compilation record.
   'workflow.prepared': WorkflowPrepared;
-  // The divergence loop's decision facts.
   'deviation.proposed': DeviationProposed;
   'deviation.decided': DeviationDecided;
 };
-
-// ─── Event Catalog Serialization ────────────────────────────────────────────
 
 export interface EventCatalog {
   types: Record<string, {
@@ -4789,17 +3783,15 @@ export interface EventCatalog {
     model: string[];
     hook: string[];
     planned: string[];
-    // read-tolerant-but-not-emittable (DR-2): schema kept for replay, never emitted.
+    /** Retired types: the schema stays for replay, and nothing emits them. */
     retired: string[];
   };
   totalCount: number;
 }
 
 /**
- * Returns a comprehensive catalog of all registered event types (built-in + custom)
- * with their emission source, built-in status, and whether they have a data schema.
- *
- * Pure function with no side effects.
+ * Returns a catalog of all registered event types, built-in and custom. Each entry has the emission
+ * source, the built-in status, and whether the type has a data schema. It has no side effects.
  */
 export function serializeEventCatalog(): EventCatalog {
   const allTypes = getValidEventTypes();
@@ -4831,8 +3823,6 @@ export function serializeEventCatalog(): EventCatalog {
   };
 }
 
-// ─── Agent Event Validation ──────────────────────────────────────────────────
-
 /** Event types that require agentId and source metadata. */
 export const AGENT_EVENT_TYPES = [
   'task.claimed',
@@ -4844,10 +3834,10 @@ export const AGENT_EVENT_TYPES = [
 export type AgentEventType = typeof AGENT_EVENT_TYPES[number];
 
 /**
- * Validates that agent event types include required metadata fields.
+ * Validates that an agent event has its required metadata fields.
  *
- * Agent events (`task.claimed`, `task.progressed`) must have both `agentId`
- * and `source` set. System events pass through without validation.
+ * An event in `AGENT_EVENT_TYPES` must have both `agentId` and `source`. Other events pass without
+ * validation.
  *
  * @returns `true` if validation passes
  * @throws Error if an agent event is missing `agentId` or `source`

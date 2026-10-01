@@ -1,28 +1,15 @@
-// ─── What the secondary views take from telemetry ───────────────────────────
-//
-// The canonical differential asserts one thing: drop every telemetry event and
-// the canonical workflow-state fold answers the same. That bounds what a
-// retention policy may drop from THAT fold, and its own header says so — a
-// secondary view can derive a verdict from a telemetry event without the
-// canonical fold noticing.
-//
-// This module is the declaration that closes the gap. A differential over every
-// view would be red by design, because views like `telemetry` exist precisely to
-// consume telemetry; the question is never whether a view reads telemetry, but
-// whether something DECIDES on what it read.
-//
-// So each dependence is declared with a kind:
-//
-//   • `display`  — the value is shown, counted or attributed. Nothing gates on
-//     it. Dropping the telemetry costs a number on a screen.
-//   • `verdict`  — the value is an input to a decision the view itself computes.
-//     Dropping the telemetry changes what the view CONCLUDES, and a reader of
-//     that conclusion is reading a fact the partition says is droppable.
-//
-// `verdict` rows are the charter tension. They are not violations to fix here —
-// re-sourcing `synthesis-readiness` off `test.result` is its own change — but
-// they must be named, pinned, and allowed only to shrink. An undeclared
-// dependence is the failure this exists to catch.
+/**
+ * What the secondary views take from telemetry.
+ *
+ * The canonical differential proves only that the canonical fold ignores telemetry. A
+ * secondary view can still derive a verdict from a telemetry event. This module declares
+ * each such dependence with a kind:
+ *
+ * - `display`: the view shows, counts, or attributes the value. Nothing gates on it.
+ * - `verdict`: the value is an input to a decision that the view computes.
+ *
+ * `verdict` rows are named, pinned, and can only shrink. An undeclared dependence fails.
+ */
 
 /** How a view's value stands to the telemetry it folds. */
 export type DependenceKind = 'display' | 'verdict';
@@ -31,9 +18,8 @@ export type DependenceKind = 'display' | 'verdict';
 export interface ViewTelemetryDependence {
   readonly kind: DependenceKind;
   /**
-   * The state paths that differ when telemetry is dropped, exactly as the
-   * differential reports them. Measured, then transcribed here — a path that
-   * stops differing is dead cover and is named as such.
+   * The state paths that differ when telemetry is dropped, exactly as the differential
+   * reports them. A listed path that does not differ is dead cover, and the check names it.
    */
   readonly paths: readonly string[];
   readonly because: string;
@@ -52,14 +38,10 @@ export const VIEW_TELEMETRY_DEPENDENCE: Readonly<
   telemetry: {
     kind: 'display',
     paths: [
-      // Per-FIELD rather than the whole `tools.sample-tool` object, and the
-      // reason is worth keeping: `tool.budget_exceeded` is GOVERNANCE, so it
-      // survives the telemetry-dropped fold and creates the per-tool entry on
-      // both sides. The difference is therefore what the telemetry rows fill
-      // IN that entry, which is a sharper statement than "the entry is gone".
-      // `budgetExceeded` is absent from this list for the same reason — it is
-      // identical on both sides. If that type is ever demoted to telemetry,
-      // these collapse back to `tools.sample-tool` and this test says so.
+      /**
+       * Per-field paths, because `tool.budget_exceeded` is governance and creates the
+       * per-tool entry on both sides. `budgetExceeded` is the same on both sides.
+       */
       'tools.sample-tool.actionErrorBreakdown.sample-errorCode',
       'tools.sample-tool.actionErrors',
       'tools.sample-tool.durations',
@@ -93,12 +75,10 @@ export const VIEW_TELEMETRY_DEPENDENCE: Readonly<
   },
   'code-quality': {
     kind: 'display',
-    // Narrowed from the whole `skills.sample-skill` object for the same reason
-    // the telemetry rows narrowed: `ci.check_observed` is governance and
-    // creates the skill entry on both sides, so what remains is the one field
-    // only telemetry fills. That the pass-rate fields do NOT appear is the
-    // measurement worth having — the skill's outcome numbers survive a
-    // telemetry drop, and only the remediation average does not.
+    /**
+     * One field, because `ci.check_observed` is governance and creates the skill entry
+     * on both sides. The pass-rate fields survive a telemetry drop.
+     */
     paths: ['skills.sample-skill.avgRemediationAttempts'],
     because:
       'Per-skill remediation metrics. Displayed by `view quality`; nothing decides on them.',
@@ -132,22 +112,11 @@ export const VIEW_TELEMETRY_DEPENDENCE: Readonly<
 });
 
 /**
- * View state paths whose value does not come from the events at all.
+ * View state paths that come from the wall clock, not from the events. Two folds of the
+ * same corpus disagree on them, so every measurement subtracts them.
  *
- * A differential subtracts one fold from another, and that subtraction is only
- * meaningful if the fold is a function of its input. These paths are not: they
- * are read from the wall clock, so two folds of the SAME corpus disagree
- * whenever the millisecond turns over between them.
- *
- * They are declared, subtracted from every measurement, and pinned — because
- * the alternative is an oracle that reports a telemetry dependence at midnight
- * and none at noon. Subtracting them is a concession to a defect, not a
- * blessing of it: a reducer that reads the clock is not a left-fold over the
- * log, which every read-model must be, and a replay of the same stream
- * cannot reproduce it.
- *
- * This list may only SHRINK. A path leaves it by moving its value onto the
- * event that should have carried it.
+ * A reducer that reads the clock is not a left-fold over the log, and replay cannot
+ * reproduce it. This list can only SHRINK. A path leaves when an event carries its value.
  */
 export const CLOCK_DEPENDENT_VIEW_PATHS: Readonly<Record<string, readonly string[]>> =
   Object.freeze({
@@ -155,20 +124,13 @@ export const CLOCK_DEPENDENT_VIEW_PATHS: Readonly<Record<string, readonly string
   });
 
 /**
- * Views that read a telemetry type in source but fold independently of it under
- * the differential's corpus.
+ * Views that read a telemetry type in source but fold independently of it under the
+ * corpus of the differential. This is NOT a clean bill.
  *
- * This is NOT a clean bill. It is the corpus admitting what it cannot see, and
- * it is declared rather than inferred so the blindness has a name. The cause in
- * both rows below is the same: the corpus is one event of every type with
- * per-schema sampled payloads, so its identifiers do not CORRELATE. A handler
- * that resolves an id before it mutates finds nothing to match and returns the
- * state unchanged — not because the type is droppable, but because the corpus
- * never built the row it would have updated.
- *
- * A row here is a promise about the corpus, not about the view. Removing one
- * means the corpus grew the correlation, and the view then owes a declaration
- * above.
+ * The corpus holds one event of each type with sampled payloads, so its identifiers do
+ * not correlate. A handler that resolves an id first finds no match and returns the
+ * state unchanged. When the corpus builds the correlation, the view moves to
+ * {@link VIEW_TELEMETRY_DEPENDENCE}.
  */
 export const CORPUS_BLIND_READERS: Readonly<Record<string, string>> = Object.freeze({
   'delegation-timeline':
@@ -181,11 +143,8 @@ export const CORPUS_BLIND_READERS: Readonly<Record<string, string>> = Object.fre
 });
 
 /**
- * The views whose VERDICT moves when telemetry is dropped.
- *
- * Derived, never listed: the backlog shrinks by re-sourcing a view off the
- * telemetry type and changing its row, and a second hand-maintained list would
- * be free to disagree with the first.
+ * The views whose VERDICT moves when telemetry is dropped. The set derives from
+ * {@link VIEW_TELEMETRY_DEPENDENCE}, so no second list can disagree with it.
  */
 export const VERDICT_BEARING_VIEWS: ReadonlySet<string> = new Set(
   Object.entries(VIEW_TELEMETRY_DEPENDENCE)
@@ -194,16 +153,9 @@ export const VERDICT_BEARING_VIEWS: ReadonlySet<string> = new Set(
 );
 
 /**
- * Refuse a declaration set that contradicts itself, at load.
- *
- * The two tables make OPPOSITE claims about a view: one says the differential
- * sees a dependence, the other says it cannot. A view in both is not a stricter
- * declaration, it is an unreadable one, and the oracle would report whichever
- * assertion happened to run first.
- *
- * A row with no paths is the other shape: a dependence declared on nothing,
- * which passes the equality check against an empty measurement and so declares
- * cover it does not hold.
+ * Throws at load when the declarations contradict themselves. A view in both
+ * {@link VIEW_TELEMETRY_DEPENDENCE} and {@link CORPUS_BLIND_READERS} makes opposite
+ * claims. A row with no paths matches an empty measurement and proves nothing.
  */
 export function assertViewDependenceDeclarations(): void {
   const contradictory = Object.keys(VIEW_TELEMETRY_DEPENDENCE).filter(

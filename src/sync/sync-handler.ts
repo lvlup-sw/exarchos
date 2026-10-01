@@ -1,11 +1,7 @@
-// ─── Sync Now Handler ────────────────────────────────────────────────────────
-
 import * as fs from 'node:fs/promises';
 import type { ToolResult } from '../format.js';
 import { Outbox } from './outbox.js';
 import type { EventSender } from './types.js';
-
-// ─── Stream Discovery ───────────────────────────────────────────────────────
 
 async function discoverOutboxStreams(stateDir: string): Promise<string[]> {
   try {
@@ -17,8 +13,6 @@ async function discoverOutboxStreams(stateDir: string): Promise<string[]> {
     return [];
   }
 }
-
-// ─── handleSyncNow ──────────────────────────────────────────────────────────
 
 /**
  * Discovers all outbox streams in stateDir and drains pending entries.
@@ -44,7 +38,6 @@ export async function handleSyncNow(
       };
     }
 
-    // Local mode: no sender available, skip drain to preserve pending entries
     if (!sender) {
       return {
         success: true,
@@ -55,7 +48,6 @@ export async function handleSyncNow(
       };
     }
 
-    // Remote/dual mode: drain pending entries through the sender
     const effectiveOutbox = outbox ?? new Outbox(stateDir);
     const results: Array<{ streamId: string; sent: number; failed: number }> = [];
 

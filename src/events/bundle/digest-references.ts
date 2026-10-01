@@ -1,14 +1,10 @@
 /**
- * The ledger side of run-bundle custody: how an appended event names bytes
- * that live in the bundle store, and how a reader recovers those names.
+ * The ledger side of run-bundle custody: how an event names bytes in the bundle
+ * store, and how a reader recovers those names.
  *
- * The reference is carried in its OWN event-data field rather than reusing an
- * admission evidence subject. Those subjects carry a digest of a canonicalised
- * descriptor, not of bytes anyone promised to persist, so keying the extractor
- * off them would report a missing blob for every digest that was never a
- * bundle in the first place. A dedicated field means a reference exists only
- * where a writer deliberately put one, and its absence is silence rather than
- * a false accusation.
+ * A reference has its OWN event-data field. An admission evidence subject digests a
+ * canonical descriptor, not persisted bytes, so it is not a bundle reference. A
+ * reference exists only where a writer put one.
  */
 
 import { z } from 'zod';
@@ -19,10 +15,8 @@ import {
 import type { EventType, WorkflowEvent } from '../schemas.js';
 
 /**
- * One (artifact identity, content digest) pair. `.strict()` so an extra key
- * reads as a malformed reference rather than being silently dropped — a
- * reference the oracle cannot fully understand must not be counted as one it
- * verified.
+ * One (artifact identity, content digest) pair. With `.strict()`, an extra key makes
+ * the reference malformed, so the oracle never counts a partly read reference as verified.
  */
 export const BundleRefV1Schema = z
   .object({
@@ -35,24 +29,15 @@ export const BundleRefV1Schema = z
 export type BundleRefV1 = z.infer<typeof BundleRefV1Schema>;
 
 /**
- * The event-data key that carries bundle references. The settlement record's
- * data schema declares its field under this constant (a computed key), and
- * the oracle reads under it, so a rename cannot leave the reader looking at a
- * field nobody writes any more — the two would fail to compile apart.
+ * The event-data key that carries bundle references. The settlement data schema and
+ * the oracle both use this constant, so the writer and the reader cannot name different fields.
  */
 export const BUNDLE_REF_FIELD = 'bundleRefs';
 
 /**
- * A settlement endpoint: an event type whose rows record that an operation
- * settled, together with the payload schema version from which such a row is
- * required to carry a bundle reference.
- *
- * The version is the custody EPOCH. A settlement row written before custody
- * existed carries the payload version its producer stamped at the time, and
- * that row is a record of an operation that settled without a bundle — not a
- * lost one. The row itself says which contract it was written under, so the
- * oracle needs no backfill, no clock, and no per-install migration to tell
- * the two apart. Everything from the epoch on must reference bytes.
+ * An event type that records a settled operation, and the custody EPOCH: the first
+ * payload version that must carry a bundle reference. A row from before the epoch
+ * settled without a bundle. The row version alone tells the two apart.
  */
 export interface SettlementEndpoint {
   readonly type: EventType;
@@ -60,9 +45,8 @@ export interface SettlementEndpoint {
 }
 
 /**
- * The bounded executor's operation record. The producer stamps this type and
- * this version on every row it commits, importing them from here, so the
- * writer, the schema and the oracle cannot name three different things.
+ * The operation record of the bounded executor. The producer imports this type and
+ * version, so the writer, the schema, and the oracle agree.
  */
 export const INTENT_EXECUTED_SETTLEMENT = Object.freeze({
   type: 'orchestrate.intent_executed',
@@ -70,13 +54,8 @@ export const INTENT_EXECUTED_SETTLEMENT = Object.freeze({
 }) satisfies SettlementEndpoint;
 
 /**
- * The semantic plane's settlement record. `settle` stamps this type and this
- * version on every row it commits, importing them from here, so the writer, the
- * schema and the oracle cannot name three different things.
- *
- * Custodial from its first version: unlike the executor's record, this one
- * never existed before run-bundle custody did, so there is no pre-custody epoch
- * to exempt.
+ * The settlement record of the semantic plane. `settle` imports this type and version.
+ * The record is custodial from its first version, so no row is pre-custody.
  */
 export const EXECUTION_SETTLED_SETTLEMENT = Object.freeze({
   type: 'execution.settled',
@@ -84,16 +63,11 @@ export const EXECUTION_SETTLED_SETTLEMENT = Object.freeze({
 }) satisfies SettlementEndpoint;
 
 /**
- * The settlement endpoints this oracle keys its "a settled operation must
- * reference bytes" assertion on. Membership is DATA, not a schema change: the
- * names here are already-registered event types, so extending the set is a
- * one-line edit rather than a change to what the store will accept.
+ * The endpoints where a settled operation must reference bytes. Each entry is a
+ * registered event type, so the list is data and not a schema change.
  *
- * A custodial settlement carrying zero references is reported as a violation
- * rather than skipped, because the degenerate way to pass a resolvability
- * check is to reference nothing at all. That is why a row is added here only
- * once an emitter that writes bytes exists: an endpoint listed ahead of its
- * producer would condemn the first record its producer ever wrote.
+ * A custodial settlement with zero references is a violation. Add an endpoint only
+ * after its emitter writes bytes. Otherwise the first record of the emitter fails.
  */
 export const SETTLEMENT_ENDPOINTS: readonly SettlementEndpoint[] = [
   INTENT_EXECUTED_SETTLEMENT,
@@ -108,17 +82,9 @@ export const SETTLED_EVENT_TYPES: readonly EventType[] = SETTLEMENT_ENDPOINTS.ma
 /**
  * How a settlement row stands to custody.
  *
- *   - `not-a-settlement`: the type is not an endpoint.
- *   - `pre-custody`: an endpoint row whose payload version predates the epoch;
- *     it settled without a bundle and is exempt from the reference rule.
- *   - `custodial`: an endpoint row written under the custody contract; it
- *     must reference bytes.
- *
- * Versions are dot-separated decimal components compared numerically per
- * component, which is the shape every producer in this tree stamps. A version
- * with any component that is not a run of decimal digits is treated as
- * custodial, so an unparseable stamp cannot be a way to opt a settlement out
- * of the rule.
+ * - `not-a-settlement`: the type is not an endpoint.
+ * - `pre-custody`: the payload version is before the epoch. The row is exempt.
+ * - `custodial`: the row must reference bytes. An unreadable version is custodial.
  */
 export type SettlementCustody = 'not-a-settlement' | 'pre-custody' | 'custodial';
 
@@ -131,14 +97,13 @@ export function settlementCustody(event: WorkflowEvent): SettlementCustody {
 }
 
 /**
- * A version component is a run of decimal digits and nothing else. The check
- * is on the text, not on what `Number()` makes of it: an empty component,
- * a sign, whitespace, a hex or exponent form all convert to a small integer
- * that would sort before the epoch and exempt the row.
+ * A version component is a run of decimal digits and nothing else. The check reads
+ * the text, because `Number()` turns an empty, signed, hex, or exponent component into
+ * a small integer that sorts before the epoch.
  */
 const DECIMAL_COMPONENT = /^\d+$/;
 
-/** Negative when `left` sorts before `right`; unreadable input sorts as newest. */
+/** Negative when `left` sorts before `right`. Unreadable input sorts as newest. */
 function compareVersions(left: string, right: string): number {
   const parse = (version: string): readonly number[] | undefined => {
     const parts = version.split('.');
@@ -160,31 +125,18 @@ function compareVersions(left: string, right: string): number {
 
 export interface ExtractedBundleRefs {
   readonly refs: readonly BundleRefV1[];
-  /**
-   * Entries present under the reference field that did not parse. Counted
-   * rather than dropped: an unreadable reference is a defect the oracle must
-   * name, not an absence it may treat as a clean event.
-   */
+  /** Entries under the reference field that did not parse. The oracle names each one as a defect. */
   readonly malformed: number;
 }
 
 /**
- * Recover the bundle references an event declares.
- *
- * Reads the dedicated field only. Absence is silence: a missing (or null)
- * field yields zero references and zero malformed entries, because an event
- * that never claimed to carry bundle bytes is not evidence of a broken bundle.
- * An empty array is the same silence, deliberately declared.
- *
- * A present-but-non-array value is NOT silence — a writer reached for the
- * custody field and produced something no reader can follow, so it is counted
- * as one malformed reference rather than dropped.
+ * Recovers the bundle references that an event declares in the dedicated field.
+ * A missing, null, or empty field gives zero references and zero malformed entries.
+ * A value that is not an array counts as one malformed reference.
  */
 export function extractBundleRefs(event: WorkflowEvent): ExtractedBundleRefs {
   const raw = event.data?.[BUNDLE_REF_FIELD];
   if (raw === undefined || raw === null) return { refs: [], malformed: 0 };
-  // A non-array under the field is itself one malformed reference: a writer
-  // meant to declare custody and produced something unreadable.
   if (!Array.isArray(raw)) return { refs: [], malformed: 1 };
 
   const refs: BundleRefV1[] = [];

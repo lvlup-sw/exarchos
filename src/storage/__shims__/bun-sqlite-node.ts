@@ -1,22 +1,10 @@
 /**
- * Node/vitest shim for `bun:sqlite`.
+ * Node and vitest shim for `bun:sqlite`.
  *
- * The production code imports from `bun:sqlite`, which only resolves when
- * running under Bun. vitest runs under Node (see vitest.config.ts) — so we
- * alias `bun:sqlite` to this module during tests, re-exporting the near-
- * identical API surface over `better-sqlite3`.
- *
- * API deltas between `bun:sqlite` and `better-sqlite3` that this shim
- * papers over:
- *   - `db.query(sql)` → aliased to `db.prepare(sql)` (better-sqlite3 only
- *     exposes `prepare`, but the API shape of the returned statement is
- *     identical for `.all()`, `.get()`, `.run()`).
- *   - `Statement` class export → re-exported as the better-sqlite3 Statement
- *     interface (structural type match is enough at the test boundary).
- *
- * All write-pragma calls use `db.exec('PRAGMA …')`, which both engines
- * support identically. Read-pragmas use `db.query('PRAGMA …').all()`, which
- * the `query` alias above translates to `db.prepare('PRAGMA …').all()`.
+ * Production code imports `bun:sqlite`, which resolves only under Bun. Vitest
+ * runs under Node, so the tests alias `bun:sqlite` to this module over
+ * `better-sqlite3`. The shim adds `db.query(sql)` as an alias of
+ * `db.prepare(sql)`, and re-exports the better-sqlite3 `Statement` type.
  */
 
 import BetterSqlite3, { type Statement as BetterSqlite3Statement } from 'better-sqlite3';
@@ -27,8 +15,7 @@ type SqliteDb = InstanceType<typeof BetterSqlite3> & {
   query: (sql: string) => BetterSqlite3Statement;
 };
 
-// Extend the better-sqlite3 Database prototype once with a `query` method
-// that mirrors `bun:sqlite`'s API (identical to `prepare`).
+/** The better-sqlite3 prototype, which gets a `query` method equal to `prepare` once. */
 const proto = (BetterSqlite3 as unknown as { prototype: Record<string, unknown> }).prototype;
 if (proto && typeof proto.query !== 'function') {
   proto.query = function query(this: InstanceType<typeof BetterSqlite3>, sql: string) {
@@ -44,22 +31,21 @@ if (proto && typeof proto.query !== 'function') {
  */
 const openDatabases = trackedDatabases();
 
+/**
+ * Close every tracked handle, and ignore a handle that is already closed.
+ * Vitest workers call it from `tests/helpers/close-sqlite.ts`. Other Node entry
+ * points use the process exit hooks, which the module skips under vitest.
+ */
 export function closeOpenDatabases(): void {
   for (const db of openDatabases) {
     try {
       db.close();
     } catch {
-      // Already closed or unusable — the point is to not leave native
-      // statements alive into isolate teardown.
     }
   }
   openDatabases.clear();
 }
 
-// Vitest workers close handles from `tests/helpers/close-sqlite.ts` (afterAll)
-// while the isolate is still alive. Process hooks are the fallback for
-// non-vitest Node entrypoints; skip them under vitest so a singleFork
-// worker does not accumulate a listener per loaded copy of this module.
 if (process.env.VITEST === undefined) {
   process.once('beforeExit', closeOpenDatabases);
   process.once('exit', closeOpenDatabases);
@@ -77,8 +63,8 @@ export interface SqliteWorkMeter {
 }
 
 /**
- * The running meter lives on globalThis for the same reason as the handle
- * registry: the alias and the `.js` specifier evaluate two copies of this module.
+ * The running meter lives on `globalThis`, for the same reason as the handle registry.
+ * The alias and the `.js` specifier evaluate two copies of this module.
  */
 const ACTIVE_METER_KEY = '__exarchosSqliteWorkMeter' as const;
 type MeterSlot = typeof globalThis & { [ACTIVE_METER_KEY]?: SqliteWorkMeter | undefined };

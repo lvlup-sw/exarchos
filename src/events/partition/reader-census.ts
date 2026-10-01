@@ -1,59 +1,17 @@
 /**
- * Which event types are read RAW outside the canonical fold, measured from the
- * source tree.
+ * Measures which event types the source tree reads RAW, outside the canonical fold.
  *
- * ── Why the measurement, and not a table ────────────────────────────────────
+ * A fence, an idempotency guard, or an HSM guard can depend on an event that no
+ * projection reads. A hand-kept list of those readers drifts silently, so the census
+ * measures the tree. The caller injects the parser, because `typescript` is a
+ * devDependency and the shipped artifact resolves only `dependencies`.
  *
- * Half the correctness-bearing dependencies on an event never touch a
- * projection. A fence checks whether a request was already executed, an
- * idempotency guard looks for a prior operation, an HSM guard scans the
- * hydrated event tail for one type. None of that is visible in a projection's
- * reducer, so a type can be droppable by the fold and undroppable by the tree.
- * A hand-maintained list of those readers would drift the moment a reader
- * moved, and would drift silently, because the only instrument that could
- * detect the drift is the measurement it replaced.
+ * A discriminant that does not reduce to a string is UNRESOLVED, and the census
+ * reports it. A query with no type discriminant is an UNSCOPED FOLD. A per-module scan
+ * cannot see a `.type` comparison in another module, so the partition never demotes.
  *
- * ── The scanner is a port ───────────────────────────────────────────────────
- *
- * Resolving what a discriminant MEANS is a question about bindings, and the
- * only instrument that cannot disagree with the compiler about bindings is the
- * compiler. `typescript` is a devDependency, and a shipped module importing it
- * would make the compiler a runtime dependency of a tree whose shipped artifact
- * resolves only `dependencies`. So the policy lives here and the parser is
- * injected, the same split the append-site census states for itself.
- *
- * ── Three buckets, and why the third is not a subset of the other two ───────
- *
- * A resolved discriminant is a reader. A discriminant that does not reduce to a
- * string is UNRESOLVED and is reported, never dropped — "the census could not
- * read this" and "this module reads nothing" are different answers.
- *
- * A query with no type discriminant at all is neither. It is an UNSCOPED FOLD,
- * and it gets its own bucket: merging it into unresolved would flag a working
- * scan as broken, and merging it into "resolved: nothing" would hide a reader
- * that depends on the entire type universe. This bucket is also the census's
- * acknowledged blind spot — a bare fold whose `.type` comparison happens in
- * another module, behind a helper or across a call boundary, is invisible to a
- * per-module scan. That is the second reason the partition promotes but never
- * demotes: an under-report here can only leave a type classified governance.
- *
- * ── A read is not always a comparison ───────────────────────────────────────
- *
- * Equality and `case` arms are the obvious spellings and they were once the only
- * ones this census could see. They are not the only ones in the tree: a fence
- * asks a set whether it holds the type, a saga verifier filters a stream by a
- * family prefix and decides on what survives. A census blind to those reports
- * zero violations over modules whose verdict is a function of the event it
- * cannot see — the failure mode that motivated the grammar rather than a
- * hypothetical one. So membership tests and family prefixes are first-class read
- * shapes, and a family prefix expands to every catalog member it covers.
- *
- * ── Only known event types count ────────────────────────────────────────────
- *
- * A resolved literal is admitted only when it is a member of the catalog the
- * caller supplies. That single filter is what keeps an unrelated
- * `finding.type === 'style'` comparison out of the census without anyone
- * maintaining an exclusion list.
+ * Membership tests and family prefixes are read shapes. Only a literal in the
+ * supplied catalog counts as a read.
  */
 
 import { readdir, readFile } from 'node:fs/promises';
@@ -61,19 +19,22 @@ import { join, relative } from 'node:path';
 
 import type { AuthorityWitness, EventAuthority } from './authority.js';
 
-/** What kind of read a site is. */
+/**
+ * What kind of read a site is.
+ *
+ * - `query-discriminant`: the type of `.query(stream, { type: X })` or `.queryByType(X, …)`.
+ * - `type-comparison`: an `event.type === 'x'` or `!== 'x'` comparison.
+ * - `switch-case`: a `case 'x':` arm on a switch over an event type.
+ * - `membership-test`: `SET.has(event.type)` or `ARRAY.includes(event.type)`.
+ * - `prefix-filter`: `event.type.startsWith('family.')`, a read of a whole family.
+ * - `unscoped-query`: a query call with no type discriminant.
+ */
 export type EventReaderKind =
-  /** A `.query(stream, { type: X })` or `.queryByType(X, …)` discriminant. */
   | 'query-discriminant'
-  /** An `event.type === 'x'` / `!== 'x'` comparison. */
   | 'type-comparison'
-  /** A `case 'x':` arm on a switch whose discriminant is an event type. */
   | 'switch-case'
-  /** A `SET.has(event.type)` / `ARRAY.includes(event.type)` membership test. */
   | 'membership-test'
-  /** An `event.type.startsWith('family.')` filter over a whole family. */
   | 'prefix-filter'
-  /** A query call carrying no type discriminant at all. */
   | 'unscoped-query';
 
 /** One read site the scanner found. */
@@ -83,22 +44,18 @@ export interface EventReaderSite {
   readonly kind: EventReaderKind;
   /**
    * The resolved event-type string, or `undefined` when it did not reduce.
-   *
-   * For a `prefix-filter` this is the PREFIX, not a type: the site names a whole
-   * family and only the catalog can say which members that is, so the expansion
-   * happens where the catalog is known rather than in the parser.
+   * For a `prefix-filter` it is the PREFIX. The census expands it against the catalog.
    */
   readonly discriminant: string | undefined;
 }
 
 /** Inputs a scanner needs beyond the source text. */
 export interface EventReaderScanOptions {
-  /** Reported in parse diagnostics only; never affects the answer. */
+  /** Only parse diagnostics use this name. It never changes the answer. */
   readonly fileName?: string;
   /**
-   * Dotted access paths (`ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED`) mapped to
-   * their compile-time value, so a discriminant written as the exported
-   * constant resolves to the same answer as the raw literal.
+   * Maps dotted access paths (`ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED`) to their
+   * compile-time values. A discriminant written as the constant resolves like the literal.
    */
   readonly knownConstants: ReadonlyMap<string, string>;
 }
@@ -126,10 +83,8 @@ export interface EventReaderCensus {
   /** Queries with no type discriminant — the whole-universe dependencies. */
   readonly unscopedFolds: readonly EventReaderSiteRef[];
   /**
-   * Every module the scan read, sorted. Carried in full rather than only
-   * counted, because a consumer needs to tell "scanned and reads nothing" from
-   * "never in scope" — collapsing those turns an unanswered question into a
-   * refutation.
+   * Every module the scan read, sorted. A consumer uses it to tell "scanned and
+   * reads nothing" from "never in scope".
    */
   readonly scannedModules: readonly string[];
   /** Modules scanned — the DENOMINATOR, so a shrunken scan cannot read as clean. */
@@ -137,13 +92,8 @@ export interface EventReaderCensus {
 }
 
 /**
- * Every non-test TypeScript module under `sourceDir`, sorted.
- *
- * The suffix filter is a BUILD property, not a named subtree: a file the build
- * never emits cannot host a shipped reader. `excludeDirs` carries the one
- * deliberate subtree exclusion — the projections themselves, whose whole job is
- * to fold every event including telemetry, so scanning them would report the
- * fold as a violation of a rule about readers OUTSIDE it.
+ * Every non-test TypeScript module under `sourceDir`, sorted. A file that the build
+ * does not emit cannot hold a shipped reader. The walk skips `excludeDirs`.
  */
 async function collectSources(
   sourceDir: string,
@@ -185,16 +135,11 @@ export interface EventReaderScanScope {
 }
 
 /**
- * Scan a source tree and group every resolved fold-external read by the event
- * it names.
+ * Scans a source tree and groups every resolved fold-external read by the event
+ * that it names. The function judges no site.
  *
- * Pure with respect to its inputs beyond the read: the same tree and the same
- * scanner produce the same census, and nothing here decides whether a site is a
- * fault.
- *
- * Module paths are reported relative to `root`, so a census taken from the
- * repository root names modules the way a witness declaration and a reviewer
- * both write them.
+ * A prefix filter is a read of every catalog member that it covers. A literal that
+ * is not in the catalog is not a read. Module paths are relative to `root`.
  */
 export async function scanEventReaders(
   root: string,
@@ -229,18 +174,12 @@ export async function scanEventReaders(
         continue;
       }
       if (site.kind === 'prefix-filter') {
-        // A family filter reads every member of the family. Expanding it here,
-        // against the catalog the caller supplied, is what stops a reader
-        // spelled `startsWith('team.')` from looking like a module that names no
-        // event — the under-report that hides a whole family's dependency. A
-        // prefix matching nothing in the catalog is not a read of an event.
         for (const eventType of knownEventTypes) {
           if (!eventType.startsWith(site.discriminant)) continue;
           record(eventType, module);
         }
         continue;
       }
-      // A literal that is not a catalog member is not a read of an event.
       if (!knownEventTypes.has(site.discriminant)) continue;
       record(site.discriminant, module);
     }
@@ -282,21 +221,14 @@ export interface EventReaderAudit {
 }
 
 /**
- * Reconcile a census against a classification, in both directions.
+ * Reconciles a census against a classification in both directions.
  *
- * Forward: a module that reads a telemetry-classified type raw is a violation —
- * the read is a dependency, and the classification says there is none.
+ * Forward: a module that reads a telemetry type raw is a violation.
+ * Reverse: each module that a `raw-reader` witness cites must read that type in the
+ * census. The audit names each stale witness.
  *
- * Reverse: every module a `raw-reader` witness declares must still appear in the
- * census for the type it cites. A witness whose reader was deleted or moved
- * keeps asserting a promotion nothing supports, so it is NAMED rather than left
- * to rot.
- *
- * A read of a GOVERNANCE type needs no witness. Requiring a declaration for
- * every one of them would be a tax paid by ~80 sites for no additional check —
- * the classification already says those events are depended upon.
- *
- * Pure: the census is a value, so a probe can hand it a fabricated one.
+ * A read of a governance type needs no witness. The classification already marks
+ * the type as a dependency.
  */
 export function auditEventReaders(
   census: EventReaderCensus,

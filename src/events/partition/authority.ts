@@ -1,98 +1,15 @@
 /**
- * The governance/telemetry partition over the event catalog, DERIVED.
+ * Derives the governance/telemetry partition over the event catalog.
  *
- * ── The question this answers ───────────────────────────────────────────────
+ * An event is GOVERNANCE when something depends on it: the canonical fold folds it, or a
+ * correctness-bearing reader outside the fold reads it raw. Every other event is TELEMETRY.
+ * The tier gives the start answer: `auto` is governance, and any other tier is telemetry.
  *
- * An event is a GOVERNANCE event when something depends on it being there: the
- * canonical projection folds it, or a correctness-bearing reader outside the
- * fold re-reads it raw (a fence, an idempotency check, an HSM guard). Every
- * other event is TELEMETRY — it records that something happened and nothing
- * decides anything from it.
+ * A WITNESS promotes a type and cites evidence that an oracle re-measures. A DEMOTION is a
+ * charter act and never a measurement, because no instrument can prove that nothing reads a
+ * type. The instruments re-check each demotion, so an instrument gap can only over-retain.
  *
- * Before this module the catalog answered a different question. `EventTier`
- * says what an emission is welded to and `EventEmissionSource` says who
- * appends it; neither says whether anything reads it back. So "may this event
- * be dropped, re-ordered, or re-sourced" had no derivable answer, and the
- * absence read as permission.
- *
- * ── Tier, not lifecycle ─────────────────────────────────────────────────────
- *
- * The classifier consults `EMISSION_SOURCE_BY_TIER[registration.tier]`, NOT
- * `resolveEmissionSource`. That function composes lifecycle first, which would
- * mask ownership in both directions: a `retired` type can still sit in a
- * historical stream the fold replays, and a `planned` type has an ownership
- * answer before its first append is ever written. Authority is a property of
- * what the event is welded to, and lifecycle does not change that.
- *
- * ── Promotion by witness; demotion by charter act only ──────────────────────
- *
- * The tier gives a starting answer — `auto` is governance, anything else is
- * telemetry — and two hand-written tables override it in opposite directions.
- * Neither direction is open to an instrument on its own.
- *
- * A WITNESS promotes a non-`auto` type. A single observed fold arm or raw
- * reader is sufficient evidence for that, so a witness carries the module it
- * cites and an oracle re-measures it against the tree.
- *
- * A DEMOTION files an `auto` type as telemetry. That asserts "nothing depends
- * on this event" — a universal claim no instrument here can prove: the fold
- * measurement covers one projection, and the reader census has an acknowledged
- * blind spot (a table entry such as a liveness descriptor, or a bare fold whose
- * type comparison happens in another module). So a demotion is never derived
- * from a measurement. It is a JUDGMENT made by reading the tree, ordered by the
- * ratified charter and recorded as a charter act on the roadmap, and every row
- * carries that citation. What the instruments CAN do is re-measure the judgment
- * in the direction they are good at: once a type is telemetry, a fold arm that
- * mutates, a raw reader the census sees, a contract that promises it, an
- * expectation or description row that names it, or a liveness descriptor that
- * pairs on it is a named failure. A gap in an instrument therefore still only
- * over-retains; it never demotes anything by itself.
- *
- * The judgment has to be made against the tree, not the charter text. The
- * decision record listed `launch.executing_started` beside
- * `subagent.tokens_used` as `hook`-tier self-reports. On the tree neither is
- * `hook` tier — the one tier that derives `hook` has no members, and both are
- * `capability`, so `auto` — which is the only reason the token self-report's
- * demotion row is admissible at all. And the launch START claim is not a
- * self-report: the launch liveness descriptor pairs it with its terminal, and
- * the `worktrees@v1` reducer reads it raw for `ps` and the phantom-launch heal.
- * The reader census names that reducer and the declaration conjunct's liveness
- * arm names the descriptor, so a demotion row for it would be red twice. It
- * stays governance; the token self-report, which neither instrument names, is
- * demoted.
- *
- * ── The map still disagrees with the charter's telemetry examples ───────────
- *
- * The ratified decision lists example telemetry types — the tool and turn
- * families, the team family, `shepherd.iteration`, `stack.submitted`,
- * `subagent.tokens_used`, `launch.executing_started`. The per-tool and turn
- * records and the token self-report are demoted; `stack.submitted` left the
- * emission gate's expectation table and is telemetry by tier. The rest still
- * classify GOVERNANCE here, each for a measured reason:
- *
- *   • the team family, `shepherd.iteration` and `launch.executing_started`
- *     carry a live fold arm, raw reader or liveness pairing today, so demoting
- *     them would be a false statement — the charter sequences each flip as its
- *     own change that retires the reader first.
- *
- * That disagreement is a BACKLOG, not a footnote, so it is counted rather than
- * described: the partition's own test pins the exact set of charter-named
- * telemetry examples still classified governance, a list that may only shrink.
- *
- * ── One more bound worth stating ────────────────────────────────────────────
- *
- * "The projection folds it" means the CANONICAL workflow-state fold. A secondary
- * view can still derive a decision from a telemetry-classified event — the
- * synthesis-readiness view computes its blockers from test and typecheck
- * results — so a consumer that drops telemetry is safe for the canonical state
- * and not yet proved safe for every view.
- *
- * ── Fail-closed, and by name ────────────────────────────────────────────────
- *
- * Built like `deriveEmissionRegistry`: a pure function over an injected
- * population and injected tables, so a probe can derive over a seeded catalog
- * without touching the live tables, and every refusal NAMES its offenders
- * rather than reporting a count.
+ * Telemetry is safe to drop for the canonical fold only. A secondary view can still decide on it.
  */
 
 import type { EmissionSource } from '../event-registration.js';
@@ -101,14 +18,8 @@ import type { EmissionSource } from '../event-registration.js';
 export type EventAuthority = 'governance' | 'telemetry';
 
 /**
- * How a promotion is proved.
- *
- * `gate-expectation` is separate from `raw-reader` because the read it names is
- * indirect: the gate iterates a DECLARED expectation table and asks a set built
- * from the stream whether each listed type is present. No comparison against a
- * literal appears anywhere, so a source scan cannot see it; the table is the
- * evidence, and the oracle that re-measures this arm reads the table rather than
- * the tree.
+ * How a promotion is proved. A `gate-expectation` read has no literal in source. The gate
+ * asks if each type in a DECLARED expectation table is in the stream, so its oracle reads the table.
  */
 export type AuthorityArm =
   | 'projection-fold'
@@ -117,12 +28,8 @@ export type AuthorityArm =
   | 'charter-pin';
 
 /**
- * Why a type whose tier does not make it governance is governance anyway.
- *
- * The witness is the whole basis for the promotion, so it carries its evidence
- * rather than asserting the conclusion: `projection-fold` and `raw-reader`
- * evidence are module paths an oracle re-measures against the tree, and
- * `charter-pin` evidence is the ratified decision's citation.
+ * Why a type whose tier is not governance is governance anyway. The witness carries its
+ * evidence: module paths that an oracle re-measures, or the citation of the ratified decision.
  */
 export interface AuthorityWitness {
   readonly arm: AuthorityArm;
@@ -132,9 +39,8 @@ export interface AuthorityWitness {
 }
 
 /**
- * A comment on the roadmap issue — the only place a charter act is made. The
- * issue number is part of the type: a comment anywhere else is not an act, and
- * an anchor that is not a comment id is not a citation.
+ * A comment on the roadmap issue, the only place where a charter act is made. The issue
+ * number is part of the type, so a comment on another issue does not compile.
  */
 export type CharterActUrl =
   `https://github.com/lvlup-sw/exarchos/issues/1599#issuecomment-${number}`;
@@ -144,15 +50,9 @@ export type DecisionRecordCitation =
   `https://github.com/lvlup-sw/exarchos/issues/1876#issuecomment-${number}`;
 
 /**
- * Why a type whose tier makes it governance is telemetry anyway.
- *
- * There is no arm to choose: a demotion has exactly one basis, the charter act
- * that ordered the flip, executing the ratified decision. Both citations are
- * typed rather than free strings, so a row cannot point at a placeholder or at
- * the wrong issue and still compile. The `because` states what was read on the
- * tree to make the judgment — which views fold the type, and that nothing
- * outside them does — so a reviewer can re-read the same places rather than
- * trust the row.
+ * Why a type whose tier is governance is telemetry anyway. The only basis is the charter act
+ * that ordered the flip. Both citations are typed, so a placeholder does not compile. The
+ * `because` states what the author read on the tree, so a reviewer can read the same places.
  */
 export interface CharterDemotion {
   /** The charter act on the roadmap that ordered THIS flip. */
@@ -163,33 +63,13 @@ export interface CharterDemotion {
 }
 
 /**
- * Partition a population of event types into governance and telemetry.
+ * Partitions a population of event types into governance and telemetry. A type is
+ * `governance` when it has a witness, or when its tier derives `auto` and it has no demotion.
+ * `tierSourceOf` must ignore lifecycle, because a `retired` type can still sit in a replayed stream.
  *
- * The rule is one line and total: a type is `governance` iff it carries a
- * witness, OR its tier derives `auto` and it carries no demotion; otherwise it
- * is `telemetry`.
- *
- * Seven refusals, each because the alternative is a map that reads clean while
- * saying nothing:
- *
- *   • **Empty population.** An empty map reads to every consumer as "no event
- *     has an authority", which is exactly what a moved or renamed catalog
- *     produces.
- *   • **Unannotated type.** No tier, no derivable authority. Defaulting it
- *     would be the guess this derivation exists to remove.
- *   • **Witness for a type outside the population.** A renamed or deleted
- *     event leaves its row behind, still asserting a promotion of nothing.
- *   • **Demotion for a type outside the population.** The same stale row in
- *     the other table, still citing a charter act for a type that is gone.
- *   • **Witness AND demotion on one type.** The two tables contradict each
- *     other, and picking either silently would hide a flip that a new reader
- *     has since overtaken — or a reader that a flip has since orphaned.
- *   • **Witness on a type the tier already makes governance.** Dead cover: the
- *     declaration changes no answer, so it cannot be checked by anything, and a
- *     later re-tiering would silently start relying on it.
- *   • **Demotion on a type the tier already makes telemetry.** The same dead
- *     cover in the other direction — the tier answers telemetry with or without
- *     the row, so the row is a charter citation nothing exercises.
+ * It throws on an empty population and on an unannotated type. It throws on a witness or a
+ * demotion for a type outside the population, and on a type with both. It throws on dead
+ * cover: a witness on an `auto` type, or a demotion on a type that is telemetry by tier.
  */
 export function deriveEventAuthority(
   eventTypes: Iterable<string>,
@@ -288,7 +168,7 @@ export function deriveEventAuthority(
   return derived;
 }
 
-/** Split a derived map into its two sides. Never authored, never a literal list. */
+/** Splits a derived map into its two sides. */
 export function partitionByAuthority(
   authority: Readonly<Record<string, EventAuthority>>,
 ): { readonly governance: ReadonlySet<string>; readonly telemetry: ReadonlySet<string> } {
