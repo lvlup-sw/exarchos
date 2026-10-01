@@ -71,8 +71,8 @@ async function defaultHasRecentCommits(
 }
 
 /**
- * Builds the production safeguards. A provider other than GitHub gets an
- * open-PR check that always returns false.
+ * Builds the production safeguards. When the caller passes a provider other
+ * than GitHub, the open-PR check always returns false.
  *
  * @param provider - An optional `VcsProvider`. Without it, the first open-PR check calls `createVcsProvider()`.
  */

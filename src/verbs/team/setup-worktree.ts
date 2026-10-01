@@ -43,8 +43,8 @@ export interface SetupWorktreeArgs {
 interface SetupWorktreeWorkflowState {
   readonly tasks?: ReadonlyArray<{ id: string; branch?: string }>;
   /**
-   * The integration branch of the workflow. When present, it is the base for
-   * managed-path worktrees, as `prepare_delegation` also derives it.
+   * The integration branch of the workflow. When present and `baseBranch` is
+   * absent, it is the base for managed-path worktrees, as in `prepare_delegation`.
    */
   readonly synthesis?: { readonly integrationBranch?: string } | undefined;
 }
@@ -485,7 +485,7 @@ export async function handleSetupWorktree(
 
 /**
  * The five setup steps. The provisioner creates the branch and the worktree
- * in one step, keyed on the worktree path, so a retry converges. The worktree
+ * in one call, keyed on the worktree path, so a retry converges. The worktree
  * directory is `<taskId>-<taskName>` whatever branch name resolves. Install and
  * tests run only when the worktree is available.
  */

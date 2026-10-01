@@ -4,7 +4,7 @@
  *
  * The adjudication bundle goes into content-addressed custody first. Only then
  * does the ledger record that names it commit. A failed bundle write fails the
- * whole settlement, with no claim and no event.
+ * whole settlement, with no settlement claim and no settlement record.
  *
  * Settlement reads the pinned capsule back from custody. A submitted capsule is
  * only compared with the record. A refused batch is still a settlement: it
@@ -268,7 +268,8 @@ function completedTaskIds(events: readonly { readonly type: string; readonly dat
  *
  * The composed leaf syncs the document when it leaves the fact. This function
  * covers a task complete before the batch, and a replay after a failed write.
- * A missing document counts as level. Any other outcome is logged.
+ * The document is level when it lists every task as complete, or when it is
+ * missing. The function logs each other outcome.
  */
 async function bringDocumentLevel(
   stateDir: string,
@@ -376,7 +377,8 @@ function verificationOperationId(operationId: string, taskId: string): string {
  * The intent arguments for one accepted claim.
  *
  * The tier, the boundary flag and the base come from the capsule, never from the claim. They choose
- * the gates and the start of the diff. The worktree and the branch come from the claim. The whole claim is the completion `result`, as on the `task_complete` path.
+ * the gates and the start of the diff. The worktree and the branch come from the claim. The claim
+ * fields are the completion `result`, as on the `task_complete` path.
  */
 function verificationArgsOf(
   claim: SettlementClaim,
@@ -568,12 +570,15 @@ function readDecisions(raw: unknown): SettlementDecision[] | string {
 /**
  * Settle one batch, or decide the deviations of a held batch.
  *
- * Before any effect, it refuses a malformed request, and a capsule that is
- * invalid, not prepared, unresolved, or without verification terms. Calls for
- * one batch run one at a time in a process. Across processes, the commit
- * serializes them. On a race, the caller gets the receipt that `decideOnce`
- * persisted. Every segment compiles before any runs, so a claim that cannot
- * compile leaves the batch unclaimed.
+ * Before any effect, it refuses a malformed request, and a capsule that is invalid, not prepared,
+ * unresolved, or without verification terms. Calls for one batch run one at a time in a process,
+ * and the commit serializes them across processes. On a race, the caller gets the receipt that
+ * `decideOnce` persisted. Every segment compiles before any runs, so a claim that cannot compile
+ * leaves the batch unclaimed. A task that the stream already shows complete passed its gates
+ * through `task_complete`, so settlement does not verify it again.
+ *
+ * The emitter-closure census does not read `decideOnce`, so an allowance row covers this append.
+ * The record is the last event, and the tail sequence comes from a read inside the write lock.
  */
 export async function handleSettle(
   raw: Record<string, unknown>,

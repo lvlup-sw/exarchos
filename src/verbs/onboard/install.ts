@@ -500,7 +500,7 @@ function manifestVouches(
 }
 
 /**
- * Filename of the install provenance manifest for each scope. It must match `SKILLS_MANIFEST_FILENAME` in `src/install/install-skills.ts`, and `install.test.ts` checks it.
+ * Filename of the install provenance manifest for each scope. It must match `SKILLS_MANIFEST_FILENAME` in `src/install/install-skills.ts`. No test compares the two.
  */
 const SKILLS_MANIFEST_FILENAME = '.exarchos-skills.json';
 /** Filename of the committed legacy-render hash manifest that `tools/release/generate-legacy-skill-hashes.mjs` writes. */

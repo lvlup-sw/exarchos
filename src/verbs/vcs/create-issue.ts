@@ -4,8 +4,9 @@
  *   2. Scan for an issue whose body holds the `<!-- exarchos-op:UUID -->` marker. If one exists,
  *      append `issue.create.executed` for it and create nothing.
  *   3. Create the issue with the marker in its body, then append `issue.create.executed`.
- * After a crash between phases 1 and 3, the next call reuses the operation id and finds the issue
- * by its marker. Thus no duplicate issue occurs.
+ * A crash can occur between phases 1 and 3. A later call with the same title and body, or the same
+ * `operationId`, then reuses the operation id and finds the issue by its marker. Thus no duplicate
+ * issue occurs.
  */
 
 import { randomUUID } from 'node:crypto';

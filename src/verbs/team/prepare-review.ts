@@ -2,9 +2,9 @@
  * The `prepare_review` handler. It provisions a review in one of two scopes.
  *
  * The plan scope provisions a fresh-context adversarial review of the plan
- * artifact and counts each dispatch against the revision cap. The code scope
- * serves the quality check catalog. An agent on any MCP platform can run the
- * checks and send the findings to `check_review_verdict`.
+ * artifact. It records each dispatch and refuses a dispatch past the revision
+ * cap. The code scope serves the quality check catalog. An agent on any MCP
+ * platform can run the checks and send the findings to `check_review_verdict`.
  */
 
 import type { ToolResult } from '../../format.js';

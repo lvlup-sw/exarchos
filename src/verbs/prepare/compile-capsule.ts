@@ -5,7 +5,7 @@
  * - normalize: the caller lowers the built-in machine into a kernel definition. Its digest is the `definitionVersion` of the capsule.
  * - bind: the built-in authority, with the catalog invariants on top.
  * - partition: the outstanding tasks of the plan, already cut into a batch.
- * - lower: the execution profile, which holds the capabilities that the plane calls need.
+ * - lower: the execution profile, which holds the capabilities that the calls of the plane need.
  * - validate: the published contract, then each reference against the pinned definition.
  *
  * A capsule that fails validation is refused, never repaired. The cause is a plan that the batch cannot express, such as a dependency cycle, or a compiler defect.
@@ -84,13 +84,14 @@ function capsuleFieldTypeOf(schema: z.core.$ZodType): CapsuleFieldType | undefin
 
 /**
  * The fields of the completion record that a runtime does not return, because settlement derives them.
- * A runtime that returns `evidence` and `verified` can certify its own work.
+ * Settlement produces `evidence` and `verified` when it runs the verification of the task. If a runtime returns them, the runtime certifies its own work.
  * A claim names its task outside its fields, so `taskId` is not a result field.
  */
 const SETTLEMENT_DERIVED_FIELDS: ReadonlySet<string> = new Set(['taskId', 'evidence', 'verified']);
 
 /**
- * The result shape that each delegated task returns: `worktreePath`, `branch`, then the fields of the task-completion schema.
+ * The result shape that each delegated task returns: `worktreePath`, `branch`, then each task-completion schema field that settlement does not derive.
+ * `worktreePath` is not on that schema. `task_complete` copies it from the result onto the fact.
  * `worktreePath` is required, because settlement runs the verification of the task against that worktree.
  * `branch` is for the gates that diff against a base.
  * The function throws when a schema field has a type that the flat capsule field vocabulary cannot carry.
@@ -147,7 +148,7 @@ export function verificationProfiles(batch: DelegationBatch): readonly BatchTask
 }
 
 /**
- * One statement for each verification profile in the batch, which names the gates that settlement runs.
+ * One statement for each verification profile in the batch. Each statement names the gates that settlement runs for that profile.
  * The capsule binds them as knowledge, so the harness can tell each worker how settlement judges its work.
  */
 function verificationPatterns(

@@ -78,6 +78,7 @@ export function resolveStartedAt(source: ProcessSource, pid: number): string | n
 /**
  * Reads the create-time of a live PID for the platform, or returns `null` when it does not resolve.
  * On Linux it reads field 22 (`starttime`) of `/proc/<pid>/stat`. The command field can hold spaces and parentheses, so it splits after the last `)`.
+ * The split starts at field 3, so field 22 is `tail[19]`.
  * On macOS it reads `ps -o lstart=`.
  * On Windows it reads the PowerShell create-time as a FILETIME through `runCommandSync`, which handles the shim and quoting.
  */

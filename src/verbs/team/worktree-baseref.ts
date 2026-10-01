@@ -5,7 +5,7 @@
  * unless `worktree.baseRef` is `"head"`. Without that value, a stacked
  * delegation starts on a stale base. Exarchos does not own the consumer
  * `.claude/settings.json`, so `prepare_delegation` blocks dispatch when the
- * value is missing. Consumer files resolve from `process.cwd()`, not from
+ * value is not `"head"`. Consumer files resolve from `process.cwd()`, not from
  * `import.meta.url`, because module-relative paths fail in plugin mode.
  */
 
@@ -127,9 +127,9 @@ export function resolveWorktreeBaseRef(
 }
 
 /**
- * Checks that worktrees base on local HEAD (`baseRef: "head"`). Any other
- * result returns a blocking result with the exact remediation. Then
- * `prepare_delegation` can stop instead of dispatching onto `origin/HEAD`.
+ * Checks that worktrees base on local HEAD (`baseRef: "head"`). For any other
+ * value, or no value, it returns a blocking result with the exact remediation.
+ * Then `prepare_delegation` can stop instead of dispatching onto `origin/HEAD`.
  */
 export function assertWorktreeBaseRefPinned(
   options: ResolveWorktreeBaseRefOptions = {},

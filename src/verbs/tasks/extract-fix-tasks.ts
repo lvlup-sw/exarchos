@@ -10,9 +10,9 @@ import { resolveWorkflowState } from '../resolve-state.js';
 
 interface ExtractFixTasksArgs {
   /**
-   * An optional state file path. Without it, findings and worktrees resolve
-   * from the event-store projection through `featureId` and `eventStore`.
-   * The event store is the only source of truth.
+   * An optional state file path. With `featureId` and `eventStore`, the state
+   * comes from the event-store projection, and the handler only checks that an
+   * existing file parses. Without them, the handler reads the state from this file.
    */
   readonly stateFile?: string;
   readonly featureId?: string;

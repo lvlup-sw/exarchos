@@ -1,10 +1,10 @@
 /**
  * The settlement bundle: the detail of one `settle` adjudication.
  *
- * The ledger record and the receipt do not carry the claims, the evidence that
- * each claim cited, or the proposed deviations. An auditor needs that detail,
- * and a projection must not fold it. So it goes to the run-bundle store as
- * content-addressed bytes, and the ledger record names the bytes by digest.
+ * The ledger record and the receipt do not carry the claims or the evidence
+ * that each claim cited. An auditor needs that detail, and a projection must
+ * not fold it. So it goes to the run-bundle store as content-addressed bytes,
+ * and the ledger record names the bytes by digest.
  *
  * The schemas are strict. The encoding is canonical JSON, so one document
  * always gives one digest.

@@ -87,7 +87,7 @@ export function resetModuleEventStore(): void {
 
 const MAX_CLAIM_RETRIES = 3;
 
-/** Claims a task. On a sequence conflict it retries up to `MAX_CLAIM_RETRIES` times, with exponential backoff and jitter. */
+/** Claims a task. It makes up to `MAX_CLAIM_RETRIES` attempts in total, with exponential backoff and jitter after each sequence conflict. */
 export async function handleTaskClaim(
   args: {
     taskId: string;
@@ -217,7 +217,7 @@ const SYNC_SKIP_REASONS: Record<Extract<TaskStatusSyncOutcome, { kind: 'skipped'
  * The transport puts that capability in the dispatch context, so the caller cannot assert it.
  *
  * The gate check reads only `gate.executed` events, which the gate runner writes from its evidence proof.
- * An event names its task at `data.taskId`, or else at `data.details.taskId`. An absent task id marks a project-wide gate.
+ * An event names its task at `data.taskId`, or else at `data.details.taskId`. A `data.details` with no task id marks a project-wide gate.
  * The task-completion runbook runs the tier-scaled kill probe before this step.
  *
  * The handler forwards `worktree` and `worktreePath` for the `mergePendingEntry` guard.

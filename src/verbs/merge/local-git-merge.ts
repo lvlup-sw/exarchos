@@ -4,7 +4,7 @@
  *
  * The adapter checks out the target first, so a wrong-branch caller gets a clear `git checkout` failure.
  * On success it returns the target HEAD as `mergeSha`.
- * On a git failure it throws an `Error` with the command, the exit code and stdout. The executor maps that error to a `RollbackReason`.
+ * On a git failure it throws an `Error` with the command, the exit code and stdout. The executor maps that error to a `RecoveryReason`.
  */
 
 import type { GitExec, MergeStrategy } from '../pure/execute-merge.js';
@@ -47,8 +47,8 @@ function squashCommitMessage(sourceBranch: string, targetBranch: string): string
  * The returned function is async to match the contract, but `gitExec` is synchronous.
  *
  * The `rebase` strategy rebases a temporary branch, so the source ref never changes.
- * The executor rollback resets the checked-out branch. A rollback while a rebased source branch is checked out resets the source to the target SHA.
- * On a rebase failure it aborts the rebase and checks out the target before it throws, so the rollback resets the correct ref.
+ * The executor rollback resets the checked-out branch. If the source branch is checked out at rollback, the reset moves the source to the target SHA.
+ * When a step of the rebase path fails, it aborts any rebase and checks out the target before it throws. The rollback then resets the correct ref.
  * It always checks out the target before it deletes the temporary branch, because `git branch -D` on the current branch fails.
  */
 export function buildLocalGitMergeAdapter(

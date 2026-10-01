@@ -3,8 +3,8 @@
  * provider, in a two-event split on the shared `vcs` stream:
  *
  * 1. Append `pr.create.requested` before the side effect.
- * 2. Look for an open PR with the same head and base. If one exists, a prior
- *    call created it, so record `pr.create.executed` for it.
+ * 2. Look for an open PR with the same head and base. If one exists, record
+ *    `pr.create.executed` for it and do not create a second PR.
  * 3. Otherwise, create the PR and append `pr.create.executed`.
  *
  * The idempotency keys derive from the ambient operation id, so a retry of the
@@ -64,7 +64,9 @@ function recordsPr(value: unknown): boolean {
  * Only the initial synthesize creates a PR. The shepherd loop runs in the same
  * phase, so the guard reads projected state, not the phase. Missing or
  * unreadable state takes the normal create path. A failed open-PR lookup fails
- * closed, because a retry can then open a duplicate PR.
+ * closed, because a create after a failed lookup can open a duplicate PR. The
+ * lookup `try` covers only `listPrs`, so a failed recovery append never falls
+ * through to `createPr`.
  * `check-withsession-idempotency.sh` does not scan this file, so only review
  * and `create-pr.test.ts` hold the key discipline.
  */

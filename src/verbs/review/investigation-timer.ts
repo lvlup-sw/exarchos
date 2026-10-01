@@ -22,7 +22,7 @@ interface InvestigationTimerResult {
 }
 
 /**
- * Returns `investigation.startedAt` from the arguments or from `resolveWorkflowState`. The event
+ * Returns `args.startedAt`, or else `investigation.startedAt` from `resolveWorkflowState`. The event
  * store is the source of truth, and `.state.json` can be absent. An explicit `stateFile` that is
  * malformed, or missing with no event-store fallback, returns an error, not the generic
  * "required" message. It returns null when no source gives a start time.

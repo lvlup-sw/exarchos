@@ -2,8 +2,8 @@
  * Pure safety ladder that classifies one candidate of the worktree GC (`prune_worktrees`). The GC
  * must never destroy unsaved work, so the ladder fails closed and deletes nothing it cannot prove
  * safe. The handler supplies every fact, and this module makes no git, file system or OS call.
- * Eligibility depends on the projection state only, never on mtime. A long-running agent has a
- * stale mtime but still uses its worktree.
+ * Only a `released` or `orphan` state can be eligible, and the ladder never reads mtime. A
+ * long-running agent has a stale mtime but still uses its worktree.
  */
 
 /**

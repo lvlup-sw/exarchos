@@ -16,7 +16,7 @@
  */
 export type SleepFn = (ms: number) => Promise<void>;
 
-/** The real sleep over `setTimeout`. It is the only real timer in this module. */
+/** The real sleep over `setTimeout`. It is the only `setTimeout` call in this module. */
 export const defaultSleep: SleepFn = (ms) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 

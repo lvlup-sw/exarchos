@@ -10,8 +10,9 @@
  *   state becomes a terminal step. A compound state flattens into its children.
  * - A transition from a compound state leaves from each of its leaves. A
  *   transition into a compound state enters at its initial child.
- * - Guards do not survive. Obligations reach a capsule through its completion
- *   predicate.
+ * - Guards do not survive. The kernel gate vocabulary has no slot for these
+ *   obligations, and a guard in a shape with a different meaning is worse than
+ *   none. Obligations reach a capsule through its completion predicate.
  *
  * A custom workflow type has no machine here, so it is not lowered.
  */

@@ -29,7 +29,7 @@ function isErrnoCode(err: unknown, code: string): boolean {
 /**
  * A realpath that accepts a tail that does not exist yet.
  * On `ENOENT` it resolves the longest existing ancestor and appends the remaining segments, so a new path still resolves through a symlinked parent.
- * It rethrows each other error, such as `ENOTDIR`, `ELOOP`, or `EACCES`, because that path is not only missing.
+ * It rethrows each other error, such as `ENOTDIR`, `ELOOP`, or `EACCES`, because a path built past a real resolution error is not a real path.
  * It uses `fs.realpathSync.native`, which expands a Windows 8.3 short name such as `RUNNER~1` to the long form that git prints.
  */
 export function defaultRealpath(p: string): string {

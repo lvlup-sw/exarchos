@@ -163,7 +163,7 @@ export function generateVerdictReport(
 
 /**
  * Counts the fix cycles that a review already ran: the prior `review-verdict` gate events with the
- * verdict `NEEDS_FIXES`. Each `NEEDS_FIXES` pass records one such event, so no other counter exists.
+ * verdict `NEEDS_FIXES`. Each `NEEDS_FIXES` pass records one such event. No other fix-cycle counter exists.
  * It reads only `gateName` and `details.verdict`.
  */
 function countPriorFixCycles(
@@ -246,8 +246,8 @@ export async function handleReviewVerdict(
 /**
  * Adds the plugin finding counts to the native counts and computes the verdict. On `NEEDS_FIXES`,
  * the escalation policy decides between one more auto-fix and an escalation to the user.
- * When the event store cannot give the prior fix-cycle count, the verdict escalates. A count of 0
- * on a failing store lets the loop auto-fix with no limit.
+ * When the event store cannot give the prior fix-cycle count, the verdict escalates. It does not use
+ * a count of 0, because a failing store then lets the loop auto-fix with no limit.
  *
  * It records the per-dimension events, a `review-verdict` summary event, and a failed
  * `review-escalation` event on an escalation. An append failure goes to the runner as a failure carrier.

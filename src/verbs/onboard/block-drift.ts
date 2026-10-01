@@ -4,8 +4,8 @@
  *
  * The check compares a hash of the fence-stripped installed body with a hash of
  * the canonical body. A change to the provenance line is not drift. A change to
- * the orientation prose is drift. The canonical body comes only from
- * {@link loadCanonicalBlockBody}.
+ * the orientation prose is drift. The check holds no copy of the block. By
+ * default, it loads the canonical body with {@link loadCanonicalBlockBody}.
  */
 
 import * as crypto from 'node:crypto';

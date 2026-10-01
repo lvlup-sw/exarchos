@@ -21,9 +21,10 @@ import type { WorktreeEntry } from '../projections/worktrees.js';
  *
  * With both `ownerPid` and `ownerStartedAt`, the result comes from
  * {@link ownerLiveness}: `'alive'`, `'dead'`, or `'unknown'` when the probe
- * failed. Without either field, the owner cannot be probed, so the result is
- * `'dead'`. A state other than `reserved` holds no lease, so it is also
- * `'dead'`. Only `'dead'` permits a release, so `'unknown'` is never released.
+ * failed. When one of the two fields is `null`, the owner cannot be probed, so
+ * the result is `'dead'`. A state other than `reserved` holds no lease, so it
+ * is also `'dead'`, and a caller must check for `reserved` first. Only
+ * `'dead'` permits a release, so `'unknown'` is never released.
  */
 export function reservationLiveness(
   entry: WorktreeEntry,

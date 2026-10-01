@@ -3,7 +3,8 @@
  *
  * It folds the events of the singleton `worktrees` stream into three maps:
  * worktree entries by `worktreeId`, in-flight merges by `integrationRef`, and
- * in-flight prunes by `operationId`. The fold reads only the event log.
+ * in-flight prunes by `operationId`. The fold reads only the event log, except
+ * for the `realpath` fallback of an old remove event.
  *
  * A lifecycle event upserts an entry with its state. `worktree.remove.executed`
  * drops the entry, because a removed worktree has no state. Each start event
@@ -152,9 +153,10 @@ function extractFeatureId(data: WorkflowEvent['data']): string | null {
  * Upserts the {@link WorktreeEntry} for a lifecycle event under its
  * `worktreeId`. Without a `worktreeId`, it returns `state` by identity.
  *
- * Only the `reserved` state keeps the owner fields, because only a reservation
- * has a live holder. `path` defaults to `worktreeId`. The entry keeps any
- * launch marker, so only `launch.executed` can clear it.
+ * Only the `reserved` state takes the owner fields from the event, because only
+ * a reservation has a live holder. Every other state sets them to `null`.
+ * `path` defaults to `worktreeId`. The entry keeps any launch marker, so only
+ * `launch.executed` can clear it.
  */
 function upsertLifecycle(
   state: WorktreesProjection,
@@ -191,8 +193,9 @@ function upsertLifecycle(
  * The function uses the `worktreeId` in the event, with no file system call.
  * Thus a rebuild from the log gives the same result after the worktree is gone.
  * An old event without `worktreeId` falls back to `canonicalWorktreeId` over
- * its `worktreePath`, in the same form the emitter uses on Windows too. A
- * remove for an absent entry returns `state` by identity.
+ * its `worktreePath`. That is the key form of the emitter, so the key also
+ * matches on Windows. This fallback is the only file system call in the
+ * reducer. A remove for an absent entry returns `state` by identity.
  */
 function dropRemoved(
   state: WorktreesProjection,

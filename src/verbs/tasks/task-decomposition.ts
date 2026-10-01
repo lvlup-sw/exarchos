@@ -140,8 +140,8 @@ const FILE_PATH_PATTERN_SOURCE = `\`([a-zA-Z0-9_./-]+\\.(?:${FILE_EXTENSION_ALLO
  * A task-header id token: an optional `T` or `T-` prefix, a leading digit, then digits, letters, dots,
  * or hyphens. The leading digit keeps a section header such as `### Task Structure` from reading as a task.
  * The token accepts numeric ids with or without the `T` prefix, and dotted sub-numbers such as `1.1`.
- * `parse-task-stamps.ts` reads the same numeric ids, so the plan-coverage gate and the dispatch path
- * read the same tasks. That parser rejects a non-task header by its separator and title, not by a leading digit.
+ * `parse-task-stamps.ts` also reads these numeric ids. That parser rejects a non-task header by its separator
+ * and title, not by a leading digit. A header with no title or a letter-leading id reads differently there.
  */
 const TASK_ID_TOKEN_SOURCE = String.raw`(?:T-?)?[0-9][0-9A-Za-z.\-]*`;
 

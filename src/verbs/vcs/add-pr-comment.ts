@@ -59,8 +59,8 @@ export interface HandleAddPrCommentArgs {
    */
   readonly threadId?: string;
   /**
-   * Idempotency key. When omitted, a fresh UUID is generated. Inject a known
-   * UUID to recover after `pr.comment.requested` committed under it.
+   * Idempotency key. When it is absent, the handler generates a fresh UUID.
+   * Pass a known UUID to recover after `pr.comment.requested` committed under it.
    */
   readonly operationId?: string;
 }
