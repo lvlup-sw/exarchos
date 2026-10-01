@@ -3455,8 +3455,8 @@ tests/unit/events/poc.acceptance.test.ts	d85161b0fea5	1
 tests/unit/events/registration-validate.boot.test.ts	1395aee2d3ba	1
 tests/unit/events/registration-validate.boot.test.ts	e027cdce3e37	1
 tests/unit/events/registration-validate.test.ts	c6abf4ba4a23	1
+tests/unit/events/schemas.legacy.test.ts	068245042609	1
 tests/unit/events/schemas.legacy.test.ts	0d357e70189d	1
-tests/unit/events/schemas.legacy.test.ts	32681d438c3f	1
 tests/unit/events/schemas.legacy.test.ts	93ad334e57f6	1
 tests/unit/events/schemas.onboard.test.ts	092e8c68d5fb	1
 tests/unit/events/schemas.onboard.test.ts	37cbc7228401	1
@@ -3480,7 +3480,6 @@ tests/unit/events/schemas.test.ts	3f245ff54326	1
 tests/unit/events/schemas.test.ts	4294a13c3f97	1
 tests/unit/events/schemas.test.ts	43ba82069902	1
 tests/unit/events/schemas.test.ts	4c16c9f00111	1
-tests/unit/events/schemas.test.ts	4d11910bdca0	1
 tests/unit/events/schemas.test.ts	5106b84e7b55	1
 tests/unit/events/schemas.test.ts	5176d1b841f8	1
 tests/unit/events/schemas.test.ts	55245065a31e	1
@@ -3516,15 +3515,16 @@ tests/unit/events/schemas.test.ts	bc3712cd5c21	1
 tests/unit/events/schemas.test.ts	c1e2ee50e16c	1
 tests/unit/events/schemas.test.ts	d41156167b73	1
 tests/unit/events/schemas.test.ts	d87adac2e527	1
+tests/unit/events/schemas.test.ts	e12fc7dc1262	1
 tests/unit/events/schemas.test.ts	e76248c7bb36	1
 tests/unit/events/schemas.test.ts	e9a8f40f7c51	1
 tests/unit/events/schemas.test.ts	e9b3365a48c8	1
 tests/unit/events/schemas.test.ts	ed0879e6bd9f	1
 tests/unit/events/schemas.test.ts	ef3e54f1a901	1
+tests/unit/events/schemas.test.ts	f07262250bc0	1
 tests/unit/events/schemas.test.ts	f1b6cc350513	1
 tests/unit/events/schemas.test.ts	f564f3fc92a5	1
 tests/unit/events/schemas.test.ts	f96191303cf6	1
-tests/unit/events/schemas.test.ts	fbaa0ec44b72	1
 tests/unit/events/schemas.test.ts	fd88450b8fd2	1
 tests/unit/events/storage-busy-error.test.ts	b3c88d97880c	1
 tests/unit/events/store.race.test.ts	27e729926bcb	1
