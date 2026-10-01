@@ -94,7 +94,7 @@ export interface WorkflowStateView {
   /**
    * The terminal merge-orchestrator state, so `resolveWorkflowState` can rebuild it.
    * Each terminal merge event replaces the block, so no field of an earlier phase stays.
-   * Only a failed `merge.preflight` writes a block (`aborted`). `merge.executed` gives
+   * A `merge.preflight` writes a block (`aborted`) only when it failed. `merge.executed` gives
    * `completed`. `merge.recovered` and the legacy `merge.rollback` give `rolled-back`.
    * The field is absent until the first terminal merge event.
    */

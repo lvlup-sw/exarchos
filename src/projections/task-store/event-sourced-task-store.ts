@@ -2,6 +2,7 @@
  * `EventSourcedTaskStore` implements {@link TaskStorePort} as a projection over the event store.
  * Each mutating call appends a `task.*` event to the stream `task-store/<taskId>`, and each read folds that stream.
  * The durable stream is the source of truth, so a restart or a second process sees the same tasks.
+ * The exception is a status change that `updateTaskStatus` keeps in the cache only.
  *
  * The `tasks` map is a lazy cache. A miss folds the full stream.
  * A hit compares the cached `lastReadSequence` with the stream tail, and folds only the newer events.
@@ -9,7 +10,7 @@
  *
  * `listTasks` sorts by `(createdAt, taskId)`, so each process and each restart gives the same order.
  * The cursor is an opaque base64url JSON of the last `(createdAt, taskId)` on the page. Callers must not parse it.
- * Each call hydrates at most `PAGE_SIZE + LOOKAHEAD` tasks from the `task.created` events at or after the cursor `createdAt`.
+ * Each `listTasks` call hydrates at most `PAGE_SIZE + LOOKAHEAD` tasks from the `task.created` events at or after the cursor `createdAt`.
  */
 import { randomBytes } from 'node:crypto';
 import type {
@@ -146,7 +147,7 @@ export class EventSourcedTaskStore
   /** Cache of projected tasks. The event store holds the authoritative state, and `loadTask` fills the cache on a miss. */
   private readonly tasks = new Map<string, ProjectedTask>();
 
-  /** The clock time of the last `task.polled` append for each task. A reaped task loses its entry, so the map stays bounded. */
+  /** The clock time of the last `task.polled` append for each task. A reaped or expired task loses its entry, so the map does not grow past the cache. */
   private readonly lastPolledAt = new Map<string, number>();
 
   /** The clock for the `task.polled` throttle only. It defaults to `Date.now()`. */
@@ -229,7 +230,7 @@ export class EventSourcedTaskStore
 
   /**
    * Returns a copy of the task, or `null` when it is absent or expired.
-   * A read appends `task.polled` when the last append for the task is older than `TASK_POLLED_THROTTLE_MS`.
+   * A read appends `task.polled` when at least `TASK_POLLED_THROTTLE_MS` passed since the last append for the task.
    * That append is best-effort, so a failure does not fail the read. The projection ignores `task.polled`, because it is an audit event.
    */
   async getTask(taskId: string, _sessionId?: string): Promise<Task | null> {
@@ -594,7 +595,7 @@ export class EventSourcedTaskStore
 }
 
 /**
- * Folds the events of a task stream into a projected task, with no I/O and no clock reads.
+ * Folds the events of a task stream into a projected task, with no store reads and no clock reads.
  * Returns `undefined` when the stream has no `task.created` event. The caller stamps `lastReadSequence`.
  * A terminal event restarts the TTL from its own timestamp, the same as the writer cache, so both agree on expiry.
  *

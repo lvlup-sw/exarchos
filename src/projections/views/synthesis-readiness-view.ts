@@ -62,7 +62,7 @@ function computeReadiness(state: SynthesisReadinessState): {
 }
 
 /**
- * Folds task, review, test, typecheck, and restack events into the synthesis readiness view.
+ * Folds task, gate, review finding, test, typecheck, and restack events into the synthesis readiness view.
  * Each change recomputes `ready` and `blockers`. The `review` gate sets `reviewPassed`. The old
  * `spec-review` and `quality-review` gate names also set it, so historical events still project.
  */

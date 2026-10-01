@@ -39,7 +39,7 @@ interface CompactPipelineSummary {
   readonly firstPage: CompactPipelineEntry[];
 }
 
-/** Reduces a full projection row to a compact entry. It copies `repoRoot` only when the row has one. */
+/** Reduces a full projection row to a compact row. It copies `repoRoot` only when the row has one. */
 function toCompactEntry(w: PipelineViewState): CompactPipelineEntry {
   const repoRoot = (w as { repoRoot?: string }).repoRoot;
   return {
@@ -100,9 +100,10 @@ function scopeAllAffordance(hiddenCount: number): NextAction {
  * A row with no `repoRoot` matches only unscoped queries.
  *
  * When the page exceeds the output-token threshold, the handler returns a counts-by-group summary. A `null` threshold gives the plain page.
+ * The summary `page` counts the full window, not the `firstPage` preview, so both branches give the same `hasMore`.
  * @param args - `scope` shares one registration field with `ps`. The handler rejects the `ps` scopes `workflow` and `worktree` with `INVALID_INPUT`.
  * @param config - The `.exarchos.yml` slice that holds `qualityHints.outputTokenThreshold`.
- * @param callerRepoKey - The repo key of the caller. A direct call omits it, and the result is then unscoped.
+ * @param callerRepoKey - The repo key of the caller. A direct call omits it. With no key, no `repoRoot` and no `scope`, the result is unscoped.
  */
 export async function handleViewPipeline(
   args: {

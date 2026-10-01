@@ -1,8 +1,8 @@
 /**
  * TaskDetail view over `task-store@v1`.
  *
- * Each fold step calls `taskStoreReducer.apply`, so the view and the canonical reducer cannot
- * drift. The public `TaskDetail` type stays a stable shape for consumers.
+ * Each fold step calls `taskStoreReducer.apply`, so the view holds no second copy of the fold
+ * rules. The public `TaskDetail` type stays a stable shape for consumers.
  */
 import type { ViewProjection } from './materializer.js';
 import { taskStoreReducer } from '../taskstore/reducer.js';

@@ -108,7 +108,7 @@ async function pinTail(store: EventStore, streamId: string): Promise<number> {
  * A sentinel stream such as `__migration__` is never folded, so it makes no coverage claim.
  * A cold view first loads its persisted snapshot, so the plan sees the real start position.
  *
- * A fold ahead of the log is discarded. Otherwise `materializeAt` drops every event below its high-water mark and applies nothing.
+ * A fold ahead of the log is discarded. Without the discard, `materializeAt` drops every event below its high-water mark and applies nothing.
  * The store has no upper-sequence filter, so this function drops the events past the pinned tail.
  * A cursor short of the tail throws {@link ProjectionCoverageError}.
  */

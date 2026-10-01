@@ -6,7 +6,7 @@ import { getOrCreateMaterializer } from './materializer.js';
 import { foldToTail } from '../../fold-at-tail.js';
 
 /**
- * Handles the `gate_reliability` view. The view is diagnostic only, with no admission or
+ * Returns the `gate_reliability` view. The view is diagnostic only, with no admission or
  * transition authority. The response omits `_foldEvents` unless `detail` is true.
  */
 export async function handleViewGateReliability(

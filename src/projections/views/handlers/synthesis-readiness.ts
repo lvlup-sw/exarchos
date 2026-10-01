@@ -7,7 +7,7 @@ import { foldToTail } from '../../fold-at-tail.js';
 import { readWorkflowStateJson } from './streams.js';
 
 /**
- * Handles the `synthesis_readiness` view. The response omits `review.findingsBySeverity`
+ * Returns the `synthesis_readiness` view. The response omits `review.findingsBySeverity`
  * unless `detail` is true.
  *
  * The planner stamps reviews and tasks in `state.json`, and the projection reads only

@@ -9,7 +9,8 @@ import {
 export const PIPELINE_VIEW = 'pipeline';
 
 /**
- * The snapshot file name of the pipeline view. The materializer maps `PIPELINE_VIEW` to it, and the registration name stays `PIPELINE_VIEW`.
+ * The snapshot file name of the pipeline view. The materializer maps `PIPELINE_VIEW` to it.
+ * The registration name stays `PIPELINE_VIEW`, because the materializer lookup and `BUILTIN_VIEW_NAMES` key on it.
  * Thus a server ignores old `pipeline` snapshots, and the stream folds again to get `repoRoot`.
  * `EVENT_SCHEMA_VERSION` stays the same, because it controls event migration and not view snapshots.
  */

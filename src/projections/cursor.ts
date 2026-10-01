@@ -1,10 +1,11 @@
 /**
  * As-of cursor over an ordered event list, for time-travel reads.
  *
- * The input must be in `(timestamp, sequence)` order, the order that `EventStore.query(streamId)` returns.
- * In one stream, `sequence` increases and `timestamp` does not decrease, so each bound is an inclusive filter.
+ * The input must be in sequence order, the order that `EventStore.query(streamId)` returns.
+ * Each bound is an inclusive filter, so an event at the bound is kept. The functions do no I/O and do not mutate the input.
+ *
  * A timestamp bound uses a lexical `<=`. This is correct only because store timestamps are UTC `Z` ISO-8601 strings of one width.
- * An event at the bound is kept. The functions do no I/O and do not mutate the input.
+ * A timestamp bound filters each event, so after clock skew it can drop an interior event and return a result that is not a prefix.
  */
 import type { WorkflowEvent } from '../events/schemas.js';
 

@@ -1,6 +1,7 @@
 /**
  * The `exarchos_view` composite handler. It routes `action` to a view, stack, or lifecycle handler.
- * A view module imports no writer, so only the stack read comes from `verbs/stack/tools.ts`.
+ * Only the stack read `handleStackStatus` comes from `verbs/stack/tools.ts`. The stack writer
+ * `handleStackPlace` appends events, so it is an `exarchos_orchestrate` action and not a view action.
  */
 
 import { type ToolResult } from '../../format.js';
@@ -93,7 +94,7 @@ export async function handleView(
  * `projection.degraded` row on that stream is then stale. Clearing it keeps the health journal a record
  * of live conditions.
  *
- * A failed result returns unchanged. A fault in the recovery publish only logs a warning, so the health
+ * A failed result returns unchanged. A fault while it clears the row only logs a warning, so the health
  * journal never fails a healthy read. The held row is read first, so the healthy case skips `tailSequence`.
  */
 async function clearProjectionHealth(

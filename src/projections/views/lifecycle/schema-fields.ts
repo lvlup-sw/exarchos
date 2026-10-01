@@ -16,7 +16,7 @@ import { coercedPositiveInt } from '../../../coerce.js';
 /**
  * Shared `scope` selector: the union of the scope values of each action. `pipeline` acts on
  * `repo` and `all`. `ps` accepts `workflow`, `worktree` and `all`, and rejects `repo`. Each
- * handler checks its own subset. The registration guard needs only one value set on each action.
+ * handler checks its own subset. The registration guard needs only the same value set on each action that declares `scope`.
  */
 export const scopeField = z.enum(['repo', 'all', 'workflow', 'worktree']);
 

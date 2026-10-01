@@ -8,8 +8,9 @@
  * this process, and the poll floor wakes it for an event of another connection. A bounded deadline
  * returns `WAIT_TIMEOUT`, so the wait never hangs.
  *
- * Each call sets exactly one predicate: `phase`, `status`, `operation`, or the worktree `until`.
- * The predicate field selects the scope. There is no `scope` field.
+ * Each call sets at most one predicate: `phase`, `status`, `operation`, or the worktree `until`.
+ * A call with no predicate waits on the worktree `until: merge`. The predicate field selects the
+ * scope. There is no `scope` field.
  */
 import type { DispatchContext } from '../../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../../format.js';

@@ -154,8 +154,8 @@ function extractDocComments(source: string): string {
 }
 
 /**
- * Lints the prose that flows into `phasePlaybook.compactGuidance` of the rehydration document.
- * The inputs are the doc comments of `schema.ts` and the `compactGuidance` string literals of `workflow/playbooks.ts`.
+ * Lints the template prose: the doc comments of `schema.ts` and the `compactGuidance` string literals of `workflow/playbooks.ts`.
+ * The literals become `phasePlaybook.compactGuidance` in the rehydration document.
  * It reads both files as text, so it does not load the playbook registry.
  */
 export function lintTemplate(): Violation[] {

@@ -14,7 +14,7 @@ const SAFE_ID_PATTERN = /^[a-z0-9-]+$/;
 
 /**
  * Whether `id` is safe to use as a snapshot filename segment.
- * The write-side `validateStreamId` also accepts slashes, dots and underscores. A snapshot name must stay kebab-case, because those characters allow path traversal.
+ * The write-side `validateStreamId` also accepts slashes, dots and underscores. A snapshot name must stay kebab-case, because a slash or a dot allows path traversal.
  * A caller that iterates arbitrary stream IDs, such as the pipeline view, must skip an ID that fails this check.
  */
 export function isSnapshotSafeId(id: string): boolean {
@@ -81,7 +81,7 @@ export class SnapshotStore {
 
   /**
    * Save a view snapshot atomically. It writes a temporary file, then renames it to the target path.
-   * The target file is never partially written.
+   * Thus a reader never sees a partial target file.
    */
   async save<T>(
     streamId: string,
@@ -143,7 +143,7 @@ export class SnapshotStore {
   /**
    * Delete all snapshots for a stream, and return the deleted file names.
    * The prefix `${streamId}.` includes the dot, so `my-feature` does not match `my-feature-2`.
-   * It skips a file that it cannot delete.
+   * It skips a file that it cannot delete. When it cannot read the state directory, it returns an empty list.
    */
   async deleteAllForStream(streamId: string): Promise<string[]> {
     assertSafeId(streamId, 'streamId');

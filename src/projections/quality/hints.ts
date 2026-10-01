@@ -67,7 +67,7 @@ const skillRules: readonly QualityHintRule[] = [
   },
 ];
 
-/** Rules that run once for each call, not once for each skill. */
+/** Rules that run at most once for each call, not once for each skill. */
 const globalRules: readonly QualityHintRule[] = [
   /** Warns about benchmarks with a degrading trend. */
   (state, skill) => {

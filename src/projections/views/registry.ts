@@ -3,7 +3,10 @@ import type { ViewProjection } from './materializer.js';
 
 /** Names that a custom view must not use: the `exarchos_view` action names and the internal projection names. */
 export const BUILTIN_VIEW_NAMES: ReadonlySet<string> = new Set([
-  /** The action names of `exarchos_view`, from `viewActions` in the registry. */
+  /**
+   * Action names of `exarchos_view`, in a hand-kept copy that is not derived from `viewActions`.
+   * The copy also holds `stack_place`, an orchestrate action. It omits the lifecycle actions and `describe`.
+   */
   'pipeline',
   'tasks',
   'workflow_status',
