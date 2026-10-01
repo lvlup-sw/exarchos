@@ -1,34 +1,22 @@
 /**
- * P04-01 — Observable delivery algebra.
+ * Observable delivery algebra.
  *
- * Post-append hooks and channel pushes are *deliveries*: an attempt to hand a
- * payload to a transport that can fail. The audit's exit criterion is that a
- * **required** delivery which fails cannot be silently swallowed. This module
- * makes the delivery contract explicit and typed so that is structurally true:
+ * Post-append hooks and channel pushes are deliveries: attempts to hand a payload
+ * to a transport that can fail. A failed `required` delivery must never be
+ * swallowed. A `best-effort` failure becomes a typed `failed` outcome. A
+ * `required` failure throws a {@link RequiredDeliveryError}.
  *
- *   - Every delivery declares a {@link DeliveryRequirement} — `required` or
- *     `best-effort`. The requirement is a value, not a convention.
- *   - A `best-effort` failure is captured into a typed `failed` {@link
- *     DeliveryOutcome} carrier. The error becomes an inspectable value; it is
- *     NOT discarded by an empty `catch`.
- *   - A `required` failure THROWS a typed {@link RequiredDeliveryError} that
- *     propagates. There is no code path in {@link deliver} that returns a
- *     non-failed outcome for a required transport that threw, so a caller cannot
- *     accidentally treat a swallowed required failure as success.
- *
- * The static companion check {@link ../architecture/delivery-safety.js} rejects
- * the *syntactic* ways a required path could still swallow (empty `catch {}`,
- * empty `.catch(() => {})`), closing the loop on both the value and source
- * levels.
+ * `tools/conformance/src/delivery-safety.ts` rejects empty `catch` blocks and
+ * empty `.catch()` handlers on required delivery paths.
  */
 
-/** Whether a delivery MUST succeed (`required`) or may fail quietly (`best-effort`). */
+/** Whether a delivery MUST succeed (`required`) or can fail quietly (`best-effort`). */
 export type DeliveryRequirement = 'required' | 'best-effort';
 
 /**
- * A structured delivery failure. Carries the `channel` it targeted, the
- * `requirement` under which it failed, and the original `cause`. Thrown for
- * required deliveries; carried in the `failed` outcome for best-effort ones.
+ * A delivery failure with its `channel`, its `requirement`, and the original
+ * `cause`. A required delivery throws it. A best-effort delivery returns it in
+ * the `failed` outcome.
  */
 export class DeliveryError extends Error {
   readonly channel: string;
@@ -50,10 +38,8 @@ export class DeliveryError extends Error {
 }
 
 /**
- * The error thrown when a *required* delivery fails. A distinct subclass so a
- * caller can `instanceof`-narrow the one failure it is not allowed to ignore,
- * and so the type of {@link deliver} for a required requirement is "resolve to a
- * non-failing outcome, or reject with THIS".
+ * The error thrown when a required delivery fails. It is a subclass, so a caller
+ * can use `instanceof` to find the one failure that it must not ignore.
  */
 export class RequiredDeliveryError extends DeliveryError {
   constructor(channel: string, cause: unknown) {
@@ -64,12 +50,9 @@ export class RequiredDeliveryError extends DeliveryError {
 
 /**
  * The result of a delivery attempt.
- *   - `delivered` — the transport accepted the payload.
- *   - `skipped`   — the delivery was intentionally not attempted (e.g. a
- *                   below-threshold notification); carries a `reason`.
- *   - `failed`    — a best-effort transport threw; carries the typed error so
- *                   the failure is observable rather than swallowed. (A required
- *                   failure never produces this arm — it throws instead.)
+ *   - `delivered`: the transport accepted the payload.
+ *   - `skipped`: the caller did not attempt the delivery. It carries a `reason`.
+ *   - `failed`: a best-effort transport threw. It carries the typed error.
  */
 export type DeliveryOutcome =
   | { readonly kind: 'delivered'; readonly channel: string }
@@ -107,16 +90,9 @@ export function isFailedDelivery(
 /**
  * Attempt a delivery under its declared requirement.
  *
- * - The transport succeeds → `delivered`.
- * - The transport throws and `requirement === 'best-effort'` → a `failed`
- *   carrier holding a {@link DeliveryError}. The error is returned, never
- *   discarded — the caller decides whether to log, retry, or ignore it, but it
- *   cannot be lost to an empty catch.
- * - The transport throws and `requirement === 'required'` → a {@link
- *   RequiredDeliveryError} is thrown and propagates to the caller. There is no
- *   branch that turns a required throw into a `delivered`/`skipped` outcome, so
- *   a required failure is structurally impossible to swallow inside this
- *   function.
+ * - The transport succeeds: return `delivered`.
+ * - A best-effort transport throws: return a `failed` outcome with a {@link DeliveryError}.
+ * - A required transport throws: throw a {@link RequiredDeliveryError}.
  */
 export async function deliver<P>(
   request: DeliveryRequest<P>,

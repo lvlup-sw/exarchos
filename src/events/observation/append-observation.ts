@@ -1,28 +1,19 @@
 /**
  * Scoped observation of durable appends.
  *
- * The event store is the only place that knows an event became durable. Any
- * consumer that wants to reason about what a unit of work actually emitted
- * needs that fact, and the obvious way to get it — have the store call the
- * consumer — inverts the layering: the event store would import the thing
- * that judges it.
+ * Only the event store knows that an event became durable. A direct call to a
+ * consumer makes the store import the code that judges it. This leaf module keeps
+ * the dependency direction: the store notifies and never learns who listens.
  *
- * This module is the seam that keeps the arrow pointing the other way. It is
- * a leaf: it imports nothing but `node:async_hooks`, and the observer is a
- * plain callback over three primitive fields. The store notifies; it never
- * learns who is listening or why.
- *
- * Absent by default. Outside any {@link runWithAppendObserver} scope
- * {@link notifyAppendObserved} is a single `undefined` check, so the append
- * hot path pays nothing for a facility nobody installed.
+ * Outside a {@link runWithAppendObserver} scope, {@link notifyAppendObserved} is
+ * one `undefined` check, so the append hot path pays nothing.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 /**
- * What an observer learns about one append: the fields already resolved at
- * the moment persistence is confirmed. Deliberately narrow — an observer that
- * needs the payload should read the stream, so this seam cannot become a
- * second copy of the event.
+ * What an observer learns about one append when persistence is confirmed. It
+ * holds no payload, so it is not a second copy of the event. An observer that
+ * needs the payload reads the stream.
  */
 export interface AppendObservation {
   /** The persisted event's type. */
@@ -39,30 +30,24 @@ export type AppendObserver = (observation: AppendObservation) => void;
 const appendObserverScope = new AsyncLocalStorage<AppendObserver>();
 
 /**
- * Run `fn` with `observer` installed for the duration of its async subtree.
+ * Run `fn` with `observer` installed for its async subtree, and return what `fn` returns.
  *
- * Isolation is per async context, so two scopes running concurrently each see
- * only their own appends — a property the store cannot provide with a module
- * -level variable. A nested scope shadows the outer one for its own subtree.
- *
- * Returns whatever `fn` returns, so an async `fn` can be awaited by the
- * caller; continuations of that promise stay inside the scope.
+ * Each async context has its own scope, so concurrent scopes see only their own
+ * appends. A nested scope shadows the outer one. The continuations of an async
+ * `fn` stay inside the scope.
  */
 export function runWithAppendObserver<T>(observer: AppendObserver, fn: () => T): T {
   return appendObserverScope.run(observer, fn);
 }
 
 /**
- * Report one durably-persisted event to the observer active in this async
- * context, if any.
+ * Report one durably-persisted event to the observer of this async context, if any.
  *
- * Callers must invoke this ONLY after the append's durable result exists, and
- * only for an event that genuinely landed — never for a validation or store
- * rejection, and never for an idempotency collapse that persisted nothing.
+ * Call it only after the durable result of the append exists, and only for an
+ * event that landed. Never call it for a rejection or an idempotency collapse.
  *
- * A throwing observer is not caught. Swallowing it would turn every consumer
- * built on this seam into one that reports success when it saw nothing, which
- * is the failure mode the seam exists to rule out.
+ * A throwing observer is not caught, because a caught error lets a consumer
+ * report success when it saw nothing.
  */
 export function notifyAppendObserved(observation: AppendObservation): void {
   const observer = appendObserverScope.getStore();

@@ -1,6 +1,6 @@
 /**
- * The one home for replacing a file: stage the bytes in a unique temp file next
- * to the target, then rename the temp file over the target.
+ * The one home for replacing a file. It stages the bytes in a unique temp file
+ * next to the target, then renames the temp file over the target.
  *
  * A reader sees the old bytes or the new bytes, never a torn file. Inside one
  * process, every publish to a target goes through a per-target queue, so two of
@@ -17,15 +17,6 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-// The async default deliberately comes from `node:fs/promises` — the same module
-// every async caller here imports — rather than `node:fs`'s `fs.promises`. They
-// hit the same syscall but are DIFFERENT module references, and reaching around
-// the caller's module seam means any mock, spy, or instrumentation the caller
-// installs on `node:fs/promises` silently does not apply to the publish. That is
-// not hypothetical: routing `snapshot-store` through here with an `fs.promises`
-// default bypassed its crash-injection mock, and a test that asserts a failed
-// rename leaves the previous snapshot intact published the "crashed" payload
-// instead.
 import {
   open as fsPromisesOpen,
   rename as fsPromisesRename,
@@ -35,11 +26,10 @@ import {
 } from 'node:fs/promises';
 
 /**
- * Attempts to publish a temp file over its target before giving up, and the
- * ceiling on the jittered backoff between them. Sized so the whole budget stays
- * under ~1s of wall clock: long enough to outlast a contended replace, short
- * enough that a permanent failure surfaces promptly instead of looking like a
- * hang.
+ * Attempts to publish a temp file before the publish gives up, and the cap on the
+ * jittered backoff between attempts. The total stays under about one second. That
+ * is long enough to outlast a contended replace, and short enough that a permanent
+ * failure does not look like a hang.
  */
 const PUBLISH_RETRY_LIMIT = 20;
 export const PUBLISH_BACKOFF_CAP_MS = 64;
@@ -56,39 +46,14 @@ function publishBackoffMs(attempt: number): number {
   return 1 + Math.random() * Math.min(2 ** attempt, PUBLISH_BACKOFF_CAP_MS);
 }
 
-// ─── Directory durability (DR-16) ────────────────────────────────────────────
-
 /**
- * THIS IS THE ONLY PLACE THAT EXPLAINS DIRECTORY DURABILITY. Everything below —
- * and `install/atomic-promotion.ts`'s `renameDurable` — points here.
- *
- * `rename(2)` is atomic with respect to OBSERVERS: a concurrent reader sees the
- * old name or the new name, never a half-moved path. That is the guarantee every
- * docstring above this line is about, and it is NOT the same guarantee as
- * durability. The new name lives in the *containing directory's* metadata, and
- * nothing forces that metadata to stable storage. So a rename can be observed to
- * succeed, the process can be told it succeeded, and a power loss can still lose
- * it. fsync'ing the FILE (which {@link atomicWriteFile} already does) publishes
- * the BYTES; only fsync'ing the DIRECTORY publishes the NAME.
- *
- * The distinction only becomes load-bearing when two renames are supposed to be
- * ORDERED. A journal written before a backup rename constrains recovery only if
- * the journal's directory entry reaches stable storage FIRST; without a
- * directory fsync between them the two entries may land in either order, or
- * neither. "Journal, then backup" then describes the source text rather than the
- * disk — an ordering that is accidental rather than constructed, which is
- * exactly the defect DR-16 exists to remove.
+ * What a parent-directory fsync achieved. `synced`: the metadata of the directory
+ * reached stable storage. `unsupported`: the host refused a directory fsync (see
+ * {@link DIRECTORY_SYNC_UNSUPPORTED_CODES}). The publish is still atomic, but the
+ * durability of the directory entry is not proven.
  */
-
-/** What a parent-directory fsync attempt actually achieved. */
 export type DirectorySyncStatus =
-  /** The directory's own metadata reached stable storage. */
   | 'synced'
-  /**
-   * The host declined a directory fsync outright. NOT "it failed" — see
-   * {@link DIRECTORY_SYNC_UNSUPPORTED_CODES}. The publish is still atomic; only
-   * the durability of the directory entry is unproven.
-   */
   | 'unsupported';
 
 /**
@@ -104,20 +69,12 @@ export interface DirectorySyncOutcome {
 }
 
 /**
- * The exact errno set that means "this host cannot fsync a directory handle",
- * as opposed to "the fsync failed and the caller must know".
- *
- * fsync on a directory fd is a POSIX idiom with no Windows equivalent. On win32
- * `fs.openSync(dir, 'r')` SUCCEEDS and the subsequent `fs.fsyncSync(fd)` fails
- * `EPERM` (measured on Node 24 / NTFS); other runtimes and filesystems report
- * `EACCES`, `EISDIR`, `EINVAL`, or `ENOTSUP`/`EOPNOTSUPP`/`ENOSYS` for the same
- * "not a thing here" condition.
- *
- * The list is deliberately CLOSED. `ENOENT` (the parent vanished), `ENOSPC`,
- * `EIO`, `EROFS` and everything else propagate untouched, because each of those
- * is a real fault that a blanket `catch {}` would convert into a silent claim of
- * durability — the same class of defect as the accidental ordering this module
- * is fixing.
+ * The closed errno set that means "this host cannot fsync a directory handle".
+ * On win32 `fs.openSync(dir, 'r')` succeeds and `fs.fsyncSync(fd)` fails with
+ * `EPERM` (Node 24, NTFS). Other runtimes report the other codes in this list.
+ * `ENOENT`, `ENOSPC`, `EIO`, `EROFS`, and all other codes propagate, because each
+ * is a real fault. A blanket `catch {}` turns such a fault into a false claim of
+ * durability.
  */
 export const DIRECTORY_SYNC_UNSUPPORTED_CODES: readonly string[] = [
   'EPERM',
@@ -142,14 +99,15 @@ function unsupportedDirectorySync(directory: string, code: string): DirectorySyn
 }
 
 /**
- * fsync `directory` itself, so directory entries created by a preceding rename
- * are on stable storage. See the section docstring above for why that is a
- * different guarantee from the rename's atomicity.
+ * fsync `directory` itself, so the entries that a rename made are on stable storage.
  *
- * Degrades EXPLICITLY: on a host that cannot fsync a directory handle the
- * refusal is converted into an `unsupported` {@link DirectorySyncOutcome}
- * carrying the errno, and only for the closed
- * {@link DIRECTORY_SYNC_UNSUPPORTED_CODES} set. Every other error is rethrown.
+ * A rename is atomic for observers, but the new name lives in the metadata of the
+ * directory. Only an fsync of the directory makes the name durable. Two renames
+ * that must reach the disk in order need this fsync between them.
+ *
+ * On a host that cannot fsync a directory, the function returns `unsupported` with
+ * the errno, but only for {@link DIRECTORY_SYNC_UNSUPPORTED_CODES}. It rethrows all
+ * other errors. It ignores a failed close, which cannot undo a completed sync.
  */
 export function fsyncDirSync(directory: string): DirectorySyncOutcome {
   let fd: number;
@@ -170,7 +128,6 @@ export function fsyncDirSync(directory: string): DirectorySyncOutcome {
     try {
       fs.closeSync(fd);
     } catch {
-      /* best-effort — a failed close cannot un-sync what already synced */
     }
   }
   return { directory, status: 'synced' };
@@ -199,15 +156,10 @@ export async function fsyncDir(directory: string): Promise<DirectorySyncOutcome>
 }
 
 /**
- * Proof token: the directory entry published by a completed rename has been
- * pushed to stable storage (or the host explicitly declined — `directory.status`
- * says which).
- *
- * A token, rather than a `void`, because it is what turns statement order into a
- * CONSTRUCTED ordering: a step that must not begin until an earlier step is
- * durable takes that step's barrier as a parameter, so the dependency is checked
- * by the compiler and legible to a reader instead of resting on which line
- * happens to come first. See `install/atomic-promotion.ts`.
+ * Proof that a completed rename pushed its directory entry to stable storage, or
+ * that the host refused (`directory.status` tells which). A step that must wait
+ * until an earlier step is durable takes that barrier as a parameter. Thus the
+ * compiler checks the order, not the line sequence. See `install/atomic-promotion.ts`.
  */
 export interface DurabilityBarrier {
   /** The path the rename published. */
@@ -218,7 +170,7 @@ export interface DurabilityBarrier {
 
 /**
  * The synchronous seam for {@link publishTempFileSync} and {@link atomicWriteFile}.
- * `rename` defaults to `fs.renameSync`; a caller injects it to fault the rename.
+ * `rename` defaults to `fs.renameSync`. A caller injects it to fault the rename.
  */
 export interface PublishSyncIo {
   rename?(from: string, to: string): void;
@@ -241,6 +193,12 @@ export interface PublishIo {
   syncDirectory?(directory: string): Promise<DirectorySyncOutcome>;
 }
 
+/**
+ * Default publish IO. It imports from `node:fs/promises`, the module that async
+ * callers import, and not `fs.promises` from `node:fs`. These are different module
+ * references, so a mock that a caller installs on `node:fs/promises` also applies
+ * to the publish. The crash-injection mock of the `snapshot-store` tests needs this.
+ */
 const DEFAULT_PUBLISH_IO: PublishIo = {
   rename: fsPromisesRename,
   unlink: fsPromisesUnlink,
@@ -268,7 +226,7 @@ function publishQueueKey(target: string): string {
  * Run `task` after every earlier task for the same target has settled, in call
  * order. A failed task does not stop the tasks after it. This is what makes two
  * of our own renames to one path unable to overlap. On Windows such an overlap
- * fails with `EPERM`; on POSIX it succeeds, but in no defined order.
+ * fails with `EPERM`. On POSIX it succeeds, but in no defined order.
  */
 function serializePerTarget<T>(target: string, task: () => Promise<T>): Promise<T> {
   const key = publishQueueKey(target);
@@ -294,8 +252,8 @@ export function pendingPublishTargets(): number {
  * comes first, because a directory fsync proves nothing about an entry that
  * does not exist yet. Unqueued: callers reach it through {@link publishTempFile}
  * or {@link atomicReplace}. On win32 only, `EPERM` or `EACCES` is retried with a
- * bounded, jittered backoff. A bare `EPERM` cannot be told apart from a real
- * permission fault, so after the bound, or on any other error, the temp file is
+ * bounded, jittered backoff. A bare `EPERM` looks the same as a real permission
+ * fault. So after the bound, or on any other error, the temp file is
  * removed and the original error is rethrown.
  */
 async function renameIntoPlace(tmpPath: string, target: string, io: PublishIo): Promise<void> {
@@ -362,8 +320,8 @@ async function stageTempFile(tmpPath: string, data: string | Uint8Array): Promis
 /**
  * Run `read` in the target's queue, so it never overlaps a publish to that
  * target from this process. On Windows a file that a reader holds open cannot
- * be replaced, so an in-process reader that skipped the queue could make our
- * own publish fail with `EPERM`. Readers in other processes still rely on the
+ * be replaced. An in-process reader outside the queue can make our own publish
+ * fail with `EPERM`. Readers in other processes still rely on the
  * bounded retry in {@link publishTempFile}.
  */
 export function readPublished<T>(target: string, read: () => Promise<T>): Promise<T> {
@@ -372,9 +330,9 @@ export function readPublished<T>(target: string, read: () => Promise<T>): Promis
 
 /**
  * Replace `target` with `data`: stage a unique temp file next to it, then rename
- * the temp file over it. Stage and rename are one task in the target's queue, so
- * writers to one target run one at a time and the target ends with the bytes of
- * the last call. A reader sees the old bytes or the new bytes, never a torn
+ * the temp file over it. Stage and rename are one task in the target's queue.
+ * Thus writers to one target run one at a time, and the target ends with the
+ * bytes of the last call. A reader sees the old bytes or the new bytes, never a torn
  * file. On failure the temp file is removed and the error is rethrown. The
  * synchronous form is {@link atomicWriteFile}.
  */
@@ -388,9 +346,9 @@ export function atomicReplace(target: string, data: string | Uint8Array): Promis
 
 /**
  * Synchronous {@link publishTempFile}. It has no queue, because synchronous calls
- * cannot overlap on one thread. An async publish to the same target can still be
- * running on the thread pool; that case, like a foreign holder, falls to the same
- * bounded win32 retry. The retry sleeps with `Atomics.wait`, the only way to
+ * cannot overlap on one thread. An async publish to the same target can still run
+ * on the thread pool. That case falls to the same bounded win32 retry as a
+ * foreign holder. The retry sleeps with `Atomics.wait`, the only way to
  * pause without an event loop. Prefer the async form wherever the caller can
  * await.
  */
@@ -436,32 +394,24 @@ export function atomicWriteFile(
     }
     fs.fsyncSync(fd);
   } catch (err: unknown) {
-    // Write or fsync failed — close fd and unlink the tmp before rethrowing
-    // so a stale `*.tmp` doesn't accumulate alongside `target`.
     try {
       fs.closeSync(fd);
     } catch {
-      /* best-effort */
     }
     try {
       fs.unlinkSync(tmp);
     } catch {
-      /* best-effort cleanup — don't mask the original error */
     }
     throw err;
   }
   fs.closeSync(fd);
 
   try {
-    // The barrier is produced by the publish, not re-derived here: the bytes are
-    // durable (fsync above), the name becomes durable inside the publish, and
-    // the caller receives the proof of both.
     return publishTempFileSync(tmp, target, io);
   } catch (err: unknown) {
     try {
       fs.unlinkSync(tmp);
     } catch {
-      /* best-effort cleanup — don't mask the original error */
     }
     throw err;
   }

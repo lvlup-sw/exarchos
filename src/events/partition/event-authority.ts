@@ -1,34 +1,18 @@
 // RESERVED(issue: #1876, owner: exarchos, expires: 2027-03-31) — production code
-// with no production importer YET. The partition is the map every later consumer
-// reads: the doctor check that reports a demotion candidate, the retention policy
-// that may drop a telemetry event, and the append path that will refuse to accept
-// a governance event on a telemetry channel. None of those exist, and wiring one
-// on the strength of a map whose oracles were written in the same change would be
-// asserting the map is settled before anything has tried to use it. It is
-// deliberately NOT claimed as test infrastructure: this is the shipped
-// classification, not gate machinery, and misfiling it would buy a permanent
-// exemption for a module that is supposed to become load-bearing.
+// with no production importer yet. It is the shipped classification, not test
+// infrastructure. A doctor check, a retention policy, and an append-path refusal
+// will read it, and none of them exist yet.
 //
-// Two facts the first consumer has to carry, recorded here because no other
-// module holds them. (1) Telemetry is a FOLD fact, not a stream placement:
-// `subagent.tokens_used` and `stack.submitted` ride feature streams beside
-// governance rows, and the SubagentStop append keys its idempotency per stream,
-// so a retention policy that drops telemetry is a row filter, never a stream
-// drop. (2) The one in-tree reader that would become correctness-bearing with
-// no partition change is the telemetry middleware's argument-rewriting path
-// (`projections/telemetry/middleware.ts`, `autoCorrectionOptions`), dormant
-// today because every dispatcher call passes three arguments; the view-level
-// differential still owed over that middleware should name it.
+// The first consumer must carry two facts. Telemetry is a fold fact, not a stream
+// placement, so a retention policy filters rows and never drops a stream. The
+// argument-rewriting path in `projections/telemetry/middleware.ts` becomes
+// correctness-bearing with no partition change. It is dormant because every
+// dispatcher call passes three arguments.
 
 /**
- * The live governance/telemetry partition over the shipped event catalog.
- *
- * Built EAGERLY at module scope, the way `EVENT_EMISSION_REGISTRY` is, so a
- * population that cannot be partitioned fails at load rather than at whichever
- * consumer happens to ask first — a witness or demotion that contradicts the
- * other table, or names a type the catalog no longer has, is a load failure
- * here, not a quiet winner. The two sets are derived from the map by
- * partition — neither is authored, so neither can drift from it.
+ * The live governance and telemetry partition over the shipped event catalog. It
+ * builds at module load, so a contradictory or stale witness or demotion fails at
+ * load. Both sets come from the map, so neither can drift from it.
  */
 
 import { EventTypes, type EventType } from '../schemas.js';
@@ -39,9 +23,8 @@ import { CHARTER_DEMOTIONS } from './demotions.js';
 import { GOVERNANCE_WITNESSES } from './witnesses.js';
 
 /**
- * The tier's emission source for an event type, with lifecycle deliberately
- * NOT composed in — see `authority.ts` for why authority reads the weld rather
- * than whether the event is currently emitted.
+ * The emission source of the tier for an event type, without lifecycle. See
+ * `authority.ts` for why authority ignores whether the event is emitted now.
  */
 export function tierEmissionSourceOf(eventType: string): EmissionSource | undefined {
   const registration = ANNOTATED_EVENTS.registrationOf(eventType);
@@ -55,10 +38,7 @@ const DERIVED: Record<string, EventAuthority> = deriveEventAuthority(
   CHARTER_DEMOTIONS,
 );
 
-/**
- * Total over the catalog by construction: built FROM `EventTypes`, so its key
- * set cannot differ from the catalog's.
- */
+/** Built from `EventTypes`, so its key set is the catalog. */
 export const EVENT_AUTHORITY: Record<EventType, EventAuthority> = DERIVED;
 
 const PARTITION = partitionByAuthority(DERIVED);
@@ -67,32 +47,20 @@ const PARTITION = partitionByAuthority(DERIVED);
 export const GOVERNANCE_EVENTS: ReadonlySet<string> = PARTITION.governance;
 
 /**
- * Events that record what happened and that the CANONICAL FOLD decides nothing
- * from.
+ * Events that record what happened, and from which the canonical fold decides nothing.
  *
- * Read the scope, because the shorter claim is measurably false. The
- * differential behind this partition covers `workflowStateProjection` and says
- * so in its own header. Five registered views fold telemetry, and two of them
- * derive a verdict from it — see {@link VERDICT_BEARING_VIEWS}. Membership here
- * bounds what a retention policy may drop from the canonical state, not from
- * every reader in the tree.
+ * The differential behind this partition covers only `workflowStateProjection`.
+ * Five registered views fold telemetry, and two of them derive a verdict from it.
+ * This module re-exports those views as {@link VERDICT_BEARING_VIEWS}. Membership
+ * bounds what a retention policy can drop from the canonical state only.
  */
 export const TELEMETRY_EVENTS: ReadonlySet<string> = PARTITION.telemetry;
 
-/**
- * The views whose verdict moves when a telemetry event is dropped.
- *
- * Re-exported onto the partition's own surface because a consumer asking
- * "may I drop telemetry?" gets a misleading answer from {@link TELEMETRY_EVENTS}
- * alone. The two facts belong together: the canonical fold is independent, AND
- * these views are not.
- */
 export { VERDICT_BEARING_VIEWS, VIEW_TELEMETRY_DEPENDENCE } from './view-dependence.js';
 
 /**
- * The authority of one event type, or `undefined` for a type outside the
- * catalog — a runtime-registered custom type has no tier here, and answering
- * `'telemetry'` for it would be a guess dressed as a derivation.
+ * The authority of one event type, or `undefined` for a type outside the catalog.
+ * A runtime-registered custom type has no tier, so any other answer is a guess.
  */
 export function classifyEventAuthority(eventType: string): EventAuthority | undefined {
   return DERIVED[eventType];

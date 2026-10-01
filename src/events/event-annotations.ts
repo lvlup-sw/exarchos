@@ -1,74 +1,18 @@
-// ADOPTED by task 011 — this module is now load-bearing production code, not a reservation.
-// `schemas.ts` imports {@link ANNOTATED_EVENTS} to DERIVE `EVENT_EMISSION_REGISTRY`, so the
-// table below is the single authority for every registered event's emission source. The
-// `RESERVED(issue: #1473, …)` header this module carried while it had no production importer is
-// gone with the condition that justified it. Task 012 resolves the `provider` welds at boot and
-// task 013 seeds the G3 ratchet from {@link reportCoupledEventTypes}.
+// Tier and lifecycle annotations for every built-in event type.
 //
-// ─── The DR-2 tier + lifecycle annotations for the event catalog (task 010) ──
+// `schemas.ts` derives `EVENT_EMISSION_REGISTRY` from {@link ANNOTATED_EVENTS}. This table is
+// therefore the single authority for the emission source of each registered event.
+// Each entry comes from two measurements: the code that appends the event, and the reducers
+// and views that fold it.
 //
-// The implementation of `EventAnnotationSource` (`event-declarations.ts`, task 008) for all 170
-// built-in event types. Task 008 shaped its subject as a union over MIGRATION STATE
-// (`EventEmissionSubject | EventRegistration`) precisely so this table could arrive one event at
-// a time through an unchanged type; nothing in the bridge is reshaped here, and `schemas.ts` is
-// still not edited — this module reads it, it does not write to it.
+// The judgment content schemas come from a leaf module. A value import of `schemas.js` makes an
+// import cycle, which throws at load under Node ESM and fails `tools/audit/cycle-gate.ts`.
 //
-// ## Why this is a module and not a `Record` inside `schemas.ts`
-//
-// Task 008 kept `schemas.ts` at exactly zero edits so the lift was provably a projection out of
-// the storage module rather than a change to it. Annotating through the PORT keeps that property:
-// `schemas.ts` compiles untouched, and the substitution point task 008 opened is the one this
-// task fills.
-//
-// ## The measurement, stated up front
-//
-// Every assignment below is derived from two live populations, not from the registry's `source`
-// column (which is the thing the annotation is CHECKED against, and would be circular as an
-// input):
-//
-//   • EMISSION SITE — which code appends the event, read out of the handler tree. This decides
-//     substrate-vs-capability-vs-workflow-local and fixes `provider` / `workflow`.
-//   • CONSUMER FOLD — which reducer or view turns the event into state, read out of every
-//     `ViewProjection` / `ProjectionReducer` in `views/`, `projections/`, `telemetry/` and
-//     `verbs/worktree/projections/`. This fixes `consumedBy`, and its EMPTINESS is what
-//     disqualifies an event from `capability`.
-//
-// Three findings came out of that measurement, and they are the substance of this task:
-//
-//   1. **76 of the 170 registrations have no consumer fold at all**, and 44 of them are neither
-//      store machinery nor an HSM transition: they are handler-owned records of an operation —
-//      the INV-13 `*.requested`/`*.executed` pairs, plus the audit records that follow the same
-//      rule. `CapabilityRegistration.consumedBy` is a non-empty tuple on purpose ("declared a
-//      capability, consumed by nobody is a report with extra steps"), so the union CORRECTLY
-//      refuses them, and none of task 009's five substrate rationales named a mechanism outside
-//      the store's own machinery. Those 44 are annotated `substrate` under the one additive
-//      rationale task 009 pre-authorised for this discovery (`operation-record`). That member is
-//      the weakest weld in the union and it is deliberately named to read that way. **It is the
-//      population a G3 successor should look at after the 25.**
-//   2. **Only 7 of the 25 report-coupled registrations can name a gate.** Task 009 expected all
-//      25 to be `judgment`. Eleven of them have no non-test reference anywhere in `src/` outside
-//      `schemas.ts` — they exist solely as an `exarchos_event.append` the model is nagged to
-//      make. The other 18 are emitted from a model-walked runbook step; that step belongs to a
-//      workflow definition, which is exactly `workflow-local`. `EMISSION_SOURCE_BY_TIER` changed
-//      one value (`workflow-local: 'auto' -> 'model'`) to carry them; the shape is unchanged.
-//   3. **`benchmark.completed` is not an observation, and it is the one registration this task
-//      could not reconcile.** See {@link UNRECONCILED_REGISTRATIONS}.
-//
-// ## What this module deliberately does NOT do
-//
-// It does not resolve `EffectProviderId` at boot (task 012) or ratchet the report-coupled count
-// (task 013). It exports the census functions those tasks read, and every count they produce is
-// COMPUTED from the table — no cardinality is written as a literal anywhere in this file or its
-// test. The derivation itself lives in `event-registration.ts` (`deriveEmissionRegistry`) and is
-// applied by `schemas.ts`; this module supplies its input.
-// ────────────────────────────────────────────────────────────────────────────
+// This module does not name `EventAnnotationSource`, not even as a type. The reachability checks
+// follow type-only imports, and that name makes `contract/declaration.ts` reachable from every
+// registration site. The proof that this table implements the port is in `event-declarations.ts`.
 
 import type { EventEmissionSource } from './schemas.js';
-// The judgment `contentSchema` values come from a LEAF module, not from `schemas.js`. Task 011
-// made `schemas.ts` derive `EVENT_EMISSION_REGISTRY` from this table, so a runtime value import
-// back into `schemas.ts` would close a cycle — one measured to throw at load under real Node ESM
-// (TDZ) and to fail `tools/audit/cycle-gate.ts` in CI. The `EventEmissionSource` import above
-// stays, because `import type` is erased and contributes no edge.
 import {
   RemediationAttemptedDataSchema,
   RemediationSucceededDataSchema,
@@ -85,46 +29,23 @@ import {
   type TierSourceDisagreement,
 } from './event-registration.js';
 
-// NOTE: this module deliberately does NOT name `EventAnnotationSource` from `event-declarations.ts`,
-// even as a type. `schemas.ts` imports this module to derive `EVENT_EMISSION_REGISTRY`, and the
-// static-reachability instruments in this repo (DR-30's oracle-independence walk,
-// `built-in-workflow-ir.structure.test.ts`) follow type-only specifiers. Naming the port here would
-// therefore make `contract/declaration.ts` reachable from every registration site — falsifying
-// DR-1's standing claim that "no registration site imports the envelope, so they can genuinely
-// disagree" (`contract/declaration.test.ts`). {@link ANNOTATED_EVENTS} is annotated structurally
-// instead, and the CONFORMANCE proof lives with the port it conforms to
-// (`_EventDeclarations_AnnotatedEvents_ImplementsThePort` in `event-declarations.ts`), which is
-// where a change of the port's shape should be felt anyway.
-
-// ─── The declared-source input, as a port ───────────────────────────────────
-
 /**
- * What `EVENT_EMISSION_REGISTRY` says today, keyed by event-type name.
- *
- * Taken as a PARAMETER by every census function below rather than imported and closed over, so a
- * caller (a test, task 011, task 013) can seed a disagreement without mutating the live registry.
- * A census that could only ever read one hard-wired input could not be shown to be capable of
- * reporting anything.
+ * The source that `EVENT_EMISSION_REGISTRY` declares for each event type, keyed by name.
+ * Each census function takes it as a parameter, so a test can seed a disagreement without a
+ * change to the live registry.
  */
 export type DeclaredEmissionSources = Readonly<Record<string, EventEmissionSource>>;
 
-// ─── The annotations ────────────────────────────────────────────────────────
-//
-// Keyed by bare event-type name, matching `EventAnnotationSource.registrationOf(eventType: string)`
-// — runtime-registered custom types are carried by the same bridge and are absent from the
-// built-in union by construction.
-//
-// NOT typed `Record<EventType, …>` on purpose. A type-keyed table would make
-// `EventAnnotations_EveryRegisteredType_CarriesATierAndLifecycle` vacuous: the census difference it asserts
-// is empty would be empty BY CONSTRUCTION, which is the Class-B defect the DR-30 gate exists to
-// catch. Keyed by `string`, forgetting an event is a runtime finding the test can actually make.
-//
-// Annotated `Readonly<Record<string, EventRegistration>>` rather than `as const`: the annotation
-// gives every value its contextual type (so `consumedBy` checks against the non-empty tuple) and
-// this module spends nothing from the repo's type-assertion budget.
-
+/**
+ * The annotation for each built-in event type, keyed by the bare event-type name.
+ * The key type is `string`, not `EventType`, so the census test can find a missing event.
+ *
+ * For a `capability` entry, `provider` is the tool whose handler appends the event. `consumedBy`
+ * lists each reducer or view whose arm for the event changes state. No-op arms do not count.
+ * An `operation-record` entry has no consumer fold, so it cannot be `capability`.
+ * A `judgment` entry names the gate that carries the verdict. The model writes only the content.
+ */
 export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Object.freeze({
-  // ── HSM transition records — the event IS the transition; state is a fold over them ──
   'workflow.started': { lifecycle: 'active', tier: 'substrate', rationale: 'transition-record' },
   'workflow.transition': { lifecycle: 'active', tier: 'substrate', rationale: 'transition-record' },
   'workflow.compound-entry': {
@@ -158,16 +79,17 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     tier: 'substrate',
     rationale: 'transition-record',
   },
-  // DR-13 (epic #1546) resolve-then-freeze: `phase.entered` freezes the resolved obligation and
-  // `phase.exited` records the aggregate gate status. Replaying them left-folds the same
-  // obligation a live HSM observed, which is the definition of a transition record.
+  /**
+   * `phase.entered` freezes the resolved obligation, and `phase.exited` records the aggregate
+   * gate status. A replay folds the same obligation that the live HSM saw.
+   */
   'phase.entered': { lifecycle: 'active', tier: 'substrate', rationale: 'transition-record' },
   'phase.exited': { lifecycle: 'active', tier: 'substrate', rationale: 'transition-record' },
-  // The IMPLEMENT-kind gate-set resolver threw and the dispatch was REFUSED. The refusal is the
-  // transition that did not happen; it is appended by the same boundary.
+  /**
+   * The gate-set resolver for an IMPLEMENT phase threw, and the boundary refused the dispatch.
+   */
   'phase.blocked': { lifecycle: 'active', tier: 'substrate', rationale: 'transition-record' },
 
-  // ── Append-path — emitted inside the append/dispatch machinery, never by a caller ──
   'state.patched': { lifecycle: 'active', tier: 'substrate', rationale: 'append-path' },
   'tool.invoked': { lifecycle: 'active', tier: 'substrate', rationale: 'append-path' },
   'hsm.deprecated_action_invoked': {
@@ -179,15 +101,15 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   'elicitation.requested': { lifecycle: 'active', tier: 'substrate', rationale: 'append-path' },
   'elicitation.fulfilled': { lifecycle: 'active', tier: 'substrate', rationale: 'append-path' },
   'elicitation.declined': { lifecycle: 'active', tier: 'substrate', rationale: 'append-path' },
-  // #1272 — the EventSourcedTaskStore appends these to durably back the projection it serves to
-  // the SDK; the store's reads project from the event stream alone (INV-1). The append IS the
-  // storage operation.
+  /**
+   * The `EventSourcedTaskStore` appends these events to back the projection that it serves. Its
+   * reads project from the event stream alone.
+   */
   'task.created': { lifecycle: 'active', tier: 'substrate', rationale: 'append-path' },
   'task.polled': { lifecycle: 'active', tier: 'substrate', rationale: 'append-path' },
   'task.result': { lifecycle: 'active', tier: 'substrate', rationale: 'append-path' },
   'task.cancelled': { lifecycle: 'active', tier: 'substrate', rationale: 'append-path' },
 
-  // ── Session/stream lifecycle — store bookkeeping around an append ──
   'workflow.checkpoint': { lifecycle: 'active', tier: 'substrate', rationale: 'session-lifecycle' },
   'workflow.checkpoint_requested': {
     lifecycle: 'active',
@@ -222,17 +144,17 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     tier: 'substrate',
     rationale: 'session-lifecycle',
   },
-  // DR-4 (wiring-closure T-06) — `publishProjectionFreshness` appends these on the dedicated
-  // `meta/projection-health` stream off a real cursor/tail comparison. Stream bookkeeping about
-  // a fold, not a fold of anything.
+  /**
+   * `publishProjectionFreshness` appends these on the `meta/projection-health` stream after it
+   * compares a cursor with the stream tail.
+   */
   'projection.degraded': { lifecycle: 'active', tier: 'substrate', rationale: 'session-lifecycle' },
   'projection.recovered': {
     lifecycle: 'active',
     tier: 'substrate',
     rationale: 'session-lifecycle',
   },
-  // #1259 T04 / #1313 / #1437 — the JSONL→SQLite importer and the V5→V6 backfill. Store
-  // maintenance on the store's own rows.
+  /** The JSONL-to-SQLite importer and the V5-to-V6 backfill append these store events. */
   'migration.legacy_jsonl_imported': {
     lifecycle: 'active',
     tier: 'substrate',
@@ -255,7 +177,6 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     rationale: 'session-lifecycle',
   },
 
-  // ── Concurrency-control outcomes ──
   'workflow.cas-failed': {
     lifecycle: 'active',
     tier: 'substrate',
@@ -266,15 +187,16 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     tier: 'substrate',
     rationale: 'concurrency-outcome',
   },
-  // P04-02 (EFF-005) — the fencing-token epoch. A stale-epoch instance's writes are rejected by
-  // the process manager; this records who won.
+  /**
+   * The fencing-token epoch. The process manager rejects writes from an instance with a stale
+   * epoch, and this event records the winner.
+   */
   'cancel.ownership-acquired': {
     lifecycle: 'active',
     tier: 'substrate',
     rationale: 'concurrency-outcome',
   },
 
-  // ── Compensation bookkeeping — the INV-9 compensation contract ──
   'workflow.compensation': {
     lifecycle: 'active',
     tier: 'substrate',
@@ -308,13 +230,6 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   },
   'cancel.ready': { lifecycle: 'active', tier: 'substrate', rationale: 'compensation-record' },
 
-  // ── Operation records — handler-owned, CONSUMED BY NOBODY (finding 1) ──
-  //
-  // Every entry below was checked against every `ViewProjection` and `ProjectionReducer` in the
-  // tree and folds into no state anywhere. They are not `capability` because `consumedBy` would
-  // have to be empty, and DR-2 refuses that on purpose. `operation-record` claims only that the
-  // code performing the operation owns the append — which is the `auto` emission claim and
-  // nothing more.
   'stack.enqueued': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'quality.regression': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'quality.hint.generated': {
@@ -343,8 +258,7 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   },
   'provider.parse-error': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'dispatch.classified': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
-  // No projection folds it — it is the prune evaluation's own audit line, read
-  // from the stream by dashboards rather than by a view.
+  /** The audit line of the prune evaluation. Dashboards read it from the stream. */
   'prune.diagnostics': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'dispatch.preflight': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'stash.detected': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
@@ -383,9 +297,10 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   'onboard.executed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'export.requested': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'export.executed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
-  // Wave B (#1342) — the five two-event VCS splits. `*.requested` is the durable intent journaled
-  // BEFORE the non-idempotent effect; `*.executed` the result after it. `worktree.remove.executed`
-  // is the one member of this family with a real consumer and is `capability` below.
+  /**
+   * The two-event VCS operations. `*.requested` records the intent before the effect, which is
+   * not idempotent. `*.executed` records the result.
+   */
   'pr.create.requested': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'pr.create.executed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'pr.comment.requested': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
@@ -425,122 +340,68 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     tier: 'substrate',
     rationale: 'operation-record',
   },
-  // The VCS mutation ledger, measured the same way as the rest of this section.
-  // The single git & worktree mutation owner appends all three itself — the
-  // intent before the git effect, one of the two terminals after — so the code
-  // performing the operation owns the append and nothing else can be claimed.
-  //
-  // `capability` is structurally unavailable to them and that is the honest
-  // reading, not a downgrade: the only reader of these events is the owner's own
-  // ledger fold, which is the emitter re-reading its own record to decide
-  // whether to replay, not a projection or view turning the emission into state
-  // anyone else depends on. Listing the emitter as its own consumer would
-  // launder "consumed by nobody" into a consumer, which is the move the
-  // non-empty `consumedBy` tuple exists to refuse.
+  /**
+   * The single git and worktree mutation owner appends the intent before the git effect, then one
+   * of the two terminals. Only the ledger fold of that owner reads them, and an emitter is not a
+   * consumer of its own record.
+   */
   'vcs.requested': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'vcs.executed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'vcs.compensated': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
-  // The atomic tree-promotion record. `substrate` is the tier it WOULD be welded
-  // to: the promoting code in `install/atomic-promotion.ts` performs the commit
-  // rename, and the record belongs to that operation rather than to a caller
-  // asked to report on the promoter's behalf.
-  //
-  // `capability` is unavailable for the same structural reason as the ledger
-  // above, and it is worth naming which half is missing: there is no fold. No
-  // reducer, view or telemetry surface turns a promotion into state anyone reads,
-  // and `consumedBy` is a non-empty tuple precisely so that "declared a
-  // capability, consumed by nobody" cannot be written down.
-  //
-  // The lifecycle is `planned`, and that is a measurement rather than a plan.
-  // `promoteTree` — the carrier-wrapped path that DECLARES this emission — has
-  // no caller anywhere in the governed source; every call site is a test. The
-  // engine beneath it (`promoteTreeSync`) is what production uses, and it
-  // declares nothing. So the schema exists, the projection already folds this
-  // type, and no reachable code appends it. Annotating it `active` would claim
-  // an append happens on some path, which is the one claim the tree cannot
-  // support; `planned` says what is true — the emitter is not wired. It becomes
-  // `active` when a production caller reaches `promoteTree` with a sink that
-  // lands the record, not before.
+  /**
+   * The atomic tree-promotion record. `promoteTree` declares this emission, but only tests call
+   * it. Production calls `promoteTreeSync`, which declares nothing. The entry stays `planned`
+   * until a production caller reaches `promoteTree`.
+   */
   'promotion.executed': { lifecycle: 'planned', tier: 'substrate', rationale: 'operation-record' },
-  // The emission-violation report, measured the same way. The post-dispatch
-  // verifier detects the miss and appends the finding in the same pass — the
-  // code performing the check owns the record of it, and no handler is asked to
-  // report its own broken emission contract.
-  //
-  // `capability` is unavailable for the familiar structural reason, and it is
-  // worth being exact about which half is absent here, because this one is
-  // easily misread as coupled: the finding is READ — by whoever investigates the
-  // bug it reports — but reading is not folding. No reducer, view or telemetry
-  // surface turns a violation into state any code path depends on, so there is
-  // no `ConsumerId` to name, and `consumedBy` is a non-empty tuple precisely so
-  // that "a human will look at it" cannot be written down as a consumer.
+  /**
+   * The post-dispatch verifier finds a missed emission and appends this record in the same pass.
+   * People read the record, but no code folds it.
+   */
   'emission.violated': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
-  // The bounded action executor's operation record. Appended by
-  // `execute_intent`'s own handler on both the committed and the failed path —
-  // the durable record of the non-idempotent segment it just ran. No projection
-  // folds it yet, so `capability` (which demands a non-empty `consumedBy`) is
-  // unavailable; `operation-record` claims only what is true today: the code
-  // performing the operation owns the append.
+  /** The `execute_intent` handler appends this record after a commit and after a failure. */
   'orchestrate.intent_executed': {
     lifecycle: 'active',
     tier: 'substrate',
     rationale: 'operation-record',
   },
-  // The semantic plane's settlement record. Appended by `settle`'s own handler
-  // on every outcome — the durable record of the adjudication it just
-  // performed. `capability` is unavailable for the same structural reason the
-  // row above gives: no reducer, view or telemetry surface folds this yet, so
-  // there is no `ConsumerId` to name, and `consumedBy` is a non-empty tuple
-  // precisely so that "a future projection will" cannot be written down as a
-  // consumer. `operation-record` claims only what is true today — the code
-  // performing the adjudication owns the append.
+  /** The `settle` handler appends this record for every outcome. */
   'execution.settled': {
     lifecycle: 'active',
     tier: 'substrate',
     rationale: 'operation-record',
   },
-  // The semantic plane's compilation record. Appended by `prepare`'s own handler
-  // once the capsule and its definition are in custody — the durable record of
-  // the compilation it just performed. Its one reader is `settle`, which looks
-  // the record up to verify a capsule rather than folding it into any view, so
-  // there is no `ConsumerId` to name for the same reason the row above gives.
+  /**
+   * The `prepare` handler appends this record when the capsule and its definition are in custody.
+   * `settle` reads it to verify a capsule, which is not a fold.
+   */
   'workflow.prepared': {
     lifecycle: 'active',
     tier: 'substrate',
     rationale: 'operation-record',
   },
-  // The divergence loop's decision facts. `settle` leaves one proposal per
-  // deviation it holds a batch for, and one decision per proposal when the
-  // batch is settled again with the decisions. Their one reader is `settle`,
-  // which reads them back to know what a batch waits on; nothing folds them.
+  /**
+   * `settle` appends one proposal for each deviation that holds a batch. A later `settle` call on
+   * that batch appends one decision for each proposal. Only `settle` reads these events.
+   */
   'deviation.proposed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'deviation.decided': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
 
-  // ── Capability — an effect provider appends it, and named consumers fold it ──
-  //
-  // `provider` is the composite tool whose handler owns the append (`EFFECT_PROVIDERS`, resolved
-  // at boot by task 012). `consumedBy` is the MEASURED fold set: every id is a live
-  // `ProjectionReducer.id` or `BUILTIN_VIEW_NAMES` entry whose arm for this event mutates state.
-  // Explicit no-op arms are excluded — listing one would launder "nobody consumes this" into a
-  // consumer.
-  // The three task lifecycle events are appended by `verbs/tasks/tools.ts` and declared on
-  // `task_claim` / `task_complete` / `task_fail`, which are registered on `exarchos_orchestrate`.
-  // They were annotated `exarchos_workflow`, naming the workflow-state authority that FOLDS them
-  // rather than the provider that appends them — a job `consumedBy` already does. The append
-  // module was the last of the task family still sitting outside `verbs/`; now that it has joined
-  // its siblings, the area and the declaring tool agree and this row can say so.
+  /**
+   * `verbs/tasks/tools.ts` appends the three task lifecycle events. The `task_claim`,
+   * `task_complete` and `task_fail` actions of `exarchos_orchestrate` declare them.
+   */
   'task.claimed': {
     lifecycle: 'active',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['task-store@v1'],
   },
-  // Left the workflow-local tier with the semantic plane's runtime adapter: the
-  // announcement is appended by `prepare` in the same commit as the prepared
-  // record, and by `prepare_delegation` ahead of the readiness fold it counts
-  // in — one per planned task the stream has not yet heard of. Nothing on the
-  // delegate path has to remember the append any more. `consumedBy` is the
-  // measured fold set: the two reducers and the views that read the row.
+  /**
+   * `prepare` appends this announcement in the same commit as the prepared record.
+   * `prepare_delegation` appends it before the readiness fold, once for each planned task that
+   * the stream does not know.
+   */
   'task.assigned': {
     lifecycle: 'active',
     tier: 'capability',
@@ -607,11 +468,7 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_orchestrate',
     consumedBy: ['workflow-state@v1', 'pipeline'],
   },
-  // PLANNED — measured, not inherited. The schema, the type-map entry and the
-  // `synthesis-readiness` fold all exist; nothing in the tree appends the event.
-  // A restack is performed today through the VCS surface without recording a
-  // fact, so the fold is written ahead of its producer. `lifecycle` carries
-  // that, and the tier still records the weld the append will have.
+  /** No code appends this event. The `synthesis-readiness` fold exists before its producer. */
   'stack.restacked': {
     lifecycle: 'planned',
     tier: 'capability',
@@ -630,15 +487,10 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_orchestrate',
     consumedBy: ['shepherd-status'],
   },
-  // Split out of `gate.executed` (#1898 item 8). Appended by the same
-  // assessment pass that appends `ci.status`, from the same provider area, one
-  // row per check rather than one per pull request.
-  //
-  // `code-quality` is the consumer because the per-skill outcome measurement is
-  // the half of the old fold worth keeping: the shepherd's job IS to drive
-  // checks green, so its pass rate is its outcome. The half that is dropped is
-  // the gate-name one, which put every CI job into the same `gates[...]`
-  // namespace as the gates this repository runs itself.
+  /**
+   * The assessment pass that appends `ci.status` appends this event too, one row for each check.
+   * `code-quality` folds it because the pass rate of the checks is the shepherd outcome.
+   */
   'ci.check_observed': {
     lifecycle: 'active',
     tier: 'capability',
@@ -687,16 +539,17 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_orchestrate',
     consumedBy: ['merge-orchestrator@v1'],
   },
-  // #1306 — the SOLE emitted recovery terminal after DR-2 (task 006).
+  /** The only merge recovery terminal that code emits. */
   'merge.recovered': {
     lifecycle: 'active',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['merge-orchestrator@v1', 'rehydration@v1', 'workflow-state@v1'],
   },
-  // RETIRED: the schema and type-map entry are KEPT so legacy logs replay identically (INV-1) but
-  // nothing writes it. `lifecycle` — not tier — is what produces `'retired'`, and the tier it was
-  // welded to when it was live is still recorded. Not a coupling defect and not a disagreement.
+  /**
+   * Retired. The schema stays so that old logs replay the same, but no code writes this event.
+   * The tier records the weld that the event had when it was live.
+   */
   'merge.rollback': {
     lifecycle: 'retired',
     tier: 'capability',
@@ -775,18 +628,11 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_event',
     consumedBy: ['telemetry'],
   },
-  // Split out of `gate.executed` (#1898 item 8). Appended by the same telemetry
-  // wrapper that appends the rest of the `tool` family, to the same telemetry
-  // stream, and folded by the same view — which is what `gate.executed` was
-  // NOT doing: it went to the FEATURE stream, where the convergence view read
-  // it as a governance verdict on the Context Economy dimension.
-  //
-  // Derives GOVERNANCE, like every other `auto`-tier type, and stays there.
-  // The `tool` family's demotions were ordered by a charter act that named
-  // those four types literally, and `CHARTER_TELEMETRY_EXAMPLES` is a literal
-  // set precisely so a later family member is not admitted as though the act
-  // had covered it. Demoting this one is a new decision for the roadmap, not a
-  // consequence of the split.
+  /**
+   * The telemetry wrapper appends this event to the telemetry stream, as it does for the rest of
+   * the `tool` family. It derives GOVERNANCE. A demotion is a separate roadmap decision, because
+   * `CHARTER_TELEMETRY_EXAMPLES` in the partition test does not include it.
+   */
   'tool.budget_exceeded': {
     lifecycle: 'active',
     tier: 'capability',
@@ -805,39 +651,37 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_event',
     consumedBy: ['telemetry'],
   },
-  // PLANNED — measured, not inherited. The telemetry middleware appends the
-  // three `tool.*` rows above once per dispatch; a per-TURN aggregate has a
-  // `telemetry` fold (`view.turns`) and no producer anywhere in the tree. The
-  // fold reads a shape nothing writes yet, which is what `planned` states.
+  /**
+   * No code appends this per-turn aggregate. The `telemetry` fold (`view.turns`) reads a shape
+   * that nothing writes.
+   */
   'turn.completed': {
     lifecycle: 'planned',
     tier: 'capability',
     provider: 'exarchos_event',
     consumedBy: ['telemetry'],
   },
-  // #1525 — the restored SubagentStop hook resolves teammate identity and appends. The append is
-  // owned by exarchos code (`lifecycle/subagent-stop.ts`), which is why the registry records
-  // it `auto` and not `hook`; the hook is the TRIGGER, not the author.
+  /**
+   * The SubagentStop hook triggers the append, but `lifecycle/subagent-stop.ts` writes it. The
+   * source is therefore `auto`, not `hook`.
+   */
   'subagent.tokens_used': {
     lifecycle: 'active',
     tier: 'capability',
     provider: 'exarchos_event',
     consumedBy: ['delegation-timeline', 'team-performance'],
   },
-  // RE-TIERED from `capability` / `exarchos_view`. That annotation asserted an effect provider
-  // appends this, and none does: every `exarchos_view` action is a read of a projection,
-  // `eval_results` included. The only append is in the evaluation harness under `tools/`, a
-  // developer entry point outside the governed source root — the coupling the `harness` tier
-  // was added to name. The event is genuinely active and `eval-results` genuinely folds it, so
-  // neither `planned` nor `retired` was available either.
+  /**
+   * Only the evaluation harness under `tools/` appends this event, outside the governed source
+   * root. The `harness` tier names that coupling.
+   */
   'eval.judge.calibrated': {
     lifecycle: 'active',
     tier: 'harness',
     module: 'tools/evals/evals/harness.ts',
     consumedBy: ['eval-results'],
   },
-  // PLANNED — schema and type-map entry exist, nothing emits them yet. `lifecycle` produces the
-  // source; the tier records the weld they will have.
+  /** Planned. No code emits this event or the next two `eval` events. */
   'eval.run.started': {
     lifecycle: 'planned',
     tier: 'substrate',
@@ -855,14 +699,11 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_view',
     consumedBy: ['eval-results'],
   },
-  // ── The v2.12 phase-gate proof substrate ──
-  // All twelve are folded by `workflow-state@v1` (audit/shadow visibility). The `planned` ones
-  // are not exposed as admission actions in v2.12; `lifecycle`, not tier, records that.
-  // The append site is `verbs/gates/gate-runner.ts`, pinned as the sole canonical evidence
-  // emitter by the gate-ownership census, and `verbs/` is the area of exactly one provider.
-  // `gate.executed` is appended by the same `runGate` body, declared on the same five actions,
-  // and already annotated `exarchos_orchestrate` — one append site cannot have two owning tools,
-  // so the two rows could not both be right. Corrected from `exarchos_workflow`.
+  /**
+   * `workflow-state@v1` folds all twelve admission events. The `planned` ones have no admission
+   * action. `verbs/gates/gate-runner.ts` appends this event and `gate.executed` in one body, so
+   * both name `exarchos_orchestrate`.
+   */
   'admission.evidence-recorded': {
     lifecycle: 'active',
     tier: 'capability',
@@ -935,14 +776,10 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_workflow',
     consumedBy: ['workflow-state@v1'],
   },
-  // PLANNED — measured, not inherited, and the registration the catalog has
-  // argued about longest. The `code-quality` fold reads the results array, and
-  // no module in the tree appends the event: the only producer is a benchmark
-  // FIXTURE factory under `tools/evals/`, which mints the shape for a synthetic
-  // stream rather than recording a measurement anything folds. Annotating it
-  // `active` claimed an effect provider appends it, which is the one claim the
-  // tree does not support; `planned` says what is actually true — the schema
-  // and the fold are ready and the emitter is not written.
+  /**
+   * The `code-quality` fold reads the results, but no module appends this event. The only
+   * producer is a fixture factory under `tools/evals/` that builds synthetic streams.
+   */
   'benchmark.completed': {
     lifecycle: 'planned',
     tier: 'capability',
@@ -950,11 +787,6 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     consumedBy: ['code-quality'],
   },
 
-  // ── Judgment — a gate carries the verdict; the model composes only the CONTENT ──
-  //
-  // Seven of the twenty-five report-coupled registrations. Each names a `SupportedGateClass` with
-  // a live provider action (`gate-provider-registry.ts`) whose subject IS this verdict, and a live
-  // Zod schema for the content. The other eighteen could not name one and are `workflow-local`.
   'review.completed': {
     lifecycle: 'active',
     tier: 'judgment',
@@ -998,19 +830,11 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     contentSchema: TypecheckResultData,
   },
 
-  // ── Workflow-local — a workflow definition's model-walked runbook step composes it ──
-  //
-  // The other report-coupled registrations — eighteen when this table was first
-  // measured, seventeen since `task.assigned` gained a handler seam (see its
-  // capability entry above). `PHASE_EVENT_CONTRACTS`
-  // (`workflow/topology/phase-events.ts`) is the independent authority: it maps model-emitted
-  // events to the phase that owns them, and the gate's header records the reason they stay model-emitted
-  // — "their transition site is a model-walked runbook step bracketing a `native:` harness tool
-  // (runbooks/definitions.ts) — there is no in-process handler seam to move the append into yet."
-  //
-  // `workflow: 'feature'` for all of them: every owning phase (delegate / review / synthesize /
-  // overhaul-*) belongs to the `feature` definition (`BUILT_IN_WORKFLOW_TYPES`). This is the weld
-  // G3 shrinks — each one leaves this tier when a handler seam takes the append.
+  /**
+   * A model-walked runbook step of the `feature` workflow appends each `workflow-local` event.
+   * `PHASE_EVENT_CONTRACTS` maps each one to the phase that owns it. An event leaves this tier
+   * when a handler seam takes its append.
+   */
   'task.progressed': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
   'workflow.handoff_summarized': {
     lifecycle: 'active',
@@ -1034,17 +858,9 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   'merge.requested': { lifecycle: 'active', tier: 'workflow-local', workflow: 'feature' },
 });
 
-// ─── The port implementation (task 008's substitution point) ────────────────
-
 /**
- * The DR-2 annotations as the annotation SOURCE task 008's bridge consumes (the
- * `EventAnnotationSource` port declared in `event-declarations.ts`, which proves this value
- * conforms — see the import-block note at the top of this file for why the proof lives there).
- *
- * Pass this to `eventDeclarations` / `openEventDeclarationSeam` and every annotated type's
- * declaration flips from the `EventEmissionSubject` arm to the {@link EventRegistration} arm — a
- * change of VALUES flowing through the type task 008 already shipped. `undefined` for a
- * runtime-registered custom type, which is honest: nothing in this task annotated it.
+ * The annotations as an `EventAnnotationSource` for `eventDeclarations` and
+ * `openEventDeclarationSeam`. The result is `undefined` for a custom type registered at runtime.
  */
 export const ANNOTATED_EVENTS: {
   readonly registrationOf: (eventType: string) => EventRegistration | undefined;
@@ -1052,36 +868,9 @@ export const ANNOTATED_EVENTS: {
   registrationOf: (eventType: string): EventRegistration | undefined => EVENT_ANNOTATIONS[eventType],
 });
 
-// ─── Disposed: the one registration task 010 could not reconcile ────────────
-//
-// Task 010 left exactly one entry here — `benchmark.completed`, which the registry declared
-// `'hook'` while its measured coupling (capability tier, two real consumer folds, no emitter
-// anywhere in `src/`, `hooks/` or `.claude-plugin/`) derives `'auto'` — as a named,
-// owner-carrying, shrink-only list whose owner was recorded as task 011.
-//
-// **Task 011 disposed of the entry AND of the list.** `EVENT_EMISSION_REGISTRY` no longer
-// declares a source for any built-in type; it derives one from this table. A tier<->source
-// disagreement is therefore not a state the live catalog can hold and a census must report — it
-// is a state the catalog has no form for. A shrink-only list of a population that cannot be
-// constructed is a declaration that exists, is enforced, and cannot fail, which is exactly the
-// class this program removes rather than keeps as cover.
-//
-// The claim now rests on what CAN still fail: {@link tierSourceDisagreements} takes its
-// declared-source map as a PARAMETER, so `EventAnnotations_SeededTierSourceDisagreement_IsReported`
-// seeds a contradiction and requires it to be reported by name. The falsifier survived the
-// disposal; only the standing exception did not.
-
-// ─── The censuses tasks 011/012/013 read ────────────────────────────────────
-//
-// Every one takes its population as an argument and returns a LIST, never a count. A caller that
-// wants a cardinality takes `.length` of a list it can also print, so no number in this program is
-// ever separable from the subjects that produced it.
-
 /**
- * Registered event types carrying no annotation — the gap {@link EVENT_ANNOTATIONS} must close.
- *
- * `registeredTypes` is the live population (`EventTypes`, or the registry's key set). Sorted, so
- * a failure message is stable.
+ * Registered event types with no annotation, sorted for a stable failure message.
+ * Each census in this module returns a list, not a count, so a caller can print the subjects.
  */
 export function unannotatedEventTypes(
   registeredTypes: Iterable<string>,
@@ -1095,9 +884,8 @@ export function unannotatedEventTypes(
 }
 
 /**
- * Annotated event types that no live registration claims — the other direction of the census, and
- * the one that catches a typo'd key. Without it, misspelling `'task.compelted'` would show up
- * only as a missing annotation, and the two errors would be indistinguishable.
+ * Annotated event types that no registration claims. This census finds a misspelled key, which
+ * otherwise looks the same as a missing annotation.
  */
 export function unregisteredAnnotations(
   registeredTypes: Iterable<string>,
@@ -1108,14 +896,9 @@ export function unregisteredAnnotations(
 }
 
 /**
- * **The G3 seed, derived.** The report-coupled population: every annotated type whose two axes
- * produce `'model'` — a dedicated append the model must remember to make, which is therefore the
- * first thing dropped under context pressure.
- *
- * Derived from the ANNOTATIONS through {@link resolveEmissionSource}, never read off the
- * registry's `source` column, so the number G3 ratchets is a consequence of the coupling claims
- * rather than a transcription of the thing those claims are supposed to replace. Returns the
- * subjects; task 013 takes `.length`.
+ * The report-coupled event types: each annotated type whose axes resolve to `'model'`. The model
+ * must remember to append each one, so context pressure drops these first. The result comes from
+ * {@link resolveEmissionSource}, not from the registry `source` column.
  */
 export function reportCoupledEventTypes(
   registeredTypes: Iterable<string>,
@@ -1136,12 +919,9 @@ export interface AnnotatedDisagreement extends TierSourceDisagreement {
 }
 
 /**
- * Every annotated type whose derived source differs from the declared one.
- *
- * `declared` is a parameter so a caller can seed a disagreement — the falsifier for the whole
- * derivation claim. A `lifecycle: 'planned'`/`'retired'` entry is NOT a disagreement when the
- * registry declares the same, because lifecycle produces the source directly
- * ({@link resolveEmissionSource} consults the tier only for `active`).
+ * Every annotated type whose derived source differs from the declared one. `declared` is a
+ * parameter so that a test can seed a disagreement. Lifecycle sets the source of a `planned` or
+ * `retired` entry, and the tier sets it only for an `active` entry.
  */
 export function tierSourceDisagreements(
   declared: DeclaredEmissionSources,
@@ -1159,28 +939,15 @@ export function tierSourceDisagreements(
   return Object.freeze(out);
 }
 
-// ─── Compile-time proofs (verified by `npm run typecheck`) ──────────────────
-//
-// Exported type aliases in a non-test source file, per the `_EventRegistration_*` /
-// `_EventDeclarations_*` idiom: `tsconfig.json` excludes `**/*.test.ts`, so the same assertions
-// written in the co-located test would never be checked by the build.
-
 type Expect<T extends true> = T;
 type Assignable<A, B> = [A] extends [B] ? true : false;
 
 /**
- * The table's values inhabit {@link EventRegistration}, which is what makes every entry below a
- * DR-2 registration rather than a look-alike. Weakening any value — dropping `consumedBy`, using
- * a rationale outside the closed vocabulary, naming a tenth gate class — fails here, at the
- * table, rather than at a runtime guard nobody ran.
+ * Each table value is an {@link EventRegistration}. A weaker value fails here at the table, for
+ * example a missing `consumedBy` or a rationale outside the closed vocabulary.
+ * This proof is in a source file because `tsconfig.json` excludes test files from the typecheck.
  * @proof
  */
 export type _EventAnnotations_TableValues_AreRegistrations = Expect<
   Assignable<(typeof EVENT_ANNOTATIONS)[string], EventRegistration>
 >;
-
-// The port-conformance proof — "this module satisfies the `EventAnnotationSource` task 008 opened"
-// — MOVED to `event-declarations.ts` as `_EventDeclarations_AnnotatedEvents_ImplementsThePort`.
-// It is the same assertion checked by the same `tsc` run; it simply cannot be written here without
-// naming the port, and naming the port here is what would drag `contract/declaration.ts` into every
-// registration site's reachable set (see the import-block note at the top of this file).

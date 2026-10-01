@@ -21,18 +21,11 @@ import {
   type SubscriptionRegistryOptions,
 } from './subscriptions.js';
 
-// ─── #1291 — Dispatch-boundary correlation stamping ─────────────────────────
-//
-// When an `EventStore.append*` call lands during an active dispatch (i.e.
-// `getDispatchContext()` returns a non-undefined context), stamp the three
-// correlation IDs onto the event input UNLESS the caller has already
-// supplied that field explicitly (callers retain final authority — useful
-// for migration/recovery code that reuses a prior dispatch's IDs).
-//
-// The stamp is a non-mutating shallow merge: if the dispatch context
-// supplies `correlationId` but the caller's event already carries
-// `correlationId: 'my-feature-id'` (e.g. the workflow.started path that
-// uses featureId as the correlation anchor), the caller's value wins.
+/**
+ * Adds the correlation IDs of the active dispatch to an event input.
+ * A field that the caller supplies wins, so recovery code can reuse the IDs of an earlier dispatch.
+ * The merge does not mutate the input, and it returns the same object when no field changes.
+ */
 function stampWithDispatchContext<T extends {
   correlationId?: string | undefined;
   causationId?: string | undefined;
@@ -40,9 +33,6 @@ function stampWithDispatchContext<T extends {
 }>(event: T): T {
   const ctx = getDispatchContext();
   if (ctx === undefined) return event;
-  // Non-mutating: build a new object only if at least one field would
-  // change. Callers append events with a freshly-constructed literal in
-  // most paths so allocation overhead is negligible.
   const needsOperation = event.operationId === undefined;
   const needsCorrelation = event.correlationId === undefined;
   const needsCausation = event.causationId === undefined && ctx.causationId !== undefined;
@@ -54,8 +44,6 @@ function stampWithDispatchContext<T extends {
     ...(needsCausation ? { causationId: ctx.causationId } : {}),
   };
 }
-
-// ─── Sequence Conflict Error ────────────────────────────────────────────────
 
 export class SequenceConflictError extends Error {
   constructor(
@@ -69,14 +57,10 @@ export class SequenceConflictError extends Error {
   }
 }
 
-// ─── Append Options ─────────────────────────────────────────────────────────
-
 export interface AppendOptions {
   expectedSequence?: number | undefined;
   idempotencyKey?: string | undefined;
 }
-
-// ─── Query Filters ──────────────────────────────────────────────────────────
 
 export interface QueryFilters {
   type?: string | undefined;
@@ -86,15 +70,8 @@ export interface QueryFilters {
   limit?: number | undefined;
   offset?: number | undefined;
   /**
-   * Cross-stream prefix filter (DR-3, design 2026-05-08-durable-event-store-substrate).
-   *
-   * When set, the query matches events whose `streamId` is exactly the prefix
-   * OR a descendant under the namespaced form `<prefix>/<segment>`. Substring
-   * matches (`<prefix>-extra`) are EXCLUDED — the comparison is structural,
-   * not lexical. Used by `EventStore.queryByType` to reduce over events
-   * across an entire feature's namespace.
-   *
-   * Honoured at the SQL/backend layer (`SqliteBackend.queryEventsByType`).
+   * Cross-stream prefix filter. It matches a `streamId` equal to the prefix or under `<prefix>/`,
+   * but not `<prefix>-extra`. `SqliteBackend.queryEventsByType` applies it.
    */
   streamPrefix?: string;
   /** Filter to events stamped with this operationId (single dispatch boundary). */
@@ -105,32 +82,20 @@ export interface QueryFilters {
   causationId?: string;
 }
 
-// ─── Event Store Options ────────────────────────────────────────────────────
-
 export interface EventStoreOptions {
   backend?: StorageBackend | undefined;
   /**
-   * Durability posture (DR-4) threaded to the lazily-constructed
-   * AtomicAppender → SqliteBackend (`PRAGMA synchronous`). Resolved from
-   * `.exarchos.yml` `storage.synchronous` by the lifecycle wiring. Omitted →
-   * `'normal'` (unchanged default).
+   * Value for the SQLite `PRAGMA synchronous`. The lifecycle reads it from `storage.synchronous`
+   * in `.exarchos.yml`. When it is absent, the backend uses `'normal'`.
    */
   synchronous?: 'normal' | 'full' | undefined;
 }
 
-// ─── Integrity Result ───────────────────────────────────────────────────────
-
 /**
- * Discriminated result of `EventStore.runIntegrityCheck`.
- *
- * The three branches are mutually exclusive by the `ok` tag so callers
- * (notably the doctor `storage-sqlite-health` check) can map to a
- * `CheckResult` status without type assertions (DIM-3):
- *   - `{ ok: true }`             → backend reports healthy
- *   - `{ ok: 'skipped', reason }` → backend without `runIntegrityPragma`
- *     (e.g., InMemoryBackend in test fixtures)
- *   - `{ ok: false, details }`   → backend reported corruption, or the
- *     probe exceeded its configured timeout
+ * Result of `EventStore.runIntegrityCheck`. The `ok` tag separates the cases:
+ *   - `true`: the backend reports a healthy database.
+ *   - `'skipped'`: the backend has no `runIntegrityPragma`, for example `InMemoryBackend`.
+ *   - `false`: the backend reports corruption, or the probe went past its timeout.
  */
 export type IntegrityResult =
   | { ok: true }
@@ -141,22 +106,15 @@ export type IntegrityResult =
 const DEFAULT_INTEGRITY_TIMEOUT_MS = 2000;
 
 /**
- * Default upper bound on `runBundleIntegrityCheck` wall time. Larger than the
- * pragma probe's budget because this sweep enumerates every stream, reads its
- * events, and re-hashes every referenced blob — it scales with the ledger,
- * where the pragma is one bounded backend call.
+ * Default upper bound on `runBundleIntegrityCheck` wall time. It is larger than the pragma
+ * budget because the sweep reads every stream and hashes every referenced blob again.
  */
 const DEFAULT_BUNDLE_INTEGRITY_TIMEOUT_MS = 10_000;
 
 /**
- * A promise that rejects with `AbortError` when `signal` fires, paired with the
- * `dispose` that detaches it.
- *
- * `{ once: true }` self-removes the listener only on the abort path, so a race
- * that settles any other way leaves it attached to the caller's signal along
- * with the reject closure of a promise that can now never settle. A caller
- * reusing one long-lived signal across repeated calls accumulates both. The
- * caller must `dispose()` in a `finally`.
+ * Returns a promise that rejects with `AbortError` when `signal` fires, and a `dispose` that
+ * removes the listener. `{ once: true }` removes it only on abort. The caller must call
+ * `dispose()` in a `finally`, or a long-lived signal keeps one listener for each call.
  */
 function abortRejection(signal: AbortSignal): {
   readonly promise: Promise<never>;
@@ -179,71 +137,32 @@ function abortRejection(signal: AbortSignal): {
   };
 }
 
-// ─── Event Store ────────────────────────────────────────────────────────────
-
 /**
- * Append-only event store backed by SQLite (substrate-cut, v2.11).
+ * Append-only event store on SQLite. Reads and writes use the `SqliteBackend` that the appender
+ * owns. The `backend` option exists only for tests that inject an `InMemoryBackend`.
  *
- * Reads and writes both flow through the appender's owned `SqliteBackend`
- * — `getReadBackend()` always returns it, and `getAppender()` writes
- * through the same handle. The legacy JSONL read/write path was removed
- * in Phase 3; the optional `backend` constructor option is retained only
- * for tests that inject an `InMemoryBackend` to drive read-path
- * assertions.
- *
- * Cross-process safety: cross-process serialization is delegated entirely
- * to the SQLite WAL substrate. `BEGIN IMMEDIATE` is the write-ownership
- * primitive — a writer that observes the database busy retries through
- * SQLite's own backoff rather than a process-level mutex — and the
- * `(stream_id, sequence)` PRIMARY KEY guarantees per-stream append
- * ordering and rejects duplicate-sequence writes. Multiple `EventStore`
- * instances may attach to the same `stateDir` from any number of OS
- * processes; `initialize()` is an idempotent no-op marker.
- *
- * In-process: the AtomicAppender owns a per-stream promise-chain lock
- * (`StreamLockManager`) that serialises concurrent appends to the same
- * stream from the same Node.js process; cross-process appends serialise
- * through the substrate.
+ * The SQLite WAL serializes writers across processes, so many stores can attach to one
+ * `stateDir`. `BEGIN IMMEDIATE` takes write ownership. The `(stream_id, sequence)` primary key
+ * keeps the order of each stream and rejects a duplicate sequence. In one process, the
+ * appender's `StreamLockManager` serializes the appends to a stream.
  */
 export class EventStore {
-  /**
-   * After the #1293 consumer migration, all append paths delegate to a
-   * single shared AtomicAppender (see `getAppender()` below). The previous
-   * per-EventStore lock map, sequence counter map, and idempotency cache
-   * are removed — they were the second of two disjoint write paths that
-   * raced on the same JSONL files. The AtomicAppender now owns:
-   *   - per-stream lock (`StreamLockManager`)
-   *   - sequence counter (rebuilt from JSONL on first contact)
-   *   - idempotency cache (with `appendUnkeyed` for callers that don't
-   *     want dedup — preserves the legacy "no-key-skips-dedup" contract
-   *     without polluting the cache with synthetic one-shot keys)
-   *
-   * #1259 swap point: `getAppender()` returns the substrate. Replacing
-   * `new AtomicAppender(...)` with `new SqliteAppender(...)` in that
-   * lazy-construction site is the only change SQLite migration requires
-   * at the EventStore boundary.
-   */
-
-  /** Whether initialize() has been called */
+  /** True after `initialize()` and until `close()`. */
   private initialized = false;
 
-  /** Optional storage backend for delegating reads */
+  /** Read backend that a test injects. Production code leaves it unset. */
   private readonly backend?: StorageBackend | undefined;
 
-  /** Lazily-instantiated AtomicAppender — single instance per stateDir so per-stream
-   *  locks and sequence counters share state across handler calls. */
+  /** Created on the first call to `getAppender()`. */
   private atomicAppender?: AtomicAppender | undefined;
   private runBundleStore: RunBundleStore | undefined;
 
-  /** Durability posture threaded to the lazily-created appender (DR-4). */
+  /** Durability posture for the appender that `getAppender()` creates. */
   private synchronous?: 'normal' | 'full' | undefined;
 
   /**
-   * DR-1 subscription registry (#1315). Lazily created on the first
-   * `subscribe()` call so the append hot path pays nothing until a
-   * subscription exists — the Tier-1 commit hook on the appender is wired at
-   * the same moment, leaving `appendSqliteLocked` a single `undefined` guard
-   * on the zero-subscriber path.
+   * Created on the first `subscribe()` call, together with the appender commit hook.
+   * Until then, an append pays only one `undefined` check.
    */
   private subscriptions?: SubscriptionRegistry | undefined;
 
@@ -253,12 +172,9 @@ export class EventStore {
   }
 
   /**
-   * Set the storage durability posture (DR-4) AFTER construction. The
-   * production lifecycle builds the EventStore before `.exarchos.yml` is
-   * loaded, so the resolved `storage.synchronous` is applied here before the
-   * first append. It is honoured only by the lazily-created appender; once
-   * the backend handle exists the pragma is already fixed, so a late call
-   * (after the first write) is a no-op against the live connection.
+   * Sets the durability posture after construction, because the lifecycle builds the store
+   * before it loads `.exarchos.yml`. A call after `getAppender()` creates the appender has
+   * no effect on the open connection.
    */
   setStorageDurability(synchronous: 'normal' | 'full'): void {
     this.synchronous = synchronous;
@@ -270,11 +186,8 @@ export class EventStore {
   }
 
   /**
-   * The run-bundle store bound to THIS ledger's state directory — the one
-   * place production code obtains it. A producer that names bytes by digest
-   * on this ledger writes them here, and the integrity sweep over this ledger
-   * reads them from here, so the two cannot be pointed at different roots by
-   * two independent spellings of the directory.
+   * The run-bundle store for this state directory. Producers and the integrity sweep both get
+   * the store here, so they always use the same root.
    */
   get bundleStore(): RunBundleStore {
     this.runBundleStore ??= RunBundleStore.forStateDir(this.stateDir);
@@ -282,17 +195,9 @@ export class EventStore {
   }
 
   /**
-   * Returns the lazily-created AtomicAppender bound to this event store's
-   * state directory. Single instance per EventStore so per-stream locks and
-   * the in-memory sequence/idempotency caches share state across consumers.
-   *
-   * #1259 swap point: replace the constructor call below with a SQLite
-   * (or other durable) appender that exposes the same `AppendResult`
-   * shape and per-stream serialization semantics. No other change is
-   * required — `append`, `appendValidated`, and `batchAppend` all delegate
-   * through this instance, so a one-line swap here flips the entire write
-   * substrate. The migration doc is at
-   * docs/designs/archive/2026-05-08-eventstore-appender-consumer-migration.md.
+   * Returns the `AtomicAppender` for this state directory and creates it on the first call.
+   * Every append path uses this one instance, so the per-stream locks, the sequence counters
+   * and the idempotency cache are shared.
    */
   getAppender(): AtomicAppender {
     if (!this.atomicAppender) {
@@ -305,45 +210,17 @@ export class EventStore {
   }
 
   /**
-   * Resolve the read-delegate `StorageBackend` for this store.
-   *
-   * v2.11 Phase 3 (substrate-cut, store collapse): SQLite is the only
-   * substrate. The legacy "no-backend → JSONL fallback" branch and the
-   * lazy `appenderBackend: 'sqlite'` selector were removed; reads always
-   * flow through the appender's owned `SqliteBackend` (force-eager via
-   * `ensureSqliteBackendSync()`). Resolves Sentry blocker r3213774862
-   * from #1323 (read-before-write returning `[]`).
-   *
-   * The explicit `backend` constructor option is preserved as a test
-   * affordance: fixtures inject an `InMemoryBackend` to drive read-path
-   * assertions without touching the disk. In production no caller sets
-   * it.
+   * Returns the injected test backend, or else the `SqliteBackend` of the appender. The SQLite
+   * backend opens at once, so a read before the first write still sees the stored events.
    */
   getReadBackend(): StorageBackend {
     if (this.backend) return this.backend;
     return this.getAppender().ensureSqliteBackendSync();
   }
 
-  // ─── Initialize ────────────────────────────────────────────────────────────
-
   /**
-   * Initialize the event store. Must be called before first use, but is
-   * an idempotent no-op marker — repeat calls return immediately.
-   *
-   * Pre-Wave-A this method acquired a per-`stateDir` PID lock so that only
-   * one OS process at a time could attach to a given event store. That
-   * contract was removed in #1343 (Wave A): cross-process serialization is
-   * delegated to the SQLite WAL substrate (`BEGIN IMMEDIATE` for write
-   * ownership; the `(stream_id, sequence)` PRIMARY KEY for per-stream
-   * append ordering). Two or more `EventStore` instances against the same
-   * `stateDir` may now `initialize()` concurrently and proceed to append
-   * without further coordination at this layer; see
-   * `docs/architecture/runtime.md` §4.
-   *
-   * The lock acquisition previously had a side-effect of creating
-   * `stateDir`; with that removed we explicitly `mkdir -p` here so
-   * downstream backends and the storage-state-dir doctor probe both see
-   * the directory on first run.
+   * Creates `stateDir` and marks the store ready. A repeat call returns at once.
+   * It takes no process lock, because the SQLite WAL serializes writers from all processes.
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
@@ -352,23 +229,12 @@ export class EventStore {
   }
 
   /**
-   * Release the storage handles held by this store.
-   *
-   * Idempotent and synchronous. Closes the lazily-created AtomicAppender's
-   * SQLite backend (and any injected read backend), releasing the
-   * `exarchos.db` / `-wal` / `-shm` OS file handles.
-   *
-   * This is the portable test-teardown contract: on Windows (NTFS) an open
-   * SQLite handle blocks `fs.rm` of the temp `stateDir` with EPERM/EBUSY,
-   * whereas POSIX permits unlinking an open file. A test that constructs an
-   * EventStore against a temp directory MUST `close()` it before removing
-   * that directory. Closing does not affect durability — every append is
-   * already committed to the WAL substrate before its promise resolves
-   * (INV-1); `close()` only releases the live connection.
+   * Disposes every subscription, removes the commit hook, and then closes the SQLite handles.
+   * It is idempotent. A test must call it before it removes a temporary `stateDir`, because on
+   * Windows an open handle makes `fs.rm` fail with EPERM or EBUSY. Each append commits before
+   * its promise resolves, so `close()` does not affect durability.
    */
   close(): void {
-    // Dispose every live subscription (INV-15) and detach the Tier-1 hook
-    // before the appender goes away.
     this.subscriptions?.disposeAll();
     this.atomicAppender?.setCommitHook(undefined);
     this.subscriptions = undefined;
@@ -378,24 +244,19 @@ export class EventStore {
     this.initialized = false;
   }
 
+  /**
+   * Adds the dispatch IDs, validates the event with Zod, and then appends it. A schema error
+   * rejects before the appender runs. The parse uses the placeholder sequence 1, and the
+   * appender assigns the real sequence.
+   */
   async append(
     streamId: string,
     event: Partial<Omit<WorkflowEvent, 'sequence' | 'streamId'>> & { type: string },
     options?: AppendOptions,
   ): Promise<WorkflowEvent> {
-    // Validate FIRST, before delegating: the legacy contract throws synchronously
-    // on schema violations, so callers don't need to await the AtomicAppender
-    // round-trip for that error class.
     const idempotencyKey = options?.idempotencyKey ?? event.idempotencyKey;
     const timestamp = event.timestamp || new Date().toISOString();
-    // #1291 — stamp the three correlation IDs from the active dispatch
-    // context when not already supplied by the caller. The stamp lands
-    // BEFORE Zod parse so the validated shape is byte-identical to a
-    // caller-supplied triple.
     const stamped = stampWithDispatchContext(event);
-    // Sequence is allocated by AtomicAppender; pass a placeholder so Zod's
-    // positive-integer guard accepts the schema. The synthesized return value
-    // overwrites this with the authoritative sequence.
     const candidate = WorkflowEventBase.parse({
       ...stamped,
       streamId,
@@ -407,9 +268,8 @@ export class EventStore {
   }
 
   /**
-   * Append a pre-validated event to the stream, skipping Zod validation.
-   * Use when the caller has already validated the event at the system boundary
-   * via buildValidatedEvent(). This avoids redundant Zod parsing on the hot path.
+   * Appends an event that `buildValidatedEvent()` already validated, with no second Zod parse.
+   * It adds the dispatch IDs as `append` does. These fields are optional, so the event stays valid.
    */
   async appendValidated(
     streamId: string,
@@ -418,10 +278,6 @@ export class EventStore {
   ): Promise<WorkflowEvent> {
     const idempotencyKey = options?.idempotencyKey ?? event.idempotencyKey;
     const timestamp = event.timestamp || new Date().toISOString();
-    // #1291 — pre-validated callers (rehydrate, HSM guard) opt into the
-    // same dispatch-context stamping. `buildValidatedEvent` ran on the
-    // caller side; the post-stamp triple is a strict widening of optional
-    // fields, so it never invalidates the upstream validation.
     const stamped = stampWithDispatchContext(event) as WorkflowEvent;
     const prepared: WorkflowEvent = {
       ...stamped,
@@ -433,13 +289,9 @@ export class EventStore {
   }
 
   /**
-   * Shared post-validation path: delegate to AtomicAppender, translate the
-   * typed result back into the legacy `WorkflowEvent` return shape.
-   *
-   * v2.11 substrate-cut (Phase 2) removed the supplementary
-   * `replicateBackend` / `writeOutbox` dual-write paths. The AtomicAppender's
-   * SQLite transaction is the single durable substrate; there is no
-   * post-lock replication step.
+   * Sends a validated event to the `AtomicAppender` and maps the result to a `WorkflowEvent`.
+   * On an idempotency cache hit, it returns the stored event, not the request payload.
+   * Observers hear only about an event that this call wrote, never about a cache hit.
    */
   private async delegateAppend(
     streamId: string,
@@ -452,10 +304,6 @@ export class EventStore {
       options?.expectedSequence !== undefined
         ? { expectedSequence: options.expectedSequence }
         : undefined;
-    // Strip mutable scaffolding fields that AtomicAppender re-derives.
-    // sequence + eventId come back from the appender; streamId + timestamp +
-    // idempotencyKey are passed through verbatim because we already pinned
-    // them above.
     const { sequence: _ignoredSeq, ...eventInputBase } = event as WorkflowEvent & { sequence?: number };
     const result = idempotencyKey
       ? await appender.append(streamId, [eventInputBase], idempotencyKey, appendOptions)
@@ -471,11 +319,6 @@ export class EventStore {
       throw result.cause ?? new Error(`Append failed: ${result.reason}`);
     }
 
-    // Cache-hit branch: return the originally-persisted event verbatim. The
-    // SQLite substrate already holds the canonical row; the request payload
-    // is irrelevant to the returned shape (the bug CR-thread #3205805943
-    // closes — historically a retry with a different payload could have
-    // re-fired backend/outbox dual-writes; v2.11 removed those paths).
     if (result.kind === 'cache-hit') {
       const cached = result.persistedEvents[0];
       if (cached === undefined) {
@@ -490,9 +333,6 @@ export class EventStore {
         ...(cached.data !== undefined ? { data: cached.data } : {}),
         ...(cached.correlationId !== undefined ? { correlationId: cached.correlationId } : {}),
         ...(cached.causationId !== undefined ? { causationId: cached.causationId } : {}),
-        // #1291 — three-field correlation passthrough. Cached events are
-        // returned verbatim so the second call to a retry surfaces the
-        // same operationId/correlation chain the first call persisted.
         ...((cached as { operationId?: string }).operationId !== undefined
           ? { operationId: (cached as { operationId?: string }).operationId }
           : {}),
@@ -507,14 +347,9 @@ export class EventStore {
       ...event,
       streamId,
       sequence: result.sequences[0],
-      // Timestamp comes back from the appender so the synthesized event
-      // matches the persisted shape exactly.
       timestamp: result.timestamps[0],
     } as WorkflowEvent;
 
-    // Only here: past every rejection branch and past the cache-hit return, so
-    // an observer is told about an event that genuinely landed and never about
-    // one an idempotency claim collapsed onto a prior write.
     notifyAppendObserved({
       type: fullEvent.type,
       streamId,
@@ -524,19 +359,20 @@ export class EventStore {
     return fullEvent;
   }
 
+  /**
+   * Validates every event, then appends the batch. A malformed event fails the batch before the
+   * appender assigns a sequence. Of the events that repeat an idempotency key, only the first stays.
+   *
+   * The batch uses the shared key when every event carries the same key, and no key when no
+   * event carries one. In all other cases it uses a new `batch:<uuid>` key, so a retry does not
+   * match a partial overlap. A cache hit returns the stored events and notifies no observer.
+   */
   async batchAppend(
     streamId: string,
     events: Array<Partial<Omit<WorkflowEvent, 'sequence' | 'streamId'>> & { type: string; idempotencyKey?: string }>,
   ): Promise<WorkflowEvent[]> {
     if (events.length === 0) return [];
 
-    // Validate every event up front so a malformed input fails before any
-    // sequence is allocated. Sequence is a placeholder; AtomicAppender
-    // re-derives the authoritative values inside the lock.
-    //
-    // #1291 — stamp each event from the active dispatch context before
-    // parsing. The whole batch shares one dispatch boundary so each event
-    // pulls the same triple from `getDispatchContext()`.
     const validated: WorkflowEvent[] = events.map((event) => {
       const timestamp = event.timestamp || new Date().toISOString();
       const stamped = stampWithDispatchContext(event);
@@ -549,8 +385,6 @@ export class EventStore {
       });
     });
 
-    // Intra-batch dedup: if any two events share an idempotencyKey, keep
-    // the first and drop the rest. Matches the legacy contract.
     const seenBatchKeys = new Set<string>();
     const deduped: WorkflowEvent[] = [];
     for (const event of validated) {
@@ -560,11 +394,6 @@ export class EventStore {
     }
     if (deduped.length === 0) return [];
 
-    // Choose a batch idempotency key:
-    //   - all events share one key  → that key (preserves cross-batch retry).
-    //   - any event has a key but they differ → synthesize batch:<uuid> so
-    //     cross-batch retries don't dedup against a partial overlap.
-    //   - all events keyless → unkeyed append (no cache pollution).
     const eventKeys = deduped.map((e) => e.idempotencyKey).filter((k): k is string => !!k);
     const firstKey = eventKeys[0];
     const allHaveKeys = eventKeys.length === deduped.length;
@@ -587,18 +416,11 @@ export class EventStore {
 
     if (!result.ok) {
       if (result.reason === 'idempotency-claimed') {
-        // Legacy semantics: a cache hit on the (single) batch key returns the
-        // cached events. AtomicAppender already returns ok:true with cached
-        // sequences/eventIds for that path, so this branch only fires on the
-        // structural failure case — surface it.
         throw new Error(`Batch append failed: ${result.reason}`);
       }
       throw result.cause ?? new Error(`Batch append failed: ${result.reason}`);
     }
 
-    // Cache-hit branch: return the original persisted events verbatim.
-    // See delegateAppend for the same pattern + design rationale (v2.11
-    // substrate-cut removed the dual-write replication paths).
     if (result.kind === 'cache-hit') {
       return result.persistedEvents.map(
         (e) => ({
@@ -610,8 +432,6 @@ export class EventStore {
           ...(e.data !== undefined ? { data: e.data } : {}),
           ...(e.correlationId !== undefined ? { correlationId: e.correlationId } : {}),
           ...(e.causationId !== undefined ? { causationId: e.causationId } : {}),
-          // #1291 — three-field correlation passthrough. Mirror delegateAppend's
-          // cache-hit branch so a retry surfaces the same operationId chain.
           ...((e as { operationId?: string }).operationId !== undefined
             ? { operationId: (e as { operationId?: string }).operationId }
             : {}),
@@ -634,9 +454,6 @@ export class EventStore {
       return { ...event, sequence, timestamp };
     });
 
-    // One notification per landed event, after the whole batch's durable
-    // result exists. The cache-hit return above persisted nothing new, so it
-    // deliberately falls short of this point.
     for (const landed of fullEvents) {
       notifyAppendObserved({
         type: landed.type,
@@ -649,30 +466,15 @@ export class EventStore {
   }
 
   /**
-   * DR-7 (INV-9) — append an entire phase-mutation event TRAIL in ONE atomic
-   * transaction.
+   * Appends an event trail in one transaction through `AtomicAppender.decideOnce`, so the stream
+   * gets the complete trail or nothing. A loop of `append` calls can stop part way. `batchAppend`
+   * is not a substitute, because it collapses the batch onto one idempotency key. Here
+   * `operationId` keys the retry, and each event keeps its own `idempotencyKey`.
    *
-   * `append` commits one event per call, so a caller that emits an N-event
-   * trail (a `state.patched` backfill, the HSM lifecycle events, a completion
-   * event) through a loop can be interrupted after event k and leave a PARTIAL
-   * trail durably on the log — a half-written phase mutation that no consumer
-   * can distinguish from a complete one. This primitive routes the whole trail
-   * through `AtomicAppender.decideOnce`: one BEGIN IMMEDIATE transaction, so
-   * the stream ends up with either the complete trail or nothing at all.
-   *
-   * Differences from `batchAppend`, which is NOT a substitute here:
-   *   - `batchAppend` collapses the batch onto a SINGLE idempotency key: events
-   *     that share a key are deduped down to the first, and events with
-   *     differing keys get a synthesized `batch:<uuid>` claim that defeats
-   *     cross-call retry dedup. A phase-mutation trail needs distinct per-event
-   *     keys AND retry idempotency.
-   *   - `decideOnce` keys idempotency on `operationId` (retry-stable, supplied
-   *     by the caller) and passes each event's own `idempotencyKey` through to
-   *     the persisted payload verbatim.
-   *
-   * The request digest deliberately covers only `(type, data, idempotencyKey)`:
-   * a regenerated timestamp or dispatch-context stamp must not make a retry of
-   * the SAME trail look like a different request to `decideOnce`'s digest gate.
+   * The request digest covers only `(type, data, idempotencyKey)`, so a new timestamp does not
+   * make a retry look like a new request. `decideOnce` calls the decision only when it commits,
+   * so observers hear only about a trail that this call wrote. Their sequences come from the
+   * committed claim, not from the stream tail, which another writer can move.
    */
   async appendTrailAtomically(
     streamId: string,
@@ -686,8 +488,6 @@ export class EventStore {
       throw new Error('appendTrailAtomically requires an operationId');
     }
 
-    // Validate + stamp every event up front, exactly as `append` does, so a
-    // malformed member fails the whole trail before any sequence is allocated.
     const prepared: WorkflowEvent[] = events.map((event) => {
       const timestamp = event.timestamp || new Date().toISOString();
       const stamped = stampWithDispatchContext(event);
@@ -721,12 +521,6 @@ export class EventStore {
       return input;
     });
 
-    // `decideOnce` evaluates the decision ONLY when it is about to commit: a
-    // retry on the same operationId returns the recorded claim without ever
-    // reaching the closure, on the pre-transaction fast path and inside the
-    // transaction alike. So the flag separates a trail that genuinely landed
-    // from one an operationId retry collapsed onto a prior write, which is
-    // exactly the distinction the observer seam requires.
     let landed = false;
     await this.getAppender().decideOnce<number>(
       operationId,
@@ -738,10 +532,6 @@ export class EventStore {
     );
     if (!landed) return;
 
-    // Sequences come from the committed claim — written in the SAME
-    // transaction as the events — rather than from a re-read of the stream
-    // tail, so the observer is told the numbers this trail actually got even
-    // if a sibling writer has since advanced the stream.
     const claim = this.getAppender()
       .ensureSqliteBackendSync()
       .lookupOperationClaim(operationId);
@@ -756,41 +546,23 @@ export class EventStore {
     });
   }
 
+  /**
+   * Reads one stream from the read backend. Every row goes through `migrateEvents`, so each
+   * registered schema migration applies to every reader.
+   */
   async query(streamId: string, filters?: QueryFilters): Promise<WorkflowEvent[]> {
-    // v2.11 Phase 3: JSONL fallback removed. The read backend is always
-    // present (SqliteBackend force-eager via getReadBackend), so reads
-    // converge on the substrate the appender writes to.
-    //
-    // #1556: read-time upcasting choke point. Every backend row folds through
-    // migrateEvents so a registered schema migration is applied uniformly to
-    // every reader. Identity no-op today (eventMigrations === []).
     const events = this.getReadBackend().queryEvents(streamId, filters);
     return migrateEvents(events);
   }
 
   /**
-   * Cross-stream query reducer (DR-3).
+   * Returns the events of `eventType` in every stream that equals `filters.streamPrefix` or
+   * sits under `<prefix>/`. The stream `feat-1-extra` does not match `feat-1`. The prefix must
+   * be a valid stream id. `offset` and `limit` apply after the merge, which sorts by timestamp
+   * and then by sequence.
    *
-   * Returns every event of `eventType` whose `streamId` matches `filters.streamPrefix`
-   * — either as an exact match (`streamId === streamPrefix`) or as a namespaced
-   * descendant (`streamId.startsWith(streamPrefix + '/')`). The split avoids
-   * substring-style false positives (e.g. `feat-1-extra` is NOT a descendant of
-   * `feat-1`), matching the SQL clause documented in the design:
-   *
-   *   WHERE streamId LIKE ? || '/%' OR streamId = ?
-   *
-   * The `streamPrefix` itself is validated as a (possibly single-segment)
-   * stream id so namespaced inputs like `feat-1/sub-a` are admitted but
-   * pathological inputs (`..`, leading slash, etc.) are rejected at the
-   * boundary before the SQLite layer ever sees them.
-   *
-   * This is the canonical reducer for `team.disbanded` emission: count
-   * `task.completed` events across every subagent stream nested under the
-   * feature stream, without reading any derived state (INV-1).
-   *
-   * Implementation note: post-v2.11 the SQLite backend's cross-stream
-   * query is the only path. Filters from `QueryFilters` (sinceSequence,
-   * since, until, limit, offset) apply globally to the merged result.
+   * The SQLite backend answers with one query. A backend without `queryEventsByType` falls back
+   * to one `query` call for each matching stream. Both paths apply `migrateEvents` once.
    */
   async queryByType(
     eventType: string,
@@ -804,9 +576,6 @@ export class EventStore {
     }
     validateStreamId(prefix);
 
-    // Per-stream sub-filters: type is enforced here, prefix is dispatched
-    // by stream selection. Pagination/limit are applied AFTER the merge so
-    // they reflect the global ordering rather than per-stream slices.
     const perStream: QueryFilters = { type: eventType };
     if (filters?.sinceSequence !== undefined) perStream.sinceSequence = filters.sinceSequence;
     if (filters?.since !== undefined) perStream.since = filters.since;
@@ -815,14 +584,6 @@ export class EventStore {
     if (filters?.correlationId !== undefined) perStream.correlationId = filters.correlationId;
     if (filters?.causationId !== undefined) perStream.causationId = filters.causationId;
 
-    // SQLite cross-stream fast-path: the SqliteBackend implements
-    // `queryEventsByType` with the SQL clause
-    //   WHERE streamId LIKE ? || '/%' OR streamId = ?
-    // matching the structural prefix semantic exactly. v2.11 Phase 3
-    // collapsed the JSONL listStreams enumeration fallback — the read
-    // backend is always present and SqliteBackend always implements this
-    // method. Test fixtures injecting an `InMemoryBackend` without
-    // `queryEventsByType` fall through to the per-stream merge below.
     const readBackend = this.getReadBackend();
     if (typeof readBackend.queryEventsByType === 'function') {
       const backendEvents = readBackend.queryEventsByType(eventType, prefix, perStream);
@@ -833,16 +594,9 @@ export class EventStore {
       const offset = filters?.offset ?? 0;
       const limit = filters?.limit;
       const slicedBackend = offset > 0 ? sortedBackend.slice(offset) : sortedBackend;
-      // #1556: this fast-path reads the backend directly (bypassing query),
-      // so it upcasts here. The per-stream fallback below composes via
-      // this.query(), which already routes through migrateEvents — no
-      // double-migration.
       return migrateEvents(limit !== undefined ? slicedBackend.slice(0, limit) : slicedBackend);
     }
 
-    // Backend without queryEventsByType (test fixtures, in-memory): use
-    // listStreams() to enumerate, apply the structural prefix filter
-    // locally, then merge per-stream results.
     const matchingStreams: string[] = [];
     {
       const seen = new Set<string>();
@@ -865,7 +619,6 @@ export class EventStore {
       }
     }
 
-    // Stable global ordering: timestamp first, sequence as tie-break.
     merged.sort((a, b) => {
       const byTs = a.timestamp.localeCompare(b.timestamp);
       return byTs !== 0 ? byTs : a.sequence - b.sequence;
@@ -877,52 +630,29 @@ export class EventStore {
     return limit !== undefined ? sliced.slice(0, limit) : sliced;
   }
 
-  /**
-   * List all known stream IDs.
-   * Delegates to the read backend (always present post-Phase-3).
-   */
+  /** Lists every stream id in the read backend. */
   listStreams(): string[] {
     return this.getReadBackend().listStreams();
   }
 
   /**
-   * Return the highest sequence persisted on `streamId`, or 0 when the
-   * stream is empty / has never been written. Mirrors the semantics of
-   * `StorageBackend.getSequence` (and the SqliteBackend
-   * `readSequenceHighWaterMark` accessor `AtomicAppender` uses
-   * internally) — the public surface lets cache-validating consumers
-   * (notably `EventSourcedTaskStore.loadTask`, FINDING-2 #1438) compare
-   * a stale `lastReadSequence` against the live stream tail without
-   * having to re-query the entire event list.
+   * Returns the highest sequence on `streamId`, or 0 for an empty stream. A cache, such as
+   * `EventSourcedTaskStore.loadTask`, uses it to compare its last sequence with the live tail.
    */
   async tailSequence(streamId: string): Promise<number> {
     return this.getReadBackend().getSequence(streamId);
   }
 
   /**
-   * DR-1 cursor-pump subscription primitive (#1315).
+   * Registers a subscription that delivers each committed event that matches `filter` to
+   * `onEvent` exactly once, in global sequence order. Registration captures the cursor and
+   * schedules a first drain, so an event that commits during registration is not lost.
    *
-   * Registers a subscription whose cursor drains committed events matching
-   * `filter` (`{ streamId?, eventTypes? }`) and delivers them to `onEvent` in
-   * global sequence order, exactly once. Registration atomically captures the
-   * cursor (stream head, or `options.fromSequence`) and schedules an
-   * unconditional initial drain, so an event committed at any moment relative
-   * to registration is delivered exactly once.
+   * A commit in this process wakes the drain through the appender hook. The hook fires after
+   * the stream lock releases, so an `onEvent` that appends does not deadlock. A poll loop reads
+   * `dataVersion()` every `floorMs` and drains only after another process commits.
    *
-   * Two wake tiers converge on the same cursor drain. Tier-1 (in-process):
-   * an append committing in this process wakes the subscription via the
-   * appender's post-commit hook, fired after the transaction commits AND
-   * after the per-stream mutex releases (so an `onEvent` that itself appends
-   * does not deadlock). INV-8 idempotency cache-hits commit nothing and do
-   * not wake. Tier-2 (cross-process poll floor): a loop on the injectable
-   * clock re-reads `dataVersion()` every `floorMs` and drains only when a
-   * FOREIGN process committed, so cross-process events are delivered within a
-   * bounded latency without re-scanning the log every tick.
-   *
-   * Subscriptions are ephemeral (INV-15): the returned handle MUST be
-   * disposed by the dispatch that registered it; `close()` disposes any that
-   * leak. `registryOptions` (injectable clock, floor default) is an optional
-   * test/wiring seam.
+   * The dispatch that registers a subscription must dispose the handle. `close()` disposes leaks.
    */
   subscribe(
     filter: SubscriptionFilter,
@@ -934,11 +664,10 @@ export class EventStore {
   }
 
   /**
-   * Lazily construct the subscription registry and wire the appender's
-   * Tier-1 commit hook. The registry reads through this store's read backend
-   * — the same SQLite handle the appender writes to (production wiring), so a
-   * commit is visible to the drain the wake triggers. Reads route through
-   * `migrateEvents` for parity with `query()` (identity today).
+   * Creates the subscription registry and installs the appender commit hook on the first call.
+   * The registry reads the same SQLite handle that the appender writes, so a woken drain sees
+   * the commit. On that handle, `PRAGMA data_version` changes only after a commit by another
+   * process. Reads go through `migrateEvents`, as in `query()`.
    */
   private ensureSubscriptions(
     registryOptions?: SubscriptionRegistryOptions,
@@ -951,39 +680,24 @@ export class EventStore {
             this.getReadBackend().queryEvents(streamId, { sinceSequence: afterSequence }),
           ),
         listStreams: () => this.getReadBackend().listStreams(),
-        // Tier-2 poll-floor change token: reads through the SAME backend
-        // handle the appender writes to, so `PRAGMA data_version` reports a
-        // FOREIGN process's commit (never this process's own — those the
-        // Tier-1 hook already delivered).
         dataVersion: () => this.getReadBackend().dataVersion(),
       };
       this.subscriptions = new SubscriptionRegistry(reader, registryOptions);
-      // Wire the Tier-1 hook only now — the zero-subscriber append path never
-      // pays for a hook that is undefined.
       const registry = this.subscriptions;
       this.getAppender().setCommitHook((streamId) => registry.wake(streamId));
     }
     return this.subscriptions;
   }
 
-  /**
-   * Dispose every live subscription (dispatch teardown — INV-15). Idempotent;
-   * safe to call whether or not any subscription was ever registered.
-   */
+  /** Disposes every live subscription at dispatch teardown. It is idempotent. */
   disposeSubscriptions(): void {
     this.subscriptions?.disposeAll();
   }
 
   /**
-   * Register a stream in the typed-stream registry (Marten R-1, #1313).
-   * Idempotent: re-calling for the same streamId leaves the registry row
-   * untouched. The workflow_type column is immutable post-insert — a CI
-   * grep gate (task 1.7) forbids any UPDATE that would mutate it.
-   *
-   * Backends without a typed-stream registry (in-memory test fixtures,
-   * remote stubs) omit `registerStream`; in that case this method is a
-   * no-op so callers like `handleInit` can run identically against any
-   * backend.
+   * Registers a stream and its workflow type. A repeat call leaves the row unchanged.
+   * The `workflow_type` column never changes after insert, and a grep test rejects any `UPDATE`
+   * of it. With a backend that has no `registerStream`, the call does nothing.
    */
   registerStream(streamId: string, workflowType: string): void {
     const backend = this.getReadBackend();
@@ -992,26 +706,12 @@ export class EventStore {
   }
 
   /**
-   * Run a narrow backend integrity probe with bounded wall time.
-   *
-   * This is the only public entry point for the doctor
-   * `storage-sqlite-health` check — we intentionally do NOT expose the
-   * raw sqlite handle (DIM-6). The method enforces its own timeout and
-   * honours the caller's AbortSignal (DIM-7) so no check implementation
-   * has to duplicate that logic.
-   *
-   * Behaviour:
-   *   - Backend does not implement `runIntegrityPragma` (e.g. in-memory,
-   *     remote test fixtures) → `{ok: 'skipped', ...}`
-   *   - Backend verdict exactly `"ok"` → `{ok: true}`
-   *   - Any other verdict → `{ok: false, details}` (corruption)
-   *   - Probe exceeds `timeoutMs` → `{ok: false, details: 'integrity_check timed out after Nms'}`
-   *   - External abort → rejects with AbortError (caller-initiated
-   *     cancellation is an exception, not a result)
-   *
-   * After Phase 3, the read backend is always present (SQLite forced via
-   * `ensureSqliteBackendSync()` or an explicitly-injected fixture), so
-   * the legacy "no backend attached" skip branch is gone.
+   * Runs the backend integrity pragma within `timeoutMs`. The doctor `storage-sqlite-health`
+   * check uses this method, so no raw SQLite handle leaves the store.
+   *   - A backend without `runIntegrityPragma` gives `{ ok: 'skipped' }`.
+   *   - The verdict `ok` gives `{ ok: true }`. Any other verdict gives `{ ok: false }`.
+   *   - A timeout gives `{ ok: false }` with a timeout message.
+   *   - An abort of the caller's signal rejects with `AbortError`.
    */
   async runIntegrityCheck(opts?: {
     signal?: AbortSignal;
@@ -1034,8 +734,6 @@ export class EventStore {
       throw err;
     }
 
-    // Chain the caller's signal into an internal controller so we can
-    // also fire abort on timeout without mutating the caller's signal.
     const controller = new AbortController();
     const onExternalAbort = () => controller.abort();
     if (externalSignal) {
@@ -1057,8 +755,6 @@ export class EventStore {
     });
 
     const probePromise = (async (): Promise<IntegrityResult> => {
-      // Non-null by the typeof guard above; capture into a local for
-      // narrowing through the await boundary.
       const probe = probeBackend.runIntegrityPragma!.bind(probeBackend);
       try {
         const verdict = await probe(controller.signal);
@@ -1068,8 +764,6 @@ export class EventStore {
         return { ok: false, details: verdict };
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') {
-          // If we timed out and it's not an external abort, return the
-          // timeout result instead of letting AbortError escape the race.
           if (didTimeout && !externalSignal?.aborted) {
             return { ok: false, details: timeoutDetails };
           }
@@ -1084,9 +778,6 @@ export class EventStore {
 
     const externalAbort = externalSignal ? abortRejection(externalSignal) : undefined;
     try {
-      // If the external signal aborted, the probe will reject with
-      // AbortError; Promise.race propagates that. Timeout arm resolves
-      // with an IntegrityResult.
       if (externalAbort) {
         return await Promise.race([probePromise, timeoutPromise, externalAbort.promise]);
       }
@@ -1101,39 +792,15 @@ export class EventStore {
   }
 
   /**
-   * Run the run-bundle resolvability oracle with bounded wall time.
-   *
-   * Sibling of {@link runIntegrityCheck} and deliberately the same posture:
-   * bounded internally, honours the caller's AbortSignal, and exposes no raw
-   * handle — neither the sqlite connection nor the bundle store's filesystem
-   * root escapes. It answers a different question. The pragma probe asks
-   * whether the substrate holding the ledger is intact; this asks whether the
-   * bytes the ledger references still exist and still hash to what was
-   * recorded. A ledger can be perfectly intact while the artifacts it names
-   * have been deleted.
-   *
-   * Verdicts:
-   *   - Backend cannot enumerate streams → `{ok: 'skipped'}`
-   *   - Streams enumerated, no references and no settlement → `{ok: 'empty'}`
-   *     (nothing was checked — NOT the same claim as "nothing was wrong")
-   *   - Every reference resolved → `{ok: true}` with the denominator it checked
-   *   - Any unresolvable, corrupt, unreadable or malformed reference, or a
-   *     custodial settlement that references nothing → `{ok: false}` with the
-   *     violations named
-   *   - Sweep exceeds `timeoutMs`, or throws before finishing → `{ok: false,
-   *     incomplete: true}` with the cause in `details` and no counts at all —
-   *     that arm cannot carry a number, because none was measured
-   *   - External abort → rejects with AbortError, since caller-initiated
-   *     cancellation is an exception rather than a verdict
-   *
-   * ON DEMAND ONLY. Nothing in the append, replay or projection path consults
-   * this method, and nothing should: it walks every stream and re-hashes every
-   * referenced blob, which is orders of magnitude past what a write may pay.
-   * That is precisely why the claim fast path can replay a settled operation
-   * over a deleted artifact and stay green — the oracle is an audit a caller
-   * runs deliberately, never an invariant the store enforces inline. The
-   * shipped caller is the doctor's `run-bundle-integrity` check; a custody
-   * migration would be another.
+   * Checks that each blob the ledger references still exists and still has its recorded hash.
+   * It has the same bounds as {@link runIntegrityCheck}: a timeout, the caller's signal, no raw handle.
+   *   - A backend that cannot list streams gives `{ ok: 'skipped' }`.
+   *   - No reference and no settlement gives `{ ok: 'empty' }`, which means nothing was checked.
+   *   - All references resolve: `{ ok: true }` with the count it checked.
+   *   - A bad reference, or a custodial settlement with no reference, gives `{ ok: false }`.
+   *   - A timeout or a throw gives `{ ok: false, incomplete: true }` with no counts.
+   *   - An abort of the caller's signal rejects with `AbortError`.
+   * The sweep reads every stream, so no append or replay path calls it. The doctor calls it on demand.
    */
   async runBundleIntegrityCheck(opts?: {
     signal?: AbortSignal;
@@ -1147,9 +814,6 @@ export class EventStore {
         reason: 'backend does not enumerate streams',
       };
     }
-    // Bind the very function the skip guard just tested. Routing the sweep
-    // through a same-named wrapper instead would let the guard vouch for one
-    // enumerator while a different one runs.
     const listStreams = probeBackend.listStreams.bind(probeBackend);
 
     const timeoutMs = opts?.timeoutMs ?? DEFAULT_BUNDLE_INTEGRITY_TIMEOUT_MS;
@@ -1163,8 +827,6 @@ export class EventStore {
 
     const bundleStore = opts?.bundleStore ?? this.bundleStore;
 
-    // Chain the caller's signal into an internal controller so the timeout can
-    // also stop the sweep without mutating the caller's signal.
     const controller = new AbortController();
     const onExternalAbort = () => controller.abort();
     if (externalSignal) {
@@ -1174,9 +836,6 @@ export class EventStore {
     let timer: NodeJS.Timeout | undefined;
     let didTimeout = false;
     const timeoutDetails = `run-bundle integrity check timed out after ${timeoutMs}ms`;
-    // `incomplete` is what separates this from a sweep that genuinely finished
-    // with a zero denominator: this arm carries no counts at all, because the
-    // aborted sweep measured none.
     const timedOut: BundleIntegrityResult = {
       ok: false,
       incomplete: true,
@@ -1231,15 +890,8 @@ export class EventStore {
   }
 
   /**
-   * Recovery hook retained for legacy callers (e.g. CLI restart paths
-   * that historically called this after a `SequenceConflictError`).
-   *
-   * Pre-#1293 this rebuilt the in-memory sequence counter from disk.
-   * Post-substrate-cut, sequence rebuild is implicit (the SQLite
-   * substrate's `MAX(sequence)` query inside `AtomicAppender` rebuilds
-   * on first contact, and the `.seq.tmp` JSONL housekeeping artifact no
-   * longer exists). The method is a no-op kept only so external callers
-   * stay source-compatible across the cutover.
+   * Validates `streamId` and does nothing else. It stays so that callers that call it after a
+   * `SequenceConflictError` still compile. The appender reads each sequence from SQLite.
    */
   async refreshSequence(streamId: string): Promise<void> {
     validateStreamId(streamId);

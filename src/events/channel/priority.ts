@@ -9,22 +9,18 @@ export const PRIORITY_ORDER: Readonly<Record<NotificationPriority, number>> = {
 };
 
 const EVENT_PRIORITY_MAP: Record<string, NotificationPriority> = {
-  // Success
   'task.completed': 'success',
   'workflow.completed': 'success',
   'review.approved': 'success',
   'synthesis.merged': 'success',
 
-  // Warning
   'task.failed': 'warning',
   'sync.conflict': 'warning',
   'review.rejected': 'warning',
 
-  // Action required
   'review.requested': 'action-required',
   'review.changes_requested': 'action-required',
 
-  // Critical
   'workflow.failed': 'critical',
   'circuit_breaker.tripped': 'critical',
 };

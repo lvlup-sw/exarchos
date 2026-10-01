@@ -14,19 +14,15 @@ type EventAction = (typeof VALID_ACTIONS)[number];
 const eventActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_event')!.actions;
 
 /**
- * Channel identifier for the best-effort post-append config-hook delivery
- * (P04-01). The channel push carries its own identifier inside `ChannelEmitter`.
+ * Channel identifier for the best-effort post-append config-hook delivery.
+ * The channel push carries its own identifier inside `ChannelEmitter`.
  */
 const POST_APPEND_HOOK_CHANNEL = 'post-append:config-hook';
 
 /**
- * Fire the config hook runner after a successful event append.
- *
- * P04-01 — the post-append hook is an explicit BEST-EFFORT delivery: it routes
- * through the typed {@link deliver} algebra, so a hook failure is captured as an
- * observable `failed` outcome instead of being discarded by an empty `catch`,
- * and it never blocks the event pipeline. Requirement is `best-effort` by design
- * — a hook is advisory, not on the durable path.
+ * Fire the config hook runner after a successful event append. The hook is a
+ * best-effort {@link deliver}, because a hook is advisory. A hook failure becomes
+ * a `failed` outcome and never blocks the event pipeline.
  */
 async function fireHookIfConfigured(
   ctx: DispatchContext,
@@ -52,12 +48,9 @@ async function fireHookIfConfigured(
 }
 
 /**
- * Push a successfully-appended event to the Channel Emitter (if configured).
- *
- * P04-01 — BEST-EFFORT delivery: {@link ChannelEmitter.push} routes through the
- * typed delivery algebra and returns an observable `DeliveryOutcome` — it never
- * throws, so there is no `catch` to swallow and no failure is lost. The event
- * pipeline is never blocked by a channel outage.
+ * Push a successfully-appended event to the Channel Emitter, if one is configured.
+ * {@link ChannelEmitter.push} is a best-effort delivery that returns a
+ * `DeliveryOutcome` and never throws.
  */
 async function pushToChannelIfConfigured(
   ctx: DispatchContext,
@@ -81,14 +74,13 @@ async function pushToChannelIfConfigured(
   );
 }
 
-// HATEOAS envelope wrapping is the shared `envelopeWrap` (../envelope-wrap.ts).
-// Event-store responses (append ACKs, query results, describe) carry no
-// workflow state, so `next_actions` derives to `[]`; the call is retained for
-// architectural symmetry across the four composites. Hook/channel
-// side-effects still observe the raw `ToolResult` shape because wrapping
-// happens after those best-effort typed deliveries (P04-01).
-
-/** Composite handler that routes `action` to the appropriate event-store handler. */
+/**
+ * Composite handler that routes `action` to the matching event-store handler.
+ *
+ * Event-store responses carry no workflow state, so `envelopeWrap` derives empty
+ * `next_actions`. The wrap runs after the hook and channel deliveries, so those
+ * deliveries see the raw `ToolResult`.
+ */
 export async function handleEvent(
   args: Record<string, unknown>,
   ctx: DispatchContext,
@@ -133,8 +125,6 @@ export async function handleEvent(
           const event = events[i];
           if (event === undefined) continue;
           const ack = resultData?.[i];
-          // Fire hooks — best-effort typed delivery (P04-01): a hook failure is
-          // an observable outcome, never an empty-catch swallow.
           const hookRunner = ctx.hookRunner;
           if (hookRunner) {
             await deliver<WorkflowEvent>({
@@ -149,8 +139,6 @@ export async function handleEvent(
               transport: (e) => hookRunner(e),
             });
           }
-          // Push to channel — best-effort; push never throws and returns an
-          // observable outcome, so no catch is needed.
           const emitter = ctx.channelEmitter;
           if (emitter) {
             const eventType = (event.type as string) ?? '';

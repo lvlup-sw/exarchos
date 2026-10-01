@@ -4,55 +4,41 @@ import path from 'node:path';
 import { runCommandSync } from './process.js';
 
 /**
- * Normalize a path's separators to POSIX forward-slashes (#1620).
+ * Convert path separators to POSIX forward slashes.
  *
- * These resolvers produce paths that are **stored and compared** (the state /
- * teams / tasks directories used as keys and surfaced to consumers), so they
- * must be byte-identical across platforms. `path.join` emits OS-native
- * separators (backslashes on Windows), which breaks string equality against
- * the posix form used everywhere else. Node's `fs` accepts `/` on Windows, so
- * normalizing the *stored* representation is safe — the filesystem layer is
- * happy either way.
+ * Callers store and compare the paths that this module resolves, so the paths
+ * must be identical on every platform. `path.join` emits backslashes on Windows.
+ * Node `fs` accepts `/` on Windows, so this form is safe for file access.
  */
 export function toPosix(p: string): string {
   return p.replace(/\\/g, '/');
 }
 
-// ─── Repo identity (DR-5) ───────────────────────────────────────────────────
-
 /**
- * Injectable seams for {@link deriveRepoKey} (defaults → real git spawn +
- * `fs.realpathSync.native`). Injected so the git-common-root and normalization
- * branches are unit-testable on the POSIX CI host without touching git or the
- * real filesystem, and so the memoization can be exercised with a call counter.
+ * Injectable seams for {@link deriveRepoKey}. The defaults spawn git and call
+ * `fs.realpathSync.native`. Tests inject them to cover each branch on a POSIX
+ * host without git, and to count calls for the memo.
  */
 export interface DeriveRepoKeyDeps {
   /**
-   * Resolve the absolute git *common* dir for `cwd` — `git rev-parse
-   * --path-format=absolute --git-common-dir`. Returns the *common* dir (never
-   * `--git-dir` / `--show-toplevel`) so every linked worktree of one repository
-   * points at the MAIN checkout's git dir and collapses to a single identity.
-   * MUST throw when `cwd` is not inside a git repository (→ input-path fallback).
+   * Returns the absolute git common dir for `cwd`, from `git rev-parse
+   * --git-common-dir`. All linked worktrees of one repository share this dir,
+   * so they get one key. Must throw when `cwd` is not inside a git repository.
    */
   readonly gitCommonDir?: (cwd: string) => string;
-  /** Canonicalize (symlink- + Windows-8.3-resolve) a path. Default: `fs.realpathSync.native`. */
+  /** Resolves symlinks and Windows 8.3 short names. Default: `fs.realpathSync.native`. */
   readonly realpath?: (p: string) => string;
 }
 
 /**
- * Per-input-path memo of derived repo keys (Technical Design: hot-path git
- * spawn). The long-lived server process derives its own cwd key exactly once;
- * every steady-state pipeline call thereafter pays a map lookup, never a
- * subprocess. Keyed by the RAW input path (distinct worktree paths of one repo
- * are separate entries that each spawn once and resolve to the same key).
- *
- * Bounded FIFO (cap {@link REPO_KEY_MEMO_MAX}): `deriveRepoKey(args.repoRoot)`
- * is reachable from a client-supplied `repoRoot` (see `handleViewPipeline`), so
- * an unbounded map would grow for the process lifetime under many distinct
- * inputs. Eviction is oldest-first — the process cwd is derived first and thus
- * evicted last, keeping the steady-state hot path a lookup.
+ * Maximum entries in the repo-key memo. A client can supply `repoRoot` (see
+ * `handleViewPipeline`), so an unbounded memo can grow for the life of the process.
  */
 const REPO_KEY_MEMO_MAX = 500;
+/**
+ * Memo of derived repo keys, keyed by the raw input path. Later calls for one path
+ * cost a map lookup, not a git spawn. Eviction is oldest-first.
+ */
 const repoKeyMemo = new Map<string, string>();
 
 /** Insert a memo entry, evicting the oldest key once the cap is exceeded. */
@@ -65,31 +51,26 @@ function memoSet(inputPath: string, key: string): void {
 }
 
 /**
- * Clear the repo-key memo. Test-only isolation seam (mirrors the view layer's
- * `resetMaterializerCache`): the memo is keyed by `inputPath` alone, so two
- * tests reusing one path with *different* injected `deps` would otherwise see a
- * stale cross-test cache hit. Production never varies `deps`, so this is never
- * needed at runtime.
+ * Clear the repo-key memo. Only tests call this. The memo key is the input path
+ * alone, so two tests that use one path with different `deps` can get a stale hit.
  */
 export function resetRepoKeyMemo(): void {
   repoKeyMemo.clear();
 }
 
 /**
- * Cap the synchronous git spawn (ms). `deriveRepoKey` is reachable with a
- * client-supplied `repoRoot`, so an unbounded blocking spawn on a hung/slow
- * filesystem (network mount, lock contention) would stall the event loop for
- * every concurrent request. On timeout `execFileSync` throws → `deriveRepoKey`
- * degrades to the input-path fallback, exactly as for a non-git directory.
+ * Timeout in ms for the synchronous git spawn. A client can supply the path, and
+ * a hung spawn on a slow filesystem blocks the event loop for every request. On
+ * timeout the spawn throws, and {@link deriveRepoKey} falls back to the input path.
  */
 const GIT_COMMON_DIR_TIMEOUT_MS = 5000;
 
-/** Default git-common-dir resolver — routed through the shared command-runner. */
+/**
+ * Default resolver for the git common dir. It spawns git through the shared
+ * `runCommandSync`. `--path-format=absolute` makes git return an absolute path,
+ * not a path relative to `cwd`.
+ */
 function defaultGitCommonDir(cwd: string): string {
-  // Spawn via `runCommandSync` (the #1623 Windows dynamic-spawn rule), NEVER a
-  // raw `execFileSync`, so a `.cmd`/`.bat` `git` shim launches correctly on
-  // win32. `--path-format=absolute` guarantees an absolute path even when git
-  // would otherwise return one relative to `cwd`.
   const out = runCommandSync(
     'git',
     ['-C', cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
@@ -102,24 +83,22 @@ function defaultGitCommonDir(cwd: string): string {
   return String(out).trim();
 }
 
-/** Default canonicalizer — `.native` so Windows 8.3 SHORT names expand (#1620). */
+/**
+ * Default canonicalizer. `fs.realpathSync.native` expands Windows 8.3 short names
+ * (`RUNNER~1` to `runneradmin`), so test keys and git keys agree on win32.
+ * It does not use the shared `defaultRealpath`, because `path-containment.ts`
+ * imports {@link toPosix} from this module and that import makes a cycle.
+ */
 function defaultNativeRealpath(p: string): string {
-  // `.native` (not the JS `fs.realpathSync`) expands `RUNNER~1` → `runneradmin`
-  // so a test-constructed key and a git-derived key agree in the username
-  // segment on win32 CI. No-op on POSIX. Inlined here (rather than importing the
-  // shared `defaultRealpath`) to avoid a `paths.ts` ↔ `path-containment.ts`
-  // import cycle — that module already imports `toPosix` from here.
   return fs.realpathSync.native(p);
 }
 
 /**
- * Reduce a path to an absolute, symlink-/8.3-resolved, POSIX-separator form.
+ * Reduce a path to an absolute, canonical form with POSIX separators.
  *
- * Separator-agnostic (mirrors the launcher canonicalizer, #1620): a win32
- * `C:\…` input is normalized in place instead of being mangled by a POSIX
- * `path.resolve` on the CI host, so the Windows-form contract is testable off
- * Windows. A realpath failure (e.g. a not-yet-existing input-path fallback)
- * degrades to the absolute, un-canonicalized form rather than throwing.
+ * A win32 `C:\…` input is normalized with `path.win32`, so the Windows contract
+ * is testable on a POSIX host. When `realpath` fails, for example on a path that
+ * does not exist yet, the function returns the absolute form and does not throw.
  */
 function normalizeRepoPath(p: string, realpath: (x: string) => string): string {
   const posix = toPosix(p);
@@ -139,14 +118,13 @@ function normalizeRepoPath(p: string, realpath: (x: string) => string): string {
 }
 
 /**
- * Derive a stable repository identity key for `inputPath` (DR-5).
+ * Derive a stable repository identity key for `inputPath`.
  *
- * Resolves the git *common* root (dirname of `--git-common-dir`) so the main
- * checkout and every linked worktree of one repository collapse to a SINGLE
- * key; outside a git repository, falls back to the canonicalized input path.
- * The result is POSIX-normalized (#1620) and MEMOIZED per input path — the
- * long-lived server process pays the git subprocess exactly once for its own
- * cwd, then only a map lookup (Technical Design: hot-path git spawn).
+ * The key is the git common root, so the main checkout and its linked worktrees
+ * share one key. A bare repository reports its own root as the common dir. Thus
+ * the function takes the parent only when the common dir is named `.git`.
+ * Outside a git repository, the key is the canonical input path. Keys use POSIX
+ * separators and are memoized per input path.
  */
 export function deriveRepoKey(inputPath: string, deps: DeriveRepoKeyDeps = {}): string {
   const memoized = repoKeyMemo.get(inputPath);
@@ -158,17 +136,10 @@ export function deriveRepoKey(inputPath: string, deps: DeriveRepoKeyDeps = {}): 
   let key: string;
   try {
     const commonDir = gitCommonDir(inputPath);
-    // A non-bare repo (and every linked worktree of it) reports `<repo>/.git`, so
-    // the shared repo root is its dirname. A BARE repo reports its own root
-    // (`<repo>.git`, basename ≠ `.git`); applying dirname there would wrongly
-    // climb to the parent, so use the common dir verbatim. Guarding on the
-    // `.git` basename handles both without a second git spawn.
     const root =
       path.basename(commonDir) === '.git' ? path.dirname(commonDir) : commonDir;
     key = normalizeRepoPath(root, realpath);
   } catch {
-    // Not a git repository (or git unavailable): fall back to the canonicalized
-    // input path so a non-git working directory still gets a stable identity.
     key = normalizeRepoPath(inputPath, realpath);
   }
 
@@ -177,15 +148,9 @@ export function deriveRepoKey(inputPath: string, deps: DeriveRepoKeyDeps = {}): 
 }
 
 /**
- * Expand a leading `~` to the user's home directory.
- * Node.js `fs` does not perform shell-style tilde expansion,
- * so paths like `~/.claude/workflow-state` must be expanded manually.
- *
- * `home` is injectable (default `os.homedir()`) so the DR-11 store-path
- * resolvers can compute deterministic paths without touching the real home
- * directory; production leaves it unset.
- *
- * The expanded result is POSIX-normalized (see {@link toPosix}).
+ * Expand a leading `~` to the home directory, because Node `fs` does not expand it.
+ * `home` defaults to `os.homedir()`, and tests inject a fixed value. An expanded
+ * result uses POSIX separators. Other paths return unchanged.
  */
 export function expandTilde(p: string, home: string = os.homedir()): string {
   if (p === '~') return toPosix(home);
@@ -194,11 +159,8 @@ export function expandTilde(p: string, home: string = os.homedir()): string {
 }
 
 /**
- * Returns true if running as a Claude Code plugin (detected via
- * `CLAUDE_PLUGIN_ROOT` or `EXARCHOS_PLUGIN_ROOT` env vars).
- *
- * `env` is injectable (default live `process.env`) so the DR-11 divergence
- * check can evaluate the plugin-mode signal over an explicit snapshot.
+ * True when the process runs as a Claude Code plugin, which `CLAUDE_PLUGIN_ROOT`
+ * or `EXARCHOS_PLUGIN_ROOT` signals. `env` defaults to the live `process.env`.
  */
 export function isClaudeCodePlugin(
   env: Readonly<Record<string, string | undefined>> = process.env,
@@ -207,14 +169,12 @@ export function isClaudeCodePlugin(
 }
 
 /**
- * Injectable inputs steering state-dir / store-path resolution (DR-11 B-5).
+ * Injectable inputs for state-dir and store-path resolution.
  *
- * Production leaves every field unset — resolution reads the live
- * `process.env`, the real home directory, and the live plugin-mode signal, so
- * the CLI entry and the plugin MCP server share ONE resolver. The `doctor`
- * divergence check (`store-path-divergence`) injects `env`/`pluginMode`/`homedir`
- * to compute what the CLI surface and the plugin surface WOULD each resolve on
- * this machine, deterministically and without mutating `process.env`.
+ * Production leaves every field unset, so the CLI and the plugin MCP server share
+ * one resolver over live process state. The `store-path-divergence` doctor check
+ * injects them to compute the path that each surface resolves on this machine,
+ * without changes to `process.env`.
  */
 export interface StorePathResolutionInputs {
   /** Environment snapshot. Default: live `process.env`. */
@@ -226,15 +186,14 @@ export interface StorePathResolutionInputs {
 }
 
 /**
- * Resolve a directory path using the 4-level cascade:
- *   1. Explicit env var (always wins)
- *   2. Claude Code plugin mode → `~/.claude/<claudeSubdir>`
- *   3. `XDG_STATE_HOME` → `$XDG_STATE_HOME/exarchos/<exarchosSubdir>`
- *   4. Universal default → `~/.exarchos/<exarchosSubdir>`
+ * Resolve a directory with this precedence:
+ *   1. The explicit env var, with `~` expanded.
+ *   2. Plugin mode: `~/.claude/<claudeSubdir>`.
+ *   3. `XDG_STATE_HOME`: `$XDG_STATE_HOME/exarchos/<exarchosSubdir>`, with `~` expanded.
+ *   4. Default: `~/.exarchos/<exarchosSubdir>`.
  *
- * `expandTilde()` is applied to explicit env var values. `inputs` are the DR-11
- * injectable seams (defaulting to live process state) so callers never diverge
- * on the cascade — there is exactly one implementation of the precedence.
+ * Without the expansion, `XDG_STATE_HOME=~/state` opens a store relative to the cwd.
+ * This is the only implementation of the precedence.
  */
 function resolveDir(
   envKey: string,
@@ -257,9 +216,6 @@ function resolveDir(
 
   const xdgStateHome = env['XDG_STATE_HOME'];
   if (xdgStateHome) {
-    // Expand a leading `~` here too — otherwise `XDG_STATE_HOME=~/state` opens
-    // the store at a cwd-relative path, diverging from the env-value branch
-    // above (which applies expandTilde) and from WORKFLOW_STATE_DIR.
     return toPosix(path.join(expandTilde(xdgStateHome, home), 'exarchos', exarchosSubdir));
   }
 
@@ -269,58 +225,43 @@ function resolveDir(
 /**
  * Resolve the workflow state directory.
  * Env: `WORKFLOW_STATE_DIR` | Claude: `~/.claude/workflow-state` | Default: `~/.exarchos/state`
- *
- * `inputs` are the DR-11 injectable seams; production calls this zero-arg.
  */
 export function resolveStateDir(inputs?: StorePathResolutionInputs): string {
   return resolveDir('WORKFLOW_STATE_DIR', 'workflow-state', 'state', inputs);
 }
 
 /**
- * Canonical event-store SQLite filename — the single source of truth for the
- * leaf DB name (DR-11 B-5). Previously the string literal `'exarchos.db'` was
- * duplicated in `index.ts:initializeBackend` and
- * `atomic-appender.ts` (the lazily-constructed backend), kept in sync only by a
- * hand-maintained code comment. Both now import this constant so the two
- * computations cannot drift.
+ * Event-store SQLite filename. `index.ts` and `atomic-appender.ts` both import it,
+ * so their store paths cannot drift.
  */
 export const STORE_DB_FILENAME = 'exarchos.db';
 
 /**
- * Canonical run-bundle directory name, resolved relative to the same state
- * directory that holds {@link STORE_DB_FILENAME}. Bundle blobs and the ledger
- * that references them must share a state directory, otherwise a store pointed
- * at one directory would report every digest written under the other as
- * missing. Naming the leaf once is what makes that co-location checkable.
+ * Run-bundle directory name, under the same state directory as {@link STORE_DB_FILENAME}.
+ * The bundle blobs and the ledger that references them must share a state directory.
+ * Otherwise a store in one directory reports each digest written under the other as missing.
  */
 export const RUN_BUNDLE_DIRNAME = 'run-bundles';
 
 /**
- * Evidence-artifact blobs live under this directory of the state dir. One
- * constant because a reference carries no root: a blob written under one root
- * and looked for under another is indistinguishable from a blob that was
- * never written, and that is a difference the durable-evidence check has to
- * be able to make.
+ * Directory of evidence-artifact blobs under the state directory. A reference
+ * carries no root. A blob read under the wrong root looks the same as a blob that
+ * nobody wrote. The durable-evidence check must tell these cases apart, so one
+ * constant names the directory.
  */
 export const EVIDENCE_ARTIFACT_DIRNAME = 'admission-evidence';
 
 /**
- * Resolve the absolute event-store database path — the ONE resolver the CLI and
- * plugin MCP surfaces share (DR-11 B-5). Composes the state-dir cascade
- * ({@link resolveStateDir}) with {@link STORE_DB_FILENAME}, so a change to the
- * directory precedence OR the filename lands in exactly one place.
- *
- * Documented precedence (identical on both surfaces): `WORKFLOW_STATE_DIR` env
- * var > Claude-plugin default (`~/.claude/workflow-state`) > `XDG_STATE_HOME`
- * (`$XDG_STATE_HOME/exarchos/state`) > universal default (`~/.exarchos/state`).
- * Because the env var wins in BOTH plugin and non-plugin mode, setting it pins
- * the CLI and the plugin to one store.
+ * Resolve the absolute event-store database path. The CLI and the plugin MCP server
+ * share this one resolver: the precedence of {@link resolveStateDir} plus
+ * {@link STORE_DB_FILENAME}. `WORKFLOW_STATE_DIR` wins in plugin and non-plugin
+ * mode, so setting it pins the CLI and the plugin to one store.
  */
 export function resolveStorePath(inputs?: StorePathResolutionInputs): string {
   return toPosix(path.join(resolveStateDir(inputs), STORE_DB_FILENAME));
 }
 
-/** The CLI-vs-plugin store-path comparison surfaced by the `store-path-divergence` doctor check (DR-11 B-5). */
+/** The store paths that the CLI and the plugin resolve, for the `store-path-divergence` doctor check. */
 export interface StorePathDivergence {
   /** Store path the CLI surface (non-plugin) resolves. */
   readonly cliPath: string;
@@ -331,15 +272,10 @@ export interface StorePathDivergence {
 }
 
 /**
- * Compute what the event store resolves to under the CLI surface (non-plugin)
- * vs the Claude Code plugin surface, holding `env` + `homedir` fixed, and report
- * whether they differ (DR-11 B-5).
- *
- * Both surfaces run the SAME {@link resolveStorePath}; they can only diverge on
- * the `pluginMode` branch of the cascade. When they DO differ, workflow state
- * written by one surface is invisible to the other — the defect the
- * `store-path-divergence` doctor check reports. Setting `WORKFLOW_STATE_DIR`
- * collapses the divergence (the env var wins in both modes).
+ * Resolve the store path for the CLI (non-plugin) and for the plugin with the same
+ * `env` and `homedir`, and report whether they differ. They can differ only on the
+ * plugin-mode branch. When they differ, one surface cannot see the workflow state
+ * that the other writes. `WORKFLOW_STATE_DIR` removes the divergence.
  */
 export function computeStorePathDivergence(
   inputs?: Omit<StorePathResolutionInputs, 'pluginMode'>,
@@ -358,9 +294,9 @@ export interface ActiveStoreDivergence extends StorePathDivergence {
   readonly activePath: string;
   /** The store the OTHER surface resolves. */
   readonly otherPath: string;
-  /** Does the other surface's store exist on disk? */
+  /** True when the store of the other surface exists on disk. */
   readonly otherExists: boolean;
-  /** Has the operator opted into running two stores? */
+  /** True when the operator opts in to two stores. */
   readonly acknowledged: boolean;
   /**
    * True when state is genuinely splitting: the surfaces diverge, the other
@@ -368,32 +304,21 @@ export interface ActiveStoreDivergence extends StorePathDivergence {
    */
   readonly active: boolean;
   /**
-   * Should a read carry the divergence caveat?
-   *
-   * Same condition as {@link active}. An explicit opt-in silences the warning
-   * as well as the refusal: the variable is named ALLOW, so an operator who
-   * sets it has already accepted the split, and repeating it on every read
-   * trains them to ignore warnings without telling them anything new. `doctor`
-   * remains the standing diagnostic for anyone who wants to re-check.
+   * True when a read must carry the divergence warning. Same condition as
+   * {@link active}. The opt-in silences the warning and the refusal, because an
+   * operator who sets an ALLOW variable accepts the split. `doctor` still reports it.
    */
   readonly shouldWarn: boolean;
 }
 
 /**
- * Decide whether this process is writing into a store the other surface will
- * never read — the condition worth refusing on.
+ * Decide whether this process writes to a store that the other surface never reads.
  *
- * Bare divergence is NOT that condition, and the distinction is the whole
- * design. `WORKFLOW_STATE_DIR` unset in non-plugin mode resolves
- * `~/.exarchos/state` for the CLI and `~/.claude/workflow-state` for the
- * plugin, so {@link computeStorePathDivergence} reports `diverges: true` for
- * EVERY standalone CLI invocation on the machine, including for users who have
- * never installed the plugin. Refusing on that alone would break them all.
- *
- * Requiring the other store to EXIST is what turns an always-true structural
- * fact into evidence that two stores are really in play. Setting
- * `WORKFLOW_STATE_DIR` collapses the divergence outright (the env var wins in
- * both modes), which is why it is the remedy the refusal names.
+ * Divergence alone is not that condition. With `WORKFLOW_STATE_DIR` unset, the CLI
+ * resolves `~/.exarchos/state` and the plugin resolves `~/.claude/workflow-state`.
+ * Thus each standalone CLI call diverges, also for users without the plugin. The
+ * split is active only when the other store exists and the operator does not opt in.
+ * An opt-in value of `0`, `false`, `no`, or `off` keeps the guard armed.
  */
 export function detectActiveStoreDivergence(
   inputs?: StorePathResolutionInputs & { readonly storeExists?: (p: string) => boolean },
@@ -410,10 +335,6 @@ export function detectActiveStoreDivergence(
   const activePath = pluginMode ? base.pluginPath : base.cliPath;
   const otherPath = pluginMode ? base.cliPath : base.pluginPath;
   const otherExists = base.diverges && exists(otherPath);
-  // An explicit falsy spelling means "keep the guard armed", not "disarm it".
-  // Treating any non-blank value as opt-in would make
-  // `EXARCHOS_ALLOW_STORE_DIVERGENCE=false` disable the refusal — handing the
-  // operator the silent-split failure they were trying to keep.
   const raw = (env[ALLOW_STORE_DIVERGENCE_ENV] ?? '').trim().toLowerCase();
   const acknowledged = raw !== '' && raw !== '0' && raw !== 'false' && raw !== 'no' && raw !== 'off';
 
@@ -429,8 +350,8 @@ export function detectActiveStoreDivergence(
 }
 
 /**
- * The operator-facing account of a live split: which store is being used,
- * which one is being ignored, and the one line that collapses the two.
+ * Operator-facing message for a live split: the store in use, the store that this
+ * surface ignores, and the settings that remove the split.
  */
 export function describeStoreDivergence(d: ActiveStoreDivergence): string {
   return (
@@ -460,34 +381,21 @@ export function resolveTasksDir(): string {
 }
 
 /**
- * Resolve the runtime cache directory (P05-04). This is the location whose
- * freshness the install-identity gate tracks — a cache produced by a prior
- * install that lingers after a binary upgrade is the "stale cache" failure the
- * gate blocks.
+ * Resolve the runtime cache directory. The install-identity gate tracks its
+ * freshness and blocks a cache that an earlier install left after a binary upgrade.
  * Env: `EXARCHOS_CACHE_DIR` | Claude: `~/.claude/cache` | Default: `~/.exarchos/cache`
- *
- * `inputs` are the DR-11 injectable seams; production calls this zero-arg.
  */
 export function resolveCacheDir(inputs?: StorePathResolutionInputs): string {
   return resolveDir('EXARCHOS_CACHE_DIR', 'cache', 'cache', inputs);
 }
 
 /**
- * Resolve the directory holding the recorded install-identity lock.
+ * Resolve the directory of the recorded install-identity lock.
  *
- * Deliberately does NOT go through {@link resolveDir}: install freshness is a
- * property of the INSTALLED ARTIFACTS — which binary, which plugin, which
- * cache — and must not vary with `WORKFLOW_STATE_DIR`, which steers where
- * workflow state lives and has no stated relationship to installation identity.
- *
- * Recording the lock inside the resolved event store made the same install
- * simultaneously "fresh" (in the store where TOFU happened to bootstrap) and
- * "stale or mixed" (in any other), so the freshness gate blocked precisely the
- * configuration an operator adopts to collapse a store-path divergence. Pinning
- * the store was the documented remedy, and taking it tripped the gate.
- *
- * Plugin mode is excluded from the cascade for the same reason: the verdict
- * must not depend on which surface asks.
+ * This function does not use {@link resolveDir}. Install freshness is a property
+ * of the installed binary, plugin, and cache. Thus the verdict must not change
+ * with `WORKFLOW_STATE_DIR` or with the surface that asks. A lock in the event
+ * store makes one install fresh in one store and stale in all others.
  */
 export function resolveInstallIdentityDir(
   inputs?: Omit<StorePathResolutionInputs, 'pluginMode'>,

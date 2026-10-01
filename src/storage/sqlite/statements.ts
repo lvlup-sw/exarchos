@@ -1,7 +1,5 @@
 import type { Statement } from 'bun:sqlite';
 
-// ─── Prepared Statements ────────────────────────────────────────────────────
-
 export interface Statements {
   insertEvent: Statement;
   upsertSequence: Statement;
@@ -20,7 +18,7 @@ export interface Statements {
   getViewCache: Statement;
   upsertViewCache: Statement;
   insertSchemaVersion: Statement;
-  // AtomicAppender SQLite-backed body (#1259, T06/T07)
+  /** Used by the SQLite-backed body of `AtomicAppender`, with the two statements below. */
   selectIdempotencyClaim: Statement;
   insertIdempotencyClaim: Statement;
   insertEventStrict: Statement;
