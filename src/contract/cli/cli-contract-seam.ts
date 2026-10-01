@@ -143,7 +143,8 @@ export const HOST_LOCAL_COMMANDS: readonly string[] = Object.freeze([
 /**
  * Presentation aliases that `adapters/cli/cli.ts` hard-wires, such as `exarchos doctor` for
  * `exarchos_orchestrate.doctor`. The registry cannot derive them, so they are declared here. A
- * registry `cli.topLevel` promotion must not go here. The stale-rule ratchet checks the list.
+ * registry `cli.topLevel` promotion must not go here. The stale-rule ratchet fails on an alias
+ * with no live command.
  */
 export const PRESENTATION_ALIASES: readonly string[] = Object.freeze([
   'doctor',

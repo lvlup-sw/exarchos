@@ -293,7 +293,7 @@ function sortDiagnostics(diagnostics: readonly CompilerDiagnostic[]): CompilerDi
 
 /**
  * The change classes that the policy of an action activates.
- * Schema, authorization, economy, and presentation are always present. The declared behavior adds the others.
+ * Schema, authorization, economy, and presentation are always present. The declared behavior adds more classes.
  */
 export function activeChangeClasses(policy: ActionPolicy): ChangeClass[] {
   const classes: ChangeClass[] = ['schema', 'authorization', 'economy', 'presentation'];

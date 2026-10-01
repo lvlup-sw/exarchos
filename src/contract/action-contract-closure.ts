@@ -869,7 +869,8 @@ function liveSurfaceDecisions(
 
 /**
  * One closure subject per live registry ActionId. When the contract block is present, a subject carries it and its projections.
- * Each subject also carries the advertise and execute admission decisions. A missing block stays missing.
+ * It then also carries the advertise and execute admission decisions, except for a control-owned verb.
+ * A missing block stays missing.
  */
 export function collectLiveActionContractSubjects(): readonly ActionContractClosureSubject[] {
   const subjects: ActionContractClosureSubject[] = [];
@@ -902,7 +903,7 @@ export function evaluateCollectedActionContractClosure(
   return evaluateActionContractClosure({ subjects });
 }
 
-/** One collected live subject by ActionId, or `undefined` when the id is not live. */
+/** One collected live subject by ActionId, or `undefined` when no subject has the id. */
 export function liveActionContractSubject(
   actionId: string,
   subjects: readonly ActionContractClosureSubject[] = collectLiveActionContractSubjects(),

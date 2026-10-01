@@ -9,8 +9,8 @@
  * This module has no imports, so it does not depend on registry storage. A caller lifts each
  * registration into a declaration, and the existing registration types do not change.
  *
- * The typecheck covers only `src/` and excludes test files. Thus the compile-time proofs are
- * exported type aliases at the end of this file.
+ * The root `tsconfig.json` excludes test files, and no typecheck covers `tests/unit`. Thus the
+ * compile-time proofs are exported type aliases at the end of this file.
  */
 
 /**
@@ -30,8 +30,8 @@ export type DeclarationKind = (typeof DECLARATION_KINDS)[number];
 /**
  * The identity of a declaration within its kind. It is unique per `(kind, id)` pair, not globally,
  * so events and actions use different id spaces. {@link declarationKey} gives the global key. The
- * id aliases are structural, not nominal brands. A reference pass checks reference integrity at run
- * time, as `contract/ir/references.ts` does.
+ * id aliases are structural, not nominal brands. Reference integrity is a run-time check, as in
+ * `contract/ir/references.ts`.
  */
 export type DeclarationId = string;
 
@@ -372,7 +372,7 @@ export type _DeclarationActionIsNotEvent = Expect<
 
 /**
  * A declaration with a concrete subject widens to the `unknown`-subject form. A seam accessor typed
- * against `Declaration<K>` thus accepts a narrowed subject. A mutable `subject` makes this fail.
+ * against `Declaration<K>` thus accepts a narrowed subject.
  * @proof
  */
 export type _DeclarationSubjectWidensToUnknown = Expect<

@@ -225,11 +225,11 @@ export interface AuthorityVerdict {
 
 /**
  * Verifies the live authorities against an approved lock, and fails closed. It checks each
- * authority in this order: missing, floating, unapproved, mismatch. It collects every violation,
- * so one run reports every problem.
+ * authority in this order: missing, floating, unapproved, mismatch. A missing pin skips the other
+ * checks for that authority. It collects all other violations, so one run reports every problem.
  *
- * A floating spec in the live value or in the lock pin is a violation. The version is compared
- * only when neither side has a digest. A digest moves exactly when the frozen content moves, so
+ * A floating spec in the live value or in the lock pin is a violation. The verifier compares the
+ * version only when neither side has a digest. A digest moves exactly when the frozen content moves, so
  * the version of a digest authority is provenance for the reviewer. The `strategos-contracts`
  * version and digest come from different sources, and a version comparison fails on every
  * release (lvlup-sw/exarchos#1837).

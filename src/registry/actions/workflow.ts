@@ -207,8 +207,9 @@ export const workflowActions: readonly BuiltinToolAction[] = [
       /**
        * The canonical surface for non-phase state changes. It gives input validation, output
        * envelopes, idempotency, and `next_actions`, which a direct `state.patched` append skips.
-       * The handler rejects a `phase` key with `INVALID_INPUT` and a `suggestedFix` that names
-       * `transition`. Dot-paths and nested objects in `updates` both resolve through `applyDotPath`.
+       * The handler rejects a `phase` key in `updates` with `INVALID_INPUT` and a `suggestedFix`
+       * that names `transition`. Dot-paths and nested objects in `updates` both resolve through
+       * `applyDotPath`.
        */
       name: 'update',
       description: 'Mutate non-phase workflow state fields (artifacts, planReview, task results, etc.). Canonical state-mutation surface. Emits exactly one state.patched event on success. For phase changes use action: transition.',
@@ -381,9 +382,9 @@ export const workflowActions: readonly BuiltinToolAction[] = [
         featureId: featureIdSchema,
         summary: z.string().optional(),
         /**
-         * The per-action schemas are not strict, so dispatch strips an undeclared field. This
-         * declaration keeps the handoff payload of an MCP checkpoint. It reuses
-         * `CheckpointHandoffSchema`, which the handler parses again.
+         * Dispatch refuses a field that the action schema does not declare, so this declaration
+         * lets an MCP checkpoint carry its handoff payload. It reuses `CheckpointHandoffSchema`,
+         * which the handler parses again.
          */
         handoff: CheckpointHandoffSchema.optional(),
       }),

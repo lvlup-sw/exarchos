@@ -295,7 +295,7 @@ export function extractHandlerTableActions(
   return actions;
 }
 
-/** Reads the shipped routes of one router. It throws when the file has none. */
+/** Reads the shipped routes of one router. It throws when the file is missing or has no route. */
 export function readRouterRoutes(source: RouterSource): readonly DispatchRoute[] {
   if (!fs.existsSync(source.file)) {
     throw new DispatchRouteScanError(

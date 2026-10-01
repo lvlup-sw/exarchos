@@ -47,7 +47,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
       repoRoot: z.string().optional(),
       /**
        * The handler passes it to `resolveRepoRoot`, so `repoRoot: 'auto'` resolves the agent's worktree.
-       * Without this declaration, schema parsing drops the field before the handler sees it.
+       * Without this declaration, dispatch refuses the field before the handler sees it.
        */
       worktreePath: z.string().optional(),
       skipLint: z.boolean().optional(),

@@ -187,8 +187,8 @@ export function compileForCli(): CompiledContract {
 
 /**
  * Compiles the live contract with the authority freeze gate stubbed `ok`. No dispatch path
- * calls it. The test `AddressingSurface_IsByteIdentical_ToTheGenerationSurface` uses it to
- * prove that the generated addressing module agrees with the compiled contract.
+ * calls it. The test `AddressingSurface_IsByteIdentical_ToTheGenerationSurface` compares its CLI
+ * surface with the surface from {@link compileForCli}.
  *
  * The freeze check reads the source tree, and inside the single-file binary those reads fail
  * with ENOENT. Thus the freeze gate is a generation-time control only. The authority verdict

@@ -86,7 +86,8 @@ function economyNarrowHint(
 
 /**
  * Fails open: returns the uncapped payload with `_meta.economyDegraded: true` added to `_meta`.
- * The seam uses it when the budget is not a positive finite number or the summarizer throws.
+ * The seam uses it for a budget that is not a positive finite number, a summarizer throw, or a
+ * payload that is not list-dominant.
  */
 function stampEconomyDegraded(result: ToolResult): ToolResult {
   const existingMeta =
@@ -102,7 +103,8 @@ function stampEconomyDegraded(result: ToolResult): ToolResult {
 
 /**
  * Enforces the registry-declared response-economy budget on a dispatched result. It does no I/O.
- * A failure, a success with no `data`, or `data` at or under budget returns unchanged.
+ * A failure, a success with no `data`, an unknown action, or `data` at or under budget returns
+ * unchanged.
  *
  * Over budget, the declared `economy.summarize` replaces `data`. With no summarizer, a list-dominant
  * payload gets `{ summary, counts, firstPage }`, which is the `CappedDataSchema` shape.

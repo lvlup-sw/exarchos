@@ -45,7 +45,7 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
       agentId: z.string().min(1),
       /**
        * `streamId` is the bare featureId, and the schema accepts both names. `resolveStreamIdentity`
-       * in `tasks/tools.ts` needs at least one, and `streamId` wins when both are present.
+       * in `verbs/tasks/tools.ts` needs at least one, and `streamId` wins when both are present.
        */
       streamId: z.string().min(1).optional(),
       featureId: z.string().min(1).optional(),
@@ -74,7 +74,7 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
       }).optional(),
       /**
        * `streamId` is the bare featureId, and the schema accepts both names. `resolveStreamIdentity`
-       * in `tasks/tools.ts` needs at least one, and `streamId` wins when both are present.
+       * in `verbs/tasks/tools.ts` needs at least one, and `streamId` wins when both are present.
        */
       streamId: z.string().min(1).optional(),
       featureId: z.string().min(1).optional(),
@@ -99,7 +99,7 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
       diagnostics: coercedRecord().optional(),
       /**
        * `streamId` is the bare featureId, and the schema accepts both names. `resolveStreamIdentity`
-       * in `tasks/tools.ts` needs at least one, and `streamId` wins when both are present.
+       * in `verbs/tasks/tools.ts` needs at least one, and `streamId` wins when both are present.
        */
       streamId: z.string().min(1).optional(),
       featureId: z.string().min(1).optional(),
@@ -304,8 +304,8 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     schema: z.object({
       featureId: z.string().min(1),
       /**
-       * `coercedIntArray` accepts a JSON array string, a CSV string, or a native array. These are the
-       * shapes that the CLI `coerceFlags` splitter makes.
+       * `coercedIntArray` accepts a JSON array string, a CSV string, or a native array. Thus the direct
+       * MCP path accepts the shapes that the CLI `coerceFlags` splitter makes.
        */
       prNumbers: coercedIntArray(),
       /** The per-PR comment paging. The schema declares it, so the CLI emits the flags. */

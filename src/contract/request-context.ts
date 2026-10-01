@@ -3,7 +3,9 @@
 // The module strips protected fields from the caller `_meta` hints, so a caller cannot assert identity or authority.
 // A replay returns the stored result or a typed conflict, and never runs a different second execution.
 // The replay identity binds the idempotency key to the subject and the request digest.
+//
 // The only impurity is the deterministic `createHash`.
+// The `contract-surface` authority digests `PROTECTED_CONTEXT_FIELDS`, so a change to that list trips the authority freeze.
 
 import { createHash } from 'node:crypto';
 import type { CallerAuthorizationSnapshot } from '../dispatch/caller-identity.js';
@@ -145,6 +147,7 @@ interface ReplayRecord<R> {
  * - The same key, subject, and digest return `replayed` with the stored result, and nothing runs.
  * - A different subject returns `IDEMPOTENCY_SUBJECT_CONFLICT`. The stored result stays hidden.
  * - The same subject with a different digest returns `IDEMPOTENCY_PAYLOAD_CONFLICT`.
+ * Neither conflict runs the executor.
  */
 export class ReplayLedger<R> {
   private readonly store = new Map<string, ReplayRecord<R>>();

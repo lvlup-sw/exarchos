@@ -69,7 +69,7 @@ export interface CollectOptions {
   readonly fixturesFile?: string;
   /** Path to the checked-in shipped CLI-surface artifact. */
   readonly cliSurfaceFile?: string;
-  /** The event catalog the `event` / `consumer` hops resolve against. */
+  /** The event catalog that the `event` hop resolves against. */
   readonly annotations?: Readonly<Record<string, EventRegistration>>;
   /** The tool registry supplying each action's nested contract emissions. */
   readonly registry?: readonly BuiltinCompositeTool[];

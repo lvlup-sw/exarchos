@@ -28,9 +28,10 @@ export function outerCorrelation(ctx: DispatchContext): CorrelationContext {
 }
 
 /**
- * Fill an event's correlation triple from the ambient dispatch context. `decideOnce` persists what
- * it gets and does not stamp. This stamp lets the emission check of the outer dispatch find the
- * record by its operation id. The function fills only the fields that the caller left unset.
+ * Fill an event's correlation triple from the ambient dispatch context. The callers commit through
+ * `decideOnce`, which persists what it gets and does not stamp. This stamp lets the emission check
+ * of the outer dispatch find the record by its operation id. The function fills only the fields
+ * that the caller left unset.
  */
 export function stampFromAmbient(event: EventInput): EventInput {
   const ctx = getDispatchContext();

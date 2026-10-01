@@ -3,7 +3,7 @@
 // Two concurrent calls with the same key can both read an empty claim and both do the work.
 // Per-key serialization closes that window in one process: the second call waits and then finds the claim.
 // Two processes that race on the same key serialize only at the commit.
-// Every claim-keyed verb shares this module, because each one has the same window.
+// The module is shared, not part of one verb, because each claim-keyed verb has the same window.
 
 const operationTails = new Map<string, Promise<unknown>>();
 

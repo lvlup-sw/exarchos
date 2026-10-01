@@ -11,7 +11,7 @@ const MAX_TOTALITY_DEPTH = 12;
 
 /**
  * Return true when the schema accepts every value. The test reads meaning, not only the outermost class.
- * `withCappedShape(EnvelopeSchema(z.unknown()))` is a `ZodUnion` that accepts every payload.
+ * For example, `z.union([z.unknown(), CappedDataSchema])` is a `ZodUnion`, and it accepts every value.
  * - A union is total when any member is total.
  * - An intersection and a pipe are total only when both sides are total.
  * - Optional, nullable, default, and readonly take the verdict of their inner type.
@@ -24,7 +24,7 @@ export function acceptsEveryValue(schema: z.ZodType, depth = 0): boolean {
 /**
  * The walk behind {@link acceptsEveryValue}.
  * It takes `unknown` because zod types union options and pipe operands as core nodes, not as `ZodType`.
- * The `instanceof` checks recover the class without a cast, which can hide an unchecked shape.
+ * The `instanceof` checks recover the class without a cast. A cast can hide an unchecked shape.
  */
 function schemaIsTotal(schema: unknown, depth: number): boolean {
   if (depth >= MAX_TOTALITY_DEPTH) return false;

@@ -1,6 +1,6 @@
 /**
- * Content digests for the frozen contract authorities. Each authority whose identity is its
- * content is pinned by a `sha256:<hex>` digest of its canonical bytes.
+ * Content digests for the frozen contract authorities. A `sha256:<hex>` digest of the canonical
+ * bytes pins each authority whose identity is its content.
  *
  * The hash runs on text with normalized line endings. Thus a CRLF checkout and an LF checkout
  * give the same digest. This module is pure. The collector (`authority-collector.ts`) supplies the bytes.
@@ -58,7 +58,7 @@ export function isWellFormedDigest(digest: string): boolean {
  * True when a version spec is not an exact pin. A frozen authority must name one exact version,
  * because a range or a dist-tag lets the resolved version drift.
  *
- * These forms float: an empty spec, `^` or `~`, `<` or `>`, `||`, and a spaced hyphen range.
+ * These forms float: an empty or blank spec, `^` or `~`, `<` or `>`, `||`, and a spaced hyphen range.
  * An `x` or `*` segment and the `latest` and `next` tags also float. A prerelease such as
  * `2.12.0-preview.3` and a date version such as `2025-11-25` are exact pins.
  */

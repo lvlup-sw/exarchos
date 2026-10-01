@@ -1,11 +1,13 @@
 /**
  * The compatibility half of the closed contract. It holds three parts:
  *   - version negotiation: select a shared version from the client range and the server set.
- *   - directional migration: each plan declares `forward` or `backward`, or is `incompatible`
- *     across a major boundary.
+ *   - directional migration: a plan that changes the version declares `forward` or `backward`. A
+ *     plan across a major boundary is `incompatible`.
  *   - compatibility classes: classify a semver change and a contract change class.
  *
- * Version comparison uses `compareSemver` from `lib/plugin-compat.ts`. The module is pure.
+ * Version comparison uses `compareSemver` from `runtime/lib/plugin-compat.ts`. The module is pure.
+ * The `contract-surface` authority digests the change classes and their severities, so a change to
+ * them trips the authority freeze.
  */
 
 import { compareSemver } from '../runtime/lib/plugin-compat.js';

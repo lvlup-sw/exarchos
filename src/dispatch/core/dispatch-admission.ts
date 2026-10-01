@@ -225,11 +225,12 @@ function hostOwnedObligationResult(obligation: string): ToolResult {
  * The snapshot holds the ActionId, the feature and stream, stored evidence, authorization and HSM facts.
  * It excludes the request payload and the wall clock.
  *
- * A missing contract, a capability failure, or declared requires with no stored subject deny.
- * An action with no requires is admitted from its needs alone.
+ * A missing or invalid contract, a capability failure, or declared requires with no stored subject,
+ * HSM facts or evidence deny. An action with no requires is admitted from its needs alone.
  * A blocking host obligation, or a host obligation whose requires are all approvals, returns the
- * obligation when the needs pass. An `agent-spawn` obligation does not block, because the host
- * discharges it with the handler output.
+ * obligation when the needs pass. An `agent-spawn` action with no requires runs its handler, because
+ * the host discharges the obligation with the handler output. Any host obligation that passes the
+ * requires check returns the obligation, and its handler does not run.
  */
 export async function evaluateDispatchAdmission(input: {
   readonly tool: string;

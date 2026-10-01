@@ -1,5 +1,5 @@
 // The authored contract of the Exarchos workflow capsule.
-// A capsule compiles intent, bound knowledge, and authority into one immutable, version-pinned artifact.
+// A capsule is the compiled form of a workflow: intent, bound knowledge, and authority in one immutable, version-pinned artifact.
 // The harness executes it with no governance callbacks. Settlement judges the returned claims against the pinned capsule.
 // `authority` and the digest vocabulary derive from the workflow-definition kernel package (see `kernel-derivation.ts`).
 //

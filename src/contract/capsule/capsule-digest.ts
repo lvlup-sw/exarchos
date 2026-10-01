@@ -3,7 +3,9 @@
  * sha256 of their canonical JSON, as bare lowercase hex. This is the kernel digest spelling, so
  * `definitionVersion` and the other kernel digest fields accept the value as it is.
  *
- * The JSON is canonical so that two encodings that differ only in key order get one digest.
+ * The JSON is canonical so that two encodings that differ only in key order get one digest. A plain
+ * `JSON.stringify` digest can name one capsule twice, and then settlement refuses its own compiled
+ * capsule.
  */
 
 import { createHash } from 'node:crypto';

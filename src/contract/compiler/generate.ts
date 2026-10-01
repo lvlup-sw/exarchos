@@ -3,8 +3,9 @@
  * (`generated/proof-fixtures.json`). Thus contract drift shows in a diff, and the oracle has a
  * stable artifact. A drift test fails when the baseline differs from a fresh compile.
  *
- * `compile()` runs `verifyContractAuthority()`, so a floating or unapproved authority throws and
- * writes nothing. Run it with `npx tsx src/contract/compiler/generate.ts`.
+ * `compile()` runs `verifyContractAuthority()`. A floating or unapproved authority gives a
+ * diagnostic, and {@link compileLiveContract} then throws before a write. Run it with
+ * `npx tsx src/contract/compiler/generate.ts`.
  */
 
 import fs from 'node:fs';

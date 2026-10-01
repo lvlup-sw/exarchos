@@ -47,7 +47,8 @@ export interface ToolAction {
    * The declaration types narrow it: {@link BuiltinToolAction} takes `DeclaredOutputSchema` only.
    *
    * `withCappedShape` makes a substantive schema. `vacuityWaiver` takes only an id from the vacuity allowlist.
-   * So a new built-in action cannot declare a vacuous `outputSchema`. The `_OutputSchema*` proofs check this.
+   * So a new built-in action cannot declare a vacuous `outputSchema`. The `_OutputSchema*` proofs in
+   * `output-schema-declaration.ts` check this.
    */
   readonly outputSchema: RegisteredOutputSchema;
   /**

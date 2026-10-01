@@ -1,8 +1,8 @@
 /**
  * Builds the reachability graph from the live authorities and writes
  * `generated/reachability-graph.json`, so a diff shows each closure change. A test fails when
- * the checked-in graph differs from a fresh build. Run `npx tsx src/contract/reachability/generate.ts`
- * to regenerate it.
+ * the checked-in graph differs from a fresh build. To regenerate it under Node, run
+ * `node src/contract/reachability/regenerate.mjs`, which adds the `bun:sqlite` alias.
  *
  * `collectReachabilityInputs()` compiles the live contract and checks the effect providers. Thus
  * a blocked authority or a stale provider throws before the write.

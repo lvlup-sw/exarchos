@@ -20,8 +20,8 @@ import { buildInvalidInput, type ValidationError } from '../adapters/cli/schema-
 
 /**
  * Keys of the transport envelope, not of any action. `_meta` carries the MCP correlation ids, and
- * `mintDispatchContextFromRequest` reads it before routing. The CLI adapter stamps `surface` onto
- * the `onboard` payload, and the operator never sets it.
+ * `mintDispatchContextFromRequest` reads it before routing. The CLI and MCP adapters stamp
+ * `surface` onto the `onboard` payload, and the operator never sets it.
  *
  * `surface` is not on the `onboard` schema, because flags come from that schema and the operator
  * must not get a `--surface` flag. Dispatch removes `action` and `task` before this partition runs.

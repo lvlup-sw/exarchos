@@ -110,8 +110,8 @@ export function buildRegistrationSchema(
 
 /**
  * The contract view of a Zod field. It keeps only the properties whose divergence across actions
- * breaks MCP registration: the enum value set and the default. The base type tells an enum from a
- * non-enum. Refinements and optionality are ignored.
+ * breaks MCP registration: the base kind, the enum value set, and the default. It ignores
+ * refinements and optionality.
  */
 interface FieldContract {
   readonly kind: 'enum' | 'string' | 'number' | 'boolean' | 'array' | 'object' | 'other';

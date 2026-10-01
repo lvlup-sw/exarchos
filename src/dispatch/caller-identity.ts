@@ -93,8 +93,8 @@ export function deriveLocalOperatorIdentity(stateDir: string): CallerIdentity {
  * A `local-operator` identity with an empty set gets the trusted local-operator grant. This is the
  * CLI path, where no capability resolver is wired.
  *
- * The adapter state directory derives the `local-operator` identity, not caller input. So an
- * `mcp-session` caller cannot get the grant. With no capabilities, it fails schema validation.
+ * The `local-operator` identity comes from the adapter state directory, not from caller input. So
+ * an `mcp-session` caller cannot get the grant. With no capabilities, it fails schema validation.
  */
 function resolveTrustedCallerAuthorization(
   identity: CallerIdentity,
