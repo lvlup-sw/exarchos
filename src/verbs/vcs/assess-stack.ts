@@ -360,7 +360,7 @@ function buildPrStatus(a: PrAssessment, window: CommentWindow): PrStatus {
 /**
  * Builds the action items: `ci-fix` for each failing check, `comment-reply`
  * for each unresolved comment, and `review-address` for each change request.
- * A comment without an adapter item gets MEDIUM severity.
+ * A comment without an adapter item gets the normalized severity MEDIUM.
  */
 export function classifyActionItems(assessments: readonly PrAssessment[]): ActionItem[] {
   const items: ActionItem[] = [];
@@ -609,7 +609,9 @@ async function emitShepherdCompleted(
  * ADO, or fails soft. Classification and the recommendation use every
  * unresolved comment, so a critical comment on a later page still counts. The
  * result shows only the comment window that `limit` and `offset` select. The
- * handler does not request approval after a merge or a `shepherd.completed` event.
+ * serialized `comment-reply` items use the same window, and the other items
+ * repeat on each page. A merged PR or an earlier `shepherd.completed` event
+ * stops the `shepherd.approval_requested` append.
  */
 export async function handleAssessStack(
   args: {

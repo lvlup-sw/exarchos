@@ -251,7 +251,7 @@ function mergeSlotTimeout(
  *
  * A dry run claims no lease, runs no merge and appends no event. It returns the planned effect with the integration head from `git rev-parse`.
  * It passes its lease `operationId` to `merge_orchestrate`, so the single-writer guard there accepts the lease as its own.
- * It releases in `finally` with status `failed` unless the merge succeeds. A failed release is ignored, and the dead-holder reclaim clears it later.
+ * It releases in `finally` with status `failed` unless the merge succeeds. A failed release is ignored, and the dead-holder reclaim frees the slot after this process exits.
  */
 export async function serializeMerge(
   input: SerializeMergeInput,
@@ -412,6 +412,7 @@ async function waitForFreeSlot(args: WaitForFreeSlotArgs): Promise<WaitOutcome> 
 /**
  * Resolves the create-time of the claiming process through the injected {@link ProcessSource}.
  * It returns `null` when the probe is not `present`. The claim is still valid, but it cannot detect PID reuse.
+ * It never returns an empty string, because the `holderStartedAt` schema accepts only a non-empty string or `null`.
  */
 function resolveSelfStartedAt(pid: number, source: ProcessSource): string | null {
   const probe = source.getStartTime(pid);

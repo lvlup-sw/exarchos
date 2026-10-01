@@ -17,7 +17,7 @@ export const TASK_SCAFFOLDING_KEYWORDS: readonly string[] = [
 ];
 
 /**
- * Matches review-comment descriptions in `review/classifier.ts`. An
+ * Matches review-comment descriptions in `src/review/classifier.ts`. An
  * all-LOW-severity group with a match goes to the scaffolder. The tokens can
  * be broad because they apply only to LOW-severity groups.
  */

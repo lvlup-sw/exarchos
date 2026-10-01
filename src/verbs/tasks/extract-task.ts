@@ -9,8 +9,8 @@ interface ExtractTaskArgs {
 }
 
 /**
- * Returns the lines from the `## Task <taskId>` header to the next `##` header that starts with a
- * capital letter, with trailing empty lines removed. When the task is absent, it lists the task ids of the plan.
+ * Returns the lines from the `Task <taskId>` header to the next header with two or more `#` whose
+ * text starts with a capital letter. It removes trailing empty lines. When the task is absent, it lists the task ids of the plan.
  */
 export async function handleExtractTask(
   args: ExtractTaskArgs,

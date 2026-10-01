@@ -39,13 +39,13 @@ export type OverrideMap = Readonly<Partial<Record<PlausibilitySignal, string>>>;
  * `DEFAULT_PLAUSIBILITY_BASELINE` applies when the caller passes none.
  */
 export interface PlausibilityBaseline {
-  /** The maximum number of distinct directories that one task can span. */
+  /** The largest number of distinct directories that one task can span with no challenge. */
   readonly maxBreadth: number;
-  /** The maximum number of distinct behaviors that one task can claim. */
+  /** The largest number of distinct behaviors that one task can claim with no challenge. */
   readonly maxBehaviorCount: number;
   /** Max declared file count for a single task (historical-size outlier bound). */
   readonly maxFileCount: number;
-  /** The minimum number of tasks at which a uniform risk stamp or boundary stamp causes a challenge. */
+  /** The minimum number of tasks at which an all-`low` risk stamp or an all-`false` boundary stamp causes a challenge. */
   readonly uniformityMinTasks: number;
 }
 
@@ -211,7 +211,7 @@ function percentile(values: readonly number[], p: number): number {
 
 /**
  * Derives a baseline from a historical size sample, with no git access at check time.
- * Each outlier bound is the 90th-percentile size times `slack`, with `DEFAULT_PLAUSIBILITY_BASELINE` as the floor.
+ * The file-count bound and the behavior-count bound are each the 90th-percentile size times `slack`, with `DEFAULT_PLAUSIBILITY_BASELINE` as the floor.
  * The floor stops a sample of small tasks from making a threshold too strict. `overrides` win over the derived values.
  */
 export function deriveBaseline(

@@ -48,7 +48,7 @@ export const RETIRED_HOOKS_CHECK_NAME = 'retired-hooks-present';
 
 /**
  * Command markers of the retired hooks: the SessionStart directive and the SessionEnd observer.
- * They are the same markers that the installer writes, so removal never touches a user hook. SubagentStop is not in the set.
+ * They are the same markers that the installer writes, so removal touches only a hook whose command contains one of them. SubagentStop is not in the set.
  */
 export const RETIRED_HOOK_MARKERS: readonly string[] = [
   SESSION_START_MARKER,
@@ -124,7 +124,7 @@ function isMissingPathError(err: unknown): boolean {
 /**
  * Reads the host settings. An absent file (ENOENT or ENOTDIR) gives `{}`.
  * It throws for an unreadable file, for invalid JSON, and for a JSON value that is not an object.
- * A `{}` result for these cases makes the caller replace the user settings with only the bindings.
+ * It does not return `{}` for these cases, because the caller then replaces the user settings with only the bindings.
  * `applyHookStep` catches the throw, leaves the step residual, and keeps the user file unchanged.
  */
 async function readSettings(deps: WriterDeps, settingsPath: string): Promise<HostSettings> {

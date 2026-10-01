@@ -75,22 +75,22 @@ export const HandleMergeOrchestrateArgsSchema = z.object({
   /** Required with no default, as for `merge_pr.strategy`, so the event log records the intent. */
   strategy: z.enum(['squash', 'rebase', 'merge']),
   /**
-   * When true, the handler runs and records the preflight only. It writes no state and runs no
+   * When true, the handler stops after it appends `merge.preflight`. It writes no state and runs no
    * executor.
    */
   dryRun: z.boolean().optional(),
   /**
-   * When true, the handler reads the `mergeOrchestrator` state first. A terminal phase from
-   * {@link EXCLUDED_MERGE_PHASES} returns the recorded result with no new events. Any other phase
-   * runs as a fresh dispatch.
+   * When true, the handler reads the `mergeOrchestrator` state before the preflight. A terminal
+   * phase from {@link EXCLUDED_MERGE_PHASES} returns the recorded result with no new events. Any
+   * other phase runs as a fresh dispatch.
    */
   resume: z.boolean().optional(),
   /** Optional override for the repository root used by the preflight gitExec. */
   repoRoot: z.string().optional(),
   /**
-   * The merge-lease `operationId` of the caller. A lease holder with this id proceeds, such as
-   * `serialize_merge` or a crash-resumed caller with the original id. A foreign holder that is not
-   * provably dead fails the merge. When absent, any live foreign lease blocks.
+   * The merge-lease `operationId` of the caller. When the lease holder has this id, the merge
+   * proceeds. This lets `serialize_merge` and a crash-resumed caller with the original id through.
+   * A foreign holder that is not provably dead fails the merge. When absent, any live lease blocks.
    */
   leaseOperationId: z.string().optional(),
 });

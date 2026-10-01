@@ -192,7 +192,7 @@ export function parseWorktreeListPorcelain(stdout: string): OnDiskWorktree[] {
  * Run `git <args>` from `cwd` through {@link spawnCommandSync}, not through
  * `execFileSync` of a resolved `.cmd` shim. It does not throw: a failure is a
  * non-zero `status`. When git does not start, `stderr` falls back to the spawn
- * error message, so a failure always has a message.
+ * error message, so a spawn failure still has a message.
  */
 function gitCapture(
   args: readonly string[],
@@ -225,8 +225,8 @@ function gitRevParse(worktreePath: string, ref: string): string | null {
 
 /**
  * The default real-git probe. `verifyHead` reads HEAD again at verify time, not
- * from the porcelain snapshot. A worktree is mutable when it has no upstream, or
- * when HEAD contains the upstream tip.
+ * from the porcelain snapshot. A worktree with a resolved HEAD is mutable when it
+ * has no upstream, or when HEAD contains the upstream tip.
  */
 export const defaultGitWorktreeProbe: GitWorktreeProbe = {
   listWorktrees(repoRoot: string): OnDiskWorktree[] {
@@ -610,7 +610,8 @@ export class WorktreeManager {
    * different owner that is not provably dead holds the worktree, the claim is
    * rejected and emits nothing. Two concurrent reserves give one winner: the
    * loser fails the concurrency check, folds again, and rejects. A rejected
-   * claim returns zero events, so `alwaysEnforceConsistency` is off.
+   * claim returns zero events and must not throw on an unrelated concurrent
+   * append, so `alwaysEnforceConsistency` is off.
    */
   async reserve(input: ReserveInput): Promise<ReserveResult> {
     const appender = this.eventStore.getAppender();
@@ -737,8 +738,9 @@ export class WorktreeManager {
    *
    * It runs `decide` under `withStateRetry`. A reconcile that loses the
    * concurrency race folds again and emits nothing, so a dead worktree is
-   * released at most once. A pass with nothing to heal returns zero events, so
-   * `alwaysEnforceConsistency` is off.
+   * released at most once. A pass with nothing to heal returns zero events and
+   * must not throw on an unrelated concurrent append, so `alwaysEnforceConsistency`
+   * is off.
    */
   async reconcile(): Promise<ReconcileResult> {
     const appender = this.eventStore.getAppender();
@@ -910,7 +912,8 @@ export class WorktreeManager {
    * Prune governed worktrees through the fail-closed safety ladder:
    *
    * 1. Adopt first, so each on-disk worktree has a state before classification.
-   * 2. On `apply` only, finish each crashed deletion. A dry run has no side effects.
+   * 2. On `apply` only, finish each crashed deletion. Recovery appends events, so a
+   *    dry run skips it.
    * 3. Classify each candidate with {@link classifyPruneCandidate}. A held
    *    merge lease turns an eligible candidate into an `in-flight-merge` skip.
    * 4. On `apply`, delete each eligible candidate with {@link executeDeletion}.

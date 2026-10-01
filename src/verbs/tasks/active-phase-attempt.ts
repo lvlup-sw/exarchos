@@ -1,6 +1,7 @@
 /**
  * Resolves the active phase-attempt id for both durable-evidence adapters.
  * Only workflow init and phase transition mint the stamp, so an older workflow projects no `phaseAttemptId`.
+ * Without a derived id, such a workflow cannot pass the phase gates, `prepare_synthesis` among them.
  * Both adapters call this one resolver, so they cannot resolve the same identity in two ways.
  */
 

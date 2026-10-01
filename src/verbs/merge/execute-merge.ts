@@ -103,6 +103,7 @@ function buildDefaultVcsMerge(
 /**
  * Builds the default `persistState` callback. It reads `<stateDir>/<featureId>.state.json`, merges
  * the payload into the existing `mergeOrchestrator` block, and writes the file with `expectedVersion`.
+ * It merges and does not replace the block, so fields from earlier phase writes stay.
  * Without that version, `writeStateFile` skips its version check and `withStateRetry` has nothing to retry.
  * A missing state file throws `StateStoreError`, and the callback does not invent a baseline.
  */
@@ -135,11 +136,12 @@ function buildDefaultPersistState(
  * Runs one merge and records its events. `decide` commits `merge.requested` before the git merge. It
  * appends nothing when the projection phase is `requested`, `executed`, `recovering`, or `completed`.
  * The `decide` call turns off the empty-write check, so a concurrent append does not fail that no-op path.
- * The git merge runs outside every retry boundary, so a lost race does not run it again.
+ * The git merge runs outside the `decide` retry, so a lost race there does not run the merge again.
  *
  * A success appends `merge.executed`, then retries `merge.completed` in place, because this call owns completion.
  * A rollback appends only `merge.recovered`. Each terminal event goes to the store before the state file write.
  * Each direct append reads a fresh stream tail and has its own idempotency key, so a replay is a no-op.
+ * Other event types share the stream, so a sequence pin from an earlier append leaves the workflow in `executing`.
  * A sequence conflict on the liveness or retry audit events does not stop the merge.
  */
 export async function handleExecuteMerge(

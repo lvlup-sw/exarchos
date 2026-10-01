@@ -1,5 +1,5 @@
 /**
- * The debug review gate. It checks that the diff of a debug fix adds test files. It runs
+ * The debug review gate. It checks that the diff of a debug fix changes at least one test file. It runs
  * `npm run test:run` when the diff is not empty and `skipRun` is not set.
  */
 import type { EventStore } from '../../events/store.js';

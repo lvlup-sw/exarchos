@@ -590,8 +590,8 @@ export async function handleViewWait(
 
 /**
  * The worktree scope of the generic `wait` verb. The router in `projections/views/lifecycle/wait.ts`
- * calls it when `until` is present. It is the same function as {@link handleViewWait}, so the suites
- * that import `handleViewWait` still cover it.
+ * calls it when the request has no `phase`, `status` or `operation` predicate. It is the same
+ * function as {@link handleViewWait}, so the suites that import `handleViewWait` still cover it.
  */
 export const handleWorktreeUntilWait = handleViewWait;
 

@@ -640,7 +640,7 @@ function plannedTask(entry: unknown): { readonly id: string; readonly title: str
  * Appends one `task.assigned` for each task that the stream has not announced, before the readiness fold counts them.
  * The function skips an announced task, because the projection reads a second announcement as a return to `assigned`.
  * Each append has a per-task idempotency key and a guard on the tail that the read saw.
- * When another writer appends in the gap, the guard refuses and the function reads again, up to `ANNOUNCE_ATTEMPTS` times.
+ * When another writer appends in the gap, the guard refuses and the function reads again. It makes up to `ANNOUNCE_ATTEMPTS` attempts in total.
  */
 async function announceTasks(
   store: EventStore,
@@ -760,7 +760,7 @@ function sharedCheckoutHazardWarning(expected: number): string {
  * Under native isolation, the protected-branch and worktree-location guards do not run, and the base-ref guard runs.
  * The server reads HEAD from its own launch checkout, so the protected-branch guard gives a false positive when the orchestrator works from a worktree.
  * The protected-branch guard runs before the ancestry guard, because ancestry always passes when HEAD is on `main`.
- * Each dispatch records one `dispatch.preflight` event. A guard that did not run records `passed: true`.
+ * Each dispatch that reaches the guards records one `dispatch.preflight` event. A guard that did not run records `passed: true`, but `baseRef` is absent without native isolation.
  *
  * The handler announces the planned tasks before the readiness fold counts them. The desync diagnostic and the shared-checkout warning do not change `ready`.
  * A failed classification records `phase.blocked` and returns an error.

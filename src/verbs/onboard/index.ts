@@ -40,7 +40,7 @@ export interface HandleOnboardArgs {
   readonly runtime?: readonly string[];
   /** Explicit VCS id from `--vcs`. It bypasses the `.git` probe. */
   readonly vcs?: string;
-  /** Compute the plan but perform NO side effect and emit NO events. */
+  /** Compute the plan, apply no step and emit no events. With `new`, the greenfield scaffold still writes the target first. */
   readonly dryRun?: boolean;
   /** Overwrite hand-edited config. Without it, the run keeps that config. */
   readonly force?: boolean;
@@ -81,8 +81,8 @@ export interface OnboardDeps {
   readonly detectOptions?: DetectOptions;
   /**
    * Greenfield scaffold for `--new <name>`. It seeds a new `<name>/` directory and returns its root,
-   * or refuses a non-empty target. When absent, {@link scaffoldNewRepo} resolves `<name>` against
-   * {@link OnboardDeps.repoRoot}.
+   * or returns a refusal, such as for a non-empty target. When absent, {@link scaffoldNewRepo}
+   * resolves `<name>` against {@link OnboardDeps.repoRoot}.
    */
   readonly scaffold?: (name: string) => ScaffoldNewResult;
 }
@@ -115,8 +115,8 @@ export interface OnboardVerify {
 
 /**
  * VERIFY: runs the doctor checks after apply and calls `diff` again. Only a check that is still
- * `Fail` blocks. A `Warning` does not block the onboard. It imports `diff` lazily, so the
- * classification is the same one the plan used.
+ * `Fail` blocks. A `Warning` does not block the onboard. It loads `diff` lazily from the reconciler,
+ * so it uses the same classification as the plan.
  */
 async function verify(
   deps: OnboardDeps,
@@ -217,8 +217,9 @@ function retargetDeps(deps: OnboardDeps, repoRoot: string): OnboardDeps {
 }
 
 /**
- * The refusal result for a non-empty greenfield target. It carries the scaffold error and a
- * `suggestedFix` that runs a plain `onboard` on the existing directory.
+ * The refusal result when the greenfield scaffold refuses its target: an invalid name, a file, or a
+ * non-empty directory. It carries the scaffold error and a `suggestedFix` that runs a plain
+ * `onboard`.
  */
 function greenfieldRefusalResult(error: ScaffoldNewError): ToolResult {
   return {
@@ -235,8 +236,8 @@ function greenfieldRefusalResult(error: ScaffoldNewError): ToolResult {
 }
 
 /**
- * Runs the `onboard` pipeline. With `--new <name>`, it scaffolds first, and a non-empty target
- * refuses before any pipeline step or event. A dry run returns the plan with no apply, no events
+ * Runs the `onboard` pipeline. With `--new <name>`, it scaffolds first, and a scaffold refusal
+ * returns before any pipeline step or event. A dry run returns the plan with no apply, no events
  * and no VERIFY. A success points `next_actions` at `doctor`.
  */
 export async function handleOnboard(

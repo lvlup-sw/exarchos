@@ -57,7 +57,7 @@ interface ReviewRoutedEvent {
   };
 }
 
-/** Parse JSONL review events. A line that is not valid JSON is skipped. */
+/** Parse JSONL review events. The parser skips a line that is not valid JSON. */
 function parseJsonl(content: string): readonly ReviewRoutedEvent[] {
   const events: ReviewRoutedEvent[] = [];
   for (const line of content.split('\n')) {

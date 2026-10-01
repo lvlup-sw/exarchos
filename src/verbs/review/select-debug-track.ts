@@ -73,7 +73,7 @@ function generateReport(
 }
 
 /**
- * Selects the debug track. When `urgency` or `rootCauseKnown` is missing, it reads them from the workflow state.
+ * Selects the debug track. When `urgency` or `rootCauseKnown` is missing, it reads them from `stateFile`, or from the event store for `featureId`.
  * The event store is the source of truth, and a `.state.json` file can be absent.
  * An explicit `stateFile` must be inside the state directory.
  */
