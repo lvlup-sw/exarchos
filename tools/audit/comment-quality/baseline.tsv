@@ -3829,8 +3829,6 @@ src/vcs/worktree-provisioner.ts	4692b03b1c0c	1
 src/vcs/worktree-provisioner.ts	6053b6290f67	1
 src/vcs/worktree-provisioner.ts	6efbcbe26edf	1
 src/vcs/worktree-provisioner.ts	83f744464f5e	1
-src/verbs/gates/test-adequacy.ts	d6ca8b92a282	1
-src/workflow/topology/builtin.ts	f2676300e505	1
 stryker.conf.mjs	78468a90e15f	1
 stryker.conf.mjs	ceff2c08c2f7	1
 tests/acceptance/action-contract-next-actions.test.ts	cc98dfb3ad14	1
