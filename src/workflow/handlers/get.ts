@@ -13,8 +13,12 @@ import * as path from 'node:path';
 import { resolveDotPath } from './dot-path.js';
 import { isEventSourced, mergeFileOwnedFields, stripInternalFields } from './shared.js';
 
-// ─── handleGet ──────────────────────────────────────────────────────────────
-
+/**
+ * Reads a workflow state, a field projection, or a dot-path query.
+ * Every query, a scalar query too, uses one resolution. With an event store, an ES v2 workflow answers from the event fold.
+ * The state file gives the version marker, and it is the fallback for a legacy workflow or a missing event store.
+ * The check is `eventStore != null`, so an `undefined` store from a loosely typed adapter also takes the fallback.
+ */
 export async function handleGet(
   input: GetInput,
   stateDir: string,
@@ -22,16 +26,6 @@ export async function handleGet(
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
-  // #1504 — there is no scalar fast path off the `.state.json` file. The file
-  // is a derived stamp that goes stale (and, once the write-path is removed,
-  // absent), so a top-level scalar query (`query: 'phase'`) must fold the
-  // authoritative event log exactly like a full read does — events win over a
-  // stale on-disk scalar. All queries (scalar, dot-path, field-projection)
-  // route through the shared resolution below, which materializes from events
-  // for ES v2 workflows (`handleGetFromEvents`) and reads the file only on the
-  // legacy / no-event-store degradation path (`handleGetFromStateFile`).
-
-  // Read state file — needed for version check and as fallback for legacy path
   let state: WorkflowState;
   try {
     state = await readStateFile(stateFile);
@@ -48,24 +42,23 @@ export async function handleGet(
     throw err;
   }
 
-  // Version discriminator: ES v2 workflows materialize from events
-  // `!= null` deliberately, not `!== null`: the parameter is typed
-  // `EventStore | null`, but callers reach this through loosely-typed adapters
-  // and an `undefined` store used to be harmless — the path was gated on a
-  // materializer that was never set, so it never ran. Now that it does run,
-  // letting `undefined` through means folding against nothing.
   const useEventSource = isEventSourced(state) && eventStore != null;
 
   if (useEventSource) {
     return handleGetFromEvents(input, state, eventStore, stateDir);
   }
 
-  // Legacy path: read directly from state file
   return handleGetFromStateFile(input, state);
 }
 
 /**
- * ES v2 read path: materialize state from events via ViewMaterializer.
+ * The ES v2 read path. It materializes the state from events.
+ *
+ * An `asOf` read uses `materializeFresh`, which never reads or writes the cache.
+ * With a bounded list, the cached `materialize` can return live state and pollute the cache.
+ * A live read folds to the durable tail of the stream before it answers.
+ * Both arms merge the file-owned fields, so a bound past the tip gives the same answer as a live read.
+ * The checkpoint meta comes from the state file, which is the authority for checkpoint tracking.
  */
 async function handleGetFromEvents(
   input: GetInput,
@@ -75,16 +68,6 @@ async function handleGetFromEvents(
 ): Promise<ToolResult> {
   const materializer = getOrCreateMaterializer(stateDir);
 
-  // #1555 — an `asOf` (bounded-fold) read folds `events[0..N]` through the
-  // cache-bypassing fresh fold. This is load-bearing: `materialize` is
-  // hwm-cache-based (it folds only events past the cached high-water mark and
-  // writes the cache), so handing it a BOUNDED list would (a) return the
-  // cached LIVE state when a warm cache already sits past N, and (b) pollute
-  // the cache for later live reads. `materializeFresh` folds from
-  // `projection.init()` over the bounded list and never reads/writes the LRU.
-  // The live path keeps the cached `materialize`. Both bound through the
-  // shared `resolveAsOfEvents` seam; the CLI/MCP adapters only pass `asOf`
-  // through (INV-2).
   let materialized: WorkflowStateView;
   if (input.asOf !== undefined) {
     const bounded = resolveAsOfEvents(await eventStore.query(input.featureId), input.asOf);
@@ -93,10 +76,6 @@ async function handleGetFromEvents(
       bounded,
     );
   } else {
-    // #1855 — the live read folds to the stream's durable tail before it
-    // answers. This is the surface the wedge was observed on: `workflow get`
-    // held no cursor of its own, so it could only consult a durable verdict
-    // published elsewhere and refuse. It now establishes its own coverage.
     materialized = (await foldToTail<WorkflowStateView>(
       eventStore,
       materializer,
@@ -106,24 +85,11 @@ async function handleGetFromEvents(
   }
 
   const materializedRecord = materialized as unknown as Record<string, unknown>;
-  // Checkpoint meta comes from state file (not materialized) since it's the
-  // authoritative source for checkpoint tracking.
   const meta = buildCheckpointMeta(fileState._checkpoint);
-  // Both arms merge, including the bounded one. A bound past the tip excludes
-  // nothing, so it IS the live read and must answer identically — differing
-  // there would be an artifact of which branch ran, not a fact about the
-  // stream. And the merged fields carry no history to distort: the projection
-  // models no `_version` at any sequence, `_esVersion` is a format marker
-  // rather than state, and the file's `_checkpoint` already reaches a bounded
-  // response through `_meta` above regardless of this branch.
   return projectState(input, mergeFileOwnedFields(materializedRecord, fileState), meta);
 }
 
-/**
- * Legacy read path: read directly from state file (v1 workflows, or no event
- * store). Not the ES v2 path — that folds the log and merges the file's own
- * fields on top; see `handleGetFromEvents`.
- */
+/** The legacy read path. It reads the state file directly, for a v1 workflow or when no event store exists. */
 function handleGetFromStateFile(
   input: GetInput,
   state: WorkflowState,
@@ -133,19 +99,18 @@ function handleGetFromStateFile(
 }
 
 /**
- * Shared projection logic: apply field projection, strip internals, or resolve dot-path query.
+ * Applies a field projection, returns the full state without internal fields, or resolves a dot-path query.
+ * The `playbook` field is virtual. It comes from the workflow type and the phase.
  */
 function projectState(
   input: GetInput,
   stateObj: Record<string, unknown>,
   meta: ReturnType<typeof buildCheckpointMeta>,
 ): ToolResult {
-  // Fields projection
   if (input.fields && !input.query) {
     const projected: Record<string, unknown> = {};
     for (const field of input.fields) {
       if (field.startsWith('_')) continue;
-      // Special handling for 'playbook' virtual field
       if (field === 'playbook') {
         const wfType = typeof stateObj.workflowType === 'string' ? stateObj.workflowType : '';
         const phase = typeof stateObj.phase === 'string' ? stateObj.phase : '';
@@ -163,7 +128,6 @@ function projectState(
     return { success: true, data: projected, _meta: meta };
   }
 
-  // Full state (no query, no fields)
   if (!input.query) {
     const strippedState = stripInternalFields(stateObj);
     return {
@@ -173,7 +137,6 @@ function projectState(
     };
   }
 
-  // Dot-path query
   const value = resolveDotPath(stateObj, input.query);
   return {
     success: true,

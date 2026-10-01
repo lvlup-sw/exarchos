@@ -1,31 +1,15 @@
-// ─── State-Mutation Primitives (leaf module) ────────────────────────────────
-//
-// The shared dot-path mutation + plain-object helpers and the `StateStoreError`
-// type, extracted here (DR-4, debloat task 009) to break the runtime import
-// cycle between `state-store.ts` and `projections/views/workflow-state-projection.ts`. Both
-// sides previously reached into `state-store.ts` for these primitives while
-// `state-store.ts` imported the projection's `apply` — a genuine mutual
-// runtime cycle (dependency-cruiser SCC).
-//
-// This module is a LEAF: it depends only on `./schemas.js` (its own leaf), so
-// nothing here re-enters `state-store.ts` or the projection. `state-store.ts`
-// re-exports these symbols so its existing importers are unaffected; the
-// projection imports them straight from here. Behavior is byte-identical to the
-// pre-extraction definitions (INV-2: no adapter indirection, no behavior moved
-// to dodge the edge — the primitives simply live at the leaf both callers share).
+/**
+ * Leaf module for the dot-path mutation helpers, the plain-object helpers, and `StateStoreError`.
+ * It imports only `./schemas.js`, so `state-store.ts` and the workflow-state projection share it without an import cycle.
+ * `state-store.ts` re-exports these symbols for its importers.
+ */
 
 import { ErrorCode, isReservedField, RESERVED_FIELDS_DESCRIPTOR } from './schemas.js';
 
-// ─── State Store Error ─────────────────────────────────────────────────────
-
 /**
- * Typed data block carried on `RESERVED_FIELD` errors (#1360). The
- * `rule` text is the descriptor's `underscorePrefixRule` for
- * underscore-prefixed paths and a per-key string for top-level immutable
- * fields. `alternateWritePath` may be `null` if no migration target is
- * known (currently unreachable — every reserved key has an entry in the
- * descriptor — but kept nullable so future, unmapped reserved paths fail
- * forward instead of crashing on `undefined`).
+ * Structured data on a `RESERVED_FIELD` error, so callers can switch to the alternate write path without parsing the message.
+ * `rule` is the `underscorePrefixRule` of the descriptor, or a per-key string for a top-level immutable field.
+ * `alternateWritePath` is `null` when the descriptor has no entry for the path.
  */
 export interface ReservedFieldErrorData {
   rejectedPath: string;
@@ -33,6 +17,7 @@ export interface ReservedFieldErrorData {
   alternateWritePath: string | null;
 }
 
+/** A state-store failure with an `ErrorCode` and optional reserved-field data. */
 export class StateStoreError extends Error {
   constructor(
     public readonly code: string,
@@ -45,27 +30,18 @@ export class StateStoreError extends Error {
 }
 
 /**
- * Resolve the descriptor `alternateWritePaths` entry that applies to
- * `dotPath`. Matches the literal top-level immutable key first, then
- * falls back to regex keys (e.g. `^_.*` for underscore-prefixed paths).
- * Returns `null` if no entry matches.
- *
- * Regex keys are tested against the whole dot-path AND each segment, to
- * mirror `isReservedField`'s segment-aware semantics: a path like
- * `foo._bar` is reserved because an inner segment starts with `_`, so
- * the `^_.*` guidance must apply even though the whole path does not
- * match that regex.
+ * Resolve the `alternateWritePaths` entry of the descriptor for `dotPath`, or `null` when no entry matches.
+ * A literal top-level key matches first. Then each regex key is tested against the whole path and against each segment.
+ * The segment test copies `isReservedField`: `foo._bar` is reserved, so the `^_.*` entry must apply to it.
+ * A malformed regex key is skipped, because the descriptor is internal.
  */
 export function resolveAlternateWritePath(dotPath: string): string | null {
   const segments = dotPath.split('.');
-  // `split` always yields at least one element; `?? ''` narrows to `string`.
   const topLevel = segments[0] ?? '';
   const map = RESERVED_FIELDS_DESCRIPTOR.alternateWritePaths as Record<string, string>;
 
-  // 1) Literal top-level key (`phase`, `workflowType`, ...).
   if (map[topLevel] !== undefined) return map[topLevel];
 
-  // 2) Regex keys — currently the underscore-prefixed catch-all `^_.*`.
   for (const [key, value] of Object.entries(map)) {
     if (key.startsWith('^') || key.endsWith('$') || key.includes('.*')) {
       try {
@@ -74,7 +50,6 @@ export function resolveAlternateWritePath(dotPath: string): string | null {
           return value;
         }
       } catch {
-        // Skip malformed regex keys silently; descriptor is internal.
       }
     }
   }
@@ -84,8 +59,6 @@ export function resolveAlternateWritePath(dotPath: string): string | null {
 
 /** Maximum gap between array length and new index. Allows append (gap 0) and one-past-end (gap 1). */
 export const MAX_ARRAY_GAP = 1;
-
-// ─── Apply Dot-Path Update ─────────────────────────────────────────────────
 
 /**
  * Check if a value is a plain object (not null, not array).
@@ -119,23 +92,15 @@ export function deepMerge(
 }
 
 /**
- * Parse a dot-path string into segments, handling array bracket notation.
- * Example: "tasks[0].status" -> ["tasks", 0, "status"]
- *
- * fix-004 (#1213, T-17c): keyed-access bracket forms such as
- * `tasks[id=T-001]` are explicitly rejected. Earlier behavior fell
- * through to treat the whole `tasks[id=T-001]` chunk as a literal property
- * name and silently wrote to a bogus top-level key, returning success
- * while the actual task was untouched. The parser now throws so callers
- * get loud feedback and reach for the supported by-index form documented
- * in `content/continuity/skills/checkpoint/SKILL.md`.
+ * Parse a dot-path into segments. `"tasks[0].status"` gives `["tasks", 0, "status"]`.
+ * Only numeric brackets are valid. A keyed form such as `tasks[id=001]`, or any other bracket form, throws.
+ * Without the throw, the whole chunk becomes a literal key, and the write reports success on the wrong field.
  */
 function parsePath(dotPath: string): Array<string | number> {
   const segments: Array<string | number> = [];
   const parts = dotPath.split('.');
 
   for (const part of parts) {
-    // Check for array bracket notation: "tasks[0]"
     const bracketMatch = part.match(/^([^[]+)\[(\d+)\]$/);
     if (bracketMatch && bracketMatch[1] !== undefined && bracketMatch[2] !== undefined) {
       segments.push(bracketMatch[1]);
@@ -143,16 +108,12 @@ function parsePath(dotPath: string): Array<string | number> {
       continue;
     }
 
-    // Check for standalone bracket: "[0]"
     const standaloneBracket = part.match(/^\[(\d+)\]$/);
     if (standaloneBracket && standaloneBracket[1] !== undefined) {
       segments.push(parseInt(standaloneBracket[1], 10));
       continue;
     }
 
-    // fix-004: detect non-numeric bracket content and reject loudly. Match
-    // any `[...]` whose body is NOT pure digits — covers `tasks[id=001]`,
-    // `tasks[id=T-001]`, `tasks[name=foo]`, `tasks[*]`, etc.
     const nonNumericBracket = part.match(/^([^[]*)\[([^\]]*)\]$/);
     if (nonNumericBracket && !/^\d+$/.test(nonNumericBracket[2] ?? '')) {
       throw new StateStoreError(
@@ -165,14 +126,6 @@ function parsePath(dotPath: string): Array<string | number> {
       );
     }
 
-    // CodeRabbit #18 (#1213): catch malformed and compound bracket forms
-    // that the patterns above don't recognize but which still contain
-    // bracket characters. Examples: `tasks[0][1]` (compound double
-    // index), `tasks[id=T-001` (unterminated), `tasks]` (mismatched
-    // close), `[]` (empty body). Falling through here would push the
-    // whole literal as a property name — same silent-success bug
-    // fix-004 closed for keyed access. Reject loudly with the same
-    // remediation guidance.
     if (part.includes('[') || part.includes(']')) {
       throw new StateStoreError(
         ErrorCode.INVALID_INPUT,
@@ -187,10 +140,7 @@ function parsePath(dotPath: string): Array<string | number> {
   return segments;
 }
 
-/**
- * Guard against sparse array creation. Throws if the index exceeds the
- * array length by more than MAX_ARRAY_GAP.
- */
+/** Throw when the index exceeds the array length by more than `MAX_ARRAY_GAP`. */
 function assertArrayBounds(
   arr: unknown[],
   index: number,
@@ -204,14 +154,16 @@ function assertArrayBounds(
   }
 }
 
+/**
+ * Write `value` at `dotPath` in `obj`, and create missing intermediate objects and arrays.
+ * A reserved path throws `RESERVED_FIELD` with structured data. At an object key, two plain objects deep-merge.
+ * Any other write replaces the value.
+ */
 export function applyDotPath(
   obj: Record<string, unknown>,
   dotPath: string,
   value: unknown,
 ): void {
-  // Check for reserved fields. The thrown error carries structured `data`
-  // so callers can pivot to the alternate write path without parsing the
-  // message string (#1360).
   if (isReservedField(dotPath)) {
     const alternateWritePath = resolveAlternateWritePath(dotPath);
     const topLevel = dotPath.split('.')[0] ?? '';
@@ -238,7 +190,6 @@ export function applyDotPath(
     const nextSegment = segments[i + 1];
 
     if (typeof segment === 'number') {
-      // Array index access
       if (!Array.isArray(current)) {
         throw new StateStoreError(
           ErrorCode.INVALID_INPUT,
@@ -247,22 +198,18 @@ export function applyDotPath(
       }
       assertArrayBounds(current, segment, dotPath);
       if (current[segment] === undefined) {
-        // Create intermediate object or array based on next segment
         current[segment] = typeof nextSegment === 'number' ? [] : {};
       }
       current = current[segment];
     } else {
-      // Object key access
       const record = current as Record<string, unknown>;
       if (record[segment] === undefined || record[segment] === null) {
-        // Create intermediate object or array based on next segment
         record[segment] = typeof nextSegment === 'number' ? [] : {};
       }
       current = record[segment];
     }
   }
 
-  // Set the final value
   const lastSegment = segments[segments.length - 1];
   if (lastSegment === undefined) return;
   if (typeof lastSegment === 'number') {
@@ -276,7 +223,6 @@ export function applyDotPath(
     current[lastSegment] = value;
   } else {
     const record = current as Record<string, unknown>;
-    // Deep-merge when both existing and new values are plain objects
     if (isPlainObject(record[lastSegment]) && isPlainObject(value)) {
       record[lastSegment] = deepMerge(
         record[lastSegment] as Record<string, unknown>,

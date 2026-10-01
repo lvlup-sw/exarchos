@@ -1,28 +1,11 @@
-// ─── Optimistic-concurrency retry for workflow state writes ─────────────
-//
-// Workflow state files are read-mutate-written via `state-store.ts`. The
-// store's CAS (compare-and-swap) check throws `VersionConflictError` when a
-// concurrent writer raced ahead, leaving the caller's payload stale.
-// Handlers respond by re-reading, re-applying their mutation, and retrying
-// the write — exactly the optimistic-concurrency pattern `handleTaskClaim`
-// established in `tasks/tools.ts`.
-//
-// This module is the single source of truth for the retry constants and
-// the retry helper. Inline copies should NOT exist; if a third call site
-// appears, import from here.
-//
-// Contract (post stream-version-gate, DR-2): this retry is reserved for
-// GENUINE optimistic-concurrency callers — state-store CAS writes and
-// event-stream handlers that pass `expectedSequence` (directly or via
-// `decide`/`withSession`). A PLAIN append (no `expectedSequence`) can no
-// longer surface a conflict: the gate assigns its sequence under the write
-// lock, so the loser serializes transparently instead of racing. Plain-append
-// paths are therefore NOT wrapped here — wrapping one would be dead code.
-// (The MCP `exarchos_event append` surface is intentionally un-wrapped.)
-//
-// Designed to be small and dependency-free — only `VersionConflictError`
-// from `state-store.ts` and the standard `setTimeout`. Callers wrap any
-// closure that ends in a `writeStateFile` call.
+/**
+ * Optimistic-concurrency retry for workflow state writes, and the one home of its constants.
+ * When a concurrent writer wins, the write throws a conflict error and the payload of the caller is stale.
+ * The caller then reads again, applies its mutation again, and writes again.
+ *
+ * Use this retry only for state-store CAS writes and for appends that pass `expectedSequence`.
+ * A plain append cannot get a conflict, because the store assigns its sequence under the write lock.
+ */
 
 import { VersionConflictError } from './state-store.js';
 import { ConcurrencyError } from '../events/concurrency-error.js';
@@ -36,31 +19,10 @@ export const MAX_STATE_RETRIES = 3;
 export const STATE_BASE_DELAY_MS = 50;
 
 /**
- * Predicate: should `withStateRetry` treat `err` as a retryable transient
- * signal? Wave 4 / Task 4.1 (audit §F2.1) widens the recognizer beyond the
- * legacy `VersionConflictError` (state-store CAS) to also accept the R-2
- * primitive layer's typed errors:
- *
- *   - `ConcurrencyError` — OCC loss on the event-stream tail. Caller must
- *     re-fetch state and re-decide; the retry loop handles that because the
- *     wrapped closure routes through `decide`/`withSession` which read+fold
- *     on every invocation.
- *   - `StorageBusyError` — substrate `BEGIN IMMEDIATE` retry budget
- *     exhausted. The other writer commits on its own; the same closure
- *     succeeds on the next attempt.
- *   - `SequenceConflictError` — legacy OCC signal raised by
- *     `EventStore.append()` (separate from the R-2 primitive layer's
- *     `ConcurrencyError`). Wave-B `*.requested` Phase-A appends route
- *     through this surface; without recognizing the legacy class the
- *     retry loop never fires under real OCC, so the requested-event
- *     write surfaces immediately as a terminal failure.
- *     (CodeRabbit review #4278133032 on PR #1344.)
- *
- * Without this widening, a `decide`-based migration target (merge-orchestrate,
- * execute-merge) or a Wave-B two-event-split handler (create-pr, create-issue,
- * add-pr-comment, branch.delete, worktree.remove) would surface a transient
- * substrate or OCC signal as a terminal failure to the operator. Four classes,
- * one retry policy — the recovery posture (back off, re-decide) is identical.
+ * True when `withStateRetry` must retry after `err`.
+ * Four error classes share one recovery: back off, then read and decide again.
+ * `VersionConflictError` is a state-store CAS loss. `ConcurrencyError` and `SequenceConflictError` are event-stream OCC losses.
+ * `StorageBusyError` means the `BEGIN IMMEDIATE` budget is spent while another writer commits.
  */
 function isRetryable(err: unknown): boolean {
   return (
@@ -72,14 +34,9 @@ function isRetryable(err: unknown): boolean {
 }
 
 /**
- * Retry `fn` on any retryable transient signal up to `MAX_STATE_RETRIES`
- * times with exponential backoff + jitter. Other errors propagate
- * immediately.
- *
- * After exhaustion the underlying error (whichever retryable class
- * triggered the loop) is re-thrown so top-level handlers can map it to a
- * structured `ToolResult` (`STATE_CONFLICT`, `CONCURRENCY_CONFLICT`, or
- * `STORAGE_BUSY` per `format.ts:wrapError`) rather than a raw exception.
+ * Retry `fn` on a retryable error, at most `MAX_STATE_RETRIES` attempts, with exponential backoff and jitter.
+ * Other errors propagate immediately.
+ * After the last attempt, the original error propagates, so `wrapError` in `format.ts` can map it to a structured `ToolResult`.
  */
 export async function withStateRetry<T>(fn: () => Promise<T>): Promise<T> {
   for (let attempt = 0; attempt < MAX_STATE_RETRIES; attempt++) {
@@ -94,6 +51,5 @@ export async function withStateRetry<T>(fn: () => Promise<T>): Promise<T> {
       await new Promise((r) => setTimeout(r, delay));
     }
   }
-  // Unreachable: the loop either returns or throws on every iteration.
   throw new Error('withStateRetry: unreachable');
 }

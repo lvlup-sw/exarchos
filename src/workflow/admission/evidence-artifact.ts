@@ -102,10 +102,8 @@ function mapStoreError(error: unknown): never {
 }
 
 /**
- * Persist a canonical JSON report and return event-safe metadata only.
- *
- * The stored bytes are the Task 004 canonical subject envelope. Its SHA-256 is
- * therefore the subject digest itself; no second digest dialect is introduced.
+ * Stores a report as its canonical subject envelope and returns only a reference that is safe for an event.
+ * The SHA-256 of the stored bytes is the subject digest, so the store adds no second digest.
  */
 export async function storeEvidenceArtifact(
   store: ContentAddressedStore,
@@ -143,9 +141,7 @@ export async function storeEvidenceArtifact(
   return parsed.data;
 }
 
-/**
- * Resolve and verify an evidence report without policy, clock, LLM, or VCS I/O.
- */
+/** Resolves and verifies an evidence report. It reads no policy, clock, LLM, or VCS. */
 export async function resolveEvidenceArtifact(
   store: ContentAddressedStore,
   referenceInput: unknown,
@@ -224,10 +220,8 @@ export async function resolveEvidenceArtifact(
 }
 
 /**
- * Bind an artifact store to the evidence root of a state directory. The only
- * construction production code may use: a reference names a digest and no
- * root, so a producer and a reader that disagree about the root turn a
- * present blob into an absent one.
+ * Binds an artifact store to the evidence root of a state directory. Production code must use only this constructor.
+ * A reference names a digest and no root. If a producer and a reader use different roots, a stored blob looks absent.
  */
 export function evidenceArtifactStore(
   stateDir: string,
@@ -237,11 +231,7 @@ export function evidenceArtifactStore(
   return io === undefined ? new ContentAddressedStore(root) : new ContentAddressedStore(root, io);
 }
 
-/**
- * What the durable-evidence check needs of a blob source: the ability to say
- * that one reference holds. It throws when the reference does not resolve; it
- * never answers "probably".
- */
+/** A blob source for the durable-evidence check. `resolve` throws when the reference does not resolve. */
 export interface EvidenceArtifactResolver {
   resolve(reference: unknown): Promise<void>;
 }

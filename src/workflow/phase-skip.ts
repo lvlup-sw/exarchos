@@ -2,18 +2,12 @@ import type { HSMDefinition, Transition } from './state-machine.js';
 import { getInitialPhase } from './state-machine.js';
 
 /**
- * Apply phase skipping to an HSM definition by rerouting transitions
- * around skipped phases. Returns a new HSMDefinition; the original is
- * not mutated.
- *
- * Rules:
- * - Cannot skip the initial phase (no incoming transitions).
- * - Cannot skip a final phase.
- * - Nonexistent phase names are silently ignored.
- * - Skipping a compound state also removes transitions from its children.
- * - Guards on the skipped phase's outgoing transition are inherited by
- *   the predecessor transition. If the outgoing has no guard, the
- *   predecessor keeps its own guard.
+ * Returns `hsm` with its transitions routed around each skipped phase, and does not mutate it.
+ * Each incoming transition of a skipped phase becomes one transition to each outgoing target.
+ * The new transition takes the guard, effects and `isFixCycle` of the outgoing transition, or keeps its own value.
+ * Transitions to and from the children of a skipped compound state go away. Unknown phase names have no effect.
+ * The registry gives the initial phase, because an initial phase can have an incoming edge.
+ * @throws when a skip names a final phase, the initial phase, or a phase with no incoming transitions.
  */
 export function applyPhaseSkips(
   hsm: HSMDefinition,
@@ -21,11 +15,6 @@ export function applyPhaseSkips(
 ): HSMDefinition {
   if (skipPhases.length === 0) return hsm;
 
-  // The initial phase comes from the registry (the single source of truth),
-  // NOT a "no incoming transitions" heuristic: post-#1581 the feature HSM's
-  // initial `plan` phase HAS an incoming edge (the plan-review→plan gaps-found
-  // loop), so the heuristic would no longer identify it. Fall back to the
-  // heuristic only for HSMs whose id the registry doesn't know (custom types).
   let initialPhase: string | undefined;
   try {
     initialPhase = getInitialPhase(hsm.id);
@@ -33,18 +22,14 @@ export function applyPhaseSkips(
     initialPhase = undefined;
   }
 
-  // Validate: cannot skip initial or final phases
   for (const skip of skipPhases) {
     const state = hsm.states[skip];
-    if (!state) continue; // nonexistent = ignore
+    if (!state) continue;
 
     if (state.type === 'final') {
       throw new Error(`Cannot skip final phase '${skip}'`);
     }
 
-    // Reject the registry-declared initial phase, AND any phase with no
-    // incoming transitions (e.g. a compound state whose edges target its
-    // children) — both are unreachable-as-a-skip-target and rejected here.
     const isRegistryInitial = initialPhase !== undefined && skip === initialPhase;
     const hasNoIncoming = !hsm.transitions.some(t => t.to === skip);
     if (isRegistryInitial || hasNoIncoming) {
@@ -57,16 +42,12 @@ export function applyPhaseSkips(
   for (const skip of skipPhases) {
     if (!hsm.states[skip]) continue;
 
-    // Find all outgoing transitions from the skipped phase
     const outgoings = transitions.filter(t => t.from === skip);
     if (outgoings.length === 0) continue;
 
-    // For each incoming transition to the skipped phase, create
-    // new transitions to ALL outgoing targets
     const newTransitions: typeof transitions = [];
     for (const t of transitions) {
       if (t.to === skip) {
-        // Replace this incoming transition with one per outgoing
         for (const outgoing of outgoings) {
           newTransitions.push({
             ...t,
@@ -79,11 +60,9 @@ export function applyPhaseSkips(
       } else if (t.from !== skip) {
         newTransitions.push(t);
       }
-      // Skip transitions FROM the skipped phase (they're replaced)
     }
     transitions = newTransitions;
 
-    // Also remove transitions from child states of compound states
     const childIds = new Set(
       Object.values(hsm.states)
         .filter(s => s.parent === skip)

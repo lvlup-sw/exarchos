@@ -1,57 +1,37 @@
-// ─── P06-03 / Task 042 — The requirement-strength partial order ──────────────
-//
-// A `ResolvedRequirements` value is one point in the OUTPUT lattice of
-// requirement resolution. This module defines the partial order over that
-// lattice by *strength* — "at least as strong as" — and the least-upper-bound
-// (`join`) that lets resolution compose contributions monotonically.
-//
-// The order is a PRODUCT of four independent per-field orders:
-//
-//   gates                       — set inclusion   (a ⊇ b : more required gates is stronger)
-//   minimumApprovals            — numeric ≥        (more approvals is stronger)
-//   minimumCorroboratingSources — numeric ≥        (more corroboration is stronger)
-//   waivable                    — false ≥ true     (cannot-be-waived is stronger)
-//
-// A product of orders is itself a partial order — and a genuinely PARTIAL one:
-// two sets that each contain a gate the other lacks are INCOMPARABLE. That is
-// what makes `join` load-bearing rather than a `max`: the least upper bound must
-// unite the gate sets, not pick one.
-//
-// The algebraic laws (reflexivity, antisymmetry, transitivity, and that `join`
-// is a true LUB — commutative, associative, idempotent, absorptive) are proven
-// in the co-located test.
-//
-// Pure: no I/O.
+/**
+ * The strength partial order over resolved requirements, and its join.
+ *
+ * The order is the product of four field orders:
+ *   - `gates`: set inclusion. More required gates is stronger.
+ *   - `minimumApprovals` and `minimumCorroboratingSources`: a larger number is stronger.
+ *   - `waivable`: `false` is stronger than `true`.
+ * Two gate sets that each hold a gate the other lacks are incomparable.
+ * Thus `join` must unite the gate sets and cannot pick one.
+ * The unit tests prove the order and lattice laws. The module does no I/O.
+ */
 
 import type { ResolvedGate } from '../phase-kind.js';
 
-// ─── The lattice element ─────────────────────────────────────────────────────
-
 /**
- * A resolved requirement set: the complete obligations a phase attempt must
- * discharge, as a single lattice point. Deliberately NOT the persisted
- * `AdmissionRequirementV1[]` record shape (branded ids, subjects, and digests
- * are minted by the downstream freeze step, Task 019) — this is the pure
- * obligation algebra those records are projected from.
+ * All the obligations of a phase attempt, as one lattice point.
+ * This is not the persisted `AdmissionRequirementV1[]` shape.
+ * A later freeze step projects those records, with branded ids, subjects and digests.
  */
 export interface ResolvedRequirements {
   /**
-   * The gate obligations that must each produce passing evidence, in canonical
-   * order (see {@link canonicalGateKey}) with no duplicates. Stronger = superset.
+   * The gates that must each produce passing evidence.
+   * The list has no duplicates and is in {@link canonicalGateKey} order. A superset is stronger.
    */
   readonly gates: readonly ResolvedGate[];
-  /** Minimum independent approvals required. `>= 0`. Stronger = larger. */
+  /** The minimum number of independent approvals, `>= 0`. A larger number is stronger. */
   readonly minimumApprovals: number;
   /**
-   * Minimum independent corroborating sources required. `0` means no
-   * corroboration obligation; a positive value is a real obligation (which the
-   * persisted `corroboration` requirement floors at 2). Stronger = larger.
+   * The minimum number of independent corroborating sources. `0` means no obligation.
+   * The persisted `corroboration` requirement raises a positive value to at least 2.
+   * A larger number is stronger.
    */
   readonly minimumCorroboratingSources: number;
-  /**
-   * Whether an authorized waiver may discharge the obligations. `false`
-   * (not waivable) is STRONGER than `true`.
-   */
+  /** True when an authorized waiver can discharge the obligations. `false` is stronger than `true`. */
   readonly waivable: boolean;
 }
 
@@ -66,18 +46,15 @@ export const BOTTOM_REQUIREMENTS: FrozenResolvedRequirements = deepFreezeRequire
   waivable: true,
 });
 
-// ─── Gate-set helpers (canonical order, set semantics) ───────────────────────
-
 /**
- * A stable total-order key for a resolved gate, so gate SETS have a canonical
- * serialization and comparison independent of insertion order. Family first,
- * then gate name — both are closed vocabularies, so the key never collides.
+ * A stable sort key for a resolved gate: family, then gate name.
+ * Thus a gate set has one canonical order. Both parts are closed vocabularies, so keys never collide.
  */
 export function canonicalGateKey(gate: ResolvedGate): string {
   return `${gate.family}\u0000${gate.gate}`;
 }
 
-/** Deduplicate and sort a gate list into canonical order. Pure; returns a fresh array. */
+/** Removes duplicates and sorts a gate list into canonical order. It returns a new array. */
 export function canonicalizeGates(
   gates: readonly ResolvedGate[],
 ): readonly ResolvedGate[] {
@@ -91,7 +68,7 @@ export function canonicalizeGates(
   );
 }
 
-/** True iff every gate in `subset` also appears in `superset` (set inclusion). */
+/** True when every gate in `subset` is also in `superset`. */
 function gatesContain(
   superset: readonly ResolvedGate[],
   subset: readonly ResolvedGate[],
@@ -108,7 +85,7 @@ function unionGates(
   return canonicalizeGates([...a, ...b]);
 }
 
-/** True iff the two gate lists are the same SET (order-independent). */
+/** True when the two gate lists hold the same set of gates, in any order. */
 function gatesEqual(
   a: readonly ResolvedGate[],
   b: readonly ResolvedGate[],
@@ -116,15 +93,10 @@ function gatesEqual(
   return gatesContain(a, b) && gatesContain(b, a);
 }
 
-// ─── The partial order ───────────────────────────────────────────────────────
-
 /**
- * `true` iff `a` is AT LEAST AS STRONG as `b` (`a ≥ b`): a's obligations
- * dominate b's in every field. This is the reflexive, antisymmetric, transitive
- * order the whole module is built around.
- *
- * Because the gate field is ordered by set inclusion, `atLeastAsStrong` can be
- * false in BOTH directions — `a` and `b` are then incomparable.
+ * True when `a` is at least as strong as `b` in every field.
+ * For `waivable`, `a` must be not waivable whenever `b` is not waivable.
+ * Because gates use set inclusion, the result can be false in both directions.
  */
 export function atLeastAsStrong(
   a: ResolvedRequirements,
@@ -134,13 +106,11 @@ export function atLeastAsStrong(
     gatesContain(a.gates, b.gates) &&
     a.minimumApprovals >= b.minimumApprovals &&
     a.minimumCorroboratingSources >= b.minimumCorroboratingSources &&
-    // waivable strength: false (not-waivable) ≥ true (waivable). `a` is at least
-    // as strong iff it is not-waivable whenever `b` is not-waivable.
     (b.waivable || !a.waivable)
   );
 }
 
-/** Structural equality of two requirement sets (gate field compared as a SET). */
+/** True when two requirement sets are equal. It compares the gates as a set. */
 export function equalRequirements(
   a: ResolvedRequirements,
   b: ResolvedRequirements,
@@ -156,13 +126,7 @@ export function equalRequirements(
 /** The result of comparing `a` to `b` in the strength order. */
 export type StrengthComparison = 'eq' | 'stronger' | 'weaker' | 'incomparable';
 
-/**
- * Compare `a` to `b`:
- *   - `'eq'`          — equal strength,
- *   - `'stronger'`    — `a` strictly dominates `b`,
- *   - `'weaker'`      — `b` strictly dominates `a`,
- *   - `'incomparable'`— neither dominates (only possible via the gate-set order).
- */
+/** Compares `a` to `b`. Only the gate-set order can make the result `'incomparable'`. */
 export function compareStrength(
   a: ResolvedRequirements,
   b: ResolvedRequirements,
@@ -175,17 +139,10 @@ export function compareStrength(
   return 'incomparable';
 }
 
-// ─── The join (least upper bound) ────────────────────────────────────────────
-
 /**
- * The least upper bound of `a` and `b`: the WEAKEST requirement set that is at
- * least as strong as both. Field-wise it is gate-set union, `max` of the two
- * numeric floors, and logical AND of `waivable` (not-waivable dominates). The
- * result is deeply frozen.
- *
- * `join` is commutative, associative, idempotent, and — being a true LUB —
- * satisfies the absorption laws with `atLeastAsStrong`. Those are proven in the
- * co-located test.
+ * The least upper bound of `a` and `b`: the weakest set that is at least as strong as both.
+ * It takes the gate union, the larger of each number, and the AND of `waivable`.
+ * The result is deeply frozen.
  */
 export function joinRequirements(
   a: ResolvedRequirements,
@@ -203,9 +160,8 @@ export function joinRequirements(
 }
 
 /**
- * Fold {@link joinRequirements} over many contributions. The empty fold is
- * {@link BOTTOM_REQUIREMENTS} — the identity of `join` — so resolution of a
- * profile that adds nothing is well-defined and total.
+ * Folds {@link joinRequirements} over many contributions.
+ * An empty list gives {@link BOTTOM_REQUIREMENTS}, the identity of `join`.
  */
 export function joinAll(
   items: readonly ResolvedRequirements[],
@@ -216,12 +172,9 @@ export function joinAll(
   );
 }
 
-// ─── Deep freeze ─────────────────────────────────────────────────────────────
-
 /**
- * Deep-freeze a requirement set: the gate array, every gate object in it, and
- * the top-level object. After this, a mutation attempt in strict mode throws —
- * the resolver can hand the value to callers without a defensive copy.
+ * Puts the gates in canonical order, then freezes the gate array, each gate and the top-level object.
+ * Thus the resolver can return the value without a defensive copy.
  */
 export function deepFreezeRequirements(
   value: ResolvedRequirements,

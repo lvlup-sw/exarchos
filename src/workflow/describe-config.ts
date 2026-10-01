@@ -1,27 +1,23 @@
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { DEFAULTS } from '../config/resolve.js';
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
+/** A resolved config value and where it came from. */
 export interface AnnotatedValue<T> {
   readonly value: T;
   readonly source: 'default' | '.exarchos.yml';
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
+/** A value that is JSON-equal to its default reports `default`, even when `.exarchos.yml` sets it. */
 function annotate<T>(value: T, defaultValue: T): AnnotatedValue<T> {
   const isDefault = JSON.stringify(value) === JSON.stringify(defaultValue);
   return { value, source: isDefault ? 'default' : '.exarchos.yml' };
 }
 
-// ─── Builder ────────────────────────────────────────────────────────────────
-
 type DimensionKey = 'D1' | 'D2' | 'D3' | 'D4' | 'D5';
 const DIMENSION_KEYS: readonly DimensionKey[] = ['D1', 'D2', 'D3', 'D4', 'D5'];
 
+/** Build the resolved project config with each value annotated by its source. */
 export function buildConfigDescription(config: ResolvedProjectConfig) {
-  // ── Review Dimensions ──
   const dimensions = Object.fromEntries(
     DIMENSION_KEYS.map((dim) => [
       dim,
@@ -32,8 +28,6 @@ export function buildConfigDescription(config: ResolvedProjectConfig) {
     ]),
   ) as Record<DimensionKey, AnnotatedValue<string>>;
 
-  // ── Review Gates ──
-  // Any gate present was defined in config (defaults has empty gates)
   const gates = Object.fromEntries(
     Object.entries(config.review.gates).map(([name, gate]) => {
       const defaultGate = DEFAULTS.review.gates[name];
@@ -78,7 +72,6 @@ export function buildConfigDescription(config: ResolvedProjectConfig) {
       on: annotate(config.hooks.on, DEFAULTS.hooks.on),
     },
     prune: {
-      // `staleAfterDays` removed (DR-9) — staleness now lives in topology.yaml.
       maxBatchSize: annotate(config.prune.maxBatchSize, DEFAULTS.prune.maxBatchSize),
       phaseExclusions: annotate(config.prune.phaseExclusions, DEFAULTS.prune.phaseExclusions),
       malformedHandling: annotate(config.prune.malformedHandling, DEFAULTS.prune.malformedHandling),
@@ -108,29 +101,18 @@ export function buildConfigDescription(config: ResolvedProjectConfig) {
       },
     },
     events: {
-      // How hard the post-dispatch emission verifier bites. Default `block`,
-      // in every environment; `advisory` records a violation without failing.
       emissionEnforcement: annotate(
         config.events.emissionEnforcement,
         DEFAULTS.events.emissionEnforcement,
       ),
     },
     verification: {
-      // The per-cell policy overlay (R2 / task 001). Default is the empty
-      // overlay (`{}`) — "override nothing"; any cell present means the consumer
-      // replaced that cell's gate sequence.
       policy: annotate(config.verification.policy, DEFAULTS.verification.policy),
     },
     storage: {
-      // DR-4 — SQLite durability posture (`PRAGMA synchronous`). Default
-      // `'normal'`; `'full'` fsyncs on every commit (power-loss durable).
       synchronous: annotate(config.storage.synchronous, DEFAULTS.storage.synchronous),
     },
     synthesis: {
-      // DR-2 (#1594) — SYNTHESIZE-kind `document` readiness leg. `severity`
-      // gates whether an uncovered doc-bearing change blocks synthesis;
-      // `surfaceGlobs` declares doc-bearing paths (empty default ⇒ auto-waive);
-      // `docGlobs` declares what counts as a documentation change.
       documentLeg: {
         severity: annotate(
           config.synthesis.documentLeg.severity,
@@ -147,17 +129,9 @@ export function buildConfigDescription(config: ResolvedProjectConfig) {
       },
     },
     escalation: {
-      // DR-3 (#1595) — shared escalation policy. `maxIterations` is the per-loop
-      // auto-fix bound for the review and shepherd
-      // fix-loops; default `5` (DEFAULT_MAX_ITERATIONS).
       maxIterations: annotate(config.escalation.maxIterations, DEFAULTS.escalation.maxIterations),
     },
     artifacts: {
-      // DR-6 — where authored workflow artifacts live. Prefixes matched against
-      // the repo-relative paths in a workflow's artifact map, already
-      // POSIX-normalized and trailing-slashed. `legacyDesignDir` is a historical
-      // discriminator for pre-collapse two-artifact work, not a place anything
-      // new is written.
       specDir: annotate(config.artifacts.specDir, DEFAULTS.artifacts.specDir),
       legacyDesignDir: annotate(
         config.artifacts.legacyDesignDir,

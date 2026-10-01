@@ -10,6 +10,7 @@ import type {
   EvidenceSubjectV1,
 } from './types.js';
 
+/** `CONVERGED_EQUIVALENT_EVIDENCE` marks a duplicate that the selection collapsed onto one canonical active record. */
 export type EvidenceSelectionDiagnosticCode =
   | 'MALFORMED_EVIDENCE'
   | 'DUPLICATE_EVIDENCE_ID'
@@ -21,7 +22,6 @@ export type EvidenceSelectionDiagnosticCode =
   | 'MALFORMED_CONTRADICTION'
   | 'MISSING_CONTRADICTION_EVIDENCE'
   | 'CONTRADICTION_SCOPE_MISMATCH'
-  /** Equivalent concurrent evidence collapsed onto one canonical active record. */
   | 'CONVERGED_EQUIVALENT_EVIDENCE';
 
 export interface EvidenceSelectionDiagnostic {
@@ -165,10 +165,11 @@ function compareDiagnostics(
 }
 
 /**
- * Select active proof facts without clocks, mutable state, or replay order.
- *
- * Invalid chains are excluded and returned as diagnostics. The input arrays are
- * never mutated; callers retain the complete append-only history.
+ * Selects the active proof facts without clocks, mutable state, or replay order.
+ * The function excludes invalid chains and returns them as diagnostics. A record cannot repair a malformed predecessor chain.
+ * When the active records of one scope make the same statement, they converge on the lowest `evidenceId`.
+ * When they disagree, all stay active, and the function reports a contradiction.
+ * The function does not mutate the input arrays.
  */
 export function selectEvidence(input: EvidenceSelectionInput): EvidenceSelection {
   const diagnostics: EvidenceSelectionDiagnostic[] = [];
@@ -278,7 +279,6 @@ export function selectEvidence(input: EvidenceSelectionInput): EvidenceSelection
     });
   }
 
-  // A record cannot repair or bypass a malformed predecessor chain.
   let changed = true;
   while (changed) {
     changed = false;
@@ -333,21 +333,6 @@ export function selectEvidence(input: EvidenceSelectionInput): EvidenceSelection
     activeByScope.set(key, scoped);
   }
 
-  // EFF-003 — equivalent concurrent operations converge on ONE canonical active
-  // result. Two executions of the same logical gate under distinct operationIds
-  // mint distinct evidenceIds, read history before either has appended, and both
-  // land with no predecessor: neither supersedes the other, so the scope would
-  // otherwise carry competing active chains.
-  //
-  // Convergence is the exact complement of the contradiction rule below. When a
-  // scope's active records all make the SAME statement they agree, and admission
-  // has one answer; keeping duplicates active would let an arbitrary one win by
-  // arrival order. When they disagree, every record stays active and the
-  // contradiction is reported — a disagreement must deny admission, never be
-  // silently collapsed into whichever arrived first.
-  //
-  // The canonical record is the lowest evidenceId. `validRecords` is already
-  // sorted by id, so the choice is independent of arrival order.
   const convergedIds = new Set<string>();
 
   for (const scoped of activeByScope.values()) {

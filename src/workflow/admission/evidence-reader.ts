@@ -1,27 +1,12 @@
-// ─── #1739 — the production DurableShadowEvidenceReader ──────────────────────
+// The production `DurableShadowEvidenceReader` over one local store. It finds
+// the `<featureId>/admission-shadow` sidecar streams through `listStreams()`,
+// with no raw SQL. It folds the `admission.shadow-attempt` rows into
+// gate facts and pairs each attempt with its latest disposition row. Then
+// {@link assembleCutoverGateEvidence} gives both to `evaluateCutoverGate`.
 //
-// The cutover gate (`cutover-gate.ts`) reads its durable substrate through the
-// narrow `DurableShadowEvidenceReader` slice, but until #1739 nothing in
-// production ENUMERATED the sidecar streams that substrate lives in — every
-// caller had to already know the featureIds. This module closes that gap over
-// ONE local store:
-//
-//   1. enumerate every `<featureId>/admission-shadow` sidecar stream through
-//      the store's `streams` registry (`listStreams`, R-1) — no raw SQL;
-//   2. fold the `admission.shadow-attempt` rows into the
-//      {@link DurableShadowAttemptFact} shape the gate's `durableAttempts`
-//      condition weighs, AND — keyed by `shadowAttemptId` — pair them with
-//      their LATEST `admission.disagreement-disposition` row into the
-//      {@link ShadowDispositionView} shape `summarizeShadowDecisions` folds;
-//   3. hand both to `evaluateCutoverGate` via
-//      {@link assembleCutoverGateEvidence}.
-//
-// INV-1 discipline: an EMPTY store yields NO evidence, never clean
-// evidence — the fold returns zero attempts, and the gate's
-// `live-disagreement-class` condition independently refuses "no durable
-// shadow-attempt evidence". A persisted row that fails schema validation is
-// DROPPED, mirroring `readDurableShadowAttempts`: unreadable evidence is not
-// evidence, and defaulting it to `agree` would be the same vacuity elsewhere.
+// An empty store gives no evidence, never clean evidence. The fold drops a row
+// that fails schema validation. It never defaults that row to `agree`, because
+// unreadable evidence is not evidence.
 
 import { createHash } from 'node:crypto';
 
@@ -56,13 +41,10 @@ import {
   type EvidenceSubjectV1,
 } from './types.js';
 
-// ─── Source slice ─────────────────────────────────────────────────────────────
-
 /**
- * The read slice of one local store this module needs: the gate's query
- * contract PLUS stream enumeration. `EventStore` satisfies it structurally —
- * `listStreams()` reads the `streams` registry table (R-1), so no consumer
- * here ever issues raw SQL.
+ * The read slice of one local store: the query contract of the gate plus stream
+ * enumeration. `EventStore` satisfies it structurally, so this module issues no
+ * raw SQL.
  */
 export interface ShadowEvidenceSource extends DurableShadowEvidenceReader {
   listStreams(): string[];
@@ -73,7 +55,7 @@ const SIDECAR_SUFFIX = `/${LIVE_SHADOW_EVIDENCE_STREAM_SEGMENT}`;
 
 /**
  * Enumerate the featureIds that own a `<featureId>/admission-shadow` sidecar
- * stream in this store. Sorted for determinism; an empty store yields `[]`.
+ * stream in this store. The result is sorted. An empty store gives `[]`.
  */
 export function listShadowEvidenceFeatureIds(
   source: Pick<ShadowEvidenceSource, 'listStreams'>,
@@ -88,8 +70,6 @@ export function listShadowEvidenceFeatureIds(
   return [...seen].sort();
 }
 
-// ─── Durable fold ─────────────────────────────────────────────────────────────
-
 /** The folded reading of one store's durable shadow substrate. */
 export interface DurableShadowEvidence {
   /** Feature ids that own a sidecar evidence stream (sorted). */
@@ -97,23 +77,21 @@ export interface DurableShadowEvidence {
   /** The gate's `durableAttempts` substrate — one fact per readable row. */
   readonly attempts: readonly DurableShadowAttemptFact[];
   /**
-   * The disposition-bearing view `summarizeShadowDecisions` folds: each
-   * attempt paired with its LATEST recorded disposition. An agreement carries
-   * the `agree` sentinel; a disagreement with NO disposition row is
-   * conservatively `unexplained` (it blocks the gate until a human disposes it
-   * via the registered `admission.disagreement-disposition` handler).
+   * The view that `summarizeShadowDecisions` folds: each attempt with its latest
+   * recorded disposition. An agreement carries the `agree` sentinel. A
+   * disagreement with no disposition row is `unexplained`, and it blocks the
+   * gate until a human records an `admission.disagreement-disposition`.
    */
   readonly decisions: readonly ShadowDispositionView[];
-  /** Count per disposition across {@link decisions}; every key always present. */
+  /** Count per disposition across {@link decisions}. Every key is always present. */
   readonly dispositionTally: Readonly<Record<DisagreementDisposition, number>>;
 }
 
 /**
  * Read and fold the durable shadow evidence for every sidecar stream in the
- * store. One pass per stream, two typed queries each — attempts first, then
- * dispositions — matched on `shadowAttemptId` with the LATEST disposition row
- * winning (stream order is append order, so a later human re-disposition
- * supersedes the observer's conservative `unexplained` default).
+ * store. Each stream gets two typed queries, dispositions and then attempts,
+ * matched on `shadowAttemptId`. The latest disposition row wins, because stream
+ * order is append order. The tally holds every key, also for an empty store.
  */
 export async function readDurableShadowEvidence(
   source: ShadowEvidenceSource,
@@ -136,7 +114,6 @@ export async function readDurableShadowEvidence(
     const dispositionRows = await source.query(streamId, {
       type: ADMISSION_EVENT_TYPES.DISAGREEMENT_DISPOSITION,
     });
-    /** shadowAttemptId → latest recorded disposition. */
     const latestDisposition = new Map<string, DisagreementDisposition>();
     for (const row of dispositionRows) {
       if (row.type !== ADMISSION_EVENT_TYPES.DISAGREEMENT_DISPOSITION) continue;
@@ -170,9 +147,6 @@ export async function readDurableShadowEvidence(
     }
   }
 
-  // A TOTAL record, mirroring the gate's class tallies: every key is present
-  // even when the store was empty. Rebuilt literally (no cast) from the
-  // accumulator, which the type system already proves total.
   const dispositionTally: Readonly<Record<DisagreementDisposition, number>> =
     Object.freeze({
       'agree': tally.agree,
@@ -184,8 +158,6 @@ export async function readDurableShadowEvidence(
 
   return { featureIds, attempts, decisions, dispositionTally };
 }
-
-// ─── Gate-evidence assembly ───────────────────────────────────────────────────
 
 /** The process-local (non-durable) inputs the six-condition model also weighs. */
 export interface LiveCutoverInputs {
@@ -200,11 +172,10 @@ export interface AssembledCutoverEvidence {
 }
 
 /**
- * Assemble the full {@link CutoverGateEvidence} from ONE store's durable fold
- * plus the caller's live inputs. The durable `decisions` occupy the
- * disposition-bearing `corpusRecords` slot, so an undisposed durable
- * disagreement drives `deterministic-corpus-clean` red — the gate cannot be
- * argued past an unexplained live disagreement.
+ * Assemble the full {@link CutoverGateEvidence} from the durable fold of one
+ * store and the live inputs of the caller. The durable `decisions` fill the
+ * `corpusRecords` slot. Thus an undisposed durable disagreement makes the
+ * `deterministic-corpus-clean` condition fail.
  */
 export async function assembleCutoverGateEvidence(
   source: ShadowEvidenceSource,
@@ -222,7 +193,7 @@ export async function assembleCutoverGateEvidence(
   };
 }
 
-/** Assemble and evaluate in one step — the shape both #1739 consumers share. */
+/** Assemble the evidence and evaluate the gate in one step. */
 export async function assessDurableCutoverReadiness(
   source: ShadowEvidenceSource,
   live: LiveCutoverInputs,
@@ -231,17 +202,13 @@ export async function assessDurableCutoverReadiness(
   return { report: evaluateCutoverGate(evidence), durable };
 }
 
-// ─── Digest helper ────────────────────────────────────────────────────────────
-
-/** Deterministic sha256 content digest of a UTF-8 string (shared by #1739). */
+/** Deterministic sha256 content digest of a UTF-8 string. */
 export function contentDigestOf(value: string): ContentDigestV1 {
   return ContentDigestV1Schema.parse({
     algorithm: 'sha256',
     value: createHash('sha256').update(value, 'utf8').digest('hex'),
   });
 }
-
-// ─── Persisted action-evidence observation ───────────────────────────────────
 
 /**
  * The store slice a postcondition check needs: one stream, optionally narrowed
@@ -273,13 +240,12 @@ export interface PersistedEvidenceObservation {
   readonly evidenceType: string;
   readonly operationId: string;
   /**
-   * What the row was proof ABOUT. Carried so a caller need not re-read the
-   * row. Never a substitute for `artifactRefs`: a `kind: 'artifact'` subject
-   * describes the thing the evidence is proof about, not a blob the row
-   * names — custody keys on `artifactRefs` alone, never on `subject.kind`.
+   * What the row is proof about, so a caller does not re-read the row. A
+   * `kind: 'artifact'` subject names the thing under proof, not a blob. Custody
+   * keys on `artifactRefs` alone, never on `subject.kind`.
    */
   readonly subject: EvidenceSubjectV1;
-  /** Blobs the row names. Empty when it names none; never undefined. */
+  /** Blobs the row names. It is empty when the row names none, never undefined. */
   readonly artifactRefs: readonly EvidenceArtifactReferenceV1[];
 }
 
@@ -287,11 +253,10 @@ export interface PersistedEvidenceObservation {
  * Read persisted evidence records for one operation-scoped ensure.
  *
  * Only committed `admission.evidence-recorded` rows count. The envelope must
- * carry this operationId, and the payload's evidence kind must match the
- * asked type. An unreadable payload is dropped — it is not evidence. That
- * drop already covers a row whose artifact reference does not parse: the
- * reference lives inside the same schema `safeParse` validates here, so
- * re-checking it a second time inside this loop would test nothing new.
+ * carry this operationId, and the evidence kind of the payload must match the
+ * asked type. The reader drops an unreadable payload because it is not
+ * evidence. That drop also covers a bad artifact reference, because the same
+ * `safeParse` validates the reference.
  */
 export async function readPersistedEvidence(
   source: PersistedEvidenceSource,

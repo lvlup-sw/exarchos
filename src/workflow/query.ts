@@ -16,14 +16,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { resolveTasksDir } from '../utils/paths.js';
 
-// ─── Module-Level EventStore (removed — now threaded via DispatchContext) ─────
-
-// ─── Compound State Lookup ──────────────────────────────────────────────────
-
-/**
- * Find the compound state that contains the given phase, if any.
- * Returns { compoundId, maxFixCycles } or undefined.
- */
+/** Returns the compound state that contains the phase, or undefined. */
 function findCompoundForPhase(
   workflowType: string,
   phase: string,
@@ -39,18 +32,17 @@ function findCompoundForPhase(
   };
 }
 
-// ─── handleSummary ──────────────────────────────────────────────────────────
-
+/**
+ * Summarizes a workflow: phase, task progress, artifacts, the last five events and the circuit breaker.
+ * It folds the event store when one is available. It reads `.state.json` only when no event store exists.
+ * `NO_STATE_SOURCE`, or a fold with no `featureId`, gives `STATE_NOT_FOUND`.
+ * Other resolution errors pass through unchanged.
+ */
 export async function handleSummary(
   input: SummaryInput,
   stateDir: string,
   eventStore: EventStore | null,
 ): Promise<ToolResult> {
-  // Event-store-first resolution (#1504): fold the event log when an event
-  // store is available; fall back to the on-disk state file only for the
-  // legacy/CLI path where no event store is threaded through. The SQLite event
-  // store is the sole source of truth — a stale `.state.json` never shadows
-  // newer events.
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
   const resolved = await resolveWorkflowState({
@@ -68,29 +60,21 @@ export async function handleSummary(
   };
 
   if ('error' in resolved) {
-    // NO_STATE_SOURCE (no event store AND no readable file) reads as "not
-    // found"; surface any other resolution error (e.g. EVENT_STORE_ERROR)
-    // verbatim rather than masking it as a missing feature.
     return resolved.error.error?.code === 'NO_STATE_SOURCE' ? notFound : resolved.error;
   }
 
   const state = resolved.state as unknown as WorkflowState;
-  // A folded view with no `featureId` means no `workflow.started` was ever
-  // recorded — the feature was never started as a workflow.
   if (!state.featureId) {
     return notFound;
   }
 
-  // Task progress
   const tasks = state.tasks ?? [];
   const completedTasks = tasks.filter((t) => t.status === 'complete').length;
 
-  // Recent events (last 5) from external event store
   const recentEvents = eventStore
     ? await getRecentEventsFromStore(eventStore, input.featureId, 5)
     : [];
 
-  // Circuit breaker state for the relevant compound
   const compound = findCompoundForPhase(state.workflowType, state.phase);
   let circuitBreaker: Record<string, unknown> | undefined;
   if (compound && eventStore) {
@@ -125,8 +109,6 @@ export async function handleSummary(
   };
 }
 
-// ─── Task Drift Report Types ─────────────────────────────────────────────────
-
 export interface TaskDriftEntry {
   readonly taskId: string;
   readonly exarchosStatus: string | null;
@@ -140,8 +122,6 @@ export interface TaskDriftReport {
   readonly drift: readonly TaskDriftEntry[];
 }
 
-// ─── Native Task File Reading ────────────────────────────────────────────────
-
 interface NativeTaskFile {
   readonly id: string;
   readonly subject?: string | undefined;
@@ -149,9 +129,8 @@ interface NativeTaskFile {
 }
 
 /**
- * Read all native task JSON files from a directory.
- * Returns a map of task ID to parsed task data.
- * Returns null if the directory does not exist.
+ * Reads the native task JSON files in a directory into a map by task id.
+ * It skips a file without a string `id` and `status`. It returns null when the directory does not exist.
  */
 async function readNativeTaskFiles(
   nativeTaskDir: string,
@@ -188,24 +167,17 @@ async function readNativeTaskFiles(
   return tasks;
 }
 
-// ─── Status Normalization ────────────────────────────────────────────────────
-
-/**
- * Normalize status strings for comparison.
- * Exarchos uses "complete", native may use "completed" — treat as equivalent.
- */
+/** Normalizes a status for comparison. Exarchos writes "complete" and native tasks can write "completed". */
 function normalizeStatus(status: string): string {
   if (status === 'complete' || status === 'completed') return 'completed';
   return status;
 }
 
-// ─── reconcileTasks ──────────────────────────────────────────────────────────
-
 /**
- * Compare native task statuses with Exarchos workflow tasks and produce a drift report.
- *
- * Matches tasks by `nativeTaskId` field if present, or by title/subject as fallback.
- * Reports drift for mismatches, untracked native tasks, and missing native tasks.
+ * Compares native task statuses with the Exarchos tasks and returns a drift report.
+ * It matches an Exarchos task by `nativeTaskId` and skips a task without one.
+ * A native task without a match is untracked, unless an Exarchos task title equals its subject.
+ * It reports status mismatches, untracked native tasks and missing native tasks.
  */
 export async function reconcileTasks(
   exarchosTasks: ReadonlyArray<Record<string, unknown>>,
@@ -224,7 +196,6 @@ export async function reconcileTasks(
   const drift: TaskDriftEntry[] = [];
   const matchedNativeIds = new Set<string>();
 
-  // Check each Exarchos task against native tasks
   for (const exTask of exarchosTasks) {
     const taskId = typeof exTask.id === 'string' ? exTask.id : undefined;
     const nativeTaskId = typeof exTask.nativeTaskId === 'string' ? exTask.nativeTaskId : undefined;
@@ -232,11 +203,9 @@ export async function reconcileTasks(
 
     if (!nativeTaskId) continue;
 
-    // Match by nativeTaskId
     const nativeTask = nativeTasks.get(nativeTaskId);
 
     if (!nativeTask) {
-      // Exarchos task has nativeTaskId but no corresponding native file
       drift.push({
         taskId: taskId ?? nativeTaskId,
         exarchosStatus: exStatus,
@@ -248,7 +217,6 @@ export async function reconcileTasks(
 
     matchedNativeIds.add(nativeTaskId);
 
-    // Compare statuses
     if (normalizeStatus(exStatus) !== normalizeStatus(nativeTask.status)) {
       const normalizedNative = normalizeStatus(nativeTask.status);
       const recommendation = normalizedNative === 'completed'
@@ -264,11 +232,9 @@ export async function reconcileTasks(
     }
   }
 
-  // Check for untracked native tasks (exist in native but not matched by any Exarchos task)
   for (const [nativeId, nativeTask] of nativeTasks) {
     if (matchedNativeIds.has(nativeId)) continue;
 
-    // Try title-based matching as fallback
     const matchedByTitle = exarchosTasks.some((t) => {
       const title = typeof t.title === 'string' ? t.title : '';
       return title === nativeTask.subject;
@@ -290,14 +256,15 @@ export async function reconcileTasks(
   };
 }
 
-// ─── Default Native Task Base Directory ──────────────────────────────────────
-
 function defaultNativeTaskBaseDir(): string {
   return resolveTasksDir();
 }
 
-// ─── handleReconcile ────────────────────────────────────────────────────────
-
+/**
+ * Reports the path status of each worktree and, when a task has a `nativeTaskId`, the task drift.
+ * It resolves the state like {@link handleSummary}.
+ * The task drift reads `nativeTaskId` from the folded tasks.
+ */
 export async function handleReconcile(
   input: ReconcileInput,
   stateDir: string,
@@ -306,10 +273,6 @@ export async function handleReconcile(
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
-  // Event-store-first resolution (#1504): fold worktrees + tasks (incl.
-  // `nativeTaskId`, folded via `state.patched` after the array-index fold fix)
-  // from the event log. The SQLite event store is the sole source of truth; the
-  // on-disk file is a fallback only for the no-event-store (CLI/legacy) path.
   const resolved = await resolveWorkflowState({
     featureId: input.featureId,
     eventStore: eventStore ?? undefined,
@@ -333,7 +296,6 @@ export async function handleReconcile(
     return notFound;
   }
 
-  // With .passthrough() on WorktreeSchema, path field is preserved through Zod parsing
   const worktrees = state.worktrees as Record<
     string,
     { branch: string; taskId?: string; tasks?: string[]; status: string; path?: string }
@@ -366,10 +328,6 @@ export async function handleReconcile(
     worktreeResults.push(result);
   }
 
-  // Task reconciliation reads `nativeTaskId` straight from the folded tasks
-  // (#1504): the array-index `state.patched` fold now carries it, so no raw
-  // `.state.json` read is needed. `reconcileTasks` only runs when at least one
-  // task carries a `nativeTaskId`.
   let taskDrift: TaskDriftReport | undefined;
   const tasks = (state.tasks ?? []) as Array<Record<string, unknown>>;
   const hasNativeTasks = tasks.some((t) => typeof t.nativeTaskId === 'string');
@@ -390,8 +348,7 @@ export async function handleReconcile(
   };
 }
 
-// ─── handleTransitions ──────────────────────────────────────────────────────
-
+/** Lists the HSM states and transitions of a workflow type, optionally only those from `fromPhase`. Null fields are omitted. */
 export async function handleTransitions(
   input: TransitionsInput,
   _stateDir: string,
@@ -399,7 +356,6 @@ export async function handleTransitions(
 ): Promise<ToolResult> {
   const hsm = getHSMDefinition(input.workflowType);
 
-  // Build states list (sparse: omit null/empty fields)
   const states = Object.values(hsm.states).map((s) =>
     stripNullish({
       id: s.id,
@@ -409,7 +365,6 @@ export async function handleTransitions(
     }),
   );
 
-  // Build transitions list, optionally filtered by fromPhase
   let transitions = hsm.transitions;
   if (input.fromPhase) {
     transitions = transitions.filter((t) => t.from === input.fromPhase);

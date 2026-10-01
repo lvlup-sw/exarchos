@@ -1,71 +1,33 @@
-// ─── P07-05 / Transition task 037 — Retirement-safety scan ────────────────────
-//
 // RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31) — the mechanical
-// disposition proof that gates the eventual retirement of the legacy admission
-// authorities. Test-invoked gate machinery: it has no production importer by
-// design (the shipped server never depends on a deletion-planning analysis). It
-// retires together with the legacy path it audits, behind the same cutover
-// issue (#1590) as `workflow/admission/cutover-gate.ts`.
+// disposition proof that gates the retirement of the legacy admission authorities.
+// Only tests call it. It retires with the legacy path that it audits, behind the
+// same cutover issue as `workflow/admission/cutover-gate.ts`.
 //
-// ── Why this module exists ────────────────────────────────────────────────────
+// A legacy authority must not go before evidence shows that its replacement is sound.
+// For each authority, the scan folds the production importers of its modules, its
+// live-behavior tests and the cutover-gate status into one disposition. The importer
+// scan mirrors the `tools/audit/refgraph.mjs` detector.
 //
-// P07-05 is the FINAL package of the structural-closure-remediation program:
-// "remove legacy and manual authorities … after replacements gate CI." The
-// program stages the cutover deliberately — P07-01 shadow → P07-02 migrate →
-// P07-05 delete — precisely so a legacy authority is never deleted before the
-// evidence that its replacement is sound exists. Deleting the legacy HSM guard
-// while the event-sourced cutover gate is still unsatisfied would flip
-// enforcement without that evidence: the exact premature cutover the program was
-// built to prevent.
-//
-// The work package's exit proof is therefore the GATING DISCIPLINE itself:
-// "Reachability and dependency scans prove no production references remain
-// before deletion." This module is that proof, made mechanical and total. For
-// every legacy authority it folds two independent, pre-existing scans plus the
-// cutover gate into ONE typed, evidence-backed disposition:
-//
-//   • REACHABILITY (P05-05 `contract/reachability`) — the public action surface
-//     is fully closed (120/120) independent of the legacy guard, and the P07-02
-//     structure test proves the shared IR reaches NO legacy guard module. So no
-//     PUBLIC ACTION depends on the legacy guard.
-//   • DEPENDENCY (the vendored `tools/audit/refgraph.mjs` detector, mirrored
-//     purely here) — which production (non-test) modules still IMPORT each
-//     authority's modules. A single external importer is a live reference.
-//   • CUTOVER GATE (P07-01 `cutover-gate.ts`) — whether enforcement may flip off
-//     the legacy path at all yet.
-//
-// ── The three dispositions ────────────────────────────────────────────────────
-//
-//   safe-to-delete            — reachability + dependency scans prove ZERO
-//                               external production references AND (for a
-//                               cutover-gated authority) the gate is satisfied.
-//   blocked-by-cutover-gate   — the authority's deletion would flip enforcement
-//                               and the event-sourced cutover gate is not yet
-//                               satisfied; the report names the unmet conditions.
-//   blocked-by-live-reference — a production module (or a live-behaviour test)
-//                               still binds the authority; deleting it now breaks
-//                               live code/tests.
-//
-// The core is PURE and effect-free: it takes fully-materialized source modules,
-// authority descriptors, and a cutover-gate STATUS (structurally, so this module
-// imports nothing from the admission layer). The real source tree + real gate
-// evidence are gathered by the co-located test — the same "pure core, injected
-// evidence" shape the cutover gate itself uses.
-
-// ─── Legacy-authority model ────────────────────────────────────────────────────
+// The core is pure. It takes source modules, authority descriptors and a cutover-gate
+// status, and it imports nothing from the admission layer. The co-located test gathers
+// the real source tree and the real gate evidence.
 
 /**
- * The classes of legacy authority P07-05 is chartered to retire. Each names a
- * concrete category from the work package ("legacy guards, direct pass-state
- * fixes, closed playbook/HSM registries, and manual inventories").
+ * The classes of legacy authority to retire.
+ * - `legacy-guard`: the legacy HSM transition-guard registry.
+ * - `hsm-registry`: the legacy HSM definition registry and its executor.
+ * - `playbook-registry`: the legacy phase-playbook registry.
+ * - `obsolete-predicate`: a dead guard predicate that the guard-classification corpus marks obsolete.
+ * - `pass-state-fix`: a direct pass-state mutation fix.
+ * - `manual-inventory`: a hand-maintained inventory that a governed registry replaces.
  */
 export type AuthorityKind =
-  | 'legacy-guard' // the legacy HSM transition-guard registry
-  | 'hsm-registry' // the legacy HSM definition registry + executor
-  | 'playbook-registry' // the legacy phase-playbook registry
-  | 'obsolete-predicate' // a dead guard predicate the P06-01 corpus classified obsolete
-  | 'pass-state-fix' // a direct pass-state mutation fix
-  | 'manual-inventory'; // a hand-maintained inventory a governed registry superseded
+  | 'legacy-guard'
+  | 'hsm-registry'
+  | 'playbook-registry'
+  | 'obsolete-predicate'
+  | 'pass-state-fix'
+  | 'manual-inventory';
 
 export const AUTHORITY_KINDS: readonly AuthorityKind[] = Object.freeze([
   'legacy-guard',
@@ -84,28 +46,21 @@ export interface LegacyAuthority {
   /** One-line description of what deleting this authority entails. */
   readonly summary: string;
   /**
-   * The src-root-relative, POSIX module paths (`.ts`) whose deletion this
-   * authority entails. An importer that is itself one of these modules is an
-   * INTERNAL edge (the whole cluster is deleted together) and never counts as a
-   * blocking live reference.
+   * The src-relative POSIX module paths that go with this authority.
+   * An importer in this list is an internal edge, so it never blocks the deletion.
    */
   readonly modules: readonly string[];
   /**
-   * True when deleting this authority would flip production enforcement off the
-   * legacy path. Such an authority can only be retired behind a SATISFIED
-   * event-sourced cutover gate — it is the program's staging point.
+   * True when the deletion of this authority moves production enforcement off the legacy path.
+   * Then only a satisfied cutover gate lets it retire.
    */
   readonly cutoverGated: boolean;
   /**
-   * Co-located tests that pin this authority's LIVE behaviour (e.g. the P06-01
-   * guard-classification characterization the cutover corpus depends on).
-   * Deleting the authority would gut these — which the DoD forbids while they
-   * still cover live behaviour. A non-empty list is an independent blocker.
+   * Co-located tests that pin the live behavior of this authority, for example the guard-classification characterization.
+   * A non-empty list blocks the deletion by itself.
    */
   readonly liveBehaviorTests?: readonly string[];
 }
-
-// ─── Disposition model ─────────────────────────────────────────────────────────
 
 export type Disposition =
   | 'safe-to-delete'
@@ -113,9 +68,8 @@ export type Disposition =
   | 'blocked-by-live-reference';
 
 /**
- * The minimal cutover-gate view this scan needs, taken structurally so the
- * module has no import edge into `workflow/admission`. The test adapts the real
- * `CutoverGateReport` (from `workflow/admission/cutover-gate.ts`) onto it.
+ * The cutover-gate fields that the scan reads. The type is structural, so this module does not import `workflow/admission`.
+ * The test adapts the real `CutoverGateReport` to it.
  */
 export interface CutoverGateStatus {
   readonly satisfied: boolean;
@@ -129,7 +83,7 @@ export interface AuthorityDisposition {
   readonly disposition: Disposition;
   /** External production importers that still bind the authority (sorted). */
   readonly productionReferences: readonly string[];
-  /** Live-behaviour tests deletion would gut (sorted). */
+  /** Live-behavior tests that the deletion breaks (sorted). */
   readonly liveBehaviorTests: readonly string[];
   /** Unmet cutover-gate conditions (only when blocked-by-cutover-gate). */
   readonly unmetGateConditions: readonly string[];
@@ -145,11 +99,9 @@ export interface RetirementScanReport {
   readonly blocked: readonly string[];
 }
 
-// ─── Dependency scan (pure mirror of the vendored refgraph detector) ───────────
-
 /** A fully-materialized source module (the test supplies content + test-ness). */
 export interface SourceModule {
-  /** src-root-relative, POSIX path, e.g. `workflow/guards.ts`. */
+  /** The src-relative POSIX path, for example `workflow/guards.ts`. */
   readonly path: string;
   readonly content: string;
   /** True for `*.test.ts` / fixture / bench modules — NOT a production importer. */
@@ -163,9 +115,10 @@ export function stripModuleExtension(path: string): string {
   return path.replace(MODULE_EXTENSION_RE, '');
 }
 
-// Mirrors refgraph.mjs's IMP pattern: `from '…'`, `import '…'`, `import('…')`,
-// `require('…')`. `[^'"]*?` spans newlines (a `[^'"]` class includes `\n`), so a
-// multi-line `import { … } from '…'` is matched.
+/**
+ * A copy of the IMP pattern of `refgraph.mjs`. It matches a `from`, `import`, `import()` or `require()` specifier.
+ * The lazy class before `from` includes a newline, so the pattern also matches a multi-line import.
+ */
 const IMPORT_SPECIFIER_RE =
   /(?:import|export)\s+(?:[^'"]*?\sfrom\s+)?['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)|require\(\s*['"]([^'"]+)['"]\s*\)/g;
 
@@ -185,9 +138,8 @@ function directoryOf(path: string): string {
 }
 
 /**
- * Resolve a relative specifier from a module to an extension-stripped target
- * key. Pure POSIX path arithmetic (no `node:path`, so the module performs no
- * effect the ownership census could flag).
+ * Resolves a relative specifier to an extension-stripped target key.
+ * It uses POSIX string arithmetic and not `node:path`, so the ownership census finds no effect.
  */
 export function resolveRelativeTarget(fromPath: string, spec: string): string {
   const base = directoryOf(fromPath);
@@ -204,10 +156,8 @@ export function resolveRelativeTarget(fromPath: string, spec: string): string {
 }
 
 /**
- * Map each target module to the set of modules that import it. Only PRODUCTION
- * (non-test) importers are counted — a type-only importer still counts (an
- * `import type` edge is a real justification for the module's existence, exactly
- * as refgraph and the module-intent gate treat it).
+ * Maps each target module to its production importers. A test module does not count.
+ * A type-only import counts, as in refgraph and the module-intent gate.
  */
 export function scanProductionReferences(
   modules: readonly SourceModule[],
@@ -220,7 +170,7 @@ export function scanProductionReferences(
   for (const target of targets) importers.set(target, new Set<string>());
 
   for (const mod of modules) {
-    if (mod.isTest) continue; // production importers only
+    if (mod.isTest) continue;
     for (const spec of extractRelativeImports(mod.content)) {
       const resolvedKey = resolveRelativeTarget(mod.path, spec);
       for (const candidate of [resolvedKey, `${resolvedKey}/index`]) {
@@ -237,11 +187,7 @@ export function scanProductionReferences(
   return out;
 }
 
-/**
- * The EXTERNAL production references to an authority: every non-test importer of
- * any of the authority's modules that is not itself part of the authority (an
- * internal edge inside a self-contained cluster is not a blocker).
- */
+/** Returns the production importers of the modules of an authority, without the importers inside the authority. */
 export function productionReferencesForAuthority(
   authority: LegacyAuthority,
   modules: readonly SourceModule[],
@@ -257,17 +203,10 @@ export function productionReferencesForAuthority(
   return [...external].sort();
 }
 
-// ─── Disposition (pure) ────────────────────────────────────────────────────────
-
 /**
- * Fold the dependency evidence + cutover-gate status into ONE disposition.
- *
- * Precedence — the cutover gate dominates: an authority whose deletion flips
- * enforcement cannot be retired until the gate is satisfied, EVEN IF it happened
- * to have zero references, because the gate governs the enforcement flip itself.
- * Only once an authority is either not cutover-gated (or the gate is satisfied)
- * does a live reference become the deciding blocker; with neither blocker, the
- * scan reports `safe-to-delete` and cites the zero-reference proof.
+ * Folds the importer evidence and the cutover-gate status into one disposition.
+ * The gate comes first. A gated authority stays blocked until the gate is satisfied, even with zero references.
+ * Next, a production reference or a live-behavior test blocks it. With neither blocker, the result is `safe-to-delete`.
  */
 export function disposeAuthority(
   authority: LegacyAuthority,
@@ -372,12 +311,7 @@ export function formatDispositionTable(report: RetirementScanReport): string {
   return lines.join('\n');
 }
 
-// ─── The legacy-authority registry ─────────────────────────────────────────────
-//
-// The concrete set P07-05 is chartered to retire. Module paths mirror the P07-02
-// structure test's FORBIDDEN legacy-guard set, so this registry and the shared-IR
-// independence proof name the same modules.
-
+/** The legacy authorities that wait for retirement. */
 export const LEGACY_AUTHORITIES: readonly LegacyAuthority[] = Object.freeze([
   {
     id: 'legacy-hsm-guard',
@@ -429,22 +363,6 @@ export const LEGACY_AUTHORITIES: readonly LegacyAuthority[] = Object.freeze([
   },
 ]);
 
-// ─── Retired authorities (DR-8) ────────────────────────────────────────────────
-//
-// `LEGACY_AUTHORITIES` above is the set still AWAITING retirement. This second
-// registry is its counterpart: authorities of a declared `AuthorityKind` that
-// have ALREADY been retired. Keeping both in one module is what stops the
-// registry from claiming a retired fix is still active (or the reverse) — the
-// `pass-state-fix` kind was declared in `AuthorityKind` with no member on either
-// side, so the classification named a class nothing was accountable for.
-//
-// A retirement is only real if it cannot be silently undone, so each retired
-// authority carries the SOURCE PATTERNS whose reappearance in production code
-// would reinstate it. The co-located structural test (and, for the cleanup
-// pass-state fix, `workflow/cleanup.pass-state.test.ts`) runs
-// `scanRetiredAuthorityReintroduction` over the real production tree, so a
-// future reintroduction fails mechanically rather than by review vigilance.
-
 /** A source pattern whose reappearance in production code reinstates a retired authority. */
 export interface ForbiddenSourcePattern {
   /** Stable id, unique within its authority. */
@@ -455,7 +373,7 @@ export interface ForbiddenSourcePattern {
   readonly description: string;
 }
 
-/** An authority of a declared kind that has already been retired. */
+/** An authority of a declared kind that is already retired. */
 export interface RetiredAuthority {
   readonly id: string;
   readonly kind: AuthorityKind;
@@ -470,6 +388,10 @@ export interface RetiredAuthority {
   readonly forbiddenPatterns: readonly ForbiddenSourcePattern[];
 }
 
+/**
+ * The retired authorities. Each entry lists the source patterns that reinstate it.
+ * A test runs `scanRetiredAuthorityReintroduction` over the production tree, so a reintroduction fails mechanically.
+ */
 export const RETIRED_AUTHORITIES: readonly RetiredAuthority[] = Object.freeze([
   {
     id: 'cleanup-pass-state-fix',
@@ -524,13 +446,8 @@ export interface RetirementViolation {
 }
 
 /**
- * Per-character mask of which positions on a line sit INSIDE a string literal.
- *
- * Without this the scan flags its own error messages and this registry's own
- * descriptions — prose that NAMES the retired pattern is not a reinstatement of
- * it. Only code positions count. Evaluated per line (a state machine spanning
- * the file would be a parser, and this stays a detector), so an unterminated
- * literal only affects the remainder of its own line.
+ * Marks each position on a line that is inside a string literal. A string that names a retired pattern does not reinstate it.
+ * The mask covers one line, so an unterminated literal affects only the rest of its line.
  */
 function stringLiteralMask(line: string): readonly boolean[] {
   const mask: boolean[] = new Array<boolean>(line.length).fill(false);
@@ -556,11 +473,8 @@ function stringLiteralMask(line: string): readonly boolean[] {
 }
 
 /**
- * Scan production source for the reintroduction of a retired authority.
- *
- * PRODUCTION ONLY — `isTest` modules are skipped, so a test may still *describe*
- * the retired behaviour (characterization fixtures need to) without tripping the
- * scan. Returns every occurrence, sorted, so a failure names all of them at once.
+ * Scans production source for the reintroduction of a retired authority, and returns every hit in sorted order.
+ * The scan skips test modules, so a test can describe the retired behavior. It also skips a line that is only a comment.
  */
 export function scanRetiredAuthorityReintroduction(
   modules: readonly SourceModule[],
@@ -579,8 +493,6 @@ export function scanRetiredAuthorityReintroduction(
       const lines = mod.content.split(/\r?\n/);
       for (const forbidden of authority.forbiddenPatterns) {
         for (const [index, line] of lines.entries()) {
-          // A line that is entirely a comment documents the retirement; it does
-          // not reinstate it.
           const code = line.trim();
           if (code.startsWith('//') || code.startsWith('*') || code.startsWith('/*')) continue;
           const mask = stringLiteralMask(code);
@@ -588,7 +500,7 @@ export function scanRetiredAuthorityReintroduction(
           let hit = false;
           for (const match of code.matchAll(re)) {
             if (match.index === undefined) continue;
-            if (mask[match.index] === true) continue; // inside a string literal
+            if (mask[match.index] === true) continue;
             hit = true;
             break;
           }

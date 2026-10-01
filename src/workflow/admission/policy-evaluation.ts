@@ -1,28 +1,17 @@
-// ─── P06-04 / Transition tasks 021, 022, 044 — Three-valued policy evaluation ─
+// `evaluatePolicy` folds the active evidence from `selectEvidence`, the contradictions and the
+// waivers against a resolved requirement set into one three-valued verdict:
 //
-// `evaluatePolicy` folds the ACTIVE evidence (already selected by P01-06's
-// `selectEvidence`), the detected contradictions, and any waivers against a
-// resolved requirement set into ONE three-valued verdict:
+//   allow          — every requirement is satisfied or validly waived.
+//   deny           — a requirement is unsatisfied for a sound reason, and no waiver applies.
+//   indeterminate  — no sound deny, but an evaluator returned `indeterminate`. This outcome
+//                    must fail closed downstream. It never becomes allow, and no waiver applies to it.
 //
-//   allow          — every requirement is satisfied, or validly waived;
-//   deny           — at least one requirement is unsatisfied for a SOUND reason
-//                    (missing / stale / contradictory / malformed / unauthorized
-//                    / failed) and no waiver rescues it;
-//   indeterminate  — no sound deny, but at least one requirement could not be
-//                    decided (an evaluator returned `indeterminate`). This is a
-//                    first-class outcome that MUST fail closed downstream — it is
-//                    never coerced to allow, and a waiver never rescues it.
+// A waiver never rewrites or hides failed evidence. A waived requirement shows as `waived`,
+// and `recordedFailures` keeps its failure with `waived: true` and the waiver id.
 //
-// The load-bearing invariant (the P06-04 exit proof): a waiver NEVER rewrites or
-// hides failed evidence. A waived requirement is reported as `waived`, and the
-// failure it waived is ALSO reported in `recordedFailures` with `waived: true`
-// and the waiver id — so anyone auditing the decision still sees the failure.
-//
-// Trust is never self-asserted: authorization comes from the injected
-// `PolicyAuthority` (P01-07), and the evaluation instant / freshness horizon are
-// trusted inputs, never `Date.now()`.
-//
-// Pure: no I/O, no clock, no config reads; deterministic output ordering.
+// In `evaluatePolicy`, the injected `PolicyAuthority` decides authorization. The evaluation
+// instant and the freshness horizon are trusted inputs, never `Date.now()`. The module is pure:
+// no I/O, no clock, no configuration reads, and a deterministic output order.
 
 import type { EvidenceContradiction } from './select-evidence.js';
 import { DENY_ALL_AUTHORITY, type PolicyAuthority } from './policy-authority.js';
@@ -44,8 +33,6 @@ import type {
   WaiverId,
   WaiverProvenanceV1,
 } from './types.js';
-
-// ─── Public result algebra ───────────────────────────────────────────────────
 
 export type PolicyVerdict = 'allow' | 'deny' | 'indeterminate';
 
@@ -75,7 +62,7 @@ export type RequirementEvaluation =
       readonly requirementId: RequirementId;
       readonly status: 'waived';
       readonly waiverId: WaiverId;
-      /** The failure the waiver permitted admission despite — kept, not erased. */
+      /** The failure that the waiver let through. The evaluation keeps it. */
       readonly waivedReason: PolicyDenyReason;
       readonly evidenceIds: readonly EvidenceId[];
     }
@@ -87,9 +74,8 @@ export type RequirementEvaluation =
     };
 
 /**
- * A failure that remains on record even when a waiver permitted admission. This
- * is the durable proof that admission-despite-failure never rewrites the
- * evidence: `waived: true` entries appear here under an `allow` verdict.
+ * A failure that stays on record when a waiver permits admission.
+ * A `waived: true` entry can show under an `allow` verdict, so a waiver never rewrites the evidence.
  */
 export interface RecordedFailure {
   readonly requirementId: RequirementId;
@@ -108,32 +94,25 @@ export interface PolicyEvaluation {
 
 export interface PolicyEvaluationInput {
   /**
-   * The resolved requirement RECORDS to evaluate — each carrying a stable id and
-   * an immutable subject. In the full pipeline these are the projection of a
-   * {@link ResolvedRequirements} obligation lattice; the lattice element itself
-   * is threaded as {@link PolicyEvaluationInput.obligations}.
+   * The resolved requirement records to evaluate, each with a stable id and an immutable subject.
+   * They are the projection of the {@link ResolvedRequirements} lattice element in `obligations`.
    */
   readonly requirements: readonly AdmissionRequirementV1[];
-  /**
-   * The resolved obligation lattice element from `resolveRequirements(ctx)`. Its
-   * `waivable` floor decides whether ANY waiver may discharge a failure.
-   */
+  /** The obligation lattice element from `resolveRequirements(ctx)`. Its `waivable` floor decides whether a waiver can discharge a failure. */
   readonly obligations: ResolvedRequirements;
   /** Canonical ACTIVE evidence (`selectEvidence(...).activeEvidence.map(r => r.evidence)`). */
   readonly activeEvidence: readonly AdmissionEvidenceV1[];
   /** Detected contradictions (`selectEvidence(...).contradictions`). */
   readonly contradictions?: readonly EvidenceContradiction[];
-  /** Waiver lifecycle facts; only authorized, in-scope, unexpired issuances apply. */
+  /** Waiver lifecycle facts. Only authorized, in-scope, unexpired issuances apply. */
   readonly waivers?: readonly WaiverProvenanceV1[];
-  /** Out-of-band trust oracle (P01-07). Self-asserted roles cannot authorize. */
+  /** The out-of-band trust oracle. A self-asserted role cannot authorize. */
   readonly authority: PolicyAuthority;
   /** Trusted RFC3339 evaluation instant. Never `Date.now()`. */
   readonly evaluatedAt: string;
   /** Evidence older than this (created-at to evaluated-at) is stale. */
   readonly freshnessHorizonMs: number;
 }
-
-// ─── Internal, pre-waiver disposition ────────────────────────────────────────
 
 type RawDisposition =
   | { readonly kind: 'satisfied'; readonly evidenceIds: readonly EvidenceId[] }
@@ -181,8 +160,6 @@ function indeterminate(
   return { kind: 'indeterminate', code, evidenceIds: sortedIds(evidence) };
 }
 
-// ─── Per-evidence soundness predicates ───────────────────────────────────────
-
 /** Evidence is well-formed for a requirement iff its subject and attempt match. */
 function wellFormed(
   evidence: AdmissionEvidenceV1,
@@ -222,8 +199,7 @@ function independenceKey(evidence: AdmissionEvidenceV1): string {
     : `approval:${evidence.attributedTo.principalId}`;
 }
 
-// ─── Per-kind requirement evaluators ─────────────────────────────────────────
-
+/** Evaluates a gate-evidence requirement. Fresh evidence with neither a pass nor a fail verdict is `EVALUATOR_FAILED`. */
 function evaluateGate(
   subject: EvidenceSubjectV1,
   phaseAttemptId: PhaseAttemptId,
@@ -248,7 +224,6 @@ function evaluateGate(
   const failing = fresh.filter((e) => e.verdict === 'fail');
   if (failing.length > 0) return denied('failed', failing);
 
-  // Well-formed, authorized, fresh — but the gate itself could not decide.
   return indeterminate('EVALUATOR_FAILED', fresh);
 }
 
@@ -312,8 +287,6 @@ function evaluateCorroboration(
   return denied('missing', satisfying);
 }
 
-// ─── The evaluator ───────────────────────────────────────────────────────────
-
 function evaluateRequirement(
   requirement: AdmissionRequirementV1,
   byRequirement: ReadonlyMap<string, readonly AdmissionEvidenceV1[]>,
@@ -358,9 +331,9 @@ function evaluateRequirement(
 }
 
 /**
- * Evaluate a resolved requirement set against active evidence, contradictions,
- * and waivers into a single three-valued verdict. Pure, total, deterministic:
- * the same input always produces the same (deeply frozen) evaluation.
+ * Evaluates a resolved requirement set against active evidence, contradictions and waivers, and returns one verdict.
+ * The same input always gives the same frozen result. An applicable waiver discharges a deny-class result.
+ * No waiver applies to an indeterminate result, and a waived failure stays in `recordedFailures`.
  */
 export function evaluatePolicy(input: PolicyEvaluationInput): PolicyEvaluation {
   const ctx: EvalContext = {
@@ -399,7 +372,6 @@ export function evaluatePolicy(input: PolicyEvaluationInput): PolicyEvaluation {
     }
 
     if (raw.kind === 'indeterminate') {
-      // Indeterminate is first-class and fails closed: a waiver NEVER rescues it.
       requirementEvaluations.push({
         requirementId: requirement.requirementId,
         status: 'indeterminate',
@@ -409,8 +381,6 @@ export function evaluatePolicy(input: PolicyEvaluationInput): PolicyEvaluation {
       continue;
     }
 
-    // Deny-class: a scoped, unexpired, authorized waiver may permit admission —
-    // but the failure is still recorded, never rewritten.
     const target: WaiverTarget = {
       requirementId: requirement.requirementId,
       subject: requirement.subject,
@@ -482,19 +452,17 @@ export function evaluatePolicy(input: PolicyEvaluationInput): PolicyEvaluation {
   });
 }
 
-// ─── ActionId-wide authored discriminants ────────────────────────────────────
-
 export interface AuthoredRequirementEvaluationInput {
   /** Authored obligation discriminants — never freeze-time requirement ids. */
   readonly requirements: readonly ActionIdRequirement[];
-  /** Lattice projection of those discriminants; `waivable` gates the waiver arm. */
+  /** The lattice projection of those discriminants. Its `waivable` flag gates the waiver arm. */
   readonly obligations: ResolvedRequirements;
   readonly evidence: readonly AdmissionEvidenceV1[];
   /** Present only when the snapshot carries a phase attempt. */
   readonly phaseAttemptId?: PhaseAttemptId;
   readonly evaluatedAt: string;
   readonly freshnessHorizonMs: number;
-  /** Snapshot-resident authorization predicate; not a self-asserted producer role. */
+  /** The authorization predicate from the snapshot. It is not a self-asserted producer role. */
   readonly authorizesEvidence: (evidence: AdmissionEvidenceV1) => boolean;
 }
 
@@ -597,13 +565,10 @@ function evaluateAuthoredRequirement(
 }
 
 /**
- * Evaluate authored ActionId-wide requires against snapshot-resident evidence.
- *
- * Discriminants are matched by their authored keys, not by minted requirement
- * ids. A waiver-bearing (waivable) miss without a phase attempt is
- * indeterminate — the waiver arm is not evaluated when the snapshot has no
- * attempt to bind. Contradictory, stale, unauthorized, failed, or missing
- * evidence never allows.
+ * Evaluates authored ActionId-wide requires against the evidence in the snapshot.
+ * It matches discriminants by authored key, not by minted requirement id.
+ * A waivable miss with no phase attempt is `indeterminate`, because no attempt exists to bind a waiver.
+ * Contradictory, stale, unauthorized, failed, or missing evidence never allows.
  */
 export function evaluateAuthoredRequirements(
   input: AuthoredRequirementEvaluationInput,

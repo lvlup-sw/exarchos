@@ -1,20 +1,12 @@
-// ─── P06-04 / Transition tasks 021, 022, 044 — Trusted issuer authority ──────
-//
-// Policy evaluation must never trust a record to authorize *itself*. Evidence
-// and waiver records carry a self-described producer / actor / role, but under
-// the P01-07 trusted-identity model callers cannot self-assert issuer, role, or
-// capability. The authorization decision is therefore delegated to a
-// `PolicyAuthority` supplied out-of-band by the trusted dispatch context — the
-// evaluator consults it, it does NOT read trust off the record's own fields.
-//
-// A record whose issuing principal is unknown to the authority (or known but
-// lacking the capability) is UNAUTHORIZED, and unauthorized evidence denies.
-//
-// Pure: no I/O, no clock, no config reads. `createCapabilityAuthority` builds a
-// deterministic directory-backed authority from an explicit capability grant
-// table (which, in production, the trusted resolver populates — never the
-// caller of the transition).
-
+/**
+ * Trusted issuer authority for policy evaluation.
+ *
+ * A record never authorizes itself. Evidence and waiver records describe their own
+ * producer, actor, and role, but the evaluator does not trust those fields.
+ * It asks a `PolicyAuthority` that the trusted dispatch context supplies.
+ * An issuer that the authority does not know, or that lacks the capability, is
+ * unauthorized, and unauthorized evidence denies. The module is pure.
+ */
 import type {
   AttributedPrincipalV1,
   AuthorizationSnapshotV1,
@@ -22,10 +14,9 @@ import type {
 } from './types.js';
 
 /**
- * The capabilities the policy layer checks issuers against. These are the
- * out-of-band capability names a trusted resolver grants to a principal; they
- * are deliberately NOT branded {@link import('./types.js').CapabilityId} values
- * because the directory is external trust data, not a record field.
+ * The capability names that a trusted resolver grants to a principal.
+ * They are not branded {@link import('./types.js').CapabilityId} values, because
+ * the directory is external trust data and not a record field.
  */
 export const POLICY_CAPABILITY = {
   /** Permits a principal to issue gate evidence. */
@@ -40,11 +31,9 @@ export type PolicyCapabilityName =
   (typeof POLICY_CAPABILITY)[keyof typeof POLICY_CAPABILITY];
 
 /**
- * The trust oracle consulted during policy evaluation. Every method answers a
- * single question — "may THIS principal issue THIS kind of artifact?" — using
- * trust the caller cannot forge. Implementations must ignore any role or
- * capability the record asserts about itself and answer solely from the
- * out-of-band trust they were constructed with.
+ * The trust oracle for policy evaluation. Each method tells if a principal can
+ * issue one kind of artifact. Implementations must ignore the role or capability
+ * that a record asserts about itself.
  */
 export interface PolicyAuthority {
   /** Whether the gate-evidence producer is trusted to issue gate evidence. */
@@ -52,9 +41,8 @@ export interface PolicyAuthority {
   /** Whether the approving principal is trusted to issue approval evidence. */
   authorizesApproval(principal: AttributedPrincipalV1): boolean;
   /**
-   * Whether the waiver actor is trusted to grant a waiver. The frozen
-   * authorization snapshot is provenance for audit; the trust decision comes
-   * from the out-of-band directory, never from the snapshot the record carries.
+   * Whether the waiver actor is trusted to grant a waiver. The authorization
+   * snapshot is audit provenance only. The decision comes from the directory.
    */
   authorizesWaiver(
     actor: AttributedPrincipalV1,
@@ -69,11 +57,8 @@ export interface PrincipalCapabilityGrant {
 }
 
 /**
- * Build a deterministic {@link PolicyAuthority} from an explicit capability
- * grant table. Grants for the same principal are merged. A principal absent
- * from the table holds no capabilities, so its evidence and waivers are
- * unauthorized. The returned authority is frozen and reads nothing but the
- * directory it closed over — a record cannot widen its own authorization.
+ * Build a frozen {@link PolicyAuthority} from a capability grant table. Grants for
+ * one principal merge. A principal that is not in the table holds no capabilities.
  */
 export function createCapabilityAuthority(
   grants: readonly PrincipalCapabilityGrant[],
@@ -98,11 +83,7 @@ export function createCapabilityAuthority(
   });
 }
 
-/**
- * An authority that trusts no one — every issuer is unauthorized. Useful as a
- * fail-closed default and as the discriminating baseline for authorization
- * tests. Frozen and shareable.
- */
+/** An authority that trusts no issuer, for use as a fail-closed default. */
 export const DENY_ALL_AUTHORITY: PolicyAuthority = Object.freeze({
   authorizesGateEvidence: (): boolean => false,
   authorizesApproval: (): boolean => false,

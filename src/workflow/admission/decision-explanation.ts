@@ -1,33 +1,12 @@
-// ─── P06-06 / Transition tasks 025, 026 — Explainable admission decisions ─────
+// Explains a persisted `TransitionDecided` to the caller.
+// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31): this module waits for the legacy HSM cutover.
+// Until then, nothing in production produces a `TransitionDecided`.
 //
-// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31) — production
-// code awaiting the legacy HSM cutover, same staging as
-// `transition-command.ts`: it explains a `TransitionDecided`, and nothing
-// produces one in production until P07-02 migrates the built-in workflows off
-// the legacy guard. P07-05 removes the legacy path once this is the only one.
-//
-// `explainDecision` turns a persisted {@link TransitionDecided} into a TOTAL,
-// caller-facing explanation:
-//
-//   • per-requirement RESULTS (satisfied / waived / denied / indeterminate);
-//   • EVIDENCE references (ids) and the decision DIGESTS — references, not copies;
-//   • POLICY identity (policyId / policyVersion / policyDigest + set/input digests);
-//   • a STABLE reason code per unsatisfied requirement (aligned to the P03-02
-//     `STABLE_ERROR_REGISTRY`, not a parallel vocabulary);
-//   • a REMEDIATION per denial — a safe verb or a stable terminal reason — so
-//     there is NEVER an unexplained denial;
-//   • WAIVED-but-recorded fidelity: a waiver-driven `allow` still surfaces which
-//     failures were waived and by which waiver (P06-04's durable guarantee).
-//
-// Totality is enforced by two `never` checks the compiler gates:
-//   1. over the {@link RequirementEvaluation} status union, and
-//   2. over the {@link PolicyVerdict} union.
-// Adding a status or a verdict without an explanation arm is a COMPILE error.
-//
-// This module is pure DATA — it never mutates state and, by construction, cannot:
-// `remediation-purity.ts`'s structural census asserts its import surface reaches
-// no event store / filesystem / process / transition mutator. It consumes
-// `transition-command.ts` READ-ONLY, and only as a TYPE (erased at compile).
+// The explanation holds the requirement results, evidence ids, decision digests and policy identity.
+// Each denial gets a stable reason code and a remediation: a safe verb or a stable terminal reason.
+// An `allow` still shows the failures that a waiver permitted.
+// Two `never` checks make a new status or verdict without an explanation a compile error.
+// The module is pure data. The remediation purity census asserts that its imports reach no state mutator.
 
 import { assertNever, type StableErrorCode } from '../../contract/error-families.js';
 import type { NextAction } from '../../next-action.js';
@@ -57,9 +36,7 @@ import type {
   WaiverId,
 } from './types.js';
 
-// ─── Explanation shapes ──────────────────────────────────────────────────────
-
-/** The policy identity + the content-addressed digests behind the decision. */
+/** The policy identity and the content digests behind the decision. */
 export interface PolicyIdentity {
   readonly policyId: PolicyId;
   readonly policyVersion: string;
@@ -108,10 +85,7 @@ export interface UnsatisfiedRequirementExplanation {
   readonly remediation: RemediationOutcome;
 }
 
-/**
- * A failure a waiver permitted admission DESPITE — surfaced under an `allow`
- * verdict so admission-success never hides which failures were waived, by whom.
- */
+/** A failure that a waiver permitted. An `allow` lists it, so a success never hides a waived failure or its waiver. */
 export interface WaivedFailureExplanation {
   readonly requirementId: RequirementId;
   readonly reason: PolicyDenyReason;
@@ -129,7 +103,7 @@ export interface DecisionExplanation {
   readonly requirementResults: readonly RequirementResult[];
   /** Denied requirements, each with a safe verb OR a stable terminal reason. */
   readonly unsatisfied: readonly UnsatisfiedRequirementExplanation[];
-  /** Failures waived under an `allow` — the P06-04 durable audit surface. */
+  /** The failures that a waiver permitted under an `allow`. */
   readonly waivedFailures: readonly WaivedFailureExplanation[];
   /** Every safe, schema-valid `next_actions` verb this explanation emits. */
   readonly nextActions: readonly NextAction[];
@@ -138,14 +112,9 @@ export interface DecisionExplanation {
   readonly waiverIds: readonly WaiverId[];
 }
 
-// ─── Waivability derivation ──────────────────────────────────────────────────
-
 /**
- * Whether the obligation set was WAIVABLE, derived faithfully from the persisted
- * decision (never re-guessed). The chokepoint appends a `request_waiver`
- * remediation to a `deny` record iff the set is waivable; an `allow` that waived
- * any requirement is waivable by construction. Waivability only steers the
- * remediation of a `deny`, so this derivation is exact where it matters.
+ * Returns whether the obligation set was waivable, from the persisted decision only.
+ * A `deny` is waivable when it carries a `request_waiver` remediation. An `allow` that waived a requirement is waivable.
  */
 export function deriveWaivable(decision: AdmissionDecisionRecordV1): boolean {
   switch (decision.outcome) {
@@ -159,8 +128,6 @@ export function deriveWaivable(decision: AdmissionDecisionRecordV1): boolean {
       return assertNever(decision, 'AdmissionDecisionRecordV1');
   }
 }
-
-// ─── Per-requirement explanation (total over the status union) ───────────────
 
 function explainRequirement(
   evaluation: RequirementEvaluation,
@@ -217,13 +184,10 @@ function explainRequirement(
   }
 }
 
-// ─── The total explanation function ──────────────────────────────────────────
-
 /**
- * Explain a persisted admission decision. Total, pure, deterministic: the same
- * decided transition always yields the same explanation, and every unsatisfied
- * requirement carries a remediation that is a safe verb or a stable terminal
- * reason — there is no third "unexplained denial" case.
+ * Explains a persisted admission decision. The function is pure and deterministic.
+ * Each unsatisfied requirement gets a safe verb or a stable terminal reason.
+ * Waived failures come from the durable `recordedFailures`.
  */
 export function explainDecision(decided: TransitionDecided): DecisionExplanation {
   const { evaluation, decision, frozenRequirements } = decided;
@@ -272,8 +236,6 @@ export function explainDecision(decided: TransitionDecided): DecisionExplanation
     }
   }
 
-  // Waived failures come from the durable `recordedFailures` (waived: true) — the
-  // P06-04 proof that admission-despite-failure never rewrites the evidence.
   const waivedFailures: WaivedFailureExplanation[] = evaluation.recordedFailures
     .filter((failure) => failure.waived && failure.waiverId !== undefined)
     .map((failure) => ({
@@ -284,8 +246,6 @@ export function explainDecision(decided: TransitionDecided): DecisionExplanation
       evidenceIds: failure.evidenceIds,
     }));
 
-  // Totality over the verdict union — adding a verdict without an arm is a
-  // compile error. Each arm asserts the shape invariant it must uphold.
   switch (evaluation.verdict) {
     case 'allow':
     case 'deny':
