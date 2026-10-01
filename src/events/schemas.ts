@@ -116,7 +116,15 @@ export const INTERNAL_EXECUTION_LEDGER_EVENT_TYPES: readonly [
   'orchestrate.intent_executed',
   'execution.settled',
   'workflow.prepared',
-] = ['orchestrate.intent_executed', 'execution.settled', 'workflow.prepared'];
+  'deviation.proposed',
+  'deviation.decided',
+] = [
+  'orchestrate.intent_executed',
+  'execution.settled',
+  'workflow.prepared',
+  'deviation.proposed',
+  'deviation.decided',
+];
 
 /** Server-owned cancellation process-manager facts (v2.12, DR-7). */
 export const INTERNAL_CANCELLATION_EVENT_TYPES = [
@@ -636,6 +644,12 @@ export const EventTypes = [
   // Settlement adjudicates a capsule only against this record, so the terms a
   // batch is judged by are the terms it was compiled under.
   'workflow.prepared',
+  // The divergence loop's decision facts. A batch `settle` holds for a
+  // deviation leaves one proposal per deviation it waits on; the settle call
+  // that decides the batch leaves one decision per proposal. Both land with
+  // their emitter, under the rule the semantic kinds are held to.
+  'deviation.proposed',
+  'deviation.decided',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -3969,6 +3983,15 @@ export const SettlementCensusData = z
       .int()
       .nonnegative()
       .describe('Task verification outcomes read on the final pass; zero when no verification ran'),
+    decisions: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe(
+        'Decisions read against proposed deviations; absent on a record written before a held ' +
+          'batch could be decided',
+      ),
   })
   .strict();
 
@@ -3992,6 +4015,15 @@ export const ExecutionSettledData = z
     outcome: z
       .enum(['settled', 'rejected', 'deviation-pending'])
       .describe('Whether the batch settled, was refused, or is held for a deviation decision'),
+    round: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe(
+        'Which settlement round of the batch this record closes: absent for the round that ' +
+          'submitted it, 1 for the round that decided its held deviations',
+      ),
     acceptedTasks: z
       .array(z.string().min(1))
       .describe('Task ids whose claims were adjudicated with no finding against them'),
@@ -4064,6 +4096,50 @@ export const WorkflowPreparedData = z
   })
   .strict();
 export type WorkflowPrepared = z.infer<typeof WorkflowPreparedData>;
+
+// ─── The divergence loop's decision facts ────────────────────────────────────
+//
+// A batch `settle` holds for a deviation is a batch waiting on a decision, and
+// the decision is a fact about that batch — not a new batch. Both rows name the
+// settlement the deviation belongs to and the deviation by a content-derived id,
+// so a decision round can name what it decides without restating it, and a
+// reader can pair every decision with its proposal.
+
+/** What every divergence fact says about the settlement it belongs to. */
+const DeviationSettlementIdentity = {
+  operationId: z.string().min(1).describe('The settle call this fact was recorded under'),
+  workflowId: z.string().min(1).describe('Workflow the settled capsule compiled for'),
+  capsuleVersion: z.number().int().min(1).describe('Which compilation the batch ran under'),
+  batchId: z.string().min(1).describe('The held batch the deviation belongs to'),
+  deviationId: z
+    .string()
+    .min(1)
+    .describe('Content-derived id of the deviation, the same on the proposal and its decision'),
+};
+
+export const DeviationProposedData = z
+  .object({
+    ...DeviationSettlementIdentity,
+    deviationKind: z.string().min(1).describe("A kind the capsule's deviation envelope admits"),
+    statement: z
+      .string()
+      .min(1)
+      .describe("What the worker found wrong with the capsule's assumption, in its words"),
+  })
+  .strict();
+export type DeviationProposed = z.infer<typeof DeviationProposedData>;
+
+export const DeviationDecidedData = z
+  .object({
+    ...DeviationSettlementIdentity,
+    decision: z
+      .enum(['accepted', 'rejected'])
+      .describe('Whether the proposed deviation stands: accepted admits the work, rejected refuses the batch'),
+    actor: z.string().min(1).describe('Who decided: a person, or a named policy'),
+    rationale: z.string().min(1).describe('Why, as the decider put it'),
+  })
+  .strict();
+export type DeviationDecided = z.infer<typeof DeviationDecidedData>;
 
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
@@ -4346,6 +4422,9 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'execution.settled': ExecutionSettledData,
   // The semantic plane's compilation record.
   'workflow.prepared': WorkflowPreparedData,
+  // The divergence loop's decision facts.
+  'deviation.proposed': DeviationProposedData,
+  'deviation.decided': DeviationDecidedData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -4692,6 +4771,9 @@ export type EventDataMap = {
   'execution.settled': ExecutionSettled;
   // The semantic plane's compilation record.
   'workflow.prepared': WorkflowPrepared;
+  // The divergence loop's decision facts.
+  'deviation.proposed': DeviationProposed;
+  'deviation.decided': DeviationDecided;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────

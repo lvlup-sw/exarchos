@@ -60,17 +60,17 @@ export const settleActions: readonly BuiltinToolAction[] = [
     description:
       'Adjudicate ONE batch of returned claims against a prepared capsule, verify each accepted ' +
       'task, and commit one execution.settled record. `capsuleVersion` names the capsule prepare ' +
-      'recorded; the terms come from that record, never from current state (a submitted ' +
-      '`capsule` must match its digest). Claims are read against each task\'s declared result ' +
-      'shape, cited evidence must resolve to a recorded row of an admitted kind, deviations ' +
-      'against the envelope. A batch with no finding then RUNS each task\'s task-completion ' +
-      'segment — the ladder gates under the tier the capsule froze, then task_complete — against ' +
-      'the claim\'s `worktreePath`; a segment that halts is a verification-failed finding. ' +
-      'Outcome is `settled`, `rejected` or `deviation-pending`; a REJECTED batch is a successful ' +
-      'call whose findings say what to fix. Errors, none of which adjudicate: a malformed ' +
-      'request, CAPSULE_INVALID, CAPSULE_NOT_PREPARED, CAPSULE_DIGEST_MISMATCH, ' +
-      'CAPSULE_UNRESOLVED. Keyed by (capsuleVersion, `batchId`): resubmitting a batch returns ' +
-      'its verdict; a correction goes back under a NEW `batchId`.',
+      'recorded; the terms come from that record, never from current state. Claims are read ' +
+      'against each task\'s result shape, evidence must resolve to a recorded row of an admitted ' +
+      'kind, deviations against the envelope. A batch with no finding then RUNS each task\'s ' +
+      'task-completion segment (the ladder gates under the tier the capsule froze, then ' +
+      'task_complete) against the claim\'s `worktreePath`; a halted segment is a ' +
+      'verification-failed finding. A REJECTED batch is a successful call whose findings say ' +
+      'what to fix. A HELD batch names `pendingDeviations`; settle the SAME batch again with ' +
+      '`decisions` (no claims) to record each and verify the work, or reject it. Errors ' +
+      '(nothing adjudicated): CAPSULE_INVALID, CAPSULE_NOT_PREPARED, CAPSULE_DIGEST_MISMATCH, ' +
+      'CAPSULE_UNRESOLVED, BATCH_NOT_HELD, DECISION_INCOMPLETE. Keyed by (capsuleVersion, ' +
+      '`batchId`): a resubmitted batch returns its verdict; a correction takes a NEW `batchId`.',
     schema: z
       .object({
         capsuleVersion: z
@@ -112,6 +112,22 @@ export const settleActions: readonly BuiltinToolAction[] = [
           )
           .optional()
           .describe("Deviations proposed because a capsule assumption did not hold"),
+        decisions: z
+          .array(
+            z
+              .object({
+                deviationId: z.string().min(1),
+                decision: z.enum(['accepted', 'rejected']),
+                actor: z.string().min(1),
+                rationale: z.string().min(1),
+              })
+              .strict(),
+          )
+          .optional()
+          .describe(
+            'The decision round of a held batch: one entry per deviation the held receipt named ' +
+              'in pendingDeviations, and no claims',
+          ),
         // Alias, matching execute_intent: `streamId` IS the bare featureId;
         // either spelling is accepted and exactly one is required.
         streamId: z.string().min(1).optional(),
@@ -178,14 +194,34 @@ export const settleActions: readonly BuiltinToolAction[] = [
     // appended by the leaves it composes, each under its own derived operation
     // id and each declared by its own registration — the same line
     // `execute_intent` draws around the leaves it runs.
-    emissions: declared({
-      event: 'execution.settled',
-      condition: 'conditional',
-      owner: 'orchestrate',
-      role: 'primary',
-      description:
-        'appended on every adjudicated outcome, including a rejection; a replay of an ' +
-        'already-claimed operation id returns the persisted verdict and appends nothing',
-    }),
+    emissions: declared(
+      {
+        event: 'execution.settled',
+        condition: 'conditional',
+        owner: 'orchestrate',
+        role: 'primary',
+        description:
+          'appended on every adjudicated outcome, including a rejection; a replay of an ' +
+          'already-claimed operation id returns the persisted verdict and appends nothing',
+      },
+      {
+        event: 'deviation.proposed',
+        condition: 'conditional',
+        owner: 'orchestrate',
+        role: 'primary',
+        description:
+          'one per deviation a held batch waits on, in the same commit as the record that holds ' +
+          'it and ahead of it; none on any other outcome, on the decision round, or on a replay',
+      },
+      {
+        event: 'deviation.decided',
+        condition: 'conditional',
+        owner: 'orchestrate',
+        role: 'primary',
+        description:
+          'one per decision the decision round records, in the same commit as the record that ' +
+          'closes the batch and ahead of it; none on the submitting round or on a replay',
+      },
+    ),
   }),
 ];

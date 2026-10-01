@@ -34,7 +34,7 @@ Exception `coverage-gaps-revise`: the coverage gate fails, so the plan is revise
 
 ## delegation
 
-Ends at: transition delegate -> review (`content/delivery/skills/delegate/SKILL.md:430`)
+Ends at: transition delegate -> review (`content/delivery/skills/delegate/SKILL.md:447`)
 
 1. `exarchos_orchestrate.runbook` (runbook-fetch) `content/delivery/skills/delegate/SKILL.md:74`
 2. `exarchos_orchestrate.runbook` (runbook-fetch) `content/delivery/skills/delegate/SKILL.md:75`
@@ -42,32 +42,32 @@ Ends at: transition delegate -> review (`content/delivery/skills/delegate/SKILL.
 4. `native:SPAWN_AGENT_CALL` (native, perTask) `content/delivery/skills/delegate/SKILL.md:178`
 5. `native:SUBAGENT_RESULT_API` (native, perTask) `content/delivery/skills/delegate/SKILL.md:250`
 6. `exarchos_orchestrate.settle` (work) `content/delivery/skills/delegate/SKILL.md:280`
-7. `exarchos_orchestrate.serialize_merge` (work, perTask, via mention) `content/delivery/skills/delegate/SKILL.md:438`
-8. `exarchos_orchestrate.check_integration_suite` (work) `content/delivery/skills/delegate/SKILL.md:355`
-9. `exarchos_orchestrate.check_operational_resilience` (work) `content/delivery/skills/delegate/SKILL.md:365`
-10. `exarchos_workflow.transition` (work) `content/delivery/skills/delegate/SKILL.md:616`
+7. `exarchos_orchestrate.serialize_merge` (work, perTask, via mention) `content/delivery/skills/delegate/SKILL.md:455`
+8. `exarchos_orchestrate.check_integration_suite` (work) `content/delivery/skills/delegate/SKILL.md:372`
+9. `exarchos_orchestrate.check_operational_resilience` (work) `content/delivery/skills/delegate/SKILL.md:382`
+10. `exarchos_workflow.transition` (work) `content/delivery/skills/delegate/SKILL.md:633`
 
 Exception `settlement-rejected`: settlement rejects a task, so a fixer is dispatched and the batch is resubmitted (`content/delivery/skills/delegate/SKILL.md:296`)
 
 - Runs the normal path through `exarchos_orchestrate.settle`, adds `native:SPAWN_AGENT_CALL`, `exarchos_orchestrate.settle`.
 - Exarchos 3; describe 0; runbook fetch 2; harness 1 + 2*tasks.
 
-Exception `deviation-pending`: a worker proposed a deviation, so the batch is held for a decision and resubmitted (`content/delivery/skills/delegate/SKILL.md:310`)
+Exception `deviation-pending`: a worker proposed a deviation, so the batch is held for a decision and settled again with it (`content/delivery/skills/delegate/SKILL.md:310`)
 
 - Runs the normal path through `exarchos_orchestrate.settle`, adds `exarchos_orchestrate.settle`.
 - Exarchos 3; describe 0; runbook fetch 2; harness 2*tasks.
 
-Exception `context-compaction`: context compacts mid-delegation, so state is recovered before continuing (`content/delivery/skills/delegate/SKILL.md:395`)
+Exception `context-compaction`: context compacts mid-delegation, so state is recovered before continuing (`content/delivery/skills/delegate/SKILL.md:412`)
 
 - Runs the whole normal path, adds `exarchos_workflow.get`, `exarchos_workflow.reconcile`.
 - Exarchos 7 + 1*tasks; describe 0; runbook fetch 2; harness 2*tasks.
 
-Exception `integration-advanced`: the integration branch advanced mid-wave, so one worktree is rebased and merged again (`content/delivery/skills/delegate/SKILL.md:477`)
+Exception `integration-advanced`: the integration branch advanced mid-wave, so one worktree is rebased and merged again (`content/delivery/skills/delegate/SKILL.md:494`)
 
 - Runs the whole normal path, adds `native:Bash`, `native:Bash`, `exarchos_orchestrate.serialize_merge`.
 - Exarchos 6 + 1*tasks; describe 0; runbook fetch 2; harness 2 + 2*tasks.
 
-Exception `integration-advanced-rollback`: the rebase cannot be resolved, so the branch is rolled back and the abort recorded (`content/delivery/skills/delegate/SKILL.md:582`)
+Exception `integration-advanced-rollback`: the rebase cannot be resolved, so the branch is rolled back and the abort recorded (`content/delivery/skills/delegate/SKILL.md:599`)
 
 - Runs the whole normal path, adds `native:Bash`, `native:Bash`, `native:Bash`, `exarchos_event.append`.
 - Exarchos 6 + 1*tasks; describe 0; runbook fetch 2; harness 3 + 2*tasks.
@@ -76,14 +76,14 @@ Exception `integration-advanced-rollback`: the rebase cannot be resolved, so the
 
 Ends at: task_complete records the task complete (`content/delivery/skills/delegate/SKILL.md:227`)
 
-1. `exarchos_orchestrate.runbook` (runbook-fetch) `content/delivery/skills/delegate/SKILL.md:629`
+1. `exarchos_orchestrate.runbook` (runbook-fetch) `content/delivery/skills/delegate/SKILL.md:646`
 2. `exarchos_orchestrate.check_test_adequacy` (work, via runbook:task-completion#1) `src/runbooks/definitions.ts`
 3. `exarchos_orchestrate.check_contract_drift` (work, via runbook:task-completion#2) `src/runbooks/definitions.ts`
 4. `exarchos_orchestrate.check_mock_boundary` (work, via runbook:task-completion#3) `src/runbooks/definitions.ts`
 5. `exarchos_orchestrate.check_static_analysis` (work, via runbook:task-completion#4) `src/runbooks/definitions.ts`
 6. `exarchos_orchestrate.task_complete` (work, via runbook:task-completion#5) `src/runbooks/definitions.ts`
 
-Exception `gate-failure-fix`: a blocking gate fails, so a fixer is dispatched and the task-fix chain runs (`content/delivery/skills/delegate/SKILL.md:645`)
+Exception `gate-failure-fix`: a blocking gate fails, so a fixer is dispatched and the task-fix chain runs (`content/delivery/skills/delegate/SKILL.md:662`)
 
 - Runs the normal path through `exarchos_orchestrate.check_static_analysis`, adds `native:SUBAGENT_RESULT_API`, `native:SPAWN_AGENT_CALL`, `exarchos_orchestrate.runbook`, `exarchos_orchestrate.check_test_adequacy`, `exarchos_orchestrate.check_static_analysis`, `exarchos_orchestrate.task_complete`.
 - Exarchos 7; describe 0; runbook fetch 2; harness 2.
@@ -157,7 +157,7 @@ Exception `readiness-fails`: the readiness check fails, so synthesis returns to 
 
 - Registry: 127 actions over 5 tools (4 visible), action ids sha256 `912b77180a58d6f959b6a1ba244ad8ba735aeda89f47998aafdc1e9b6b8e8753` from `tools/audit/registered-actions-snapshot.json`.
 - Contract authority `action-id-registry` digest `sha256:912b77180a58d6f959b6a1ba244ad8ba735aeda89f47998aafdc1e9b6b8e8753` from `src/contract/contract-authority.lock.json`.
-- `content/delivery/skills/delegate/SKILL.md` sha256 `d1cd8c2bfa8c805861011a902a8cadaedd8f91ef10cc473921fd852f956d9484`
+- `content/delivery/skills/delegate/SKILL.md` sha256 `59809a3588bb5dee0aefb75c307ab11d4a9d05d22795b274ab2791f3b492ea99`
 - `content/design/skills/plan/SKILL.md` sha256 `9d3591bf30492e6f36be249da667fc37b396e47964e9eb6d11d043ed8066696d`
 - `content/review/skills/review/SKILL.md` sha256 `cb281f0c613a9596d837f84010302f97fdf1ee6245a65e999807b330fe0fe055`
 - `content/synthesis/skills/synthesize/SKILL.md` sha256 `22c020a7069bbd9a5ec0ee443a8599af683eb830441e38c442db4d4307b66960`
