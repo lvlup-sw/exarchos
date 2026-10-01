@@ -583,9 +583,9 @@ function toProbeResult(
 }
 
 /**
- * The result of a probe that never started, for a reason found before it could:
- * an indeterminate verdict with nothing probed and nothing to restore. Tier
- * policy still decides whether it blocks, exactly as for any other cause.
+ * The result of a probe that did not start, because a check failed before the start.
+ * The verdict is indeterminate, with nothing probed and nothing to restore. Tier policy decides
+ * whether it blocks, as for any other cause.
  */
 export function probeNotRun(cause: AdequacyDiscriminant, detail: string, riskTier?: string): ProbeResult {
   return toProbeResult(
