@@ -1,27 +1,17 @@
 /**
- * Atomic file writer — temp + fsync + rename — and the one home for the
- * tmp+rename *publish* step every such writer shares.
+ * The one home for replacing a file: stage the bytes in a unique temp file next
+ * to the target, then rename the temp file over the target.
  *
- * Stages `content` to `<target>.<pid>.<random>.tmp`, fsyncs the tmp file,
- * then renames it over `target`. The rename is atomic on POSIX filesystems
- * and on Windows when source and target are on the same volume, so concurrent
- * readers either see the prior contents or the new contents — never a partial
- * write.
+ * A reader sees the old bytes or the new bytes, never a torn file. Inside one
+ * process, every publish to a target goes through a per-target queue, so two of
+ * our own renames to one path can never overlap. On Windows a rename can still
+ * be refused by a holder we do not own, such as a virus scanner or another
+ * process. Only for that case, the publish retries with a bounded, jittered
+ * backoff and then rethrows. Writers in other processes are not ordered: the
+ * last rename wins.
  *
- * On rename failure the tmp file is best-effort unlinked; the original
- * error is rethrown unwrapped so callers can inspect `code` (e.g.,
- * `EXDEV`, `EACCES`).
- *
- * Originally inlined in `projections/store.ts`. Extracted here in T15
- * (#1192 Items 3+5+17) so `agents/plugin-manifest.ts` and the projection
- * store share one implementation.
- *
- * Atomicity is not the same guarantee as tolerating concurrent publishers, and
- * this module now provides both: see {@link publishTempFile} for why a
- * concurrent replace needs more than a bare `rename` on Windows. Cross-process
- * *ordering* remains out of scope — racing writers may each succeed and the
- * last winner clobbers the earlier one, which is fine for every current caller
- * (each has a single owning writer, or the payload is idempotent).
+ * `tests/architecture/atomic-replace.test.ts` keeps every `rename` in `src/` in
+ * this file or in a named exemption.
  */
 
 import * as crypto from 'node:crypto';
@@ -40,6 +30,7 @@ import {
   open as fsPromisesOpen,
   rename as fsPromisesRename,
   unlink as fsPromisesUnlink,
+  writeFile as fsPromisesWriteFile,
   type FileHandle,
 } from 'node:fs/promises';
 
@@ -53,7 +44,7 @@ import {
 const PUBLISH_RETRY_LIMIT = 20;
 export const PUBLISH_BACKOFF_CAP_MS = 64;
 
-/** `true` when `err` is Windows refusing a replace that a concurrent one holds open. */
+/** `true` when `err` is Windows refusing a replace because another handle holds the target. */
 function isWindowsRenameRace(err: unknown): boolean {
   if (process.platform !== 'win32') return false;
   const code = (err as NodeJS.ErrnoException | undefined)?.code;
@@ -225,69 +216,23 @@ export interface DurabilityBarrier {
   readonly directory: DirectorySyncOutcome;
 }
 
-/** The synchronous directory-durability seam (`publishTempFileSync` / `atomicWriteFile`). */
+/**
+ * The synchronous seam for {@link publishTempFileSync} and {@link atomicWriteFile}.
+ * `rename` defaults to `fs.renameSync`; a caller injects it to fault the rename.
+ */
 export interface PublishSyncIo {
+  rename?(from: string, to: string): void;
   syncDirectory(directory: string): DirectorySyncOutcome;
 }
 
 export const DEFAULT_PUBLISH_SYNC_IO: PublishSyncIo = { syncDirectory: fsyncDirSync };
 
 /**
- * Replace `target` with `tmpPath`, tolerating Windows' concurrent-rename race.
- *
- * THIS IS THE ONLY PLACE THAT EXPLAINS THE RACE. Every tmp+rename publish in
- * this codebase routes through here or {@link publishTempFileSync}; call sites
- * point at this docstring and assert nothing. That is deliberate — see the
- * scope docstring in `projections/types.ts` for the same rule and the reason it
- * exists (#1342: a claim restated in ~8 places outlived the code and
- * contradicted itself; prose has no compiler, so the only defence is one copy).
- *
- * POSIX `rename(2)` fully defines a concurrent replace: it is atomic and a
- * loser simply overwrites. Windows does not. While one replace is in flight the
- * destination is briefly held open, and a concurrent `MoveFileEx` fails `EPERM`
- * (or `EACCES`) even though nothing is actually wrong. So identical, correct
- * code is green on Linux and red on Windows — which is why this class stayed
- * invisible until a concurrency test existed, and then only in the win32 lane.
- *
- * Retrying is safe because what is retried is the *publish*, not the write: the
- * payload is already fully on disk, each rename is still atomic, and a reader
- * therefore sees the old bytes or the new bytes and never a torn mix.
- *
- * The backoff is jittered, and that is load-bearing rather than decorative. The
- * contending writers are woken by the same collision, so a fixed *or purely
- * exponential* delay retries them in lockstep and they collide again every
- * round. The first cut of this used a deterministic `5 * attempt` and left one
- * writer still failing; randomising each sleep is what actually breaks the
- * convoy.
- *
- * Bounded on purpose. A real permission fault — read-only file, hostile ACL,
- * antivirus holding a handle — reports `EPERM` too and is indistinguishable at
- * this layer, so the loop must terminate and rethrow rather than mask it as a
- * hang. The retry is gated on win32 so POSIX keeps the single unconditional
- * rename it is already guaranteed.
- *
- * When the publish ultimately fails, `tmpPath` is removed before the error is
- * rethrown. A staged temp file whose publish failed is garbage by definition,
- * and leaving it behind orphans a file next to `target` on every failure —
- * `state-store` and {@link atomicWriteFile} each hand-rolled that cleanup while
- * the other publishes silently leaked. Owning it here is the point of having one
- * home. Cleanup is best-effort and never masks the original error.
- *
- * @param io injection seam for callers that own their own `fs` (see
- * `verbs/init/writers/`). Defaults to `node:fs/promises` — see the import
- * note above for why that module and not `node:fs`'s `fs.promises`. `unlink` is
- * optional: a caller whose injected fs cannot delete (e.g. `McpJsonWriterFs`)
- * simply gets no cleanup, exactly as before.
- *
- * `syncDirectory` is the DR-16 durability seam and is likewise optional, because
- * an injected fs may not be able to express a directory fsync at all (a seam
- * that only exposes `rename` cannot open a directory handle). It is never
- * silently *dropped*: the DEFAULT io always has one ({@link fsyncDir}), and the
- * ordering DR-16 actually depends on is built on the SYNC path
- * ({@link publishTempFileSync} / {@link DurabilityBarrier}), which always has one
- * too. An injected seam without `syncDirectory` gets an atomic publish whose
- * directory entry is not forced to disk — the same guarantee it had before this
- * seam existed, and no weaker.
+ * The seam for {@link publishTempFile}. The default comes from
+ * `node:fs/promises`, so a mock a caller installs on that module applies here
+ * too. `unlink` is optional: a seam without it gets no temp-file cleanup.
+ * `syncDirectory` is optional: a seam without it gets an atomic publish whose
+ * directory entry is not forced to disk.
  */
 export interface PublishIo {
   rename(from: string, to: string): Promise<void>;
@@ -302,19 +247,61 @@ const DEFAULT_PUBLISH_IO: PublishIo = {
   syncDirectory: fsyncDir,
 };
 
-export async function publishTempFile(
-  tmpPath: string,
-  target: string,
-  io: PublishIo = DEFAULT_PUBLISH_IO,
-): Promise<void> {
+/**
+ * The tail of the publish chain for each target with a publish queued or
+ * running, keyed by {@link publishQueueKey}. An entry is removed when the last
+ * publish for its target settles, so the map holds only targets in use.
+ */
+const publishQueues = new Map<string, Promise<void>>();
+
+/**
+ * The queue key for `target`. `path.resolve` makes it absolute and normalizes
+ * `.`, `..` and separators. Windows file names ignore case, so the key is
+ * lower-cased there. Symbolic links are not resolved.
+ */
+function publishQueueKey(target: string): string {
+  const resolved = path.resolve(target);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+/**
+ * Run `task` after every earlier task for the same target has settled, in call
+ * order. A failed task does not stop the tasks after it. This is what makes two
+ * of our own renames to one path unable to overlap. On Windows such an overlap
+ * fails with `EPERM`; on POSIX it succeeds, but in no defined order.
+ */
+function serializePerTarget<T>(target: string, task: () => Promise<T>): Promise<T> {
+  const key = publishQueueKey(target);
+  const release = (): void => {
+    if (publishQueues.get(key) === tail) publishQueues.delete(key);
+  };
+  const result = (publishQueues.get(key) ?? Promise.resolve()).then(task).finally(release);
+  const tail: Promise<void> = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  publishQueues.set(key, tail);
+  return result;
+}
+
+/** How many targets have a publish queued or running in this process. */
+export function pendingPublishTargets(): number {
+  return publishQueues.size;
+}
+
+/**
+ * Rename `tmpPath` over `target`, then fsync the parent directory. The rename
+ * comes first, because a directory fsync proves nothing about an entry that
+ * does not exist yet. Unqueued: callers reach it through {@link publishTempFile}
+ * or {@link atomicReplace}. On win32 only, `EPERM` or `EACCES` is retried with a
+ * bounded, jittered backoff. A bare `EPERM` cannot be told apart from a real
+ * permission fault, so after the bound, or on any other error, the temp file is
+ * removed and the original error is rethrown.
+ */
+async function renameIntoPlace(tmpPath: string, target: string, io: PublishIo): Promise<void> {
   for (let attempt = 0; ; attempt++) {
     try {
       await io.rename(tmpPath, target);
-      // DR-16: the bytes were fsync'd before the rename; the NAME is durable
-      // only once the parent directory is fsync'd too. Strictly after the
-      // rename — fsync'ing the directory first would prove nothing about an
-      // entry that does not exist yet, and a publish that never renamed must
-      // not claim a durable entry at all.
       if (io.syncDirectory !== undefined) {
         await io.syncDirectory(path.dirname(target));
       }
@@ -322,11 +309,7 @@ export async function publishTempFile(
     } catch (err) {
       if (!isWindowsRenameRace(err) || attempt >= PUBLISH_RETRY_LIMIT) {
         if (io.unlink) {
-          try {
-            await io.unlink(tmpPath);
-          } catch {
-            /* best-effort — never mask the publish failure */
-          }
+          await io.unlink(tmpPath).catch(() => undefined);
         }
         throw err;
       }
@@ -336,12 +319,68 @@ export async function publishTempFile(
 }
 
 /**
- * Synchronous {@link publishTempFile}, for callers already committed to sync IO.
- *
- * The sleep blocks the thread via `Atomics.wait`, which is the only way to pause
- * without an event loop. That is acceptable *here* precisely because the wait is
- * bounded and rare — it only ever runs on win32, and only when a concurrent
- * replace is actually in flight. Prefer the async form wherever the caller can
+ * Publish the staged `tmpPath` over `target`. Publishes to one target run one at
+ * a time, in call order, so our own renames never collide. The win32 retry is
+ * left only for a holder we do not own, such as a virus scanner or another
+ * process. Its jitter keeps two such processes from retrying in step. Retrying
+ * is safe: the bytes are already on disk and each rename is atomic.
+ */
+export function publishTempFile(
+  tmpPath: string,
+  target: string,
+  io: PublishIo = DEFAULT_PUBLISH_IO,
+): Promise<void> {
+  return serializePerTarget(target, () => renameIntoPlace(tmpPath, target, io));
+}
+
+/** A temp path next to `target` that no other writer, in any process, will choose. */
+function uniqueTempPath(target: string): string {
+  return `${target}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
+}
+
+/**
+ * Write `data` to `tmpPath` and fsync it, so a rename never publishes a name
+ * before its bytes are on disk. The write is `node:fs/promises`'s `writeFile`,
+ * so a caller's mock of that module observes it. The temp file is removed if
+ * any step fails.
+ */
+async function stageTempFile(tmpPath: string, data: string | Uint8Array): Promise<void> {
+  try {
+    await fsPromisesWriteFile(tmpPath, data);
+    const handle = await fsPromisesOpen(tmpPath, 'r+');
+    try {
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+  } catch (err) {
+    await fsPromisesUnlink(tmpPath).catch(() => undefined);
+    throw err;
+  }
+}
+
+/**
+ * Replace `target` with `data`: stage a unique temp file next to it, then rename
+ * the temp file over it. Stage and rename are one task in the target's queue, so
+ * writers to one target run one at a time and the target ends with the bytes of
+ * the last call. A reader sees the old bytes or the new bytes, never a torn
+ * file. On failure the temp file is removed and the error is rethrown. The
+ * synchronous form is {@link atomicWriteFile}.
+ */
+export function atomicReplace(target: string, data: string | Uint8Array): Promise<void> {
+  return serializePerTarget(target, async () => {
+    const tmpPath = uniqueTempPath(target);
+    await stageTempFile(tmpPath, data);
+    await renameIntoPlace(tmpPath, target, DEFAULT_PUBLISH_IO);
+  });
+}
+
+/**
+ * Synchronous {@link publishTempFile}. It has no queue, because synchronous calls
+ * cannot overlap on one thread. An async publish to the same target can still be
+ * running on the thread pool; that case, like a foreign holder, falls to the same
+ * bounded win32 retry. The retry sleeps with `Atomics.wait`, the only way to
+ * pause without an event loop. Prefer the async form wherever the caller can
  * await.
  */
 export function publishTempFileSync(
@@ -349,10 +388,10 @@ export function publishTempFileSync(
   target: string,
   io: PublishSyncIo = DEFAULT_PUBLISH_SYNC_IO,
 ): DurabilityBarrier {
+  const rename = io.rename ?? fs.renameSync;
   for (let attempt = 0; ; attempt++) {
     try {
-      fs.renameSync(tmpPath, target);
-      // DR-16 — see `publishTempFile` above and the section docstring.
+      rename(tmpPath, target);
       return { published: target, directory: io.syncDirectory(path.dirname(target)) };
     } catch (err: unknown) {
       if (!isWindowsRenameRace(err) || attempt >= PUBLISH_RETRY_LIMIT) throw err;
@@ -366,12 +405,17 @@ export function publishTempFileSync(
   }
 }
 
+/**
+ * Synchronous {@link atomicReplace}: stage a unique, fsynced temp file, then
+ * publish it with {@link publishTempFileSync}. Returns the publish's
+ * {@link DurabilityBarrier}.
+ */
 export function atomicWriteFile(
   target: string,
   content: string | Buffer,
   io: PublishSyncIo = DEFAULT_PUBLISH_SYNC_IO,
 ): DurabilityBarrier {
-  const tmp = `${target}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
+  const tmp = uniqueTempPath(target);
   const fd = fs.openSync(tmp, 'w');
   try {
     if (typeof content === 'string') {

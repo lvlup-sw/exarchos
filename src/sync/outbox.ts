@@ -5,7 +5,7 @@ import type { WorkflowEvent } from '../events/schemas.js';
 import type { OutboxEntry, EventSender } from './types.js';
 import type { StorageBackend } from '../storage/backend.js';
 import { validateStreamId } from '../contract/shared/validation.js';
-import { publishTempFile } from '../utils/atomic-write.js';
+import { atomicReplace } from '../utils/atomic-write.js';
 
 // ─── Outbox Options ─────────────────────────────────────────────────────────
 
@@ -326,10 +326,7 @@ export class Outbox {
     entries: OutboxEntry[],
   ): Promise<void> {
     const filePath = this.getFilePath(streamId);
-    const tmpPath = `${filePath}.tmp.${Date.now()}`;
-
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(tmpPath, JSON.stringify(entries, null, 2), 'utf-8');
-    await publishTempFile(tmpPath, filePath);
+    await atomicReplace(filePath, JSON.stringify(entries, null, 2));
   }
 }

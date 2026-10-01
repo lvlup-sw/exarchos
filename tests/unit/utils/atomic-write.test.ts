@@ -9,7 +9,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   publishTempFile,
   publishTempFileSync,
+  atomicReplace,
   atomicWriteFile,
+  pendingPublishTargets,
   fsyncDir,
   fsyncDirSync,
   DIRECTORY_SYNC_UNSUPPORTED_CODES,
@@ -272,6 +274,221 @@ describe('publishTempFile', () => {
   });
 });
 
+/** A rename seam that logs when each call starts and ends, and the most calls running at once. */
+function recordingRename(): {
+  rename: (from: string, to: string) => Promise<void>;
+  log: string[];
+  peak: () => number;
+} {
+  const log: string[] = [];
+  let running = 0;
+  let peak = 0;
+  const rename = async (from: string): Promise<void> => {
+    running++;
+    peak = Math.max(peak, running);
+    log.push(`start ${from}`);
+    await new Promise((resolve) => setImmediate(resolve));
+    log.push(`end ${from}`);
+    running--;
+  };
+  return { rename, log, peak: () => peak };
+}
+
+describe('publishTempFile — writers to one target are serialized (#2028)', () => {
+  /** The proof that our own renames to one path cannot overlap, which is what Windows refuses. */
+  it('PublishTempFile_ConcurrentPublishersOneTarget_RenamesNeverOverlapAndRunInCallOrder', async () => {
+    const seam = recordingRename();
+
+    await Promise.all(
+      Array.from({ length: 8 }, (_, i) =>
+        publishTempFile(`/q/shared.json.${i}.tmp`, '/q/shared.json', { rename: seam.rename }),
+      ),
+    );
+
+    expect(seam.peak()).toBe(1);
+    expect(seam.log).toEqual(
+      Array.from({ length: 8 }, (_, i) => [
+        `start /q/shared.json.${i}.tmp`,
+        `end /q/shared.json.${i}.tmp`,
+      ]).flat(),
+    );
+  });
+
+  /** The twin: the rig does see overlap, and the queue is per target, not one global lock. */
+  it('PublishTempFile_ConcurrentPublishersDistinctTargets_RunConcurrently', async () => {
+    const seam = recordingRename();
+
+    await Promise.all(
+      Array.from({ length: 8 }, (_, i) =>
+        publishTempFile(`/q/own-${i}.json.tmp`, `/q/own-${i}.json`, { rename: seam.rename }),
+      ),
+    );
+
+    expect(seam.peak()).toBe(8);
+  });
+
+  it('PublishTempFile_TwoSpellingsOfOneTarget_ShareOneQueue', async () => {
+    const seam = recordingRename();
+
+    await Promise.all([
+      publishTempFile('/q/a.tmp', '/q/sub/../alias.json', { rename: seam.rename }),
+      publishTempFile('/q/b.tmp', '/q/./alias.json', { rename: seam.rename }),
+    ]);
+
+    expect(seam.peak()).toBe(1);
+  });
+
+  /** NTFS names ignore case, so on win32 two spellings that differ only in case are one file. */
+  it('PublishTempFile_Win32TargetsDifferingOnlyInCase_ShareOneQueue', async () => {
+    stubPlatform('win32');
+    const seam = recordingRename();
+
+    await Promise.all([
+      publishTempFile('/q/a.tmp', '/q/Case.json', { rename: seam.rename }),
+      publishTempFile('/q/b.tmp', '/q/case.JSON', { rename: seam.rename }),
+    ]);
+
+    expect(seam.peak()).toBe(1);
+  });
+
+  it('PublishTempFile_PosixTargetsDifferingOnlyInCase_UseSeparateQueues', async () => {
+    stubPlatform('linux');
+    const seam = recordingRename();
+
+    await Promise.all([
+      publishTempFile('/q/a.tmp', '/q/Case.json', { rename: seam.rename }),
+      publishTempFile('/q/b.tmp', '/q/case.JSON', { rename: seam.rename }),
+    ]);
+
+    expect(seam.peak()).toBe(2);
+  });
+
+  it('PublishTempFile_FailedPublish_DoesNotBlockTheNextWriter', async () => {
+    stubPlatform('linux');
+    const order: string[] = [];
+    const failing = vi.fn<(from: string, to: string) => Promise<void>>(async () => {
+      order.push('first');
+      throw errWithCode('ENOSPC');
+    });
+    const passing = vi.fn<(from: string, to: string) => Promise<void>>(async () => {
+      order.push('second');
+    });
+
+    const results = await Promise.allSettled([
+      publishTempFile('/q/f1.tmp', '/q/f.json', { rename: failing }),
+      publishTempFile('/q/f2.tmp', '/q/f.json', { rename: passing }),
+    ]);
+
+    expect(results.map((r) => r.status)).toEqual(['rejected', 'fulfilled']);
+    expect(order).toEqual(['first', 'second']);
+  });
+
+  /** The queue map holds only targets in use, so content-addressed writers cannot grow it forever. */
+  it('PublishTempFile_AllPublishesSettled_LeavesNoQueueEntryBehind', async () => {
+    const before = pendingPublishTargets();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const pending = publishTempFile('/q/held.tmp', '/q/held.json', { rename: () => gate });
+
+    expect(pendingPublishTargets()).toBe(before + 1);
+    release();
+    await pending;
+    expect(pendingPublishTargets()).toBe(before);
+  });
+});
+
+describe('atomicReplace', () => {
+  const dirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(dirs.splice(0).map((d) => fsp.rm(d, { recursive: true, force: true })));
+  });
+
+  async function scratchDir(): Promise<string> {
+    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'atomic-replace-'));
+    dirs.push(dir);
+    return dir;
+  }
+
+  it('AtomicReplace_StringAndBytes_ReplaceTheTargetAndLeaveNoTempFile', async () => {
+    const dir = await scratchDir();
+    const target = path.join(dir, 'r.json');
+
+    await atomicReplace(target, '{"v":1}');
+    expect(await fsp.readFile(target, 'utf-8')).toBe('{"v":1}');
+    await atomicReplace(target, Buffer.from('{"v":2}'));
+
+    expect(await fsp.readFile(target, 'utf-8')).toBe('{"v":2}');
+    expect(await fsp.readdir(dir)).toEqual(['r.json']);
+  });
+
+  /** Stage and rename are one queued task, so the last call wins whatever order the writes finish in. */
+  it('AtomicReplace_ConcurrentWritersOneTarget_EndWithTheLastCallsWholeBytes', async () => {
+    const dir = await scratchDir();
+    const target = path.join(dir, 'shared.json');
+    const bulky = (i: number): string =>
+      JSON.stringify({ writer: i, padding: Array.from({ length: 4000 }, () => `w${i}-chunk`) });
+
+    const results = await Promise.allSettled(
+      Array.from({ length: 12 }, (_, i) => atomicReplace(target, bulky(i))),
+    );
+
+    expect(results.filter((r) => r.status === 'rejected')).toEqual([]);
+    const final = JSON.parse(await fsp.readFile(target, 'utf-8')) as { writer: number; padding: string[] };
+    expect(final.writer).toBe(11);
+    expect(new Set(final.padding).size).toBe(1);
+    expect(await fsp.readdir(dir)).toEqual(['shared.json']);
+  });
+
+  /** Stage and rename hold the target's queue together, so a later publish sees the finished replace. */
+  it('AtomicReplace_ALaterPublishToTheSameTarget_WaitsForTheWholeReplace', async () => {
+    const dir = await scratchDir();
+    const target = path.join(dir, 'ordered.json');
+    const laterTemp = path.join(dir, 'later.tmp');
+    await fsp.writeFile(target, 'initial', 'utf-8');
+    await fsp.writeFile(laterTemp, 'later', 'utf-8');
+    let observed = '';
+
+    const replace = atomicReplace(target, 'replaced');
+    const later = publishTempFile(laterTemp, target, {
+      rename: async (from, to) => {
+        observed = await fsp.readFile(target, 'utf-8');
+        await fsp.rename(from, to);
+      },
+    });
+    await Promise.all([replace, later]);
+
+    expect(observed).toBe('replaced');
+    expect(await fsp.readFile(target, 'utf-8')).toBe('later');
+  });
+
+  it('AtomicReplace_RenameFails_RemovesTheTempFileAndKeepsTheTarget', async () => {
+    stubPlatform('linux');
+    const dir = await scratchDir();
+    const target = path.join(dir, 'occupied');
+    await fsp.mkdir(target);
+    await fsp.writeFile(path.join(target, 'inside.txt'), 'kept', 'utf-8');
+
+    await expect(atomicReplace(target, 'payload')).rejects.toThrow();
+
+    expect(await fsp.readdir(dir)).toEqual(['occupied']);
+    expect(await fsp.readFile(path.join(target, 'inside.txt'), 'utf-8')).toBe('kept');
+  });
+
+  it('AtomicReplace_StagingFails_RejectsWithoutCreatingAnything', async () => {
+    const dir = await scratchDir();
+
+    await expect(atomicReplace(path.join(dir, 'missing', 'x.json'), 'payload')).rejects.toThrow(
+      /ENOENT/,
+    );
+
+    expect(await fsp.readdir(dir)).toEqual([]);
+  });
+});
+
 describe('publishTempFileSync', () => {
   it('PublishTempFileSync_Posix_PublishesRealFile', async () => {
     const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'publish-sync-'));
@@ -287,6 +504,21 @@ describe('publishTempFileSync', () => {
   it('PublishTempFileSync_PosixNonRaceError_Rethrows', () => {
     stubPlatform('linux');
     expect(() => publishTempFileSync('/nonexistent/a.tmp', '/nonexistent/a')).toThrow();
+  });
+
+  it('PublishTempFileSync_InjectedRename_ReplacesTheDefaultRename', () => {
+    stubPlatform('linux');
+    const calls: Array<[string, string]> = [];
+
+    const barrier = publishTempFileSync('/q/s.tmp', '/q/s.json', {
+      rename: (from, to) => {
+        calls.push([from, to]);
+      },
+      syncDirectory: (directory): DirectorySyncOutcome => ({ directory, status: 'synced' }),
+    });
+
+    expect(calls).toEqual([['/q/s.tmp', '/q/s.json']]);
+    expect(barrier.published).toBe('/q/s.json');
   });
 });
 

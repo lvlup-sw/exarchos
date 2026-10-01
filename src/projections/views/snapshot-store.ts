@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { EVENT_SCHEMA_VERSION } from '../../events/event-migration.js';
-import { publishTempFile } from '../../utils/atomic-write.js';
+import { atomicReplace } from '../../utils/atomic-write.js';
 
 // ─── Snapshot Data ─────────────────────────────────────────────────────────
 
@@ -118,7 +118,6 @@ export class SnapshotStore {
     highWaterMark: number,
   ): Promise<void> {
     const filePath = this.getSnapshotPath(streamId, viewName);
-    const tmpPath = `${filePath}.tmp.${Date.now()}`;
     await fs.mkdir(path.dirname(filePath), { recursive: true });
 
     const data: SnapshotData<T> = {
@@ -128,8 +127,7 @@ export class SnapshotStore {
       schemaVersion: EVENT_SCHEMA_VERSION,
     };
 
-    await fs.writeFile(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
-    await publishTempFile(tmpPath, filePath);
+    await atomicReplace(filePath, JSON.stringify(data, null, 2));
   }
 
   /**

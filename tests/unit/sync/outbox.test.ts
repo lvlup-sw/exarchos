@@ -195,6 +195,28 @@ describe('Outbox StorageBackend Integration', () => {
     expect(entries[0].event.type).toBe('task.completed');
   });
 
+  /**
+   * Two outboxes on one directory once shared a temp path within a millisecond,
+   * so one write failed. Both now resolve and the file stays whole JSON. This
+   * claims no merge: the two writers still race, and the last one wins.
+   */
+  it('Outbox_TwoOutboxesWriteOneStreamInOneMillisecond_BothResolveAndTheFileIsWhole', async () => {
+    const first = new Outbox(tempDir);
+    const second = new Outbox(tempDir);
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+    try {
+      const results = await Promise.allSettled([
+        first.addEntry('test-stream', makeEvent({ sequence: 1 })),
+        second.addEntry('test-stream', makeEvent({ sequence: 2 })),
+      ]);
+
+      expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled']);
+      expect((await first.loadEntries('test-stream')).length).toBeGreaterThanOrEqual(1);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it('Outbox_addEntry_WithBackend_ReturnsEntryWithId', async () => {
     const backend = new InMemoryBackend();
     const outbox = new Outbox(tempDir, { backend });
