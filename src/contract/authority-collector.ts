@@ -96,10 +96,22 @@ function extractStrategosContractsSpec(packageJsonText: string): string {
   return extractDependencySpec(packageJsonText, '@lvlup-sw/strategos-contracts');
 }
 
+/** The package.json sections searched for a pinned spec, in order. */
+const DEPENDENCY_SECTIONS: readonly string[] = ['dependencies', 'devDependencies'];
+
+/**
+ * The spec that package.json pins for a package, from `dependencies` or else
+ * from `devDependencies`. A build-only package such as the Strategos contracts
+ * lives in `devDependencies`, because the shipped files bundle it.
+ *
+ * Returns '' when neither section names the package. The freeze reads '' as a
+ * floating spec, so a missing pin still blocks.
+ */
 function extractDependencySpec(packageJsonText: string, packageName: string): string {
   const parsed: unknown = JSON.parse(packageJsonText);
-  if (parsed && typeof parsed === 'object' && 'dependencies' in parsed) {
-    const deps = (parsed as { dependencies?: unknown }).dependencies;
+  if (!parsed || typeof parsed !== 'object') return '';
+  for (const section of DEPENDENCY_SECTIONS) {
+    const deps = (parsed as Record<string, unknown>)[section];
     if (deps && typeof deps === 'object') {
       const spec = (deps as Record<string, unknown>)[packageName];
       if (typeof spec === 'string') return spec;

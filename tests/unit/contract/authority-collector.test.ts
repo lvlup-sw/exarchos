@@ -44,6 +44,53 @@ describe('collector — live measurement', () => {
     // silently accepting a range). If someone loosens it, this fails.
     expect(inputs.mcpSdkVersionSpec).toMatch(/^\d+\.\d+\.\d+$/);
   });
+
+  it('Collect_StrategosContractsSpec_IsExactlyPinnedInThisRepo', () => {
+    expect(collectAuthorityInputs().strategosContractsVersion).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
+
+/** Reads the real package.json and writes a copy that `edit` has changed. */
+function editedPackageJson(edit: (pkg: Record<string, Record<string, string>>) => void): string {
+  const realPkg = JSON.parse(
+    fs.readFileSync(defaultSourcePaths().packageJsonFile, 'utf8'),
+  ) as Record<string, Record<string, string>>;
+  edit(realPkg);
+  return tmpFile('package.json', JSON.stringify(realPkg, null, 2));
+}
+
+describe('collector — strategos-contracts pin location', () => {
+  const pkgName = '@lvlup-sw/strategos-contracts';
+
+  it('Collect_StrategosContractsInDevDependenciesOnly_ReadsThePin', () => {
+    const file = editedPackageJson((pkg) => {
+      delete pkg.dependencies![pkgName];
+      pkg.devDependencies![pkgName] = '9.8.7';
+    });
+    const inputs = collectAuthorityInputs({ ...defaultSourcePaths(), packageJsonFile: file });
+    expect(inputs.strategosContractsVersion).toBe('9.8.7');
+  });
+
+  it('Collect_StrategosContractsInDependenciesOnly_ReadsThePin', () => {
+    const file = editedPackageJson((pkg) => {
+      delete pkg.devDependencies![pkgName];
+      pkg.dependencies![pkgName] = '9.8.6';
+    });
+    const inputs = collectAuthorityInputs({ ...defaultSourcePaths(), packageJsonFile: file });
+    expect(inputs.strategosContractsVersion).toBe('9.8.6');
+  });
+
+  it('Verify_StrategosContractsInNeitherSection_BlocksAsFloating', () => {
+    const file = editedPackageJson((pkg) => {
+      delete pkg.dependencies![pkgName];
+      delete pkg.devDependencies![pkgName];
+    });
+    const verdict = verifyContractAuthority({ ...defaultSourcePaths(), packageJsonFile: file });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.violations).toContainEqual(
+      expect.objectContaining({ kind: 'floating', authority: 'strategos-contracts' }),
+    );
+  });
 });
 
 describe('checked-in lockfile', () => {
