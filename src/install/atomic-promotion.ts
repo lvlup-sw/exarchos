@@ -1,99 +1,18 @@
 /**
- * atomic-promotion — staged, atomic, rollback-proof multi-file TREE promotion.
- * (P04-04; EFF-009, EFF-012)
+ * Staged, atomic promotion of a multi-file tree. `../utils/atomic-write.ts` covers one file.
+ * A tree can fail partway and leave a mix of old and new files.
  *
- * EFF-008 (`../utils/atomic-write.ts`) solved the single-file case: temp + fsync
- * + rename gives a reader either the old bytes or the new bytes, never a torn
- * write. This module is the MULTI-FILE analogue that EFF-008 does not cover:
- * promoting a whole *tree* — the rendered `skills/<runtime>/` set, an installer
- * payload, an onboarding scaffold — where a failure partway through leaves some
- * files new and some old, a torn state no single-file rename protects against.
+ * Stage: write each file into a sibling staging directory with fsync. The live `target` does not change.
+ * Verify: compare the {@link digestTree} of the staged tree with the digest of the requested entries.
+ * Promote: write a journal, rename `target` to the backup, then rename the staging directory to `target`.
+ * Each rename returns a {@link DurabilityBarrier} after a parent-directory fsync, and the next step takes it as an argument.
  *
- * ## The stage → verify → promote pattern
+ * {@link recoverFromJournal} uses only the presence of `target`. It keeps the new tree, or it restores the backup. Thus one interruption never leaves a mix.
+ * A backup with an absent `target` and no usable journal is the last copy of the old tree. {@link assertNoOrphanBackup} refuses that state.
  *
- *   1. STAGE — every file of the new tree is written into a fresh sibling
- *      staging directory (`.<name>.exarchos-stage`), each file fsync'd. The live
- *      `target` is never touched during staging, so a mid-stage failure leaves
- *      the old tree fully intact.
- *   2. VERIFY — the staged tree is re-read and its content-addressed
- *      {@link digestTree} (the P05-04 install-identity digest, byte-identical to
- *      P03-07's `digestTree` — see `install-identity.ts`) is compared against the
- *      digest of the requested entries. An incomplete or corrupted stage is
- *      rejected here, *before* anything is promoted.
- *   3. PROMOTE — a bounded sequence of atomic same-volume renames swaps the tree
- *      into place: `rename(target → backup)` then `rename(staging → target)`.
- *      Each rename is atomic, and a small on-disk JOURNAL records the three paths
- *      so that any interruption is deterministically recoverable.
- *
- * ## Durable ordering (DR-16)
- *
- * Steps 1–3 above are a SEQUENCE, and a sequence of renames is only ordered on
- * disk if each rename's directory entry is durable before the next one is made.
- * `rename(2)` is atomic for observers but leaves the new name in the parent
- * directory's unflushed metadata, so "journal, then backup, then tree" without a
- * parent-directory fsync between the steps is a property of this source file and
- * not of the filesystem. {@link renameDurable} and {@link DurabilityBarrier} are
- * how that ordering is CONSTRUCTED here: each step returns a barrier, and the
- * step that must not begin until it is durable takes that barrier as an
- * argument. See `../utils/atomic-write.ts` for the underlying primitive and the
- * full explanation.
- *
- * ## Rollback and recovery (EFF-009)
- *
- * The promotion is atomic at the `rename(staging → target)` step: before it the
- * tree on disk is fully OLD, after it fully NEW. The only window is between the
- * two renames, where `target` is briefly absent while `backup` holds the old
- * tree. {@link recoverFromJournal} closes that window: driven only by whether
- * `target` exists, it either finalizes NEW (target present → discard scaffolding)
- * or restores OLD (target absent → `rename(backup → target)`). So after ANY
- * single interruption the destination is either the complete old tree or the
- * complete new tree — never a mix.
- *
- * ## Refusing an orphan backup (DR-17)
- *
- * Recovery is driven by the journal, so a journal that is missing or corrupt
- * leaves the `backup` directory with no owner. When `target` is ALSO absent that
- * orphan is the only surviving copy of the old tree, and both ways of continuing
- * — discarding it as stale scaffolding, or staging a new tree over it — destroy
- * it irrecoverably. {@link assertNoOrphanBackup} refuses that state with a typed
- * `ORPHAN_BACKUP` error naming the orphan, rather than proceeding destructively.
- *
- * ## Idempotent retry across runtimes (EFF-012)
- *
- * {@link promoteTreeSync} first recovers any journal left by a previous
- * interrupted attempt, then re-stages and re-promotes. A second run after a
- * failed first run therefore converges to the correct final state without
- * duplicating or corrupting — the property onboarding install needs to be safely
- * re-runnable per runtime.
- *
- * ## Injectable IO seam
- *
- * Every filesystem touch goes through {@link PromotionIo}, following the
- * P04-03 `ContentAddressedStoreIo` pattern: tests inject an IO that throws at a
- * chosen operation on a chosen path to force a failure at each distinct stage
- * (mid-stage, after-stage, mid-promote, and a double-fault "hard crash") and
- * assert the destination is never torn. The journal write reuses the EFF-008
- * `atomicWriteFile` primitive.
- *
- * ## Effect carrier + dry-run (P04-01)
- *
- * {@link promoteTree} wraps the sync engine in the typed effect carrier: a
- * `dry-run` mode is structurally incapable of touching the filesystem (it returns
- * the {@link EffectPlan} without invoking the engine), so a caller can prove a
- * dry-run promoted nothing.
- *
- * The plan also DECLARES what a completed promotion records — the registered
- * `promotion.executed` fact, on success only. Declaring it is what makes the
- * record unskippable: the carrier refuses to run the engine at all unless the
- * caller supplied a real {@link PromotionRecorder}, and reaches its own return
- * only after that recorder has been awaited. The commit rename is the single
- * non-idempotent step of an install, and it used to happen with nothing saying
- * so afterwards.
- *
- * This module assumes UTF-8 text trees (skills / command-aliases / onboarding
- * scaffolds are `.md` / `.yaml` / `.json` / `.jsonl` / `.sh`). Byte content is
- * preserved by an exact UTF-8 round-trip; genuinely binary payloads are out of
- * scope (they belong in the content-addressed artifact store, P04-03).
+ * {@link promoteTreeSync} recovers an old journal first, so a re-run converges. Each filesystem call goes through {@link PromotionIo}, so tests can inject faults.
+ * {@link promoteTree} wraps the engine in the effect carrier. A dry run does not touch the disk.
+ * A live run needs a {@link PromotionRecorder}, and it records `promotion.executed` on success. The module supports UTF-8 text trees only.
  */
 
 import * as fs from 'node:fs';
@@ -121,18 +40,14 @@ import {
   type EffectPlan,
 } from '../dispatch/core/effect-carrier.js';
 
-// ─── Errors ───────────────────────────────────────────────────────────────────
-
+/**
+ * Promotion failure codes. `ORPHAN_BACKUP` means that `target` is absent, the backup holds the only copy of the old tree,
+ * and no usable journal exists. See {@link assertNoOrphanBackup}.
+ */
 export type PromotionErrorCode =
   | 'STAGE_INCOMPLETE'
   | 'PROMOTE_FAILED'
   | 'RECOVERY_FAILED'
-  /**
-   * DR-17: `target` is absent and the backup directory holds the only surviving
-   * copy of the previous tree, but no consumable journal says how to finish. The
-   * promotion REFUSES rather than discarding or overwriting it — see
-   * {@link assertNoOrphanBackup}.
-   */
   | 'ORPHAN_BACKUP';
 
 /** Typed, structured failure from the promotion engine. */
@@ -147,14 +62,9 @@ export class PromotionError extends Error {
   }
 }
 
-// ─── IO seam ──────────────────────────────────────────────────────────────────
-
 /**
- * Filesystem seam for the promotion engine. Every path handed to these functions
- * is derived from a caller-supplied `target` under its own parent directory, so
- * an implementation never needs to re-validate containment. Injectable so tests
- * can force a mid-stage / mid-promote failure without mocking `node:fs` wholesale
- * (the P04-03 `ContentAddressedStoreIo` pattern).
+ * Filesystem seam for the promotion engine. Each path comes from the caller `target` and stays in its parent directory.
+ * Thus an implementation does not check containment again. Tests inject it to force a failure at one stage without a mock of `node:fs`.
  */
 export interface PromotionIo {
   /** Recursively create a directory (`mkdir -p`). */
@@ -172,19 +82,17 @@ export interface PromotionIo {
   /** Recursively remove a file or directory (`rm -rf`). */
   removeTree(target: string): void;
   /**
-   * fsync `directory` ITSELF, so directory entries created by a preceding
-   * {@link rename} reach stable storage (DR-16 — see `renameDurable` and
-   * `../utils/atomic-write.ts`).
-   *
-   * Optional, and the omission is NOT a silent opt-out: an IO that does not
-   * supply one falls back to the real {@link fsyncDirSync}, so a test seam that
-   * only wants to fault a rename never quietly downgrades the durability of the
-   * promotion it is testing. Supply it to OBSERVE or fault the durability step.
+   * fsync the directory itself, so the entries that a preceding {@link rename} made reach stable storage.
+   * It is optional. An IO without it uses the real {@link fsyncDirSync}, so a test seam that faults only a rename keeps full durability.
+   * Supply it to observe or fault the durability step.
    */
   syncDirectory?(directory: string): DirectorySyncOutcome;
 }
 
-/** The default IO, backed by synchronous `node:fs`. */
+/**
+ * The default IO, backed by synchronous `node:fs`. Its `rename` uses `publishTempFileSync`, which retries the transient Windows `EPERM` and `EACCES` rename race.
+ * A bare `renameSync` fails on NTFS when an indexer or an antivirus holds a new tree open.
+ */
 export function defaultPromotionIo(): PromotionIo {
   const syncDirectory = (directory: string): DirectorySyncOutcome => fsyncDirSync(directory);
   return {
@@ -204,10 +112,6 @@ export function defaultPromotionIo(): PromotionIo {
     listTree: (directory) => listTreeSync(directory),
     exists: (target) => fs.existsSync(target),
     rename: (from, to) => {
-      // Reuse the EFF-008 sync publish, which absorbs Windows' transient
-      // EPERM/EACCES directory-rename race with a bounded, jittered retry — a
-      // bare `renameSync` flakes on NTFS when an indexer/AV briefly holds a
-      // just-written tree open. Same-volume, so the rename stays atomic.
       publishTempFileSync(from, to, { syncDirectory });
     },
     removeTree: (target) => {
@@ -217,25 +121,11 @@ export function defaultPromotionIo(): PromotionIo {
   };
 }
 
-// ─── Durable ordering (DR-16) ────────────────────────────────────────────────
-
 /**
- * Rename, then make the resulting directory ENTRY durable, and hand back the
- * proof.
- *
- * Why a returned token instead of two statements: the promotion's correctness
- * rests on journal-before-backup-before-tree, and a bare statement sequence
- * asserts that ordering only in the source text. `renameDurable` gives each step
- * a {@link DurabilityBarrier}, and the next step takes the previous step's
- * barrier as a PARAMETER (see {@link afterDurable}) — so the dependency is
- * enforced by the compiler, checked at runtime, and visible to a reader, rather
- * than being an accident of which line came first. That is the whole of DR-16.
- *
- * The fsync is unconditional even though {@link defaultPromotionIo}'s `rename`
- * already syncs (it routes through `publishTempFileSync`): on the default path
- * this is a second, near-free fsync of an already-clean directory, and it is the
- * only way the barrier means the same thing for an INJECTED rename that syncs
- * nothing.
+ * Rename, then fsync the parent directory, and return a {@link DurabilityBarrier} as proof.
+ * The next step takes the barrier as a parameter (see {@link afterDurable}).
+ * Thus the order of journal, backup, and tree is a dependency in the code, not only an order of lines.
+ * The fsync is unconditional. The default `rename` already syncs, but an injected `rename` can sync nothing, and the barrier must mean the same for both.
  */
 function renameDurable(from: string, to: string, io: PromotionIo): DurabilityBarrier {
   io.rename(from, to);
@@ -248,34 +138,11 @@ function syncDirectoryVia(io: PromotionIo, directory: string): DirectorySyncOutc
 }
 
 /**
- * Consume a barrier: the caller is about to write into `directory` and asserts
- * the step the barrier names is already durable there.
+ * Consume a barrier before a step writes into `directory`. Throw when the barrier does not cover that directory.
+ * Each barrier has the same type, so the compiler cannot catch a wrong barrier. Thus this runtime check is exported, and tests pin it.
  *
- * Deliberately not a no-op parameter. A token that is merely *accepted* is a
- * comment wearing a type; checking that it actually covers the directory the
- * next step touches makes the precondition load-bearing at runtime too, so a
- * refactor that threads the wrong barrier through fails loudly instead of
- * type-checking into silence.
- *
- * EXPORTED so the precondition can be pinned directly. This is the one link in
- * the DR-16 chain the compiler CANNOT check: every step's barrier has the same
- * type, so threading the wrong one — a barrier from another promotion, or one
- * whose fsync went somewhere else — type-checks perfectly and can only fail
- * here. A guard against a mistake the type system cannot see is precisely the
- * kind that rots unnoticed if nothing exercises it.
- *
- * Both halves are checked, and they are not redundant. `published` says where
- * the rename LANDED; `directory.directory` says where the fsync ACTUALLY WENT.
- * A seam that renames into one directory and fsyncs another satisfies the first
- * and violates the second, and that combination is durability theatre — a
- * barrier that reports success while proving nothing about the entry it names.
- *
- * Note on reachability: within one {@link StagePlan} the journal, backup and
- * target all live in the same parent by construction, so the `published` half
- * cannot be violated through {@link promoteTreeSync} today. It is checked (and
- * tested directly) because that invariant is a property of `stagePlanFor`, not
- * of this function's contract, and a future caller that breaks it should hit an
- * error rather than a silently mis-ordered promotion.
+ * It checks both halves. `published` is where the rename went, and `directory.directory` is where the fsync went.
+ * Through {@link promoteTreeSync}, the `published` half cannot fail, because `stagePlanFor` puts all paths in one parent. A new caller can break that.
  */
 export function afterDurable(barrier: DurabilityBarrier, directory: string): void {
   const covered = path.dirname(barrier.published);
@@ -306,8 +173,6 @@ function listTreeSync(root: string): string[] {
   return out;
 }
 
-// ─── Staging plan + journal ─────────────────────────────────────────────────
-
 /** The three scaffolding paths a promotion of `target` uses. */
 interface StagePlan {
   readonly target: string;
@@ -317,11 +182,9 @@ interface StagePlan {
 }
 
 /**
- * Derive the deterministic scaffolding paths for `target`. Deterministic (no
- * random suffix) so a retry can FIND a journal left by an interrupted attempt;
- * safe because each `target` has a single owning writer (INV — the same
- * assumption `atomic-write.ts` documents). All three live in `target`'s parent
- * directory, guaranteeing same-volume (atomic) renames.
+ * Derive the scaffolding paths for `target`. They have no random suffix, so a retry can find the journal of an interrupted attempt.
+ * This is safe, because each `target` has one owner writer, as `atomic-write.ts` also assumes.
+ * All paths are in the parent of `target`, so the renames stay on one volume and are atomic.
  */
 function stagePlanFor(target: string): StagePlan {
   const parent = path.dirname(target);
@@ -353,6 +216,10 @@ function isPromotionJournal(value: unknown): value is PromotionJournal {
   );
 }
 
+/**
+ * Write the journal with `atomicWriteFile`, not through the IO seam. A torn journal is as bad as a torn promotion, and the seam faults target the tree.
+ * The directory fsync goes through the promotion seam, so tests can observe and fault the durability step of the journal too.
+ */
 function writeJournal(plan: StagePlan, io: PromotionIo): DurabilityBarrier {
   const journal: PromotionJournal = {
     target: plan.target,
@@ -360,45 +227,28 @@ function writeJournal(plan: StagePlan, io: PromotionIo): DurabilityBarrier {
     backupDir: plan.backupDir,
     journalPath: plan.journalPath,
   };
-  // Journal writes reuse the EFF-008 single-file atomic writer directly (not the
-  // IO seam) — a torn journal would be as bad as a torn promotion, and the IO
-  // seam's fault-injection is aimed at the tree, not its own recovery record.
-  //
-  // DR-16: `atomicWriteFile` is tmp → fsync(file) → rename → fsync(parent dir),
-  // and returns the barrier proving both halves. Its directory fsync is routed
-  // through the promotion seam so the journal's durability step is observable
-  // (and faultable) at exactly the same seam the tree renames use — the journal
-  // must not be the one step whose durability nobody can see.
   return atomicWriteFile(plan.journalPath, JSON.stringify(journal), {
     syncDirectory: (directory) => syncDirectoryVia(io, directory),
   });
 }
 
 /**
- * The three DISTINGUISHABLE dispositions of the on-disk journal (DR-17).
- *
- * `readJournal` used to collapse all of them into `undefined`, which is what let
- * the orphan-backup bug hide: "no journal was ever written" (a clean first
- * install) and "the journal is garbage / truncated / the wrong shape" (a torn
- * crash whose backup may be the last copy of the old tree) looked identical to
- * every caller, so the only safe branch — refuse — had nothing to branch on.
- * Recovery still consumes ONLY `present`; the split exists so a refusal can name
- * which of the two unrecoverable states it actually found.
+ * The three dispositions of the on-disk journal. Recovery uses only `present`.
+ * `absent` is a clean first install. `unreadable` is a torn or wrong-shape journal, whose backup can be the last copy of the old tree.
+ * The split lets a refusal name the state that it found.
  */
 type JournalRead =
   | { readonly status: 'absent' }
   | { readonly status: 'unreadable'; readonly reason: string }
   | { readonly status: 'present'; readonly journal: PromotionJournal };
 
+/** Read the journal. A file that exists but does not parse, or that a read cannot open, is `unreadable`, not `absent`. */
 function readJournal(plan: StagePlan, io: PromotionIo): JournalRead {
   if (!io.exists(plan.journalPath)) return { status: 'absent' };
   let parsed: unknown;
   try {
     parsed = JSON.parse(io.readFile(plan.journalPath).toString('utf8'));
   } catch (err) {
-    // Unreadable, not absent: the bytes exist and we could not turn them into a
-    // recovery plan. A read that fails (EACCES, a directory where a file should
-    // be) lands here too — same conclusion, different cause.
     return { status: 'unreadable', reason: err instanceof Error ? err.message : String(err) };
   }
   if (!isPromotionJournal(parsed)) {
@@ -410,7 +260,7 @@ function readJournal(plan: StagePlan, io: PromotionIo): JournalRead {
   return { status: 'present', journal: parsed };
 }
 
-/** One-line diagnosis of why a journal could not drive recovery. */
+/** One-line diagnosis of why a journal cannot drive recovery. */
 function describeJournal(read: JournalRead, journalPath: string): string {
   switch (read.status) {
     case 'absent':
@@ -422,38 +272,23 @@ function describeJournal(read: JournalRead, journalPath: string): string {
   }
 }
 
-// ─── Recovery ─────────────────────────────────────────────────────────────────
-
 /**
- * Bring a possibly-interrupted promotion to a COMPLETE state, driven solely by
- * whether `target` exists:
+ * Bring an interrupted promotion to a complete state, from the presence of `target` only.
+ * When `target` exists, it is the old tree or the new tree, so the backup and staging directories go.
+ * When `target` is absent, the run stopped between the two renames, so the backup renames back to `target`.
+ * With no `target` and no backup, the target is new, and only the staging directory goes.
  *
- *   - `target` present  → the tree in place is authoritative (it is either the
- *     untouched OLD tree, if we never renamed it away, or the freshly promoted
- *     NEW tree). Discard the backup + staging scaffolding.
- *   - `target` absent    → we interrupted between `rename(target → backup)` and
- *     `rename(staging → target)`; restore the OLD tree with
- *     `rename(backup → target)` so the destination is complete again.
- *
- * The `rename(backup → target)` restore is the one step that is NOT best-effort:
- * if it throws (e.g. a fault-injecting IO) the journal is deliberately left in
- * place so a later {@link promoteTreeSync} retry re-runs recovery. Everything
- * else is best-effort cleanup that never masks a restore failure.
+ * The restore is the one step that is not best-effort. When it throws, the journal stays, so a later {@link promoteTreeSync} runs recovery again.
+ * The restore is durable, because a second crash can lose a rename that is not on stable storage.
  */
 function recoverFromJournal(journal: PromotionJournal, io: PromotionIo): void {
   if (io.exists(journal.target)) {
     safeRemove(journal.backupDir, io);
     safeRemove(journal.stagingDir, io);
   } else if (io.exists(journal.backupDir)) {
-    // Restore OLD — may throw (double-fault). Durable like every other tree
-    // rename: a restore whose directory entry is not on stable storage can be
-    // lost by a second crash, putting the destination back in the window this
-    // function exists to close.
     renameDurable(journal.backupDir, journal.target, io);
     safeRemove(journal.stagingDir, io);
   } else {
-    // Neither target nor backup: nothing to restore (target was newly created and
-    // never had an old tree). Drop the orphan staging dir.
     safeRemove(journal.stagingDir, io);
   }
   safeRemove(journal.journalPath, io);
@@ -464,7 +299,6 @@ function safeRemove(target: string, io: PromotionIo): void {
   try {
     if (io.exists(target)) io.removeTree(target);
   } catch {
-    /* best-effort */
   }
 }
 
@@ -482,44 +316,13 @@ export function recoverInterruptedPromotion(target: string, io: PromotionIo = de
 }
 
 /**
- * DR-17 — REFUSE to proceed when the backup directory is the only surviving copy
- * of the previous tree.
+ * Throw `ORPHAN_BACKUP` when `target` is absent and the backup is present. Then the backup holds the only copy of the old tree.
+ * A removal of the backup, or a new tree over it, destroys that copy. The error names the orphan and the operator options.
+ * The check uses disk state. A journal read only explains why the state is stuck.
  *
- * Called at the start of every {@link promoteTreeSync}, AFTER
- * {@link recoverInterruptedPromotion} has had its chance to consume a journal.
- * At that point exactly one state is unrecoverable:
- *
- *   `target` ABSENT + `backup` PRESENT
- *
- * There is no live tree, so the backup holds the only bytes of the old tree that
- * still exist, and recovery did not (or could not) restore it. Both of the ways
- * a promotion could continue from here are destructive and unrecoverable
- * (INV-14): removing the backup as "stale scaffolding" deletes the last copy,
- * and staging + committing a new tree over it leaves `rename(target → backup)`
- * colliding with — or the post-commit cleanup discarding — that same last copy.
- * So this refuses instead, naming the orphan and what an operator can do with it.
- *
- * The decision is driven by DISK STATE, not by whether recovery reported a
- * journal: a journal read is used only to diagnose *why* the state is stuck. The
- * two admitted states pass straight through, and they are the only ones a healthy
- * install ever reaches —
- *
- *   - `target` PRESENT: the destination is a complete tree, so any surviving
- *     backup is a redundant second copy (a post-commit cleanup that was
- *     interrupted) and is genuinely discardable.
- *   - `backup` ABSENT: a first install, or a converged one. Nothing to lose.
- *
- * EXPORTED so the refusal can be pinned directly, and so a caller that wants to
- * check before building a promotion request can ask the same question this does.
- *
- * Note on reachability: through {@link promoteTreeSync} the diagnosis is always
- * `absent` or `unreadable`, because a journal that IS consumable was consumed by
- * the recovery one line earlier (which either restores `target` or throws). The
- * third diagnosis — a valid journal that outlived recovery — is reported anyway,
- * for the same reason {@link afterDurable} checks an invariant its only caller
- * cannot violate: it is a property of the call site, not of this function's
- * contract, and a future caller that reaches this state deserves an accurate
- * message rather than a confident lie about a missing journal.
+ * A present `target` makes a backup a redundant copy, and an absent backup leaves nothing to lose. Both states pass.
+ * {@link promoteTreeSync} calls it after recovery, so the diagnosis there is `absent` or `unreadable`.
+ * It is exported, so tests and callers can ask the same question.
  */
 export function assertNoOrphanBackup(target: string, io: PromotionIo = defaultPromotionIo()): void {
   const plan = stagePlanFor(target);
@@ -536,8 +339,6 @@ export function assertNoOrphanBackup(target: string, io: PromotionIo = defaultPr
       `${plan.target}) or delete it deliberately, and re-run.`,
   );
 }
-
-// ─── The engine ───────────────────────────────────────────────────────────────
 
 /** A tree promotion request: the destination and the complete new tree. */
 export interface TreePromotionRequest {
@@ -559,27 +360,21 @@ export interface PromotionReport {
   /** True when a journal from a prior interrupted attempt was recovered first. */
   readonly recoveredPriorAttempt: boolean;
   /**
-   * How the DR-16 parent-directory fsync fared for the COMMIT rename.
-   * `'synced'` on POSIX; `'unsupported'` (carrying the refusing errno) on hosts
-   * where fsync of a directory handle is not a thing — win32 reports `EPERM`.
-   *
-   * Reported rather than swallowed so a caller can tell "durably promoted" from
-   * "atomically promoted, durability unproven by the platform". A blanket
-   * `catch {}` here would recreate the exact defect DR-16 exists to remove.
+   * The result of the parent-directory fsync for the commit rename. It is `'synced'` on POSIX.
+   * It is `'unsupported'` with the errno where the host refuses a directory fsync. Win32 reports `EPERM`.
+   * A caller can thus tell a durable promotion from an atomic promotion whose durability the platform cannot prove.
    */
   readonly directoryDurability: DirectorySyncOutcome;
 }
 
+/**
+ * Write each entry into the staging directory. An entry path is caller data, so a `..` segment or an absolute path can escape a bare `path.join`.
+ * `resolveContainedArtifactPath` checks each component and the joined result. A violation throws `STAGE_INCOMPLETE` before any byte is written.
+ */
 function stageEntries(plan: StagePlan, entries: readonly DigestEntry[], io: PromotionIo): void {
   io.mkdirp(plan.stagingDir);
   for (const entry of entries) {
     const rel = entry.path.replace(/\\/g, '/');
-    // Containment: a DigestEntry path is caller-supplied data, and a `..`
-    // segment (or an absolute / drive-qualified path) in a bare
-    // `path.join(stagingDir, ...)` would write OUTSIDE the staging dir.
-    // `resolveContainedArtifactPath` validates every component structurally
-    // AND re-proves the joined result stays under the staging root; a
-    // violation fails typed BEFORE any byte is written.
     let full: string;
     try {
       full = resolveContainedArtifactPath(plan.stagingDir, rel.split('/'));
@@ -604,17 +399,10 @@ function readStagedEntries(plan: StagePlan, io: PromotionIo): DigestEntry[] {
 }
 
 /**
- * The atomic swap. Records the journal, moves any existing `target` aside to
- * `backup`, then renames the verified staging tree into place. On any failure it
- * runs {@link recoverFromJournal} in line (restoring OLD); if that recovery also
- * fails (a double fault — a simulated hard crash), the journal is left for a
- * subsequent retry to recover, and the original error is rethrown.
- *
- * The three steps are chained through {@link DurabilityBarrier}s rather than
- * merely written in order — see {@link renameDurable}. `backupExistingTarget`
- * cannot be called without the journal's barrier, and `promoteStagedTree` cannot
- * be called without the backup's, so the disk-level ordering the recovery
- * algorithm depends on is a compile-time fact here, not a convention.
+ * The atomic swap: write the journal, move any `target` to the backup, then rename the verified staging tree into place.
+ * On a failure it runs {@link recoverFromJournal} to restore the old tree, then throws `PROMOTE_FAILED`. When recovery also fails, the journal stays for a retry.
+ * The steps chain through {@link DurabilityBarrier} values, so each step needs the barrier of the step before it.
+ * After the commit, cleanup is best-effort and does not throw. A leftover backup still leaves a complete new tree, and a later run removes it.
  */
 function commitPromotion(plan: StagePlan, io: PromotionIo): DirectorySyncOutcome {
   let committed: DurabilityBarrier;
@@ -627,7 +415,6 @@ function commitPromotion(plan: StagePlan, io: PromotionIo): DirectorySyncOutcome
       const read = readJournal(plan, io);
       recoverFromJournal(read.status === 'present' ? read.journal : journalFromPlan(plan), io);
     } catch {
-      /* recovery itself failed — leave the journal so a retry recovers */
     }
     throw new PromotionError(
       'PROMOTE_FAILED',
@@ -635,23 +422,15 @@ function commitPromotion(plan: StagePlan, io: PromotionIo): DirectorySyncOutcome
       { cause: err },
     );
   }
-  // Committed: NEW is in place. Finalize is best-effort and must never throw to
-  // the caller — a leftover backup after commit is still a FULLY-NEW destination,
-  // and a later recovery/retry cleans it.
   safeRemove(plan.backupDir, io);
   safeRemove(plan.journalPath, io);
   return committed.directory;
 }
 
 /**
- * Move any existing OLD tree aside. Takes the journal's barrier because it must
- * not run until the journal's directory entry is durable: the journal is the
- * ONLY record of where the old tree went, so a backup rename that reaches stable
- * storage before the journal does leaves a crash with a vanished `target` and no
- * instructions.
- *
- * Returns `undefined` when there was no old tree (first install) — there is then
- * no backup entry to order the commit against.
+ * Move any old tree aside. It takes the journal barrier, because the journal is the only record of where the old tree went.
+ * A backup rename that is durable before the journal leaves a crash with no `target` and no journal.
+ * Returns `undefined` when no old tree exists. Then the commit has no backup to order against.
  */
 function backupExistingTarget(
   plan: StagePlan,
@@ -683,19 +462,15 @@ function journalFromPlan(plan: StagePlan): PromotionJournal {
 }
 
 /**
- * Stage, verify, and atomically promote a complete tree into `request.target`.
- * Synchronous and throwing (the throwing core the carrier wraps).
+ * Stage, verify, and atomically promote a complete tree into `request.target`. {@link promoteTree} wraps this throwing core.
+ * First it recovers a prior journal, then {@link assertNoOrphanBackup} refuses an orphan backup.
  *
- * The sequence, and what each failure leaves behind:
- *   0. RECOVER any journal from a prior interrupted attempt (idempotent retry),
- *      then REFUSE (`ORPHAN_BACKUP`) if that left an unowned backup holding the
- *      only surviving copy of the old tree — see {@link assertNoOrphanBackup}.
- *   1. STAGE every entry into a fresh sibling staging dir — a failure here leaves
- *      the target fully OLD and drops the partial stage.
- *   2. VERIFY the staged tree digests to the requested tree — a mismatch throws
- *      `STAGE_INCOMPLETE` with the target still fully OLD.
- *   3. PROMOTE with atomic renames — a failure rolls back to fully OLD (or, on a
- *      double fault, leaves a recoverable journal); success leaves fully NEW.
+ * A stage failure leaves the old tree and removes the partial stage. A digest mismatch throws `STAGE_INCOMPLETE` with the old tree in place.
+ * A promote failure rolls back to the old tree, or leaves a journal after a double fault. Success leaves the new tree.
+ *
+ * Before the stage, it removes old staging and backup directories. This is safe only because the orphan check passed, so `target` is present or no backup exists.
+ * Recovery alone does not make it safe, because recovery does nothing with an absent or corrupt journal.
+ * The removal must come before the rename of `target` to the backup, which otherwise collides with the directory (`EPERM` on Windows, `ENOTEMPTY` or `EEXIST` elsewhere).
  */
 export function promoteTreeSync(
   request: TreePromotionRequest,
@@ -703,28 +478,11 @@ export function promoteTreeSync(
 ): PromotionReport {
   const plan = stagePlanFor(request.target);
   const recoveredPriorAttempt = recoverInterruptedPromotion(request.target, io);
-  // DR-17. Recovery has had its chance; if the destination is still absent while
-  // a backup survives, that backup is the last copy of the old tree and NOTHING
-  // below may run — staging and the removal beneath it would both destroy it.
   assertNoOrphanBackup(request.target, io);
 
   const expected = digestTree(request.entries);
 
-  // 1–2. Stage + verify. A failure here must leave the target untouched.
   try {
-    // Clear any orphan scaffolding a prior run left behind. Reaching this line
-    // means `assertNoOrphanBackup` above admitted the state, i.e. either the
-    // `target` is PRESENT — so a surviving backup is a redundant second copy,
-    // stale garbage from a promotion whose best-effort cleanup was interrupted
-    // after commit — or there is no backup at all. That is the ONLY reason the
-    // removal below is safe. It is emphatically NOT safe because
-    // `recoverInterruptedPromotion` ran: recovery consumes a journal only when
-    // one is readable, and with an absent or corrupt journal it consumes
-    // nothing and reports `false` (DR-17 — this removal used to fire anyway and
-    // delete the last surviving OLD tree).
-    // The removal must still happen before `commitPromotion` renames
-    // `target → backup`, or that rename collides with the pre-existing
-    // directory (a persistent EPERM on Windows, ENOTEMPTY/EEXIST elsewhere).
     safeRemove(plan.stagingDir, io);
     safeRemove(plan.backupDir, io);
     stageEntries(plan, request.entries, io);
@@ -745,7 +503,6 @@ export function promoteTreeSync(
     );
   }
 
-  // 3. Promote.
   const directoryDurability = commitPromotion(plan, io);
 
   return {
@@ -761,27 +518,14 @@ export function promoteTreeSync(
 export const PROMOTION_EXECUTED = 'promotion.executed';
 
 /**
- * ONE emission, on success only, and both halves of that are properties of the
- * operation rather than shortcuts.
- *
- * No intent: the promoter already writes an on-disk journal before the commit
- * rename and reads it back to recover an interrupted attempt, so a `before`
- * emission would duplicate a durable structure that exists and is used. No
- * failure terminal: a failed promotion rolls all the way back to the previous
- * complete tree, leaving the destination in the state it started in — there is
- * no partial outcome for a terminal to describe.
+ * One emission, on success only. No intent event, because the promoter already writes an on-disk journal before the commit rename and reads it for recovery.
+ * No failure terminal, because a failed promotion rolls back to the previous complete tree. No partial outcome exists to describe.
  */
 const PROMOTION_EMISSIONS = records({ event: PROMOTION_EXECUTED, when: 'on-success' });
 
 /**
- * The durable fact a completed promotion records — WHERE the tree landed, WHAT
- * now lives there, WHO promoted it, and whether the run converged from an
- * interrupted earlier attempt.
- *
- * Mirrors the catalog's `PromotionExecutedData` field-for-field. It is restated
- * as an interface rather than inferred from the Zod schema because this module
- * sits below the event layer: it produces the fact, and the caller it hands the
- * fact to is the one that owns a store to validate and append it against.
+ * The fact that a completed promotion records: the target, the tree digest, the owner, and whether the run recovered an earlier attempt.
+ * It copies the fields of the catalog `PromotionExecutedData`. This module is below the event layer, so it does not infer the type from the Zod schema.
  */
 export interface PromotionExecutedRecord {
   readonly target: string;
@@ -813,21 +557,13 @@ export function promotionPlan(owner: string, target: string): EffectPlan {
 }
 
 /**
- * Promote a tree through the typed effect carrier (P04-01). In `dry-run` mode the
- * engine is NEVER invoked — {@link runEffect} returns the {@link EffectPlan}
- * without touching the filesystem — so a dry-run provably promotes nothing, and
- * the `recorder` is not called either: a withheld effect must leave the ledger
- * as silent as it leaves the disk. In `live` mode a thrown
- * {@link PromotionError} is captured into an `error` carrier rather than
- * propagating.
+ * Promote a tree through the typed effect carrier. In `dry-run` mode, {@link runEffect} returns the {@link EffectPlan} and calls neither the engine nor the `recorder`.
+ * In `live` mode, a thrown {@link PromotionError} becomes an `error` carrier.
+ * A live call without a `recorder` function throws a `TypeError` before any IO. The carrier sees a wrapper, so its own check fires only after the promotion.
  *
- * The `recorder` is required in signature as well as in effect — the two used to
- * disagree, and this header was the place that said so. The plan declares an
- * emission, so a live call without one is REFUSED before the engine runs —
- * the promoter will not perform the one non-idempotent step of an install and
- * then discover that nothing said so. On success the carrier reaches its return
- * only after the recorder has been awaited, so a caller holding the success
- * carrier is holding a promotion whose record is already committed.
+ * The carrier does not give the report to its sink. Thus the engine result goes to the sink through a local variable.
+ * The success carrier returns only after the recorder completes, so its record is already committed.
+ * The sink throws when no report exists, because a sink that returns still mints a receipt for a record that nobody wrote.
  */
 export async function promoteTree(
   request: TreePromotionRequest,
@@ -835,20 +571,6 @@ export async function promoteTree(
   io: PromotionIo = defaultPromotionIo(),
   recorder: PromotionRecorder,
 ): Promise<EffectOutcome<PromotionReport>> {
-  // Checked HERE, before any IO, and not left to the carrier.
-  //
-  // The carrier refuses a live run without a capability, but this owner wraps
-  // the caller's recorder in one, so from the carrier's side a wrapper around
-  // `undefined` looks like a genuine capability and the refusal moves to the
-  // success terminal — after the tree has already been promoted. This plan
-  // declares only a terminal, which is the exact shape the carrier's own note
-  // warns about: an effect whose sole emission fires at the end would mutate
-  // the world before discovering it could not record. A type-level required
-  // argument covers every typed caller; this covers the transpiled one.
-  // LIVE only. A dry-run promotes nothing and records nothing, so it has no
-  // record to be missing — demanding the capability there would break the very
-  // guarantee the dry-run arm exists to provide, which is that a withheld
-  // effect leaves the ledger as silent as it leaves the disk.
   if (mode.kind === 'live' && typeof recorder !== 'function') {
     throw new TypeError(
       'promoteTree requires a recorder in live mode: the plan declares a promotion ' +
@@ -859,26 +581,13 @@ export async function promoteTree(
   const owner = request.owner ?? 'install/atomic-promotion';
   const plan = promotionPlan(owner, request.target);
 
-  // The record is a function of the REPORT, which the carrier's sink is not
-  // handed, so the engine's own result travels the short way to the sink.
   let report: PromotionReport | undefined;
   const promoted = (): Promise<PromotionReport> => {
     report = promoteTreeSync(request, io);
     return Promise.resolve(report);
   };
 
-  // Built unconditionally now that the carrier demands the capability of every
-  // live run. The branch this replaces produced `undefined` whenever the
-  // caller omitted a recorder, which was the signature disagreeing with the
-  // header directly above it: the recorder was never optional in effect,
-  // because the plan declares an emission and a live call without one was
-  // already refused. The argument is required, so the disagreement is gone.
   const ledger = emissionRecorder(async () => {
-    // Unreachable: the success terminal fires only after the engine
-    // returned, and the engine sets `report` before it does. Throwing
-    // rather than returning quietly matters anyway — a sink that returns
-    // still mints a receipt, so a silent skip here would buy the commit
-    // gate's approval for a record that was never written.
     if (report === undefined) {
       throw new Error(
         `promotion of ${request.target} reached its success terminal with no report to record`,
@@ -895,21 +604,10 @@ export async function promoteTree(
   return runEffect(mode, plan, promoted, ledger);
 }
 
-// ─── Directory-copy adapter (production `copyDir` seam) ───────────────────────
-
 /**
- * Atomically copy the tree at `src` into `dest`, replacing `dest`'s contents.
- *
- * This is the drop-in for the `copyDir(src, dest)` seam the skills installer uses
- * (`installSkills` in the repo-root `src/install-skills.ts`, reached via the
- * onboard install step). The stock default is a bare `fs.cpSync(src, dest,
- * { recursive: true })`, which — because the caller `rmSync`s `dest` first — can
- * leave `dest` half-populated if the copy fails partway (the exact EFF-009 torn
- * state). Routing through {@link promoteTreeSync} makes the copy atomic: `dest`
- * is either absent or the complete new tree, and a re-run converges.
- *
- * Reads UTF-8 text (skills / command-alias trees). The source is read into
- * content entries, then staged + verified + promoted into `dest`.
+ * Atomically copy the tree at `src` into `dest`. It is a drop-in for the `copyDir(src, dest)` seam of `installSkills` in `install-skills.ts`.
+ * The default there is `fs.cpSync` after the caller removes `dest`, so a failed copy can leave `dest` half full.
+ * With {@link promoteTreeSync}, `dest` is absent or the complete new tree, and a re-run converges. The source must be UTF-8 text.
  */
 export function atomicCopyTreeSync(
   src: string,

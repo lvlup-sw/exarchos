@@ -1,25 +1,15 @@
 /**
- * collect-identity — the production reader that materializes an
- * {@link InstallIdentity} from the live filesystem, plus the install-posture
- * detection and the recorded-lock read/write used by the freshness gate
- * (P05-04; ART-006, ART-007, ART-009, ART-013).
+ * Read the {@link InstallIdentity} from the live filesystem. This module also
+ * detects the install posture, and reads and writes the recorded lock for the
+ * freshness gate.
  *
- * Two distinct install postures are recognised, and the distinction is
- * load-bearing:
+ *   - installed: a plugin-root env var is set, or the Claude plugin cache
+ *     exists. A mismatch between the recorded identity and the disk is a stale
+ *     install that must block.
+ *   - dev-checkout: Exarchos runs from source. The freshness gate skips, because
+ *     there is no installed content to compare.
  *
- *   - **installed** — Exarchos is running from a plugin install (a plugin-root
- *     env var is set, or the Claude plugin cache directory exists). Here the
- *     five install dimensions live at known on-disk locations and a mismatch
- *     between the recorded install identity and what is actually on disk is a
- *     genuine stale/mixed install that must block.
- *   - **dev-checkout** — Exarchos is running from a source checkout (no plugin
- *     root, no plugin cache). There is no "installed" content to diverge from,
- *     so the freshness gate SKIPS entirely. A developer running the test suite
- *     or `exarchos` from source must never be treated as a corrupt install.
- *
- * Every seam (filesystem, environment, home directory, schema version) is
- * injectable so the collector can be exercised hermetically; production callers
- * pass only the required `pluginRoot` / `stateDir` and the live defaults apply.
+ * Each filesystem and environment seam is injectable for hermetic tests.
  */
 
 import { createHash } from 'node:crypto';
@@ -39,21 +29,15 @@ import {
 } from './install-identity.js';
 
 /**
- * The stable cache DESCRIPTOR file. The freshness gate digests this marker —
- * NOT the volatile cache payload — so ordinary runtime cache writes (which
- * change the payload but not the descriptor) never false-block on the next run.
- * A stale cache is one whose *owning-install descriptor* diverges, which is
- * exactly the "upgraded binary, lingering old cache" case P05-04 blocks.
+ * The stable cache descriptor file. The freshness gate digests this file, not
+ * the cache payload, so normal cache writes do not block the next run. A cache
+ * is stale when its descriptor diverges, for example after a binary upgrade.
  */
 export const CACHE_DESCRIPTOR_FILENAME = 'cache-manifest.json';
 
 /**
- * Recorded expected-identity lock, written at install / first-run (TOFU).
- *
- * The stem and extension of the real filename, which
- * {@link installIdentityLockPath} suffixes with a per-install key. Kept as one
- * constant so the lock's name lives in a single place even though the path is
- * now computed.
+ * The stem and extension of the recorded identity lock, written at install or
+ * first run (TOFU). {@link installIdentityLockPath} adds a per-install key.
  */
 export const INSTALL_IDENTITY_LOCK_FILENAME = 'install-identity.json';
 
@@ -61,9 +45,9 @@ export const INSTALL_IDENTITY_LOCK_FILENAME = 'install-identity.json';
 export interface IdentityDeps {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly homedir?: string;
-  /** Read a UTF-8 file; MUST return `undefined` when the file is absent/unreadable. */
+  /** Read a UTF-8 file. It must return `undefined` when the file is absent or unreadable. */
   readonly readFileText?: (filePath: string) => string | undefined;
-  /** Recursively read a directory into digest entries (relative POSIX paths); `[]` if absent. */
+  /** Read a directory tree into digest entries with relative POSIX paths, or `[]` when absent. */
   readonly readTree?: (dir: string) => DigestEntry[];
   /** Existence probe. */
   readonly pathExists?: (target: string) => boolean;
@@ -94,6 +78,7 @@ function defaultReadFileText(filePath: string): string | undefined {
   }
 }
 
+/** Read a directory tree into digest entries. It skips an unreadable directory or file. */
 function defaultReadTree(dir: string): DigestEntry[] {
   const entries: DigestEntry[] = [];
   const walk = (current: string, rel: string): void => {
@@ -112,7 +97,6 @@ function defaultReadTree(dir: string): DigestEntry[] {
         try {
           entries.push({ path: childRel, content: fs.readFileSync(childAbs, 'utf-8') });
         } catch {
-          // Unreadable file — skip it rather than aborting the whole tree read.
         }
       }
     }
@@ -122,12 +106,10 @@ function defaultReadTree(dir: string): DigestEntry[] {
 }
 
 /**
- * TOFU-lock writes go through the atomic tmp+fsync+rename publish, NOT a plain
- * `fs.writeFileSync`. The read side ({@link readRecordedIdentity}) deliberately
- * treats a corrupt lock as "no lock" so a re-record can heal it — which means a
- * crash mid-plain-write would silently convert a would-be BLOCKED freshness
- * verdict into `bootstrapped`. An atomic publish makes a torn lock unobservable:
- * a reader sees the prior lock or the new lock, never a partial write.
+ * Write the TOFU lock through an atomic publish, not a plain write. The read
+ * side treats a corrupt lock as no lock. Thus a crash during a plain write can
+ * change a blocked verdict into `bootstrapped`. With an atomic publish, a reader
+ * sees the old lock or the new lock, never a partial write.
  */
 function defaultWriteFileText(filePath: string, content: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -139,10 +121,8 @@ function defaultMkdirp(dir: string): void {
 }
 
 /**
- * Extract the `version` string from a `package.json` text blob. Returns
- * `undefined` when the text is absent or the field is missing/non-string —
- * callers substitute a sentinel so the binary dimension still digests
- * deterministically.
+ * Return the `version` string from `package.json` text. Return `undefined` when
+ * the text is absent, is not JSON, or has no non-empty `version` string.
  */
 function extractPackageVersion(pkgText: string | undefined): string | undefined {
   if (pkgText === undefined) return undefined;
@@ -189,15 +169,13 @@ export function detectInstallPosture(deps: IdentityDeps = {}): InstallPosture {
 }
 
 /**
- * Materialize the {@link InstallIdentity} that is actually on disk under
- * `pluginRoot`. Pure w.r.t. the injected seams: identical on-disk content (modulo
- * line endings / path separators) yields an identical record on any platform.
+ * Read the {@link InstallIdentity} on disk under `pluginRoot`.
  *
- *   - binary  ← `<pluginRoot>/package.json` (`version` + a descriptor digest).
- *   - plugin  ← `<pluginRoot>/.claude-plugin/plugin.json`, else `<pluginRoot>/manifest.json`.
- *   - skill   ← `<pluginRoot>/skills/<runtime>` tree.
- *   - schema  ← {@link SCHEMA_VERSION} (the running binary's store schema).
- *   - cache   ← resolved cache dir + its stable descriptor marker.
+ *   - binary: the `version` and a digest of `package.json`.
+ *   - plugin: `.claude-plugin/plugin.json`, else `manifest.json`, else an empty string.
+ *   - skill: the `skills/<runtime>` tree.
+ *   - schema: {@link SCHEMA_VERSION} of the running binary.
+ *   - cache: the resolved cache dir and its stable descriptor, never the payload.
  */
 export function collectInstallIdentity(pluginRoot: string, deps: IdentityDeps = {}): InstallIdentity {
   const readFileText = deps.readFileText ?? defaultReadFileText;
@@ -205,25 +183,18 @@ export function collectInstallIdentity(pluginRoot: string, deps: IdentityDeps = 
   const skillsRuntime = deps.skillsRuntime ?? 'claude';
   const schemaVersion = deps.schemaVersion ?? SCHEMA_VERSION;
 
-  // binary — version + a descriptor digest over package.json (pins version +
-  // dependency graph; a swapped bundle without a version bump still diverges).
   const pkgText = readFileText(path.join(pluginRoot, 'package.json'));
   const binaryVersion = extractPackageVersion(pkgText) ?? UNKNOWN_VERSION_SENTINEL;
   const binaryEntries: DigestEntry[] =
     pkgText !== undefined ? [{ path: 'package.json', content: pkgText }] : [];
 
-  // plugin — prefer the Claude plugin manifest, fall back to the marketplace
-  // manifest; empty string when neither is present (a benign-but-detectable
-  // "no manifest installed" baseline).
   const pluginManifest =
     readFileText(path.join(pluginRoot, '.claude-plugin', 'plugin.json')) ??
     readFileText(path.join(pluginRoot, 'manifest.json')) ??
     '';
 
-  // skill — the rendered skill tree for the active runtime.
   const skillEntries = readTree(path.join(pluginRoot, 'skills', skillsRuntime));
 
-  // cache — resolved location + the STABLE descriptor marker (never the payload).
   const cacheLocation = resolveCacheDir({
     ...(deps.env !== undefined ? { env: deps.env } : {}),
     ...(deps.homedir !== undefined ? { homedir: deps.homedir } : {}),
@@ -246,23 +217,14 @@ export function collectInstallIdentity(pluginRoot: string, deps: IdentityDeps = 
 }
 
 /**
- * Absolute path of the recorded install-identity lock for a given installation.
+ * Absolute path of the recorded identity lock for one installation. The key is
+ * `pluginRoot`, not the state dir, so a change of `WORKFLOW_STATE_DIR` does not
+ * move the lock. Otherwise one install gets a different freshness verdict for
+ * each store. A digest of `pluginRoot` keeps two installs on one machine apart.
  *
- * Keyed on `pluginRoot`, NOT on the event-store state dir. The lock records
- * what is INSTALLED, so its location must not move when `WORKFLOW_STATE_DIR`
- * does — otherwise one installation carries a different recorded identity per
- * store and reports two different freshness verdicts, which is what made
- * `doctor` self-contradictory and blocked the very configuration that collapses
- * a store divergence.
- *
- * The `pluginRoot` digest keeps two installs on one machine from sharing a
- * lock; the directory itself comes from {@link resolveInstallIdentityDir},
- * which never consults the store env var.
- *
- * Migration: an existing lock under the old state-dir location is NOT read
- * back. Reading it would reintroduce exactly the `WORKFLOW_STATE_DIR` variance
- * being removed. The absent lock re-bootstraps through the designed TOFU path
- * (record and proceed, never block).
+ * A lock in the state dir is not read, so the missing lock bootstraps again
+ * through TOFU. The result uses POSIX separators because a caller compares it
+ * with the forward-slash path from {@link resolveInstallIdentityDir}.
  */
 export function installIdentityLockPath(pluginRoot: string, deps: IdentityDeps = {}): string {
   const dir = resolveInstallIdentityDir({
@@ -271,18 +233,12 @@ export function installIdentityLockPath(pluginRoot: string, deps: IdentityDeps =
   });
   const key = createHash('sha256').update(path.resolve(pluginRoot)).digest('hex').slice(0, 12);
   const { name, ext } = path.parse(INSTALL_IDENTITY_LOCK_FILENAME);
-  // POSIX separators, like every other resolver in `utils/paths.ts`. This path
-  // is COMPARED (against the resolved lock directory) and not merely opened, so
-  // a native `path.join` result would not match the forward-slash form the
-  // directory resolver returns — green on POSIX, red on win32.
   return toPosix(path.join(dir, `${name}-${key}${ext}`));
 }
 
 /**
- * Read the recorded expected install identity, or `undefined` when no lock has
- * been written yet (first run / bootstrap) or when the lock is corrupt (a
- * corrupt lock is treated as "no lock" so a re-record can heal it rather than
- * wedging the gate).
+ * Read the recorded install identity. Return `undefined` when no lock exists
+ * yet, or when the lock is corrupt, so that a new record can heal it.
  */
 export function readRecordedIdentity(
   pluginRoot: string,

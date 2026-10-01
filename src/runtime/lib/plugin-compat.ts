@@ -1,47 +1,26 @@
-// ─── Plugin-Root Compatibility Library ─────────────────────────────────────
-//
-// Sole call site:
-//   - `exarchos version --check-plugin-root <path>` — standalone CI
-//     diagnostic that exits 1 on detected drift.
-//
-// The compat policy (what counts as incompatible vs. non-fatal warning vs.
-// error) lives here so the call site only decides exit code and
-// stderr/stdout formatting from the returned `CompatResult`; this module
-// does not print. (A previous per-session consumer was removed in the
-// rehydration-machinery refactor; the policy stays centralized so any
-// future caller inherits the same behavior.)
-//
-// Non-fatal policy (returns `compatible: true, minRequired: null`):
-//   - plugin root directory does not exist
-//   - `.claude-plugin/plugin.json` is missing or unreadable
-//   - `plugin.json` is not valid JSON
-//   - `metadata.compat.minBinaryVersion` is absent or not a string
-//
-// Fatal drift (returns `compatible: false`):
-//   - declared `minBinaryVersion` is strictly greater than the running
-//     binary's version, per semver precedence.
-//
-// The module has ZERO runtime dependencies — reads `plugin.json`
-// synchronously via `fs.readFileSync` so the CLI subcommand can call it
-// without blowing the 250ms cold-start budget. Synchronous I/O is safe
-// here: the file is small (< 4KB) and sits in the plugin root, which is
-// always local disk.
+/**
+ * Plugin-root compatibility check. Its one caller is
+ * `exarchos version --check-plugin-root <path>`, a CI diagnostic that exits 1
+ * on drift. This module holds the policy and does not print. The caller sets
+ * the exit code and the output from the returned `CompatResult`.
+ *
+ * Drift means that the declared `metadata.compat.minBinaryVersion` is greater
+ * than the binary version. A missing `plugin.json`, invalid JSON, or no valid
+ * minimum gives an advisory: `compatible: true` and `minRequired: null`.
+ *
+ * The module has no runtime dependencies and reads `plugin.json`
+ * synchronously, so the CLI subcommand starts fast.
+ */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 /**
- * Result returned by {@link checkPluginRootCompatibility}.
- *
- * - `compatible: true, minRequired: null` — non-fatal warning (missing
- *   plugin.json, missing compat metadata). Callers should typically treat
- *   this as a soft advisory, not a hard failure.
- * - `compatible: true, minRequired: "<ver>"` — plugin declares a min
- *   version and the running binary satisfies it.
- * - `compatible: false` — declared `minBinaryVersion` is newer than the
- *   running binary. The `message` field names both versions for stderr.
+ * Result of {@link checkPluginRootCompatibility}:
+ * - `compatible: true, minRequired: null`: an advisory, not a failure.
+ * - `compatible: true, minRequired: "<ver>"`: the binary satisfies the minimum.
+ * - `compatible: false`: the declared minimum is newer than the binary, and
+ *   `message` names both versions.
  */
 export interface CompatResult {
   readonly compatible: boolean;
@@ -50,45 +29,19 @@ export interface CompatResult {
   readonly message: string;
 }
 
-// ─── Semver Comparison ──────────────────────────────────────────────────────
-
 /**
- * Compare two semver strings.
- *
- * Returns:
- *   - negative if `a < b`
- *   - 0       if `a === b`
- *   - positive if `a > b`
- *
- * Normalizations applied to both inputs:
- *   - leading `v` prefix stripped (`"v2.9.0"` → `"2.9.0"`)
- *   - missing minor/patch segments default to `0` (`"2.9"` → `"2.9.0"`)
- *
- * Prerelease handling follows semver §11 precedence:
- *   - a version with a prerelease tag (`2.9.0-beta.1`) compares LESS than
- *     the same version without one (`2.9.0`).
- *   - prerelease identifiers are compared field-by-field. Numeric
- *     identifiers compare numerically; alphanumeric compare
- *     lexicographically. Numeric identifiers have lower precedence than
- *     alphanumeric ones of the same position.
- *
- * Build metadata (`+build.123`) is ignored per semver §10.
- *
- * Inputs that are not parseable as semver (e.g. `""` or `"not-a-version"`)
- * yield a best-effort comparison: after `v`-prefix strip and segment
- * normalization they are treated as `NaN` components, which compare equal
- * to each other and less than any numeric component. This library is not
- * a general-purpose semver parser; it is scoped to compare Exarchos binary
- * and plugin versions, which are controlled by our own release process.
+ * Compare two semver strings. The result is negative when `a < b`, 0 when they
+ * are equal, and positive when `a > b`. A leading `v` is removed, a missing
+ * minor or patch segment is 0, and build metadata is ignored. A version with a
+ * prerelease tag is less than the same version without one. Prerelease fields
+ * compare one by one: numbers numerically, other fields lexically, and a
+ * number is less than a non-number. A non-numeric core segment counts as 0.
  */
 export function compareSemver(a: string, b: string): number {
   const left = parseSemver(a);
   const right = parseSemver(b);
 
-  // Compare major/minor/patch in order.
   for (let i = 0; i < 3; i++) {
-    // `core` is a fixed 3-tuple, so these are always defined for i < 3;
-    // `?? 0` narrows the tuple-by-variable-index widening to `number`.
     const l = left.core[i] ?? 0;
     const r = right.core[i] ?? 0;
     if (l !== r) {
@@ -96,16 +49,12 @@ export function compareSemver(a: string, b: string): number {
     }
   }
 
-  // Semver §11: a version with a prerelease tag is LESS than the same
-  // release without one. If only one side has a prerelease, that side
-  // is smaller.
   const aHasPre = left.prerelease.length > 0;
   const bHasPre = right.prerelease.length > 0;
   if (aHasPre && !bHasPre) return -1;
   if (!aHasPre && bHasPre) return 1;
   if (!aHasPre && !bHasPre) return 0;
 
-  // Both have prerelease — compare identifier-by-identifier.
   const len = Math.min(left.prerelease.length, right.prerelease.length);
   for (let i = 0; i < len; i++) {
     const ai = left.prerelease[i] ?? '';
@@ -113,7 +62,6 @@ export function compareSemver(a: string, b: string): number {
     const aNum = /^[0-9]+$/.test(ai);
     const bNum = /^[0-9]+$/.test(bi);
 
-    // Numeric identifiers have lower precedence than alphanumeric.
     if (aNum && !bNum) return -1;
     if (!aNum && bNum) return 1;
 
@@ -126,7 +74,6 @@ export function compareSemver(a: string, b: string): number {
     }
   }
 
-  // Shorter prerelease list has lower precedence (semver §11).
   return left.prerelease.length - right.prerelease.length;
 }
 
@@ -136,21 +83,15 @@ interface ParsedSemver {
 }
 
 /**
- * Parse a semver-ish string into normalized components. Not exported —
- * callers should use {@link compareSemver}. See {@link compareSemver} for
- * the tolerated input forms.
+ * Parse a semver-like string into a core tuple and prerelease fields, as
+ * {@link compareSemver} describes.
  */
 function parseSemver(raw: string): ParsedSemver {
-  // Strip leading `v` and build metadata (`+...`).
   const noBuild = raw.replace(/^v/, '').split('+')[0] ?? '';
   const [coreStrRaw, ...preParts] = noBuild.split('-');
   const coreStr = coreStrRaw ?? '';
   const prerelease = preParts.length > 0 ? preParts.join('-').split('.') : [];
 
-  // Pad missing segments with 0. `parseInt` with a non-numeric segment
-  // yields NaN; we normalize NaN to 0 so invalid tails compare equal
-  // rather than throwing. (Real Exarchos releases always include all
-  // three segments; this is defensive.)
   const segments = coreStr.split('.');
   const major = toInt(segments[0]);
   const minor = toInt(segments[1]);
@@ -168,46 +109,16 @@ function toInt(s: string | undefined): number {
   return Number.isNaN(n) ? 0 : n;
 }
 
-// ─── Plugin Compat Check ────────────────────────────────────────────────────
-
 /**
- * Check whether a plugin root's declared `metadata.compat.minBinaryVersion`
- * is satisfied by the running binary.
+ * Check that the binary satisfies the `metadata.compat.minBinaryVersion` of the
+ * plugin root. Callers act on the returned `CompatResult`:
+ * - An absent `plugin.json`, invalid JSON, or no valid minimum is an advisory.
+ * - A binary at or above the minimum is compatible.
+ * - A binary below the minimum is drift, and `version --check-plugin-root`
+ *   exits 1.
  *
- * ## Non-fatal-vs-fatal policy
- *
- * This is the single source of truth for what counts as drift vs. an
- * advisory. The sole call site (`exarchos version --check-plugin-root`)
- * responds to the structured `CompatResult` rather than duplicating the
- * policy, and any future caller is expected to do the same.
- *
- * | Condition                                      | compatible | minRequired | Treat as      |
- * | ---------------------------------------------- | :--------: | :---------: | ------------- |
- * | plugin root directory does not exist           |   `true`   |   `null`    | advisory      |
- * | `.claude-plugin/plugin.json` missing           |   `true`   |   `null`    | advisory      |
- * | plugin.json is not valid JSON                  |   `true`   |   `null`    | advisory      |
- * | `metadata.compat.minBinaryVersion` absent      |   `true`   |   `null`    | advisory      |
- * | binary `>=` declared `minBinaryVersion`        |   `true`   |   string    | OK            |
- * | binary `<` declared `minBinaryVersion`         |   `false`  |   string    | drift (fatal) |
- *
- * "Advisory" = the version subcommand exits 0 but may emit an explanatory
- * stderr line — appropriate when the plugin root simply lacks compat
- * metadata (nothing to enforce).
- *
- * "Drift" = the version subcommand exits 1 (CI should fail) — the running
- * binary is older than what the plugin declares it needs.
- *
- * Callers are expected to:
- *   - render `message` to stderr in CLI contexts;
- *   - gate exit code on `compatible` when they care about blocking (the
- *     `version --check-plugin-root` subcommand maps `compatible: false`
- *     to exit 1 so CI catches drift);
- *   - treat `minRequired: null` as an advisory, not a failure.
- *
- * @param pluginRoot absolute path to a plugin root directory (the one
- *                   containing `.claude-plugin/plugin.json`).
- * @param binaryVersion the running binary's semver, typically
- *                      `SERVER_VERSION` from `src/index.ts`.
+ * @param pluginRoot Absolute path of the directory that holds `.claude-plugin/plugin.json`.
+ * @param binaryVersion Semver of the running binary, typically `SERVER_VERSION`.
  */
 export function checkPluginRootCompatibility(
   pluginRoot: string,
@@ -215,7 +126,6 @@ export function checkPluginRootCompatibility(
 ): CompatResult {
   const pluginJsonPath = path.join(pluginRoot, '.claude-plugin', 'plugin.json');
 
-  // Step 1 — read + parse plugin.json.
   let raw: string;
   try {
     raw = fs.readFileSync(pluginJsonPath, 'utf-8');
@@ -240,7 +150,6 @@ export function checkPluginRootCompatibility(
     };
   }
 
-  // Step 2 — navigate to metadata.compat.minBinaryVersion safely.
   const minRequired = extractMinBinaryVersion(parsed);
   if (minRequired === null) {
     return {
@@ -251,7 +160,6 @@ export function checkPluginRootCompatibility(
     };
   }
 
-  // Step 3 — compare via shared semver helper.
   const cmp = compareSemver(binaryVersion, minRequired);
   if (cmp >= 0) {
     return {
@@ -272,19 +180,18 @@ export function checkPluginRootCompatibility(
   };
 }
 
-// Loose semver gate: accept core (`X`, `X.Y`, `X.Y.Z`) with an optional
-// `-prerelease` and `+build` suffix and a leading `v`. Tightening to
-// strict semver would be unfriendly to plugins that pin a major or
-// major.minor; rejecting `banana` and `2.x` is sufficient.
+/**
+ * Loose semver gate: a core of `X`, `X.Y` or `X.Y.Z`, an optional leading `v`,
+ * and optional `-prerelease` and `+build` suffixes. Thus a plugin can pin only
+ * a major or a major.minor. The gate rejects values such as `banana` and `2.x`.
+ */
 const SEMVER_LIKE = /^v?\d+(?:\.\d+){0,2}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
 /**
- * Extract `metadata.compat.minBinaryVersion` from a parsed plugin.json
- * without any assumption that intermediate keys exist. Returns null when
- * the path is absent, the leaf is empty, OR the leaf is not semver-like.
- *
- * A malformed pin would otherwise reach `parseSemver()` which silently
- * coerces invalid segments to 0 and falsely passes drift detection.
+ * Return `metadata.compat.minBinaryVersion` from a parsed `plugin.json`. Return
+ * `null` when the path is absent, the value is empty, or the value is not
+ * semver-like. Without this check, `parseSemver` turns bad segments into 0, and
+ * a malformed pin passes the drift check.
  */
 function extractMinBinaryVersion(parsed: unknown): string | null {
   if (!parsed || typeof parsed !== 'object') return null;

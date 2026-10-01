@@ -1,28 +1,13 @@
-// ─── Installer-side release verification CLI (P05-01) ──────────────────────
-//
-// The seam the bootstrap installers (`tools/release/get-exarchos.ps1` / `.sh`)
-// delegate to for the ONE verification dimension shells cannot do natively —
-// Ed25519 signature checking — plus, for defense in depth, the other three
-// (source, contract, asset digest). It wraps the pure `verifyReleaseInstall`
-// core with argv parsing + file IO, and maps its fail-closed verdict onto a
-// process exit code:
-//
-//   exit 0  — the release is authentic, from the expected source + contract,
-//             and every presented asset matches the signed manifest.
-//   exit 2  — a verification failure (reason printed to stderr). NON-ZERO so a
-//             caller `|| exit 1` refuses to install.
-//   exit 3  — a usage error (missing/garbled arguments).
-//
-// The IO is injected (`ReleaseVerifyIo`) so `runReleaseVerify` is unit-testable
-// without touching the real filesystem or process.
-//
-// Usage (from an installer, after downloading the asset + manifest):
-//   node release-verify-cli.js \
-//     --manifest <signed-manifest.json> \
-//     --trust-root <keyId>=<publicKey.pem> [--trust-root …] \
-//     --expect-source <commit>#<sha256:treeDigest> \
-//     --expect-contract <sha256:contractDigest> \
-//     --asset <name>=<downloaded-file> [--asset …]
+/**
+ * Release verification CLI for the bootstrap installers
+ * (`tools/release/get-exarchos.ps1` and `.sh`). A shell cannot check an Ed25519
+ * signature, so the installers call this CLI. It also checks the source, the
+ * contract and the asset digests. It wraps `verifyReleaseInstall` with argument
+ * parsing and file reads, and sets the exit code:
+ * - 0: the release is authentic, and each asset matches the signed manifest.
+ * - 2: verification failed. The reason goes to stderr.
+ * - 3: usage error.
+ */
 
 import { TrustRootSet, type TrustRootConfig, SIGNATURE_ALGORITHM } from '../../runtime/extensions/trust-root.js';
 import { SourceIdentitySchema, type SourceIdentity, type ContractIdentity } from './build-identity.js';
@@ -121,10 +106,9 @@ function parseArgs(argv: readonly string[], io: ReleaseVerifyIo): ParsedArgs {
 }
 
 /**
- * Run the release-verification CLI over `argv` (flags only, no argv0/argv1).
- * Pure aside from the injected {@link ReleaseVerifyIo}. Never throws — every
- * failure shape maps to a non-zero exit code, so a verification error can never
- * be mistaken for a pass.
+ * Run the release verification over `argv`, which holds only the flags. The
+ * function does no IO except through `io`, and it does not throw. Each failure,
+ * such as a malformed manifest or an unreadable file, gives a non-zero exit code.
  */
 export function runReleaseVerify(argv: readonly string[], io: ReleaseVerifyIo): ReleaseVerifyOutcome {
   let args: ParsedArgs;
@@ -161,7 +145,6 @@ export function runReleaseVerify(argv: readonly string[], io: ReleaseVerifyIo): 
     }
     return { exitCode: 2, message: `release REJECTED [${result.reason}]: ${result.detail}` };
   } catch (err) {
-    // Malformed manifest, unreadable file, bad public key — all fail closed.
     const message = err instanceof Error ? err.message : String(err);
     return { exitCode: 2, message: `release REJECTED [verification-error]: ${message}` };
   }
@@ -175,8 +158,10 @@ export function nodeReleaseVerifyIo(): ReleaseVerifyIo {
   };
 }
 
-// Executed only when run directly (never on import), so importing this module
-// for `runReleaseVerify` in a test has no side effect.
+/**
+ * True when this file is the process entry point. Thus an import of this module
+ * in a test has no side effect.
+ */
 function invokedDirectly(): boolean {
   const entry = process.argv[1];
   if (!entry) return false;

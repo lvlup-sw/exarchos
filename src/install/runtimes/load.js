@@ -1,15 +1,7 @@
 /**
- * `.js` re-export shim for `load.ts`.
- *
- * The install-skills bridge (`src/lifecycle/install-skills-bridge.js`)
- * and the runtime-presence / build-skills test suites import this module
- * as `'../install/runtimes/load.js'` — a NodeNext `.js` specifier — but
- * only the `.ts` original ships. This shim lets `vite-node` and
- * `bun build --compile` follow the import without an extension fallback
- * or alias, by re-exporting the full surface of the `.ts` original.
- * tsc with `allowJs: false` skips this file; the `.ts` source remains
- * the type-only entry point for `tsc`.
- *
- * `export *` is used so the shim cannot drift from the `.ts` original.
+ * A `.js` re-export shim for `load.ts`.
+ * Some modules and tests import this path with a NodeNext `.js` specifier, but only the `.ts` source ships.
+ * The shim lets `vite-node` and `bun build --compile` resolve that import with no extension fallback or alias.
+ * `export *` keeps the shim in step with `load.ts`. With `allowJs` off, tsc skips this file.
  */
 export * from './load.ts';

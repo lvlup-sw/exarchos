@@ -1,25 +1,19 @@
 /**
- * CommandShimEmitter — maps exarchos slash commands to runtime-appropriate
- * invocation syntax.
- *
- * Each runtime has a different mechanism for command discovery:
- * - **Copilot**: `.github/copilot-instructions.md` with a mapping table
- * - **Cursor**: `.cursor/rules/exarchos-commands.md` with a mapping table
- * - **Claude Code**: No-op (commands already work via `commands/*.md`)
- * - **Codex / OpenCode**: Currently no-op (stubs)
- *
- * The canonical command list is hardcoded from the known exarchos commands.
+ * Maps the Exarchos slash commands to the invocation syntax of each runtime.
+ * Copilot gets a mapping table in `.github/copilot-instructions.md`, and Cursor gets one in `.cursor/rules/exarchos-commands.md`.
+ * Claude Code, Codex, and OpenCode are skipped. Claude Code reads `commands/*.md` directly.
  */
 
-// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31) — reserved dead stub; deletion at expiry if unadopted; see also #1609 (DR-7 module-intent gate)
-// SHIM(runtimes: copilot+cursor, capability: slash-command-native) — per-runtime command-discovery adapter: Cursor has no native slash-command loader (hasSlashCommands:false) and Copilot maps commands via .github/copilot-instructions.md; enumerated + expiry-tracked in src/shim-registry.ts (SHIM_REGISTRY), P03-07.
+// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31) — a dead stub. The module-intent gate requires
+// its deletion at expiry if no caller adopts it. See also #1609.
+// SHIM(runtimes: copilot+cursor, capability: slash-command-native) — a per-runtime command-discovery adapter.
+// Cursor has no native slash-command loader, and Copilot reads its commands from `.github/copilot-instructions.md`.
+// `SHIM_REGISTRY` in `src/install/shim-registry.ts` lists this adapter with an expiry.
 
 import { join } from 'node:path';
 import { toPosix } from '../utils/paths.js';
 import { promises as nodeFs } from 'node:fs';
 import type { AgentRuntimeName } from './agent-environment-detector.js';
-
-// ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface CommandMapping {
   readonly name: string;
@@ -44,27 +38,9 @@ export interface ShimEmitterDeps {
   readonly fs?: ShimEmitterFs;
 }
 
-// ─── Canonical command list ─────────────────────────────────────────────────
-
 /**
- * Canonical command name → human-readable description.
- *
- * This map is the single hand-kept structure for the shim; `CANONICAL_COMMANDS`
- * is DERIVED from it so the `skill` slug can never drift from the command name.
- * The key set MUST equal the root canonical source-of-truth
- * (`src/config/canonical-skills.ts` → `canonicalCommandSet()`); the co-located
- * coupling guard in `command-shim-emitter.test.ts` imports that accessor across
- * the package boundary and fails CI on any divergence. (The MCP package cannot
- * import the root SoT in production code — `rootDir: ./src` — so the coupling is
- * enforced test-only.)
- *
- * Drift history:
- * - `tdd` was retired in #1590 (commands/tdd.md + alias + COMMAND_TO_SKILL entry
- *   deleted); dropped here too so shim-consuming runtimes (Copilot, Cursor) stop
- *   advertising `/tdd` → a skill that no longer exists.
- * - `reload` had no commands/reload.md and no SoT entry; dropped (#1609).
- * - `discover` + `invariants` have command files + SoT entries but were missing
- *   here; added (#1609).
+ * Canonical command name to description. `CANONICAL_COMMANDS` derives from this map, so each `skill` slug matches its command name.
+ * The key set must equal `canonicalCommandSet()` in `src/install/config/canonical-skills.ts`. A test in `command-shim-emitter.test.ts` enforces this.
  */
 export const COMMAND_DESCRIPTIONS: Record<string, string> = {
   ideate: 'Start collaborative design exploration for a feature or problem',
@@ -95,14 +71,10 @@ export const CANONICAL_COMMANDS: readonly CommandMapping[] = Object.entries(
   description,
 }));
 
-// ─── Default fs ─────────────────────────────────────────────────────────────
-
 const DEFAULT_FS: ShimEmitterFs = {
   writeFile: (p, data) => nodeFs.writeFile(p, data, 'utf8'),
   mkdir: (p, opts) => nodeFs.mkdir(p, opts).then(() => undefined),
 };
-
-// ─── Emitter ────────────────────────────────────────────────────────────────
 
 /**
  * Emit a command shim file for the given runtime. Returns metadata about
@@ -137,8 +109,6 @@ export async function emitCommandShim(
       };
   }
 }
-
-// ─── Per-runtime emitters ───────────────────────────────────────────────────
 
 async function emitCopilotShim(
   projectRoot: string,
@@ -175,8 +145,6 @@ async function emitCursorShim(
     commandCount: CANONICAL_COMMANDS.length,
   };
 }
-
-// ─── Shared renderer ────────────────────────────────────────────────────────
 
 function renderCommandTable(): string {
   const lines: string[] = [

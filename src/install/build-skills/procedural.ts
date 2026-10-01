@@ -1,5 +1,10 @@
 import { classifySkill, ORCHESTRATION_TOKENS } from '../skill-vocabulary.js';
 
+/**
+ * Throw when a procedural skill source uses an orchestration token or a `<!-- requires:* -->` guard.
+ * A procedural skill has one render for all runtimes, so either construct loses its per-runtime output.
+ * `buildAllSkills` calls this only for a source that `classifySkill` puts in the procedural class.
+ */
 export function assertProceduralSkill(body: string, sourcePath: string): void {
   const model = classifySkill(body);
 
@@ -23,15 +28,3 @@ export function assertProceduralSkill(body: string, sourcePath: string): void {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Standard (single-render) variant for procedural skills (DR-1)
-// ---------------------------------------------------------------------------
-
-/**
- * Output subtree name for the single, runtime-neutral render of every
- * procedural skill. Procedural skills collapse to `skills/standard/<skill>/`
- * (DR-1) instead of forking per-runtime; only the 3 orchestration skills
- * (`delegate`, `refactor`, `ideate`) keep the
- * `skills/<runtime>/<skill>/` residual.
- */

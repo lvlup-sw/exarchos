@@ -1,26 +1,12 @@
-// ─── Codex RuntimeAdapter ──────────────────────────────────────────────────
-//
-// Lowers `AgentSpec` values into Codex CLI custom-agent TOML files at
-// `.codex/agents/<name>.toml`. Codex's custom-agent format requires
-// top-level `name`, `description`, and `developer_instructions`; optional
-// fields include `model`, `reasoning_effort`, `sandbox_mode`, and
-// `mcp_servers`.
-//
-// Capability support: Codex covers fs/shell/subagent-spawn/MCP/worktree
-// isolation, but does NOT support Claude-specific Agent Teams or the
-// Claude completion-signal/start-signal hooks.
-//
-// Name-resolution caveat: Codex upstream issues #15250 and #14579 mean
-// custom agents in `.codex/agents/` may not be invocable by name from
-// tool-backed sessions. The adapter still emits the TOML file (so the
-// artifact is correct for the future) and exposes
-// `customAgentResolutionWorks = false`. The runtime YAML's
-// `SPAWN_AGENT_CALL` (Task 7b) decides whether to dispatch by name or
-// fall back to inline-prompt + `agent_type: "default"`.
-//
-// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4 and
-// docs/research/2026-04-25-delegation-platform-agnosticity.md §3.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Codex `RuntimeAdapter`. It lowers an `AgentSpec` into a Codex CLI agent TOML file
+ * at `.codex/agents/<name>.toml`. The format requires `name`, `description` and
+ * `developer_instructions`. This adapter also emits `sandbox_mode` and, when needed, `mcp_servers`.
+ *
+ * Codex CLI issues openai/codex#15250 and openai/codex#14579 can stop a tool-backed
+ * session from invoking a custom agent by name. The adapter still writes the TOML file
+ * and sets `customAgentResolutionWorks` to `false`.
+ */
 
 import type { AgentSpec } from '../types.js';
 import type { RuntimeAdapter, ValidationResult } from './types.js';
@@ -28,9 +14,9 @@ import { buildSupportMap } from './support-levels.js';
 import { resolveCapabilities } from '../../../workflow/capabilities/posture-mapping.js';
 
 /**
- * Codex covers fs/shell/subagent-spawn/MCP natively, treats
- * `isolation:worktree` as advisory (orchestrator-managed), and rejects
- * Claude-only primitives (Agent Teams, signal hooks, session:resume).
+ * Codex support levels. `isolation:worktree` and `session:resume` are advisory.
+ * The Claude-only signal and Agent Teams capabilities are unsupported.
+ * All other capabilities are native.
  */
 const CODEX_SUPPORT_LEVELS = buildSupportMap('native', {
   'isolation:worktree': 'advisory',
@@ -53,12 +39,11 @@ export function tomlBasicString(value: string): string {
 }
 
 /**
- * Render a TOML multi-line basic string. Triple-quoted form preserves
- * newlines verbatim; we only need to escape sequences of three-or-more
- * double quotes inside the body.
+ * Render a TOML multi-line basic string. The triple-quoted form keeps newlines.
+ * The function escapes backslashes and each literal triple quote, so the body
+ * cannot end the string early.
  */
 function tomlMultilineString(value: string): string {
-  // Escape any literal """ inside the body so it cannot terminate early.
   const safe = value.replace(/\\/g, '\\\\').replace(/"""/g, '\\"\\"\\"');
   return `"""\n${safe}\n"""`;
 }
@@ -69,28 +54,12 @@ function tomlStringArray(values: readonly string[]): string {
 }
 
 /**
- * Derive Codex's `sandbox_mode` from the spec's declared capabilities.
- *
- * Codex's TOML format has no per-tool allowlist primitive (cf. Claude's
- * `tools` array or OpenCode's `tools` boolean map). The single structural
- * gate the runtime exposes is `sandbox_mode`, with three documented
- * values:
- *
- *   - `read-only`        — process is barred from filesystem writes and
- *                          shell execution outside its session bounds.
- *   - `workspace-write`  — process may write within the workspace and
- *                          spawn shell commands from it.
- *   - `danger-full-access` — no sandbox; not used here.
- *
- * Mapping (parallels `deriveClaudeToolsFromCapabilities` in claude.ts):
- *
- *   - capabilities lack BOTH `fs:write` and `shell:exec` → `read-only`
- *   - capabilities include EITHER `fs:write` or `shell:exec` → `workspace-write`
- *
- * Without this derivation, REVIEWER (read-only) and IMPLEMENTER (write +
- * shell) would lower to byte-identical sandbox configurations — the
- * negative-capability guarantee in REVIEWER's spec would be prose-only.
- * Issue #1192 Item 6, T27.
+ * Derive the Codex `sandbox_mode` from the capabilities of the spec.
+ * Codex has no per-tool allowlist, so `sandbox_mode` is the only structural gate.
+ * If the capabilities include `fs:write` or `shell:exec`, the mode is `workspace-write`.
+ * If not, the mode is `read-only`.
+ * Without this derivation, a read-only reviewer and a write-capable implementer
+ * get the same sandbox, and the read-only limit of the reviewer is prose only.
  */
 function deriveCodexSandboxMode(spec: AgentSpec): 'read-only' | 'workspace-write' {
   const caps = resolveCapabilities(spec.posture, spec.id);
@@ -101,14 +70,10 @@ function deriveCodexSandboxMode(spec: AgentSpec): 'read-only' | 'workspace-write
 }
 
 /**
- * Compose the `developer_instructions` body: the agent's system prompt
- * followed by a brief enumeration of declared capabilities so the
- * underlying model knows which platform affordances to expect.
+ * Compose the `developer_instructions` body: the system prompt of the agent,
+ * then a list of its capabilities, so the model knows which tools to expect.
  */
 function renderDeveloperInstructions(spec: AgentSpec): string {
-  // Stable ordering: emit capabilities in the canonical Capability enum
-  // order so the rendered TOML doesn't depend on Set iteration order.
-  // Snapshots in __fixtures__ are byte-pinned against this output.
   const resolved = resolveCapabilities(spec.posture, spec.id);
   const capabilityLines = [...resolved].map((cap) => `- ${cap}`).join('\n');
   return [
@@ -119,6 +84,12 @@ function renderDeveloperInstructions(spec: AgentSpec): string {
   ].join('\n');
 }
 
+/**
+ * Lower `spec` into the Codex TOML file. The capability-derived `sandbox_mode` keeps
+ * Codex off a session default that gives more access than the spec allows.
+ * `mcp:exarchos` and `mcp:exarchos:readonly` give the same `mcp_servers` entry,
+ * because Codex has no per-action grant. The server enforces the read-only tier.
+ */
 function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
   const path = `.codex/agents/${spec.id}.toml`;
 
@@ -129,10 +100,6 @@ function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
     `developer_instructions = ${tomlMultilineString(renderDeveloperInstructions(spec))}`,
   );
 
-  // Negative-capability enforcement (#1192 Item 6, T27): emit a
-  // capability-derived `sandbox_mode` so the runtime structurally honors
-  // the spec's fs/shell declarations rather than falling back to a
-  // session default that may grant more access than the spec authorized.
   lines.push(`sandbox_mode = ${tomlBasicString(deriveCodexSandboxMode(spec))}`);
 
   const resolved = resolveCapabilities(spec.posture, spec.id);
@@ -142,10 +109,6 @@ function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
     resolved.has('mcp:exarchos') ||
     resolved.has('mcp:exarchos:readonly')
   ) {
-    // Both the broad and readonly capabilities grant the same Codex
-    // mcp_servers entry — Codex's TOML format has no per-action sub-grant
-    // primitive. The server-side action allowlist (T04 dispatch gate) is
-    // what enforces the readonly tier; this adapter just opens the channel.
     lines.push(`mcp_servers = ${tomlStringArray(['exarchos'])}`);
   }
 
@@ -167,10 +130,9 @@ function validateSupport(spec: AgentSpec): ValidationResult {
 }
 
 /**
- * Codex adapter. The `customAgentResolutionWorks` flag is consumed by the
- * runtime YAML's `SPAWN_AGENT_CALL` template (Task 7b) to decide whether
- * named-agent dispatch is reliable; until upstream resolves
- * #15250/#14579, this stays `false`.
+ * Codex adapter. `customAgentResolutionWorks` stays `false` until Codex CLI fixes
+ * openai/codex#15250 and openai/codex#14579. To match the flag, `SPAWN_AGENT_CALL` in
+ * `content/harness/runtimes/codex.yaml` dispatches with an inline prompt, not by agent name.
  */
 export const codexAdapter: RuntimeAdapter & {
   readonly customAgentResolutionWorks: boolean;

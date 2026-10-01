@@ -42,10 +42,8 @@ function hasVersion(value: unknown): value is { version: string } {
 }
 
 /**
- * Check the running installer version against the latest on GitHub.
- *
- * Fetches package.json from the main branch and compares version fields.
- * Returns within the timeout period; network failures are non-fatal.
+ * Compare the running installer version with the `package.json` version on the
+ * GitHub main branch. A network failure or a timeout gives status `error`. It does not throw.
  *
  * @param localVersion - The version of the currently running installer.
  * @param options - Optional configuration for timeout, URL, and fetch override.
@@ -98,7 +96,7 @@ export async function checkVersion(
 /**
  * Format a version mismatch warning for terminal display.
  *
- * @param result - The version check result (should have status 'outdated').
+ * @param result - The version check result, normally with status `outdated`.
  * @returns Multi-line warning string.
  */
 export function formatVersionWarning(result: VersionCheckResult): string {

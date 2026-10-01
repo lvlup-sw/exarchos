@@ -1,17 +1,9 @@
-// ─── Signed revocation list with freshness (P03-08) ───────────────────────
-//
-// Revocation is only safe if you can prove the revocation data is (a) authentic
-// and (b) current. Both are fail-closed:
-//   - AUTHENTIC: the list is signed by a trust root. A forged "fresh but empty"
-//     list must not be able to suppress a real revocation, so an unsigned or
-//     unverifiable list is treated as no usable revocation data at all.
-//   - CURRENT (freshness): even a validly signed list is rejected if it is
-//     missing, future-dated, past its own expiry, or older than the freshness
-//     horizon. If you cannot prove the list is current you must fail closed —
-//     never fail open by admitting because "no revocation said no".
-//
-// Timestamps are epoch milliseconds (injected clock) so freshness arithmetic is
-// deterministic and timezone-free.
+/**
+ * Signed revocation list with a freshness check. Both checks fail closed.
+ * A trust root must sign the list. An unverifiable list counts as no revocation data, so a forged empty list cannot hide a revocation.
+ * A signed list that is future-dated, expired, or older than the freshness horizon also counts as no data.
+ * Timestamps are epoch milliseconds from an injected clock, so the freshness arithmetic is deterministic.
+ */
 
 import { z } from 'zod';
 import { canonicalBytes, type CanonicalJsonValue } from './canonical.js';
@@ -76,7 +68,7 @@ export function canonicalRevocationListBytes(list: RevocationListV1): Buffer {
   return canonicalRevocationBytes(body as RevocationListBodyV1);
 }
 
-/** Build a signed revocation list from a body and signer key (publishers/tests). */
+/** Build a signed revocation list from a body and a signer key. Publishers and tests use it. */
 export function buildSignedRevocationList(
   body: RevocationListBodyV1,
   signer: { readonly keyId: string; readonly privateKeyPem: string },
@@ -94,8 +86,8 @@ export function buildSignedRevocationList(
  * Outcome of evaluating revocation for one extension identity.
  * - `clear`: usable, current, authentic list that does not list this identity.
  * - `revoked`: the identity is on a usable, current, authentic list.
- * - `unavailable`: no usable revocation data — missing, unverifiable, or stale;
- *    admission must fail closed on this, never fall through to admitting.
+ * - `unavailable`: no usable revocation data, because the list is missing, unverifiable, or stale.
+ *    Admission must fail closed on this status.
  */
 export type RevocationEvaluation =
   | { readonly status: 'clear' }
@@ -110,10 +102,9 @@ export interface RevocationContext {
 }
 
 /**
- * Decide whether `extensionId`@`version` may be admitted with respect to the
- * revocation data in `context`. Authenticity and freshness are checked before
- * membership, so a stale or forged list can never mask a real revocation and,
- * equally, can never be trusted to clear one.
+ * Evaluate the revocation data in `context` for `extensionId`@`version`.
+ * The function checks authenticity and freshness before membership.
+ * Thus a stale or forged list cannot hide a revocation, and it cannot clear an identity.
  */
 export function evaluateRevocation(
   context: RevocationContext,
