@@ -7,7 +7,7 @@
     "testFiles": 1283,
     "parsedFiles": 1238,
     "shellFiles": 45,
-    "cases": 14155,
+    "cases": 14159,
     "dynamicTitles": 169,
     "unparseableFiles": 0
   },
@@ -66183,6 +66183,26 @@
         {
           "suite": "makeDefaultProcessTableSource (win32 process source — DR-5)",
           "name": "ProcessSource_UnsupportedPlatform_ReturnsUnknownFailClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "makeDefaultProcessTableSource (win32 process source — DR-5)",
+          "name": "WinLiveness_BeforeFirstList_IsUnsupported",
+          "dynamic": false
+        },
+        {
+          "suite": "makeDefaultProcessTableSource (win32 process source — DR-5)",
+          "name": "WinLiveness_ReaderThrows_FailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "makeDefaultProcessTableSource (win32 process source — DR-5)",
+          "name": "WinLiveness_ReaderReturnsNoRows_FailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "makeDefaultProcessTableSource (win32 process source — DR-5)",
+          "name": "WinLiveness_SupportFollowsMostRecentSnapshot",
           "dynamic": false
         },
         {
