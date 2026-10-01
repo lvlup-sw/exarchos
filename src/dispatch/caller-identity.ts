@@ -89,19 +89,12 @@ export function deriveLocalOperatorIdentity(stateDir: string): CallerIdentity {
 }
 
 /**
- * Resolve the caller's authorization, applying the trusted local-operator
- * grant when appropriate.
+ * Resolves the authorization of the caller. When the resolver yields any capabilities, it decides.
+ * A `local-operator` identity with an empty set gets the trusted local-operator grant. This is the
+ * CLI path, where no capability resolver is wired.
  *
- * The resolver is always authoritative when it yields any capabilities. The
- * grant fires ONLY for a `local-operator` identity whose resolver produced an
- * empty capability set — the CLI trusted-caller path, where no runtime
- * capability resolver is wired. Because that identity is derived solely from
- * the adapter-owned state directory (never from caller input), a
- * remote/untrusted `mcp-session` caller can never obtain it; such a caller with
- * no resolver capabilities keeps an empty set and is denied at schema
- * validation (an unauthorized cancellation still fails closed). This is a
- * grant by the identity/capabilities layer — the caller never self-asserts a
- * capability (P01-07).
+ * The adapter state directory derives the `local-operator` identity, not caller input. So an
+ * `mcp-session` caller cannot get the grant. With no capabilities, it fails schema validation.
  */
 function resolveTrustedCallerAuthorization(
   identity: CallerIdentity,
@@ -115,9 +108,8 @@ function resolveTrustedCallerAuthorization(
 }
 
 /**
- * Freeze the exact identity and resolver-authoritative authorization inputs
- * used by a dispatch. The clock is injectable for deterministic tests; action
- * payloads are deliberately absent from this API.
+ * Freezes the identity and the authorization inputs that a dispatch uses. Tests can inject the
+ * clock. The API takes no action payload.
  */
 export function snapshotCallerAuthorization(
   identity: CallerIdentity,

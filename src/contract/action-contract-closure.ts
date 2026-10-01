@@ -1,14 +1,9 @@
 /**
  * ActionId-scoped closure over a declared action contract and its projections.
- *
- * The evaluator reports whether one action's contract is total: every dimension
- * is present or reasoned-absent, every reference is live, recovery edges have
- * not expired, and advertised / executed / projected copies still match the
- * declaration. It does not choose phase verbs and it does not mint tools or
- * capabilities — those vocabularies stay closed.
- *
- * Findings are collected then sorted, so subject order cannot change the
- * verdict. Zero subjects is an empty denominator and never closes.
+ * The evaluator reports whether the contract of one action is total.
+ * Each dimension is present or has a reason for absence, and each reference is live.
+ * No recovery edge is expired, and the advertised, executed, and projected copies match the declaration.
+ * The evaluator sorts its findings, so subject order cannot change the verdict. Zero subjects never close.
  */
 
 import { isBuiltInEventType } from '../events/schemas.js';
@@ -71,10 +66,8 @@ export interface ActionContractProjectionInput {
   readonly name: string;
   readonly contract?: unknown;
   /**
-   * Which reference this projection is comparable to. A shipped surface may
-   * carry the whole contract or a deliberately lossy view of it; comparing the
-   * lossy one against the declaration reports drift on every action forever,
-   * which is indistinguishable from an instrument that works. Default `full`.
+   * The reference that this projection compares to. The default is `full`.
+   * A `compact` projection is a lossy view, so a comparison with the full declaration reports drift on every action.
    */
   readonly form?: 'full' | 'compact';
 }
@@ -685,11 +678,7 @@ function inspectParity(subject: ActionContractClosureSubject, findings: ActionCo
   }
 }
 
-/**
- * Evaluate ActionId-scoped contract closure. Pure and total: every input
- * yields a verdict, and equal subjects yield equal findings regardless of
- * the order they arrived in.
- */
+/** Evaluate ActionId-scoped contract closure. Each input gets a verdict, and subject order does not change the findings. */
 export function evaluateActionContractClosure(
   input: ActionContractClosureInput,
 ): ActionContractClosureResult {
@@ -746,9 +735,8 @@ function tryNormalizeDeclared(
 }
 
 /**
- * The compact form of a declared contract, or `undefined` when the declaration
- * is not a contract the compactor can read. Never throws: an unreadable
- * declaration is reported as an undecidable comparison, not as agreement.
+ * The compact form of a declared contract, or `undefined` when the compactor cannot read it.
+ * An unreadable declaration gives an undecidable comparison, not agreement.
  */
 function compactReference(contract: unknown): unknown | undefined {
   if (contract === undefined || contract === null) return undefined;
@@ -785,11 +773,12 @@ function tryCompilerContract(action: ToolAction): unknown | undefined {
   }
 }
 
+/**
+ * The describe, describe-compact, and compiler projections of one action.
+ * Describe ships the full and the compact form. The compact form compares to the compact declaration.
+ */
 function liveProjections(action: ToolAction): readonly ActionContractProjectionInput[] {
   const projections: ActionContractProjectionInput[] = [];
-  // Describe ships both forms, so both are read. The compact one is judged
-  // against the compact declaration — it is a lossy view by design, and
-  // holding it to the full contract made every action drift.
   const describe = tryDescribeContract(action);
   if (describe !== undefined) {
     projections.push({ name: 'describe', contract: describe, form: 'full' });
@@ -809,20 +798,14 @@ function liveProjections(action: ToolAction): readonly ActionContractProjectionI
   return projections;
 }
 
-/**
- * ActionIds named by the live registered-actions denominator. Same cardinality
- * as `measureLiveRegisteredActions().counts.actions` — not a second count.
- */
+/** The ActionIds of the live registered-actions denominator, from `measureLiveRegisteredActions()`. */
 export function liveRegisteredActionIds(
   live: ReturnType<typeof measureLiveRegisteredActions> = measureLiveRegisteredActions(),
 ): readonly string[] {
   return live.tools.flatMap((tool) => tool.actions.map((action) => `${tool.name}.${action}`));
 }
 
-/**
- * Whether a collected subject set covers every live registered ActionId.
- * A narrowed or empty set cannot stand in for the live denominator.
- */
+/** Return true when a subject set covers every live registered ActionId. A narrowed or empty set fails. */
 export function collectedSubjectsCoverLiveDenominator(
   subjects: readonly ActionContractClosureSubject[],
 ): boolean {
@@ -885,10 +868,8 @@ function liveSurfaceDecisions(
 }
 
 /**
- * One closure subject per live registry ActionId. Attaches the normalized
- * contract when the block is present, the describe-compact and compiler
- * projections of that block, and the advertise versus execute admission
- * decisions for the same fixture snapshot. Missing live blocks stay missing.
+ * One closure subject per live registry ActionId. When the contract block is present, a subject carries it and its projections.
+ * Each subject also carries the advertise and execute admission decisions. A missing block stays missing.
  */
 export function collectLiveActionContractSubjects(): readonly ActionContractClosureSubject[] {
   const subjects: ActionContractClosureSubject[] = [];
@@ -911,10 +892,7 @@ export function collectLiveActionContractSubjects(): readonly ActionContractClos
   return subjects.sort((left, right) => left.actionId.localeCompare(right.actionId));
 }
 
-/**
- * Evaluate collected subjects only when they cover the live ActionId
- * denominator. A narrowed or empty set is an empty denominator and cannot close.
- */
+/** Evaluate the subjects only when they cover the live ActionId denominator. Otherwise the result is an empty denominator. */
 export function evaluateCollectedActionContractClosure(
   subjects: readonly ActionContractClosureSubject[],
 ): ActionContractClosureResult {
@@ -924,10 +902,7 @@ export function evaluateCollectedActionContractClosure(
   return evaluateActionContractClosure({ subjects });
 }
 
-/**
- * One collected live subject by ActionId. Missing ids stay missing so a
- * narrowed or invented ActionId cannot stand in for the live tree.
- */
+/** One collected live subject by ActionId, or `undefined` when the id is not live. */
 export function liveActionContractSubject(
   actionId: string,
   subjects: readonly ActionContractClosureSubject[] = collectLiveActionContractSubjects(),
@@ -942,11 +917,7 @@ export type ActionContractExecuteKind =
   | 'hsm-deny'
   | 'other';
 
-/**
- * Classify a dispatch outcome for advertise / execute / ensure / HSM closure.
- * An HSM deny is not an ActionId admission parity failure, and admission
- * does not invent a transition-edge.
- */
+/** Classify a dispatch outcome. An HSM deny is not an admission parity failure. */
 export function classifyActionContractExecute(input: {
   readonly success: boolean;
   readonly errorCode?: string | undefined;
@@ -960,8 +931,8 @@ export function classifyActionContractExecute(input: {
 }
 
 /**
- * Whether a collected contract reasons `requires` as none. Transition-edge
- * obligations stay on the HSM guard; admission must not invent that edge.
+ * Return true when a contract declares `requires` as none.
+ * Transition-edge obligations stay on the HSM guard, so admission must not add that edge.
  */
 export function actionContractRequiresIsNone(contract: unknown): boolean {
   return isRecord(contract) && isRecord(contract.requires) && contract.requires.kind === 'none';

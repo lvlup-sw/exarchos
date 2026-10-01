@@ -1,16 +1,12 @@
-// ─── The settlement endpoint's public action ─────────────────────────────────
-//
-// `settle` adjudicates ONE batch of returned claims against the capsule that
-// was pinned when the work was compiled. The adjudicator and the custody write
-// live in `verbs/settle/`; this file is only the registration — schema,
-// contract, economy — that makes the action reachable.
-//
-// It runs nothing. That is the asymmetry with `execute_intent`, and it is why
-// nothing was reused from it: the executor compiles a named intent and runs
-// leaves in-process, while this action performs no work of its own and judges
-// work already done. What the two DO share is the substrate underneath —
-// content-addressed custody, canonical encoding, the operation claim — and that
-// is imported rather than re-implemented.
+/**
+ * The registration of the `settle` action: schema, contract, and economy. `settle` judges one batch
+ * of returned claims against the capsule that was pinned at compile time. The judge and the custody
+ * write are in `verbs/settle/`.
+ *
+ * Unlike `execute_intent`, it compiles no named intent. It judges returned work, then runs the
+ * task-completion segment of each accepted task. The two share content-addressed custody,
+ * canonical encoding, and the operation claim.
+ */
 
 import { z } from 'zod';
 import { withCappedShape } from '../../../output-schema-declaration.js';
@@ -53,10 +49,10 @@ function withContract(
 export const settleActions: readonly BuiltinToolAction[] = [
   withContract({
     name: 'settle',
-    // Trimmed to the per-action description budget: what the call decides, what
-    // it runs, the one thing a caller cannot discover from the schema (that a
-    // refusal is a successful settlement, not an error), and the refusals that
-    // are errors.
+    /**
+     * The text fits the per-action description budget. It names the fact that the schema cannot
+     * show: a rejected batch is a successful call, not an error.
+     */
     description:
       'Adjudicate ONE batch of returned claims against a prepared capsule, verify each accepted ' +
       'task, and commit one execution.settled record. `capsuleVersion` names the capsule prepare ' +
@@ -128,20 +124,24 @@ export const settleActions: readonly BuiltinToolAction[] = [
             'The decision round of a held batch: one entry per deviation the held receipt named ' +
               'in pendingDeviations, and no claims',
           ),
-        // Alias, matching execute_intent: `streamId` IS the bare featureId;
-        // either spelling is accepted and exactly one is required.
+        /**
+         * An alias, as in `execute_intent`, because `streamId` is the bare featureId. The call needs
+         * at least one of the two, and two values must match.
+         */
         streamId: z.string().min(1).optional(),
         featureId: z.string().min(1).optional(),
       })
       .strict(),
-    // Advisory — only the next-actions computer reads it. Settlement follows
-    // work that was delegated and reviewed, which is where a returned batch
-    // comes from. Deliberately not the plan family: nothing is compiled here.
+    /**
+     * Advisory: only the next-actions computer reads it. A returned batch follows delegated and
+     * reviewed work. Nothing is compiled here, so the plan phases are not in the set.
+     */
     phases: new Set<string>([...DELEGATE_PHASES, ...REVIEW_PHASES]),
     roles: ROLE_ANY,
-    // Runs each accepted task's compiled segment in-process, including the
-    // gates that shell out to the project's toolchain — the same reason
-    // `execute_intent` and each of those gates carry the flag.
+    /**
+     * It runs the compiled segment of each accepted task in-process, and those gates shell out to
+     * the project toolchain.
+     */
     longRunning: true,
     outputSchema: withCappedShape(SettlementOutputSchema),
     economy: {
@@ -154,46 +154,40 @@ export const settleActions: readonly BuiltinToolAction[] = [
       'the capsule carries its own terms, pinned at compile time; a prior gate or approval ' +
         'floor read at settlement would be the current-state dependency a capsule exists to remove',
     ),
-    // No declared postcondition, and the reason is the replay contract rather
-    // than an absence of durable effect — the same shape `execute_intent`
-    // states. The dispatch-level ensures observation asks the store for a row
-    // carrying the CURRENT dispatch's operation id. A replay is answered from
-    // the persisted claim before any effect, appends nothing, and returns
-    // success; an event-append ensure would therefore refuse every replay for
-    // the absence of a row the replay is defined not to write.
+    /**
+     * The replay contract is the reason for no postcondition. The ensures check looks for a row
+     * with the operation id of the current dispatch. A replay appends nothing and returns success,
+     * so an event-append ensure refuses every replay.
+     */
     ensures: none(
       'the settlement record is appended once, on the call that adjudicates; a replay ' +
         'returns the persisted verdict without appending, so a per-dispatch append ' +
         'observation would refuse the replay path by construction',
     ),
-    // `fs:write` is the adjudication interior reaching content-addressed
-    // custody under the state directory, before the record that names it
-    // commits. `mcp:exarchos` and `shell:exec` are the composed segment's: its
-    // leaves are the ladder gates, which shell out to the toolchain, and the
-    // completion leaf, and a posture that denies either must deny this action
-    // rather than admit one that runs them.
+    /**
+     * `fs:write` is the custody write under the state directory, before the record commits.
+     * `mcp:exarchos` and `shell:exec` belong to the composed segment, which runs the ladder gates
+     * and the completion leaf. A posture that denies either one must deny this action.
+     */
     needs: declared('fs:read', 'fs:write', 'mcp:exarchos', 'shell:exec'),
+    /**
+     * Each accepted claim names the worktree that its segment runs against and the branch that its
+     * gates diff. Both are inside the claim, not at the top of the request.
+     */
     resources: declared(
       { kind: 'stream', selector: 'featureId' },
-      // Each accepted claim names the worktree its segment runs against, and
-      // the branch its gates diff; both live inside the claim, not at the top
-      // of the request.
       { kind: 'path', selector: 'claims[].fields.worktreePath' },
       { kind: 'worktree', selector: 'claims[].fields.worktreePath' },
       { kind: 'git-ref', selector: 'claims[].fields.branch' },
     ),
     replay: { kind: 'claim-required', scope: 'stream-subject-request' },
-    // `conditional` for the same reason the executor's is: a replay returns the
-    // persisted verdict without appending anything under the returning
-    // dispatch's operation id. Declared unconditionally, every replay would be
-    // reported as drift between the declaration and the handler — and recorded
-    // as an `emission.violated` row — for doing exactly what the replay
-    // contract says it does.
-    // Only this action's OWN append is declared. The gate rows, the completion
-    // fact and the per-segment operation records a settlement leaves are
-    // appended by the leaves it composes, each under its own derived operation
-    // id and each declared by its own registration — the same line
-    // `execute_intent` draws around the leaves it runs.
+    /**
+     * Conditional, because a replay returns the persisted verdict and appends nothing. An
+     * unconditional declaration reports every replay as an `emission.violated` row.
+     *
+     * Only the own append of this action is declared. The composed leaves append the gate rows, the
+     * completion fact, and the segment operation records, and each leaf declares its own.
+     */
     emissions: declared(
       {
         event: 'execution.settled',

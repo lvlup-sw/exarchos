@@ -1,20 +1,18 @@
 import { z } from 'zod';
 
-// ─── Shared Constants ───────────────────────────────────────────────────────
-
 export const ALL_PHASES: ReadonlySet<string> = new Set([
-  // Feature workflow
+  /** Feature workflow. */
   'plan',
   'plan-review',
   'delegate',
-  // Substate of `delegate` — entered when a worktree-task's autonomous merge
-  // is pending. Must be in this set so phase-gated actions (notably
-  // `merge_orchestrate` itself) remain dispatchable while the workflow sits
-  // in this phase.
+  /**
+   * The substate of `delegate` while a worktree task's autonomous merge is pending. It must be in
+   * this set, so phase-gated actions such as `merge_orchestrate` stay available in it.
+   */
   'merge-pending',
   'review',
   'synthesize',
-  // Debug workflow
+  /** Debug workflow. */
   'triage',
   'investigate',
   'rca',
@@ -24,7 +22,7 @@ export const ALL_PHASES: ReadonlySet<string> = new Set([
   'debug-review',
   'hotfix-implement',
   'hotfix-validate',
-  // Refactor workflow
+  /** Refactor workflow. */
   'explore',
   'brief',
   'polish-implement',
@@ -34,13 +32,12 @@ export const ALL_PHASES: ReadonlySet<string> = new Set([
   'overhaul-delegate',
   'overhaul-review',
   'overhaul-update-docs',
-  // Oneshot workflow (compressed lifecycle: plan → implementing →
-  // synthesize|completed). `plan` is already present above from the
-  // feature workflow; `implementing` is oneshot-exclusive and MUST be in
-  // this set so generic actions gated by ALL_PHASES (get / set / cancel /
-  // event append / etc.) remain callable while a oneshot is mid-flight.
+  /**
+   * The oneshot workflow phase after `plan`. It must be in this set, so generic actions gated by
+   * `ALL_PHASES` stay available during a oneshot.
+   */
   'implementing',
-  // Shared
+  /** Shared by all workflows. */
   'blocked',
 ]);
 
@@ -75,18 +72,14 @@ export const PLAN_PHASES: ReadonlySet<string> = new Set([
   'plan-review',
   'overhaul-plan',
 ]);
-// `prepare_review` serves BOTH the back-of-pipeline code-review catalog (REVIEW
-// phases) and the front-of-pipeline plan-review provisioning (the `plan-review`
-// PLAN-kind phase). Deliberately NOT equal to the PLAN_PHASES set: an action
-// whose phase set exactly equals the plan-structure binding is treated as a
-// canonical plan gate, and `prepare_review` is not one — it is a non-blocking
-// provisioning surface, discriminated by scope. Matching that set exactly would
-// silently promote it into the gate population.
+/**
+ * The phases of `prepare_review`: the review phases and `plan-review`. This set must not equal
+ * `PLAN_PHASES`, because an action with exactly that phase set counts as a plan gate.
+ * `prepare_review` is a non-blocking provisioning surface, not a gate.
+ */
 export const PREPARE_REVIEW_PHASES: ReadonlySet<string> = new Set([
   ...REVIEW_PHASES,
   'plan-review',
 ]);
-
-// ─── Shared Schema Fragments ────────────────────────────────────────────────
 
 export const featureIdSchema = z.string().min(1).regex(/^[a-z0-9-]+$/);

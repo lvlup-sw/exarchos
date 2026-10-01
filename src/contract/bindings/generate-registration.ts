@@ -1,17 +1,11 @@
-// ─── Generated MCP tool discovery / registration (P03-04) ────────────────────
-//
-// PROGRAM-03, API-004. MCP is a standards-compliant WIRE PROJECTION of the
-// Exarchos contract. Tool discovery/registration is therefore GENERATED from the
-// compiled contract (P03-03) rather than hand-maintained as a parallel list — a
-// deterministic manifest of `<tool>` → its ActionIds, so registration cannot
-// silently drift from the contract it projects.
-//
-// Determinism discipline (mirrors P03-03): tools + actions are pre-sorted,
-// descriptions are line-ending-normalized (`canonicalizeText`), and the
-// serialization is canonical JSON with a trailing newline — so `serialize`
-// is byte-identical across repeated generation and across a CRLF working tree
-// vs. an LF CI checkout.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Generates MCP tool registration from the compiled contract. MCP is a wire projection of the
+ * contract. The manifest of each tool and its ActionIds thus cannot drift from the contract.
+ *
+ * Tools and actions are sorted, descriptions get normalized line endings, and the output is
+ * canonical JSON with a trailing newline. The serialized manifest is thus byte-identical across
+ * runs and across CRLF and LF checkouts.
+ */
 
 import { canonicalJson } from '../request-context.js';
 import { canonicalizeText } from '../authority-digest.js';
@@ -32,7 +26,7 @@ export interface RegistrationAction {
   readonly actionId: string;
   readonly action: string;
   readonly description: string;
-  /** Compact contract projection; null when the live action has no declared block. */
+  /** The compact contract projection. It is null when the action declares no contract block. */
   readonly contractSummary: CompactActionContract | null;
 }
 
@@ -106,11 +100,7 @@ function sourceContractSummary(
   return compactActionContract(declared);
 }
 
-/**
- * Generate the MCP registration manifest from the COMPILED CONTRACT. Pure and
- * deterministic: descriptions are line-ending-normalized and every list is
- * sorted, so the manifest is byte-stable across runs and platforms.
- */
+/** Generate the MCP registration manifest from the compiled contract. The function is pure. */
 export function generateRegistration(source: RegistrationSource): RegistrationManifest {
   const entries = source.descriptors.map((d) => ({
     tool: d.tool,
@@ -127,11 +117,9 @@ export function generateRegistration(source: RegistrationSource): RegistrationMa
 }
 
 /**
- * Derive the same registration manifest cheaply from the live `TOOL_REGISTRY`
- * (no schema compilation) — the fast path the pre-startup gate uses to obtain
- * the set of contract ActionIds without paying the full `compile()` cost. It
- * projects the SAME shape as {@link generateRegistration}, so the two agree
- * byte-for-byte (asserted in the co-located test).
+ * Derive the same manifest from the live `TOOL_REGISTRY` without schema compilation. The startup
+ * binding gate uses this fast path to get the ActionId set. The shape is the same as the output of
+ * {@link generateRegistration}.
  */
 export function deriveRegistrationFromRegistry(
   registry: readonly CompositeTool[] = TOOL_REGISTRY,
@@ -156,10 +144,7 @@ export function deriveRegistrationFromRegistry(
   };
 }
 
-/**
- * Extract the `{ actionId, tool }` references from a manifest — the exact input
- * the binding verifier checks every ActionId against.
- */
+/** Extract the `{ actionId, tool }` references from a manifest for the binding verifier. */
 export function registrationActionRefs(
   manifest: RegistrationManifest,
 ): readonly RegistrationActionRef[] {
@@ -172,11 +157,7 @@ export function registrationActionRefs(
   return refs;
 }
 
-/**
- * Canonical, byte-stable serialization of a registration manifest (trailing
- * newline). Reuses the P03-03 canonical-JSON discipline so repeated generation
- * is byte-identical.
- */
+/** Serialize a registration manifest as canonical JSON with a trailing newline. */
 export function serializeRegistration(manifest: RegistrationManifest): string {
   return canonicalJson(manifest) + '\n';
 }

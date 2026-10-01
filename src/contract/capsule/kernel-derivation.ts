@@ -1,44 +1,22 @@
-// ─── Deriving a closed schema from an open published one ────────────────────
-//
-// The published workflow kernel declares its objects OPEN and every field
-// OPTIONAL, so `{}` satisfies `WorkflowAuthorityV1` and an unknown key inside a
-// statement is accepted. That is deliberate upstream — the frame is serialized
-// and carried, not proved — but this repository closes its wire contracts, and
-// a capsule whose authority block constrains nothing is the vacuity this
-// contract exists to refuse.
-//
-// Re-declaring the kernel's shapes here to close them is the defect the charter
-// names: a hand-written mirror drifts from the package silently. So the shapes
-// are DERIVED from the import instead. Only the transform is authored; every
-// property name, every pattern, every length bound still flows from
-// `node_modules`.
-//
-// Two things this file must not pretend:
-//
-//   • `.strict()` does NOT do this. It closes ONE object. The kernel's openness
-//     sits one level down, inside the statement objects, and a top-level
-//     `.strict()` still admits `{invariants:[{statement:'x', EXTRA:1}]}`.
-//   • A refinement does NOT do this either. `.superRefine` is invisible to
-//     `z.toJSONSchema`, so a rule expressed that way makes Ajv and Zod disagree
-//     about the same document — which the round-trip guard would then report as
-//     a defect in this contract rather than as the missing projection it is.
-//
-// `deepStrictify` therefore rebuilds the tree, and `reachableZodNodeTypes` is
-// what keeps that rebuild honest: a node type the transform does not handle is
-// passed through untouched, so openness would leak back in silence. The test
-// asserts the reachable set is covered, and fails naming the offender the day
-// the kernel introduces one.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Derives a closed schema from the open published workflow kernel. The kernel declares its objects
+ * open and each field optional, so `{}` satisfies `WorkflowAuthorityV1`. This repository closes its
+ * wire contracts, and an authority block that constrains nothing is vacuous.
+ *
+ * A manual copy of the kernel shapes drifts from the package. This file authors only the transform.
+ * Each property name, pattern, and length bound still comes from the package.
+ *
+ * A top-level `.strict()` closes one object only, and the openness sits in the nested statements.
+ * A refinement does not show in `z.toJSONSchema`, so Ajv and Zod then disagree. Thus
+ * `deepStrictify` rebuilds the tree, and a test checks that it handles each reachable node type.
+ */
 
 import { z } from 'zod';
 
 /**
- * The Zod node types {@link deepStrictify} knows how to rebuild.
- *
- * `object` is closed, `optional` and `array` are recursed through, and `string`
- * is a leaf that carries no openness of its own. A type absent from this set is
- * NOT handled — the transform returns it untouched, which is safe only because
- * the totality test refuses to let an unhandled type stay reachable.
+ * The Zod node types that {@link deepStrictify} handles. It closes `object`, recurses through
+ * `optional` and `array`, and keeps `string` as a leaf. It returns other types unchanged. This is
+ * safe only because the totality test fails when an unhandled type is reachable.
  */
 export const HANDLED_ZOD_NODE_TYPES: ReadonlySet<string> = new Set([
   'object',
@@ -48,12 +26,9 @@ export const HANDLED_ZOD_NODE_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The internal node view the transform reads. Declared once so the cast is too
- * — Zod's `_zod.def` is deliberately untyped at the public surface, and every
- * accessor this file needs reads from that one place.
- *
- * Generic in the wrapped type so `unwrapOptional` can carry the kernel's own
- * leaf schema out instead of degrading it to `z.ZodType`.
+ * The internal node view that the transform reads. Zod leaves `_zod.def` untyped at its public
+ * surface, so this file casts to it in one place. It is generic in the wrapped type, so
+ * `unwrapOptional` keeps the kernel leaf type.
  */
 interface ZodNodeInternals<TInner extends z.ZodType = z.ZodType> {
   readonly _zod: {
@@ -79,10 +54,8 @@ function internals<TInner extends z.ZodType = z.ZodType>(
 /**
  * The property map of an object node.
  *
- * @throws when the node is not an object, so a caller that walked into the
- * wrong node type is told rather than handed an empty map — an empty shape
- * rebuilds as an empty `strictObject`, which would close nothing and look
- * exactly like success.
+ * @throws when the node has no shape. An empty map rebuilds as an empty `strictObject`, which
+ * closes nothing and looks like success.
  */
 function shapeOf(schema: z.ZodType): Record<string, z.ZodType> {
   const { type, shape } = internals(schema);
@@ -93,19 +66,11 @@ function shapeOf(schema: z.ZodType): Record<string, z.ZodType> {
 }
 
 /**
- * The schema inside an optional wrapper.
+ * The schema inside an optional wrapper. The kernel declares nearly every field optional, so a
+ * borrowed leaf schema, such as a digest pattern, needs this unwrap. A local copy of the pattern
+ * drifts from the kernel. The generic keeps the leaf type, so a borrower does not get `unknown`.
  *
- * The kernel declares nearly every field optional, so borrowing one of its leaf
- * vocabularies — a digest pattern, a bounded string — means unwrapping first.
- * Borrowing is the point: a locally re-typed `^[0-9a-f]{64}$` is a mirror that
- * drifts the day the kernel widens or tightens it.
- *
- * Generic in the wrapped schema so the kernel's own leaf type survives the
- * unwrap. Returning a bare `z.ZodType` would hand every borrower `unknown` and
- * silently erase the vocabulary this function exists to borrow.
- *
- * @throws when the field is not optional, which means the caller is reading a
- * shape that has moved.
+ * @throws when the field is not optional, because then the kernel shape changed.
  */
 export function unwrapOptional<T extends z.ZodType>(schema: z.ZodOptional<T>): T {
   const def = internals<T>(schema);
@@ -118,11 +83,8 @@ export function unwrapOptional<T extends z.ZodType>(schema: z.ZodOptional<T>): T
 }
 
 /**
- * Every Zod node type reachable from a schema, including the root's.
- *
- * The denominator for the totality assertion. Walking the live import rather
- * than a recorded list is the point: a kernel release that introduces a node
- * type shows up here, not in a stale constant.
+ * Every Zod node type reachable from a schema, including the root type. The totality test uses it
+ * as its denominator. It walks the live import, so a new kernel node type shows here.
  */
 export function reachableZodNodeTypes(schema: z.ZodType): ReadonlySet<string> {
   const seen = new Set<string>();
@@ -140,25 +102,14 @@ export function reachableZodNodeTypes(schema: z.ZodType): ReadonlySet<string> {
 }
 
 /**
- * Rebuild a schema with every object closed, preserving everything else.
+ * Rebuild a schema with each object closed and all else kept. The only change is `object` to
+ * `strictObject`. The drift test compares the JSON Schema of the import and of the derivation, with
+ * `additionalProperties` removed.
  *
- * Structure-preserving by construction: the only change is `object` becoming
- * `strictObject`. The drift test proves exactly that, by emitting JSON Schema
- * from both the import and the derivation and comparing them with
- * `additionalProperties` erased — one side from `node_modules`, one from here,
- * so the comparison cannot pass by checking a copy against itself.
+ * A rebuilt node is new, so it loses the checks of its source, such as `.min()`. Thus the function
+ * refuses a rebuilt node that carries checks, and the contract does not get looser.
  *
- * A rebuilt node is constructed fresh, so any check the source node carried — an
- * array's `.min()`, an object's `.superRefine()` — would not survive it. Rather
- * than drop one silently, a rebuilt node that carries checks is refused: the
- * equivalence test covers only the applications it names, and a kernel release
- * that adds a check to one of them must fail here rather than loosen the
- * contract.
- *
- * Generic in the source so the kernel's own output type survives the rebuild.
- * Closing an object refuses keys; it never changes the type of one it accepts.
- *
- * @throws when a node the transform rebuilds carries checks.
+ * @throws when a node that the transform rebuilds carries checks.
  */
 export function deepStrictify<T extends z.ZodType>(schema: T): z.ZodType<z.output<T>>;
 export function deepStrictify(schema: z.ZodType): z.ZodType {
@@ -189,20 +140,16 @@ export function deepStrictify(schema: z.ZodType): z.ZodType {
   }
 }
 
-/** The node types {@link deepStrictify} constructs afresh rather than passing through. */
+/** The node types that {@link deepStrictify} rebuilds and does not pass through. */
 const HANDLED_REBUILT_TYPES: ReadonlySet<string> = new Set(['object', 'optional', 'array']);
 
 /**
- * Visit every object a schema DECLARES within a value it accepted.
+ * Visit every object that a schema declares within a value that it accepted. A loose schema keeps
+ * unknown keys, so a walk of the value alone cannot tell declared objects from extra ones. This
+ * walk goes into only the keys that the schema shape names. A union follows the first option that
+ * accepts the value.
  *
- * A loose schema accepts unknown keys and keeps them, so a walk over the value
- * alone cannot tell an object the kernel declared from one that merely rode
- * along. This walks the value and the schema together and descends only into
- * keys the schema's own shape names. A union follows the first option that
- * accepts the value, which is the option Zod itself would have chosen.
- *
- * `key` is the property the object was reached through; an array's elements are
- * reached through the array's key.
+ * `key` is the property that leads to the object. Array elements get the key of the array.
  */
 export function visitDeclaredObjects(
   schema: z.ZodType,
@@ -251,20 +198,12 @@ export function visitDeclaredObjects(
 }
 
 /**
- * Promote named optional-array fields to required arrays of at least one member.
+ * Promote named optional-array fields to required arrays of at least one member. The kernel does
+ * not impose this. The caller authors only the category names, and the element schemas still come
+ * from the package. The rule is structural, as `required` plus `minItems`, because only structure
+ * shows in JSON Schema.
  *
- * This is the obligation the kernel deliberately does not impose, and the only
- * part of the authority block this repository authors: the CATEGORY NAMES. Each
- * field's element schema is read back out of the derived object, so the
- * statement shape still comes from the package.
- *
- * Expressed structurally — `required` plus `minItems` — rather than as a
- * refinement, because only structure survives into JSON Schema, and a rule Ajv
- * cannot see is a rule the round-trip guard reports as a disagreement.
- *
- * @throws when a named field is absent or is not an optional array, which means
- * the kernel moved and the caller's category list is now describing something
- * that no longer exists.
+ * @throws when a named field is absent or is not an optional array, because then the kernel changed.
  */
 export function requireNonEmptyArrayFields(
   schema: z.ZodType,

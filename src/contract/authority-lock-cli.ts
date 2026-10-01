@@ -1,24 +1,15 @@
-// ─── Authority lock generator / approval tool (P03-01) ───────────────────────
-//
-// Regenerates and APPROVES `contract-authority.lock.json` from the current
-// tree. Running this CLI is the human approval gesture: it writes a lock with
-// `approved: true` for every authority at its current digest/version.
-//
-// Usage (from the repository root):
-//   npx tsx src/contract/authority-lock-cli.ts
-//
-// After ANY intentional change to a frozen authority (schema module, invariant
-// catalog, ActionId set, compatibility policy, MCP protocol/SDK version), the
-// verify test goes red; re-run this generator to review + approve the new
-// digests, then commit the updated lockfile.
-//
-// T-35 / DR-26 — the invariant catalog is one of those frozen authorities, and
-// its WORDING is a load-bearing input to generation: a stale framing in
-// `.exarchos/invariants.md` propagates into every generated artifact that
-// builds against the freeze. Re-approving the catalog therefore means running
-// THIS generator (never hand-editing a digest) so the recorded approval and the
-// recorded digest are produced by the same gesture.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Regenerates and approves `contract-authority.lock.json` from the current tree. A run of this CLI
+ * is the human approval: it writes `approved: true` for each authority at its current digest or
+ * version.
+ *
+ * Usage, from the repository root:
+ *   npx tsx src/contract/authority-lock-cli.ts
+ *
+ * An intentional change to a frozen authority makes the verify test fail. Run this generator,
+ * review the new digests, and commit the lockfile. The invariant catalog wording is a frozen input.
+ * Approve a catalog change through this generator, not by a manual digest edit.
+ */
 
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -121,9 +112,8 @@ const LOCK_NOTE =
   'the preceding change. No invariant changed.';
 
 /**
- * Who/what the freeze records as the approver of the CURRENT snapshot. Bump
- * this when a new work package performs the review-and-approve gesture, so the
- * lockfile carries the provenance of the approval rather than of the tool.
+ * The approver that the freeze records for the current snapshot. Change it at each new approval, so
+ * the lockfile records who approved and not the tool.
  */
 export const CURRENT_APPROVER =
   'Reed (re-approved for the compilation endpoint: exarchos_orchestrate.prepare added, ' +
@@ -141,8 +131,7 @@ export function regenerateAuthorityLock(approvedBy = CURRENT_APPROVER): string {
   return paths.lockFile;
 }
 
-// Executed only when run directly (never on import), so importing this module
-// for `regenerateAuthorityLock` in a test has no side effect.
+/** True only on direct invocation, so an import of this module has no side effect. */
 function invokedDirectly(): boolean {
   const entry = process.argv[1];
   if (!entry) return false;

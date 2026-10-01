@@ -1,16 +1,12 @@
-// ─── The capsule contract — JSON Schema generator ───────────────────────────
-//
-// Regenerates the checked-in capsule JSON Schema from the authored Zod source.
-// Running this IS the regeneration gesture: after an intentional change to the
-// schema the drift guard goes red, and this is what makes it green again —
-// through a diff someone reads, not a silent rewrite.
-//
-// Usage, from the repository root:
-//   npx tsx src/contract/capsule/exarchos-capsule-schema-cli.ts
-//
-// The write happens ONLY on direct invocation, never on import, so a test that
-// imports the serialization helpers has no filesystem side effect.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Regenerates the checked-in capsule JSON Schema from the Zod source. Run it after an intentional
+ * schema change makes the drift guard fail. The change then shows as a diff that a person reads.
+ *
+ * Usage, from the repository root:
+ *   npx tsx src/contract/capsule/exarchos-capsule-schema-cli.ts
+ *
+ * The file write occurs only on direct invocation, not on import.
+ */
 
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';

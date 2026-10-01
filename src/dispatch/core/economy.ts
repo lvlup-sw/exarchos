@@ -1,38 +1,23 @@
-// ─── Shared response-economy kit (DR-1) ──────────────────────────────────────
-//
-// Generalized out of `projections/views/output-cap.ts` (DR-3): the deterministic
-// output-cap + measured-size-summary primitives now live in the shared core so
-// every dispatch path — not just the two inventory views — can reuse them. The
-// `pipeline` (`projections/views/tools.ts`) and `worktrees`
-// (`verbs/worktree/handlers.ts`) views are the first consumers, unchanged
-// in behavior; `projections/views/output-cap.ts` remains as a re-export shim.
-//
-// Two guards, applied in order by a consumer:
-//
-//   1. A DETERMINISTIC item-count cap when the caller omits `limit`, so a large
-//      inventory never dumps every row.
-//   2. A MEASURED-size summary: if the capped payload's serialized size —
-//      estimated the SAME way the telemetry middleware does (`Math.ceil(bytes/4)`,
-//      `projections/telemetry/middleware.ts`) — still exceeds the resolved
-//      `qualityHints.outputTokenThreshold`, return a counts-by-group summary
-//      (plus a small first page) instead of per-item detail.
-//
-// Fail-open on presentation (DR-3): a threshold that cannot be resolved to a
-// finite positive number degrades to the item cap — never an unbounded dump,
-// never an inventory-hiding error.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * The shared response-economy kit for dispatch paths. A consumer applies two guards in order:
+ *   1. A deterministic item cap when the caller omits `limit`.
+ *   2. A measured-size summary. If the capped payload is still over
+ *      `qualityHints.outputTokenThreshold`, the consumer returns counts by group and a small first
+ *      page instead of each item.
+ *
+ * The guard fails open. If the threshold does not resolve to a finite positive number, only the
+ * item cap applies.
+ */
 
 import { getQualityHintThreshold, type QualityHintsConfig } from '../../workflow/capabilities/resolver.js';
 import type { NextAction } from '../../next-action.js';
 
-/** Deterministic default item cap applied when the caller omits `limit`. */
+/** The default item cap when the caller omits `limit`. */
 export const DEFAULT_VIEW_ITEM_CAP = 50;
 
 /**
- * DR-2 — pipeline-specific default window. The `pipeline` view is the highest-
- * traffic inventory read and its entries are token-heavy, so its no-`limit`
- * default is much smaller than the shared {@link DEFAULT_VIEW_ITEM_CAP} (which
- * the worktrees view keeps). An explicit `limit` overrides this.
+ * The default window of the `pipeline` view. That view is read most often and its entries are
+ * large, so its default is smaller than {@link DEFAULT_VIEW_ITEM_CAP}. An explicit `limit` overrides it.
  */
 export const PIPELINE_DEFAULT_ITEM_CAP = 10;
 
@@ -40,10 +25,8 @@ export const PIPELINE_DEFAULT_ITEM_CAP = 10;
 export const SUMMARY_FIRST_PAGE_ITEMS = 10;
 
 /**
- * Estimate output tokens the SAME way the telemetry middleware does:
- * `Math.ceil(byteLength / 4)` over `JSON.stringify(payload)`. Kept byte-for-byte
- * identical to `projections/telemetry/middleware.ts` so the presentation guard and the D3
- * gate agree on what "over threshold" means.
+ * Estimate output tokens as `Math.ceil(byteLength / 4)` over `JSON.stringify(payload)`. It must stay
+ * the same as the estimate in `projections/telemetry/middleware.ts`, so both agree on the threshold.
  */
 export function estimateOutputTokens(payload: unknown): number {
   let text: string;
@@ -56,10 +39,8 @@ export function estimateOutputTokens(payload: unknown): number {
 }
 
 /**
- * Resolve the output-token threshold, FAIL-OPEN. Returns `null` when the
- * config yields a non-finite / non-positive threshold (or the resolver throws),
- * signalling the caller to degrade to the plain item cap — never a summary keyed
- * off a garbage threshold, and never an error that hides the inventory.
+ * Resolve the output-token threshold, and fail open. It returns `null` when the threshold is not a
+ * finite positive number or the resolver throws. The caller then uses only the item cap.
  */
 export function resolveOutputTokenThreshold(config?: QualityHintsConfig): number | null {
   try {
@@ -70,7 +51,7 @@ export function resolveOutputTokenThreshold(config?: QualityHintsConfig): number
   }
 }
 
-/** Count occurrences of a derived key across `items` (summary group counts). */
+/** Count each derived key across `items`, for the summary group counts. */
 export function countBy<T>(items: readonly T[], key: (item: T) => string): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const item of items) {
@@ -81,14 +62,9 @@ export function countBy<T>(items: readonly T[], key: (item: T) => string): Recor
 }
 
 /**
- * The narrow-your-query affordance surfaced on `next_actions[]` whenever the
- * default item cap truncated the inventory or the measured-size summary
- * replaced per-item detail. Uses the catch-all `NextAction` shape (verb =
- * the action's own name) so it validates against `NextActionSchema`.
- *
- * DR-1: the `verb` type is any action name (`string`), not the former
- * `'pipeline' | 'worktrees'` union — every dispatch path can steer with a
- * narrow affordance, keyed on its own action name.
+ * The next action that tells the caller to narrow the query, after the item cap or the summary cut
+ * the output. `verb` is the name of the action itself. The CLI hint is added only when the caller
+ * gives one, because a `.strict()` action without a window parameter rejects `--limit`.
  */
 export function narrowAffordance(
   verb: string,
@@ -99,9 +75,6 @@ export function narrowAffordance(
   return {
     verb,
     reason: `Showing ${shown} of ${total} — narrow with limit/offset (or a filter) to page through the rest.`,
-    // Only advertise a CLI flag when the caller actually has one. The
-    // dispatch-core generic fallback omits it for actions whose schema declares
-    // no windowing param (a `.strict()` action would reject `--limit`).
     ...(cliHint !== undefined ? { hint: cliHint } : {}),
   };
 }

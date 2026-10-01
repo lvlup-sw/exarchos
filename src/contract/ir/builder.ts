@@ -1,25 +1,9 @@
-// ─── Shared admission IR — builder lowering (P03-06) ─────────────────────────
-//
-// PROGRAM-03, API-007 (transition tasks 033, 047). A small, fluent BUILDER that
-// LOWERS an authoring model down to the shared admission IR wire document. The
-// builder normalizes (deterministically SORTS every collection by its stable
-// id, so two builds of the same inputs are byte-identical) and then validates —
-// STRUCTURALLY against the authored Zod schema, and (via `build()`) REFERENTIALLY
-// against the dangling-reference resolver.
-//
-// ## The P07-03 seam
-//
-// This package owns lowering *to the shared IR* and stops there. The later
-// package **P07-03 "Builder lowering and decision parity"** owns comparing
-// COMPILED DECISIONS: it will take the shared IR this builder produces, run it
-// through the runtime admission evaluator (`policy-evaluation.ts` et al.), and
-// assert the decision matches a reference. The clean seam is exactly the
-// `AdmissionIrDocumentV1` value returned by {@link AdmissionIrBuilder.lower}:
-//   • everything UP TO the validated wire document is P03-06 (here);
-//   • everything DOWNSTREAM (decision compilation + parity) is P07-03.
-// The builder therefore deliberately performs NO decision evaluation and holds
-// no runtime state — it is pure lowering.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * A fluent builder that lowers an authoring model to the shared admission IR document.
+ * It sorts every collection by its stable id, so two builds of the same inputs are byte-identical.
+ * It then validates the structure against the Zod schema, and `build()` also resolves references.
+ * The builder does no decision evaluation and holds no runtime state.
+ */
 
 import type { z } from 'zod';
 import {
@@ -48,7 +32,7 @@ export class AdmissionIrLoweringError extends Error {
   }
 }
 
-/** The result of a full {@link AdmissionIrBuilder.build}: the lowered doc + ref verdict. */
+/** The result of {@link AdmissionIrBuilder.build}: the lowered document and the reference verdict. */
 export interface AdmissionIrBuildResult {
   readonly document: AdmissionIrDocumentV1;
   readonly references: ReferenceVerdict;
@@ -56,8 +40,7 @@ export interface AdmissionIrBuildResult {
 
 /**
  * A fluent builder that lowers admission-surface parts to a shared IR document.
- * Collections accumulate in insertion order and are sorted deterministically at
- * {@link lower} time, so the produced document is independent of add order.
+ * {@link lower} sorts the collections, so the add order does not change the document.
  */
 export class AdmissionIrBuilder {
   #workflowId: string | undefined;
@@ -84,7 +67,7 @@ export class AdmissionIrBuilder {
     return this;
   }
 
-  /** Add a gated edge definition (closed condition + policy/action references). */
+  /** Add a gated edge definition. */
   edge(edge: EdgeDefinition): this {
     this.#edges.push(edge);
     return this;
@@ -97,9 +80,8 @@ export class AdmissionIrBuilder {
   }
 
   /**
-   * Lower the accumulated parts to a validated, deterministically-ordered shared
-   * IR document. Throws {@link AdmissionIrLoweringError} if the assembled shape
-   * is not structurally valid IR. This is the P03-06 → P07-03 handoff value.
+   * Lowers the parts to a validated, sorted shared IR document.
+   * It throws {@link AdmissionIrLoweringError} when the shape is not valid IR.
    */
   lower(): AdmissionIrDocumentV1 {
     const candidate = {
@@ -120,9 +102,8 @@ export class AdmissionIrBuilder {
   }
 
   /**
-   * Lower AND resolve references. Structural failure still throws; a structurally
-   * valid but referentially unsound document is returned with a failing
-   * {@link ReferenceVerdict} so the caller can inspect every dangling reference.
+   * Lowers the parts and resolves references. A structural failure throws.
+   * A document with dangling references returns with a failing {@link ReferenceVerdict}.
    */
   build(opts?: ResolveReferencesOptions): AdmissionIrBuildResult {
     const document = this.lower();
@@ -130,17 +111,15 @@ export class AdmissionIrBuilder {
   }
 }
 
-/** The result of a full consumer-side validation (structure + references). */
+/** The result of a consumer-side validation of structure and references. */
 export type AdmissionIrValidation =
   | { readonly ok: true; readonly document: AdmissionIrDocumentV1 }
   | { readonly ok: false; readonly stage: 'structure'; readonly error: z.ZodError }
   | { readonly ok: false; readonly stage: 'references'; readonly references: ReferenceVerdict };
 
 /**
- * The full "Exarchos consumes the shared IR" entry point: structurally validate
- * an untrusted value, then resolve its references. A document must pass BOTH to
- * be accepted — this is exactly the pairing the exit proof requires (round-trip
- * structural validity + no dangling references).
+ * The entry point for an Exarchos consumer of the shared IR. It validates the structure of an
+ * untrusted value, then resolves its references. A document must pass both checks.
  */
 export function validateAdmissionIrDocument(
   input: unknown,

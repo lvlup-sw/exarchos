@@ -30,21 +30,14 @@ const CORE_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
       limit: coercedPositiveInt().optional(),
       offset: coercedNonnegativeInt().optional(),
       includeCompleted: z.boolean().optional(),
-      // DR-1 — schema-level flag so the CLI flag auto-emits. Default entries
-      // omit the per-task `tasksById` map; `detail: true` restores it.
+      /** Default entries omit the per-task `tasksById` map. `detail: true` restores it. */
       detail: z.boolean().optional(),
-      // DR-6 — repo-scope inputs, schema-declared so the CLI flags auto-emit.
-      // `repoRoot` scopes to an arbitrary repo (normalized before compare);
-      // `scope` forces 'all' (unfiltered) or 'repo' (requires a resolvable key).
+      /** Scopes the view to another repo. The handler normalizes it before the comparison. */
       repoRoot: z.string().optional(),
-      // DR-3 (task 007) — `scope` migrated onto the shared `schema-fields.ts`
-      // shape so `pipeline` and `ps` declare ONE `scope` definition on this tool
-      // (no flattener collision). The shared shape is the UNION
-      // `['repo','all','workflow','worktree']`; `pipeline` acts ONLY on the
-      // `{repo, all}` subset and REJECTS the `ps`-only members (`workflow`/
-      // `worktree`) at the handler with a structured `INVALID_INPUT` (mirroring
-      // how `ps` rejects the pipeline-only `repo` member) — never a silent
-      // coerce to unscoped (see the subset guard in `projections/views/tools.ts`).
+      /**
+       * The `scope` field that `pipeline` and `ps` share, so the flattener sees one definition.
+       * `pipeline` acts on `repo` and `all`. The handler rejects `workflow` and `worktree` with `INVALID_INPUT`.
+       */
       scope: lifecycleScopeField.optional(),
     }),
     phases: ALL_PHASES,
@@ -65,9 +58,6 @@ const CORE_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
       limit: coercedPositiveInt().optional(),
       offset: coercedNonnegativeInt().optional(),
       fields: coercedStringArray().optional(),
-      // DR-8 (Task 013) — schema-declared so the CLI flag auto-emits; the
-      // compact-by-default fold + `detail:true` full-row restore land in the
-      // handler under Task 013.
       detail: z.boolean().optional(),
     }),
     phases: ALL_PHASES,
@@ -84,18 +74,14 @@ const CORE_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
     description: 'Workflow phase, task counts, and metadata',
     schema: z.object({
       workflowId: z.string().optional(),
-      // DR-8 (Task 013) — list/inventory paging + detail inputs, schema-
-      // declared so the CLI flags auto-emit; the `page` metadata + `detail:true`
-      // fold land in the handler under Task 013.
       limit: coercedPositiveInt().optional(),
       offset: coercedNonnegativeInt().optional(),
       detail: z.boolean().optional(),
-      // #1555 — optional bounded-fold (as-of/time-travel) read over a single
-      // stream. Same single-source `AsOfSchema` as `get`. The bounded read
-      // bypasses the hwm cache (see views/tools.ts) so the projection folds
-      // only `events[0..N]`. `pipeline` is intentionally excluded: its
-      // cross-stream aggregation has no single `(timestamp, sequence)` axis
-      // to bound coherently.
+      /**
+       * An optional as-of read over one stream, with the same `AsOfSchema` as `get`.
+       * The bounded read skips the high-water-mark cache, so the projection folds only the events up to the bound.
+       * `pipeline` has no `asOf`, because its cross-stream view has no single `(timestamp, sequence)` axis.
+       */
       asOf: AsOfSchema.optional(),
     }),
     phases: ALL_PHASES,
@@ -117,7 +103,6 @@ const CORE_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
       streamId: z.string().optional(),
       limit: coercedPositiveInt().optional(),
       offset: coercedNonnegativeInt().optional(),
-      // DR-8 (Task 013) — `detail:true` full-row restore; handler rides Task 013.
       detail: z.boolean().optional(),
     }),
     phases: STACK_PHASES,
@@ -125,11 +110,6 @@ const CORE_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
     outputSchema: vacuityWaiver('exarchos_view.stack_status'),
     annotations: READ_ONLY_LOCAL,
   },
-  // `stack_place` was here. It appends `stack.position-filled` while its
-  // registration named `exarchos_orchestrate` as the effect provider, so the
-  // declared provider and the declaring tool could not both be right. The
-  // writer moved to the orchestrate surface; `stack_status` above is the read
-  // half and stays.
   {
     name: 'telemetry',
     description: 'Get telemetry metrics with per-tool performance data and optimization hints',
@@ -138,25 +118,14 @@ const CORE_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
       tool: z.string().optional(),
       sort: z.enum(['tokens', 'invocations', 'duration']).optional(),
       limit: coercedPositiveInt().optional(),
-      // DR-8 (Task 024) — offset paging + detail inputs on the analytic view
-      // batch, schema-declared so the CLI flags auto-emit; the `page`/`scope`
-      // metadata + `detail:true` fold land in the handler under Task 024.
       offset: coercedNonnegativeInt().optional(),
       detail: z.boolean().optional(),
-      // Wave 5 (#1437) — correlation tuple filters scope the telemetry
-      // rollup to a single dispatch boundary. Honored at the backend layer
-      // (indexed columns / post-fetch JS filter); INV-1 keeps payload as
-      // truth, mirrored to the indexed columns.
+      /** The correlation tuple filters scope the telemetry rollup to one dispatch boundary. */
       ...CORRELATION_TUPLE_FILTER_SHAPE,
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    // PR3/T10 (#1364) — typed envelope advertises the per-tool
-    // `actionErrors` + `actionErrorBreakdown` fields (post Wave 0 carrier
-    // composition).
-    // Task 022 (DR-1/DR-8): union the capped-shape fallback into the typed
-    // telemetry `data` so a summarized/capped telemetry response validates
-    // against its own registered contract (D.5 totality).
+    /** The typed envelope includes the capped-shape fallback, so a capped telemetry response validates against its own contract. */
     outputSchema: withCappedShape(TelemetryViewOutputSchema),
     annotations: READ_ONLY_LOCAL,
   },
@@ -165,7 +134,6 @@ const CORE_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
     description: 'Team performance metrics from delegation events',
     schema: z.object({
       workflowId: z.string().optional(),
-      // DR-8 (Task 013) — list/inventory paging + detail; handler rides Task 013.
       limit: coercedPositiveInt().optional(),
       offset: coercedNonnegativeInt().optional(),
       detail: z.boolean().optional(),
@@ -180,12 +148,10 @@ const CORE_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
     description: 'Delegation timeline with bottleneck detection',
     schema: z.object({
       workflowId: z.string().optional(),
-      // DR-8 (Task 013) — list/inventory paging + detail; handler rides Task 013.
       limit: coercedPositiveInt().optional(),
       offset: coercedNonnegativeInt().optional(),
       detail: z.boolean().optional(),
-      // Wave 5 (#1437) — correlation tuple filters scope the projection
-      // fold to a single dispatch boundary.
+      /** The correlation tuple filters scope the projection fold to one dispatch boundary. */
       ...CORRELATION_TUPLE_FILTER_SHAPE,
     }),
     phases: ALL_PHASES,
@@ -201,12 +167,9 @@ const CORE_VIEW_DECLARATIONS: readonly BuiltinActionDraft[] = [
       skill: z.string().optional(),
       gate: z.string().optional(),
       limit: coercedPositiveInt().optional(),
-      // DR-8 (Task 024) — offset paging + detail on the analytic view batch;
-      // handler rides Task 024.
       offset: coercedNonnegativeInt().optional(),
       detail: z.boolean().optional(),
-      // Wave 5 (#1437) — correlation tuple filters scope the projection
-      // fold to a single dispatch boundary.
+      /** The correlation tuple filters scope the projection fold to one dispatch boundary. */
       ...CORRELATION_TUPLE_FILTER_SHAPE,
     }),
     phases: ALL_PHASES,

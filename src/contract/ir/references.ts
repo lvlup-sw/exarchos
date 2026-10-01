@@ -1,32 +1,16 @@
-// ─── Shared admission IR — dangling-reference resolver (P03-06) ──────────────
-//
-// PROGRAM-03, API-007 (exit-proof half 2: "reject dangling references"). The
-// structural schema (`admission-ir.ts`) proves a document is CLOSED; this module
-// proves it is REFERENTIALLY SOUND. JSON Schema / Zod cannot express cross-object
-// resolution, so reference checking is a distinct SEMANTIC layer that runs over
-// an already-structurally-valid document.
-//
-// Three reference classes are resolved:
-//
-//   • POLICY refs      (`edge.admits`)                    → a policy DEFINED in
-//                                                            the same document.
-//   • REQUIREMENT refs (`policy.requires`, `waiver.waives`,
-//                        `corroboration.sourceRequirementId`)
-//                                                          → a requirement
-//                                                            DEFINED in the doc.
-//   • ACTION refs      (`edge.effect.actionRef`,
-//                        `policy.onDeny`)                  → a REAL Exarchos
-//                                                            ActionId (P03-04).
-//
-// The ActionId source is the LIVE registry projection (`deriveRegistrationFrom
-// Registry` + `registrationActionRefs`, P03-04) — the same `<tool>.<action>`
-// set the binding verifier resolves against — so a reference to an action that
-// does not exist is caught here rather than at some later binding step. A
-// custom set is injectable for deterministic tests.
-//
-// Duplicate DEFINITION ids are also a violation: an ambiguous ref target (two
-// policies / requirements sharing an id) cannot be soundly resolved.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The dangling-reference resolver of the shared admission IR. The schema in `admission-ir.ts` proves
+ * that a document is closed. This module proves that its references resolve, which JSON Schema and
+ * Zod cannot express. It runs over a document that is already structurally valid.
+ *
+ * - Policy refs (`edge.admits`) resolve to a policy in the same document.
+ * - Requirement refs (`policy.requires`, `waiver.waives`, `corroboration.sourceRequirementId`)
+ *   resolve to a requirement in the same document.
+ * - Action refs (`edge.effect.actionRef`, `policy.onDeny`) resolve to a live Exarchos ActionId from
+ *   the registry projection. Tests can inject their own set.
+ *
+ * A duplicate policy or requirement id is also a violation, because it makes the target ambiguous.
+ */
 
 import {
   deriveRegistrationFromRegistry,
@@ -62,9 +46,8 @@ export interface ReferenceVerdict {
 /** Options for {@link resolveReferences}. */
 export interface ResolveReferencesOptions {
   /**
-   * The set of resolvable Exarchos ActionIds. Defaults (lazily) to the live
-   * registry projection (P03-04). Injectable so tests are deterministic and do
-   * not depend on the exact live registry contents.
+   * The set of resolvable Exarchos ActionIds. The default is the live registry projection. Tests
+   * inject a set, so they do not depend on the live registry.
    */
   readonly actionIds?: ReadonlySet<string>;
 }
@@ -72,8 +55,7 @@ export interface ResolveReferencesOptions {
 let cachedActionIds: ReadonlySet<string> | undefined;
 
 /**
- * The live set of resolvable Exarchos ActionIds — the P03-04
- * `<tool>.<action>` set, derived from the registry projection. Memoized: the
+ * The live `<tool>.<action>` set from the registry projection. It is memoized, because the
  * projection is pure and stable within a process.
  */
 export function liveActionIdSet(): ReadonlySet<string> {
@@ -106,10 +88,9 @@ function collectDefinitionIds(
 }
 
 /**
- * Resolve every policy / requirement / action reference in a
- * STRUCTURALLY-VALID document. Returns all violations (never short-circuits) so
- * a single pass reports every dangling reference. Purely functional: no
- * document mutation, no I/O beyond the (memoized) ActionId projection.
+ * Resolves every policy, requirement, and action reference in a structurally valid document. It
+ * returns every violation, so one pass reports every dangling reference. It does not change the
+ * document.
  */
 export function resolveReferences(
   doc: AdmissionIrDocumentV1,

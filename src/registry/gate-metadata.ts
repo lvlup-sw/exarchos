@@ -17,10 +17,9 @@ export interface GateMetadata {
 }
 
 /**
- * Which edge in an event's emission coupling a declaration is: the `primary`
- * edge is the action expected to emit the event under its stated
- * `condition`; a `recovery` edge is a second, time-boxed path that exists
- * only to backstop a primary that failed to fire.
+ * The edge that a declaration is in the emission coupling of an event. The `primary` edge is the
+ * action that emits the event under its `condition`. A `recovery` edge is a second, time-boxed
+ * path that backs up a primary that did not fire.
  */
 export type AutoEmissionRole = 'primary' | 'recovery';
 
@@ -29,25 +28,15 @@ export interface AutoEmission {
   readonly condition: 'always' | 'conditional';
   readonly description?: string;
   /**
-   * Which edge this declaration is, read verbatim from the declaration
-   * itself. Optional: the live emission edges under `src/registry/actions/`
-   * are migrated onto this field incrementally, so leaving it undeclared
-   * must keep compiling. Nothing in this module infers a role from an
-   * edge's name, its position among sibling edges, or the file it is
-   * declared in — an edge with no `role` is simply undeclared, not
-   * defaulted to `primary`.
+   * The edge that this declaration is, read as declared. It is optional, because an edge can leave
+   * it out. This module never infers a role, so an edge with no `role` is undeclared, not `primary`.
    */
   readonly role?: AutoEmissionRole;
-  /**
-   * The team or module accountable for this emission edge, read verbatim
-   * from the declaration. Optional for the same migration reason as
-   * `role`.
-   */
+  /** The team or module accountable for this emission edge, read as declared. */
   readonly owner?: string;
   /**
-   * ISO-8601 timestamp after which a `role: 'recovery'` edge is treated as
-   * expired. Only meaningful on the recovery arm — a `primary` edge is not
-   * a time-boxed backstop and carries no expiry.
+   * ISO-8601 timestamp after which a `role: 'recovery'` edge is expired. Only a recovery edge uses
+   * it, because a `primary` edge has no time box.
    */
   readonly recoveryExpiresAt?: string;
 }
@@ -60,13 +49,8 @@ export interface AutoEmissionValidation {
 }
 
 /**
- * Validate one `AutoEmission` declaration's recovery-expiry contract.
- *
- * This checks exactly one thing: whether a declared `recoveryExpiresAt` on
- * a `role: 'recovery'` edge has lapsed. A `primary` edge, an edge with no
- * `role`, or a recovery edge that carries no expiry all pass unconditionally
- * — there is nothing here to validate against. `emission.role` is read
- * exactly as declared; this function does not assign, default, or infer it.
+ * Validates the recovery expiry of one `AutoEmission` declaration. A `role: 'recovery'` edge fails
+ * when its `recoveryExpiresAt` does not parse or is in the past. Every other edge passes.
  */
 export function validateAutoEmission(
   emission: AutoEmission,
@@ -102,13 +86,12 @@ export interface ReservedEventAppendRegistration {
 }
 
 /**
- * Server-owned admission event reservation catalog.
+ * The server-owned catalog of reserved admission event types. It controls which untrusted write
+ * surfaces can mint a fact. `EVENT_EMISSION_REGISTRY` is separate, and it classifies replay and
+ * emission.
  *
- * This is intentionally separate from EVENT_EMISSION_REGISTRY: that registry
- * describes replay/emission classification, while this one controls which
- * untrusted write surfaces may mint a fact. A typed handler name is present
- * only when v2.12 actually ships that handler; planned v3 actions remain
- * reserved without pretending that callers can invoke them.
+ * An entry has a typed handler name only when that handler ships. Other reserved types have no
+ * handler, so callers cannot invoke them.
  */
 export const RESERVED_EVENT_APPEND_REGISTRY: ReadonlyMap<
   string,
@@ -135,12 +118,3 @@ export function getReservedEventAppendRegistration(
 ): ReservedEventAppendRegistration | undefined {
   return RESERVED_EVENT_APPEND_REGISTRY.get(eventType);
 }
-
-// ─── Action Annotations (#1289, design §2.4) ─────────────────────────
-//
-// Per-action metadata co-located with the schema. `safety` is
-// server-trusted (consumed by HSM guards + computeNextActions in a
-// later task). The 4 *Hint flags are spec-defined client-untrusted UI
-// hints populated to tools/list. Per MCP §Tools / Annotations,
-// annotations are EXPLICITLY untrusted by clients unless the server is
-// trusted — they are advisory only on the wire.

@@ -2,22 +2,11 @@ import { admitActionContract } from './annotations.js';
 import { BUILTIN_TOOL_NAMES, TOOL_REGISTRY } from './tools.js';
 import type { CompositeTool, ToolAction } from './types.js';
 
-// ─── Dynamic Tool Registration (DEPRECATED — superseded by v3.0 #1258) ─────
-//
-// The `registerCustomTool` / `setCustomToolActionHandler` /
-// `unregisterCustomTool` surface plus the `exarchos.config.ts` `tools:`
-// block is the pre-SDK extension scaffolding for declaring custom MCP
-// composite tools at runtime. It is superseded by the Workflow Builder
-// SDK (epic #1258) shipping in v3.0, which becomes the single authoring
-// surface for workflows AND custom tools. The closed-form `hsm-
-// definitions.ts` / `playbooks.ts` registries are deleted in that
-// milestone for the same DIM-5 hygiene reason — the SDK is the single
-// source of truth.
-//
-// The surface remains `@deprecated` for v3.0 removal, but admission now
-// runs every action through the same action-contract language as built-in
-// registration. A missing or invalid block fails at `registerCustomTool`.
-
+/**
+ * The custom composite tools that `registerCustomTool` admits at run time. This deprecated
+ * surface and the `tools:` block of `exarchos.config.ts` go away in v3.0. Admission checks each
+ * action contract like a built-in, so a missing or invalid contract fails at `registerCustomTool`.
+ */
 const customTools: CompositeTool[] = [];
 
 /** Maps `toolName -> actionName -> handler` for custom tool dispatch. */
@@ -29,10 +18,8 @@ export type CustomToolActionHandler = (args: Record<string, unknown>) => Promise
  * Register a custom composite tool. Throws if the name collides with a
  * built-in tool or an already-registered custom tool.
  *
- * @deprecated since v2.10.0 — this surface is removed in v3.0.0 in favor
- * of the Workflow Builder SDK (epic #1258), which becomes the single
- * authoring path for custom workflows and tools. New extension code
- * should target the v3.0 SDK instead.
+ * @deprecated since v2.10.0. This surface goes away in v3.0.0. The Workflow Builder SDK
+ * (lvlup-sw/exarchos#1258) is the authoring path for custom workflows and tools.
  */
 export function registerCustomTool(tool: CompositeTool): void {
   if (BUILTIN_TOOL_NAMES.has(tool.name)) {

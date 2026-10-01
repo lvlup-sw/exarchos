@@ -7,18 +7,13 @@ import {
 } from './action-contract.js';
 import type { CompositeTool, ToolAction } from './types.js';
 
-// ─── Schema Generation ──────────────────────────────────────────────────────
-
 /** A ZodObject whose shape includes an `action` discriminator key. */
 type ActionDiscriminatedSchema = z.ZodObject<{ action: z.ZodType } & z.ZodRawShape>;
 
 /**
- * Builds a Zod discriminated union from a list of ToolActions.
- * Each action's schema is extended with an `action: z.literal(name)` discriminator.
- *
- * Note (Zod v4): `ZodDiscriminatedUnion` swapped its generic order. The
- * declaration is now `<Options, Disc>` (tuple first, discriminator second);
- * v3 used `<Disc, Options>`.
+ * Builds a Zod discriminated union from a list of ToolActions. Each action schema gets an
+ * `action: z.literal(name)` discriminator. TypeScript cannot infer that key through `.map()`, so
+ * the code casts. The Zod v4 generic order of `ZodDiscriminatedUnion` is `<Options, Disc>`.
  */
 export function buildCompositeSchema(
   actions: readonly ToolAction[],
@@ -27,14 +22,10 @@ export function buildCompositeSchema(
     throw new Error('buildCompositeSchema requires at least 2 actions for a discriminated union');
   }
 
-  // The .extend() call adds { action: z.literal(name) } to each schema, but
-  // TypeScript cannot infer the discriminator key through .map(). The assertion
-  // is safe because every schema is extended with an `action` literal field.
   const schemas = actions.map((action) =>
     action.schema.extend({ action: z.literal(action.name) }),
   ) as ActionDiscriminatedSchema[];
 
-  // Zod discriminatedUnion requires a tuple of [first, ...rest]
   const [first, ...rest] = schemas;
   if (first === undefined) {
     throw new Error('buildCompositeSchema requires at least 2 actions for a discriminated union');
@@ -43,21 +34,9 @@ export function buildCompositeSchema(
 }
 
 /**
- * Unwraps `z.preprocess()` effects so zodToJsonSchema emits the inner
- * schema's type (e.g., `{"type":"object"}`) instead of an opaque
- * `{"allOf":[{},{"type":"object"}]}` wrapper.  Handles both bare and
- * optional-wrapped preprocess effects.
- *
- * The preprocess coercion still runs at validation time via the original
- * action schemas in `buildCompositeSchema` — this only affects the JSON
- * Schema sent to tool callers.
- *
- * Zod v4 unified `ZodEffects` into `ZodPipe`. A `z.preprocess(fn, inner)`
- * is now a `ZodPipe` whose `def.in` is a `ZodTransform` and whose `def.out`
- * is the original `inner` schema. We detect that exact shape rather than
- * matching every `ZodPipe` — `.transform()` is also a `ZodPipe` but with
- * `transform` as `def.out`, which we don't want to unwrap (the wire-level
- * type is the inner schema's output, not its input).
+ * Returns true for a `z.preprocess(fn, inner)` schema. In Zod v4 that is a `ZodPipe` whose `def.in`
+ * is a `ZodTransform` and whose `def.out` is `inner`. A `.transform()` pipe has the transform as
+ * `def.out`, so it does not match.
  */
 function isPreprocessPipe(schema: z.ZodType): schema is z.ZodPipe {
   if (!(schema instanceof z.ZodPipe)) return false;
@@ -65,11 +44,14 @@ function isPreprocessPipe(schema: z.ZodType): schema is z.ZodPipe {
   return def.in._zod.def.type === 'transform';
 }
 
+/**
+ * Unwraps a bare or optional `z.preprocess()` schema, so `zodToJsonSchema` emits the inner type and
+ * not an opaque `allOf` wrapper. Validation still runs the coercion through the original action
+ * schemas in `buildCompositeSchema`. Zod v4 types `innerType` as the core `$ZodType`, so the code
+ * casts it to the classic `ZodType`.
+ */
 function unwrapPreprocess(schema: z.ZodType): z.ZodType {
   if (schema instanceof z.ZodOptional) {
-    // Zod v4 types `innerType` as the core `$ZodType` (the internal base
-    // interface) rather than the classic `ZodType`. Cast at the boundary;
-    // the runtime instance is always a classic schema in practice.
     const inner = schema._zod.def.innerType as z.ZodType;
     if (isPreprocessPipe(inner)) {
       return (inner._zod.def.out as z.ZodType).optional();
@@ -82,40 +64,22 @@ function unwrapPreprocess(schema: z.ZodType): z.ZodType {
 }
 
 /**
- * Builds a strict Zod object schema for MCP SDK tool registration.
+ * Builds a strict Zod object schema for MCP tool registration. The MCP SDK cannot generate JSON
+ * Schema from a discriminated union. So this flattens the actions into one object with a required
+ * `action` enum, and makes each other field optional. The action handlers validate required fields.
  *
- * The MCP SDK's `normalizeObjectSchema` cannot generate JSON Schema from
- * discriminated unions, so we flatten the composite schema into a single
- * object with `action` as a required enum and all other fields as optional.
- *
- * The composite handler performs action-level routing and the underlying
- * handlers validate required fields per action.
- *
- * The returned schema uses `.strict()` so that unrecognized parameter names
- * (e.g., `streamId` instead of `stream`) produce clear validation errors
- * instead of being silently dropped.
- *
- * Preprocess effects are unwrapped so zodToJsonSchema emits clean type
- * constraints (e.g., `{"type":"object"}`) rather than opaque wrappers.
- * Runtime coercion is preserved via the original schemas in buildCompositeSchema.
+ * `.strict()` turns an unknown parameter name into a validation error. Preprocess schemas are
+ * unwrapped for clean JSON Schema. When two actions declare one field, the first declaration wins.
+ * A different base type, enum value set, or default throws, because the merge hides the later
+ * declaration. Other constraint drift is allowed, because the action schemas validate it again.
  */
 export function buildRegistrationSchema(
   actions: readonly ToolAction[],
 ): z.ZodObject<z.ZodRawShape> {
   const actionNames = actions.map((a) => a.name) as [string, ...string[]];
-  // Zod v4 typed `ZodRawShape` as `Readonly<{[k:string]:$ZodType}>`, so the
-  // builder uses a plain mutable record and casts at the `z.object(...)`
-  // boundary. Behavior is unchanged: the resulting object still has the
-  // same shape and `.strict()` semantics.
   const shape: Record<string, z.ZodType> = {
     action: z.enum(actionNames),
   };
-  // Track the first action to declare each field. A later action declaring the
-  // same field with an incompatible enum value set or differing default is a
-  // #1127-class collision — the composite's "first wins" merge silently
-  // shadowed the later declaration at the MCP-registration boundary.
-  // Constraint drift (min/max, pattern, optionality) is allowed: handler-level
-  // schemas re-validate via dispatch(), so "first wins" is harmless there.
   const provenance = new Map<string, { action: string; contract: FieldContract }>();
 
   for (const action of actions) {
@@ -133,7 +97,7 @@ export function buildRegistrationSchema(
             `Rename the field in one action (see agent_spec.outputFormat, #1127) or align the declarations.`,
           );
         }
-        continue; // compatible — first wins preserved
+        continue;
       }
 
       shape[key] = field.isOptional() ? field : field.optional();
@@ -145,15 +109,16 @@ export function buildRegistrationSchema(
 }
 
 /**
- * Contract-level view of a Zod field, capturing only the properties whose
- * divergence across actions causes MCP-registration-time hazards: the enum
- * value set and the default value. Base type is tracked solely to distinguish
- * enum-vs-non-enum collisions. Refinements and optionality are ignored.
+ * The contract view of a Zod field. It keeps only the properties whose divergence across actions
+ * breaks MCP registration: the enum value set and the default. The base type tells an enum from a
+ * non-enum. Refinements and optionality are ignored.
  */
 interface FieldContract {
   readonly kind: 'enum' | 'string' | 'number' | 'boolean' | 'array' | 'object' | 'other';
-  readonly enumValues: readonly string[] | null; // present iff kind === 'enum'
-  readonly defaultValue: string | null; // JSON-stringified default, null if none
+  /** Present only when `kind` is `enum`. */
+  readonly enumValues: readonly string[] | null;
+  /** The default as JSON text, or null when there is no default. */
+  readonly defaultValue: string | null;
 }
 
 function fieldContract(zodType: z.ZodType): FieldContract {
@@ -167,16 +132,16 @@ function fieldContract(zodType: z.ZodType): FieldContract {
   };
 }
 
+/**
+ * Returns the base kind of a field after it peels one default and one optional wrapper.
+ * `z.number()` and `z.number().int()` are one kind, because the action schema validates the
+ * refinement again.
+ */
 function baseKind(schema: z.ZodType): FieldContract['kind'] {
   let current: z.ZodType = schema;
-  // Zod v4: `_def` was renamed to `_zod.def`. Inner-type peeling now uses
-  // `_zod.def.innerType`.
   if (current instanceof z.ZodDefault) current = current._zod.def.innerType as z.ZodType;
   if (current instanceof z.ZodOptional) current = current._zod.def.innerType as z.ZodType;
   if (current instanceof z.ZodString) return 'string';
-  // Number covers z.number() and z.number().int() — JSON Schema distinguishes
-  // them as number vs integer, but the per-handler schema re-validates
-  // refinements, so at the composite boundary they're the same contract.
   if (current instanceof z.ZodNumber) return 'number';
   if (current instanceof z.ZodBoolean) return 'boolean';
   if (current instanceof z.ZodArray) return 'array';
@@ -184,42 +149,35 @@ function baseKind(schema: z.ZodType): FieldContract['kind'] {
   return 'other';
 }
 
+/**
+ * Peels the optional and nullable wrappers. It keeps a default wrapper, because the default is part
+ * of the contract.
+ */
 function unwrapOptional(schema: z.ZodType): z.ZodType {
   let current: z.ZodType = schema;
-  // Peel Optional and Nullable wrappers. Keep Default wrappers — the default
-  // is a contract-level attribute we explicitly want to inspect.
   while (current instanceof z.ZodOptional || current instanceof z.ZodNullable) {
     current = current._zod.def.innerType as z.ZodType;
   }
   return current;
 }
 
+/**
+ * Returns the sorted, JSON-encoded value set of an enum-like field, or null. For a `ZodEnum` it
+ * reads the values of `def.entries`, which for a numeric TS enum also hold the reverse map. A
+ * literal is a one-member enum, so two different literals collide. A union counts only when each
+ * branch is a literal. A mixed union, such as `string | string[]`, falls back to `baseKind`.
+ */
 function extractEnumValues(schema: z.ZodType): readonly string[] | null {
   const current = peelEnumWrappers(schema);
   if (current instanceof z.ZodEnum) {
-    // Zod v4 unified `ZodEnum` and `ZodNativeEnum` into a single `ZodEnum`
-    // whose `def.entries` is a `{ name: value }` map. For string enums the
-    // map is `{x:'x', y:'y'}`; for numeric TS enums it round-trips both
-    // member names and values via reverse mapping
-    // (`{'0':'A', '1':'B', A:0, B:1}`). Stringify-dedupe to produce a
-    // stable, comparable value set across both shapes.
     const raw = Object.values(current._zod.def.entries as Record<string, unknown>);
     return [...new Set(raw.map((v) => JSON.stringify(v)))].sort();
   }
   if (current instanceof z.ZodLiteral) {
-    // Treat a literal as a 1-member enum so two actions declaring the same
-    // field with different literal values collide instead of silently
-    // shadowing each other (#1127-class hazard). Zod v4 changed
-    // `ZodLiteral.def` from `{ value: T }` to `{ values: T[] }` (an array
-    // — a literal can now carry multiple permitted values in one schema).
     const values = current._zod.def.values as readonly unknown[];
     return [...new Set(values.map((v) => JSON.stringify(v)))].sort();
   }
   if (current instanceof z.ZodUnion) {
-    // Union-of-literals is the hand-rolled form of z.enum(). Collect the
-    // literal values; fall back to null if any branch isn't a literal so
-    // heterogeneous unions (e.g. string | string[]) still classify via
-    // baseKind instead of being falsely flagged as enum-compatible.
     const options = current._zod.def.options as readonly z.ZodType[];
     const literalValues: string[] = [];
     for (const opt of options) {
@@ -233,10 +191,10 @@ function extractEnumValues(schema: z.ZodType): readonly string[] | null {
   return null;
 }
 
-/** Peel ZodDefault / ZodOptional / ZodNullable wrappers so the caller can
- *  match on the underlying enum-ish kind. Kept narrow on purpose: ZodPipe and
- *  ZodBranded are NOT peeled, because both change the wire-level contract and
- *  deserve to be classified distinctly. */
+/**
+ * Peels the default, optional, and nullable wrappers. It does not peel `ZodPipe` or `ZodBranded`,
+ * because both change the wire contract.
+ */
 function peelEnumWrappers(schema: z.ZodType): z.ZodType {
   let current: z.ZodType = schema;
   while (
@@ -249,13 +207,9 @@ function peelEnumWrappers(schema: z.ZodType): z.ZodType {
   return current;
 }
 
+/** Returns the default of a `ZodDefault`. In Zod v4, `def.defaultValue` holds the value itself. */
 function extractDefault(schema: z.ZodType): unknown {
   if (schema instanceof z.ZodDefault) {
-    // Zod v4: `def.defaultValue` is the value itself (not a getter
-    // function). v3 stored a `() => T` thunk that we had to invoke; v4
-    // resolves the lazy form internally and exposes the materialized
-    // value on the def. See `$ZodDefaultDef.defaultValue` in
-    // zod/v4/core/schemas.d.ts.
     return schema._zod.def.defaultValue;
   }
   return undefined;
@@ -324,7 +278,7 @@ function readDeclaredActionContract(action: ToolAction): unknown {
   return Reflect.get(action, 'actionContract');
 }
 
-/** Compact a normalized contract. Omits prose; keeps every dimension and the digest. */
+/** Compacts a normalized contract. It omits prose, and keeps each dimension and the digest. */
 export function compactActionContract(contract: ActionContract): CompactActionContract {
   return {
     digest: digestText(actionContractCanonicalBytes(contract)),

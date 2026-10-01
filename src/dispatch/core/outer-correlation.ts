@@ -1,15 +1,11 @@
-// ─── The correlation packet a verb commits its operation record under ────────
-//
-// A verb that performs a bounded operation appends its record under the OUTER
-// correlation packet — the one the work it describes already ran beneath. Off a
-// real dispatch there is no ambient context to read, so one is minted.
-//
-// This lives here rather than inside a verb because more than one verb needs
-// it and the two must not answer differently. The first copy of it sat in the
-// executor, where committing outside the packet had left the operation record
-// with no correlation id while every leaf event carried one — so the record and
-// the work it described could not be joined. A second hand-written copy is how
-// that comes back for whichever verb gets the copy slightly wrong.
+/**
+ * The correlation packet that a verb commits its operation record under. The record goes under the
+ * outer packet, which the described work already ran beneath. Off a real dispatch there is no
+ * ambient context, so the function mints one.
+ *
+ * More than one verb needs this, and they must give the same answer. A record committed outside the
+ * packet gets no correlation id, so it does not join to its leaf events.
+ */
 
 import type { EventInput } from '../../events/atomic-appender.js';
 import { snapshotCallerAuthorization } from '../caller-identity.js';
@@ -32,15 +28,9 @@ export function outerCorrelation(ctx: DispatchContext): CorrelationContext {
 }
 
 /**
- * Fill an event's correlation triple from the ambient dispatch context.
- *
- * `decideOnce` is the substrate primitive, below the store method that stamps;
- * it persists what it is handed. Reading the ambient context here is what keeps
- * an operation record findable by the emission check running over the OUTER
- * dispatch, which queries by that dispatch's operation id.
- *
- * Each field is filled only when the caller left it unset, so a verb that has
- * already decided its own correlation keeps it.
+ * Fill an event's correlation triple from the ambient dispatch context. `decideOnce` persists what
+ * it gets and does not stamp. This stamp lets the emission check of the outer dispatch find the
+ * record by its operation id. The function fills only the fields that the caller left unset.
  */
 export function stampFromAmbient(event: EventInput): EventInput {
   const ctx = getDispatchContext();

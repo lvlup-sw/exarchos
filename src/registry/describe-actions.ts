@@ -20,14 +20,15 @@ const DESCRIBE_CONTRACT = {
   emissions: none('describe emits no catalog events'),
 } satisfies ActionContract;
 
-// ─── Describe Action ────────────────────────────────────────────────────────
-
 const describeSchema = z.object({
   actions: z.array(z.string()).min(1).max(10)
     .describe('Action names to describe. Returns full schema + description for each.'),
 });
 
-/** Creates a shared describe action definition for composite tools. */
+/**
+ * Create the shared describe action for composite tools.
+ * Its output is verbose by design, so it gets the describe token budget.
+ */
 export function makeDescribeAction(waiverId: VacuityWaiverId): BuiltinToolAction {
   return withActionContract(
     {
@@ -36,7 +37,6 @@ export function makeDescribeAction(waiverId: VacuityWaiverId): BuiltinToolAction
       schema: describeSchema,
       phases: ALL_PHASES,
       roles: ROLE_ANY,
-      // DR-1: verbose-by-design detail path — full per-action JSON schemas.
       economy: { budgetTokens: DESCRIBE_ECONOMY_BUDGET_TOKENS },
       outputSchema: vacuityWaiver(waiverId),
       annotations: READ_ONLY_LOCAL,
@@ -62,7 +62,10 @@ const workflowDescribeSchema = z.object({
     .optional(),
 });
 
-/** Creates a workflow-specific describe action with topology, playbook, and config support. */
+/**
+ * Create the workflow describe action, which also returns topology, playbooks, and config.
+ * Its output is verbose by design, so it gets the describe token budget.
+ */
 export function makeWorkflowDescribeAction(waiverId: VacuityWaiverId): BuiltinToolAction {
   return withActionContract(
     {
@@ -71,7 +74,6 @@ export function makeWorkflowDescribeAction(waiverId: VacuityWaiverId): BuiltinTo
       schema: workflowDescribeSchema,
       phases: ALL_PHASES,
       roles: ROLE_ANY,
-      // DR-1: verbose-by-design detail path — schemas + topology/playbooks/config.
       economy: { budgetTokens: DESCRIBE_ECONOMY_BUDGET_TOKENS },
       outputSchema: vacuityWaiver(waiverId),
       annotations: READ_ONLY_LOCAL,
@@ -92,7 +94,10 @@ const eventDescribeSchema = z.object({
     .describe('When true, returns the full event emission catalog grouped by source'),
 });
 
-/** Creates a describe action for the event tool that supports both actions, eventTypes, and emissionGuide. */
+/**
+ * Create the event tool describe action, which takes `actions`, `eventTypes`, and `emissionGuide`.
+ * Its token budget covers the `emissionGuide` path, which returns the full event catalog.
+ */
 export function makeEventDescribeAction(waiverId: VacuityWaiverId): BuiltinToolAction {
   return withActionContract(
     {
@@ -101,9 +106,6 @@ export function makeEventDescribeAction(waiverId: VacuityWaiverId): BuiltinToolA
       schema: eventDescribeSchema,
       phases: ALL_PHASES,
       roles: ROLE_ANY,
-      // DR-1: verbose-by-design detail path whose budget accounts for the
-      // `emissionGuide` param path (the full event catalog), which is a param
-      // of this one describe action — not a separate action.
       economy: { budgetTokens: EVENT_DESCRIBE_ECONOMY_BUDGET_TOKENS },
       outputSchema: vacuityWaiver(waiverId),
       annotations: READ_ONLY_LOCAL,

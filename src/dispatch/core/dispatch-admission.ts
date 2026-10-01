@@ -1,16 +1,9 @@
-// ─── ActionId admission, as a leaf both callers can import ──────────────────
-//
-// The admission evaluator is a pure function of its arguments, and it has two
-// callers: the dispatch path, which admits the one action a request names, and
-// the bounded action executor, which admits each compiled leaf in execution
-// order. Leaving it inside the dispatch module made the executor import that
-// module for a value, and the composite that routes to the executor is itself
-// reached from dispatch — three modules holding each other up at runtime.
-//
-// Extracting the evaluator and the helpers only it uses breaks that ring
-// without duplicating a second policy: one evaluator still serves both call
-// sites. `DispatchContext` is imported for its TYPE alone, which the compiler
-// erases, so no runtime edge points back at the dispatch module.
+/**
+ * ActionId admission as a leaf module. Two callers share one evaluator: the dispatch path admits
+ * the action that a request names, and the bounded action executor admits each compiled leaf.
+ * A separate module breaks the runtime import cycle between dispatch, the executor and the composite
+ * that routes to it. The import of `DispatchContext` is type-only, so the compiler erases it.
+ */
 
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
@@ -54,13 +47,10 @@ function workflowSubjectFromArgs(
 const POLICY_CAPABILITY_IDS = new Set<string>(Object.values(POLICY_CAPABILITY));
 
 /**
- * Admission capabilities come from the trusted caller snapshot — the same
- * grant `snapshotCallerAuthorization` already computed, including the
- * local-operator baseline. Resolver `list()` is handshake / cache-hint
- * surface, not the ActionId need set; mixing the two denied every CLI
- * doctor/merge call whose resolver only advertised `anthropic_native_caching`.
- * Policy issuer tokens are not Capability-enum members, so a local operator
- * receives them here, and an MCP resolver may add them explicitly.
+ * The admission capabilities come from the trusted caller snapshot. A local operator or a
+ * `shared-mutating` caller also gets the policy issuer tokens, which are not Capability enum members.
+ * From the resolver `list()`, only policy issuer tokens count. The rest of that list is handshake and
+ * cache-hint data, not the ActionId need set.
  */
 function admissionCapabilityIds(
   snapshot: CallerAuthorizationSnapshot | undefined,
@@ -117,12 +107,9 @@ function contractNeedsSatisfied(
 }
 
 /**
- * Every declared requirement is an approval.
- *
- * A reasoned `none` is NOT "only approvals" — it is no requirement at all, and
- * answering true for it made an empty set satisfy a predicate about the set's
- * members. That vacuity is what routed `agent_spec` and `prepare_review` into
- * the obligation short-circuit and stopped their handlers from ever running.
+ * True when every declared requirement is an approval. A reasoned `none` returns false, because an
+ * empty set must not satisfy a predicate about its members. A true result for `none` sends an
+ * action to the obligation short-circuit, so its handler never runs.
  */
 function requiresOnlyApprovals(requires: ActionContract['requires']): boolean {
   if (requires.kind === 'none') return false;
@@ -179,9 +166,8 @@ async function readTrustedAdmissionEvidence(
 }
 
 /**
- * Read an action's declared contract, or `undefined` when it carries none or
- * carries one that does not normalize. Exported because the dispatch path
- * reads the same declaration for its read-only abstention and ensures checks.
+ * Reads an action's declared contract, or `undefined` when it has none or the contract does not
+ * normalize. The dispatch path also uses it for its read-only abstention and ensures checks.
  */
 export function readActionContract(action: object): ActionContract | undefined {
   if (!('actionContract' in action)) return undefined;
@@ -235,25 +221,15 @@ function hostOwnedObligationResult(obligation: string): ToolResult {
 }
 
 /**
- * Re-evaluate registry ActionId admission against store-trusted state before
- * the handler or any dispatch effect runs. The snapshot is the same
- * workflow-scoped subject used to advertise: ActionId, feature/stream,
- * persisted evidence, authorization, and HSM facts. Request payload (including
- * a transition target) and a fresh wall-clock are not snapshot members.
+ * Evaluates ActionId admission against store-trusted state before the handler or a dispatch effect runs.
+ * The snapshot holds the ActionId, the feature and stream, stored evidence, authorization and HSM facts.
+ * It excludes the request payload and the wall clock.
  *
- * Missing or invalid contracts deny. Capability failure denies. Declared
- * requires without a store-backed subject or HSM fold deny — they never
- * skip and they never invent a fake unscoped snapshot. Actions that
- * abstain from requires are admitted from needs alone. Host-owned
- * actions whose only requires are approvals return the obligation after
- * needs pass: the approval is the host's job, not a prior local fact.
- * Transition remains one ActionId; its request target is still decided
- * by the HSM transition guard after this gate.
- *
- * Exported because the bounded action executor admits each compiled leaf in
- * execution order and must reach the same verdict the dispatch path does. It is
- * a pure function of its arguments, so one evaluator serving two call sites is
- * the whole of the sharing — there is no second policy to keep in step.
+ * A missing contract, a capability failure, or declared requires with no stored subject deny.
+ * An action with no requires is admitted from its needs alone.
+ * A blocking host obligation, or a host obligation whose requires are all approvals, returns the
+ * obligation when the needs pass. An `agent-spawn` obligation does not block, because the host
+ * discharges it with the handler output.
  */
 export async function evaluateDispatchAdmission(input: {
   readonly tool: string;
@@ -280,10 +256,6 @@ export async function evaluateDispatchAdmission(input: {
     return admissionDeniedResult(input.tool, input.actionName, 'missing-capabilities');
   }
 
-  // A host obligation short-circuits only when the host must discharge it
-  // BEFORE the handler could do anything — an approval, an interactive login,
-  // a host-UI prompt. `agent-spawn` is discharged USING the handler's output,
-  // so those actions run and return it.
   const obligation = hostObligationOf(contract);
   if (
     obligation !== undefined &&

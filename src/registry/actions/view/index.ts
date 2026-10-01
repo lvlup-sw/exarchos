@@ -1,8 +1,7 @@
-// ─── exarchos_view — the action list, assembled by family ────────────────────
-//
-// Same rule as the orchestrate list: the concatenation order below IS the
-// order clients see, so it is stated once here rather than implied by import
-// order. The shared `describe` action is appended last.
+/**
+ * The `exarchos_view` action list, put together by family. The order of the list is the order
+ * that clients see. The shared `describe` action is last.
+ */
 
 import { normalizeActionContract } from '../../action-contract.js';
 import { makeDescribeAction } from '../../describe-actions.js';

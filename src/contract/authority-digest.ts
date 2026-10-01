@@ -1,23 +1,10 @@
-// ─── Content-addressed authority digests (P03-01) ────────────────────────────
-//
-// Deterministic, reproducible content digests for the frozen contract
-// authorities (PROGRAM-03 head). Every authority whose identity is its content
-// (schema module, invariant catalog, ActionId registry, compatibility policy)
-// is pinned by a `sha256:<hex>` digest computed from its CANONICAL bytes.
-//
-// ## Cross-machine reproducibility (line-ending normalization)
-//
-// This repo is authored on Windows (CRLF working tree) and CI runs on Linux
-// (LF). A raw byte hash would differ between the two, so the lockfile would
-// never verify across machines. `canonicalizeText` normalizes CRLF/CR → LF and
-// strips trailing newlines BEFORE hashing, so the digest depends only on the
-// meaningful content — identical on Windows, macOS, and Linux, and stable
-// regardless of the checkout's `core.autocrlf` setting.
-//
-// This module is pure (no filesystem, no clock, no registry import) so the
-// normalization + floating-detection rules are unit-testable in isolation. The
-// collector (`authority-collector.ts`) supplies the real bytes.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Content digests for the frozen contract authorities. Each authority whose identity is its
+ * content is pinned by a `sha256:<hex>` digest of its canonical bytes.
+ *
+ * The hash runs on text with normalized line endings. Thus a CRLF checkout and an LF checkout
+ * give the same digest. This module is pure. The collector (`authority-collector.ts`) supplies the bytes.
+ */
 
 import { createHash } from 'node:crypto';
 
@@ -28,15 +15,8 @@ export const DIGEST_ALGORITHM = 'sha256' as const;
 export const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
 
 /**
- * Canonicalize text before hashing so the digest is byte-identical across
- * machines and checkout settings:
- *
- *   1. `\r\n` → `\n`  (Windows CRLF)
- *   2. `\r`   → `\n`  (classic-Mac CR)
- *   3. strip all trailing newlines at EOF (editor / git artifact)
- *
- * Interior content is preserved exactly. The transform is idempotent:
- * `canonicalizeText(canonicalizeText(x)) === canonicalizeText(x)`.
+ * Changes `\r\n` and `\r` to `\n` and removes the trailing newlines. Other content stays the
+ * same. The transform is idempotent.
  */
 export function canonicalizeText(text: string): string {
   return text
@@ -45,10 +25,7 @@ export function canonicalizeText(text: string): string {
     .replace(/\n+$/, '');
 }
 
-/**
- * Compute the content digest of a single text blob. Returns `sha256:<hex>`.
- * The input is canonicalized (line endings normalized) before hashing.
- */
+/** Returns the `sha256:<hex>` digest of the canonicalized text. */
 export function digestText(text: string): string {
   const canonical = canonicalizeText(text);
   const hex = createHash(DIGEST_ALGORITHM).update(canonical, 'utf8').digest('hex');
@@ -56,60 +33,44 @@ export function digestText(text: string): string {
 }
 
 /**
- * Compute a digest over an ordered list of string parts. Each part is
- * canonicalized, then the parts are joined with `\n` and hashed. Order is
- * significant — callers that want an order-independent digest (e.g. a set of
- * identifiers) must sort first (see {@link digestIdentifierSet}).
+ * Digests the canonicalized parts joined with `\n`. The order is significant. For a digest
+ * that ignores order, use {@link digestIdentifierSet}.
  */
 export function digestParts(parts: readonly string[]): string {
   return digestText(parts.map(canonicalizeText).join('\n'));
 }
 
 /**
- * Digest a SET of identifiers (e.g. ActionIds) order-independently: duplicates
- * are removed and the identifiers are sorted before hashing, so two registries
- * that declare the same ActionIds in a different source order produce the same
- * digest.
+ * Digests a set of identifiers. It removes duplicates and sorts the identifiers first, so the
+ * source order has no effect on the digest.
  */
 export function digestIdentifierSet(identifiers: readonly string[]): string {
   const canonical = [...new Set(identifiers)].sort();
   return digestParts(canonical);
 }
 
-/**
- * True when `digest` is a well-formed `sha256:<64 hex>` string.
- */
+/** True when `digest` is a well-formed `sha256:<64 hex>` string. */
 export function isWellFormedDigest(digest: string): boolean {
   return DIGEST_RE.test(digest);
 }
 
 /**
- * True when a version SPEC is FLOATING — i.e. it is not an exact pin. A frozen
- * authority must name a single, exact version; a range or dist-tag would let
- * the resolved version drift silently, which the freeze exists to prevent.
+ * True when a version spec is not an exact pin. A frozen authority must name one exact version,
+ * because a range or a dist-tag lets the resolved version drift.
  *
- * Floating forms detected:
- *   - empty / whitespace-only        (no pin at all)
- *   - caret / tilde ranges           (`^1.2.3`, `~1.2.3`)
- *   - comparator ranges              (`>=1.2.0`, `<2.0.0`)
- *   - union ranges                   (`1.2.0 || 2.0.0`)
- *   - hyphenated ranges              (`1.2.0 - 1.3.0`)
- *   - wildcard segments / bare star  (`1.x`, `1.2.*`, `*`)
- *   - dist-tags                      (`latest`, `next`)
- *
- * Exact pins pass (return false), including semver prereleases
- * (`2.12.0-preview.3`) and MCP protocol date versions (`2025-11-25`) whose
- * internal `-` is NOT a range operator.
+ * These forms float: an empty spec, `^` or `~`, `<` or `>`, `||`, and a spaced hyphen range.
+ * An `x` or `*` segment and the `latest` and `next` tags also float. A prerelease such as
+ * `2.12.0-preview.3` and a date version such as `2025-11-25` are exact pins.
  */
 export function isFloatingVersionSpec(spec: string): boolean {
   const s = spec.trim();
-  if (s.length === 0) return true; // no pin
-  if (/^(latest|next|\*)$/i.test(s)) return true; // dist-tags / bare star
-  if (/[\^~]/.test(s)) return true; // caret / tilde
-  if (/[<>]/.test(s)) return true; // comparators
-  if (/\|\|/.test(s)) return true; // union
-  if (/\s-\s/.test(s)) return true; // hyphen range (spaces required)
-  if (/(^|[.\s])[xX*](\.|$|\s)/.test(s)) return true; // wildcard segment / bare star
+  if (s.length === 0) return true;
+  if (/^(latest|next|\*)$/i.test(s)) return true;
+  if (/[\^~]/.test(s)) return true;
+  if (/[<>]/.test(s)) return true;
+  if (/\|\|/.test(s)) return true;
+  if (/\s-\s/.test(s)) return true;
+  if (/(^|[.\s])[xX*](\.|$|\s)/.test(s)) return true;
   return false;
 }
 

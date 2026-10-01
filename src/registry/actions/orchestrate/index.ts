@@ -1,13 +1,8 @@
-// ─── exarchos_orchestrate — the action list, assembled by family ─────────────
-//
-// The families below are concatenated in a FIXED order, and the order is part
-// of the surface rather than a formatting detail: it decides the sequence a
-// client sees in `describe`, and the recorded action snapshot compares against
-// it. Splitting the list across modules is only safe because this file states
-// the order in one place — reordering these lines reorders the tool.
-//
-// The shared `describe` action is appended last, exactly as every other
-// composite tool appends it.
+/**
+ * The `exarchos_orchestrate` action list, assembled from its families in a fixed order.
+ * The order is part of the surface: it sets the sequence in `describe`, and the recorded action
+ * snapshot compares against it. The shared `describe` action comes last, as in every composite tool.
+ */
 
 import { makeDescribeAction } from '../../describe-actions.js';
 import type { BuiltinToolAction } from '../../types.js';

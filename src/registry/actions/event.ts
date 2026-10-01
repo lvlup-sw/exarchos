@@ -7,8 +7,7 @@ import { makeEventDescribeAction } from '../describe-actions.js';
 import { ALL_PHASES, DELEGATE_PHASES, ROLE_ANY, ROLE_LEAD } from '../phases.js';
 import type { BuiltinToolAction } from '../types.js';
 
-// ─── Composite Tool: exarchos_event ─────────────────────────────────────────
-
+/** The actions of the `exarchos_event` composite tool. */
 export const eventActions: readonly BuiltinToolAction[] = [
   withActionContract(
     {

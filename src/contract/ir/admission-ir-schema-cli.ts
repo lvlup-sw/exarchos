@@ -1,17 +1,12 @@
-// ─── Shared admission IR — JSON Schema generator CLI (P03-06) ────────────────
-//
-// PROGRAM-03, API-007. Regenerates the checked-in shared-IR JSON Schema artifact
-// from the single authored Zod source. Running this IS the regeneration gesture
-// (mirrors P03-01's `authority-lock-cli.ts` and P03-03's `compiler/generate.ts`):
-// after an intentional change to the authored schema the drift guard goes red;
-// run this, review the diff, and commit the regenerated artifact.
-//
-// Usage (from servers/exarchos-mcp):
-//   npx tsx src/contract/ir/admission-ir-schema-cli.ts
-//
-// The write side effect runs ONLY when invoked directly, never on import, so a
-// test importing the serialization helpers has no filesystem side effect.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Regenerates the checked-in JSON Schema artifact of the shared admission IR from its Zod source.
+ * After an intentional schema change, the drift guard fails. Run this CLI, review the diff, and
+ * commit the artifact.
+ *
+ * Usage, from the repository root: `npx tsx src/contract/ir/admission-ir-schema-cli.ts`
+ *
+ * The write runs only when the file is invoked directly, never on import.
+ */
 
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';

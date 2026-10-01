@@ -1,20 +1,12 @@
-// ─── Compiled runtime descriptors + type/schema bundles (P03-03) ─────────────
-//
-// PROGRAM-03, API-003. Turns a VALIDATED meta-model entry into the deterministic
-// runtime descriptor a downstream projection (P03-04 MCP bindings, P03-05 CLI
-// client, P03-09 oracle) consumes. A descriptor is content-addressed: its
-// `digest` is a `sha256:` over its canonical JSON, so any structural change is
-// visible and byte-diffable.
-//
-// Schemas are HOISTED: the four total carrier schemas from P03-02 (success /
-// error / capped) are projected ONCE into the bundle's `surface` map and every
-// descriptor references them by a stable key, so the emitted contract does not
-// duplicate the envelope shape 120× and a single carrier change is one diff.
-//
-// Determinism discipline (design authority "one deterministic generation
-// pipeline"): key order is normalized by `canonicalJson`, every list is
-// pre-sorted upstream, and no clock / absolute path / locale leaks in.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Compiles a validated meta-model entry into a deterministic runtime descriptor. The MCP bindings,
+ * the CLI client, and the oracle read these descriptors. A descriptor `digest` is a `sha256:` over
+ * its canonical JSON.
+ *
+ * The bundle projects the shared carrier schemas once into its `surface` map. Each descriptor
+ * refers to them by a stable key, so the contract holds one copy of the envelope shape.
+ * `canonicalJson` sets the key order, and no clock, absolute path, or locale goes into the output.
+ */
 
 import { z } from 'zod';
 import { digestText } from '../authority-digest.js';
@@ -23,13 +15,12 @@ import { zodToJsonSchema } from '../../utils/json-schema.js';
 import { ErrorEnvelopeSchema, CappedDataSchema, SuccessEnvelopeSchema } from '../envelope.js';
 import type { ActionMetaModel, ActionPolicy, JsonSchema } from './meta-model.js';
 
-// ─── Stable schema-reference keys ────────────────────────────────────────────
-
+/** The stable keys of the shared carrier schemas in the bundle `surface` map. */
 export const SURFACE_ERROR_SCHEMA_REF = 'surface:error-envelope';
 export const SURFACE_CAPPED_SCHEMA_REF = 'surface:capped-data';
 export const SURFACE_SUCCESS_SCHEMA_REF = 'surface:success-envelope';
 
-/** Shared P03-02 carrier type names every action's descriptor references. */
+/** The shared carrier type names that each action descriptor refers to. */
 export const SHARED_ERROR_TYPE = 'ContractErrorEnvelope';
 export const SHARED_CAPPED_TYPE = 'CappedData';
 export const SHARED_SUCCESS_TYPE = 'SuccessEnvelope';
@@ -42,13 +33,10 @@ export function actionOutputSchemaRef(actionId: string): string {
   return `action:${actionId}:output`;
 }
 
-// ─── Type-name derivation ────────────────────────────────────────────────────
-
 /**
- * Derive a stable PascalCase type stem from an ActionId (`exarchos_workflow.init`
- * → `ExarchosWorkflowInit`). Deterministic and total: split on any non-
- * alphanumeric run, capitalize each token. Downstream generators derive input/
- * output/error type identifiers from this stem so type names never drift apart.
+ * Derive a stable PascalCase type stem from an ActionId, so `exarchos_workflow.init` gives
+ * `ExarchosWorkflowInit`. It splits on each non-alphanumeric run and capitalizes each token. The
+ * generators derive the per-action type names from this stem.
  */
 export function pascalCase(actionId: string): string {
   return actionId
@@ -75,8 +63,6 @@ export function deriveTypeNames(actionId: string): ActionTypeNames {
   };
 }
 
-// ─── The runtime descriptor ──────────────────────────────────────────────────
-
 export interface SchemaRefs {
   readonly input: string;
   readonly output: string;
@@ -98,18 +84,17 @@ export interface ActionDescriptor {
   readonly schemaRefs: SchemaRefs;
   readonly types: ActionTypeNames;
   /**
-   * Declared action contract, projected when present. Absent live contracts
-   * stay absent — this is not reconstructed from annotations or autoEmits.
-   * Dispatch does not read compiled descriptors as runtime authority.
+   * The declared action contract, when present. An absent contract stays absent and is not built
+   * from annotations or `autoEmits`. Dispatch does not use compiled descriptors as runtime authority.
    */
   readonly actionContract?: ProjectedActionContract;
-  /** `sha256:` content address over the descriptor's canonical body. */
+  /** The `sha256:` content address of the canonical descriptor body. */
   readonly digest: string;
 }
 
 /**
- * The declared contract bound into a descriptor digest. Prefers the
- * entry-level projection; falls back to the policy copy. Missing stays missing.
+ * The declared contract that the descriptor digest covers. It uses the entry-level copy first, then
+ * the policy copy. It returns undefined when both are absent.
  */
 export function projectedActionContract(
   entry: ActionMetaModel,
@@ -118,11 +103,9 @@ export function projectedActionContract(
 }
 
 /**
- * Compile a validated meta-model entry into its runtime descriptor. The digest
- * covers everything EXCEPT itself (a self-referential digest would never
- * stabilize), computed over the canonical JSON so key order is irrelevant.
- * A present action contract is a first-class hashed field: any contract-field
- * mutation moves this action's digest.
+ * Compile a validated meta-model entry into its runtime descriptor. The digest covers all fields
+ * except the digest itself, over canonical JSON. A present action contract is in the digest, so a
+ * contract change moves the digest.
  */
 export function compileDescriptor(entry: ActionMetaModel): ActionDescriptor {
   const actionContract = projectedActionContract(entry);
@@ -147,19 +130,14 @@ export function compileDescriptor(entry: ActionMetaModel): ActionDescriptor {
   return { ...body, digest: digestText(canonicalJson(body)) };
 }
 
-// ─── Schema bundle ───────────────────────────────────────────────────────────
-
 export interface SchemaBundle {
-  /** The P03-02 carrier schemas, projected once and shared by every action. */
+  /** The carrier schemas, projected once and shared by all actions. */
   readonly surface: Readonly<Record<string, JsonSchema>>;
-  /** Per-action input + output JSON schemas, keyed by ActionId. */
+  /** The input and output JSON schemas of each action, keyed by ActionId. */
   readonly actions: Readonly<Record<string, { input: JsonSchema; output: JsonSchema }>>;
 }
 
-/**
- * Project the shared P03-02 carrier schemas. Byte-stable: the same Zod
- * definitions project to the same JSON Schema on every run.
- */
+/** Project the shared carrier schemas. The same Zod definitions give the same JSON Schema on each run. */
 export function buildSurfaceSchemas(): Readonly<Record<string, JsonSchema>> {
   return {
     [SURFACE_ERROR_SCHEMA_REF]: zodToJsonSchema(ErrorEnvelopeSchema) as JsonSchema,
@@ -168,7 +146,7 @@ export function buildSurfaceSchemas(): Readonly<Record<string, JsonSchema>> {
   };
 }
 
-/** Assemble the schema bundle from validated entries + the shared carriers. */
+/** Assemble the schema bundle from validated entries and the shared carriers. */
 export function buildSchemaBundle(entries: readonly ActionMetaModel[]): SchemaBundle {
   const actions: Record<string, { input: JsonSchema; output: JsonSchema }> = {};
   for (const entry of entries) {
@@ -176,8 +154,6 @@ export function buildSchemaBundle(entries: readonly ActionMetaModel[]): SchemaBu
   }
   return { surface: buildSurfaceSchemas(), actions };
 }
-
-// ─── Type manifest ───────────────────────────────────────────────────────────
 
 export interface ActionTypeEntry {
   readonly actionId: string;
@@ -193,7 +169,7 @@ export interface TypeManifest {
   readonly actions: readonly ActionTypeEntry[];
 }
 
-/** Build the deterministic type manifest downstream generators name types from. */
+/** Build the deterministic type manifest that the generators take type names from. */
 export function buildTypeManifest(
   surfaceVersion: string,
   entries: readonly ActionMetaModel[],

@@ -10,6 +10,11 @@ function contracted(action: BuiltinActionDraft, contract: unknown): BuiltinToolA
   return withActionContract(action, contract, { annotations: action.annotations });
 }
 
+/**
+ * The annotations of `prune_worktrees`. The prune is compensable and destructive, because the
+ * two-event delete is the recovery seam. It is idempotent, because a re-run deletes only what is
+ * still eligible. No preset has this tuple.
+ */
 const PRUNE_ANNOTATIONS = {
   safety: 'compensable',
   readOnly: false,
@@ -19,10 +24,10 @@ const PRUNE_ANNOTATIONS = {
 } as const;
 
 export const worktreeActions: readonly BuiltinToolAction[] = [
-  // ─── Worktree-lifecycle Actions (WLM foundation, task 008) ────────────────
-  // INV-5d: ACTIONS on exarchos_orchestrate, NOT a fifth visible tool. Each
-  // delegates to the in-process `WorktreeManager` facade (INV-2 — adapters
-  // carry zero behavior). `worktrees` (the read) rides exarchos_view.
+  /**
+   * The worktree lifecycle actions are actions of `exarchos_orchestrate`, not a separate tool.
+   * Each one delegates to the in-process `WorktreeManager`. The `worktrees` read is on `exarchos_view`.
+   */
   contracted(
     {
       name: 'acquire_worktree',
@@ -35,12 +40,11 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
           worktreeId: z.string().min(1),
           path: z.string().min(1).optional(),
           featureId: featureIdSchema.optional(),
-          // All-or-nothing: a (pid, startedAt) tuple must describe ONE real
-          // process. Both explicit, or neither (then both are derived from the
-          // current process). A partial override is rejected by the refine below
-          // AND by the handler — keeping the schema and resolveOwner in sync. In
-          // Zod v4 `.refine()` keeps the value a ZodObject, so `.shape` still
-          // drives buildRegistrationSchema / addFlagsFromSchema.
+          /**
+           * `ownerPid` and `ownerStartedAt` describe one real process, so both are given or neither.
+           * With neither, they come from the current process. The refine and the handler both
+           * reject a partial override. In Zod v4, `.refine()` keeps a ZodObject, so `.shape` still works.
+           */
           ownerPid: z.number().int().positive().optional(),
           ownerStartedAt: z.string().min(1).optional(),
         })
@@ -116,27 +120,22 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
         'Garbage-collect governed worktrees through the fail-closed safety ladder. Defaults to dry-run (report candidates + reclaimable bytes + grouped skip reasons, delete nothing); pass dryRun:false to apply. Orphan deletion needs pruneOrphans:true + yes:true on an apply run. Auto-emits worktree.remove.requested then worktree.remove.executed per deleted worktree. Use for: reclaiming released/orphan governed worktrees + their branches from the main worktree. Do NOT use for: freeing a live reservation (use release_worktree); listing the governed set (use worktrees).',
       schema: z.object({
         repoRoot: z.string().min(1),
-        // INV-5c: dry-run is the safe default. The default is enforced in the
-        // handler (dryRun === false ⇒ apply) — NOT a Zod `.default()` — because
-        // the MCP-registration flattener forbids divergent defaults across the
-        // shared `dryRun` field (merge_orchestrate / prune_stale_workflows
-        // already declare it `.optional()` with no default).
+        /**
+         * Dry-run is the safe default, and only `dryRun: false` applies. The handler applies the
+         * default, not a Zod `.default()`, because the MCP flattener rejects different defaults
+         * for the shared `dryRun` field.
+         */
         dryRun: z.boolean().optional(),
         pruneOrphans: z.boolean().optional(),
         yes: z.boolean().optional(),
       }),
       phases: ALL_PHASES,
       roles: ROLE_LEAD,
-      // prune_worktrees → compensable + destructive (the two-event delete split
-      // is the compensating recovery seam) AND idempotent (a re-run re-classifies
-      // and deletes only what is still eligible). No preset carries this exact
-      // tuple, so it is declared inline; the `superRefine` constraint
-      // (destructive ⇒ compensable) is satisfied.
-      // DR-4 / INV-11: garbage-collects governed worktrees + their branches —
-      // shared, un-isolated state destroyed from the main worktree, the strictest
-      // mutating trust tier. Mirrors merge_orchestrate / serialize_merge so the
-      // resolver gate rejects a task-isolated or read-only caller BEFORE the
-      // destructive prune runs.
+      /**
+       * The prune deletes shared worktrees and branches from the main worktree, so it has the
+       * strictest mutating posture. The resolver gate rejects a task-isolated or read-only caller
+       * before the prune runs.
+       */
       posture: 'shared-mutating',
       outputSchema: withCappedShape(PruneWorktreesOutputSchema),
       annotations: PRUNE_ANNOTATIONS,
@@ -186,32 +185,25 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
       ),
     }
   ),
-  // ─── Ground-truth reconcilers (moved off the read side) ───────────────────
-  // These three passes ran under `exarchos_view.ps probe:true`. They append,
-  // and their appends live in `verbs/` — reached from a manager method and two
-  // reconcilers — so no annotation on a read verb could make the effect true.
-  // Giving them their own action is what lets the events they raise be DECLARED
-  // by the surface that performs them: `launch.executed` and
-  // `worktree.orphan_detected` were registered to `exarchos_orchestrate` and
-  // emitted from `exarchos_view`, which is the disagreement this closes.
+  /**
+   * The ground-truth reconcilers. They append events, so they are an action and not part of a
+   * read verb. Thus the surface that emits `launch.executed` and `worktree.orphan_detected` also declares them.
+   */
   contracted(
     {
       name: 'reconcile_worktrees',
       surface: 'worktree',
       description:
         'Reconcile governed worktrees and in-flight operations against the ground-truth process table, healing what a dead holder left behind. Three fail-closed passes: reservation reclaim (a worktree whose owner is provably dead is released, or flagged an orphan when a live foreign process still holds the path); phantom-launch heal (an in-flight launch whose supervisor died uncatchably is closed with its terminal); crash-mid-merge heal (a stranded merge lease whose holder is provably dead is freed). A live or unprovable holder is ALWAYS left in flight. Returns each pass\'s findings plus the POST-reconcile in-flight columns. Idempotent: a second pass heals nothing and emits nothing. Auto-emits worktree.released / worktree.orphan_detected / launch.executed / worktree.merge_executed per healed entry. Use for: clearing liveness phantoms ps reports after a crash. Do NOT use for: reading in-flight state (use ps — read-only, heals nothing); releasing your OWN reservation (use release_worktree); deleting worktrees from disk (use prune_worktrees).',
-      // No parameters: the passes are repo-global over the singleton `worktrees`
-      // stream and the process table. Nothing to scope, and nothing to dry-run —
-      // every heal is conditioned on a holder being PROVABLY dead, so there is no
-      // unsafe apply for a dry-run default to protect against.
+      /**
+       * No parameters. The passes cover the singleton `worktrees` stream and the process table.
+       * Each heal needs a holder that is provably dead, so a dry-run default protects nothing.
+       */
       schema: z.object({}),
       phases: ALL_PHASES,
       roles: ROLE_LEAD,
       outputSchema: withCappedShape(ReconcileWorktreesOutputSchema),
-      // Heals converge and destroy nothing on disk — the reclaim frees a
-      // RESERVATION, not a worktree. Same tuple `ps` used to carry for the same
-      // write path, which is the point: the effect did not change, only the
-      // surface that owns it.
+      /** Heals converge and delete nothing on disk. The reclaim frees a reservation, not a worktree. */
       annotations: LOCAL_MUTATION_IDEMPOTENT,
     },
     {
@@ -259,14 +251,12 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
       ),
     }
   ),
-  // ─── Integration-branch merge serializer (WLM operational core, DR-7) ──────
-  // INV-5d: an ACTION on exarchos_orchestrate, NOT a fifth visible tool. An
-  // OPTIMISTIC LEASE over `integrationRef` — the right to merge `sourceBranch`
-  // into `integrationRef` lives in the event log (the
-  // worktree.merge_requested / worktree.merge_executed pair on the singleton
-  // `worktrees` stream), enforcing at most one in-flight merge per integration
-  // ref. It then composes `merge_orchestrate` UNCHANGED for the git work. No
-  // flock / PID file / advisory-lock library — the lease IS the serialization.
+  /**
+   * The integration-branch merge serializer. An optimistic lease in the event log allows at most
+   * one in-flight merge per `integrationRef`. The `worktree.merge_requested` and
+   * `worktree.merge_executed` pair on the `worktrees` stream holds the lease. Then `merge_orchestrate`
+   * does the git work. No file lock is used.
+   */
   contracted(
     {
       name: 'serialize_merge',
@@ -280,31 +270,29 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
         strategy: z.enum(['squash', 'rebase', 'merge']),
         taskId: z.string().optional(),
         repoRoot: z.string().optional(),
-        // Bounded-wait budget before merge-slot-timeout. Same base type
-        // (ZodNumber) as `doctor.timeoutMs` so the MCP-registration flattener
-        // does not see a divergent shape for the shared `timeoutMs` field name.
+        /**
+         * The wait budget before `merge-slot-timeout`. It has the same base type as
+         * `doctor.timeoutMs`, so the MCP flattener sees one shape for the shared field name.
+         */
         timeoutMs: z.number().int().positive().optional(),
-        // INV-5c safe default: dry-run unless the caller EXPLICITLY opts out with
-        // dryRun:false. Declared `.optional()` with NO Zod `.default()` because the
-        // MCP-registration flattener forbids divergent defaults across the shared
-        // `dryRun` field (prune_worktrees / merge_orchestrate / prune_stale_workflows
-        // all declare it `.optional()` with no default); the default is applied in
-        // handleSerializeMerge instead.
+        /**
+         * Dry-run is the safe default, and only `dryRun: false` applies. `handleSerializeMerge`
+         * applies the default, because the MCP flattener rejects different defaults for the shared
+         * `dryRun` field. A dry run emits no lease event.
+         */
         dryRun: z.boolean().optional(),
       }),
       phases: ALL_PHASES,
       roles: ROLE_LEAD,
-      // Descriptive only (NOT the control point — the handler applies the dry-run
-      // default). On the default dry-run NOTHING is emitted; both lease events fire
-      // only on an apply run (dryRun:false).
-      // Multi-step serialized merge (wait → claim → compose merge_orchestrate →
-      // release) is the canonical long-running verb — advisory Tasks-augmented
-      // dispatch, mirroring merge_orchestrate.
+      /**
+       * An advisory hint. The serialized merge has many steps (wait, claim, merge, release), so it
+       * suits Tasks-augmented dispatch, like `merge_orchestrate`.
+       */
       dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
-      // Mutates shared state (the integration branch + working tree, via the
-      // composed merge_orchestrate) from the main worktree — the strictest
-      // mutating trust tier. Mirrors merge_orchestrate so the resolver mints the
-      // same fs:write + shell:exec capabilities.
+      /**
+       * The merge changes the integration branch and the working tree from the main worktree, so
+       * it has the strictest mutating posture, like `merge_orchestrate`.
+       */
       posture: 'shared-mutating',
       outputSchema: withCappedShape(SerializeMergeOutputSchema),
       annotations: COMPENSABLE_REMOTE,

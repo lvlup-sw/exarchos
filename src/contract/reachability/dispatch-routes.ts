@@ -1,44 +1,15 @@
-// ─── The SHIPPED action-level dispatch-route authority (P05-05) ──────────────
-//
-// PROGRAM-05, the closure capstone (CTR-013). This module answers ONE question
-// about the real tree: **which `(tool, action)` pairs does the shipped composite
-// router actually route?**
-//
-// ── Why this module exists (the tautology it removes) ────────────────────────
-// The `route` hop used to be materialized by re-running `generateRegistration()`
-// over the SAME `compile()` descriptors that also supply the closure
-// DENOMINATOR. `generateRegistration` emits exactly one entry per descriptor and
-// ActionIds are unique (the compiler rejects duplicates), so that hop resolved
-// to exactly 1 for every action BY CONSTRUCTION — it could not fail, and it was
-// blind to the drift it claimed to catch (an ActionId that no router serves).
-//
-// The authority read here is INDEPENDENT of the contract compiler: it is the
-// dispatch code that actually runs. `dispatch/core/dispatch.ts::COMPOSITE_HANDLER_LOADERS`
-// resolves a TOOL to its composite module; that module's router then performs the
-// action-level routing. Those routing constructs are the last mile of the wire
-// path, and they are the thing that silently drifts when an action is renamed in
-// the registry but not in its router (or vice versa).
-//
-// ── Why a source scan ────────────────────────────────────────────────────────
-// The action-level routing table is CODE, not data: four composites route with
-// `switch (action) { case '…': }` and orchestrate routes through an
-// `ACTION_HANDLERS` object literal plus a handful of explicit `action === '…'`
-// branch arms. There is no runtime value that enumerates all of it without
-// importing (and thereby executing the module init of) every handler in the
-// tree. So the router SOURCE — the file dispatch dynamically imports — is read
-// and its routing constructs are extracted.
-//
-// Fidelity is not assumed: the co-located test pins the scanner's orchestrate
-// result against the RUNTIME `ACTION_HANDLER_KEYS` value exported by the real
-// composite, and against the live registry for every tool.
-//
-// ── Fail LOUD, never fail quiet ──────────────────────────────────────────────
-// Every structural surprise throws: a router file that is missing, a router with
-// no recognizable routing construct, a computed dispatch key that cannot be
-// resolved to a string literal, or a tool set that disagrees with dispatch. A
-// silently-empty route set would understate closure loudly (the census drops),
-// but a named error is a better diagnosis.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The shipped dispatch-route authority: the `(tool, action)` pairs that the composite routers
+ * route. It reads the dispatch code that runs, not the contract compile that supplies the
+ * closure denominator. Thus the `route` hop can fail when a router and the registry disagree.
+ *
+ * The routing table is code, not data. The routers use `switch (action)` arms, `action === '…'`
+ * branches, and an `ACTION_HANDLERS` table. No runtime value lists all of them without the
+ * import of each handler, so this module scans the router source. A test compares the scan
+ * with the runtime handler keys and the live registry.
+ *
+ * Each structural surprise throws a named error instead of an empty route set.
+ */
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -49,7 +20,7 @@ import { EFFECT_PROVIDERS, type EffectProvider } from './providers.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
-/** The `src/` root — router modules are resolved relative to this. */
+/** The `src/` root. Router module paths resolve relative to it. */
 export const SOURCE_ROOT = path.resolve(HERE, '../..');
 
 /** The routing construct a route was extracted from. */
@@ -60,7 +31,7 @@ export type RouteForm = (typeof ROUTE_FORMS)[number];
 export interface DispatchRoute {
   readonly tool: string;
   readonly action: string;
-  /** `${tool}.${action}` — the ActionId the route resolves. */
+  /** The ActionId of the route: `${tool}.${action}`. */
   readonly actionId: string;
   /** Which routing construct in the router source produced this route. */
   readonly form: RouteForm;
@@ -78,20 +49,13 @@ export class DispatchRouteScanError extends Error {
   override readonly name = 'DispatchRouteScanError';
 }
 
-// ─── Router-source resolution (tool → the module dispatch imports) ───────────
-
 /**
- * Resolve each dispatchable tool to its composite router file.
+ * Resolves each dispatchable tool to its composite router file. Dispatch keeps the tool-to-directory
+ * map inside loader closures, which code cannot read. The `area` field of {@link EFFECT_PROVIDERS}
+ * holds the same map, so this function reads it there.
  *
- * The tool → module-directory correspondence is the one fact dispatch encodes
- * only inside its loader closures (`() => import('../workflow/composite.js')`),
- * which cannot be read as data. It is already transcribed — and ledger-validated
- * — as the `area` field of the governed {@link EFFECT_PROVIDERS} map, so it is
- * reused here rather than transcribed a second time.
- *
- * Two-way ratchet: the provider tool set and the live dispatch loader tool set
- * must be IDENTICAL. A tool that gains a dispatch loader without a provider (or
- * loses one) throws here instead of quietly dropping that tool's routes.
+ * The provider tool set and the dispatch loader tool set must be identical. Otherwise this
+ * function throws, and no routes of a tool get lost.
  */
 export function resolveRouterSources(
   providers: readonly EffectProvider[] = EFFECT_PROVIDERS,
@@ -117,19 +81,20 @@ export function resolveRouterSources(
     .sort((a, b) => (a.tool < b.tool ? -1 : a.tool > b.tool ? 1 : 0));
 }
 
-// ─── A comment/string-aware cursor over TypeScript source ────────────────────
-//
-// Route literals are extracted positionally, so the scanner must not mistake a
-// `case 'x':` inside a comment or a string for a real routing arm. This is a
-// deliberately small lexer: it recognizes line comments, block comments, and the
-// three string forms, and reports whether a given index is inside one.
-
+/**
+ * The comment and string mask of a source file. The scanner reads route literals by position, so
+ * a `case 'x':` inside a comment or a string must not count as a route.
+ */
 interface SourceMask {
   /** `true` at every index that lies inside a comment or a string literal. */
   readonly masked: readonly boolean[];
 }
 
-/** Mark every index of `source` that lies inside a comment or string literal. */
+/**
+ * Marks each index of `source` inside a comment or a string literal. It knows line comments,
+ * block comments, and the three string forms. The opening quote stays unmasked, so a
+ * `case '…'` pattern still matches.
+ */
 export function maskCommentsAndStrings(source: string): SourceMask {
   const masked = new Array<boolean>(source.length).fill(false);
   let i = 0;
@@ -148,8 +113,6 @@ export function maskCommentsAndStrings(source: string): SourceMask {
     const ch = source[i];
     if (ch === "'" || ch === '"' || ch === '`') {
       const quote = ch;
-      // The opening quote itself stays UNMASKED so `case '…'` can be matched;
-      // only the literal body (and closing quote) is masked.
       i += 1;
       while (i < source.length) {
         if (source[i] === '\\') {
@@ -187,7 +150,7 @@ export function matchingBrace(source: string, openIndex: number, mask: SourceMas
   throw new DispatchRouteScanError(`unterminated block starting at offset ${openIndex}`);
 }
 
-/** Every unmasked match of `re` in `source`, as `[index, groups]`. */
+/** Each unmasked match of `re` in `source`. */
 function unmaskedMatches(
   source: string,
   re: RegExp,
@@ -203,8 +166,6 @@ function unmaskedMatches(
   return out;
 }
 
-// ─── The three routing constructs ────────────────────────────────────────────
-
 const SWITCH_HEADER = /switch\s*\(\s*action\b[^)]*\)\s*\{/;
 const CASE_LABEL = /case\s+'([^'\\]*)'\s*:/;
 const EQUALITY_BRANCH = /(typeof\s+)?(?<![.\w$])action\s*===\s*'([^'\\]*)'/;
@@ -213,7 +174,7 @@ const HANDLER_TABLE =
 const TABLE_KEY_AT =
   /^(?:'([^'\\]*)'|"([^"\\]*)"|([A-Za-z_$][\w$]*)|\[\s*([A-Za-z_$][\w$]*)\s*\])\s*:/;
 
-/** `case '<action>':` arms of every `switch (action…)` block in the router. */
+/** The `case '<action>':` arms of each `switch (action…)` block in the router. */
 export function extractSwitchCaseActions(source: string, mask: SourceMask): readonly string[] {
   const actions: string[] = [];
   for (const header of unmaskedMatches(source, SWITCH_HEADER, mask)) {
@@ -230,15 +191,13 @@ export function extractSwitchCaseActions(source: string, mask: SourceMask): read
 }
 
 /**
- * Explicit `action === '<action>'` branch arms — the composite router's special
- * dispatch branches (the arms that need something the generic table cannot give
- * them). `typeof action === 'string'` is a type guard, not a route, and is
- * excluded.
+ * The explicit `action === '<action>'` branch arms of the router. These are the special branches
+ * outside the generic table. A `typeof action === '…'` guard is not a route, so it is skipped.
  */
 export function extractEqualityBranchActions(source: string, mask: SourceMask): readonly string[] {
   const actions: string[] = [];
   for (const m of unmaskedMatches(source, EQUALITY_BRANCH, mask)) {
-    if (m[1] !== undefined) continue; // `typeof action === '…'`
+    if (m[1] !== undefined) continue;
     const value = m[2];
     if (value !== undefined) actions.push(value);
   }
@@ -246,10 +205,9 @@ export function extractEqualityBranchActions(source: string, mask: SourceMask): 
 }
 
 /**
- * Resolve a COMPUTED dispatch key (`[MUTATION_GATE_NAME]: …`) to its string
- * literal by following the router's own import of that binding and reading the
- * `export const NAME = '<literal>'` there. Throws when it cannot be resolved —
- * an unresolvable key would silently drop a real route.
+ * Resolves a computed dispatch key such as `[MUTATION_GATE_NAME]` to its string literal. It
+ * follows the import of the router and reads `export const NAME = '<literal>'` there. It throws
+ * when the key does not resolve, because a lost key drops a real route.
  */
 export function resolveImportedConst(routerFile: string, identifier: string): string {
   const source = fs.readFileSync(routerFile, 'utf8');
@@ -282,9 +240,9 @@ export function resolveImportedConst(routerFile: string, identifier: string): st
 }
 
 /**
- * Keys of the router's `Readonly<Record<string, …Handler>>` dispatch table — the
- * map the router indexes with the incoming action (`ACTION_HANDLERS[action]`).
- * Quoted, bare-identifier and computed keys are all read.
+ * The keys of the `Readonly<Record<string, …Handler>>` dispatch table of the router. It reads
+ * quoted, bare, and computed keys. A key starts only at depth 1 after `{` or `,`. Thus a nested
+ * option bag or a call argument adds no false route.
  */
 export function extractHandlerTableActions(
   source: string,
@@ -299,9 +257,6 @@ export function extractHandlerTableActions(
     const body = source.slice(open, close);
     const bodyMask = mask.masked.slice(open, close);
 
-    // Walk the table body tracking bracket depth. A key can only start at depth
-    // 1 immediately after the opening `{` or a `,` — so a nested option bag or
-    // an adapter call argument can never contribute a phantom route.
     let depth = 0;
     let expectKey = false;
     let i = 0;
@@ -340,9 +295,7 @@ export function extractHandlerTableActions(
   return actions;
 }
 
-// ─── The collector ───────────────────────────────────────────────────────────
-
-/** Read one router's shipped routes. Throws when the file carries none. */
+/** Reads the shipped routes of one router. It throws when the file has none. */
 export function readRouterRoutes(source: RouterSource): readonly DispatchRoute[] {
   if (!fs.existsSync(source.file)) {
     throw new DispatchRouteScanError(
@@ -372,12 +325,8 @@ export function readRouterRoutes(source: RouterSource): readonly DispatchRoute[]
 }
 
 /**
- * The SHIPPED dispatch route table: every `(tool, action)` pair the real
- * composite routers route, read from the modules dispatch actually imports.
- *
- * Deterministic (sorted) and independent of the contract compiler — a route
- * here exists because the router code routes it, not because a descriptor
- * declared it.
+ * The sorted shipped dispatch route table, read from the router modules that dispatch imports.
+ * A route is here because the router code routes it, not because a descriptor declares it.
  */
 export function collectDispatchRoutes(
   sources: readonly RouterSource[] = resolveRouterSources(),

@@ -1,41 +1,14 @@
-// ─── The Exarchos workflow capsule — reference integrity ─────────────────────
-//
-// The schema (`exarchos-capsule.ts`) proves a capsule is CLOSED. This module
-// proves it is RESOLVABLE. The split is forced rather than stylistic: the
-// round-trip guard compares the schema against its own JSON Schema projection,
-// and cross-object resolution cannot be expressed in JSON Schema at all. A rule
-// added to the schema instead of to this pass would make the two validators
-// disagree — which is exactly how the published kernel's own graph rules behave
-// when they are projected. The admission contract in this tree splits the same
-// problem the same way (`../ir/references.ts`).
-//
-// Five reference classes are resolved:
-//
-//   • TASK refs    (`graph.dependencies[].from`/`.to`, `graph.joins[].waitsFor`,
-//                    the keys of `contracts.taskInputs`/`taskResults` and of
-//                    `settlementContract.taskVerification`, and
-//                    `settlementContract.requiredResults`) → a task DEFINED in
-//                    `graph.tasks`.
-//   • ORDER        (`graph.dependencies`)                  → acyclic, so the
-//                    graph can actually be scheduled.
-//   • FACT/EVENT   (`graph.completionPredicate.condition`) → a name DECLARED in
-//                    the predicate's own `declares` block.
-//   • SETTLEMENT   (`settlementContract.requiredResults`)  → a task that
-//                    declares a result shape, since settlement adjudicates a
-//                    claim against that shape and cannot adjudicate against
-//                    nothing.
-//   • STEP refs    (`graph.tasks[].stepId`)                → a step of the
-//                    kernel definition this capsule compiled from, when a
-//                    caller supplies one.
-//
-// The kernel definition is checked by DELEGATION: `WorkflowDefinitionV1Schema
-// .safeParse` runs the package's own reference rules, so the kernel's graph
-// integrity is never reimplemented here — only consumed. That is the same rule
-// the schema follows for `authority`.
-//
-// Duplicate task or join ids are violations in their own right: an ambiguous
-// target cannot be soundly resolved, so a later pass would silently pick one.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Reference integrity for the Exarchos workflow capsule. The schema in `exarchos-capsule.ts` proves
+ * that a capsule is closed. This module proves that it is resolvable. JSON Schema cannot express
+ * cross-object resolution, so these rules stay out of the schema and its round-trip guard.
+ *
+ * The pass resolves task refs to `graph.tasks`, checks that `graph.dependencies` is acyclic, and
+ * resolves predicate facts and events to the `declares` block. Each required result must name a
+ * task with a declared result shape. When the caller supplies the kernel definition, each `stepId`
+ * must name a step of it. The kernel schema checks that definition, so this module does not
+ * duplicate the kernel graph rules. A duplicate task or join id is also a violation.
+ */
 
 import { z } from 'zod';
 import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
@@ -44,13 +17,9 @@ import type { ExarchosCapsuleV1 } from './exarchos-capsule.js';
 import { visitDeclaredObjects } from './kernel-derivation.js';
 
 /**
- * Every kind of reference-integrity violation this pass can report.
- *
- * A runtime roster rather than a bare type union, and the type is derived from
- * it. `tests/unit` is typechecked by nothing, so a compile-time totality
- * assertion sited there would pass by never running; a roster the tests iterate
- * turns a new kind with no fixture into a red test instead. Carried as a schema
- * because a verdict crossing the tool boundary has to be validated there too.
+ * Every kind of reference-integrity violation that this pass reports. It is a runtime roster, not a
+ * type union, because no typecheck runs over `tests/unit`. The tests iterate the roster, so a new
+ * kind with no fixture fails a test. It is a schema because the tool boundary validates verdicts.
  */
 export const CapsuleReferenceViolationKindSchema = z.enum([
   'duplicate-task-id',
@@ -73,7 +42,7 @@ export type CapsuleReferenceViolationKind = z.infer<typeof CapsuleReferenceViola
 /** A single, path-annotated reference-integrity violation. */
 export interface CapsuleReferenceViolation {
   readonly kind: CapsuleReferenceViolationKind;
-  /** The offending reference / id value. */
+  /** The offending reference or id value. */
   readonly ref: string;
   /** A JSON-ish path locating where the offending reference lives. */
   readonly at: string;
@@ -82,7 +51,7 @@ export interface CapsuleReferenceViolation {
 
 /** The verdict from resolving every reference in a capsule. */
 export interface CapsuleReferenceVerdict {
-  /** `true` iff there are zero violations — the capsule is referentially sound. */
+  /** True when there are zero violations. */
   readonly ok: boolean;
   readonly violations: readonly CapsuleReferenceViolation[];
 }
@@ -90,37 +59,23 @@ export interface CapsuleReferenceVerdict {
 /** Options for {@link resolveCapsuleReferences}. */
 export interface ResolveCapsuleReferencesOptions {
   /**
-   * The workflow definition this capsule compiled from, when the caller has it.
-   *
-   * A capsule pins a definition by DIGEST, not by value, so the definition is
-   * not in the document and step references cannot be resolved without it.
-   * Supplied here, it is parsed through the kernel's own schema — which is
-   * where the kernel's graph rules live — before any step id is resolved
-   * against it.
+   * The workflow definition that the capsule compiled from. A capsule pins its definition by digest
+   * only, so step references resolve only when the caller supplies it. The kernel schema parses it
+   * first.
    */
   readonly definition?: unknown;
 }
 
 /**
- * The keys under which the kernel declares a collection of STEPS.
- *
- * The kernel nests steps in more than one place — a loop's body, a branch
- * path, a fork path, a failure handler — so the set has to be reachable at any
- * depth. But it is a SET, not "any object carrying a stepId": a transition's
- * `fromStepId`/`toStepId` are different keys and are never collected, so a
- * transition cannot make a dangling id look resolvable.
+ * The keys under which the kernel declares a collection of steps, at any depth. Only these keys
+ * count. Transition keys such as `fromStepId` do not, so a transition cannot make a dangling id
+ * resolve.
  */
 const STEP_COLLECTION_KEYS: ReadonlySet<string> = new Set(['steps', 'bodySteps']);
 /**
- * Every step id DECLARED by a kernel definition, at any nesting.
- *
- * The walk follows the kernel's own schema, not the document. That distinction
- * is load-bearing: `WorkflowDefinitionV1Schema` is built on `z.looseObject`, so
- * a definition the kernel accepts may retain arbitrary unknown objects, and a
- * key-name match alone would still reach inside them. A definition carrying
- * `{ notes: { steps: [{ stepId: 'step-ghost' }] } }` would then resolve a
- * capsule task that names no declared step at all — a dangling reference
- * reported as sound.
+ * Every step id that a kernel definition declares, at any depth. The walk follows the kernel
+ * schema, not the document. `WorkflowDefinitionV1Schema` uses `z.looseObject`, so an accepted
+ * definition can keep unknown objects. A key-name match alone can find a step id inside them.
  */
 function collectStepIds(definition: unknown, into: Set<string>): void {
   visitDeclaredObjects(WorkflowDefinitionV1Schema, definition, (object, key) => {
@@ -130,7 +85,11 @@ function collectStepIds(definition: unknown, into: Set<string>): void {
   });
 }
 
-/** Every fact field and event identity a condition names, with its own path. */
+/**
+ * Every fact field and event identity that a condition names, with its own path. The switch is
+ * exhaustive over the closed condition union. A new kind without an arm is a compile error, not a
+ * predicate that reads as fully declared.
+ */
 export function collectConditionRefs(
   node: IrEdgeConditionNode,
   at: string,
@@ -156,12 +115,6 @@ export function collectConditionRefs(
       collectConditionRefs(node.operand, `${at}.operand`, facts, events);
       return;
     default: {
-      // The AST is a closed seven-kind union. A kind added to it without an arm
-      // here would silently contribute no references, so this pass would report
-      // a predicate as fully declared while never having read part of it —
-      // which is worse than a missing check, because it reads as a clean
-      // verdict. The assignment narrows to `never` today, so an eighth kind is
-      // a compile error rather than a quiet hole.
       const unhandled: never = node;
       throw new Error(`capsule-references: unhandled condition kind ${JSON.stringify(unhandled)}`);
     }
@@ -169,11 +122,10 @@ export function collectConditionRefs(
 }
 
 /**
- * Every dependency cycle, as the id sequence that closes it.
- *
- * Iterative rather than recursive so a pathological capsule cannot overflow the
- * stack. Edges to unknown tasks are skipped: a dangling endpoint is already
- * reported as its own violation and must not also read as a break in the order.
+ * Every dependency cycle, as the id sequence that closes it. The walk is iterative, so a large
+ * capsule cannot overflow the stack. It skips edges to unknown tasks, because the dangling-ref
+ * check reports them. Each cycle is reported once, keyed by its sorted members. Stable ids hold no
+ * comma, so a comma-joined key is sound.
  */
 function findDependencyCycles(
   taskIds: ReadonlySet<string>,
@@ -215,9 +167,6 @@ function findDependencyCycles(
       if (child === undefined) continue;
       if (state.get(child) === ON_STACK) {
         const cycle = [...path.slice(path.indexOf(child)), child];
-        // One loop, one report: the same cycle is reachable from every member,
-        // and a caller reading nine rotations of it learns nothing extra. Ids
-        // cannot contain a comma, so the sorted member list is a sound key.
         const key = cycle.slice(0, -1).sort().join(",");
         if (!reported.has(key)) {
           reported.add(key);
@@ -235,11 +184,8 @@ function findDependencyCycles(
 }
 
 /**
- * Resolve every reference in a STRUCTURALLY-VALID capsule.
- *
- * Returns all violations — it never short-circuits — so one pass reports every
- * dangling reference rather than the first. Purely functional: no document
- * mutation and no I/O.
+ * Resolve every reference in a structurally valid capsule. It returns all violations, not only the
+ * first. The function does not change the document and does no I/O.
  */
 export function resolveCapsuleReferences(
   capsule: ExarchosCapsuleV1,

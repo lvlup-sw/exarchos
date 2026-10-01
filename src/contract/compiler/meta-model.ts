@@ -1,40 +1,17 @@
-// ─── Contract meta-model (P03-03) ────────────────────────────────────────────
-//
-// PROGRAM-03, API-003. The typed meta-model the contract COMPILER consumes.
-// One deterministic generation pipeline (design authority: "shared workflow
-// semantics and Exarchos product semantics are separate authoritative inputs to
-// one deterministic generation pipeline") — this module is that pipeline's
-// INPUT model, DERIVED from the live `TOOL_REGISTRY` rather than hand-duplicated.
-//
-// A meta-model entry is a total description of ONE Exarchos action:
-//   • its stable ActionId (`<tool>.<action>`),
-//   • its input JSON schema + its output/error/capped carrier schemas
-//     (projected from the registry + the P03-02 closed contract surface),
-//   • the stable error codes and output kinds it is bound to (⊆ the frozen
-//     `contract-surface`), and
-//   • its ten POLICY dimensions — execution / authorization / evidence / effect
-//     / cache / task / cancellation / economy / compatibility / presentation.
-//
-// The Zod schemas here are the compiler's admission gate: a hand-built meta-
-// model missing a required policy field, or carrying an error code / output
-// kind / surface version that is not part of the declared contract surface,
-// fails compilation with a typed diagnostic (`compile.ts`) rather than silently
-// emitting a partial descriptor.
-//
-// This module is PURE apart from reading the in-memory `TOOL_REGISTRY`; it holds
-// no clock, no filesystem, and no absolute paths, so `deriveMetaModel()` is
-// byte-stable across machines and runs.
-//
-// AUTHORITY DIRECTION (DR-11 / T-16). `registry.ts` is the DECLARATION
-// authority; this module is a PROJECTION of it, and the running server does not
-// consume `compile()` output. That means a guard comparing this module's output
-// back against `TOOL_REGISTRY` the way it was derived from `TOOL_REGISTRY` is a
-// tautology and cannot see a wrong projection here. The guard that can is
-// `runtime-authority.ts`, which audits the derived model against the SHIPPED
-// runtime surface (`buildRegistrationSchema` / `buildToolDescription` /
-// `handleDescribe`) — read that file's header for exactly what it does and does
-// not catch before adding or changing a `derive*` function below.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The typed meta-model that the contract compiler reads, derived from the live `TOOL_REGISTRY`. An
+ * entry describes one action: its ActionId, its input and carrier schemas, its bound error codes
+ * and output kinds, and its ten policy dimensions.
+ *
+ * The Zod schemas are the admission gate of the compiler. An entry with a missing policy field, or
+ * a code or kind outside the contract surface, fails in `compile.ts` with a typed diagnostic. The
+ * module reads no clock, file, or absolute path, so `deriveMetaModel()` is byte-stable.
+ *
+ * `registry.ts` is the declaration authority and this module projects it. The running server does
+ * not read `compile()` output. A guard that compares this output with `TOOL_REGISTRY` is a
+ * tautology. `runtime-authority.ts` audits the model against the shipped runtime surface instead.
+ * Read its header before you change a `derive*` function.
+ */
 
 import { z } from 'zod';
 import {
@@ -52,12 +29,10 @@ import { OUTPUT_KINDS } from '../envelope.js';
 import { layerCodes } from '../error-families.js';
 import { canonicalizeText } from '../authority-digest.js';
 
-// ─── Shared primitives ───────────────────────────────────────────────────────
-
-/** A projected JSON Schema fragment (draft-2020-12). Structure is opaque here. */
+/** A projected JSON Schema fragment (draft-2020-12). This module does not read its structure. */
 export type JsonSchema = Readonly<Record<string, unknown>>;
 
-/** The action safety class (mirrors the registry `ActionAnnotations.safety`). */
+/** The action safety class, the same as the registry `ActionAnnotations.safety`. */
 export const ACTION_SAFETY = [
   'read-only',
   'local-mutation',
@@ -80,8 +55,6 @@ export const POLICY_DIMENSIONS = [
   'presentation',
 ] as const;
 export type PolicyDimension = (typeof POLICY_DIMENSIONS)[number];
-
-// ─── Policy Zod schemas (the admission gate) ─────────────────────────────────
 
 const GateSpecSchema = z
   .object({
@@ -187,9 +160,8 @@ function actionContractIssueMessage(error: unknown): string {
 }
 
 /**
- * Admission schema for a declared action contract. Validation reuses the
- * registry algebra (including the existing emission catalog) so this module
- * does not author a second catalog. Nested sets are canonicalized.
+ * The admission schema for a declared action contract. It uses the registry normalizer and its
+ * emission catalog, so this module has no second catalog. Nested sets come out canonical.
  */
 export const ActionContractModelSchema: z.ZodType<ActionContract> = z.unknown().transform((value, ctx) => {
   try {
@@ -200,7 +172,7 @@ export const ActionContractModelSchema: z.ZodType<ActionContract> = z.unknown().
   }
 });
 
-/** The total policy record — every one of the ten dimensions is required. */
+/** The total policy record. All ten dimensions are required. */
 export const ActionPolicySchema = z
   .object({
     execution: ExecutionPolicySchema,
@@ -237,15 +209,13 @@ export const ActionMetaModelSchema = z
   })
   .strict();
 
-/** The whole compiler input: a surface version + a set of action entries. */
+/** The whole compiler input: a surface version and a set of action entries. */
 export const MetaModelSchema = z
   .object({
     surfaceVersion: z.string(),
     actions: z.array(ActionMetaModelSchema),
   })
   .strict();
-
-// ─── Inferred types ──────────────────────────────────────────────────────────
 
 export type GateSpec = z.infer<typeof GateSpecSchema>;
 export type AutoEmitSpec = z.infer<typeof AutoEmitSpecSchema>;
@@ -263,11 +233,9 @@ export type ActionPolicy = z.infer<typeof ActionPolicySchema>;
 export type ActionMetaModel = z.infer<typeof ActionMetaModelSchema>;
 export type MetaModel = z.infer<typeof MetaModelSchema>;
 
-// ─── Deterministic sorting helpers ───────────────────────────────────────────
-
 const byString = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
-/** Dedupe + sort a list of strings (order-independent, byte-stable). */
+/** Remove duplicates from a list of strings and sort it. */
 export function sortedUnique(values: readonly string[]): string[] {
   return [...new Set(values)].sort(byString);
 }
@@ -278,9 +246,8 @@ function readDeclaredActionContract(action: ToolAction): unknown {
 }
 
 /**
- * Project a declared registry contract into the compiler model.
- * Missing live contracts stay missing — annotations and top-level `autoEmits`
- * are not an independent source for inventing one.
+ * Project a declared registry contract into the compiler model. A missing contract stays missing.
+ * Annotations and top-level `autoEmits` do not create one.
  */
 export function projectActionContract(action: ToolAction): ActionContract | undefined {
   const declared = readDeclaredActionContract(action);
@@ -296,15 +263,10 @@ function evidenceFromContract(contract: ActionContract): EvidencePolicy {
   return { autoEmits };
 }
 
-// ─── Derivation from the live registry ───────────────────────────────────────
-
 /**
- * The stable error codes an action is BOUND to. Every action can surface the
- * protocol / authorization / handler / output / presenter families; the durable
- * TASK-layer codes (`WAIT_TIMEOUT`, `IDEMPOTENCY_*`, …) are reachable ONLY when
- * the action is task-augmentable or long-running. This ties the action's `task`
- * policy to its error surface rather than asserting a flat, identical set for
- * every action — a task-suitable action's contract legitimately spans more codes.
+ * The stable error codes that an action is bound to. Each action gets the protocol, authorization,
+ * handler, output, and presenter families. The task-layer codes are added only when the action is
+ * task-suitable or long-running.
  */
 export function deriveErrorCodes(action: ToolAction): string[] {
   const codes: string[] = [
@@ -406,7 +368,7 @@ function derivePresentationPolicy(action: ToolAction): PresentationPolicy {
   };
 }
 
-/** Derive the total, ten-dimension policy record for one action. */
+/** Derive the total ten-dimension policy record for one action. */
 export function derivePolicy(action: ToolAction): ActionPolicy {
   const actionContract = projectActionContract(action);
   return {
@@ -425,12 +387,9 @@ export function derivePolicy(action: ToolAction): ActionPolicy {
 }
 
 /**
- * `derivePolicy` has no ActionId to name — it only sees the bare `ToolAction`.
- * A declared contract that fails to normalize (a non-auto emission source
- * among them) surfaces from `projectActionContract` with an event name but no
- * action identity; this re-throws the same typed error carrying both, the
- * same wrapping `admitActionContract` (registry/annotations.ts) applies at
- * registration time.
+ * Call `derivePolicy` and add the ActionId to an `ActionContractError`. `derivePolicy` sees only
+ * the bare `ToolAction`, so its error names no action. `admitActionContract` in
+ * `registry/annotations.ts` wraps the error the same way at registration.
  */
 function derivePolicyNamingAction(actionId: string, action: ToolAction): ActionPolicy {
   try {
@@ -443,7 +402,10 @@ function derivePolicyNamingAction(actionId: string, action: ToolAction): ActionP
   }
 }
 
-/** Derive one action's meta-model entry from its registry descriptor. */
+/**
+ * Derive the meta-model entry of one action from its registry descriptor. The description gets
+ * normalized line endings, so CRLF and LF checkouts derive the same bytes.
+ */
 export function deriveActionMetaModel(tool: CompositeTool, action: ToolAction): ActionMetaModel {
   const actionId = `${tool.name}.${action.name}`;
   const policy = derivePolicyNamingAction(actionId, action);
@@ -451,9 +413,6 @@ export function deriveActionMetaModel(tool: CompositeTool, action: ToolAction): 
     actionId,
     tool: tool.name,
     action: action.name,
-    // Line-ending-normalized so a CRLF working tree and an LF CI checkout
-    // derive a byte-identical meta-model (mirrors `canonicalizeText` in the
-    // P03-01 digest layer).
     description: canonicalizeText(action.description),
     surfaceVersion: CONTRACT_SURFACE_VERSION,
     inputSchema: zodToJsonSchema(action.schema) as JsonSchema,
@@ -465,12 +424,7 @@ export function deriveActionMetaModel(tool: CompositeTool, action: ToolAction): 
   };
 }
 
-/**
- * Derive the whole meta-model from the live `TOOL_REGISTRY` (or an injected
- * registry). Deterministic: actions are sorted by ActionId, every set is
- * sorted, and no clock/path/locale leaks in — so `deriveMetaModel()` is
- * byte-stable across machines.
- */
+/** Derive the whole meta-model from the live `TOOL_REGISTRY` or a supplied registry, sorted by ActionId. */
 export function deriveMetaModel(
   registry: readonly CompositeTool[] = TOOL_REGISTRY,
 ): MetaModel {

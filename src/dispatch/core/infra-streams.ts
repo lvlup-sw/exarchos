@@ -1,39 +1,27 @@
-// Reserved stream identifiers for non-feature event streams.
-//
-// Centralized here so view/listing handlers can distinguish feature workflows
-// from infrastructure streams without duplicating string literals across
-// modules (DIM-1 — single source of truth).
-//
-// The owning modules (`verbs/init`, `verbs/doctor`,
-// `telemetry/constants`) re-export from this file to preserve existing
-// import paths.
+// Reserved stream ids for event streams that belong to no feature workflow.
+// View and listing handlers use them to tell feature streams from infrastructure streams.
 
 export const INIT_STREAM_ID = 'exarchos-init';
 export const DOCTOR_STREAM_ID = 'exarchos-doctor';
 export const TELEMETRY_STREAM = 'telemetry';
 
-// DR-2 / DR-7 (task 010) — the `onboard` verb's two-event split
-// (`onboard.requested` → `onboard.executed`) lands on this dedicated
-// infrastructure stream. Onboard is phase-independent and not tied to any
-// feature workflow, so a reserved stream keeps the reconcile audit trail
-// (and its crash-recovery precheck via `readStreamTail`) separate from
-// feature streams — and from `init`/`doctor` diagnostics.
+/**
+ * The stream for the `onboard` verb's `onboard.requested` and `onboard.executed` events.
+ * Onboarding belongs to no feature workflow, so its audit trail stays apart from feature streams.
+ */
 export const ONBOARD_STREAM_ID = 'exarchos-onboard';
 
-// #1739 (cutover promotion path) — store-scoped admission governance facts:
-// `admission.rollout-decision` / `admission.enforcement-enabled` (the
-// `cutover_decide` verb) and `admission.cutover-ready` (the observer's
-// auto-export hook). These facts describe the WHOLE store's cutover posture,
-// not one feature workflow, so they land on a reserved infrastructure stream
-// rather than any feature stream or `<featureId>/admission-shadow` sidecar.
+/**
+ * The stream for admission facts about the whole store, such as the `cutover_decide` decisions
+ * and `admission.cutover-ready`. These facts describe no single feature workflow.
+ */
 export const ADMISSION_STREAM_ID = 'exarchos-admission';
 
-// The mutating VCS handlers journal the INTENT before the remote call and the
-// RESULT after it, and both records land here rather than on any feature
-// stream: a pull request is a fact about the repository, and the same handler
-// serves callers that carry no featureId at all. Reserving the id is what lets
-// post-dispatch observation resolve the stream those records land on from the
-// action's own declaration instead of failing to find it in the arguments.
+/**
+ * The stream for the intent and result records of the mutating VCS handlers.
+ * A pull request is a fact about the repository, and some callers carry no featureId.
+ * The reserved id lets post-dispatch observation find this stream from the action declaration.
+ */
 export const VCS_STREAM_ID = 'vcs';
 
 export const INFRA_STREAM_IDS: ReadonlySet<string> = new Set([
@@ -43,8 +31,7 @@ export const INFRA_STREAM_IDS: ReadonlySet<string> = new Set([
   ONBOARD_STREAM_ID,
   ADMISSION_STREAM_ID,
   VCS_STREAM_ID,
-  // workflow/feedback.ts owns this selector; listed so observation can
-  // resolve the unscoped stream the feedback contract names.
+  /** The feedback stream that `workflow/feedback.ts` owns. */
   'meta/feedback',
 ]);
 
