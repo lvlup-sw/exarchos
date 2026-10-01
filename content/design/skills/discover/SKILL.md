@@ -79,21 +79,3 @@ If discovery surfaces an implementation need:
    ideate <implementation-topic>
    ```
    Reference the discovery report as design input.
-
-## Event Emissions
-
-Optionally emit events at key moments for observability:
-
-```typescript
-exarchos:exarchos_event({
-  action: "append", stream: "<featureId>",
-  event: { type: "discovery.sources_collected", data: { sourceCount: N } }
-})
-```
-
-```typescript
-exarchos:exarchos_event({
-  action: "append", stream: "<featureId>",
-  event: { type: "discovery.report_committed", data: { path: "<report-path>" } }
-})
-```

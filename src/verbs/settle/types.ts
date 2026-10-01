@@ -42,6 +42,21 @@ export interface SettlementVerificationTrace {
   readonly bundleRefs?: readonly [BundleRefV1, ...BundleRefV1[]];
 }
 
+/** A decision a settlement round carries for one deviation the batch waits on. */
+export interface SettlementDecision {
+  readonly deviationId: string;
+  readonly decision: 'accepted' | 'rejected';
+  readonly actor: string;
+  readonly rationale: string;
+}
+
+/** A deviation a held batch waits on, named on the receipt for the decision to answer. */
+export interface PendingDeviation {
+  readonly deviationId: string;
+  readonly deviationKind: string;
+  readonly statement: string;
+}
+
 /** What one `settle` call returns, on every outcome. */
 export interface SettlementReceipt {
   readonly operationId: string;
@@ -66,4 +81,14 @@ export interface SettlementReceipt {
    * turn a claim written by an older build into an adapter-level error.
    */
   readonly bundleRefs?: readonly [BundleRefV1, ...BundleRefV1[]];
+  /**
+   * Which settlement round of the batch this is: 0 for the round that
+   * submitted it, 1 for the round that decided its held deviations. Optional
+   * for the reason `bundleRefs` is.
+   */
+  readonly round?: number;
+  /** On a held batch: what the decision round has to decide, by id. */
+  readonly pendingDeviations?: readonly PendingDeviation[];
+  /** On a decision round: the decisions it recorded. */
+  readonly decisions?: readonly SettlementDecision[];
 }

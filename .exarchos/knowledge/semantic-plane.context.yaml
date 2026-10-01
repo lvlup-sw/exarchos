@@ -1,0 +1,591 @@
+# Exarchos semantic workflow plane: context packet
+#
+# Read this before you plan, review or change anything that touches prepare,
+# settle, capsules, phases, gates, events, knowledge binding, runtime adapters
+# or the roadmap trackers. It replaces re-reading the two design documents and
+# re-auditing the open issues.
+#
+# The packet has three kinds of content. Keep them apart:
+#   design     what the adopted design says. Changes only through a recorded decision.
+#   decisions  dated choices with a source. Append; never rewrite history.
+#   measured   facts about the tree, each with an as_of and a command that re-checks it.
+#              A measured fact older than the last merge to main is a hypothesis.
+#
+# Update protocol: when a leg lands or a decision is taken, edit `decisions`,
+# `build_order`, `drift` and `issue_map` in the same PR, and bump `packet.as_of`.
+
+packet:
+  id: exarchos-semantic-plane
+  version: 2
+  as_of: 2026-10-01
+  main_at: 413b4ffa0
+  owner_issue: 1875            # the decision record and build-order log
+  roadmap_issue: 1599
+  epic_issue: 1856
+
+sources:
+  - id: plane
+    title: Exarchos semantic workflow plane
+    where: lvlup-sw/docs exarchos/docs/references/exarchos-semantic-workflow-plane.html
+    commit: a11262f88
+    role: the design. Protocol, capsule, settlement, divergence, knowledge, failure semantics.
+  - id: transposition
+    title: Semantic plane transposition (impact analysis)
+    where: lvlup-sw/docs exarchos/docs/references/exarchos-semantic-plane-transposition.html
+    commit: a11262f88
+    role: where each existing machine lands, the kernel-first IR re-charter, the close-out ledger, the rule conflicts.
+  - id: read-locally
+    how: "gh api repos/lvlup-sw/docs/contents/exarchos/docs/references/<file> --jq .content | base64 -d   (or npm run docs:mount)"
+
+# ─── design ──────────────────────────────────────────────────────────────────
+
+design:
+  thesis:
+    - Meaning is authoritative. Exarchos owns workflow semantics, design intent, invariants and accepted knowledge.
+    - Scheduling is delegated. The runtime owns concurrency, retries, prompts, model choice and aggregation.
+    - Workers stay off MCP. One coordinator prepares and settles. Workers consume immutable task packets.
+    - Drift becomes knowledge. Execution can propose a design change; only settlement can accept and version it.
+
+  protocol:
+    verbs:
+      prepare: "prepare(intent, scope, capabilities) -> one immutable, content-addressed capsule. Resolves the workflow DEFINITION, binds knowledge, validates, partitions, lowers."
+      settle: "settle(capsuleVersion, batch) -> one decision. Adjudicates claims and evidence against the pinned capsule. Idempotent on (capsuleVersion, batchId)."
+    unit: the WORKFLOW. Not a phase, not a wave, not an intent.
+    call_budget_per_workflow:
+      conforming: 2
+      permitted_deviation: 2
+      material_deviation: 3      # + continuation prepare (affected-slice recompile)
+      decision_required: 3       # + second settle carrying the decision
+    execution_calls: 0           # workers never call Exarchos
+    no_state_specific_verbs: true  # quote: "No state-specific verbs are required."
+    optional: hybrid knowledge mode adds one batched supplement call by the coordinator.
+
+  capsule:
+    identity: [workflowId, definitionVersion, designVersion, capsuleVersion]
+    intent: [goals, nonGoals, successCriteria]
+    authority: [invariants, assumptions, delegatedDecisions, escalationBoundaries]   # plus goals = the five authority categories
+    graph: [tasks, dependencies, joins, completionPredicate]
+    contracts: [taskInputs, taskResults, evidenceKinds, deviationEnvelope]
+    knowledge: [mode eager|hybrid, rationale, patterns, glossary, "unresolvedRefs?", "supplementBudget?"]
+    executionProfile: [capabilities, "concurrencyHints?", "preferredAgentKinds?"]
+    provenance: [sources, compiledAt, compilerVersion]
+    stages: tasks, joins, the critic/review stage ("a logical capsule stage, not an Exarchos-owned agent") and synthesis boundaries all live INSIDE one capsule.
+    envelopes: taskContext[] per worker (task, knowledge slice, result schema); reviewContext (acceptance rules, pinned knowledge refs).
+    task_knowledge_slice: [taskId, "compiledFrom {designVersion, capsuleVersion}", mustPreserve, rationale, assumptions, delegatedChoices, escalationTriggers, evidenceRequested, sourceRefs]
+
+  settlement:
+    outcomes: [accepted, accepted-with-rationale, corrective-capsule, decision-required, recompile-required]   # plus nextCapsule
+    task_result_status: [completed, blocked, skipped, failed]
+    partial_settlement_valid: true   # Exarchos decides whether evidence supports completion or corrective work
+    dispositions:
+      conforming:
+        changed: "nothing semantic"
+        action: "accept"
+        design: "keep vN"
+        extra_calls: 0
+      permitted:  {changed: implementation detail within delegated freedom, action: accept with rationale, design: keep vN, extra_calls: 0}
+      material:   {changed: assumption, goal interpretation or task boundary, action: approve revision then recompile affected slice, design: create vN+1, extra_calls: 1}
+      prohibited:
+        changed: "invariant or explicit boundary"
+        action: "reject or emit corrective capsule"
+        design: "keep vN"
+        extra_calls: 0
+      ambiguous:  {changed: evidence cannot determine meaning, action: request human or policy decision, extra_calls: 1}
+    classification_order: invariant breach -> prohibited; meaning changed -> material; delegated choice -> permitted; otherwise conforming; ambiguous only when evidence cannot decide.
+    human_default: material design change requires a durable human decision (policy auto-acceptance may come later).
+
+  ownership:   # who owns what. Git, filesystem and CI are external truth.
+    rows:
+      - concern: "workflow meaning"
+        exarchos: "goals, phases, invariants, completion semantics"
+        runtime: "consumes compiled meaning"
+      - concern: "execution strategy"
+        exarchos: "capability constraints and hints"
+        runtime: "fan-out, pipelines, retries, model selection"
+      - concern: "implementation state"
+        exarchos: "references and interprets evidence"
+        runtime: "reads and MUTATES through its tools"
+        external: "Git / filesystem / CI"
+      - concern: "design drift"
+        exarchos: "classifies and accepts semantic change"
+        runtime: "detects and proposes with evidence"
+      - concern: "telemetry"
+        exarchos: "coarse semantic events"
+        runtime: "detailed run telemetry and journals"
+    rule: "Exarchos compiles and never runs the body. Exarchos executes only the internals of prepare and settle."
+
+  compiler: [C1 normalize, C2 bind knowledge, C3 validate, C4 partition, C5 lower adapter hints]
+
+  ir:   # #1258 re-charter, transposition section 04, resolution B
+    representations:
+      definition: authored workflow meaning (interface; humans author it, Git reviews it)
+      compiled_plan: definition + bound knowledge + repo facts + affected slices (internal to prepare)
+      capsule: compiled plan + capsuleVersion + packets + settlementContract (interface; adapters consume it)
+    resolution: "kernel-first. Freeze the kernel in Strategos.Contracts; generate TS and .NET types (a hand-written mirror is a defect); reserve combinator names as node kinds; harden #1249 laws only after the divergence loop runs on real settlements; #1253 in two waves (kernel parity with the first capsules, sugar parity after laws)."
+    authoring: TypeScript Builder -> serialized definition in .exarchos/workflows/ -> prepare compiles it with no Exarchos code change. Like Bicep -> ARM JSON.
+    without_it: 'The compiler becomes "a switch statement of built-in graphs", and settle needs bespoke logic per workflow type.'
+    kernel_sketch: "WorkflowDefinition { identity{definitionId,version,contentHash}; tasks[]{taskId,kind,inputs,outputs,completion,capabilities}; edges[]{from,to,kind dependency|join}; authority{invariants,goals,assumptions,delegatedDecisions,escalationBoundaries} }"
+
+  events:
+    semantic_kinds: [workflow.prepared, execution.settled, deviation.proposed, deviation.decided, design.revised, capsule.recompiled]
+    meaning:
+      workflow.prepared: definition, design, compiler, capsule version, scope, semantic checks
+      execution.settled: accepted outcomes, evidence summary, unresolved work, final decision
+      deviation.proposed: invalidated assumption, observation, proposed change, risk, affected slice
+      deviation.decided: accepted, rejected or deferred, with actor, rationale, policy reference
+      design.revised: append-only design delta linking prior and next version
+      capsule.recompiled: new capsule identity and the minimal invalidated slice
+    rule: events carry hashes and paths, not payloads. No per-tool eventing; tool calls are runtime telemetry unless they become evidence.
+    durable_record: a run bundle store (manifest, capsules, settlements, decisions, evidence index) indexed by the append-only ledger.
+
+  knowledge:
+    classes: [decision records, invariants, patterns, assumptions, glossary, learning candidates]
+    rule: bind the smallest sufficient slice into the capsule; keep references to canonical records; never force workers to fetch design knowledge themselves.
+    binder: the DKG (#1745) is promoted to a hot-path dependency of prepare (C2).
+
+  failure_semantics:
+    rows:
+      - failure: "worker fails or returns null"
+        runtime: "retry/substitute/mark blocked"
+        exarchos: "nothing until settlement"
+      - failure: "coordinator crashes before settle"
+        runtime: "resume journal and rebuild batch"
+        exarchos: "accept same batch idempotently"
+      - failure: "worker lacks semantic context"
+        runtime: "knowledge-gap request to coordinator"
+        exarchos: "optional one pinned supplement"
+      - failure: "duplicate settlement"
+        exarchos: "return prior decision; append nothing"
+      - failure: "design changes during execution"
+        runtime: "continue on pinned capsule"
+        exarchos: "compare affected slices at settlement"
+      - failure: "evidence incomplete"
+        runtime: "run a critic or targeted verifier"
+        exarchos: "corrective packet or decision request"
+      - failure: "runtime lacks a capability"
+        runtime: "reject before fan-out"
+        exarchos: "capability manifest checked in prepare"
+    rule: "Runtime failures are not automatically governance failures. Transport is at least once; settlement is idempotent."
+
+  non_goals: [per-tool eventing, a central scheduler, a hard security boundary (local authority guides cooperating runtimes)]
+  kept_constraints:
+    - Four visible tools stay four (prepare and settle are actions on exarchos_orchestrate).
+    - No daemon. Every request is bounded.
+    - Exarchos is an MCP server, never an MCP client.
+    - History is append-only.
+    - Human approval for material design change is the default.
+    - No caller-authored generic batch. The batch is result submission against a typed settlement contract.
+
+  adapters:
+    meaning: a runtime adapter lowers the capsule into harness-native orchestration (the doc names Agent Factory and Claude dynamic workflows).
+    second_adapter: a second RUNTIME, to prove the IR captured meaning and not one harness's mechanics. NOT a second intent or phase.
+    capability_based: adapters advertise primitives (parallel map, durable step, structured result, human wait, cancellation).
+
+# ─── machine dispositions (transposition section 03) ─────────────────────────
+# class: carried | reshaped | retired | net-new.  Retired != deleted: retirement is a
+# charter decision first, a deletion PR second.
+
+machines:
+  - machine: "ActionContract (124 actions)"
+    path: "src/registry"
+    lands_at: "capsule type system"
+    class: "carried"
+    status_2026_09_30: "in use"
+  - machine: "admission evaluator"
+    path: "src/registry, src/dispatch"
+    lands_at: "prepare-time validation + parity at settle"
+    class: "carried"
+    status_2026_09_30: "in use"
+  - machine: "emission declarations + append-site census"
+    path: "src/events"
+    lands_at: "settlement evidence verification"
+    class: "carried"
+    status_2026_09_30: "in use"
+  - machine: "bounded executor engine"
+    path: "src/verbs/execute"
+    lands_at: "internal core of settle"
+    class: "carried"
+    status_2026_09_30: "done: settle runs the task-completion segment per accepted task (#1915)"
+  - machine: "SQLite event store"
+    path: "src/storage"
+    lands_at: "append-only index of run artifacts"
+    class: "carried"
+    status_2026_09_30: "in use"
+  - machine: "CAS / idempotency"
+    path: "src/events"
+    lands_at: "settlement key (capsuleVersion, batchId)"
+    class: "carried"
+    status_2026_09_30: "done (#1908)"
+  - machine: "invariants catalog"
+    path: ".exarchos/invariants.md"
+    lands_at: "capsule.authority.invariants"
+    class: "carried"
+    status_2026_09_30: "bound by prepare"
+  - machine: "review-gate logic"
+    path: "src/review, src/verbs/gates"
+    lands_at: "reviewContext acceptance rules + settle adjudication"
+    class: "carried"
+    status_2026_09_30: "not yet in a capsule stage"
+  - machine: "workflow builder IR #1258"
+    lands_at: "kernel-first three-representation IR"
+    class: "reshaped"
+    status_2026_09_30: "kernel consumed (#1903, #1905); definitions not authored; prepare derives a kernel FROM the HSM (lower-definition.ts)"
+  - machine: "DKG #1745"
+    lands_at: "the C2 knowledge binder"
+    class: "reshaped"
+    status_2026_09_30: "not started; blocked on unfiled taxonomy-v2 issues and strategos#157"
+  - machine: "#1687 measurement"
+    lands_at: "acceptance metric for the per-workflow call budget"
+    class: "reshaped"
+    status_2026_09_30: "static census per intent (#1909); observed half open"
+  - machine: "runbooks"
+    path: "src/runbooks"
+    lands_at: "authored capsule stages"
+    class: "reshaped"
+    status_2026_09_30: "still step tables; task-completion runbook is the settle verification segment"
+  - machine: "WLM, lifecycle verbs, merge serializer"
+    lands_at: "coordinator toolkit, OFF the governance surface"
+    class: "reshaped"
+    status_2026_09_30: "still governance actions; demotion decided 2026-09-30, not built"
+  - machine: "workflow skills"
+    path: "content/"
+    lands_at: "intent expression + coordinator guidance"
+    class: "reshaped"
+    status_2026_09_30: "delegate skill rewritten (#1917); others are per-leaf recipes"
+  - machine: "execute_intent as an agent verb"
+    lands_at: "removed; settle(batch) replaces it"
+    class: "retired"
+    status_2026_09_30: "still registered"
+  - machine: "next_actions affordance loop"
+    path: "src/next-actions-computer.ts"
+    lands_at: "replaced by the settlement contract"
+    class: "retired"
+    status_2026_09_30: "live"
+  - machine: "HSM phase machine + playbooks as protocol"
+    path: "src/workflow/hsm-definitions.ts, playbooks.ts"
+    lands_at: "deleted via #1253"
+    class: "retired"
+    status_2026_09_30: "live; transition still an agent call"
+  - machine: ".state.json planner stamp"
+    lands_at: "replaced by the run manifest"
+    class: "retired"
+    status_2026_09_30: "MORE load-bearing: transition guards read it; settle syncs it"
+  - machine: "leaf-level suspension envelope #1766/#1767"
+    lands_at: "decision-required + second settle"
+    class: "retired"
+    status_2026_09_30: "issues closed; settlement continuation in #1920"
+  - machine: "per-leaf skill recipes / M5 #1318"
+    lands_at: "dissolved by two verbs"
+    class: "retired"
+    status_2026_09_30: "#1318 closed; recipes remain outside delegate"
+  - machine: "launcher exarchos <harness> (#1603)"
+    lands_at: "plugin distribution (#1877)"
+    class: "retired"
+    status_2026_09_30: "not started"
+  - machine: "fine-grained execution events as governance"
+    lands_at: "runtime journals; ledger keeps six kinds"
+    class: "retired"
+    status_2026_09_30: "decided in #1876; migrating via #1898"
+  - machine: "capsule format"
+    class: "net-new"
+    status_2026_09_30: "done (#1905)"
+  - machine: "compiler C1-C5"
+    class: "net-new"
+    status_2026_09_30: "partial: one feature delegate wave; C2 binds one rationale statement"
+  - machine: "capability manifest"
+    class: "net-new"
+    status_2026_09_30: "done: executionProfile + RUNTIME_UNFIT (#1917)"
+  - machine: "disposition classifier + deviation envelope"
+    class: "net-new"
+    status_2026_09_30: "partial: envelope + decision round (#1920 in review); no permitted / material / corrective outcomes"
+  - machine: "run bundle store"
+    class: "net-new"
+    status_2026_09_30: "done under the STATE DIR (#1885), not repo-local .exarchos/runs/"
+  - machine: "runtime adapters + context envelopes"
+    class: "net-new"
+    status_2026_09_30: "first adapter = Claude Code delegation skill (#1912); envelopes are prompt text, not typed taskContext"
+
+# ─── decisions (append only) ─────────────────────────────────────────────────
+
+decisions:
+  - date: "2026-08-27"
+    source: "#1875"
+    decision: "Adopt the plane as the Interaction Economy endpoint. Amend #1599 rules 3 and 7. Re-charter #1856 M3-M5 and #1258 kernel-first. Close #1766/#1767 and #1318 as superseded. Promote #1745. Propose launcher deprecation (#1877)."
+  - date: "2026-08-29"
+    source: "#1876"
+    decision: "Event authority: Options 1+2 composed, staged additively. The fine-grained-events constraint is amended, not voided. Both vocabularies stay until the preconditions land. Migration: #1888, then #1898."
+  - date: "2026-09-11"
+    source: "strategos#193, #1903"
+    decision: "Kernel published and consumed as @lvlup-sw/strategos-contracts 0.14.0."
+  - date: "2026-09-14"
+    source: "#1912 A1"
+    decision: "settled does not move the phase; transition stays a separate call."
+    status: "INTERIM since 2026-09-30 (see below)"
+  - date: "2026-09-14"
+    source: "#1912 A2 (#1915)"
+    decision: "settle runs the executor's task-completion segment per accepted task. The tier comes from the capsule, never the claim. Cited evidence must resolve to recorded rows."
+  - date: "2026-09-14"
+    source: "#1912 A4 (#1919)"
+    decision: "task.assigned promoted workflow-local -> capability; prepare and prepare_delegation append it; not reserved on the append surface."
+  - date: "2026-09-15"
+    source: "#1920 (in review)"
+    decision: "One decision round per held batch covering every pending deviation; a decision carries no claims; deviationId is content-derived; a decided batch is closed."
+  - date: "2026-09-30"
+    source: "Reed, roadmap review session"
+    decision: "The target unit is the WORKFLOW: one capsule, settlement carries phase change, transition and next_actions leave the agent path. Per-wave prepare and the separate transition are a recorded interim lowering."
+  - date: "2026-09-30"
+    source: "Reed, roadmap review session"
+    decision: "Demote serialize_merge, setup_worktree and create_pr off the governance surface. The harness merges, creates worktrees and opens PRs. settle verifies by observation (branch ancestry, worktree identity, PR existence)."
+  - date: "2026-09-30"
+    source: "Reed, roadmap review session"
+    decision: "Milestones are re-planned holistically against this reconciled design before any milestone moves. Issue revisions are drafted for review before they are applied."
+
+  - date: "2026-10-01"
+    source: "Reed, review page"
+    decision: "Milestone plan accepted. v2.12.0 = GA of what shipped (6 issues). v3.0.0 = the plane end to end, one milestone with 12 exit criteria. v3.1.0 renamed \"Portability and proof\". v3.2.0 = full DKG. #1604 (MCP 2026-07-28) stays on v3.0.0."
+  - date: "2026-10-01"
+    source: "Reed, review page"
+    decision: "No resume verb. The protocol has two verbs. Resuming is a read of the capsule and run bundle, followed by an idempotent settle."
+  - date: "2026-10-01"
+    source: "Reed, review page"
+    decision: "Exarchos carries no per-language code paths. Every verification command, flag and test glob comes from the repository through the toolchain resolver and is frozen into the capsule. The built-in toolchain table only seeds overridable defaults."
+  - date: "2026-10-01"
+    source: "Reed, review page"
+    decision: "No interim preview release. v2.12.0 GA ships when its six issues land; until then the plane is dogfooded from a locally built binary."
+  - date: "2026-10-01"
+    source: "Reed, review page"
+    decision: "Knowledge binding splits: an interim repo-local binder plus DKG P-0 (#1746), P-2 (#1747) and the ontology-criteria renegotiation (#1754) on v3.0.0; P-3 to P-5 on v3.2.0."
+  - date: "2026-10-01"
+    source: "delegated judgment, review session"
+    decision: "The space invariant (INV-11) is held by the capsule capability manifest, coordinator-only MCP access, and settle observing worktree identity. The WLM is not a chokepoint. The space-moat fork (upstream hook standard, remote sandboxes) moves to v3.1.0."
+  - date: "2026-10-01"
+    source: "Reed, review page"
+    decision: "The context packet lives at .exarchos/knowledge/semantic-plane.context.yaml with a CLAUDE.md pointer."
+
+  - date: "2026-10-01"
+    source: "Reed, unmilestoned triage"
+    decision: "The VCS demotion (#1928) covers every Git/PR write Exarchos performs (merge_orchestrate, merge_pr, add_pr_comment, create_issue), not only the three first named. #1898, #1913 and #1901 join v3.0.0; #1723 and #1724 join v3.1.0 with #1561. Eleven unmilestoned issues closed as done, superseded or duplicate."
+# ─── build order (reconciled 2026-09-30) ─────────────────────────────────────
+
+build_order:
+  original: "kernel -> capsule contract -> prepare/settle -> one runtime adapter -> divergence loop -> #1249 laws -> second adapter"
+  legs:
+    - leg: "kernel"
+      status: "done"
+      refs: "strategos#193, #1903"
+    - leg: "capsule contract"
+      status: "done"
+      refs: "#1905"
+    - leg: "prepare/settle"
+      status: "done as interim (one feature delegate wave)"
+      refs: "#1906, #1908, #1910"
+    - leg: "first runtime adapter (Claude Code delegation)"
+      status: "done"
+      refs: "#1912: #1914, #1915, #1917, #1919"
+    - leg: "divergence loop C1 (decision round)"
+      status: "in review"
+      refs: "#1920"
+    - leg: "divergence loop C2 (material path: design.revised, capsule.recompiled, continuation prepare)"
+      status: "not started"
+      refs: "#1926"
+    - leg: "divergence loop C3 (settlement vocabulary: permitted, corrective-capsule, recompile-required, partial settlement with result status)"
+      status: "not started"
+      refs: "#1926"
+    - leg: "conformance: verification scope (per-task repoRoot, worktreePath, baseRef in the capsule; worktree identity checked)"
+      status: "not started"
+      refs: "#1929 (children #1925, #1526, #1753, #1813, #1814, #1540, #1886, #1721)"
+    - leg: "conformance: VCS demotion (serialize_merge, setup_worktree, create_pr off the governance surface)"
+      status: "decided"
+      refs: "#1928 (every Git/PR write; related #1884, #1835)"
+    - leg: "conformance: workflow-scoped capsule (definitions first; whole workflow per capsule; settlement carries phase; next_actions, playbooks, state document retire)"
+      status: "decided"
+      refs: "#1927 (vehicle #1253; #1258, #1248, #1250, #1251, #1254)"
+    - leg: "conformance: knowledge binding C2 (interim repo-local binder; DKG hot path)"
+      status: "not started"
+      refs: "#1930 (#1745, #1746, #1747, #1754)"
+    - leg: "event authority remainder"
+      status: "in progress"
+      refs: "#1898 (reopened 2026-10-01), #1779, #1825"
+    - leg: "distribution (plugin primary, launcher retired, installer pinned, a release that carries the plane)"
+      status: "not started"
+      refs: "#1877, #1737, #1690, #1931 (stranded-bundle GA ports)"
+    - leg: "transport (prepare/settle on the 2026-07-28 stateless MCP spec; long-running settle)"
+      status: "not started"
+      refs: "#1604, #1824, #1283, #1780"
+    - leg: "#1249 composition laws"
+      status: "blocked"
+      gate: "the divergence loop has run on real settlements"
+    - leg: "second runtime adapter"
+      status: "not started"
+      candidates: "Claude dynamic workflows; Pi (#1661 cluster)"
+
+# ─── drift (design vs built) and resolutions ─────────────────────────────────
+
+drift:
+  - id: "unit"
+    design: "one capsule per workflow; 2 calls"
+    built: "one delegate wave per prepare; transition separate; HSM is the protocol"
+    resolution: "decided 2026-09-30: per-workflow target; per-wave recorded as interim (#1927)"
+  - id: "vcs-effects"
+    design: "runtime mutates Git/PR; WLM/lifecycle/serializer demoted explicitly"
+    built: "serialize_merge per worktree on the normal path; setup_worktree; create_pr in synthesis-closeout"
+    resolution: "decided 2026-09-30: demote all three; settle observes (#1928)"
+  - id: "second-adapter"
+    design: "second runtime"
+    built: "-"
+    resolution: "a 2026-09-30 proposal to make it 'the review intent' was WRONG and is withdrawn"
+  - id: "settlement-vocabulary"
+    design: "five outcomes; result status; partial settlement"
+    built: "SettlementOutcome = settled|rejected|deviation-pending; every required result must be claimed"
+    resolution: "divergence loop C3 (#1926)"
+  - id: "knowledge"
+    design: "C2 binds the smallest sufficient slice; workers never fetch design knowledge"
+    built: "one statement: 'The design of record is <path>'"
+    resolution: "knowledge binding leg (#1930)"
+  - id: "state-document"
+    design: ".state.json retired for the run manifest"
+    built: "transition guards read the document; settle syncs it"
+    resolution: "workflow-scoped capsule leg (#1927)"
+  - id: "workers-on-mcp"
+    design: "workers never call MCP"
+    built: "agent-teams worker prompt calls exarchos_workflow get, exarchos_view tasks, exarchos_event append"
+    resolution: "agent-teams mode is off-plane until re-designed (#1918)"
+  - id: "ir-direction"
+    design: "definitions are the source; HSM deleted"
+    built: "lower-definition.ts derives a kernel FROM the HSM; guards dropped; custom workflows (exarchos.config.ts workflows:) not compilable"
+    resolution: "workflow-scoped capsule leg (#1927, #1253 wave 1)"
+  - id: "verification-scope"
+    design: "settle validates evidence against pinned intent"
+    built: "settle runs gates in the CLAIMED worktreePath, unchecked; kill-probe base defaults to main (#1925)"
+    resolution: "verification scope leg (#1929)"
+  - id: "measurement"
+    design: "2-call acceptance metric per workflow"
+    built: "census per intent (plan 8, delegation 6, task-completion 5, review 10, synthesis 7 at N=1)"
+    resolution: "re-aim #1687"
+  - id: "run-bundle-location"
+    design: "repo-local .exarchos/runs/ (gitignored)"
+    built: "under the workflow state dir"
+    resolution: "open question"
+  - id: "launcher"
+    design: "retired for plugin distribution"
+    built: "launcher shipped; no release carries the plane (latest v2.12.0-preview.4)"
+    resolution: "distribution leg"
+
+# ─── measured facts (re-check before relying on them) ────────────────────────
+
+measured:
+  as_of: 2026-09-30
+  main_at: 413b4ffa0
+  facts:
+    - fact: prepare refuses non-feature workflows and non-delegate phases
+      check: "grep -n -E 'WORKFLOW_TYPE_UNSUPPORTED|PHASE_NOT_PREPARABLE' src/verbs/prepare/handler.ts"
+    - fact: settlement outcomes are settled | rejected | deviation-pending
+      check: "grep -n 'export type SettlementOutcome' src/verbs/settle/adjudicate.ts"
+    - fact: settle builds verification args from the claim (worktreePath, branch) and the capsule (riskTier, boundaryTouching), no base ref
+      check: "grep -n -A14 'function verificationArgsOf' src/verbs/settle/handler.ts"
+    - fact: the kill probe defaults its base to main (#1925); ten gates default baseBranch to main
+      check: "grep -rn -E \"(\\|\\||\\?\\?) *'main'\" src/verbs/gates/*.ts"
+    - fact: "gates still carry per-language code (static analysis hardcodes dotnet build -warnaserror; test globs come from a per-toolchain table)"
+      check: "grep -n warnaserror src/verbs/pure/static-analysis.ts; grep -n testGlobsForToolchain src/verbs/gates/test-adequacy-handler.ts"
+    - fact: C2 knowledge binding is one rationale statement
+      check: "grep -n 'The design of record is' src/verbs/prepare/compile-capsule.ts"
+    - fact: prepare lowers the HSM into a kernel definition at compile time
+      check: "sed -n 1,30p src/verbs/prepare/lower-definition.ts"
+    - fact: next_actions is live
+      check: "ls src/next-actions-computer.ts"
+    - fact: the kernel package is pinned at 0.14.0
+      check: "grep -n strategos-contracts package.json"
+    - fact: "EventTypes count is 182 on main (184 with #1920)"
+      check: "grep -rn 'EventTypes).toHaveLength' tests/unit/events/schemas.test.ts"
+    - fact: per-intent call census
+      check: "npx tsx tools/audit/core/call-shape/measure.ts   (output: tools/audit/core/call-shape/call-shape-census.md)"
+    - fact: agent-teams workers are told to call Exarchos
+      check: "grep -n -A4 'Workflow Intelligence' content/delivery/skills/delegate/references/implementer-prompt.md"
+    - fact: run bundles live under the state dir
+      check: "grep -n forStateDir src/events/bundle/run-bundle-store.ts"
+
+# ─── open questions ──────────────────────────────────────────────────────────
+
+open_questions:
+  - id: design-authoring
+    question: Where does design and plan authoring fit when the unit is one capsule per workflow? prepare binds design knowledge, so a design must exist first.
+    candidate: a design stage whose accepted result is design.revised (v1); a continuation prepare then compiles the implementation slice. Roughly 4-5 calls per feature, not 2.
+  - id: agent-teams
+    question: Is agent-teams mode re-designed for the plane (no worker MCP, team.* events as runtime journal) or retired?
+  - id: long-running-settle
+    question: "settle runs test suites in worktrees inside one MCP request. How does that sit with the 2026-07-28 stateless spec and MCP Tasks (#1604, #1283)?"
+  - id: dkg-taxonomy
+    question: "The DKG depends on event-taxonomy-v2 issues that were never filed. Reconcile its claim events with #1876's six kinds instead of filing a second vocabulary?"
+  - id: verification-base
+    question: Which base does each gate measure against? The per-task kill probe needs the integration base; a breaking-change check may want the release base.
+  - id: run-bundle-location
+    question: Keep run bundles under the state dir, or move them to repo-local .exarchos/runs/ as designed?
+
+# ─── milestones (accepted 2026-10-01) ────────────────────────────────────────
+
+milestones:
+  v2.12.0:
+    outcome: GA of what shipped. Safe to install; correct verdicts on the paths it ships (prepare/settle as the interim delegate path).
+    scope: [1737, 1925, 1656, 1641, 1545, 1716]
+    release: no interim preview; GA when the six land.
+  v3.0.0:
+    outcome: The semantic plane end to end. One prepare and one settle per normal workflow; the runtime does all the work, including Git.
+    exit_criteria:
+      - Built-in workflows compile from authored kernel definitions; one capsule per workflow with tasks, critic stage and synthesis boundary.
+      - "2 Exarchos calls per normal workflow, 3 per exception path, measured by #1687 (static and observed)."
+      - Settlement carries phase change; no canonical skill names transition, next_actions or a playbook; the state document is no guard input.
+      - Divergence loop complete (decision round, material path, settlement vocabulary, partial settlement).
+      - Per-task verification scope pinned in the capsule; worktree identity checked; no per-language code in gates.
+      - serialize_merge, setup_worktree and create_pr off the governance surface; settle observes.
+      - C2 binds per-task knowledge slices from repo-local records; workers never fetch design knowledge.
+      - Workers never call MCP; agent-teams mode re-designed or excluded.
+      - "Every #1898 item landed or withdrawn."
+      - prepare/settle on the 2026-07-28 stateless MCP spec; long-running settle handled.
+      - Launcher retired; plugin primary; release pipeline pinned.
+      - Four visible tools stay four.
+  v3.1.0:
+    title: Portability and proof
+    outcome: "One definition runs on two runtimes with equivalent settlement records; #1249 laws harden on real settlements; evals measure the plane."
+  v3.2.0:
+    outcome: Design rationale as typed claims, the claims being the source of truth (beyond v3.0's C2 minimum).
+  none: "63 issues of hygiene and small bugs. CI-dated expiries 2026-10-31 (#1742, 51 knip entries in #1744) and 2026-11-30 (#1736, 61 knip entries in #1744)."
+
+# ─── where things are tracked ────────────────────────────────────────────────
+
+issue_map:
+  decision_record_and_build_order: 1875
+  roadmap_index: 1599
+  interaction_economy_epic: 1856
+  event_authority_remainder: 1898      # auto-closed in error 2026-09-14; reopened 2026-10-01; on v3.0.0 (exit criterion)
+  divergence_loop: "1926 (tracker); C1 = PR 1920"
+  first_adapter: "1912 (closed, complete)"
+  executor: "1857 (closed; engine is settle's core)"
+  workflow_scoped_capsule: 1927
+  vcs_demotion: 1928                   # widened 2026-10-01 to every Git/PR write: merge_orchestrate, merge_pr, add_pr_comment, create_issue
+  verification_scope_leg: 1929
+  knowledge_binding_leg: 1930
+  stranded_bundle_ports: 1931
+  measurement: 1687
+  settlement_continuation: 1824
+  ir_kernel_and_definitions: [1258, 1247, 1248, 1249, 1250, 1251, 1253, 1254]
+  knowledge: [1745, 1746, 1747, 1748, 1749, 1750, 1816]
+  distribution: [1877, 1601, 1737, 1690]
+  transport: [1604, 1283, 1780]
+  verification_scope: [1925, 1526, 1753, 1813, 1814, 1540, 1886, 1721]
+  vcs_effects: [1626, 1884, 1835]       # 1402, 1496, 1351, 1722 closed as superseded by #1928
+  second_runtime_candidate: [1661, 1662, 1663, 1665, 1666, 1667, 1668]
+  stranded_branch: "feat/v2-12-bundle (tip e9a6209e, 2026-07-17, no PR, predates the restructure). Port-or-drop list: #1931."
+
+# ─── traps that misled earlier sessions ──────────────────────────────────────
+
+traps:
+  - The call budget is per WORKFLOW. A per-intent or per-phase count is not the acceptance metric.
+  - '"Second adapter" means a second runtime. Covering more phases comes from the workflow-scoped capsule, not from adapters.'
+  - lower-definition.ts runs the intended direction backwards. It derives the kernel from the HSM; the HSM is supposed to be derived from definitions, then deleted.
+  - '"Exarchos never runs the body" does not forbid settle from running verification gates. Those are settle internals, carried from the executor engine. It does forbid Exarchos merging branches or opening PRs.'
+  - Retired is not deleted. A retired machine stays until its replacement passes the acceptance gate; retirement is recorded first, deleted second.
+  - 'A closing keyword in prose closes the whole issue: "closes #1898 item 4" closed the tracker #1898. Write "lands #N item 4".'
+  - A re-charter block at the top of an issue does not cancel contradicting sections below it. The description is the source of truth; strike the stale sections.
+  - The state document is not an existence signal (rehydrate/get _meta.workflowExists is), yet transition guards read it. Both are true until it retires.
+  - Issues that say "closes via the feat/v2-12-bundle PR" are not closed by anything; that branch cannot merge.
+  - "The static census counts what skills prescribe, not what agents do. The observed half of #1687 needs transcripts recorded after the skill rewrite."

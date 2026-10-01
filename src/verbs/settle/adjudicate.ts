@@ -47,6 +47,7 @@ export const SETTLEMENT_FINDING_KINDS = [
   'inadmissible-evidence',
   'deviation-outside-envelope',
   'deviation-awaiting-approval',
+  'deviation-rejected',
   'verification-failed',
 ] as const;
 
@@ -119,6 +120,14 @@ export interface AdjudicationContext {
    */
   readonly evidenceResolves: (evidence: SettlementEvidence) => boolean;
   /**
+   * The decision a settlement round carries for a proposed deviation, when the
+   * batch was held and is now being decided: `accepted` admits the deviation
+   * and the work stands, `rejected` refuses the batch. Undefined for a
+   * deviation nothing has decided, which is every deviation on the round that
+   * proposes them. Absent on that round altogether.
+   */
+  readonly decided?: (deviation: ProposedDeviation) => 'accepted' | 'rejected' | undefined;
+  /**
    * The verification the handler ran per claimed task, when it ran any.
    * Absent on the shape pass, which decides whether verification runs at all;
    * present on the final pass, where a claim with no passing entry is not
@@ -153,6 +162,8 @@ export interface SettlementCensus {
   readonly deviations: number;
   /** Verification outcomes read; zero on a pass that ran none. */
   readonly verification: number;
+  /** Decisions read against proposed deviations; zero on a round carrying none. */
+  readonly decisions: number;
 }
 
 /** The capsule's own field-type vocabulary, as a runtime test over a value. */
@@ -189,6 +200,7 @@ export function adjudicateSettlement(
     evidence: 0,
     deviations: deviations.length,
     verification: 0,
+    decisions: 0,
   };
 
   const taskIds = new Set(capsule.graph.tasks.map((task) => task.taskId));
@@ -361,6 +373,24 @@ export function adjudicateSettlement(
       return;
     }
     if (!capsule.contracts.deviationEnvelope.requiresApproval) return;
+    // A decided deviation is no longer awaiting anything: accepted, the work
+    // it stood on stands; rejected, the batch does not, and that is refusal
+    // rather than holding — the decision has been made, and the next batch
+    // is a correction.
+    const decision = context.decided?.(deviation);
+    if (decision !== undefined) census.decisions += 1;
+    if (decision === 'accepted') return;
+    if (decision === 'rejected') {
+      findings.push({
+        kind: 'deviation-rejected',
+        subject: deviation.deviationKind,
+        at,
+        message:
+          `${JSON.stringify(deviation.deviationKind)} was proposed and the decision refused it, ` +
+          'so the batch is rejected: the work that stood on the deviation is not accepted',
+      });
+      return;
+    }
     findings.push({
       kind: 'deviation-awaiting-approval',
       subject: deviation.deviationKind,

@@ -5,7 +5,7 @@
     "tools": 5,
     "visibleTools": 4,
     "actions": 127,
-    "eventTypes": 182
+    "eventTypes": 184
   },
   "tools": [
     {
@@ -335,6 +335,18 @@
       "type": "comment.resolved",
       "lifecycle": "active",
       "tier": "workflow-local"
+    },
+    {
+      "type": "deviation.decided",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "deviation.proposed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
     },
     {
       "type": "diagnostic.executed",

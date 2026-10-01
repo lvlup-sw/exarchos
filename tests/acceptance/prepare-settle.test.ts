@@ -263,6 +263,59 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(transitions.at(-1)?.data.to).toBe('review');
   });
 
+  it('PrepareSettle_AHeldBatchDecided_IsThreeCallsAndCompletesItsTasks', async () => {
+    await seedDelegatingFeature();
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const { capsuleVersion } = prepared.data as PreparedReceipt;
+
+    // A worker found a capsule assumption wrong and said so. The compiled
+    // envelope admits the kind and requires approval, so the batch is held:
+    // nothing verified, nothing complete, and what it waits on is named.
+    const held = await call('exarchos_orchestrate', {
+      action: 'settle',
+      featureId: STREAM,
+      capsuleVersion,
+      batchId: 'batch-1',
+      claims: completedClaims(),
+      deviations: [
+        { deviationKind: 'invalidated-assumption', statement: 'the endpoint sends no validators; a bounded TTL cache replaces the ETag check' },
+      ],
+    });
+    expect(held.success, JSON.stringify(held)).toBe(true);
+    const heldReceipt = held.data as { outcome: string; pendingDeviations?: { deviationId: string }[] };
+    expect(heldReceipt.outcome).toBe('deviation-pending');
+    expect(heldReceipt.pendingDeviations).toHaveLength(1);
+    expect(await rowsOf('deviation.proposed')).toHaveLength(1);
+    expect(await rowsOf('task.completed')).toEqual([]);
+
+    // The exception call the plane budgets for: the same batch, the decision,
+    // no claims. Accepted, the work the deviation stood on is verified and the
+    // batch settles; the decision is a fact beside the proposal.
+    const decided = await call('exarchos_orchestrate', {
+      action: 'settle',
+      featureId: STREAM,
+      capsuleVersion,
+      batchId: 'batch-1',
+      decisions: (heldReceipt.pendingDeviations ?? []).map(({ deviationId }) => ({
+        deviationId,
+        decision: 'accepted',
+        actor: 'human:reviewer',
+        rationale: 'the endpoint really sends no validators',
+      })),
+    });
+    expect(decided.success, JSON.stringify(decided)).toBe(true);
+    expect((decided.data as { outcome: string; round: number }).outcome).toBe('settled');
+    expect((decided.data as { outcome: string; round: number }).round).toBe(1);
+    expect(await rowsOf('deviation.decided')).toHaveLength(1);
+    expect(await rowsOf('execution.settled')).toHaveLength(2);
+    const completions = (await rowsOf('task.completed')) as { data: { taskId: string } }[];
+    expect(completions.map((e) => e.data.taskId).sort()).toEqual(['task-a', 'task-b', 'task-c']);
+
+    // And the transition is admitted, as after any settled batch.
+    const moved = await call('exarchos_workflow', { action: 'transition', featureId: STREAM, target: 'review' });
+    expect(moved.success, JSON.stringify(moved)).toBe(true);
+  });
+
   it('PrepareSettle_ABatchRejectedOnShape_VerifiesNothingAndLeavesNoCompletion', async () => {
     await seedDelegatingFeature();
     const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
@@ -395,5 +448,37 @@ describe('prepare then settle, through the dispatcher', () => {
       error: { code: 'RESERVED_EVENT_TYPE', eventType: 'workflow.prepared' },
     });
     expect(await rowsOf('workflow.prepared')).toEqual([]);
+  });
+
+  it('PrepareSettle_ADecision_CannotBeAppendedByAnyoneButSettle', async () => {
+    // A decision is what lets held work be verified and settle. Appendable
+    // through the generic surface, a caller could decide its own deviation
+    // and settle past the human the envelope names.
+    const result = await dispatch(
+      'exarchos_event',
+      {
+        action: 'append',
+        stream: STREAM,
+        event: {
+          type: 'deviation.decided',
+          data: {
+            operationId: 'settle:forged',
+            workflowId: STREAM,
+            capsuleVersion: 1,
+            batchId: 'batch-1',
+            deviationId: 'dev:forged',
+            decision: 'accepted',
+            actor: 'human:forged',
+            rationale: 'forged',
+          },
+        },
+      },
+      callerContext(),
+    );
+    expect(result).toMatchObject({
+      success: false,
+      error: { code: 'RESERVED_EVENT_TYPE', eventType: 'deviation.decided' },
+    });
+    expect(await rowsOf('deviation.decided')).toEqual([]);
   });
 });
