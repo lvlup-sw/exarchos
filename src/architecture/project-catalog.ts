@@ -1,32 +1,22 @@
 /**
- * Projection of a merged invariant catalog by `(phase, workflow-type,
- * touched-files)` key (DR-5, tasks T-10 / T-11).
+ * Projects a merged invariant catalog onto a `(phase, workflow-type, touched-files)` key. The
+ * projection is one filter over the catalog, with no I/O and no cache.
  *
- * `projectCatalog` is a **pure left-fold** over the merged catalog — no
- * mutable cache that could drift from the catalog source (INV-1). Given a
- * projection key it returns the subset of invariants relevant to that
- * context. The function performs no I/O and caches nothing.
- *
- * ## Affinity semantics (DR-5)
- *
- *   - `phase-affinity` absent ⇒ all phases; present ⇒ include only if it
- *     contains the requested phase.
- *   - `workflow-affinity` absent ⇒ all workflow types; present ⇒ include only
- *     if it contains the requested type. For `discovery`, code-axis invariants
- *     (`axis: 'substrate'`) are additionally excluded so the review gate does
- *     not fire on code dimensions.
- *   - `touched-files` (delegate phase only): include an invariant only if its
- *     `appliesTo` intersects the touched files. A docs-only task therefore
- *     injects no code invariant.
+ * - An absent `phase-affinity` matches all phases. Otherwise it must list the phase.
+ * - An absent `workflow-affinity` matches all workflow types. Otherwise it must list the type.
+ * - For `discovery`, the projection drops each invariant with `axis: 'substrate'`, so the review
+ *   gate does not fire on code dimensions.
+ * - In the delegate phase with `touchedFiles`, the `appliesTo` patterns of an invariant must match
+ *   a touched file.
  */
 import type { InvariantEntry } from './invariants-loader.js';
 import { globToRegExp } from './glob-to-regexp.js';
 
-/** Projection key: the SDLC context an invariant set is being projected for. */
+/** The SDLC context of a projection. */
 export interface ProjectCatalogKey {
-  /** SDLC phase — e.g. `'ideate' | 'plan' | 'delegate' | 'review' | 'synthesize'`. */
+  /** The SDLC phase, for example `'plan'` or `'delegate'`. */
   phase: string;
-  /** Workflow kind — e.g. `'feature' | 'debug' | 'refactor' | 'discovery' | 'oneshot'`. */
+  /** The workflow type, for example `'feature'` or `'discovery'`. */
   workflowType: string;
   /**
    * Files the current task touches (delegate phase). When provided and the
@@ -36,19 +26,12 @@ export interface ProjectCatalogKey {
   touchedFiles?: string[] | undefined;
 }
 
-/**
- * Project a merged catalog down to the invariants relevant to `key`.
- *
- * Pure function — a single `Array.filter` (left-fold) over `catalog`. No I/O,
- * no memoization; safe to call repeatedly with the same or different keys.
- */
+/** Returns the invariants of a merged catalog that apply to `key`. */
 export function projectCatalog(
   catalog: InvariantEntry[],
   key: ProjectCatalogKey,
 ): InvariantEntry[] {
   return catalog.filter((entry) => {
-    // ── phase-affinity ──
-    // Absent ⇒ all phases. Present ⇒ must list the requested phase.
     if (
       entry.phaseAffinity !== undefined &&
       !(entry.phaseAffinity as readonly string[]).includes(key.phase)
@@ -56,8 +39,6 @@ export function projectCatalog(
       return false;
     }
 
-    // ── workflow-affinity ──
-    // Absent ⇒ all workflow types. Present ⇒ must list the requested type.
     if (
       entry.workflowAffinity !== undefined &&
       !(entry.workflowAffinity as readonly string[]).includes(key.workflowType)
@@ -65,16 +46,10 @@ export function projectCatalog(
       return false;
     }
 
-    // For `discovery`, code-axis (substrate) invariants are excluded so the
-    // review gate does not fire on code dimensions. The canonical workflow-type
-    // token is `'discovery'` (`workflow/state-machine.ts`); the pre-DR-4 branch
-    // compared against `'discover'` and was therefore DEAD (never matched).
     if (key.workflowType === 'discovery' && entry.axis === 'substrate') {
       return false;
     }
 
-    // ── touched-files (delegate phase only) ──
-    // Include only if the invariant's appliesTo patterns match a touched file.
     if (key.phase === 'delegate' && key.touchedFiles !== undefined) {
       if (!appliesToIntersects(entry.appliesTo, key.touchedFiles)) {
         return false;
@@ -86,12 +61,8 @@ export function projectCatalog(
 }
 
 /**
- * True when any `appliesTo` glob/path pattern matches any touched file.
- *
- * We avoid pulling in `minimatch` (not a declared dependency of this package)
- * and use a small, dependency-free matcher covering the patterns the catalog
- * actually uses: trailing `/**` directory globs, single `*` wildcards within a
- * path segment, and exact prefixes/paths.
+ * True when one or more `appliesTo` patterns match one or more touched files. The matcher has no
+ * dependency, because `minimatch` is not a declared dependency of this package.
  */
 function appliesToIntersects(appliesTo: string[], touchedFiles: string[]): boolean {
   return appliesTo.some((pattern) =>
@@ -99,10 +70,11 @@ function appliesToIntersects(appliesTo: string[], touchedFiles: string[]): boole
   );
 }
 
-/** Match a single glob-ish pattern against a single (forward-slash) path. */
+/**
+ * Matches one glob pattern against one forward-slash path. A trailing `/**` or `/` matches the
+ * directory and all paths below it, so the directory path itself also matches.
+ */
 function matchesPattern(pattern: string, filePath: string): boolean {
-  // A trailing `/**` (or a bare directory like `docs/`) means "this directory
-  // and everything beneath it" — so the directory prefix alone also matches.
   let normalized = pattern;
   if (normalized.endsWith('/')) normalized = `${normalized}**`;
   if (normalized.endsWith('/**')) {

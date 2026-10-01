@@ -31,31 +31,10 @@ import {
 } from '../../dispatch/caller-identity.js';
 import { assertBindingsAtStartup } from '../../contract/bindings/verify-bindings.js';
 
-// ─── DR-6: onboard CLI/MCP parity split — surface stamp + advisory carrier ───
-//
-// The onboard pipeline's INSTALL step (skills bundle + project deps) shells
-// `npx` and writes `~/.claude/`, so it is gated CLI-only (DR-6). The gate is a
-// property of the plan step's `surface` tag + the run's capability surface —
-// NOT an `if (adapter === 'mcp') skip step 4` branch. The MCP server is, by
-// construction, the NON-CLI surface, so this adapter:
-//
-//   1. stamps a non-`'cli'` surface onto the dispatched `onboard` args so the
-//      core `apply` install router downgrades the cli-only step to a structured
-//      Advisory (server-side install never runs, never a silent no-op); and
-//   2. surfaces that advisory in the returned `ToolResult` with a `next_actions`
-//      pointer at the CLI (INV-5b/INV-12) so the caller knows where to finish
-//      the install.
-//
-// This is a surface DECLARATION + advisory presentation, both of which live in
-// the adapter (presentation) layer; the gating BEHAVIOR stays in the reconciler
-// core (INV-2). The CLI adapter (task 011) passes `surface: 'cli'`, so the
-// install step runs there.
-
 /**
- * The capability surface the MCP server runs onboard steps on. Any value other
- * than `'cli'` makes the core `apply` install router downgrade a `cli-only`
- * step to an advisory; `'any'` is the most permissive non-CLI surface (config /
- * generate / hook steps still execute).
+ * The surface that the MCP server stamps onto `onboard` args. Off the `'cli'` surface, the core
+ * `apply` router changes each `install` step into an advisory, and the other steps still run.
+ * The reconciler core owns that gate. This adapter only declares the surface and shows the advisory.
  */
 export const MCP_ONBOARD_SURFACE = 'any' as const;
 
@@ -71,22 +50,15 @@ export function createMcpDispatchContext(
 const ONBOARD_ACTION = 'onboard';
 
 /**
- * Stamp the MCP (non-`'cli'`) surface onto an `onboard` action's args when the
- * caller did not supply one explicitly. Idempotent and non-mutating: returns a
- * fresh object so the caller's payload is untouched. Non-onboard args pass
+ * Adds {@link MCP_ONBOARD_SURFACE} to args with no `surface` string when the action is `onboard`
+ * or absent. It returns a new object and does not change the input. Args for another action pass
  * through unchanged.
- *
- * Exported for the DR-6 parity suite, which drives this exact stamp as the MCP
- * arm's surface (onboard is not yet a registered composite action — task 011).
+ * The onboard parity suite calls this function as the MCP side.
  */
 export function stampOnboardSurface(
   args: Record<string, unknown>,
 ): Record<string, unknown> {
-  // Only the onboard action consults `surface`; leave everything else alone so
-  // the generic dispatch path is not perturbed.
   if (args.action !== undefined && args.action !== ONBOARD_ACTION) return args;
-  // Respect an explicit surface (e.g. a caller forcing `'cli'`); otherwise
-  // stamp the MCP non-CLI surface so the core advisory path fires.
   if (typeof args.surface === 'string') return args;
   return { ...args, surface: MCP_ONBOARD_SURFACE };
 }
@@ -119,21 +91,15 @@ function readOnboardAdvisories(result: ToolResult): readonly OnboardAdvisoryLike
 }
 
 /**
- * Surface a cli-only install advisory from an onboard `ToolResult`: when the
- * apply result carries a `surface: 'cli-only'` advisory (the MCP arm's
- * downgraded INSTALL step), prepend a `next_actions` pointer at the CLI so the
- * caller knows to finish the install there. Returns the result unchanged when
- * there is no cli-only advisory (e.g. the CLI arm, which ran the install).
- *
- * Non-destructive: preserves existing `next_actions` (the success-path `doctor`
- * pointer) and is idempotent — re-running it does not duplicate the CLI hint.
+ * Puts a `next_actions` pointer at the CLI first when an onboard result carries a `cli-only`
+ * advisory. Otherwise it returns the result unchanged. It keeps the existing `next_actions`, and it
+ * adds no pointer when an `onboard` entry is already present.
  */
 export function surfaceOnboardCliAdvisory(result: ToolResult): ToolResult {
   const cliOnly = readOnboardAdvisories(result).filter((a) => a.surface === 'cli-only');
   if (cliOnly.length === 0) return result;
 
   const existing: readonly NextAction[] = result.next_actions ?? [];
-  // Idempotent: don't stack a second CLI pointer on repeat application.
   if (existing.some((a) => a.verb === ONBOARD_ACTION)) return result;
 
   const commands = cliOnly.flatMap((a) => a.commands ?? []);
@@ -149,52 +115,18 @@ export function surfaceOnboardCliAdvisory(result: ToolResult): ToolResult {
   return { ...result, next_actions: [cliHint, ...existing] };
 }
 
-// ─── D.4: LCD outputSchema advertised to MCP clients ────────────────────────
-//
-// Single advertised carrier schema (design §2.2, #1287). Every visible tool
-// registers this LCD as its `outputSchema`; tightly-typed per-action schemas
-// are enforced downstream in the call path (D.5) rather than in the
-// tools/list manifest. This keeps the static surface compact and lets the
-// per-call validator emit issue-pathed diagnostics.
-//
-// The LCD is the canonical `EnvelopeSchema(z.unknown())` discriminated union
-// (success/error branches keyed on the `success` boolean literal). This
-// was previously a passthrough-ZodObject workaround because the SDK's
-// `normalizeObjectSchema` (`zod-compat.ts:79-121`) only accepted plain
-// `ZodObject` and returned `undefined` for `ZodDiscriminatedUnion`,
-// silently dropping the outputSchema from `tools/list` and crashing
-// `validateToolOutput` on every successful call. PR #1366 fixes both gaps
-// via `patches/@modelcontextprotocol+sdk+1.29.0.patch` and the upstream
-// issues at modelcontextprotocol/typescript-sdk#2084 (tools/list draft-7
-// → 2020-12 to admit `z.discriminatedUnion`'s `anyOf` JSON-Schema form)
-// and #1308 (DU acceptance in `normalizeObjectSchema`). Once those
-// upstream fixes ship in a stable SDK release, the patch drops; the LCD
-// stays as-is.
+/**
+ * The output schema that each visible tool advertises in `tools/list`: the
+ * `EnvelopeSchema(z.unknown())` union of the success and error envelopes. The handler checks the
+ * per-action schemas on each call, so the manifest stays small.
+ */
 const LCD_OUTPUT_SCHEMA = EnvelopeSchema(z.unknown());
 
-// ─── D.1: Envelope → MCP CallToolResult carrier mapping ────────────────────
-
 /**
- * DR-9 presentation seam — the single point where the MCP `content` block is
- * derived from the canonical envelope. This is the §05 presentation/contract
- * split point: `structuredContent` is the canonical *contract* (the full
- * envelope); `content` is a *presentation* of it, rendered here.
- *
- * Today this is deliberately **byte-identical** to the pre-seam inline
- * construction — `[{ type: 'text', text: JSON.stringify(env) }]` — so the
- * refactor changes no bytes over the wire (characterization-pinned by
- * `toMcpResult_RenderContentSeam_BytesIdenticalToInline`).
- *
- * The lean/compact rendering this seam is designed to host is **DEFERRED** —
- * NOT implemented here. Task 016's decision rule returned DEFER: whether a host
- * injects `content` (vs `structuredContent`) into the model's context is
- * un-evidenced across *every* Tier-1 runtime, so INV-4 forbids shipping a
- * model-visible rendering change now. Fill this seam with a lean rendering only
- * on a live-runtime GO per that note's §6 decision rule; until then it stays
- * byte-identical. See `docs/research/2026-07-DR9-content-injection-verification.md`.
- *
- * Discipline: any future economy/capping logic lives in the shared core
- * (`dispatch/core/economy.ts`, `dispatch/core/dispatch.ts`) — `renderContent` only *renders*.
+ * Builds the MCP `content` block from the envelope as one text block of `JSON.stringify(env)`.
+ * `structuredContent` is the contract, and `content` is a presentation of it. A shorter rendering
+ * waits for evidence of how each runtime puts `content` into the model context. Economy logic
+ * stays in the dispatch core.
  */
 function renderContent(
   env: Envelope<unknown> | ErrorEnvelope,
@@ -203,61 +135,30 @@ function renderContent(
 }
 
 /**
- * Map an Exarchos envelope onto the MCP `CallToolResult` carrier.
- *
- * MCP 2025-11-25 §Tools / Structured Content: SHOULD also return the
- * serialized JSON in a TextContent block for backwards compatibility.
- * We honour that — clients reading `content[0].text` keep working; the
- * new validated payload rides `structuredContent`. The `content` block is
- * derived through the DR-9 `renderContent` presentation seam (above).
- *
- * Envelope construction lives in `format.ts` (`toEnvelope`); this adapter
- * only handles the carrier mapping. `createMcpServer` (this file's main
- * export, below) wires `toMcpResult` into the per-tool MCP handler — that
- * cutover landed in D.7.
- *
- * Design §2.3. Issue #1287.
+ * Maps an envelope onto the MCP `CallToolResult` carrier. `structuredContent` carries the envelope,
+ * and `content` carries the same JSON as text for clients that read `content[0].text`. The envelope
+ * types have no string index signature, so the cast is necessary at the SDK boundary.
  */
 export function toMcpResult(env: Envelope<unknown> | ErrorEnvelope) {
   return {
     content: renderContent(env),
-    // The SDK's `CallToolResult` types `structuredContent` as
-    // `{[x: string]: unknown} | undefined` (an index-signatured object).
-    // Our envelope types use named-readonly fields — semantically a JSON
-    // object, but without an explicit string index signature. Cast through
-    // `unknown` so the carrier crosses the SDK boundary without leaking a
-    // structural mismatch into call sites.
     structuredContent: env as unknown as { [x: string]: unknown },
     isError: env.success === false,
   };
 }
-// Server identity constants. These must stay in lock-step with the canonical
-// SERVER_NAME / SERVER_VERSION exports in src/index.ts — task 1.6's compiled
-// binary integration test asserts that the version advertised over MCP's
-// initialize handshake matches the index.ts export, so drift here is caught
-// in CI. A static `import { SERVER_VERSION } from '../../index.js'` would pull
-// the full index graph (event-store, backend init, hooks, CLI) into every
-// caller of this adapter, so the values are duplicated intentionally; the
-// integration test pins them together.
+/**
+ * The server identity. It copies `SERVER_NAME` and `SERVER_VERSION` from `src/index.ts`, because
+ * an import pulls the full index graph into this adapter. `tools/release/sync-versions.sh` writes
+ * both versions, and tests compare them.
+ */
 const SERVER_NAME = 'exarchos-mcp';
 const SERVER_VERSION = '2.12.0';
 
-// ─── D.6: Aggregate ActionAnnotations into tools/list ToolAnnotations ─────
-//
-// MCP `tools/list` carries ToolAnnotations as advisory hints (per the spec
-// these are explicitly client-untrusted unless the server itself is
-// trusted). We aggregate the per-action `ActionAnnotations` records into a
-// single tool-level record using the design's logical rules:
-//
-//   readOnlyHint    — true iff EVERY action is read-only. Conservative AND:
-//                     one mutating action poisons the read-only label.
-//   destructiveHint — true iff ANY action is destructive. Surfaces the
-//                     worst-case safety so clients can prompt for confirm.
-//   idempotentHint  — true iff EVERY action is documented/safe to re-run.
-//   openWorldHint   — true iff ANY action touches an external world
-//                     (network, git, etc.).
-//
-// Design §2.4, issue #1289.
+/**
+ * Combines the per-action annotations into one tool-level `ToolAnnotations` record for
+ * `tools/list`. The read-only and idempotent hints are true only when every action has them. The
+ * destructive and open-world hints are true when one or more actions have them.
+ */
 function aggregateToolAnnotations(
   actions: readonly ToolAction[],
 ): {
@@ -274,22 +175,12 @@ function aggregateToolAnnotations(
   };
 }
 
-// ─── D.5: Per-call output schema validation ────────────────────────────────
-//
-// Locates the dispatched action by the canonical `args.action` discriminator
-// and validates the post-dispatch envelope against the action's per-action
-// `outputSchema`. On violation, returns a replacement INTERNAL_ERROR
-// envelope carrying the Zod issue list under `_meta.outputSchemaViolation`
-// (path + message tuples). On success, returns the input envelope unchanged.
-//
-// When the action discriminator is absent or unresolved (custom tools
-// without a registered action, malformed args, etc.), validation is skipped
-// — the dispatch boundary surfaces its own structured error in those cases,
-// and double-wrapping would mask the original failure path.
-//
-// Design §2.2 / §3, issue #1287. Validation cost is sub-millisecond in
-// practice (small Zod schemas, no I/O); if a future regression flips that,
-// gate behind an `EXARCHOS_OUTPUT_VALIDATE` env var.
+/**
+ * Checks a dispatch envelope against the `outputSchema` of the action that `args.action` names.
+ * On a violation, it returns an `INTERNAL_ERROR` envelope with the Zod issues in
+ * `_meta.outputSchemaViolation`. If `args.action` is absent or names no action of the tool, it
+ * returns the envelope unchanged, so a dispatch error stays as dispatch reported it.
+ */
 function validateAgainstActionSchema(
   toolName: string,
   actions: readonly ToolAction[],
@@ -325,87 +216,36 @@ function validateAgainstActionSchema(
   });
 }
 
-// ─── MCP Server Adapter ────────────────────────────────────────────────────
-
 /**
- * Creates an MCP server instance that routes tool calls through the
- * transport-agnostic dispatch layer.
+ * Creates the MCP server, which routes each visible tool call through the dispatch layer. It
+ * throws before it registers a tool if a contract action does not resolve to exactly one binding.
  *
- * Each registered tool handler:
- * 1. Calls dispatch() with the tool name, args, and context
- * 2. Converts the ToolResult to an Envelope via `toEnvelope`
- * 3. Validates the envelope against the per-action outputSchema (D.5)
- * 4. Maps the envelope onto the MCP CallToolResult carrier via
- *    `toMcpResult` so both `content[0].text` (legacy SHOULD per MCP spec)
- *    and `structuredContent` (the typed envelope payload) ride together.
+ * The server keeps one `EventSourcedTaskStore` over `ctx.eventStore` and logs the task wire gap at
+ * warn level. The `tasks` capability advertises only the `tools/call` augmentation, which dispatch
+ * serves from `ctx.taskStore`. The v2 SDK answers `tasks/list` and `tasks/cancel` with `-32601`,
+ * so the server does not advertise them.
+ *
+ * A `hidden` tool stays out of `tools/list`, but the CLI can still reach it. Each handler
+ * dispatches the call, checks the envelope against the action `outputSchema`, and maps it with
+ * {@link toMcpResult}. A thrown dispatch error becomes an `INTERNAL_ERROR` envelope with no schema
+ * check. Only an `onboard` result gets the CLI advisory pointer.
  */
 export function createMcpServer(ctx: DispatchContext): V2McpServer {
-  // ─── P03-04 (API-004) — pre-startup binding gate ────────────────────────────
-  // MCP is a wire projection of the Exarchos contract; before we advertise a
-  // single tool, assert every contract ActionId resolves to exactly one
-  // non-serializable implementation binding. A missing / duplicate / stale /
-  // non-function binding THROWS here — the server refuses to start rather than
-  // deferring the failure to a caller's first tool invocation.
   assertBindingsAtStartup();
 
   const mcpSessionId = randomUUID();
   let mcpRuntimeContext: McpCallerRuntimeContext = { sessionId: mcpSessionId };
-  // #1272 — canonical task-store wiring. The SDK's `InMemoryTaskStore`
-  // is demo-only (state lost on restart); EventSourcedTaskStore is the
-  // event-sourced production replacement that projects task lifecycle
-  // from the same event store the rest of dispatch writes to (INV-1).
-  // The store is created per-server because `EventSourcedTaskStore`
-  // owns a per-task in-memory cache that needs to live as long as the
-  // MCP session; the underlying durable substrate (`ctx.eventStore`)
-  // is shared across sessions.
-  //
-  // DR-0 / task 049 — this composer is now v2, so the binding goes through
-  // `attachTaskStoreToV2`. That attachment has NO `serverOptions` member: v2
-  // `2.0.0` deleted `ServerOptions.taskStore` and every `tasks/*` handler, and
-  // a v2 server handed the option ignores it SILENTLY. There is therefore
-  // nothing to spread into the constructor below, which is the seam working as
-  // designed — the checker refuses the pretence instead of a reviewer having to
-  // catch it.
-  //
-  // Persistence is unaffected. `store` is the same `EventSourcedTaskStore`
-  // instance projecting from the same event store (INV-1), and every consumer
-  // that drives it directly — dispatch's Tasks-augmented branch below, the CLI
-  // `--follow` loop — never went through the SDK at all.
   const taskAttachment = attachTaskStoreToV2(
     new EventSourcedTaskStore(ctx.eventStore),
   );
   const taskStore = taskAttachment.store;
 
-  // ── D10's accepted wire loss, ANNOUNCED (task 049) ────────────────────────
-  // `hostMustServe` is non-empty on v2, and this is the production caller that
-  // says so out loud. Before task 049 `describeTaskWireGap` had no caller at
-  // all — a mechanism shipped without its consumer (R-11), which is how an
-  // "accepted" cost becomes indistinguishable at runtime from a regression
-  // nobody noticed. Logged once per server construction, at warn.
   const taskWireGap = describeTaskWireGap(taskAttachment);
   if (taskWireGap !== undefined) {
     logger
       .child({ subsystem: 'mcp-tasks' })
       .warn({ hostMustServe: taskAttachment.hostMustServe }, taskWireGap);
   }
-
-  // ─── #1273 / C2 (T30) — thread the local TaskStore onto the dispatch ctx
-  // so the C1 task-augmented branch fires when `tools/call` params carry
-  // `task: { ttl? }`. Without this, dispatch sees `ctx.taskStore === undefined`
-  // and silently falls back to the legacy one-shot path even when the
-  // adapter has a TaskStore wired into the SDK's `tasks/*` surface — the
-  // exact split-brain the augmentation contract is meant to forbid.
-  //
-  // We re-bind ctx (rather than mutating the caller's literal) so the
-  // augmentation is scoped to this server instance; callers that
-  // construct their own ctx with a different TaskStore (tests) keep
-  // theirs intact when they call `dispatch()` directly.
-  //
-  // NOTE: the final `dispatchCtx` constructed further below folds the
-  // taskStore + rootsClient + elicitationClient into a single object
-  // that the handler closure consumes. Defining the taskStore here
-  // (early) is intentional: the McpServer constructor below needs the
-  // same instance for its SDK-level `tasks/*` wiring.
 
   const server = createV2McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
@@ -414,55 +254,15 @@ export function createMcpServer(ctx: DispatchContext): V2McpServer {
         experimental: {
           'claude/channel': {},
         },
-        // #1273 / T32 — advertise ONLY the tasks capability this server
-        // actually honours.
-        //
-        // ── NARROWED BY TASK 049, and the narrowing is the D10 contract ─────
-        // `list: {}` and `cancel: {}` were dropped. They advertise the
-        // `tasks/list` and `tasks/cancel` METHODS, which v2 does not serve —
-        // every one answers `-32601`. Advertising them here while answering
-        // -32601 there would be a server that lies in its handshake and fails
-        // on use, which is strictly worse than the honest absence D10 chose:
-        // the decision was to accept the wire loss and make the rejection a
-        // TYPED `-32601` from a surface we chose not to serve, never a silent
-        // no-op and never a false promise.
-        //
-        // `requests.tools.call` STAYS, and the asymmetry is load-bearing: it
-        // advertises that `tools/call` accepts a `task: { ttl? }` augmentation,
-        // which dispatch's Tasks-augmented branch serves ITSELF out of
-        // `ctx.taskStore` below. That path never went through the SDK, so v2
-        // deleting the SDK's Tasks runtime does not touch it — this capability
-        // is still true.
         tasks: {
           requests: {
             tools: { call: {} },
           },
         },
       },
-      // NOTE: no `...taskAttachment.serverOptions` here. The v2 attachment has
-      // no such member — see the attach seam above. This is not an omission to
-      // restore later; it is the type system refusing an option v2 would have
-      // silently ignored.
     },
   );
 
-  // ─── #1290 — Roots-based workspace discovery wiring (Sentry HIGH #1423) ──
-  // The capability resolver is constructed up in index.ts / context.ts but
-  // the MCP handshake observers — initialize callback + roots/list_changed
-  // notification handler + RootsClient adapter — must be wired here, after
-  // the McpServer is constructed, because they all depend on
-  // `server.server` (the underlying low-level Server instance).
-  //
-  // Pre-fix, none of these were wired: `resolver.snapshot()` was never
-  // called, so `isRootsDeclared()` stayed `false` forever and the
-  // dispatch-side check at dispatch.ts:504 always fell back to cwd-walk.
-  // `ctx.rootsClient` was never set, so even if isRootsDeclared() had
-  // flipped, the discovery branch would have skipped roots entirely.
-  // The notification handler defined in mcp/notifications.ts was unused.
-  //
-  // The augmented `dispatchCtx` below threads the rootsClient adapter
-  // through to dispatch; the resolver snapshot fires on the client's
-  // `initialized` notification (fully-handshaken state).
   const rootsClient: RootsClient = {
     list: async () => {
       const result = await server.server.listRoots();
@@ -470,22 +270,8 @@ export function createMcpServer(ctx: DispatchContext): V2McpServer {
     },
   };
 
-  // CodeRabbit MAJOR #1424: `createElicitationClient` previously had no
-  // production caller, so the dispatch-side `ctx.elicitationClient !==
-  // undefined` guard never fired and the elicitation hand-off always fell
-  // back to INVALID_INPUT outside tests. Wire the adapter here against
-  // `server.server.elicitInput` so the dispatch branch lights up whenever
-  // the client declared the `elicitation` capability.
   const elicitationClient = createElicitationClient({
     elicitInput: async (params) => {
-      // The SDK's `elicitInput` types `requestedSchema` as the spec's
-      // form-mode envelope (`{ type: 'object', properties: { ... } }`)
-      // with a discriminated-union value shape. The dispatcher passes a
-      // structurally compatible JSON-Schema-shaped Record derived from
-      // the action schema's `.pick({field: true})`. Cast at the carrier
-      // boundary so the local structural `Record<string, unknown>`
-      // contract stays decoupled from the SDK's narrow nominal type —
-      // the wire-level validation still runs on the SDK side.
       const result = await server.server.elicitInput(
         params as unknown as Parameters<typeof server.server.elicitInput>[0],
       );
@@ -498,11 +284,6 @@ export function createMcpServer(ctx: DispatchContext): V2McpServer {
 
   const dispatchCtx: DispatchContext = {
     ...ctx,
-    // #1273 / C2 (T30) — thread the local TaskStore so the C1
-    // task-augmented branch in dispatch fires when `tools/call` carries
-    // `task: { ttl? }`. Folded into the same ctx as rootsClient /
-    // elicitationClient so the handler closure consumes a single
-    // unified DispatchContext.
     taskStore,
     rootsClient,
     elicitationClient,
@@ -522,17 +303,12 @@ export function createMcpServer(ctx: DispatchContext): V2McpServer {
               clientInfo: { name: clientInfo.name, version: clientInfo.version },
             };
       } catch (err) {
-        // Snapshot must never throw out of an MCP lifecycle hook —
-        // failure here only degrades discovery to the cwd-walk fallback.
         logger.child({ subsystem: 'mcp-handshake' }).warn(
           { error: err instanceof Error ? err.message : String(err) },
           'capability resolver snapshot failed during MCP initialize',
         );
       }
     };
-    // v2 discriminates notification handlers by METHOD NAME, where v1 took a Zod
-    // schema — see `V2_ROOTS_LIST_CHANGED_NOTIFICATION_METHOD`. The payload type
-    // now comes from the SDK's own `NotificationTypeMap`, so nothing here parses.
     server.server.setNotificationHandler(
       V2_ROOTS_LIST_CHANGED_NOTIFICATION_METHOD,
       async () => {
@@ -549,21 +325,6 @@ export function createMcpServer(ctx: DispatchContext): V2McpServer {
   }
 
   for (const tool of getFullRegistry()) {
-    // Tier model — INTENTIONAL asymmetry between MCP and CLI surfaces.
-    //
-    // `hidden: true` means the tool is excluded from MCP `tools/list` (so it
-    // is not advertised to model-side agents and does not consume their
-    // context budget) but remains reachable via the CLI for operators,
-    // scripts, and introspection (`exarchos schema`, `exarchos sy ...`).
-    //
-    // The companion CLI introspection path (`listSchemas()` in
-    // `./schema-introspection.ts`) deliberately returns the FULL registry
-    // and tags hidden tools so users can see they exist while understanding
-    // they are internal / not part of the model-facing contract.
-    //
-    // See bug #1218 for the triage that fixed this asymmetry as
-    // intentional, and registry.ts:`CompositeTool.hidden` for the field
-    // contract.
     if (tool.hidden) continue;
     const inputSchema = buildRegistrationSchema(tool.actions);
     const slim = ctx.slimRegistration === true;
@@ -573,15 +334,7 @@ export function createMcpServer(ctx: DispatchContext): V2McpServer {
 
     const toolName = tool.name;
 
-    // MCP handler: dispatch → toEnvelope → per-action schema validation
-    // → toMcpResult. The `toEnvelope` + `toMcpResult` carriers replace the
-    // pre-D.7 single-carrier path and add per-call enforcement of the
-    // per-action outputSchema (D.5).
     const mcpHandler = async (args: Record<string, unknown>) => {
-      // DR-6 — stamp the MCP (non-CLI) surface onto the onboard action so the
-      // core `apply` install router downgrades the cli-only INSTALL step to a
-      // structured advisory (never a server-side `~/.claude/` write). No-op for
-      // every other action / when the caller supplied an explicit surface.
       const dispatchArgs = stampOnboardSurface(args);
       let env: Envelope<unknown> | ErrorEnvelope;
       try {
@@ -590,11 +343,6 @@ export function createMcpServer(ctx: DispatchContext): V2McpServer {
           dispatchArgs,
           createMcpDispatchContext(dispatchCtx, mcpRuntimeContext),
         );
-        // DR-6 — surface the cli-only install advisory with a CLI pointer in
-        // next_actions (INV-5b/INV-12). Gated to the onboard action: another
-        // action that happens to return `data.result.advisories` with a
-        // `surface: 'cli-only'` entry must NOT have an `onboard` verb prepended
-        // to its next_actions — that would publish a false affordance (INV-12).
         if (dispatchArgs.action === ONBOARD_ACTION) {
           result = surfaceOnboardCliAdvisory(result);
         }
@@ -608,22 +356,13 @@ export function createMcpServer(ctx: DispatchContext): V2McpServer {
               error instanceof Error ? error.message : 'Unhandled MCP dispatch error',
           },
         });
-        // Skip per-action validation on the unhandled-throw path — there is
-        // no action contract to enforce against an out-of-band crash.
         return toMcpResult(env);
       }
 
-      // D.5 — per-action output schema enforcement. Looks up the action via
-      // the canonical `args.action` discriminator and re-validates the
-      // envelope shape; surface the violation as an INTERNAL_ERROR envelope
-      // carrying the Zod issue list under `_meta.outputSchemaViolation` so
-      // callers can self-diagnose contract drift without re-running.
       env = validateAgainstActionSchema(toolName, tool.actions, args, env);
       return toMcpResult(env);
     };
 
-    // Use registerTool() so the strict ZodObject is passed as inputSchema
-    // directly, preserving .strict() validation that rejects unrecognized keys.
     const annotations = aggregateToolAnnotations(tool.actions);
     server.registerTool(
       tool.name,

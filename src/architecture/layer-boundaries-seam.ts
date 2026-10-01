@@ -1,3 +1,18 @@
+/**
+ * Three import censuses over the shipped source.
+ *
+ * - Layering: each first-party import edge resolves to a source and a target
+ *   layer. A governed layer that imports a layer outside its allowance fails as
+ *   `FORBIDDEN_IMPORT`. An allowance that no edge uses fails as
+ *   `STALE_LAYER_ALLOWANCE`. A layer without a row is ungoverned.
+ * - Declaration seam: a module that imports the declaration contract must not
+ *   also import a declaration store. See {@link DECLARATION_SEAM}.
+ * - SDK seam: a module other than `contract/sdk/seam.ts` must not import an MCP
+ *   SDK package, unless it has a dated exemption. See {@link SDK_SEAM_BOUNDARY}.
+ *
+ * The two seam rules are separate censuses, because a layer allowance is
+ * unconditional and sees only first-party edges.
+ */
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
@@ -15,89 +30,6 @@ import {
   type SpecifierParser,
 } from './sdk-generation-seam.js';
 
-/**
- * P07-06 — allowed-dependency layering census (structural conformance).
- *
- * The structural-closure plan (BASE-003, WFQ-016) requires the module graph to
- * declare *which layer may import which* and for **mechanical checks to reject
- * forbidden imports**. This module is that check: a comment/string-aware static
- * scan of the shipped source that resolves every first-party import edge to a
- * (sourceLayer → targetLayer) directory edge and fails closed when a *governed*
- * layer reaches a directory its declared allowance does not permit.
- *
- * It follows the established `architecture/effect-ledger.ts` /
- * `architecture/vcs-ownership.ts` census pattern — a source scan yielding a typed
- * verdict over the *real* tree, so a regression (a new forbidden cross-layer
- * edge) trips it rather than a hand-maintained mirror — and it reuses the ledger's
- * comment/string-aware {@link extractImportSpecifiers} so the two censuses agree
- * on what counts as an import. Like the ledger it is a **two-way ratchet**:
- *
- *   - FORBIDDEN_IMPORT       — a governed layer imports a directory its declared
- *                              allowance does not list (names BOTH module ends);
- *   - STALE_LAYER_ALLOWANCE  — a declared allowance no live edge exercises
- *                              (phantom cover), so the allowlist can never rot.
- *
- * ── Governed layers (incremental coverage) ──────────────────────────────────
- * The layering is declared INCREMENTALLY: {@link LAYER_ALLOWED_IMPORTS} governs
- * the foundational / peripheral directories whose cross-directory dependency
- * surface is small, well-understood, and architecturally intended to stay
- * bounded. Directories NOT listed are UNGOVERNED (the tangled application core is
- * not frozen by this pass — that would demand a large baseline that says little).
- * Each governed layer's `allow` set is the EXACT current cross-directory surface,
- * so both ratchet teeth bite: adding an outbound dependency trips FORBIDDEN, and
- * removing a declared one trips STALE.
- *
- * ── Scope ───────────────────────────────────────────────────────────────────
- * A module's layer is the LONGEST DECLARED id that owns it ({@link layerOf}),
- * falling back to the first path segment when no row claims it. Intra-layer
- * edges are ignored. Type-only and runtime imports are both counted: a type
- * dependency is still an architectural coupling for layering.
- *
- * Two scoping choices were changed by task 040, both because the old model could
- * not EXPRESS rules DR-3 assigns it rather than because it stated them wrongly:
- *
- *   - Layer ids were first-path-segment only, so any edge between two nested
- *     siblings collapsed to `parent -> parent` and died on the intra-layer skip.
- *     `adapters/cli -> adapters/mcp` is a real, live edge that no rule could
- *     have rejected, because the census could not see it at all. Declaring a
- *     nested id now governs it.
- *   - Root-level files (`format.ts`, `registry.ts`, …) were excluded from the
- *     edge set entirely. That made the tree's largest module structurally
- *     ungovernable. They are now one stated {@link ROOT_LAYER}, counted like any
- *     other, and the four layers that reach it say so in their `allow` sets.
- *
- * ── Second census in this module: the DECLARATION SEAM (DR-1) ───────────────
- * The bottom half of this file carries a second, independent census over the
- * same scan: DR-1's rule that declarations are consumed ONLY through
- * `contract/declaration-seam.ts`. It lives here because DR-1 names this module
- * its enforcement point, and it is a separate census rather than a row in
- * {@link LAYER_ALLOWED_IMPORTS} for a mechanical reason — the biggest
- * declaration store, `registry.ts`, is a ROOT-LEVEL file, which the layering
- * census used to exclude outright — an allowance row could never have seen the
- * edge it needed to reject.
- *
- * Task 040 removed that exclusion, so the mechanical reason is gone and the
- * remaining one is about SHAPE. A layer allowance is unconditional: it says this
- * directory may or may not reach that one. DR-1's rule is conditional on
- * consumer-hood — a module that reads `TOOL_REGISTRY` and knows nothing about
- * declarations is un-migrated, not in violation — and that condition is what
- * lets the population be derived from the tree instead of grandfathered. No
- * allowance row can express it. See {@link DECLARATION_SEAM}.
- *
- * ── Third census in this module: the SDK GENERATION SEAM (DR-26) ────────────
- * The last section carries a third census, and it is the same rule applied to a
- * third boundary: DR-26's requirement that `contract/sdk/seam.ts` is the SOLE importer of
- * either MCP SDK generation. A module reaching a `@modelcontextprotocol/*`
- * package directly fails it. See {@link SDK_SEAM_BOUNDARY}.
- *
- * It is a separate census rather than a {@link LAYER_ALLOWED_IMPORTS} row for
- * the same mechanical reason DR-1's is: the layering census resolves FIRST-PARTY
- * edges only ({@link resolveTarget} returns `undefined` for a bare package
- * specifier), so no allowance row can see an SDK import at all. That blind spot
- * is not incidental — it is exactly why the coupling went unmodelled until
- * DR-26 named it.
- */
-
 /** A resolved first-party cross-directory import edge. */
 export interface LayerEdge {
   /** Repo-relative-to-scan-root source module, forward-slashed. */
@@ -112,7 +44,7 @@ export interface LayerEdge {
   readonly specifier: string;
 }
 
-/** A declared allowance: `layer` may import the directories in `allow` (only). */
+/** A declared allowance: `layer` can import only the layers in `allow`. */
 export interface LayerAllowance {
   /** The governed source id (a first-level directory, a nested prefix, or `<root>`). */
   readonly layer: string;
@@ -144,32 +76,18 @@ export interface LayerBoundaryResult {
   readonly diagnostics: readonly LayerBoundaryDiagnostic[];
 }
 
-// ─── Detection ──────────────────────────────────────────────────────────────
-
 /**
- * The layer every root-level shipped file belongs to.
- *
- * Root files used to be excluded from the edge set entirely, which made the
- * largest module in the tree (`registry.ts`) structurally invisible to layering:
- * no allowance could reach it and no edge to it could ever be forbidden. The
- * exclusion is replaced by this STATED policy — root files are one shared-root
- * layer, counted like any other — so the surface is governable. `<root>` cannot
- * collide with a directory name, since a directory named `<root>` is not a legal
- * path segment on Windows.
+ * The layer of each root-level shipped file. Root files count like any other
+ * layer, so the census can govern `registry.ts`. `<root>` cannot collide with a
+ * directory name, because it is not a legal path segment on Windows.
  */
 export const ROOT_LAYER = '<root>';
 
 /**
- * The layer owning a repo-relative module: the LONGEST declared id that is a
- * path-boundary prefix of it, falling back to the first path segment.
- *
- * First-segment-only could not express a nested layer, and silently discarded
- * every edge between two of them: `adapters/mcp -> adapters/cli` resolved to
- * `adapters -> adapters` and died on the intra-layer skip, so DR-3's rule that
- * the MCP adapter must not reach the CLI adapter was unstatable rather than
- * merely unstated. Longest-match keeps every existing single-segment row
- * meaning exactly what it meant — a declared `utils` still owns `utils/**` —
- * while letting a row name a nested id and immediately govern it.
+ * Returns the layer of a module: the longest declared id that is a path prefix
+ * of it, else the first path segment. With the longest match, a row can name a
+ * nested layer such as `adapters/mcp`, so an edge between two nested siblings
+ * is visible. A declared `utils` still owns all of `utils/`.
  */
 export function layerOf(module: string, declaredIds: readonly string[] = []): string {
   let owner: string | undefined;
@@ -217,16 +135,11 @@ export function resolveTarget(module: string, specifier: string): string | undef
 }
 
 /**
- * Enumerate the first-party cross-directory import edges of one module. Pure;
- * the specifiers come from the ledger's lexer PORT via {@link
- * extractImportSpecifiers}, so a store named only in prose is not an edge and a
- * nested template literal cannot manufacture one. Intra-layer edges are
- * skipped; edges to a root-level file resolve to {@link ROOT_LAYER} and are
- * counted like any other cross-layer edge.
- *
- * Type-only imports and `import('…')` type queries ARE edges here — the question
- * is layering, not runtime effect — which is why this consumes the full
- * specifier surface rather than the ledger's value-import filter.
+ * Lists the first-party cross-layer import edges of one module. The specifiers
+ * come from the lexer port through {@link extractImportSpecifiers}, so a name in
+ * prose is not an edge. It skips intra-layer edges. Type-only imports and
+ * `import('…')` type queries are edges, because the question is layering, not
+ * runtime effect.
  */
 export function detectLayerEdges(
   module: string,
@@ -293,14 +206,11 @@ export async function scanLayerEdges(
   );
 }
 
-// ─── Census ─────────────────────────────────────────────────────────────────
-
 /**
- * Pure layering verdict over an already-collected edge set and allowance set.
- *
- * Two independent, complementary checks, each with its own diagnostic:
- *   - FORBIDDEN_IMPORT      — a governed layer's edge to a non-allowed directory;
- *   - STALE_LAYER_ALLOWANCE — an allowance no live edge exercises (phantom cover).
+ * Pure layering verdict over an edge set and an allowance set. It reports
+ * `FORBIDDEN_IMPORT` for an edge from a governed layer to a layer that the row
+ * does not allow. It reports `STALE_LAYER_ALLOWANCE` for an allowance that no
+ * edge uses. It skips an edge from an ungoverned layer.
  */
 export function runLayerBoundaryCensus(
   edges: readonly LayerEdge[],
@@ -313,7 +223,7 @@ export function runLayerBoundaryCensus(
 
   for (const edge of edges) {
     const allow = byLayer.get(edge.sourceLayer);
-    if (allow === undefined) continue; // ungoverned source layer
+    if (allow === undefined) continue;
     if (allow.has(edge.targetLayer)) continue;
     diagnostics.push({
       code: 'FORBIDDEN_IMPORT',
@@ -354,46 +264,41 @@ export function runLayerBoundaryCensus(
   });
 }
 
-/** Collect the live layer edges and return the census verdict over the real tree. */
+/**
+ * Collects the live layer edges and returns the census verdict for the real
+ * tree. The declared ids come from the table that the census judges with, so a
+ * new nested row governs its layer at once.
+ */
 export async function auditLayerBoundaries(
   sourceRoot: string,
   lex: ModuleLexer,
   allowances: readonly LayerAllowance[] = LAYER_ALLOWED_IMPORTS,
 ): Promise<LayerBoundaryResult> {
-  // The declared ids come from the SAME table the census judges against, so a
-  // row naming a nested id governs it the moment it is written — the resolver
-  // and the rule set cannot disagree about what a layer is.
   const edges = await scanLayerEdges(sourceRoot, lex, declaredLayerIds(allowances));
   return runLayerBoundaryCensus(edges, allowances);
 }
 
-// ─── The declared layering ──────────────────────────────────────────────────
-//
-// One entry per governed source directory. `allow` is the EXACT current
-// cross-directory surface (root-level files are {@link ROOT_LAYER}), so both
-// ratchet teeth are live: a NEW outbound edge trips FORBIDDEN_IMPORT and a
-// REMOVED one trips STALE_LAYER_ALLOWANCE. Adding a new outbound dependency to
-// any governed layer is a conscious decision recorded here.
-
+/** Builds one {@link LayerAllowance}. */
 const allowance = (layer: string, allow: readonly string[], note: string): LayerAllowance => ({
   layer,
   allow: Object.freeze([...allow]),
   note,
 });
 
+/**
+ * The declared layering, one row for each governed layer. Each `allow` is the
+ * exact measured outbound surface. Thus a new edge fails as `FORBIDDEN_IMPORT`,
+ * and a removed edge fails as `STALE_LAYER_ALLOWANCE`. A wide row records how
+ * coupled that layer is, and the census keeps it from growing.
+ */
 export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
-  // ── foundation leaves: import NO other first-party directory ───────────────
   allowance('utils', [], 'Foundation leaf — cross-OS/process/format primitives; imports no first-party directory.'),
   allowance('ndjson', [], 'Foundation leaf — NDJSON framing primitives; imports no first-party directory.'),
 
-  // ── peripheral layers: bounded, intentional dependency surfaces ────────────
-  // L9 "Cooperative agents" per `tools/audit/layer-map.json`. The narrow
-  // `['utils']` surface described an earlier tenant — a handful of runtime
-  // resource readers — before task 019 moved `agents/` and `launcher/`
-  // underneath, which is where the map puts them. None of these edges is new;
-  // they were UNGOVERNED as top-level directories and this row is the first
-  // thing to see them. Cooperative agents drive worktrees and launches, so
-  // reaching verbs/workflow/events is the layer's job, not a leak.
+  /**
+   * Layer L9 in `tools/audit/layer-map.json`. Cooperative agents drive worktrees
+   * and launches, so the edges to verbs, workflow and events are intended.
+   */
   allowance(
     'runtime',
     ['dispatch', 'events', 'storage', 'utils', 'verbs', 'workflow', ROOT_LAYER],
@@ -411,14 +316,6 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   allowance(
     'projections',
     [
-      // `capabilities` is gone from this set because task 020 moved it under
-      // `workflow/`, which projections already reaches. `adapters` is gone for
-      // a different reason: the only edge was a pure schema converter filed
-      // under the IO facade, now a foundation leaf.
-      // `stack` left this set when `stack/` moved under `verbs/stack/`, so it
-      // is no longer a first path segment and no longer a layer. The read edge
-      // it covered (`views/composite.ts` → the stack status fold) did not go
-      // away; it is counted under `verbs` now, which this row already allows.
       'architecture', 'config', 'contract', 'describe',
       'dispatch', 'events', 'verbs', 'storage', 'utils', 'workflow',
       ROOT_LAYER,
@@ -433,12 +330,6 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
       'read side reaches the verb layer at all is the finding; acting on it is separate work, ' +
       'and this row is what keeps it measurable in the meantime.',
   ),
-  // `stack` had a row here until `stack/` moved under `verbs/stack/`. A layer is
-  // this census's FIRST path segment, so `stack` stopped being one and the row
-  // could match nothing. Its outbound edges (events, projections) survive the
-  // move as `verbs` edges, both already allowed by the `verbs` row below. Same
-  // correction as the `workspace` / `agents` note above, forced by the same
-  // STALE_LAYER_ALLOWANCE ratchet.
   allowance(
     'cli',
     ['events', 'ndjson', 'contract', 'projections'],
@@ -452,31 +343,6 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
       'census structurally cannot see. `task-store` carries `isTaskTerminal` because ' +
       'v2 deleted the SDK predicate; it is generation-neutral and imports nothing.',
   ),
-  // `workspace` and `agents` had rows here until task 019/020 re-parented both
-  // under `runtime/`, and `capabilities` under `workflow/`. A layer was this
-  // census's FIRST path segment then, so none of the three was a layer any more
-  // and rows naming them could match nothing. Their edges did not disappear with
-  // the rows — they are counted under `runtime` above, whose surface is stated
-  // from the live tree. Removing a row that can no longer match is the second
-  // ratchet tooth doing its job, not a relaxation.
-
-  // ── task 041: the core, admitted in ascending width ───────────────────────
-  //
-  // Everything above governed the periphery; the tangled core was deliberately
-  // left out, which meant the majority of the tree's coupling was subject to no
-  // rule at all. These rows close that, and each `allow` is the EXACT measured
-  // outbound surface — never a wildcard — so both teeth are live on day one: a
-  // NEW outbound edge trips FORBIDDEN_IMPORT and a REMOVED one trips STALE.
-  //
-  // Read the widths as the finding. A row naming 19 of 30 layers governs
-  // weakly, and saying so is the point: it is a measurement of how entangled
-  // that directory is, published where it can only get better or trip a test.
-  // Phase 1 is a pure move with zero semantic edits, so these surfaces are
-  // RECORDED, not narrowed — narrowing them is the work each row now makes
-  // measurable. The order is ascending width because admission is incremental:
-  // a promotion that starts at the widest row invites one blanket allowance
-  // that governs nothing, which is the failure this ordering exists to avoid.
-
   allowance('review', [ROOT_LAYER, 'events', 'vcs', 'verbs'], 'Review reads event state and drives verbs through the VCS surface.'),
   allowance(
     'architecture',
@@ -643,69 +509,12 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
       'review', 'runbooks', 'runtime', 'storage', 'utils', 'vcs',
       'workflow',
     ],
-    // `tasks` left this set when the last task-append module moved under
-    // `verbs/tasks/`: a layer is this census\'s FIRST path segment, so `tasks`
-    // stopped being one and the row could match nothing. The edge did not go
-    // away with the row — it is now INTERNAL to `verbs/`, which no allowance
-    // governs. Dropping a row that can no longer match is the same correction
-    // the `workspace` / `agents` note above records, and the STALE_LAYER_ALLOWANCE
-    // ratchet is what forced it rather than letting the phantom cover sit.
     'The WIDEST row in the table at 18 targets, and the honest reading is that `verbs/` is coupled to ' +
       'nearly the whole tree. It is recorded rather than narrowed for the same reason `projections` ' +
       'is: Phase 1 moves code without changing meaning. The row buys the ratchet — target 19 has to ' +
       'be argued for — and it makes the number quotable, which is the first step to reducing it.',
   ),
 ]);
-
-// ════════════════════════════════════════════════════════════════════════════
-// DR-1 — the DECLARATION SEAM census
-// ════════════════════════════════════════════════════════════════════════════
-//
-// DR-1: "Declarations are consumed ONLY through the seam accessor; a direct read
-// of registry storage from a consumer fails `layer-boundaries-seam.ts`."
-//
-// ── The rule, stated precisely ──────────────────────────────────────────────
-// A module is a declaration CONSUMER when it imports the declaration contract
-// (`contract/declaration.ts` — the envelope — or `contract/declaration-seam.ts`
-// — the accessor). A consumer must NOT also import a declaration-STORAGE module.
-// Those are the only two places a declaration can be obtained, so forbidding the
-// second leaves the seam the sole supply route. That is DR-1's rung-2
-// mechanism verbatim: "consumers may import only the declaration accessor's
-// type, never the storage module", which is what makes #1258's relocation a
-// COMPILE-TIME substitution rather than an edit across every consumer.
-//
-// ── Scope, stated honestly ──────────────────────────────────────────────────
-// The rule is CONDITIONAL on consumer-hood, and that is deliberate. A module
-// that reads `EVENT_EMISSION_REGISTRY` today and knows nothing about
-// declarations is NOT a violation — it is un-migrated, and Waves 1b–4 move it.
-// The census therefore needs no grandfather list and cannot rot into one: the
-// moment such a module is migrated onto the envelope it becomes a consumer, and
-// its leftover storage import fails on that same commit. The population is
-// derived from the tree, never enumerated.
-//
-// ── Non-empty denominator (the vacuity guard) ───────────────────────────────
-// A seam check that resolves nothing must FAIL, not report clean. Three
-// independent ways this census could quietly become vacuous are each their own
-// diagnostic:
-//   - EMPTY_SEAM_DENOMINATOR('consumers')     — the contract modules were moved
-//                                               or renamed, so no module still
-//                                               resolves to a consumer;
-//   - EMPTY_SEAM_DENOMINATOR('storage-sites') — the declared storage population
-//                                               is empty, so no import could be
-//                                               a violation by construction;
-//   - UNRESOLVED_DECLARATION_STORAGE          — a declared store is gone from
-//                                               the tree, or no longer exports
-//                                               the symbol that made it a store.
-// The third is the one #1258 will trip on purpose: relocating declarations into
-// the IR unbinds `EVENT_EMISSION_REGISTRY` / `TOOL_REGISTRY`, and the gate then
-// demands {@link DECLARATION_SEAM} be re-pointed rather than silently ranging
-// over a store nobody writes to.
-//
-// ── The other tooth ─────────────────────────────────────────────────────────
-// STALE_SOURCE_ADAPTER keeps the one legitimate exemption from becoming phantom
-// cover: a module declared a {@link DeclarationSourceAdapter} — the lift FROM
-// storage INTO the envelope, which necessarily touches both sides — but which
-// imports no storage is not an adapter and loses the exemption.
 
 /**
  * A declaration store: the module that currently holds declarations of some
@@ -738,7 +547,7 @@ export interface DeclarationSeamRule {
   readonly accessor: string;
   /** Importing any of these makes a module a declaration consumer. */
   readonly contractModules: readonly string[];
-  /** The stores a consumer may not import. */
+  /** The stores that a consumer must not import. */
   readonly storage: readonly DeclarationStorageSite[];
   /** Modules exempt from the no-storage rule, each with a rationale. */
   readonly sourceAdapters: readonly DeclarationSourceAdapter[];
@@ -820,16 +629,9 @@ export interface DeclarationSeamResult {
 }
 
 /**
- * Classify one module's participation in the declaration seam. Pure, and
- * comment/string-aware through the same {@link extractImportSpecifiers} the
- * layering census uses — a store named only in prose is not an import.
- *
- * Returns `undefined` for a module touching neither side, which is almost all of
- * them; the census only ever holds the modules that matter.
- *
- * Unlike {@link detectLayerEdges} this does NOT skip root-level targets: the
- * action and CLI-verb store is `registry.ts`, a root-level file, so skipping
- * them would blind the rule to its largest subject.
+ * Classifies how one module takes part in the declaration seam. It reads the
+ * imports through {@link extractImportSpecifiers}, so a store named in prose is
+ * not an import. It returns `undefined` for a module that touches neither side.
  */
 export function detectDeclarationSeamUsage(
   module: string,
@@ -868,12 +670,8 @@ export function detectDeclarationSeamUsage(
 }
 
 /**
- * Does `source` still export `symbol`, the binding that makes it a store?
- *
- * Anchored at line start so a mention inside a block comment (` * export const
- * TOOL_REGISTRY …`) or a doc line cannot keep a relocated store looking alive —
- * the failure mode this check exists to catch is precisely a store that MOVED
- * while its name lingered in prose.
+ * Returns true when `source` still exports `symbol`. The match is anchored at
+ * line start, so a mention in a comment cannot keep a moved store alive.
  */
 export function exportsDeclarationSymbol(source: string, symbol: string): boolean {
   return new RegExp(String.raw`^export\s+(?:declare\s+)?(?:const|let|var|function|class)\s+${symbol}\b`, 'm').test(
@@ -882,9 +680,13 @@ export function exportsDeclarationSymbol(source: string, symbol: string): boolea
 }
 
 /**
- * Pure declaration-seam verdict over an already-collected scan.
+ * Pure declaration-seam verdict over a scan. It reports:
  *
- * Five independent checks; see the header block above for what each protects.
+ * - `DIRECT_STORAGE_READ`: a consumer, other than a source adapter, imports a store.
+ * - `EMPTY_SEAM_DENOMINATOR`: no module is a consumer, or no store is declared.
+ * - `UNRESOLVED_DECLARATION_STORAGE`: a store is absent or does not export its symbol.
+ * - `SEAM_ACCESSOR_MISSING`: the accessor is not in the tree.
+ * - `STALE_SOURCE_ADAPTER`: a source adapter imports no store.
  */
 export function runDeclarationSeamCensus(
   scan: DeclarationSeamScan,
@@ -1033,22 +835,27 @@ export async function auditDeclarationSeam(
   return runDeclarationSeamCensus(await scanDeclarationSeam(sourceRoot, lex, rule), rule);
 }
 
-// ─── The declared declaration seam ──────────────────────────────────────────
-
+/** Builds one {@link DeclarationStorageSite}. */
 const storageSite = (module: string, symbol: string, note: string): DeclarationStorageSite => ({
   module,
   symbol,
   note,
 });
 
+/**
+ * The declaration seam. A module that imports a contract module is a consumer,
+ * and a consumer must not import a store. A module that reads a store without
+ * the contract is not a violation. A source adapter lifts a store into
+ * declarations, so it can import both sides.
+ */
 export const DECLARATION_SEAM: DeclarationSeamRule = Object.freeze({
   accessor: 'contract/declaration-seam.ts',
 
-  // Importing EITHER makes a module a declaration consumer. The envelope counts
-  // alongside the accessor because holding a `Declaration` is the thing the rule
-  // governs — a module that types itself against the envelope and then fills it
-  // from storage has bypassed the seam just like one calling the store
-  // directly, and would slip through an accessor-only definition.
+  /**
+   * An import of either module makes a consumer. The envelope counts too,
+   * because a module typed on the envelope can fill it from a store and bypass
+   * the accessor.
+   */
   contractModules: Object.freeze(['contract/declaration.ts', 'contract/declaration-seam.ts']),
 
   storage: Object.freeze([
@@ -1070,9 +877,7 @@ export const DECLARATION_SEAM: DeclarationSeamRule = Object.freeze({
     ),
   ]),
 
-  // One reviewed entry per lift, as Wave 1a anticipated. STALE_SOURCE_ADAPTER
-  // keeps an entry from outliving the lift it covers, so an exemption cannot
-  // decay into cover for a violation.
+  /** One reviewed entry for each lift. `STALE_SOURCE_ADAPTER` fails an entry that imports no store. */
   sourceAdapters: Object.freeze([
     {
       module: 'events/event-declarations.ts',
@@ -1088,13 +893,9 @@ export const DECLARATION_SEAM: DeclarationSeamRule = Object.freeze({
 });
 
 /**
- * A module licensed to import an SDK package directly despite DR-26.
- *
- * There are none today — the list is EMPTY, and that is the deliverable: task
- * 053 migrated all 22 measured subjects rather than exempting any. The shape
- * exists so that a future exemption must be a dated, owned, expiring, reviewed
- * record instead of a quiet edit to the rule, and so {@link
- * SdkSeamBoundaryDiagnostic}'s stale/expired teeth have something to bite.
+ * A dated, owned and expiring licence for a module to import an SDK package
+ * directly. The census reports an expired licence, and a licence for a module
+ * that imports no SDK package.
  */
 export interface SdkSeamExemption {
   /** Scan-root-relative, forward-slashed module path. */
@@ -1131,7 +932,7 @@ export interface SdkSeamUsage {
 
 /** Everything the SDK-seam census needs, collected from one whole-tree walk. */
 export interface SdkSeamBoundaryScan {
-  /** Only modules that import an SDK package; the rest are irrelevant. */
+  /** The modules that import an SDK package. */
   readonly usages: readonly SdkSeamUsage[];
   /** How many modules the walk VISITED — the population, not the hits. */
   readonly moduleCount: number;
@@ -1182,13 +983,9 @@ export interface SdkSeamBoundaryResult {
 }
 
 /**
- * Classify one module's direct SDK imports. Pure, and parse-based via `parse`
- * so a specifier inside a comment, a string or a template literal is not an
- * import — it is absent from the syntax tree by construction rather than
- * filtered out afterwards.
- *
- * Returns `undefined` for a module importing no SDK package, which after the
- * migration is all but one of them.
+ * Classifies the direct SDK imports of one module. It reads the imports through
+ * `parse`, so a specifier in a comment, string or template is not an import.
+ * It returns `undefined` for a module that imports no SDK package.
  */
 export function detectSdkSeamUsage(
   module: string,
@@ -1205,11 +1002,8 @@ export function detectSdkSeamUsage(
 }
 
 /**
- * Pure SDK-seam verdict over an already-collected scan.
- *
- * `today` is injected rather than read from the clock so the expiry tooth is
- * testable without waiting for a date to pass — the same shape the wave's other
- * expiring allowlists use.
+ * Pure SDK-seam verdict over a scan. The caller can inject `today`, so a test
+ * can check the expiry of an exemption without a real date.
  */
 export function runSdkSeamBoundaryCensus(
   scan: SdkSeamBoundaryScan,
@@ -1329,20 +1123,10 @@ export function runSdkSeamBoundaryCensus(
 const MODULE_EXTENSIONS: readonly string[] = ['.ts', '.mts', '.cts', '.js', '.mjs', '.cjs'];
 
 /**
- * Every module under `root`, EXCLUDING only what is not source at all.
- *
- * Deliberately NOT {@link collectScannableFiles}: that walk drops tests, evals
- * and `test-helpers`, which between them held 12 of the 22 modules DR-26
- * measured. See the section header for why a test's SDK import is in scope for
- * this rule and out of scope for the layering one.
- *
- * Exclusion is by PROPERTY, never by naming subtrees: `node_modules` and `dist`
- * are build/vendor output, and dot-directories are tooling state — which also
- * keeps a repo-root scan out of `.claude/worktrees/`, where sibling checkouts of
- * this same repository would otherwise be walked as if they were source.
- *
- * `.mjs`/`.js` are collected, not just `.ts`: the last live v1 import in the
- * repository sat in a `.mjs` test helper, invisible to a TypeScript-only walk.
+ * Lists each module file under `root`, `.js` and `.mjs` included. It does not
+ * use {@link collectScannableFiles}, because the SDK rule also covers tests,
+ * evals and `test-helpers`. It skips `node_modules`, `dist` and dot-directories,
+ * so a repo-root scan does not walk the sibling checkouts in `.claude/worktrees/`.
  */
 async function collectAllModuleFiles(root: string): Promise<string[]> {
   const files: string[] = [];
@@ -1397,16 +1181,11 @@ export async function auditSdkSeamBoundary(
 export const SDK_SEAM_BOUNDARY: SdkSeamBoundaryRule = Object.freeze({
   seamModule: SDK_SEAM_MODULE,
 
-  // Task 053 migrated all 22 measured modules instead of licensing any of them,
-  // and the production tree still licenses NONE. The three entries below are
-  // process-level test harnesses that drive a real MCP server over stdio: they
-  // need a real client, and the seam is a production module a root-package test
-  // fixture must not reach into. They are recorded rather than hidden because the
-  // alternative was the scan root itself — the audit used to run only at
-  // `src`, so these modules were not exempt, they were
-  // INVISIBLE, and the rule's "SOLE importer" claim was simply false outside the
-  // subtree it measured. An exemption is a debt with an owner and a date; a narrow
-  // scan root is a debt nobody can see.
+  /**
+   * No production module has a licence. These entries are test harnesses that
+   * drive a real MCP server over stdio, so they need a real client. A root test
+   * fixture must not import the production seam.
+   */
   exemptions: Object.freeze([
     {
       module: 'tests/helpers/mcp-client.ts',

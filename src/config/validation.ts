@@ -1,10 +1,6 @@
 import { z } from 'zod';
 
-// ─── Built-in Workflow Names ───────────────────────────────────────────────
-
 export const BUILTIN_WORKFLOW_TYPES = ['feature', 'debug', 'refactor'] as const;
-
-// ─── Zod Schemas ───────────────────────────────────────────────────────────
 
 export const guardDefinitionSchema = z.object({
   command: z.string().min(1, 'Guard command must not be empty'),
@@ -19,6 +15,11 @@ export const transitionDefinitionSchema = z.object({
   guard: z.string().optional(),
 }).strict();
 
+/**
+ * Schema for a custom workflow. `initialPhase` and each transition `from` must
+ * be a declared phase. A transition `to` can also be `cancelled` or `completed`.
+ * Each transition `guard` must name an entry in `guards`.
+ */
 export const workflowDefinitionSchema = z.object({
   extends: z.string().optional(),
   phases: z.array(z.string().min(1)).min(1, 'Workflow must have at least one phase'),
@@ -26,12 +27,9 @@ export const workflowDefinitionSchema = z.object({
   transitions: z.array(transitionDefinitionSchema),
   guards: z.record(z.string(), guardDefinitionSchema).optional(),
 }).strict().superRefine((workflow, ctx) => {
-  // Declared phases: valid for initialPhase and transition sources (from)
   const declaredPhases = new Set(workflow.phases);
-  // Reachable phases: includes implicit terminal states for transition targets (to)
   const reachablePhases = new Set([...workflow.phases, 'cancelled', 'completed']);
 
-  // initialPhase must be a declared phase (not a terminal state)
   if (!declaredPhases.has(workflow.initialPhase)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -40,7 +38,6 @@ export const workflowDefinitionSchema = z.object({
     });
   }
 
-  // Validate transition from/to reference valid phases
   for (let i = 0; i < workflow.transitions.length; i++) {
     const t = workflow.transitions[i];
     if (t === undefined) continue;
@@ -59,7 +56,6 @@ export const workflowDefinitionSchema = z.object({
       });
     }
 
-    // Validate guard references exist in guards object
     if (t.guard) {
       const guardExists = workflow.guards?.[t.guard];
       if (!guardExists) {
@@ -84,11 +80,9 @@ export const viewDefinitionSchema = z.object({
 }).strict();
 
 /**
- * @deprecated since v2.10.0 — the `tools:` block on `exarchos.config.ts`
- * is removed in v3.0.0 per epic #1258 (Workflow Builder SDK). Migrate
- * custom tools to the v3.0 SDK before the v3.0 release. A runtime
- * `console.warn` fires from `config/register.ts:registerCustomTools`
- * whenever a config supplies this block.
+ * @deprecated since v2.10.0. The `tools:` block in `exarchos.config.ts` goes
+ * away in v3.0.0. Move custom tools to the Workflow Builder SDK. The first
+ * `registerCustomTools` call with this block in a process logs a warning.
  */
 export const toolActionDefinitionSchema = z.object({
   name: z.string().min(1, 'Action name must not be empty'),
@@ -104,6 +98,10 @@ export const toolDefinitionSchema = z.object({
   actions: z.array(toolActionDefinitionSchema).min(1, 'Tool must have at least one action'),
 }).strict();
 
+/**
+ * Schema for `exarchos.config.ts`. A custom workflow cannot use a built-in
+ * name, and its `extends` chain must name known workflows without a cycle.
+ */
 export const exarchosConfigSchema = z.object({
   views: z.record(z.string(), viewDefinitionSchema).optional(),
   tools: z.record(z.string(), toolDefinitionSchema).optional(),
@@ -143,7 +141,6 @@ export const exarchosConfigSchema = z.object({
         }
       }
 
-      // Detect cycles in extends chains
       for (const name of Object.keys(workflows)) {
         const visited = new Set<string>();
         let current: string | undefined = name;
@@ -163,8 +160,6 @@ export const exarchosConfigSchema = z.object({
     }),
   events: z.record(z.string(), eventDefinitionSchema).optional(),
 }).strict();
-
-// ─── Validation Function ───────────────────────────────────────────────────
 
 export interface ValidationResult {
   success: boolean;

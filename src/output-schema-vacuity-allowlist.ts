@@ -1,115 +1,33 @@
-// GENERATED SEED — the `outputSchema` vacuity allowlist (DR-4, task 055).
-//
-// Every id below names an action declaration whose `outputSchema` has a
-// success-branch `data` of `z.unknown()`: total over every payload shape,
-// including the wrong ones. The list was SEEDED from
-// `censusOutputSchemas().vacuous` — the census's sorted, deduplicated id list —
-// and never transcribed by hand. `output-schema-census.test.ts` re-derives it
-// from the live census on every run, so a hand-edited entry that does not
-// correspond to a real vacuous declaration turns the suite red.
-//
-// ── Why an allowlist and not a count ────────────────────────────────────────
-// A count threshold ("no more than 112 vacuous declarations") is satisfied by
-// swapping one vacuous declaration for another: pay down `a`, introduce `b`,
-// and the number never moves. Membership cannot be gamed that way — `b` is not
-// on the list, so it fails, and `a`'s entry goes stale the moment it is fixed.
-//
-// ── The four teeth ──────────────────────────────────────────────────────────
-//   1. COMPILE TIME. {@link VacuityWaiverId} is the literal union of the keys
-//      below, and `vacuityWaiver()` (in `output-schema-declaration.ts`) accepts
-//      nothing else. A NEW action cannot declare a vacuous `outputSchema` at
-//      all: `EnvelopeSchema(z.unknown())` is unbranded and therefore not
-//      assignable to `BuiltinToolAction.outputSchema`, the out-of-registry
-//      escape now mints a DIFFERENT brand that a registry declaration cannot
-//      use (task 060), and the waiver escape rejects any id that is not already
-//      seeded here.
-//   2. RUN TIME — MEMBERSHIP. `auditVacuityAllowlist()` in
-//      `architecture/output-schema-census.ts` pins this list against the live
-//      census in both directions — an unwaived vacuous declaration fails, and a
-//      waiver whose declaration is no longer vacuous goes STALE and must be
-//      deleted. There is no way to park a paid-down entry here.
-//   3. RUN TIME — KEY-SET INTEGRITY (task 060). Teeth 1 and 2 both compare this
-//      file against TODAY. Neither can see an IN-PLACE SWAP: pay `a` down, make
-//      `c` vacuous, and edit this file to drop `a` and add `c` — every
-//      comparison against today's registry agrees, and the count never moves.
-//      Detecting "only removals happened" needs PRIOR STATE, so
-//      `auditVacuitySeedIntegrity()` pins the union of {@link VACUITY_ALLOWLIST}
-//      and {@link VACUITY_RETIRED} against the frozen digest in
-//      `output-schema-seed-pin.ts`. A paid-down entry MOVES to `VACUITY_RETIRED`
-//      instead of being deleted, so the union is invariant and the pin never
-//      changes for any legal edit.
-//   4. RUN TIME — EXPIRY (tasks 017 and 093). Teeth 1-3 govern WHICH
-//      declarations may be waived. None of them governs FOR HOW LONG, and until
-//      task 017 nothing did: `expires` below was written by task 055 and read by
-//      no code path, so the "wave-scoped" deadline DR-4 specifies was a
-//      permanent exemption wearing a date. `auditVacuityExpiry()` in
-//      `architecture/output-schema-census.ts` now fails on an entry whose
-//      `expires` is past, and — because a deadline its own owner may move is not
-//      a deadline — ALSO fails on an entry dated later than its cap.
-//
-//      Task 093 made that cap a SCHEDULE. Task 017's single horizon meant the
-//      whole seed came due on one morning, and one bump of one constant cleared
-//      it: the mechanism was real but nothing applied pressure before the cliff.
-//      Each owner's cohort now comes due one step ahead of the next, so the
-//      dates below are NOT uniform and are not meant to be. The schedule itself
-//      is derived, never transcribed — `deriveOwnerCohorts()` in
-//      `tools/audit/core/output-schema-ratchet-guard.ts` reads the owners off the
-//      frozen seed (this map ∪ `VACUITY_RETIRED`) and orders them by seeded
-//      cohort size, smallest due first. Deriving it from the SEED and not from
-//      today's allowlist is deliberate: the seed key set is the quantity the
-//      digest pins, so paying an entry down can never shuffle a rank or move
-//      another team's deadline.
-//
-//      The clock is read once, at the CI guard's entrypoint
-//      (`tools/audit/core/output-schema-ratchet-guard.ts`), never
-//      inside the unit suite — a deadline must redden the MERGE, not a developer's
-//      local `vitest run`.
-//
-// ── How to shrink it ────────────────────────────────────────────────────────
-// Give the action a real `data` schema, declare it with `withCappedShape(...)`,
-// and MOVE its line from {@link VACUITY_ALLOWLIST} to {@link VACUITY_RETIRED},
-// swapping `expires` for `retiredAt: '<the date you paid it down>'`. That is the
-// only supported edit. Entries are never ADDED to either map: an addition
-// changes the seed key set, and the pinned digest is what makes that a red
-// build rather than a line a reviewer has to notice.
-//
-// If an action is DELETED outright, its waiver is retired the same way — the
-// debt did not get paid, but the declaration is gone, and tooth 2 would
-// otherwise report the waiver stale forever.
-//
-// Owner is derived from the declaring composite tool, and the expiry is that
-// owner's slot in the derived schedule. The entry record is `{ owner, expires }`
-// and must stay that way — the owner is what places the entry in a cohort, so a
-// waiver that lost it would have no deadline at all.
+/**
+ * Generated seed: the `outputSchema` vacuity allowlist. Each id names an action whose success `data` schema is `z.unknown()`.
+ * The list came from `censusOutputSchemas().vacuous`, and the census tests derive it again on each run.
+ * It is a membership list, not a count. A count does not change when one vacuous action replaces another.
+ *
+ * {@link VacuityWaiverId} is the union of the keys, and `vacuityWaiver()` accepts no other id. Thus a new action cannot declare a vacuous schema.
+ *
+ * `auditVacuityAllowlist()` fails on an unwaived vacuous action, and on a waiver whose action is no longer vacuous.
+ * `auditVacuitySeedIntegrity()` pins the key union of the two maps to a frozen digest, so a swap of one key for another fails.
+ * `auditVacuityExpiry()` fails on a past `expires` date, or on a date later than the cap of the owner.
+ * `deriveOwnerCohorts()` derives the cap of each owner from the seed, so the dates differ by owner. Only the CI guard reads the clock.
+ *
+ * To shrink the list, give the action a real `data` schema with `withCappedShape(...)`. Then move its line to {@link VACUITY_RETIRED}, with `retiredAt` in place of `expires`.
+ * A deleted action retires its waiver the same way. Never add an entry to either map.
+ */
 
 /** One waiver: who owns paying it down, and by when. */
 export interface VacuityWaiverEntry {
   /** Team accountable for replacing the vacuous schema with a real one. */
   readonly owner: string;
   /**
-   * ISO date (YYYY-MM-DD) after which the waiver is expired — the waiver is live
-   * THROUGH this day and dead the next. ENFORCED by `auditVacuityExpiry()`, and
-   * capped twice: by this entry's OWNER cohort slot in the derived schedule, and
-   * by `VACUITY_EXPIRY_HORIZON` (the last slot) behind it. A date past either
-   * fails, so an entry cannot buy itself more time. Bringing a date FORWARD is
-   * always legal — it only shortens the debt's life.
+   * The last day (YYYY-MM-DD) on which the waiver is live. `auditVacuityExpiry()` fails when this day is past.
+   * It also fails on a date later than the owner cohort slot or `VACUITY_EXPIRY_HORIZON`, so an entry cannot get more time. An earlier date is always legal.
    */
   readonly expires: string;
 }
 
 /**
- * One PAID-DOWN (or deleted) seed entry.
- *
- * The graveyard exists for one reason: it keeps the SEED KEY SET invariant. The
- * pinned digest in `output-schema-seed-pin.ts` is taken over
- * `keys(VACUITY_ALLOWLIST) ∪ keys(VACUITY_RETIRED)`, so a legal paydown is a
- * MOVE (digest unchanged) and an illegal addition is a GROWTH (digest changed).
- * That is the whole difference between "the list shrank" and "the list was
- * swapped", and it is not derivable from today's registry alone.
- *
- * It is not a suppression list. A retired id that is STILL vacuous is not
- * waived, so `auditVacuityAllowlist` reports it as `UNWAIVED_VACUITY` — moving
- * an entry here without doing the work fails louder than leaving it alone.
+ * One paid-down or deleted seed entry. The retired map keeps the seed key set constant, so a legal paydown does not change the pinned digest.
+ * It is not a suppression list. `auditVacuityAllowlist` reports a retired id that is still vacuous as `UNWAIVED_VACUITY`.
  */
 export interface VacuityRetiredEntry {
   /** Team that owned the paydown. Carried over from the waiver. */
@@ -230,43 +148,19 @@ export const VACUITY_ALLOWLIST = Object.freeze({
 }) satisfies Readonly<Record<string, VacuityWaiverEntry>>;
 
 /**
- * Seed entries that have LEFT {@link VACUITY_ALLOWLIST} — paid down (the schema
- * is substantive now) or removed with their action.
- *
- * Empty at seeding time, and it grows by exactly one entry for every entry the
- * allowlist loses. `keys(VACUITY_ALLOWLIST) ∪ keys(VACUITY_RETIRED)` is the
- * frozen seed key set that `output-schema-seed-pin.ts` pins, which is what makes
- * an in-place swap a red build instead of a diff a reviewer must catch.
- *
- * Deleting from HERE is as illegal as adding: both change the union. When the
- * allowlist reaches zero, `VacuityWaiverId` becomes `never`, `vacuityWaiver()`
- * is uncallable, and this whole module — graveyard, pin and all — is deleted in
- * one commit.
+ * Seed entries that left {@link VACUITY_ALLOWLIST}, because the action got a real schema or the action is gone.
+ * It grows by one entry for each entry that the allowlist loses. A deletion here is as illegal as an addition, because both change the key union.
  */
 export const VACUITY_RETIRED: Readonly<Record<string, VacuityRetiredEntry>> = Object.freeze({
-  // TASK 069 — the first paydown. The gate that evaluates conformance to the
-  // catalog CONTAINING the anti-vacuity invariant was itself on this allowlist,
-  // so the audit-mode prompt it exists to deliver crossed the tool boundary
-  // through a schema constraining nothing. It now declares
-  // `withCappedShape(CheckInvariantConformanceOutputSchema)` — see
-  // `verbs/gates/check-invariant-conformance-schema.ts`. The id MOVED here
-  // rather than being deleted, so `keys(VACUITY_ALLOWLIST) ∪ keys(VACUITY_RETIRED)`
-  // is unchanged and `VACUITY_SEED_KEY_SET_DIGEST` did NOT have to be touched —
-  // which is the whole point of the graveyard.
+  /** The action now declares `withCappedShape(CheckInvariantConformanceOutputSchema)`. */
   'exarchos_orchestrate.check_invariant_conformance': {
     owner: 'orchestration',
     retiredAt: '2026-08-07',
   },
-  // TASK 083 — the two #1739 cutover verbs. Both were NEW actions that shipped
-  // a `vacuityWaiver` with their rows seeded here in the same change, which is
-  // the one thing DR-4's first tooth forbids: the allowlist records INHERITED
-  // debt, and a new declaration has none to inherit. `invariants_amend` — the
-  // third new verb of that change — met the rule and wrote a real schema, so the
-  // exemption was not even uniform. Both now declare
-  // `withCappedShape(...)` over the contracts in
-  // `verbs/gates/cutover-readiness-schema.ts`, and both rows MOVED here rather
-  // than being deleted, so `keys(VACUITY_ALLOWLIST) ∪ keys(VACUITY_RETIRED)` is
-  // unchanged and `VACUITY_SEED_KEY_SET_DIGEST` did NOT have to be touched.
+  /**
+   * `cutover_decide` and `cutover_readiness` were new actions with a waiver, which the allowlist forbids. It records only inherited debt.
+   * Both now declare `withCappedShape(...)` over the contracts in `verbs/gates/cutover-readiness-schema.ts`.
+   */
   'exarchos_orchestrate.cutover_decide': {
     owner: 'orchestration',
     retiredAt: '2026-08-10',
@@ -275,16 +169,10 @@ export const VACUITY_RETIRED: Readonly<Record<string, VacuityRetiredEntry>> = Ob
     owner: 'orchestration',
     retiredAt: '2026-08-10',
   },
-  // THE EFFECT-LEDGER REMEDY — paid down because a rename could not launder it.
-  // `stack_place` moved from `exarchos_view` to `exarchos_orchestrate` so the
-  // action that appends `stack.position-filled` is the one registered to emit
-  // it. Carrying the waiver across would have meant deleting one key and adding
-  // another — the in-place swap tooth 3 exists to catch, and
-  // `VACUITY_SEED_KEY_SET_DIGEST` would have reddened. The only legal move was
-  // to write the real schema, so the action now declares
-  // `withCappedShape(StackPlaceOutputSchema)` over the append acknowledgement
-  // in `stack/schemas.ts`. The row keeps its `views` owner: the debt was theirs,
-  // and the graveyard records who paid, not who happened to be nearby.
+  /**
+   * The action is now `exarchos_orchestrate.stack_place`, and it declares `withCappedShape(StackPlaceOutputSchema)`.
+   * A waiver under the new key is a key swap, which the digest rejects. The row keeps the `views` owner, because the debt was theirs.
+   */
   'exarchos_view.stack_place': {
     owner: 'views',
     retiredAt: '2026-08-17',
@@ -292,10 +180,7 @@ export const VACUITY_RETIRED: Readonly<Record<string, VacuityRetiredEntry>> = Ob
 });
 
 /**
- * The literal union of every allowlisted declaration id. This is the type that
- * makes the allowlist SHRINK-ONLY at compile time: {@link vacuityWaiver} takes
- * this union, so an action id that is not already seeded here cannot be waived
- * without editing this generated file.
+ * The union of the allowlisted ids. {@link vacuityWaiver} takes this union, so the allowlist can only shrink at compile time.
  */
 export type VacuityWaiverId = keyof typeof VACUITY_ALLOWLIST;
 

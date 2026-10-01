@@ -1,28 +1,13 @@
 /**
- * Hook routing adapter — dispatches Claude Code hook CLI commands to their
- * lightweight handlers.
- *
- * #1476 + #1485: the hook layer is observe-only (see
- * docs/adrs/2026-05-24-hook-layer-observe-only.md). The former enforcement /
- * control hooks were retired; enforcement lives entirely inside the MCP tools.
- * Three lifecycle observers remain: `session-start` (binding), `session-end`
- * (provenance), and `subagent-stop` (per-subagent token telemetry, restored in
- * #1525 W2 Half 1 — still observe-only; it appends a `subagent.tokens_used`
- * atom and never blocks the subagent).
- *
- * Extracted from index.ts to create a clean three-way dispatcher:
- * hooks → CLI → MCP.
+ * Routes the Claude Code hook CLI commands to their lifecycle handlers.
+ * The hook layer only observes. The MCP tools hold all enforcement.
  */
 
-// Hook CLI commands invoked by Claude Code hooks (hooks.json).
-// These are detected early in main() and routed through a lightweight path
-// that avoids the expensive backend initialization and heavy eval deps.
-//
-// Observe-only set (#1476 + #1485 + #1525): all three entries are lifecycle
-// observers. They report on harness lifecycle events and never block tool
-// execution. `subagent-stop` opens the event store to append its atom (it must,
-// to record the token fact) but is otherwise observe-only — it drives no state
-// transition and fails open on any error.
+/**
+ * Hook commands that `main()` detects early. They skip backend initialization and the heavy eval dependencies.
+ * Each one is a lifecycle observer and never blocks tool execution.
+ * `subagent-stop` opens the event store to append a `subagent.tokens_used` event. It changes no workflow state and fails open on an error.
+ */
 export const HOOK_COMMANDS = new Set([
   'session-start', 'session-end', 'subagent-stop',
 ]);
@@ -39,9 +24,13 @@ export type HookResult =
   | { handled: false };
 
 /**
- * Handle a hook command by dispatching to the appropriate lifecycle handler.
+ * Sends a hook command to its lifecycle handler, with `--plugin-root` and `--directive` read from argv.
+ * The build puts the SessionStart binding directive into the rendered hook command. The handler returns it as `additionalContext`.
  *
- * @param command     - The hook command name (e.g. 'session-start', 'session-end')
+ * The router imports the handlers lazily. It does not import `cli.ts`, which pulls in promptfoo and playwright through the eval handlers.
+ * A handler `error` is an operational failure, not a policy decision. The router writes it to stderr and returns exit code 1.
+ *
+ * @param command     - The hook command name, for example 'session-start'
  * @param argv        - Full process.argv array
  * @param readStdin   - Async function that reads raw stdin
  * @param parseStdin  - Function that parses raw stdin string into a JSON object
@@ -54,23 +43,15 @@ export async function handleHookCommand(
   parseStdin: (raw: string) => Record<string, unknown>,
   outputJson: (result: unknown) => void,
 ): Promise<HookResult> {
-  // Parse --plugin-root from argv if present (passed by hooks that need
-  // to resolve plugin-relative paths before backend initialization).
   const pluginRootIdx = argv.indexOf('--plugin-root');
   if (pluginRootIdx !== -1 && argv[pluginRootIdx + 1]) {
     process.env.EXARCHOS_PLUGIN_ROOT = argv[pluginRootIdx + 1];
   }
 
-  // #1485: the SessionStart binding directive is baked into the rendered
-  // per-runtime hook command (prefix already substituted at build time) and
-  // passed as `--directive <text>`. The handler echoes it as additionalContext
-  // for injection-capable hosts.
   const directiveIdx = argv.indexOf('--directive');
   const directive =
     directiveIdx !== -1 && argv[directiveIdx + 1] ? argv[directiveIdx + 1] : undefined;
 
-  // Lightweight hook router — avoids importing cli.ts which transitively
-  // pulls in promptfoo/playwright via eval handlers.
   const { resolveStateDir } = await import('../../workflow/state-store.js');
 
   let stdinData: Record<string, unknown>;
@@ -116,9 +97,6 @@ export async function handleHookCommand(
   outputJson(result);
 
   if (result.error) {
-    // Write error details to stderr so the agent (and hook runner) can see them.
-    // Observers never set a policy `error`, so any error here is an
-    // operational failure (e.g. STDIN parse, IO) — surface it and exit 1.
     process.stderr.write(`[${result.error.code}] ${result.error.message}\n`);
     return { handled: true, exitCode: 1 };
   }

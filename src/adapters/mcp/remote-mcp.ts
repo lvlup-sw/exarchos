@@ -1,20 +1,8 @@
-// ─── DR-6: RemoteMcpAdapter Interface Skeleton ──────────────────────────────
+// RESERVED(issue: #1081, owner: exarchos, expires: 2026-10-31) — remote-MCP skeleton. No handler or registry uses it.
 //
-// Placeholder for future remote-MCP deployment work. Ships only the
-// interface shape and a throwing default implementation so downstream
-// code can reference the type without runtime risk.
-//
-// Full behavior tracked at: https://github.com/lvlup-sw/exarchos/issues/1081
-//
-// NOTE: This adapter is intentionally NOT wired into any handler or
-// registry. It exists purely as a future-use placeholder.
+// The module ships the interface and a default that throws, so other code can use the type with no runtime risk.
 
-// RESERVED(issue: #1081, owner: exarchos, expires: 2026-10-31) — DR-6 remote-MCP skeleton, intentionally not wired; full behavior (connection pooling, auth, retries) lands under #1081 (DR-7 module-intent gate)
-
-/**
- * Error thrown by skeleton/placeholder implementations to signal that
- * the requested behavior has not yet been built.
- */
+/** The error that a placeholder throws for behavior that does not exist yet. */
 export class NotImplementedError extends Error {
   constructor(message: string) {
     super(message);
@@ -23,9 +11,8 @@ export class NotImplementedError extends Error {
 }
 
 /**
- * Interface for an adapter that dispatches tool invocations to a
- * remote MCP server. Deliberately minimal — the real implementation
- * (connection pooling, auth, retries) lands under #1081.
+ * An adapter that dispatches tool calls to a remote MCP server. Connection pooling, auth and
+ * retries land under #1081.
  */
 export interface RemoteMcpAdapter {
   dispatch(tool: string, args: unknown): Promise<unknown>;
@@ -33,9 +20,8 @@ export interface RemoteMcpAdapter {
 }
 
 /**
- * Default `RemoteMcpAdapter` that rejects every `dispatch` call with
- * a `NotImplementedError`. `close` is a noop so teardown paths that
- * eagerly call it remain safe.
+ * The default `RemoteMcpAdapter`. Each `dispatch` call rejects with a `NotImplementedError`.
+ * `close` does nothing, so a teardown path can call it safely.
  */
 export class NotImplementedRemoteMcpAdapter implements RemoteMcpAdapter {
   async dispatch(_tool: string, _args: unknown): Promise<never> {
@@ -45,6 +31,5 @@ export class NotImplementedRemoteMcpAdapter implements RemoteMcpAdapter {
   }
 
   async close(): Promise<void> {
-    /* noop */
   }
 }

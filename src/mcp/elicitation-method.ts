@@ -1,28 +1,13 @@
-// ─── #1274 — MCP `elicitation/create` transport adapter ──────────────────────
-//
-// Thin wrapper that adapts the MCP SDK Server's `elicitation/create`
-// request to the {@link ElicitationClient} surface consumed by
-// `dispatch/elicitation-dispatch.ts`. Keeping the adapter in `mcp/` (next
-// to `mcp/notifications.ts`) preserves the layering rule that dispatch
-// depends only on transport-agnostic types — the SDK is imported HERE
-// rather than from dispatch.
-//
-// The form-mode `requestedSchema` shape demanded by the spec is narrower
-// than a generic JSON Schema (only a fixed set of primitive types and
-// constructs are allowed; see MCP `ElicitRequestFormParamsSchema`). The
-// dispatch helper produces the schema via `.pick({field: true})` on the
-// action schema, which for `featureId` / similar string fields will fall
-// inside the spec-permitted subset; surfaces that pick a more complex
-// nested field will need an explicit shaping pass at this adapter (out
-// of scope for #1274).
+/**
+ * Adapts the MCP SDK `elicitation/create` request to the {@link ElicitationClient} that `dispatch/elicitation-dispatch.ts` uses.
+ * The SDK import stays in `mcp/`, so dispatch depends only on transport-agnostic types.
+ * The form-mode `requestedSchema` allows only a small subset of JSON Schema. A simple string field fits it, but a nested field needs a shaping pass here.
+ */
 
 import type { ElicitationClient } from '../dispatch/elicitation-dispatch.js';
 
 /**
- * Minimal server surface this adapter consumes from the MCP SDK. We
- * structural-type only the `elicitInput` method so test fixtures can
- * inject a stub without spinning up a transport. The real
- * `@modelcontextprotocol/sdk` `Server` exports a compatible signature.
+ * The part of the MCP SDK `Server` that this adapter uses. A test can inject a stub with no transport.
  */
 export interface ElicitationSdkServer {
   elicitInput(params: {
@@ -33,15 +18,8 @@ export interface ElicitationSdkServer {
 }
 
 /**
- * Build an {@link ElicitationClient} backed by the MCP SDK Server's
- * `elicitation/create` method. Translates dispatch's `{field, schema}`
- * surface into the form-mode params and the SDK's `ElicitResult` shape
- * back into `{value}` so dispatch stays transport-agnostic.
- *
- * The `action: 'accept'` branch returns `content[field]`; everything
- * else (`reject`, `cancel`, undefined content) returns `{value: undefined}`
- * so the caller treats the round-trip as un-fulfilled and falls back to
- * the legacy INVALID_INPUT envelope.
+ * Builds an {@link ElicitationClient} on the SDK `elicitation/create` method. It converts `{field, schema}` to form-mode params, and the result to `{value}`.
+ * An accepted result returns `content[field]`. Any other result returns `{value: undefined}`, and the caller returns the INVALID_INPUT error.
  */
 export function createElicitationClient(
   server: ElicitationSdkServer,

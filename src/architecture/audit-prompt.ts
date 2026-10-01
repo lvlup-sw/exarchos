@@ -1,42 +1,20 @@
 /**
- * Catalog-driven audit-prompt renderer (DR-4).
+ * Renders the audit-mode invariants (`enforcement.mode === 'audit'`) of a catalog slice into one
+ * prompt for a review subagent. No declarative check tree can decide these invariants, so they
+ * need the judgment of an LLM reviewer.
  *
- * Judgment invariants — those whose `enforcement.mode === 'audit'` — cannot be
- * decided by a declarative check tree; they require an LLM reviewer's
- * judgment. This module compiles every such invariant in a catalog slice into
- * a single prompt block suitable for handing to a review subagent. The block
- * is wired into the review gate's prompt by a later task (T-17); this renderer
- * is concerned only with producing the text.
- *
- * ## Design constraints
- *
- * - **Workflow-agnostic (INV-6).** The renderer treats every audit invariant
- *   uniformly. There is NO per-id (`INV-*`) branching or special-casing: the
- *   vocabulary lives in the catalog `summary` / `audit-prompt` fields, not in
- *   this code. A brand-new invariant id renders identically in shape to a
- *   familiar one.
- * - **No MCP-local execution presumption (INV-3).** The output is plain prompt
- *   text. Nothing here executes the check or assumes it runs in-process; the
- *   audit is performed by whatever reviewer the gate hands the prompt to.
- * - **Deterministic.** Audit invariants are emitted in ascending `id` order so
- *   the rendered prompt is stable regardless of catalog iteration order.
- * - **Non-empty denominator (task 069).** A projection that resolved ZERO
- *   applicable entries is not a clean audit — it is an audit that lost its
- *   subject (the catalog moved, the registration gate closed, the projection
- *   filter over-narrowed). Rendering `''` for that case makes the loudest
- *   possible failure indistinguishable from the quietest possible success, so
- *   {@link projectAuditPrompt} THROWS on an empty entry list instead. The tooth
- *   lives in the pure function, not in a caller, so a future consumer wired
- *   straight to the renderer inherits it rather than bypassing it (the exact
- *   half-installed-tooth defect task 022 recorded against the CLI guard).
+ * - The renderer treats every audit invariant the same and has no branch on an invariant id.
+ *   The vocabulary lives in the catalog `summary` and `audit-prompt` fields.
+ * - The output is plain prompt text. Nothing here runs the check.
+ * - Blocks appear in ascending `id` order, so the prompt does not depend on catalog order.
+ * - An empty input throws, because an empty prompt reads like a clean audit. The throw is in the
+ *   pure function, so every consumer inherits it.
  */
 import type { InvariantEntry } from './invariants-loader.js';
 
 /**
- * Thrown when an audit projection is asked to render over ZERO applicable
- * entries. Its own type (not a bare `Error`) so a caller can distinguish "the
- * audit had no subject" from "the renderer blew up", and treat only the former
- * as a reportable gate condition.
+ * Thrown when an audit projection gets zero entries. The separate type lets a caller tell "the
+ * audit had no subject" from a renderer fault, and report only the first as a gate condition.
  */
 export class EmptyAuditProjectionError extends Error {
   constructor(message: string) {
@@ -45,11 +23,13 @@ export class EmptyAuditProjectionError extends Error {
   }
 }
 
-/** Why {@link AuditProjection.prompt} has the content it has. */
+/**
+ * Why {@link AuditProjection.prompt} has its content. With `rendered`, at least one audit-mode
+ * entry applied and `prompt` holds their blocks. With `no-audit-entries`, no applied entry was
+ * audit-mode, so `prompt` is `''`.
+ */
 export type AuditProjectionStatus =
-  /** At least one audit-mode entry applied; `prompt` carries their blocks. */
   | 'rendered'
-  /** Entries applied, but none were audit-mode. `prompt` is `''`, legitimately. */
   | 'no-audit-entries';
 
 /** The result of projecting a catalog slice into a reviewer prompt. */
@@ -58,27 +38,19 @@ export interface AuditProjection {
   /** The concatenated prompt blocks, or `''` when `status` is `no-audit-entries`. */
   readonly prompt: string;
   /**
-   * Every invariant id rendered into {@link prompt}, ascending. This is the
-   * reader's enumerable checklist: an instructed consumer must return a
-   * judgment for each id, and a consumer that returns none is visibly not a
-   * consumer. Empty exactly when `status` is `no-audit-entries`.
+   * Every invariant id in {@link prompt}, ascending. An instructed consumer must return a
+   * judgment for each id. The list is empty exactly when `status` is `no-audit-entries`.
    */
   readonly invariantIds: readonly string[];
 }
 
 /**
- * Project a catalog slice into the review subagent's audit prompt.
+ * Projects a catalog slice into the audit prompt for the review subagent. It skips each entry
+ * that has no `audit` enforcement mode. It sorts the rest by `id` and emits a block for each with
+ * the id, the `summary` and the verbatim `audit-prompt` text.
  *
- * Entries without an `enforcement` directive, or whose enforcement mode is not
- * `audit`, are skipped. The surviving entries are sorted by `id` and each
- * emitted as a block carrying the invariant id, its `summary`, and its
- * `audit-prompt` text verbatim.
- *
- * @throws {EmptyAuditProjectionError} when `invariants` is empty — see the
- * non-empty-denominator note in the module header. Note the distinction the
- * caller must preserve: an empty INPUT is a lost subject and fails, while a
- * non-empty input holding no audit-mode entry is an ordinary
- * `no-audit-entries` result.
+ * @throws {EmptyAuditProjectionError} when `invariants` is empty. A non-empty input with no
+ * audit-mode entry gives an ordinary `no-audit-entries` result.
  */
 export function projectAuditPrompt(
   invariants: readonly InvariantEntry[],
@@ -117,10 +89,8 @@ export function projectAuditPrompt(
 }
 
 /**
- * Render the audit-mode invariants in `invariants` into a single prompt block.
- *
- * Thin projection of {@link projectAuditPrompt} — it carries the SAME
- * non-empty-denominator tooth, because it delegates rather than re-deriving.
+ * Renders the audit-mode invariants in `invariants` into one prompt. It delegates to
+ * {@link projectAuditPrompt}, so an empty input throws here too.
  *
  * @returns the concatenated prompt, or `''` when no audit invariants apply.
  * @throws {EmptyAuditProjectionError} when `invariants` is empty.
@@ -129,10 +99,7 @@ export function renderAuditPrompt(invariants: readonly InvariantEntry[]): string
   return projectAuditPrompt(invariants).prompt;
 }
 
-/**
- * Render a single audit invariant into its prompt block. Uniform for every
- * invariant — no id-specific formatting (INV-6).
- */
+/** Renders one audit invariant into its prompt block, with the same format for every id. */
 function renderBlock(entry: InvariantEntry & {
   enforcement: { mode: 'audit'; 'audit-prompt': string };
 }): string {

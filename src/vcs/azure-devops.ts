@@ -1,7 +1,8 @@
-// ─── Azure DevOps VCS Provider ───────────────────────────────────────────────
-//
-// Implements VcsProvider by wrapping the `az repos` and `az pipelines` CLIs.
-// Requires `az` CLI with the `azure-devops` extension installed and authenticated.
+/**
+ * Azure DevOps `VcsProvider`. It wraps the `az repos`, `az pipelines` and
+ * `az devops invoke` commands. It needs an authenticated `az` CLI with the
+ * `azure-devops` extension.
+ */
 
 import type {
   VcsProvider,
@@ -42,12 +43,7 @@ interface AzReviewer {
   readonly displayName?: string;
 }
 
-// ─── PR comment-thread harvesting (#1613) ─────────────────────────────────────
-// ADO exposes no `az repos pr` thread-list subcommand, so PR comment threads are
-// read through the REST `pullRequestThreads` resource via `az devops invoke`.
-// `az repos pr show` first yields the repositoryId + project the invoke needs as
-// route parameters (the provider config carries neither).
-
+/** The fields of `az repos pr show` that give the route parameters for `az devops invoke`. */
 interface AzPrShowResponse {
   readonly repository: {
     readonly id?: string;
@@ -109,14 +105,9 @@ function mapAzPipelineStatus(run: AzPipelineRun): CiCheck['status'] {
 }
 
 /**
- * Map Azure DevOps vote values to review states.
- *
- * Azure DevOps voting scale:
- *  10 = approved
- *   5 = approved with suggestions
- *   0 = no vote (pending)
- *  -5 = waiting for author (changes requested)
- * -10 = rejected (changes requested)
+ * Maps an Azure DevOps vote to a review state. A vote of 10 or 5 (approved,
+ * with or without suggestions) is approved. A vote of -5 or -10 (waiting for
+ * author, rejected) is changes requested. A vote of 0 is pending.
  */
 function mapAzVote(vote: number): ReviewerStatus['state'] {
   if (vote >= 5) return 'approved';
@@ -124,10 +115,12 @@ function mapAzVote(vote: number): ReviewerStatus['state'] {
   return 'pending';
 }
 
-// ADO comment ids are sequential WITHIN a thread, and parentCommentId is also
-// per-thread — a raw comment.id collides across threads. Fold the threadId in to
-// get a PR-unique numeric id (the consumer keys idempotency off it). The stride
-// bounds in-thread comment ids; ADO threads never approach 100k comments.
+/**
+ * ADO comment ids and `parentCommentId` count up inside one thread, so a raw
+ * id collides across threads. The thread id times this stride, plus the comment
+ * id, gives an id that is unique in the PR. The consumer keys idempotency on
+ * that id. The stride assumes fewer than 100,000 comments in one thread.
+ */
 const ID_THREAD_STRIDE = 100_000;
 
 function composePrUniqueId(threadId: number, commentId: number): number {
@@ -135,10 +128,9 @@ function composePrUniqueId(threadId: number, commentId: number): number {
 }
 
 /**
- * Map the full Azure DevOps CommentThreadStatus enum to the PrComment tri-state
- * `resolved`. Decided states → `true`; open states → `false`; `unknown`, an
- * unrecognized value, or a missing status → `undefined` (absent, per DR-5 —
- * never coerced to false).
+ * Maps the Azure DevOps `CommentThreadStatus` to the tri-state `resolved` of a
+ * `PrComment`. A decided state gives `true`, and an open state gives `false`.
+ * `unknown`, an unrecognized value, or a missing status gives `undefined`.
  */
 function mapThreadStatusToResolved(
   status: string | undefined,
@@ -157,11 +149,16 @@ function mapThreadStatusToResolved(
   }
 }
 
+/**
+ * Azure DevOps provider. The constructor ignores its config. `getPrComments`
+ * reads threads through the REST `pullRequestThreads` resource, because
+ * `az repos pr` has no thread-list subcommand. It skips system comments and
+ * gives a file-anchored thread the `review-inline` source.
+ */
 export class AzureDevOpsProvider implements VcsProvider {
   readonly name = 'azure-devops' as const;
 
   constructor(_config: Record<string, unknown>) {
-    // Config reserved for future use (e.g., organization URL, project)
   }
 
   async createPr(opts: CreatePrOpts): Promise<PrResult> {
@@ -196,7 +193,6 @@ export class AzureDevOpsProvider implements VcsProvider {
   }
 
   async checkCi(prId: string): Promise<CiStatus> {
-    // First, get the PR's source branch
     const prOutput = await exec('az', [
       'repos',
       'pr',
@@ -207,10 +203,8 @@ export class AzureDevOpsProvider implements VcsProvider {
       'json',
     ]);
     const prData = JSON.parse(prOutput) as { sourceRefName: string };
-    // Strip refs/heads/ prefix to get plain branch name
     const branch = prData.sourceRefName.replace(/^refs\/heads\//, '');
 
-    // Then list pipeline runs for that branch
     const runsOutput = await exec('az', [
       'pipelines',
       'runs',
@@ -242,7 +236,6 @@ export class AzureDevOpsProvider implements VcsProvider {
   async mergePr(prId: string, strategy: string): Promise<MergeResult> {
     const isSquash = strategy === 'squash';
 
-    // Map strategy names to Azure DevOps merge strategy values
     let azStrategy: string;
     switch (strategy) {
       case 'squash':
@@ -303,11 +296,10 @@ export class AzureDevOpsProvider implements VcsProvider {
     ]);
   }
 
-  // Per-thread replies map to Azure DevOps PR comment-thread replies
-  // (`az repos pr comment` posts a new thread, not a reply into an existing
-  // one; the reply path requires the thread-id REST surface the CLI does not
-  // expose cleanly). Tracked as a DR-7 follow-up (#1613); throws rather than
-  // silently no-op'ing so callers get a clear capability signal.
+  /**
+   * Throws `UnsupportedOperationError`. `az repos pr comment` posts a new thread,
+   * not a reply in a thread, so a reply needs the REST thread API.
+   */
   async addReply(_prId: string, _threadId: string, _body: string): Promise<ReplyResult> {
     throw new UnsupportedOperationError('azure-devops', 'addReply');
   }
@@ -331,7 +323,6 @@ export class AzureDevOpsProvider implements VcsProvider {
       state: mapAzVote(r.vote),
     }));
 
-    // Overall: approved only if all reviewers approved and there's at least one
     const hasChangesRequested = mapped.some((r) => r.state === 'changes_requested');
     if (hasChangesRequested) {
       return { state: 'changes_requested', reviewers: mapped };
@@ -351,12 +342,6 @@ export class AzureDevOpsProvider implements VcsProvider {
   }
 
   async getPrComments(prId: string): Promise<PrComment[]> {
-    // ADO has no `az repos pr` thread-list subcommand; PR comment threads live
-    // behind the REST `pullRequestThreads` resource, reached via `az devops
-    // invoke`. That invoke addresses the resource by route parameters
-    // (project + repositoryId + pullRequestId), none of which the provider
-    // config carries — so resolve repositoryId + project from `az repos pr
-    // show` first, then invoke.
     const showOutput = await exec('az', [
       'repos',
       'pr',
@@ -393,8 +378,6 @@ export class AzureDevOpsProvider implements VcsProvider {
       'json',
     ]);
 
-    // `az devops invoke` returns the raw REST envelope `{ value: [...] }`; guard
-    // for a bare-array shape defensively (DR-5).
     const parsedUnknown: unknown = JSON.parse(invokeOutput);
     const threads: readonly AzPrThread[] = Array.isArray(parsedUnknown)
       ? (parsedUnknown as readonly AzPrThread[])
@@ -406,8 +389,6 @@ export class AzureDevOpsProvider implements VcsProvider {
       const threadId = thread.id;
       const resolved = mapThreadStatusToResolved(thread.status);
       const ctx = thread.threadContext;
-      // A thread anchored to a file/line is a review-inline thread; otherwise it
-      // is PR-level conversation (issue-comment). ADO has no review-summary kind.
       const filePath =
         ctx && typeof ctx.filePath === 'string' && ctx.filePath.length > 0
           ? ctx.filePath
@@ -416,8 +397,6 @@ export class AzureDevOpsProvider implements VcsProvider {
       const line = ctx?.rightFileStart?.line;
 
       for (const comment of thread.comments ?? []) {
-        // Skip system comments (vote changes, ref pushes, status updates) — not
-        // human feedback.
         if (comment.commentType === 'system') continue;
 
         let parentId: number | undefined;
@@ -425,8 +404,6 @@ export class AzureDevOpsProvider implements VcsProvider {
           typeof comment.parentCommentId === 'number' &&
           comment.parentCommentId > 0
         ) {
-          // One-level threading: a reply points at the top-level comment it
-          // answers, mapped through the same composed-id scheme.
           parentId = composePrUniqueId(threadId, comment.parentCommentId);
         }
 
@@ -440,7 +417,6 @@ export class AzureDevOpsProvider implements VcsProvider {
           ...(isInline && filePath !== undefined ? { path: filePath } : {}),
           ...(isInline && typeof line === 'number' ? { line } : {}),
           ...(parentId !== undefined ? { parentId } : {}),
-          // Tri-state resolved: decided → true, open → false, unknown → absent.
           ...(resolved !== undefined ? { resolved } : {}),
         });
       }

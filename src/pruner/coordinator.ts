@@ -1,27 +1,19 @@
 /**
- * Thin pruner coordinator (DR-7, v2.11 hard-cut).
- *
- * Walks per-phase entries, looks up the typed `PhaseContract` from the
+ * Pruner coordinator. It looks up the typed `PhaseContract` for a phase in the
  * loaded `Topology`, and delegates to the pure `scoreStaleness` scorer.
  *
- * v2.11 invariant: the topology loader (`topology/loader.ts`) THROWS on
- * any phase missing a `staleness` block, so a production-loaded
- * `Topology` cannot reach this coordinator with an undefined contract.
- * If a caller constructs a synthetic Topology that lacks a contract for
- * the requested phase (test seam, internal bug), this coordinator
- * surfaces the missing-contract case loudly rather than silently falling
- * back. The v2.9 single-signal heuristic was deleted in Phase 5c.
+ * The topology loader (`topology/loader.ts`) throws on a phase without a
+ * `staleness` block. Thus only a synthetic `Topology` can reach this module
+ * without a contract, and the coordinator throws for it.
  */
 import type { Topology } from '../workflow/topology/phase-contract.js';
 import { scoreStaleness, type StalenessState, type StalenessScore } from './score.js';
 
 /**
- * Score one entry's staleness through the typed phase contract on
- * `topology`. Throws when the phase is absent from the topology or
- * declares no `staleness` block — both are violations of the v2.11
- * loader invariant and indicate either:
- *   - a synthetic test fixture (acceptable; tests should expect this throw); or
- *   - an internal bug bypassing the loader's hard-cut.
+ * Scores the staleness of one entry through the phase contract in `topology`.
+ * Throws when the phase is absent from the topology or has no `staleness`
+ * block. A loaded topology cannot cause this, so the cause is a synthetic
+ * fixture or a bypass of the loader.
  */
 export function scoreEntryThroughTopology(
   topology: Topology,

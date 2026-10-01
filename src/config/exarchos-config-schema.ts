@@ -1,15 +1,9 @@
 import { z } from 'zod';
 
 /**
- * Schema for `.exarchos.yml` (Stage 2 of the test-runtime resolver).
- *
- * Mirrors the SAFE_COMMAND_PATTERN allowlist used by
- * `config/test-runtime-resolver.ts`.
- * Any field omitted from the file falls back to detection (Stage 3).
+ * The command allowlist for `.exarchos.yml`. It is equal to `SAFE_COMMAND_PATTERN` in `config/test-runtime-resolver.ts`.
+ * It accepts a plain space but rejects control whitespace. A newline can split a shell command if a consumer later runs it through a shell.
  */
-// Intentionally allow plain space (` `) but reject control whitespace
-// (`\n`, `\t`, `\r`, etc.) — newlines can split shell commands when a
-// downstream consumer ever moves to a shell-aware execution path.
 const SAFE_COMMAND_REGEX = /^[a-zA-Z0-9_\- :.=\/+,@"'\\]+$/;
 
 const safeCommand = z
@@ -18,15 +12,10 @@ const safeCommand = z
   .min(1, 'must not be empty or whitespace-only')
   .regex(SAFE_COMMAND_REGEX, 'contains disallowed shell metacharacters');
 
-// #1262 — quality-hint thresholds.
-//
-// `qualityHints.outputTokenThreshold` is a fraction in (0, 1] that the
-// telemetry projection multiplies by the per-turn output-token cap (see
-// `capabilities/resolver.ts` `OUTPUT_TOKENS_PER_TURN_CAP`) to derive the
-// absolute token count above which an `output_tokens_high` checkpoint hint
-// is surfaced via `next_actions`. Default fraction is 0.8 when the field
-// is omitted; the config schema is `.strict()` so unknown fields are
-// rejected, hence the explicit nested key.
+/**
+ * `outputTokenThreshold` is a fraction in (0, 1]. The telemetry projection multiplies it by `OUTPUT_TOKENS_PER_TURN_CAP`.
+ * Above that token count, `next_actions` shows an `output_tokens_high` checkpoint hint. The default fraction is 0.8.
+ */
 const QualityHintsSchema = z
   .object({
     outputTokenThreshold: z.number().gt(0).lte(1).optional(),
@@ -34,38 +23,20 @@ const QualityHintsSchema = z
   .strict()
   .optional();
 
-// #1273 — CLI `--follow` polling cadence.
-//
-// `cli.followPollIntervalMs` overrides the default 250ms cadence used by
-// the CLI `view workflow_status --follow` and `view shepherd_status
-// --follow` in-process polling loop (see
-// `src/cli/follow-loop.ts`). Operators tune this for fast tests (e.g.
-// `10`) or quieter shell output (e.g. `1000`). The MCP arm (C2) consumes
-// the same `EventSourcedTaskStore` over `tasks/get`, where polling
-// cadence is driven by the client and not affected by this config.
+/**
+ * `followPollIntervalMs` replaces the 250ms default poll interval of the CLI `--follow` loop in `src/cli/follow-loop.ts`.
+ * It has no effect on MCP `tasks/get`, where the client sets the poll interval.
+ */
 const CliConfigSchema = z
   .object({
     followPollIntervalMs: z.number().int().positive().optional(),
   })
   .strict();
 
-// invariants-projection-extensibility (T-18 / DR-6) — additive keys.
-//
-// Beyond the dev-catalog toggle, operators can extend the invariants
-// surface declaratively in `.exarchos.yml`:
-//
-//   - `catalogs`: paths to user-authored invariant catalog files, merged
-//     on top of the built-in catalog.
-//   - `overrides`: per-invariant-id tuning — flip `severity`
-//     (`blocking | advisory`) or `enabled` without editing the catalog.
-//   - `enforcement`: which phase treats invariant findings as gating;
-//     `review: blocking` makes the review phase fail on a finding,
-//     `advisory` surfaces it without gating.
-//
-// All three are optional and additive: omitting them preserves the
-// pre-T-18 behaviour. The schema stays `.strict()` so typos in the new
-// keys (or in nested override keys) surface as validation errors rather
-// than silently-ignored fields.
+/**
+ * A per-invariant override. It changes `severity` or `enabled` without an edit to the catalog.
+ * The strict object turns a typo in a key into a validation error.
+ */
 const InvariantOverrideSchema = z
   .object({
     severity: z.enum(['blocking', 'advisory']).optional(),
@@ -73,20 +44,10 @@ const InvariantOverrideSchema = z
   })
   .strict();
 
-// invariants-catalog-wizard (P1, T1) — a catalog registration.
-//
-// The dev-catalog migration (design §4.2) collapses Layers 1 + 3 of
-// `resolveEffectiveCatalog` onto one registered-catalog pattern. A
-// registration is either:
-//
-//   - a bare string path — the legacy form; its `tier` defaults to `user`
-//     when normalized by `resolveCatalogSources` (catalog-sources.ts); or
-//   - a `{ path, tier? }` object — the explicit form that carries the source
-//     `tier` (`dev | user`). `tier: dev` is what the retired
-//     `devCatalog: 'enabled'` alias desugars to (see below).
-//
-// `.strict()` so a typo'd key (or a tier outside `dev | user`) surfaces as a
-// validation error rather than a silently-ignored field.
+/**
+ * The object form of a catalog registration. It carries a source `tier` of `dev` or `user`.
+ * The retired `devCatalog: 'enabled'` alias becomes a registration with `tier: dev`.
+ */
 const CatalogRegistrationObjectSchema = z
   .object({
     path: z.string(),
@@ -100,23 +61,14 @@ const CatalogRegistrationSchema = z.union([
 ]);
 
 /**
- * A single entry in `invariants.catalogs`: either a bare string path (legacy,
- * `tier` defaults to `user`) or a `{ path, tier? }` object. Consumed by
- * `resolveCatalogSources` (architecture/catalog-sources.ts) which normalizes
- * both forms into a `CatalogSource`.
+ * One entry in `invariants.catalogs`: a bare string path or a `{ path, tier? }` object.
+ * `resolveCatalogSources` converts both forms into a `CatalogSource`. A bare string gets `tier: user`.
  */
 export type CatalogRegistration = z.infer<typeof CatalogRegistrationSchema>;
 
 /**
- * The repo-root-relative path the retired `invariants.devCatalog: 'enabled'`
- * alias desugars to.
- *
- * Reintroduced here by T-43. T-42 deleted the identically-named constant from
- * `architecture/catalog-sources.ts` because catalog DISCOVERY must no longer
- * know about a privileged path — and it still must not. This constant lives on
- * the CONFIG side, where its only job is to spell out the registration a
- * legacy `.exarchos.yml` is rewritten into. Discovery reads the rewritten
- * `catalogs:` list and nothing else.
+ * The repo-root-relative path for the retired `invariants.devCatalog: 'enabled'` alias.
+ * The constant stays on the config side. Catalog discovery must not know about a privileged path.
  */
 export const DEV_CATALOG_PATH = '.exarchos/invariants.md';
 
@@ -124,16 +76,10 @@ export const DEV_CATALOG_PATH = '.exarchos/invariants.md';
 export const DEV_CATALOG_DEPRECATION_CODE = 'DEPRECATED_INVARIANTS_DEV_CATALOG';
 
 /**
- * A typed `.exarchos.yml` deprecation (DR-31 / T-43).
- *
- * Typed — not a bare string — so a consumer surface (doctor, CLI, MCP
- * envelope) can branch on `code` and render `replacement` as an actionable
- * edit, rather than regex-matching prose. `collectConfigDeprecations` produces
- * these from the RAW pre-parse document, because the parse step desugars the
- * deprecated keys away.
+ * A typed `.exarchos.yml` deprecation. A consumer can branch on `code` and show `replacement` as an edit, with no match on prose.
  */
 export interface ConfigDeprecation {
-  /** Stable identifier for the deprecation; safe to branch on. */
+  /** Stable identifier for the deprecation. A consumer can branch on it. */
   readonly code: typeof DEV_CATALOG_DEPRECATION_CODE;
   /** Dotted path of the deprecated key as it appears in `.exarchos.yml`. */
   readonly key: 'invariants.devCatalog';
@@ -144,12 +90,9 @@ export interface ConfigDeprecation {
 }
 
 /**
- * Collect typed deprecations from a RAW (pre-parse) `.exarchos.yml` document.
- *
- * Must run on the raw document: `InvariantsConfigSchema` strips `devCatalog`
- * during parse, so a post-parse config can never report it. Returns `[]` for
- * any document that does not carry a deprecated key, including malformed
- * input — this is a diagnostic, not a validator.
+ * Collects typed deprecations from a raw `.exarchos.yml` document.
+ * It must run before the parse, because `InvariantsConfigSchema` removes `devCatalog`.
+ * It is a diagnostic, not a validator. It returns `[]` for malformed input and for a document with no deprecated key.
  */
 export function collectConfigDeprecations(document: unknown): ConfigDeprecation[] {
   if (typeof document !== 'object' || document === null || Array.isArray(document)) {
@@ -185,17 +128,9 @@ export function collectConfigDeprecations(document: unknown): ConfigDeprecation[
 export const InvariantsConfigBaseSchema = z
   .object({
     /**
-     * @deprecated DR-31 / T-43. The repo-only `devCatalog` boolean is retired.
-     * Register the catalog explicitly instead:
-     * `catalogs: [{ path: .exarchos/invariants.md, tier: dev }]`.
-     *
-     * The key is RETAINED here strictly as a deprecated ALIAS so an existing
-     * `.exarchos.yml` keeps loading across the upgrade — the schema is
-     * `.strict()` and `loadExarchosConfig` THROWS on an unknown key, so
-     * deleting it outright would hard-fail config load for every consumer who
-     * ever wrote it. It is desugared away by `desugarDevCatalogAlias` below
-     * and is therefore ABSENT from the parsed output type: no production
-     * reader can gate on the boolean, by construction.
+     * @deprecated Register the catalog instead: `catalogs: [{ path: .exarchos/invariants.md, tier: dev }]`.
+     * The key stays as an alias, because the strict schema makes `loadExarchosConfig` throw on an unknown key.
+     * `desugarDevCatalogAlias` removes it, so the parsed output type does not have it.
      */
     devCatalog: z.enum(['enabled', 'disabled']).optional(),
     catalogs: z.array(CatalogRegistrationSchema).optional(),
@@ -209,37 +144,16 @@ export const InvariantsConfigBaseSchema = z
   })
   .strict();
 
-/** Pre-desugar shape of the `invariants:` block (may still carry the alias). */
+/** The shape of the `invariants:` block before the alias conversion. It can still hold `devCatalog`. */
 type InvariantsConfigBase = z.infer<typeof InvariantsConfigBaseSchema>;
 
-/** Post-desugar shape: the alias is gone; registration is the only opt-in. */
+/** The shape after the alias conversion. Registration is the only opt-in. */
 export type InvariantsConfig = Omit<InvariantsConfigBase, 'devCatalog'>;
 
 /**
- * DR-31 / T-43 — desugar the retired `invariants.devCatalog` alias.
- *
- * `devCatalog: 'enabled'` is rewritten into the ordinary registration it was
- * always sugar for — `{ path: '.exarchos/invariants.md', tier: 'dev' }` — and
- * the key is dropped from the output entirely. `devCatalog: 'disabled'` is
- * dropped with no registration (it was only ever the default restated).
- *
- * ## Why this is NOT the repo-only loading mode DR-31 retires
- *
- * The branch this restores used to live in `resolveCatalogSources`
- * (DR-31 site 2), where it made catalog DISCOVERY read the boolean directly —
- * one concern with two configuration authorities. Here it runs at the
- * `.exarchos.yml` PARSE boundary, before discovery exists, and its output is
- * an ordinary `catalogs:` entry a consumer can type by hand, verbatim. So:
- *
- *   - discovery (`resolveCatalogSources`) has exactly ONE authority — the
- *     `catalogs:` list — and cannot see the alias at all;
- *   - the alias is a legacy SPELLING normalized away at the file boundary,
- *     not a loading mode: there is no resolution a `devCatalog` config reaches
- *     that the desugared `catalogs:` config does not reach identically.
- *
- * The `(path, tier: 'dev')` dedupe is carried over from the retired branch so
- * a config carrying BOTH the alias and the explicit registration (which is
- * what this repo shipped before T-43) resolves ONE dev source, not two.
+ * Converts the retired `invariants.devCatalog` alias into a plain registration, and removes the key.
+ * `'enabled'` adds `{ path: DEV_CATALOG_PATH, tier: 'dev' }`, unless that exact registration is already present. `'disabled'` adds nothing.
+ * This runs at the parse boundary, so `resolveCatalogSources` reads only the `catalogs:` list.
  */
 function desugarDevCatalogAlias(block: InvariantsConfigBase): InvariantsConfig {
   const { devCatalog, ...rest } = block;
@@ -261,43 +175,26 @@ function desugarDevCatalogAlias(block: InvariantsConfigBase): InvariantsConfig {
 }
 
 /**
- * The canonical `invariants:` block schema.
- *
- * Exported so `ProjectConfigSchema` (yaml-schema.ts) can compose the identical
- * block under its own `invariants:` key without duplicating the shape (PR
- * #1459 CodeRabbit finding 2 — single source of truth). Both `.exarchos.yml`
- * readers — the strict `loadExarchosConfig` and the lenient
- * `readInvariantsConfig` (architecture/invariants-loader.ts) — validate
- * through this one schema, so the alias desugars identically on both paths.
+ * The canonical `invariants:` block schema. `ProjectConfigSchema` uses it under its own `invariants:` key.
+ * The strict `loadExarchosConfig` and the lenient `readInvariantsConfig` both validate through it, so both convert the alias the same way.
  */
 export const InvariantsConfigSchema =
   InvariantsConfigBaseSchema.transform(desugarDevCatalogAlias);
 
-// #1244 — markdown-aware handoff lint switch.
-//
-// `handleCheckpoint` runs a prose-lint over the dispatch handoff payload
-// (DR-1244). By default the lint is advisory: findings surface as a
-// soft warning on the response envelope and the checkpoint event is
-// still appended. Setting `handoffLint.hardFail: true` flips the gate
-// to a blocking rejection — `INVALID_INPUT` is returned BEFORE any
-// event is appended, so retries don't duplicate.
-//
-// The opt-in default keeps backward compatibility for existing
-// `.exarchos.yml` files: configs that don't declare `handoffLint`
-// continue to soft-warn, which is the v2.10 default behaviour.
+/**
+ * The handoff lint switch for `handleCheckpoint`. By default a lint finding is a warning, and the checkpoint event is still appended.
+ * With `hardFail: true`, the call returns `INVALID_INPUT` before it appends an event.
+ */
 const HandoffLintConfigSchema = z
   .object({
     hardFail: z.boolean().optional(),
   })
   .strict();
 
-// User-extensible toolchains (#1508 / layered resolver tier 3).
-//
-// Lets a repo teach Exarchos about ANY toolchain — including ones with zero
-// built-in support — declaratively, with no code change. Each entry maps
-// detection markers (root filename or `*.ext` glob) to first-class commands.
-// User entries are matched BEFORE the built-in registry (resolveTestRuntime),
-// so they also override a built-in toolchain for the same marker.
+/**
+ * A detection marker for a user toolchain: a root filename or a `*.ext` glob.
+ * `resolveTestRuntime` matches user toolchains before the built-in registry, so a user entry overrides a built-in one for the same marker.
+ */
 const toolchainMarker = z
   .string()
   .regex(
@@ -305,16 +202,14 @@ const toolchainMarker = z
     'must be a root filename or a `*.ext` glob',
   );
 
+/**
+ * The commands of one user toolchain. `contract` is not a toolchain key, because contracts are keyed on schema artifacts.
+ */
 const ToolchainCommandsConfigSchema = z
   .object({
     test: safeCommand.optional(),
     typecheck: safeCommand.optional(),
     install: safeCommand.optional(),
-    // verification-ladder slice 1 (task 016): mutation + lint are per-toolchain
-    // commands the layered resolver honors (task 017). `contract` is NOT a
-    // per-toolchain key — contracts are keyed on schema artifacts, resolved
-    // separately (task 022) — so it is intentionally absent from this strict
-    // object.
     mutation: safeCommand.optional(),
     lint: safeCommand.optional(),
   })
@@ -332,26 +227,11 @@ const ToolchainConfigSchema = z
 /** A single `.exarchos.yml` `toolchains:` entry. */
 export type ToolchainConfig = z.infer<typeof ToolchainConfigSchema>;
 
-// Ownership manifest (verification-ladder slice 1, task 024).
-//
-// `ownership.firstParty` is the set of globs identifying trees that are
-// first-party (authored-here) source. It is the scope the import-boundary
-// lint (SIV-3 Layer A, task 027) and ownership-aware gates restrict
-// themselves to — third-party / vendored / generated trees fall outside it.
-//
-// Unlike `invariants`, this block carries a parse-time DEFAULT rather than
-// staying `undefined`. The distinction is deliberate: an absent `invariants`
-// block must read as "operator never opted in" (so the loader can treat
-// `undefined === disabled`), but ownership has no opt-in semantics — every
-// repo has a first-party scope, so a missing block should resolve to a sane
-// default (`src/**` + `servers/*/src/**`, covering this monorepo's own source
-// trees) rather than an empty scope that would silently disable every
-// ownership-aware check. The default lives on `firstParty` AND on the block
-// itself so both `ownership` absent and `ownership: {}` (block present, field
-// absent) resolve to the same globs.
-//
-// `.strict()` so a field typo (`firstparty:`) surfaces as a validation error
-// rather than silently defaulting underneath the misspelled key.
+/**
+ * The default `ownership.firstParty` globs: the first-party source trees that the import-boundary lint and ownership-aware gates scan.
+ * Ownership has no opt-in, so an absent block gets these globs. An empty scope silently turns off every ownership-aware check.
+ * The default is on the field and on the block, so `ownership` absent and `ownership: {}` give the same globs.
+ */
 const DEFAULT_FIRST_PARTY_GLOBS: readonly string[] = ['src/**', 'servers/*/src/**'];
 
 const OwnershipConfigSchema = z
@@ -367,11 +247,8 @@ const OwnershipConfigSchema = z
 export type OwnershipConfig = z.infer<typeof OwnershipConfigSchema>;
 
 /**
- * Top-level structured `contract:` block — a single schema-boundary's codegen
- * + breaking-diff commands. Verification-ladder slice 1 (task 017): contracts
- * are keyed on schema artifacts, so the direct `.exarchos.yml` `contract:` is
- * the explicit per-repo declaration the resolver honors above artifact-keyed
- * defaults.
+ * The top-level `contract:` block: the codegen and breaking-diff commands for one schema boundary.
+ * The resolver prefers it to the artifact-keyed defaults.
  */
 const ContractCommandConfigSchema = z
   .object({
@@ -381,12 +258,9 @@ const ContractCommandConfigSchema = z
   .strict();
 
 /**
- * Storage substrate tuning (DR-4). `synchronous` selects the SQLite
- * `PRAGMA synchronous` durability posture: `'normal'` (the default — durable
- * across a process crash, but the last committed transaction(s) can be lost
- * on OS crash / power loss; consistent with the INV-13 intent/result recovery
- * model) or `'full'` (fsync on every commit — power-loss durable, lower write
- * throughput).
+ * Storage tuning. `synchronous` sets the SQLite `PRAGMA synchronous` value.
+ * `'normal'` survives a process crash, but an OS crash or power loss can lose the last commits. The intent and result recovery model accepts that loss.
+ * `'full'` does an fsync on each commit. It survives power loss but writes more slowly.
  */
 export const StorageConfigSchema = z
   .object({
@@ -397,13 +271,9 @@ export const StorageConfigSchema = z
 export type StorageConfig = z.infer<typeof StorageConfigSchema>;
 
 /**
- * `synthesis.documentLeg` (DR-2, #1594) — tunes the SYNTHESIZE-kind `document`
- * readiness leg. `severity` selects whether an uncovered doc-bearing change
- * blocks synthesis (`'blocking'`) or merely warns (`'advisory'`, the default —
- * a safe rollout). `surfaceGlobs` declares which changed paths count as a
- * doc-bearing surface (default empty ⇒ the leg auto-waives, so it is opt-in and
- * never overfit to one repo's layout); `docGlobs` declares what counts as a
- * documentation change (default `docs/**` + any `*.md`).
+ * `synthesis.documentLeg` tunes the `document` readiness leg of synthesis.
+ * `severity` selects whether a doc-bearing change with no doc change blocks synthesis or only warns.
+ * `surfaceGlobs` names the doc-bearing paths. `docGlobs` names the documentation paths.
  */
 export const SynthesisConfigSchema = z
   .object({
@@ -421,13 +291,9 @@ export const SynthesisConfigSchema = z
 export type SynthesisConfig = z.infer<typeof SynthesisConfigSchema>;
 
 /**
- * `escalation` (DR-3, #1595) — tunes the shared escalation policy consumed by
- * the review and shepherd fix-loops. `maxIterations` is
- * the per-loop auto-fix bound: how many times a loop may auto-fix a mechanical
- * finding before escalating to the user. Resolves to a uniform default of `5`
- * (see `DEFAULT_MAX_ITERATIONS` in `verbs/review/escalation-policy.ts`); a
- * project raises or lowers the bound here. A per-loop call-site override takes
- * precedence over this config value.
+ * `escalation` tunes the escalation policy of the review and shepherd fix loops.
+ * `maxIterations` is the number of auto-fixes that a loop can do on a mechanical finding before it escalates to the user.
+ * The default is `DEFAULT_MAX_ITERATIONS`. A call-site override takes precedence over this value.
  */
 export const EscalationConfigSchema = z
   .object({
@@ -438,17 +304,9 @@ export const EscalationConfigSchema = z
 export type EscalationConfig = z.infer<typeof EscalationConfigSchema>;
 
 /**
- * `feedback` (#1319) — the agent→runtime friction back-channel.
- *
- * `upstream` is an optional HTTPS endpoint the `exarchos_workflow.feedback`
- * handler POSTs each `feedback.recorded` payload to, best-effort, AFTER the
- * local event write. Omitting it (the default) keeps feedback fully local —
- * the local write always succeeds without network access (INV-15 / offline-
- * first); the POST is a pure additive federation hop. Per INV-3 the endpoint
- * lives here in `.exarchos.yml`, not in a sibling config file.
- *
- * Validated as a URL so a typo'd endpoint fails at config-load rather than
- * silently swallowing every report at POST time.
+ * `feedback.upstream` is an endpoint that receives each `feedback.recorded` payload after the local event write.
+ * The POST is best-effort. With no endpoint, feedback stays local and needs no network.
+ * The URL check makes a bad endpoint fail at config load, not silently at POST time.
  */
 export const FeedbackConfigSchema = z
   .object({
@@ -463,9 +321,6 @@ export const ExarchosConfigSchema = z
     test: safeCommand.optional(),
     typecheck: safeCommand.optional(),
     install: safeCommand.optional(),
-    // verification-ladder slice 1 (task 017): top-level direct verification
-    // commands, resolved per-field at tier 2 (config direct) by the layered
-    // resolver. `contract` is structured ({ codegen, diff }).
     mutation: safeCommand.optional(),
     lint: safeCommand.optional(),
     contract: ContractCommandConfigSchema.optional(),
@@ -485,11 +340,7 @@ export const ExarchosConfigSchema = z
 export type ExarchosConfig = z.infer<typeof ExarchosConfigSchema>;
 
 /**
- * The PRE-parse (input) shape of `.exarchos.yml` — every field optional,
- * schema defaults (e.g. `ownership`) not yet applied. Use this type when
- * CONSTRUCTING partial config literals (an invariants-only view, a test
- * fixture); `ExarchosConfig` is the POST-parse shape where defaulted blocks
- * are present and required. PR #1535 CI fix: partial literals typed as the
- * output shape fail to compile once any block carries a parse-time default.
+ * The input shape of `.exarchos.yml`, before the parse applies the defaults. Every field is optional.
+ * Use it for partial config literals. A partial literal typed as `ExarchosConfig` does not compile, because defaulted blocks are required there.
  */
 export type ExarchosConfigInput = z.input<typeof ExarchosConfigSchema>;
