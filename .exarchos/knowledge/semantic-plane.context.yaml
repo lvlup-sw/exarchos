@@ -362,6 +362,9 @@ decisions:
     source: "Reed, review page"
     decision: "The context packet lives at .exarchos/knowledge/semantic-plane.context.yaml with a CLAUDE.md pointer."
 
+  - date: "2026-10-01"
+    source: "Reed, unmilestoned triage"
+    decision: "The VCS demotion (#1928) covers every Git/PR write Exarchos performs (merge_orchestrate, merge_pr, add_pr_comment, create_issue), not only the three first named. #1898, #1913 and #1901 join v3.0.0; #1723 and #1724 join v3.1.0 with #1561. Eleven unmilestoned issues closed as done, superseded or duplicate."
 # ─── build order (reconciled 2026-09-30) ─────────────────────────────────────
 
 build_order:
@@ -393,7 +396,7 @@ build_order:
       refs: "#1929 (children #1925, #1526, #1753, #1813, #1814, #1540, #1886, #1721)"
     - leg: "conformance: VCS demotion (serialize_merge, setup_worktree, create_pr off the governance surface)"
       status: "decided"
-      refs: "#1928 (related #1402, #1496, #1884)"
+      refs: "#1928 (every Git/PR write; related #1884, #1835)"
     - leg: "conformance: workflow-scoped capsule (definitions first; whole workflow per capsule; settlement carries phase; next_actions, playbooks, state document retire)"
       status: "decided"
       refs: "#1927 (vehicle #1253; #1258, #1248, #1250, #1251, #1254)"
@@ -545,7 +548,7 @@ milestones:
     outcome: One definition runs on two runtimes with equivalent settlement records; #1249 laws harden on real settlements; evals measure the plane.
   v3.2.0:
     outcome: Design rationale as typed claims, the claims being the source of truth (beyond v3.0's C2 minimum).
-  none: hygiene and small bugs. CI-dated expiries 2026-10-31 (#1742, 51 knip entries in #1744) and 2026-11-30 (#1736, 61 knip entries in #1744).
+  none: 63 issues of hygiene and small bugs. CI-dated expiries 2026-10-31 (#1742, 51 knip entries in #1744) and 2026-11-30 (#1736, 61 knip entries in #1744).
 
 # ─── where things are tracked ────────────────────────────────────────────────
 
@@ -553,12 +556,12 @@ issue_map:
   decision_record_and_build_order: 1875
   roadmap_index: 1599
   interaction_economy_epic: 1856
-  event_authority_remainder: 1898      # auto-closed in error 2026-09-14; reopened 2026-10-01
+  event_authority_remainder: 1898      # auto-closed in error 2026-09-14; reopened 2026-10-01; on v3.0.0 (exit criterion)
   divergence_loop: "1926 (tracker); C1 = PR 1920"
   first_adapter: "1912 (closed, complete)"
   executor: "1857 (closed; engine is settle's core)"
   workflow_scoped_capsule: 1927
-  vcs_demotion: 1928
+  vcs_demotion: 1928                   # widened 2026-10-01 to every Git/PR write: merge_orchestrate, merge_pr, add_pr_comment, create_issue
   verification_scope_leg: 1929
   knowledge_binding_leg: 1930
   stranded_bundle_ports: 1931
@@ -569,7 +572,7 @@ issue_map:
   distribution: [1877, 1601, 1737, 1690]
   transport: [1604, 1283, 1780]
   verification_scope: [1925, 1526, 1753, 1813, 1814, 1540, 1886, 1721]
-  vcs_effects: [1402, 1496, 1626, 1722, 1884, 1835]
+  vcs_effects: [1626, 1884, 1835]       # 1402, 1496, 1351, 1722 closed as superseded by #1928
   second_runtime_candidate: [1661, 1662, 1663, 1665, 1666, 1667, 1668]
   stranded_branch: "feat/v2-12-bundle (tip e9a6209e, 2026-07-17, no PR, predates the restructure). Port-or-drop list: #1931."
 
