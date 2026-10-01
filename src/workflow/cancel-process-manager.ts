@@ -368,8 +368,8 @@ export type CancelCompletionPlan =
 
 /**
  * Decide if the cancellation is complete. The plan is `ready` only when each
- * required action has a durable success. A manual escalation blocks first, then an
- * unrecorded outcome.
+ * required action has a durable success. When both block, the plan names the manual
+ * escalation and not the unrecorded outcome.
  */
 export function planCancelCompletion(
   saga: CancelSagaState,

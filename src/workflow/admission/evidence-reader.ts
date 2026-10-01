@@ -2,7 +2,8 @@
 // the `<featureId>/admission-shadow` sidecar streams through `listStreams()`,
 // with no raw SQL. It folds the `admission.shadow-attempt` rows into
 // gate facts and pairs each attempt with its latest disposition row. Then
-// {@link assembleCutoverGateEvidence} gives both to `evaluateCutoverGate`.
+// {@link assembleCutoverGateEvidence} builds the evidence for `evaluateCutoverGate`
+// from both.
 //
 // An empty store gives no evidence, never clean evidence. The fold drops a row
 // that fails schema validation. It never defaults that row to `agree`, because
@@ -91,7 +92,7 @@ export interface DurableShadowEvidence {
  * Read and fold the durable shadow evidence for every sidecar stream in the
  * store. Each stream gets two typed queries, dispositions and then attempts,
  * matched on `shadowAttemptId`. The latest disposition row wins, because stream
- * order is append order. The tally holds every key, also for an empty store.
+ * order is append order. The tally holds every key, even for an empty store.
  */
 export async function readDurableShadowEvidence(
   source: ShadowEvidenceSource,

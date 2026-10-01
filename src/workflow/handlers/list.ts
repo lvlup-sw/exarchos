@@ -4,7 +4,7 @@ import { listStateFiles } from '../state-store.js';
 import type { ListInput } from '../types.js';
 
 /**
- * List the workflows that have a valid state file.
+ * List the workflows whose stored state is valid. Each corrupt state gives a warning.
  * Each entry includes `_checkpoint`, so the prune handler can read `lastActivityTimestamp`.
  */
 export async function handleList(

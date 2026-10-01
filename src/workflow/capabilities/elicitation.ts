@@ -1,7 +1,8 @@
 /**
  * Derives the elicitation sub-schema for one missing required field.
  * The sub-schema comes from the action input schema, so the elicited value passes the same strict validation.
- * This module stays in the capabilities layer to prevent the cycle capabilities -> mcp -> dispatch -> capabilities.
+ * The derivation lives here, not in the MCP elicitation module, so the capabilities layer does not import mcp.
+ * That import makes the cycle capabilities -> mcp -> dispatch -> capabilities.
  */
 
 import type { z } from 'zod';

@@ -199,7 +199,7 @@ function readNumber(value: unknown): number {
 
 /**
  * The plan-revision cap when none is injected, the same as `DEFAULT_MAX_PLAN_REVISIONS` in `guards.ts`.
- * The transition handlers inject config values, such as `_maxPlanRevisions`, onto the state before the guards run.
+ * `handleSet` injects config values, such as `_maxPlanRevisions`, onto the state before the guards run.
  * The projection reads the same fields, so the IR has no second threshold that drifts toward over-admission.
  * The defaults here are copied as data, because this module cannot import `guards.ts`.
  * `legacy-guard-parity.test.ts` pins them against the real guards.
@@ -357,6 +357,7 @@ function hasMissingRequiredDimension(
  * Each check applies only under an injected `block` mode and its own valid injected limit.
  * Check 4a tests the mutation score, and it blocks on a degraded run or a non-finite score.
  * Check 4b tests the NoCoverage budget, and it blocks on a missing or invalid NoCoverage count.
+ * A `skipped` dimension that is not degraded blocks neither check.
  *
  * @returns `true` when enforcement blocks.
  */
@@ -892,7 +893,8 @@ export function translateEdgeAdmission(
 
 /**
  * Translate against a fact projection that the caller already computed.
- * The scope comes from {@link edgeAdmissionScope}, the helper that producers call, so a recorded fact and its requirement cannot drift.
+ * The scope comes from {@link edgeAdmissionScope}, which is exported for producers.
+ * A producer that uses it names the same requirement that this function judges.
  */
 export function translateEdgeAdmissionFromFacts(
   edge: WorkflowEdgeIR,

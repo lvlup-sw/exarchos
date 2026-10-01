@@ -3,7 +3,7 @@
  * The module is pure: it reads only its arguments. The state machine freezes the depth.
  *
  * Two invariants apply:
- *  1. Without a strong signal, the proposal is `'standard'`, the behavior-neutral rung.
+ *  1. A sparse or unknown brief proposes `'standard'`, the behavior-neutral rung.
  *  2. A `'deep'` proposal needs an explicit author override before it freezes.
  *     The cost of the deep rung (a discover bridge and a brainstorm loop) is opt-in.
  */
@@ -90,7 +90,7 @@ export function proposeDesignDepth(signals: DepthSignals): DepthProposal {
  * Resolve the depth to freeze at PLAN entry.
  * An explicit author choice always wins, because it is the confirmation.
  * Without an override, an unconfirmed `'deep'` proposal freezes as `'standard'`.
- * The planner writes the result to `state.designDepth`.
+ * The result is the value for `state.designDepth`, which the state machine freezes.
  *
  * @param authorOverride the author's explicit depth choice, if any
  * @param proposal       the auto-proposal surfaced to the author

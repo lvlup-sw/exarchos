@@ -121,7 +121,7 @@ async function enrichGuardFailureError(
 
 /**
  * Builds the pure guard-failure envelope: `validTargets`, `expectedShape` and `suggestedFix`.
- * It keeps the `validTargets` of the guard when present, and otherwise queries the HSM topology.
+ * It keeps the `validTargets` of the guard when present, and otherwise uses the targets of the HSM topology.
  * `suggestedFix` names the valid target nearest by Levenshtein distance. With an empty target, that is the shortest phase.
  *
  * `expectedShape` describes the `target` input, and keeps the state shape of the guard under `requiredState`.

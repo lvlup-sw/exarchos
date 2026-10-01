@@ -87,8 +87,8 @@ function sha256Hex(input: string): string {
 }
 
 /**
- * A content-derived id. The prefix names the role of the id and starts it with a
- * letter, as `StableIdValueSchema` requires. The hex body is stable and regex-safe.
+ * A content-derived id. The prefix names the role of the id. The hex body is stable
+ * and uses only characters that `StableIdValueSchema` accepts.
  */
 function stableId(prefix: string, discriminant: CanonicalJson): string {
   return `${prefix}-${sha256Hex(canonicalJson(discriminant)).slice(0, 40)}`;
@@ -274,8 +274,8 @@ const RESOLVED_GATE_FAMILIES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Parse one frozen gate. The family is checked against the known families. The
- * gate name is an open string in `phase-kind.ts`, so the cast only re-attaches the family.
+ * Parse one frozen gate. It checks the family against the known families and requires
+ * a non-empty gate name. It does not check the name against the vocabulary of the family.
  */
 function parseFrozenGate(raw: unknown): ResolvedGate | null {
   if (typeof raw !== 'object' || raw === null) return null;

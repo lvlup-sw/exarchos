@@ -39,9 +39,10 @@ export function composeGuards(id: string, description: string, ...innerGuards: G
 }
 
 /**
- * Read a nested object field from untyped workflow state. The value is narrowed with
- * `isPlainObject`, not asserted. A string, number, array, or `null` gives the same
- * `undefined` as a missing field, and each caller treats that as not satisfied.
+ * Read a nested object field from untyped workflow state. The reader narrows the value
+ * with `isPlainObject` and does not assert its type. A string, number, array, or `null`
+ * gives the same `undefined` as a missing field, so a malformed field takes the branch of
+ * a missing field.
  */
 function readObjectField(
   state: Record<string, unknown>,
@@ -238,7 +239,7 @@ export const guards = {
 
   /**
    * Pass when each task has the status `complete`. An absent task list passes. A
-   * present list that is not an array fails, so corrupt state never reads as done.
+   * present `tasks` value that is not an array fails, so corrupt state never reads as done.
    */
   allTasksComplete: {
     id: 'all-tasks-complete',

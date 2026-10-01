@@ -130,7 +130,7 @@ interface NativeTaskFile {
 
 /**
  * Reads the native task JSON files in a directory into a map by task id.
- * It skips a file without a string `id` and `status`. It returns null when the directory does not exist.
+ * It skips a file that does not parse or has no string `id` or `status`. It returns null when the directory does not exist.
  */
 async function readNativeTaskFiles(
   nativeTaskDir: string,

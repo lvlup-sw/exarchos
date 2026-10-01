@@ -143,7 +143,10 @@ export function buildRequirementContext(
   };
 }
 
-/** A resolved point on the two danger axes, risk and boundary. */
+/**
+ * A resolved point on the two danger axes, risk and boundary.
+ * The same-call floor and the frozen-record readback both use this unit, so they share one order.
+ */
 export interface DangerCoordinate {
   readonly risk: ResolvedRiskTier;
   readonly boundary: BoundaryStatus;

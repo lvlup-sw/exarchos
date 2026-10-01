@@ -23,16 +23,16 @@ const MAX_CAS_RETRIES = 3;
 
 /**
  * Updates fields, transitions the phase, or both, on a workflow state file.
- * It applies field updates to a copy first, so the phase guards see the new state.
- * The guard also gets the prior state, so an update to the risk tier cannot weaken its own transition.
- * A no-op self-transition without updates returns `idempotent: true` and writes nothing.
+ * It applies field updates to a copy first, so the phase guards see the new state. The guard also gets the prior state, so an update to the risk tier cannot weaken its own transition.
+ * A no-op self-transition without updates returns `idempotent: true` and writes nothing. A CAS retry reuses the phase attempt id of the first pass.
  *
  * Events go to the store before the state write. A failed transition or patch append returns `EVENT_APPEND_FAILED` and writes nothing.
  * For an event-sourced workflow with field updates and an event store, the handler validates the new state, then appends `state.patched`.
- * Its idempotency key holds `expectedVersion` and the field names, not the values.
- * Thus two patches to the same fields at one version collide, and the store drops the second.
+ * Its idempotency key holds `expectedVersion` and the field names, not the values. Thus two patches to the same fields at one version collide, and the store drops the second.
+ * The server derives `expectedVersion`, so a client resend after a lost response gets a new key and adds a second event.
  *
  * The handler does not rebuild the state file from the fold, because the fold can give a state that fails the schema.
+ * The result carries `workflowType`, because `envelopeWrap` needs it and `phase` to compute `next_actions`.
  */
 export async function handleSet(
   input: SetInput,
@@ -42,7 +42,7 @@ export async function handleSet(
     skipPhases?: readonly string[];
     /**
      * The review dimensions for the `allReviewsPassed` guard. An explicit value, even `[]`, wins.
-     * Else the handler uses the REVIEW gate set for the risk tier of the updated state.
+     * Without it, the handler uses the REVIEW gate set for the workflow type and the risk tier of the updated state.
      */
     requiredReviews?: readonly string[];
     /**

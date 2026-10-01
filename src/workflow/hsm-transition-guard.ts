@@ -48,10 +48,11 @@ interface HsmInternalEvent {
  * `EVENT_DATA_SCHEMAS` in `buildValidatedEvent`. Each persisted type needs its own
  * fields. The ordinals give the 1-based `count`, and `guardId` goes into `guard-failed`.
  *
- * When absent, the optional `compoundStateId`, `riskTier`, and `boundaryTouching` are
- * omitted, not written as `undefined`. A `phase.exited` value that is not a boolean stays `undefined`, so the schema rejects
- * it and does not store `false`. `phase.blocked` gets its canonical shape here, so it
- * validates as `phase.blocked`.
+ * The function omits an absent `compoundStateId`, `riskTier`, or `boundaryTouching`, and
+ * never writes `undefined` for them. A non-boolean `allRequiredGatesPassed` stays
+ * `undefined`, so the schema rejects it and does not store `false`. The `phase.entered`
+ * payload holds only the obligation, with no `featureId`. `phase.blocked` gets its
+ * canonical shape here, so it validates as `phase.blocked`.
  */
 export function buildHsmEventData(
   evt: HsmInternalEvent,
@@ -423,7 +424,8 @@ async function readFrozenFloorForPhase(
 /**
  * Merge floor parts as a union, because each part is a lower bound. The floor raises
  * the obligation of this transition only. It is not written to state and does not
- * carry across phases.
+ * carry across phases, because a feature-wide floor makes one untiered transition
+ * escalate every later transition.
  */
 function mergeFloors(
   parts: readonly (TransitionObligationFloor | null)[],
@@ -452,9 +454,11 @@ function mergeFloors(
  * The default `HSMTransitionGuard`. It looks up the edge, runs registered custom guards,
  * then runs the synchronous `executeTransition` walk. An undefined edge returns
  * `no-transition-defined` and emits no event, also when the walk rejects a universal
- * final edge. A failure emits the diagnostic events of the walk, never
- * `workflow.transition`. A success appends the walk events one at a time, so a throw in
- * the loop can leave a partial trail.
+ * final edge. A `guard-failed` event for an edge that does not exist corrupts projections.
+ *
+ * A failed custom guard appends one `workflow.guard-failed`, and a failed walk appends its
+ * diagnostic events. No failure appends `workflow.transition`. A success appends the walk
+ * events one at a time, so a throw in the loop can leave a partial trail.
  */
 export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
   /**
@@ -464,7 +468,9 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
    * An unregistered custom guard fails closed without a `guard-failed` event, because it
    * is a config error. The obligation floor comes from `priorState` and the last
    * `phase.entered` for the target phase. `CIRCUIT_OPEN` and `PHASE_BLOCKED` keep their
-   * codes. The returned sequence is the highest sequence of the lifecycle and phase events.
+   * codes, so a resolver fault does not look like a guard failure. The returned sequence is
+   * the highest sequence of the lifecycle and phase events, so `_eventSequence` does not
+   * trail the log and cause a false reconcile.
    */
   async attempt(
     featureId: string,

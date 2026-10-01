@@ -4,8 +4,8 @@
  * When these sources disagree, a declared total order decides, not the order of the control flow.
  *
  * Rehydration never trusts a snapshot that contradicts the durable event log.
- * A snapshot ahead of the event tail is discarded, the log is folded again, and the result is flagged degraded.
- * A snapshot behind the tail gets the tail folded forward over it.
+ * Rehydration discards a snapshot ahead of the event tail, folds the log again, and flags the result degraded.
+ * For a snapshot behind the tail, rehydration folds the tail forward over it.
  * The freshness reasons come from `assessProjectionFreshness`, the same reasons that the view surface reports.
  */
 import {
@@ -17,6 +17,7 @@ import {
  * Total precedence of rehydration sources. Index 0 is the highest authority.
  *  - `event-fold`: the state folded from the event log up to its tail. This is the canonical answer.
  *  - `summary-snapshot`: a snapshot whose cursor equals `MAX(events.sequence)`, served with no tail to fold.
+ *    When the tail is unknown, the snapshot seeds the fold, and the tail after its cursor folds forward.
  *  - `state-store`: the `.state.json` stamp, read only under hard degradation by `buildDegradedResponse` in `rehydrate.ts`.
  *    The pure planner never chooses it.
  * No slot trusts a stale or contradictory projection.
@@ -73,7 +74,7 @@ export interface RehydrationPlan {
 /**
  * Decide the rehydration source from the snapshot position, per {@link REHYDRATION_SOURCE_PRECEDENCE}. Pure.
  * A snapshot exactly on the tail is served directly. A snapshot behind the tail gets an `event-fold` that seeds from it.
- * A snapshot ahead of the tail, from a pruned or rebuilt store, is discarded and the result is degraded.
+ * The planner discards a snapshot ahead of the tail, from a pruned or rebuilt store, and marks the result degraded.
  */
 export function planRehydrationSource(pos: SnapshotPosition): RehydrationPlan {
   if (!pos.hasSnapshot) {
