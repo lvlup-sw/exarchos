@@ -56,6 +56,7 @@ export function digestTree(entries: ReadonlyArray<DigestEntry>): string {
  * The binary version that `collect-identity.ts` uses when it cannot read the version from `package.json`.
  * It marks an absent observation, not a version. Thus two copies of it must never compare as equal.
  * The `indeterminate` verdict in `freshness-check.ts` applies this rule.
+ * The producer and the consumer both import it from here, so the two cannot use different values.
  */
 export const UNKNOWN_VERSION_SENTINEL = '0.0.0-unknown';
 

@@ -5,7 +5,7 @@ import { CALL_MACRO_REGEX } from '../skill-vocabulary.js';
  * The five composite MCP tools of Exarchos: four visible and the hidden sync tool.
  * `parseCallMacro` uses this set as a coarse pre-check against typos.
  * The registry check in `validateCallMacro` is authoritative.
- * When you add a composite tool, update this set and register the tool in `src/registry.ts`.
+ * When you add a composite tool, update this set and register the tool in `src/registry/tools.ts`.
  */
 const KNOWN_TOOLS: ReadonlySet<string> = new Set([
   'exarchos_workflow',
@@ -154,15 +154,14 @@ export function validateCallMacro(ast: CallMacroAst): void {
 /**
  * Expand each `{{CALL tool action {json}}}` macro in `body` for the `preferredFacade`
  * of the runtime: `mcp` or `cli`. An unknown facade leaves the macro as it is.
- * When a registry lookup is configured, each macro is validated at build time.
- * This pass runs before `render()`. `CALL_MACRO_REGEX` and `PLACEHOLDER_REGEX` are disjoint.
- * A fresh RegExp prevents state from the global flag of the module-scoped regex.
+ * When a registry lookup is configured, the function validates each macro at build time.
+ * This pass runs before placeholder substitution. The order is safe, because
+ * `CALL_MACRO_REGEX` and `PLACEHOLDER_REGEX` match disjoint text.
+ * The function uses a fresh RegExp, because the module-scoped regex has the global flag and keeps `lastIndex` state.
  *
  * @param body - Raw skill source body containing `{{CALL ...}}` macros.
- * @param runtime - The target runtime whose facade preference determines
- *   the output format.
- * @returns The body with all CALL macros expanded (or left intact for
- *   unsupported facades).
+ * @param runtime - The target runtime whose facade preference sets the output format.
+ * @returns The body with the CALL macros expanded.
  */
 export function renderCallMacros(body: string, runtime: RuntimeMap): string {
   const localRegex = new RegExp(CALL_MACRO_REGEX.source, 'g');

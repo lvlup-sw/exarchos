@@ -135,7 +135,7 @@ export function buildCommandAliases(opts: {
 /**
  * Remove each file under `root` that is not in `keep`, then remove the directories that become empty.
  * The caller scopes `root` to one `command-aliases/<runtime>/` subtree.
- * Unlike `cleanStaleFiles`, a failed read, stat, or remove throws with the path, because drift correctness depends on the cleanup.
+ * Unlike `cleanStaleFiles` in `build-skills/out-dir.ts`, a failed read, stat, or remove throws with the path, because drift correctness depends on the cleanup.
  */
 function cleanStaleAliasFiles(root: string, keep: Set<string>): void {
   if (!existsSync(root)) return;

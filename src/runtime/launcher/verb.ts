@@ -290,9 +290,9 @@ export async function runLauncherVerb(
 
 /**
  * Renders a {@link DryRunPlan} as human-readable CLI output. The output holds only lifecycle facts: the
- * harness, its runtime, the worktree path, the orientation preview, and the event plan. It makes no space,
- * enforcement, confinement, sandbox, or boundary claim, because write confinement is a non-goal of the
- * launcher. `Verb_DryRun_NoEnforcementClaimInOutput` pins that absence.
+ * harness, its runtime, the feature, the base, the worktree path, the orientation preview, and the event
+ * plan. It makes no space, enforcement, confinement, sandbox, or boundary claim, because write confinement
+ * is a non-goal of the launcher. `Verb_DryRun_NoEnforcementClaimInOutput` pins that absence.
  */
 export function renderDryRunPlan(plan: DryRunPlan): string {
   const lines: string[] = [];

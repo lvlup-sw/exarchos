@@ -157,7 +157,7 @@ export function oneLineDirective(rendered: string): string {
  * The function reads no `canInjectContext` capability. Only the Claude runtime reaches it, and its SessionStart hook can always return context.
  *
  * The command calls bare `exarchos` from PATH, because the installer puts the single-file CLI on PATH.
- * A `${CLAUDE_PLUGIN_ROOT}`-relative path couples the command to the internal layout of the plugin.
+ * It does not use a `${CLAUDE_PLUGIN_ROOT}`-relative path, because that path couples the command to the internal layout of the plugin.
  */
 function renderClaudePluginHooks(template: string, directiveOneLine: string): string {
   const base = JSON.parse(template) as {
@@ -212,7 +212,7 @@ function writeArtifact(path: string, content: string, written: Set<string>): voi
 
 /**
  * Remove the artifacts that this run did not write. The scope is the top-level `hooks.json`, the known files of each runtime hook subtree, and the per-runtime binding blocks.
- * No per-runtime binding block is written, so the `binding/<rt>/AGENTS.md` and `CLAUDE.md` sweep removes old forks. Other files under the roots stay.
+ * The build writes no per-runtime binding block, so the `binding/<rt>/AGENTS.md` and `CLAUDE.md` sweep removes old forks. Other files under the roots stay.
  */
 function cleanStaleArtifacts(
   outDir: string,

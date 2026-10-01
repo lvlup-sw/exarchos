@@ -19,7 +19,7 @@ export const PLACEHOLDER_REGEX = /\{\{(\w+)(?:\s+([^}]*))?\}\}/g;
 /**
  * Matches `{{CALL tool action {json}}}` macros. Group 1 is `tool action {json}`, the `raw` input of `parseCallMacro()`.
  * The inner `.+` is greedy, so a JSON arg that holds `}` does not end the capture too early.
- * Thus each line can hold only one CALL macro. The placeholder lint and the renderer share this pattern.
+ * Thus two CALL macros on one line give one match, so put each CALL macro on its own line. The placeholder lint and the renderer share this pattern.
  *
  * WARNING: this is a stateful `/g` instance, with the same rules as `PLACEHOLDER_REGEX`.
  */

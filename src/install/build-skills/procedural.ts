@@ -2,7 +2,7 @@ import { classifySkill, ORCHESTRATION_TOKENS } from '../skill-vocabulary.js';
 
 /**
  * Throw when a procedural skill source uses an orchestration token or a `<!-- requires:* -->` guard.
- * A procedural skill has one render for all runtimes, so either construct loses its per-runtime output.
+ * A procedural skill renders once for all runtimes, so neither construct can vary by runtime in it.
  * `buildAllSkills` calls this only for a source that `classifySkill` puts in the procedural class.
  */
 export function assertProceduralSkill(body: string, sourcePath: string): void {

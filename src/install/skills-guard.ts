@@ -1,5 +1,6 @@
 /**
- * The CI `skills:guard` check. It finds drift between the `content/` sources and the committed generated trees under `rendered/`.
+ * The CI `skills:guard` check. It finds drift between the `content/` sources and the committed generated trees:
+ * the trees under `rendered/` and the agent tree of each runtime.
  * It runs the generators again, then runs `git diff --exit-code` on each tree.
  * A diff means that a source changed without a rebuild, or that someone edited a generated file by hand.
  * The failure message names the command that regenerates the tree.
@@ -25,9 +26,9 @@ export interface SkillsGuardResult {
 }
 
 /**
- * Guard options. Tests inject `regenerateAgents`, because the agents generator `src/runtime/agents/generate-agents.ts` is outside the `rootDir` of this package.
- * Production runs that entry point under tsx in a child process, as `npm run generate:agents` does.
- * A test writer is synchronous, so the sandbox does not load the full adapter registry.
+ * Guard options. The agents generator `src/runtime/agents/generate-agents.ts` is outside the `rootDir` of this package.
+ * Thus production runs that entry point under tsx in a child process, as `npm run generate:agents` does.
+ * Tests inject a synchronous `regenerateAgents`, so the sandbox does not load the full adapter registry.
  */
 export interface SkillsGuardOptions {
   cwd: string;
@@ -88,7 +89,7 @@ function defaultRegenerateAgents(cwd: string): void {
 }
 
 /**
- * Regenerate each tree under `rendered/` and diff it against HEAD. An old tree always matches HEAD, so each tree regenerates before its diff.
+ * Regenerate each generated tree and diff it against HEAD. A tree that does not regenerate always matches HEAD, so each tree regenerates before its diff.
  * The guard collects all failures. It skips the diff of a tree when the build of that tree failed. It does not call `process.exit`.
  * The authored `commands/` tree regenerates before the aliases, because the alias emitter reads it.
  *

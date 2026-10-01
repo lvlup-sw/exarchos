@@ -4,8 +4,9 @@ import { join } from 'node:path';
 
 /**
  * Throw when a loaded runtime has no value for a token in `RuntimeTokenKey`.
- * The error lists every missing (runtime, token) pair, sorted by token and then
- * by runtime, so authors can fix all runtime YAML files in one pass.
+ * The error lists every missing (runtime, token) pair, so authors can fix all
+ * runtime YAML files in one pass. The sort by token and then by runtime keeps
+ * the message the same for any YAML load order.
  */
 export function assertRuntimeTokenCoverage(runtimes: RuntimeMap[]): void {
   const missing: Array<{ runtime: string; token: string }> = [];

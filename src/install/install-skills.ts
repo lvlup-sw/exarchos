@@ -93,8 +93,9 @@ export interface InstallSkillsOpts {
    * the skills from local disk and does not run `npx skills add`. The upstream CLI installs only the
    * repo root level, and its home-dir mapping does not match `skillsInstallPath`.
    *
-   * `installSkills()` does not detect this path. The install-skills bridge passes
-   * `findSkillsSourceDir()`. Without it, the `npx skills add` path runs.
+   * `installSkills()` does not detect this path. A detection from the repo root finds
+   * `rendered/skills`, and then the tests of the spawn argv skip the spawn.
+   * The install-skills bridge passes `findSkillsSourceDir()`. Without it, the `npx skills add` path runs.
    */
   skillsSource?: string;
   /**
@@ -890,8 +891,8 @@ export function indexLegacyHashesBySkill(
 /**
  * Find the committed legacy-render hash manifest under `tools/migrations/`, from the cwd,
  * from two levels above the binary, or from one level above this module.
- * Return the first file found, or `undefined`. Then the migration has no legacy
- * provenance, and it keeps the directories.
+ * Return the first file found, or `undefined`. When the result is `undefined`, the
+ * migration has no legacy provenance, and it keeps the directories.
  */
 export function findLegacyHashManifestPath(): string | undefined {
   const candidates: string[] = [
@@ -1002,10 +1003,10 @@ export function readDefaultExarchosVersion(): string {
  *   2. If `opts.skillsSource` has skills for the runtime, copy them to the native dir,
  *      place the canonical layout, and write the provenance manifest.
  *   3. If not, log and spawn `npx skills add` with `FORCE_COLOR=0` and `CI=true`.
+ *      `--copy` writes real files, because symlinks into the npm cache break when the cache is cleaned.
  *      A non-zero exit throws an `InstallSkillsError` with `exitCode`.
- *   4. Install the command aliases. For `claude`, register the MCP server.
- *      A registration failure is logged and does not fail the install.
- *   5. Print the summary.
+ *   4. Install the command aliases. For `claude`, register the MCP server. A registration
+ *      failure is logged and does not fail the install. Then print the summary.
  */
 export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
   const runtimes = opts.runtimes ?? [];

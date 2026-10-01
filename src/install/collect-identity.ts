@@ -222,7 +222,7 @@ export function collectInstallIdentity(pluginRoot: string, deps: IdentityDeps = 
  * move the lock. Otherwise one install gets a different freshness verdict for
  * each store. A digest of `pluginRoot` keeps two installs on one machine apart.
  *
- * A lock in the state dir is not read, so the missing lock bootstraps again
+ * Nothing reads an old lock in the state dir, so the install bootstraps again
  * through TOFU. The result uses POSIX separators because a caller compares it
  * with the forward-slash path from {@link resolveInstallIdentityDir}.
  */

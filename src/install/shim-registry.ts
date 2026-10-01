@@ -12,7 +12,8 @@
  *
  * Marker grammar: a one-line comment
  * `SHIM(runtimes: <r1>[+<r2>...], capability: <capability-id>)`. The parser
- * ignores the note after the closing parenthesis.
+ * ignores the note after the closing parenthesis. The issue, owner and expiry
+ * are only in the registry, so the marker and the row cannot drift.
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
@@ -112,7 +113,8 @@ export const APPROVED_CAPABILITY_REASONS: readonly string[] = [
  * the expiry, the adapter must be adopted, replaced by native support, or
  * deleted.
  * - `command-shim-emitter.ts` has a row for Cursor and a row for Copilot. The
- *   module is a reserved stub with the same issue and expiry.
+ *   module is a reserved stub, and both rows use the issue and expiry of its
+ *   reservation marker.
  * - Each `agents/adapters/*.ts` renderer has one row. The renderers carry no
  *   marker, so the shape scan finds them.
  */
@@ -207,8 +209,9 @@ export const RENDERER_SCAN_ROOTS: readonly string[] = ['src'];
 export const SELF_PATH = 'src/install/shim-registry.ts';
 
 /**
- * Matches a `SHIM(<fields>)` marker. The regex source is a spliced string, so it
- * does not hold the marker token, and this module cannot match itself.
+ * Matches a `SHIM(<fields>)` marker. The regex source is a spliced string, so the
+ * regex line holds no marker token. The comments of this module do, so both scans
+ * skip {@link SELF_PATH}.
  */
 const SHIM_MARKER_RE = new RegExp('SHIM' + '\\(([^)]*)\\)', 'g');
 
@@ -404,7 +407,7 @@ function portLocalNames(source: string): string[] {
  * Return the exported declaration that implements `port`, or `null`. The
  * implementing positions are `export const X: Port` (also with `&`),
  * `export class X implements Port`, and `satisfies Port`. For `satisfies`, the
- * name comes from the nearest earlier exported `const`.
+ * name comes from the nearest earlier exported variable.
  */
 function implementingExport(
   source: string,
@@ -466,9 +469,9 @@ export interface DiscoverRenderersOptions {
 
 /**
  * Return each per-harness renderer in production source under the configured
- * roots, sorted by path. A marker does not change the result. Each file is read
- * once, even when roots nest. A file that does not name the port type is
- * skipped before the regex checks.
+ * roots, sorted by path. A marker does not change the result. The result holds
+ * each renderer once, even when roots nest. A file that does not name the port
+ * type is skipped before the regex checks.
  */
 export function discoverRenderers(opts: DiscoverRenderersOptions): DiscoveredRenderer[] {
   const fs = opts.fs ?? DEFAULT_FS;

@@ -81,7 +81,8 @@ export class CopilotAdapter implements RuntimeAdapter {
   /**
    * Write a tool entry only for a native capability. The frontmatter declares no
    * MCP servers, because the Copilot CLI registers servers outside the agent
-   * file. The `mcp__<server>` tool entry gates a server for each agent.
+   * file and its loader ignores an `mcp-servers` block. The `mcp__<server>` tool
+   * entry gates a server for each agent.
    */
   lowerSpec(spec: AgentSpec): { path: string; contents: string } {
     const resolved = resolveCapabilities(spec.posture, spec.id);

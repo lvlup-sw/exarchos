@@ -19,8 +19,8 @@ export function countRuntimesFromOutDir(outDir: string): number {
 
 
 /**
- * Remove each file under `root` that is not in `keep`, then remove the directories that become empty.
- * Removal errors are ignored.
+ * Remove each file under `root` whose resolved absolute path is not in `keep`.
+ * Then remove each subdirectory that holds no kept file. The function ignores removal errors.
  * The caller must scope `root` to one per-runtime subtree, so that no unrelated file is removed.
  */
 export function cleanStaleFiles(root: string, keep: Set<string>): void {

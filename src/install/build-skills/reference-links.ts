@@ -77,8 +77,8 @@ export function collectReferencedFiles(
 
 /**
  * Copy the reference files in `linked` from `srcRefs` to `destRefs`, with the
- * directory structure and mtimes. Files outside `linked` are skipped. An empty
- * `linked` set creates no directory. `writtenPaths` collects each written path.
+ * directory structure and mtimes. The function skips files outside `linked`. An
+ * empty `linked` set creates no directory. `writtenPaths` collects each written path.
  */
 function copyLinkedReferences(
   srcRefs: string,
@@ -114,7 +114,7 @@ const RENDERED_REFERENCE_EXTENSIONS: ReadonlySet<string> = new Set([
 
 /**
  * Write the reference files in `linked` from `srcRefs` to `destRefs` for
- * `runtime`. Files outside `linked` are skipped. A Markdown file goes through
+ * `runtime`. The function skips files outside `linked`. A Markdown file goes through
  * `applyRequiresGuards`, `renderCallMacros`, `render` and
  * `elideClaudeOnlyCodeBlocks`, as SKILL.md does. Unknown tokens stay in place,
  * because references carry handlebar templates that dispatch fills later.

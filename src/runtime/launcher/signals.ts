@@ -95,7 +95,7 @@ export interface InstallSignalHandlersOptions {
 
 /**
  * Trap `SIGINT` and `SIGTERM`. On a signal, forward it to the child, emit the terminal, reap the child, and run teardown, in that order.
- * Each step runs also when an earlier step throws. A double signal, or `SIGINT` then `SIGTERM`, gives one run.
+ * When the terminal emit or the reap throws, the later steps still run. A double signal, or `SIGINT` then `SIGTERM`, gives one run.
  *
  * The listener never rejects, because a rejection on `process` is unhandled. Errors go to `onError`.
  * Returns an uninstaller that removes the handlers. The integrator calls it when the launch ends.

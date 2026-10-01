@@ -2,7 +2,7 @@
  * Canonical map from a workflow command name to the skill directories that the
  * command delegates to. Consumers read this map and do not derive it again.
  *
- * The map holds each `@skills/<dir>/SKILL.md` reference in a command file.
+ * The map comes from the `@skills/<dir>/SKILL.md` references in the command files.
  * `@skills/<dir>/references/*.md` paths are not skill entry points.
  * Most commands map to the skill of the same name. Some commands also use a
  * second skill.

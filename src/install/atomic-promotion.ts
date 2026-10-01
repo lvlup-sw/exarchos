@@ -183,7 +183,7 @@ interface StagePlan {
 
 /**
  * Derive the scaffolding paths for `target`. They have no random suffix, so a retry can find the journal of an interrupted attempt.
- * This is safe, because each `target` has one owner writer, as `atomic-write.ts` also assumes.
+ * This is safe, because each `target` has one writer, as `atomic-write.ts` also assumes.
  * All paths are in the parent of `target`, so the renames stay on one volume and are atomic.
  */
 function stagePlanFor(target: string): StagePlan {

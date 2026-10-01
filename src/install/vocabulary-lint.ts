@@ -94,7 +94,7 @@ export function lintRenderedSkill(
 }
 
 /**
- * Format the findings as one diagnostic message, with one line for each finding:
+ * Format the findings as one diagnostic message: a count line, then one line for each finding:
  *
  *   <source-skill-path>:<line>: forbidden term '<term>' in <runtime>
  *     render — wrap in <!-- requires:<cap> --> or use a

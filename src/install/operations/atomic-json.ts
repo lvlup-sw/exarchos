@@ -4,9 +4,9 @@
  * than no write. The writer does these steps:
  *
  *   1. Serialize, and refuse a value that `JSON.stringify` cannot represent.
- *   2. Write a temp file in the same directory, and loop on the byte count from
- *      `writeSync`. A write that makes no progress throws.
- *   3. `fsync` the data.
+ *   2. Write a temp file in the same directory, because a rename is atomic only in one
+ *      filesystem. Loop on the byte count from `writeSync`. A write that makes no progress throws.
+ *   3. `fsync` the data, so that a crash cannot leave an empty file after the rename.
  *   4. Read the temp file back from disk. It must equal the serialized bytes and
  *      parse as JSON. This check stops a short write before the rename.
  *   5. `rename` over the target, then `fsync` the directory where possible.

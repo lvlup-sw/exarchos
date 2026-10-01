@@ -87,8 +87,8 @@ function renderDeveloperInstructions(spec: AgentSpec): string {
 /**
  * Lower `spec` into the Codex TOML file. The capability-derived `sandbox_mode` keeps
  * Codex off a session default that gives more access than the spec allows.
- * `mcp:exarchos` and `mcp:exarchos:readonly` give the same `mcp_servers` entry,
- * because Codex has no per-action grant. The server enforces the read-only tier.
+ * Without `spec.mcpServers`, `mcp:exarchos` and `mcp:exarchos:readonly` give the same
+ * `mcp_servers` entry, because Codex has no per-action grant. The server enforces the read-only tier.
  */
 function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
   const path = `.codex/agents/${spec.id}.toml`;
