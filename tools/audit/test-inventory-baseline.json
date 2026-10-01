@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1287,
-    "parsedFiles": 1242,
+    "testFiles": 1288,
+    "parsedFiles": 1243,
     "shellFiles": 45,
-    "cases": 14226,
+    "cases": 14236,
     "dynamicTitles": 172,
     "unparseableFiles": 0
   },
@@ -18949,6 +18949,26 @@
         {
           "suite": "collector — live measurement",
           "name": "Collect_McpSdkSpecIsExactlyPinnedInThisRepo",
+          "dynamic": false
+        },
+        {
+          "suite": "collector — live measurement",
+          "name": "Collect_StrategosContractsSpec_IsExactlyPinnedInThisRepo",
+          "dynamic": false
+        },
+        {
+          "suite": "collector — strategos-contracts pin location",
+          "name": "Collect_StrategosContractsInDevDependenciesOnly_ReadsThePin",
+          "dynamic": false
+        },
+        {
+          "suite": "collector — strategos-contracts pin location",
+          "name": "Collect_StrategosContractsInDependenciesOnly_ReadsThePin",
+          "dynamic": false
+        },
+        {
+          "suite": "collector — strategos-contracts pin location",
+          "name": "Verify_StrategosContractsInNeitherSection_BlocksAsFloating",
           "dynamic": false
         },
         {
@@ -83290,6 +83310,42 @@
         {
           "suite": "static call-shape census",
           "name": "CallShapeCensus_CheckedInSummary_IsRenderedFromTheSameCensus",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/published-dependencies.test.ts": {
+      "file": "tests/architecture/published-dependencies.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "published dependencies resolve from npmjs.org",
+          "name": "Npmrc_MapsAtLeastOneScopeToAnotherRegistry",
+          "dynamic": false
+        },
+        {
+          "suite": "published dependencies resolve from npmjs.org",
+          "name": "PackageJson_InstalledDependencies_AllResolveFromNpmjs",
+          "dynamic": false
+        },
+        {
+          "suite": "published dependencies resolve from npmjs.org",
+          "name": "SeededRestrictedRuntimeDependency_IsNamed",
+          "dynamic": false
+        },
+        {
+          "suite": "published dependencies resolve from npmjs.org",
+          "name": "SeededAliasToARestrictedScope_IsNamed",
+          "dynamic": false
+        },
+        {
+          "suite": "published dependencies resolve from npmjs.org",
+          "name": "SeededRestrictedPeerDependency_IsNamed",
+          "dynamic": false
+        },
+        {
+          "suite": "published dependencies resolve from npmjs.org",
+          "name": "SeededDefaultRegistryOverride_NamesEveryUnscopedDependency",
           "dynamic": false
         }
       ]
