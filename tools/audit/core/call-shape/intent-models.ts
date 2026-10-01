@@ -304,6 +304,11 @@ const DELEGATION: IntentModel = {
       ref: at('delegate', `${O}.describe`, '`exarchos_orchestrate({ action: "describe", actions: ["prepare", "settle"] })`'),
       why: SCHEMA_REFERENCE,
     },
+    {
+      kind: 'site',
+      ref: at('delegate', `${W}.update`, '"synthesis.integrationBranch": "<branch the tasks fork from>"'),
+      why: 'the remedy for a BASE_UNRESOLVED refusal: made once, when the workflow records no integration branch, then prepare runs again',
+    },
   ],
   excluded: [
     {
@@ -357,9 +362,8 @@ const REVIEW: IntentModel = {
     { kind: 'site', ref: at('review', `${O}.runbook`, 'id: "review-strategy"') },
     {
       kind: 'site',
-      ref: at('review', `${O}.check_test_adequacy`, 'riskTier: "<low|medium|high>",'),
-      why: 'no loop is named, so it counts once',
-      flag: 'The review recipe for the kill probe carries a single `taskId`, while the pass reviews the integrated diff across every task.',
+      ref: at('review', `${E}.query`, 'filter: { type: "gate.executed" }, limit: 200 })'),
+      why: 'the reviewer reads the kill-probe verdict settlement recorded for each task, in one query',
     },
     {
       kind: 'runbook',
@@ -397,6 +401,12 @@ const REVIEW: IntentModel = {
     },
   ],
   conditional: [
+    {
+      kind: 'site',
+      ref: at('review', `${O}.check_test_adequacy`, 'riskTier: "<low|medium|high>",'),
+      why: 'run only for a task settlement did not verify; no loop is named, so it counts once',
+      flag: 'The review recipe for the kill probe carries a single `taskId`, while the pass reviews the integrated diff across every task.',
+    },
     { kind: 'site', ref: at('review', `${W}.describe`, 'actions: ["update"] })` and'), why: SCHEMA_REFERENCE },
     { kind: 'site', ref: at('review', `${O}.describe`, '"check_invariant_conformance", "prepare_review"] })`'), why: SCHEMA_REFERENCE },
   ],

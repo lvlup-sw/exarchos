@@ -5,7 +5,8 @@
 // lives in the pure-ish `test-adequacy.ts` (split/snapshot/revert/run/restore);
 // this handler wires the production seams:
 //   • resolve repoRoot (supports the worktree-aware 'auto' mode, #1330)
-//   • compute the task diff's changed files via git (baseRef...HEAD)
+//   • resolve the merge base of the task's base and HEAD once, as a SHA, and
+//     use it for both the changed-file diff and the revert
 //   • resolve the test command via resolveTestRuntime and shell it out,
 //     scoped to the changed test files
 //   • persist evidence with trusted-operation idempotency (INV-8)
@@ -29,6 +30,7 @@ import type { RiskTier } from '../../workflow/verification-policy.js';
 import type { GitExec } from '../pure/execute-merge.js';
 import {
   runProbe,
+  probeNotRun,
   resolveProbeTestGlobs,
   interpretProbeVerdict,
   verdictOf,
@@ -36,6 +38,7 @@ import {
   type TestRunFn,
 } from './test-adequacy.js';
 import { assertNever } from '../../contract/error-families.js';
+import { CapsuleBaseRefSchema } from '../../contract/capsule/exarchos-capsule.js';
 
 // ─── Args / Result ───────────────────────────────────────────────────────────
 
@@ -44,7 +47,11 @@ export interface TestAdequacyArgs {
   readonly taskId: string;
   /** The task branch (HEAD side of the diff). Defaults to the current branch. */
   readonly branch?: string;
-  /** Base ref the task diff is measured against. Defaults to 'main'. */
+  /**
+   * The branch the task forked from; its diff is measured from the merge base
+   * of this ref and the task's head. There is no default: a guessed base
+   * judges other work, so without one the gate blocks with `base-missing`.
+   */
   readonly baseBranch?: string;
   /**
    * Repo to probe. A literal path is used verbatim; `'auto'` resolves the
@@ -192,6 +199,45 @@ export function changedFilesFor(
   };
 }
 
+/** The merge base a task's diff is measured from, or why it could not be resolved. */
+export type MergeBaseResult =
+  | { readonly ok: true; readonly sha: string }
+  | { readonly ok: false; readonly detail: string };
+
+/**
+ * Resolve the merge base of the task's base and its head ONCE, as a commit SHA.
+ * The changed-file diff and the revert both read this one SHA, so the files
+ * the probe reverts are measured against the same commit it reverts them to.
+ * A base outside the capsule's safe ref pattern, or a head that starts with a
+ * dash, is refused before git sees it, because git would read it as an option.
+ */
+export function resolveMergeBase(
+  gitExec: GitExec,
+  repoRoot: string,
+  baseRef: string,
+  headRef?: string,
+): MergeBaseResult {
+  const head = headRef && headRef.trim().length > 0 ? headRef.trim() : 'HEAD';
+  if (!CapsuleBaseRefSchema.safeParse(baseRef).success || head.startsWith('-')) {
+    return {
+      ok: false,
+      detail: `the base ${JSON.stringify(baseRef)} or the head ${JSON.stringify(head)} is not a safe ref, so no merge base was resolved`,
+    };
+  }
+  const result = gitExec(repoRoot, ['merge-base', baseRef, head]);
+  const sha = result.stdout.trim();
+  if (result.exitCode !== 0 || !/^[0-9a-f]{40,64}$/.test(sha)) {
+    return { ok: false, detail: `git merge-base ${baseRef} ${head} exited ${result.exitCode}: ${sha}` };
+  }
+  return { ok: true, sha };
+}
+
+/** What the gate reports when no base was named, as the probe's own detail. */
+const BASE_MISSING_DETAIL =
+  'no base was supplied (`baseBranch`), so the task diff has nothing to be measured from. ' +
+  'Pass the branch the task forked from: settle reads it from the capsule, and the primitive ' +
+  "path takes it from prepare_delegation's `baseBranch`";
+
 // ─── Handler ──────────────────────────────────────────────────────────────
 
 export async function handleTestAdequacy(
@@ -214,7 +260,7 @@ export async function handleTestAdequacy(
   );
   if (!pre.ok) return pre.result;
   const repoRoot = pre.repoRoot;
-  const baseRef = args.baseBranch || 'main';
+  const baseBranch = args.baseBranch && args.baseBranch.trim().length > 0 ? args.baseBranch.trim() : undefined;
 
   return runDurableGateProducer(
     {
@@ -222,7 +268,7 @@ export async function handleTestAdequacy(
       featureId: args.featureId,
       taskId: args.taskId,
       ...(args.branch ? { branch: args.branch } : {}),
-      baseRef,
+      ...(baseBranch ? { baseRef: baseBranch } : {}),
       repoRoot,
       stateDir,
       eventStore,
@@ -252,9 +298,19 @@ export async function handleTestAdequacy(
         };
       }
 
+      if (baseBranch === undefined) {
+        return {
+          success: true,
+          data: buildAdequacyCarrier(probeNotRun('base-missing', BASE_MISSING_DETAIL, args.riskTier), args.riskTier),
+        };
+      }
+
       const gitExec = args.gitExec ?? defaultGitExec;
       const runTests = args.runTests ?? buildDefaultRunTests(repoRoot);
-      const changed = changedFilesFor(gitExec, repoRoot, baseRef, args.branch);
+      const mergeBase = resolveMergeBase(gitExec, repoRoot, baseBranch, args.branch);
+      const changed: ChangedFilesResult = mergeBase.ok
+        ? changedFilesFor(gitExec, repoRoot, mergeBase.sha, args.branch)
+        : { ok: false, detail: mergeBase.detail };
       const toolchain = detectToolchain(repoRoot);
       // SUBJECT FIX: the toolchain's prescribed layout AUGMENTS the co-located
       // conventions instead of replacing them. Replacing them made every
@@ -268,7 +324,7 @@ export async function handleTestAdequacy(
       const probe: ProbeResult = await runProbe({
         gitExec,
         repoRoot,
-        baseRef,
+        baseRef: mergeBase.ok ? mergeBase.sha : baseBranch,
         changedFiles: changed.ok ? changed.files : [],
         ...(changed.ok ? {} : { diffFailed: true }),
         ...(args.riskTier ? { riskTier: args.riskTier } : {}),

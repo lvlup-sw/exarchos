@@ -169,7 +169,9 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     name: 'prepare_delegation',
     description:
       'Query delegation readiness and prepare quality hints for subagent dispatch. Announces each ' +
-      'planned task the stream has not yet heard of (`task.assigned`) before reading readiness.',
+      'planned task the stream has not yet heard of (`task.assigned`) before reading readiness. ' +
+      'Returns `baseBranch`, the integration branch the tasks fork from: pass it to the ' +
+      'task-completion runbook as `baseRef`.',
     schema: z.object({
       featureId: z.string().min(1),
       // #1636: the per-task object accepts the planner's verification-routing

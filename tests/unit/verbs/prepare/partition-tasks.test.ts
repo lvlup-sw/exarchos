@@ -1,6 +1,6 @@
 // Partitioning a plan's tasks into the batch still to be delegated.
 //
-// @oracle-sources: ../../../../src/verbs/prepare/partition-tasks.ts, the batch and edges and joins worked out by hand from each small plan written in the case
+// @oracle-sources: ../../../../src/verbs/prepare/partition-tasks.ts, the ready frontier and joins worked out by hand from each small plan written in the case
 
 import { describe, it, expect } from 'vitest';
 
@@ -30,9 +30,31 @@ describe('delegation batch partition', () => {
     expect(batch.tasks.every((t) => t.stepId === DELEGATION_STEP_ID)).toBe(true);
   });
 
-  it('Partition_ABlockerInTheBatch_BecomesAnEdge', () => {
-    const batch = batchOf([task('T-1', 'pending'), task('T-2', 'pending', ['T-1'])]);
-    expect(batch.dependencies).toEqual([{ from: 'T-1', to: 'T-2' }]);
+  it('Partition_ATaskWaitingOnPendingWork_IsLeftForALaterPreparation', () => {
+    const batch = batchOf([
+      task('T-1', 'pending'),
+      task('T-2', 'pending', ['T-1']),
+      task('T-3', 'complete'),
+      task('T-4', 'pending', ['T-3']),
+    ]);
+    expect(batch.tasks.map((t) => t.taskId)).toEqual(['T-1', 'T-4']);
+    expect(batch.requiredResults).toEqual(['T-1', 'T-4']);
+    expect(batch.dependencies).toEqual([]);
+  });
+
+  it('Partition_PendingTasksWithNoneReady_AreRefusedNamingWhatTheyWaitOn', () => {
+    const outcome = partitionDelegationBatch([
+      task('T-1', 'pending', ['T-2']),
+      task('T-2', 'pending', ['T-1']),
+      task('T-3', 'complete'),
+    ]);
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.refusal.code).toBe('NO_READY_TASKS');
+      expect(outcome.refusal.message).toContain('"T-1" waits on "T-2"');
+      expect(outcome.refusal.message).toContain('"T-2" waits on "T-1"');
+      expect(outcome.refusal.message).not.toContain('T-3');
+    }
   });
 
   it('Partition_ACompletedBlocker_IsSatisfiedAndLeavesNoEdge', () => {
@@ -49,10 +71,9 @@ describe('delegation batch partition', () => {
     }
   });
 
-  it('Partition_TwoOrMoreSinks_RejoinAtOneJoin', () => {
-    // The first task feeds the second; the second and the third are the sinks.
+  it('Partition_TwoOrMoreReadyTasks_RejoinAtOneJoin', () => {
     const batch = batchOf([task('T-1', 'pending'), task('T-2', 'pending', ['T-1']), task('T-3', 'pending')]);
-    expect(batch.joins).toEqual([{ joinId: BATCH_JOIN_ID, waitsFor: ['T-2', 'T-3'] }]);
+    expect(batch.joins).toEqual([{ joinId: BATCH_JOIN_ID, waitsFor: ['T-1', 'T-3'] }]);
   });
 
   it('Partition_EveryTask_CarriesItsVerificationTerms', () => {
@@ -85,7 +106,7 @@ describe('delegation batch partition', () => {
     if (!flag.ok) expect(flag.refusal.code).toBe('INVALID_TASK_STAMP');
   });
 
-  it('Partition_OneSink_NeedsNoJoin', () => {
+  it('Partition_OneReadyTask_NeedsNoJoin', () => {
     const batch = batchOf([task('T-1', 'pending'), task('T-2', 'pending', ['T-1'])]);
     expect(batch.joins).toEqual([]);
   });
@@ -102,6 +123,19 @@ describe('delegation batch partition', () => {
     const outcome = partitionDelegationBatch([task('has spaces', 'pending')]);
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) expect(outcome.refusal.code).toBe('INVALID_TASK_ID');
+  });
+
+  it('Partition_ATaskIdThePlanNamesTwice_IsRefusedEvenWhenOnlyOneCopyIsReady', () => {
+    const outcome = partitionDelegationBatch([
+      task('A', 'pending'),
+      task('A', 'pending', ['B']),
+      task('B', 'pending', ['A']),
+    ]);
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.refusal.code).toBe('INVALID_TASK_ID');
+      expect(outcome.refusal.message).toContain('"A" appears more than once');
+    }
   });
 
   it('Partition_AMissingTitle_FallsBackToTheTaskId', () => {

@@ -26,8 +26,8 @@ Response (abridged):
                           { "taskId": "task-002", "title": "Domain MX check", "stepId": "delegate" }],
                "dependencies": [], "joins": [{ "joinId": "batch-complete", "waitsFor": ["task-001", "task-002"], "mode": "all" }] },
     "settlementContract": { "requiredResults": ["task-001", "task-002"],
-                            "taskVerification": { "task-001": { "riskTier": "low", "boundaryTouching": false },
-                                                  "task-002": { "riskTier": "medium", "boundaryTouching": true } } },
+                            "taskVerification": { "task-001": { "riskTier": "low", "boundaryTouching": false, "baseRef": "feat/add-email-validation" },
+                                                  "task-002": { "riskTier": "medium", "boundaryTouching": true, "baseRef": "feat/add-email-validation" } } },
     "knowledge": { "patterns": [
       { "statement": "A task at riskTier=low, boundaryTouching=false is verified at settlement by: check_static_analysis." },
       { "statement": "A task at riskTier=medium, boundaryTouching=true is verified at settlement by: check_static_analysis, check_test_adequacy, check_contract_drift, check_mock_boundary." } ] },

@@ -255,6 +255,7 @@ describe('verification-ladder self-routing (FIX-1)', () => {
         featureId: 'feat-med',
         taskId: 'T-med',
         repoRoot: '/fake/repo',
+        baseBranch: 'main',
         riskTier: 'medium',
         boundaryTouching: false,
       },
@@ -278,6 +279,7 @@ describe('verification-ladder self-routing (FIX-1)', () => {
         featureId: 'feat-legacy',
         taskId: 'T-legacy',
         repoRoot: '/fake/repo',
+        baseBranch: 'main',
       },
       ctx,
     );

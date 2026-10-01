@@ -440,17 +440,16 @@ function verificationOperationId(operationId: string, taskId: string): string {
 /**
  * The intent arguments one accepted claim compiles to.
  *
- * The tier and the boundary flag come from the CAPSULE, never from the claim:
- * they choose which gates run, and a runtime that could set them could choose
- * its own judge. The worktree and the branch come from the claim, because only
- * the runtime knows where it worked. The whole claim rides along as the
- * completion's `result`, which is what an orchestrator hands `task_complete`
- * on the primitive path, so the fact the segment leaves carries the same
- * provenance either way.
+ * The tier, the boundary flag and the base come from the CAPSULE, never from
+ * the claim: they choose which gates run and what the diff is measured from,
+ * and a runtime that could set them could choose its own judge. The worktree
+ * and the branch come from the claim, because only the runtime knows where it
+ * worked. The whole claim rides along as the completion's `result`, as on the
+ * primitive path, so the fact the segment leaves carries the same provenance.
  */
 function verificationArgsOf(
   claim: SettlementClaim,
-  terms: { readonly riskTier: string; readonly boundaryTouching: boolean },
+  terms: { readonly riskTier: string; readonly boundaryTouching: boolean; readonly baseRef: string },
 ): Record<string, unknown> {
   const { worktreePath, branch } = claim.fields;
   return {
@@ -459,6 +458,7 @@ function verificationArgsOf(
     ...(branch !== undefined ? { branch } : {}),
     riskTier: terms.riskTier,
     boundaryTouching: terms.boundaryTouching,
+    baseRef: terms.baseRef,
     result: { ...claim.fields },
   };
 }

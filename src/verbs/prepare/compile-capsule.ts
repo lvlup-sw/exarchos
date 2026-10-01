@@ -63,6 +63,12 @@ export interface CompileCapsuleInput {
   /** The workflow's design artifact reference, when it records one. */
   readonly designRef: string | undefined;
   /**
+   * The branch every task in the batch forks from: the workflow's integration
+   * branch, resolved by the handler. Frozen into each task's verification
+   * terms, so the kill probe measures a task's diff from where it started.
+   */
+  readonly baseRef: string;
+  /**
    * The capabilities a runtime must hold to run this batch through the plane,
    * derived by the handler from the registry's own declarations. Empty means
    * no profile is attached.
@@ -288,7 +294,7 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
       // batch: settlement reads the tier and the boundary flag from here,
       // never from the claim.
       taskVerification: Object.fromEntries(
-        batch.tasks.map((task) => [task.taskId, { ...task.verification }]),
+        batch.tasks.map((task) => [task.taskId, { ...task.verification, baseRef: input.baseRef }]),
       ),
     },
   };

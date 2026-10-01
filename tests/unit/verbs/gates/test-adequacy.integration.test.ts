@@ -129,6 +129,7 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
         taskId: 'T-01',
         branch,
         repoRoot,
+        baseBranch: 'main',
       },
       ctx,
     );

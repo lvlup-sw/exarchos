@@ -646,7 +646,10 @@ function capsuleWithTask(taskId: string, capsuleVersion: number): ExarchosCapsul
       },
       settlementContract: {
         requiredResults: [taskId],
-        taskVerification: { ...base.settlementContract.taskVerification, [taskId]: { riskTier: 'low', boundaryTouching: false } },
+        taskVerification: {
+          ...base.settlementContract.taskVerification,
+          [taskId]: { riskTier: 'low', boundaryTouching: false, baseRef: 'feature/capsule-corpus' },
+        },
       },
     },
     capsuleVersion,

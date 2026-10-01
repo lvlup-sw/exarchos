@@ -18,6 +18,10 @@ export const PREPARE_REFUSAL_CODES = [
   'PHASE_NOT_PREPARABLE',
   /** Every planned task is already complete, so there is no batch to compile. */
   'NOTHING_TO_PREPARE',
+  /** Tasks are pending, but each waits on a task that is not complete. */
+  'NO_READY_TASKS',
+  /** The workflow records no integration branch, so no task has a base to be measured against. */
+  'BASE_UNRESOLVED',
   /** A planned task id is not a stable id a capsule can name. */
   'INVALID_TASK_ID',
   /** A task waits on a task the plan does not contain. */

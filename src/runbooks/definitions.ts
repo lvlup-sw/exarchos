@@ -24,8 +24,8 @@ export const TASK_COMPLETION: RunbookDefinition = {
     // the classification prepare_delegation returned, never re-deriving them.
     { tool: 'exarchos_orchestrate', action: 'check_test_adequacy', onFail: 'stop',
       params: { repoRoot: 'auto', worktreePath: '<worktreePath>',
-        riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>' },
-      note: 'kill probe: reverts source, re-runs new tests, asserts red — the load-bearing per-task gate' },
+        riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>', baseBranch: '<baseRef>' },
+      note: 'kill probe: reverts source, re-runs new tests, asserts red — the load-bearing per-task gate; baseRef is the branch the task forked from' },
     // Verification-ladder slice 1 Bundle B3: the contract-drift gate regenerates
     // schema bindings, typechecks the regen, and runs a breaking-change diff
     // against the merge-base. Runs against the agent worktree (repoRoot:auto +
@@ -73,7 +73,7 @@ export const TASK_COMPLETION: RunbookDefinition = {
     // contractually obliged to supply the SAME values prepare_delegation
     // resolved — the `<riskTier>` / `<boundaryTouching>` placeholders on the
     // gate steps above have nothing to bind to otherwise.
-    'riskTier', 'boundaryTouching'],
+    'riskTier', 'boundaryTouching', 'baseRef'],
   // T-01/T-02: every check_* gate step above routes through the canonical
   // durable gate runner, which mints `gate.executed` from the SAME persisted
   // `admission.evidence-recorded` record it just wrote (registry.ts declares
@@ -324,14 +324,14 @@ export const TASK_FIX: RunbookDefinition = {
     // fix that added no probe-able tests was laundered into an advisory pass.
     { tool: 'exarchos_orchestrate', action: 'check_test_adequacy', onFail: 'stop',
       params: { repoRoot: 'auto', worktreePath: '<worktreePath>',
-        riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>' },
-      note: 'kill probe: reverts source, re-runs new tests, asserts red — the load-bearing per-task gate' },
+        riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>', baseBranch: '<baseRef>' },
+      note: 'kill probe: reverts source, re-runs new tests, asserts red — the load-bearing per-task gate; baseRef is the branch the task forked from' },
     { tool: 'exarchos_orchestrate', action: 'check_static_analysis', onFail: 'stop' },
     { tool: 'exarchos_orchestrate', action: 'task_complete', onFail: 'stop' },
   ],
   templateVars: ['taskId', 'featureId', 'streamId', 'branch', 'agentId', 'failureContext', 'worktreePath',
     // DR-3: the frozen delegation stamp — see TASK_COMPLETION.templateVars.
-    'riskTier', 'boundaryTouching'],
+    'riskTier', 'boundaryTouching', 'baseRef'],
   // T-01/T-02: check_test_adequacy + check_static_analysis both route through
   // the canonical durable gate runner — see TASK_COMPLETION.autoEmits.
   autoEmits: ['admission.evidence-recorded', 'gate.executed', 'task.completed'],

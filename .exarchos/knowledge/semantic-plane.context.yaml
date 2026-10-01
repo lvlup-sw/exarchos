@@ -18,7 +18,7 @@ packet:
   id: exarchos-semantic-plane
   version: 2
   as_of: 2026-10-01
-  main_at: 413b4ffa0
+  main_at: 22f8c88bb
   owner_issue: 1875            # the decision record and build-order log
   roadmap_issue: 1599
   epic_issue: 1856
@@ -365,6 +365,13 @@ decisions:
   - date: "2026-10-01"
     source: "Reed, unmilestoned triage"
     decision: "The VCS demotion (#1928) covers every Git/PR write Exarchos performs (merge_orchestrate, merge_pr, add_pr_comment, create_issue), not only the three first named. #1898, #1913 and #1901 join v3.0.0; #1723 and #1724 join v3.1.0 with #1561. Eleven unmilestoned issues closed as done, superseded or duplicate."
+
+  - date: "2026-10-01"
+    source: "#1925 (approved design; first slice of #1929)"
+    decision: "The kill-probe base is a term of settlement, like the tier. prepare freezes it per task as settlementContract.taskVerification[taskId].baseRef, read from synthesis.integrationBranch, and refuses BASE_UNRESOLVED when none (or no safe ref) is recorded. The base is a replay input. A capsule holds only the ready frontier, the pending tasks whose blockers are all complete; with none ready, prepare refuses NO_READY_TASKS and names the blockers. The gate never guesses: a missing base is the verdict base-missing, which always blocks and is checked after the policy skip. The merge base is resolved once, as a SHA, for both the diff and the revert. Review reads the verdict settle recorded instead of running the probe again."
+  - date: "2026-10-01"
+    source: "#1925, coordinator"
+    decision: "The task-completion intent argument is baseRef, not baseBranch. The intent compiler hands an argument to every leaf whose schema declares that key, so baseBranch would also reach check_contract_drift, check_mock_boundary and check_static_analysis. Only the kill-probe step binds it (baseBranch: '<baseRef>'); the other gates keep their defaults while verification-base stays open. prepare_delegation returns the base as baseBranch, the name of the branch on the primitive path."
 # ─── build order (reconciled 2026-09-30) ─────────────────────────────────────
 
 build_order:
@@ -392,8 +399,8 @@ build_order:
       status: "not started"
       refs: "#1926"
     - leg: "conformance: verification scope (per-task repoRoot, worktreePath, baseRef in the capsule; worktree identity checked)"
-      status: "not started"
-      refs: "#1929 (children #1925, #1526, #1753, #1813, #1814, #1540, #1886, #1721)"
+      status: "in progress (first slice: the kill-probe base, #1925, in review)"
+      refs: "#1929 (children #1925, #1526, #1753, #1813, #1814, #1540, #1886, #1721); gate verdict enforcement #1943"
     - leg: "conformance: VCS demotion (serialize_merge, setup_worktree, create_pr off the governance surface)"
       status: "decided"
       refs: "#1928 (every Git/PR write; related #1884, #1835)"
@@ -456,8 +463,12 @@ drift:
     resolution: "workflow-scoped capsule leg (#1927, #1253 wave 1)"
   - id: "verification-scope"
     design: "settle validates evidence against pinned intent"
-    built: "settle runs gates in the CLAIMED worktreePath, unchecked; kill-probe base defaults to main (#1925)"
-    resolution: "verification scope leg (#1929)"
+    built: "settle runs gates in the CLAIMED worktreePath, unchecked. The kill-probe base is frozen in the capsule (baseRef) and passed by settle (#1925); the other gates still default their base to main."
+    resolution: "verification scope leg (#1929). The kill-probe base is resolved by #1925; the base of the other gates is the open question verification-base."
+  - id: "gate-verdict-enforcement"
+    design: "settle accepts a task only when the verification it runs passes"
+    built: "a blocking gate that blocks fails its executor leaf, so settle rejects a task whose kill probe blocked. Gates with a verdict-shaped result (check_invariant_conformance, check_review_verdict) are not covered (#1976)."
+    resolution: "#1943 resolved by #1975 (2026-10-01); verdict-shaped gates #1976 (v3.0.0)"
   - id: "measurement"
     design: "2-call acceptance metric per workflow"
     built: "census per intent (plan 8, delegation 6, task-completion 5, review 10, synthesis 7 at N=1)"
@@ -474,17 +485,21 @@ drift:
 # ─── measured facts (re-check before relying on them) ────────────────────────
 
 measured:
-  as_of: 2026-09-30
-  main_at: 413b4ffa0
+  as_of: 2026-10-01
+  main_at: 22f8c88bb
   facts:
     - fact: prepare refuses non-feature workflows and non-delegate phases
       check: "grep -n -E 'WORKFLOW_TYPE_UNSUPPORTED|PHASE_NOT_PREPARABLE' src/verbs/prepare/handler.ts"
     - fact: settlement outcomes are settled | rejected | deviation-pending
       check: "grep -n 'export type SettlementOutcome' src/verbs/settle/adjudicate.ts"
-    - fact: settle builds verification args from the claim (worktreePath, branch) and the capsule (riskTier, boundaryTouching), no base ref
-      check: "grep -n -A14 'function verificationArgsOf' src/verbs/settle/handler.ts"
-    - fact: the kill probe defaults its base to main (#1925); ten gates default baseBranch to main
+    - fact: settle builds verification args from the claim (worktreePath, branch) and the capsule (riskTier, boundaryTouching, baseRef)
+      check: "grep -n -A15 'function verificationArgsOf' src/verbs/settle/handler.ts"
+    - fact: "the kill probe has no default base (#1925): no base is the blocking verdict base-missing, and the merge base is resolved once as a SHA for the diff and the revert"
+      check: "grep -n -E \"base-missing|resolveMergeBase|'main'\" src/verbs/gates/test-adequacy-handler.ts"
+    - fact: nine gates still default baseBranch to main (the kill probe no longer does)
       check: "grep -rn -E \"(\\|\\||\\?\\?) *'main'\" src/verbs/gates/*.ts"
+    - fact: prepare reads the base from synthesis.integrationBranch (BASE_UNRESOLVED without it) and compiles only the ready frontier (NO_READY_TASKS when none is ready)
+      check: "grep -n BASE_UNRESOLVED src/verbs/prepare/handler.ts; grep -n NO_READY_TASKS src/verbs/prepare/partition-tasks.ts"
     - fact: "a blocking gate that blocks (success carrier, passed: false, not a skip) fails its executor leaf, so settle rejects the task and leaves no task.completed (since #1943, 2026-10-01)"
       check: "grep -n -A16 'function blockingGateRefusal' src/verbs/execute/executor.ts; npx vitest run --project core tests/unit/verbs/settle/blocking-gate.test.ts"
     - fact: "gates still carry per-language code (static analysis hardcodes dotnet build -warnaserror; test globs come from a per-toolchain table)"
@@ -497,7 +512,7 @@ measured:
       check: "ls src/next-actions-computer.ts"
     - fact: the kernel package is pinned at 0.14.0
       check: "grep -n strategos-contracts package.json"
-    - fact: "EventTypes count is 182 on main (184 with #1920)"
+    - fact: "EventTypes count is 184 on main"
       check: "grep -rn 'EventTypes).toHaveLength' tests/unit/events/schemas.test.ts"
     - fact: per-intent call census
       check: "npx tsx tools/audit/core/call-shape/measure.ts   (output: tools/audit/core/call-shape/call-shape-census.md)"
@@ -519,7 +534,7 @@ open_questions:
   - id: dkg-taxonomy
     question: "The DKG depends on event-taxonomy-v2 issues that were never filed. Reconcile its claim events with #1876's six kinds instead of filing a second vocabulary?"
   - id: verification-base
-    question: Which base does each gate measure against? The per-task kill probe needs the integration base; a breaking-change check may want the release base.
+    question: "Which base does each gate measure against? The per-task kill probe is decided: the integration base, frozen in the capsule (#1925). A breaking-change check may want the release base."
   - id: run-bundle-location
     question: Keep run bundles under the state dir, or move them to repo-local .exarchos/runs/ as designed?
 
@@ -574,6 +589,8 @@ issue_map:
   distribution: [1877, 1601, 1737, 1690]
   transport: [1604, 1283, 1780]
   verification_scope: [1925, 1526, 1753, 1813, 1814, 1540, 1886, 1721]
+  kill_probe_base: "1925 (first slice of 1929; base frozen at prepare; in review)"
+  gate_verdict_enforcement: 1943
   vcs_effects: [1626, 1884, 1835]       # 1402, 1496, 1351, 1722 closed as superseded by #1928
   second_runtime_candidate: [1661, 1662, 1663, 1665, 1666, 1667, 1668]
   stranded_branch: "feat/v2-12-bundle (tip e9a6209e, 2026-07-17, no PR, predates the restructure). Port-or-drop list: #1931."

@@ -162,7 +162,8 @@ export type AdequacyDiscriminant =
   | 'no-new-tests'
   | 'revert-conflict'
   | 'restore-failed'
-  | 'diff-failed';
+  | 'diff-failed'
+  | 'base-missing';
 
 /**
  * Risk tiers that require the kill probe to actually run. On these tiers an
@@ -233,6 +234,7 @@ const INDETERMINATE_HANDLING: Readonly<Record<AdequacyDiscriminant, Indeterminat
   'diff-failed': 'always-blocking',
   'revert-conflict': 'always-blocking',
   'restore-failed': 'always-blocking',
+  'base-missing': 'always-blocking',
 };
 
 /**
@@ -699,6 +701,19 @@ function toProbeResult(
     ...(verdict.kind === 'indeterminate' ? { discriminant: verdict.cause } : {}),
     ...(interpretation.report === undefined ? {} : { report: interpretation.report }),
   };
+}
+
+/**
+ * The result of a probe that never started, for a reason found before it could:
+ * an indeterminate verdict with nothing probed and nothing to restore. Tier
+ * policy still decides whether it blocks, exactly as for any other cause.
+ */
+export function probeNotRun(cause: AdequacyDiscriminant, detail: string, riskTier?: string): ProbeResult {
+  return toProbeResult(
+    { kind: 'indeterminate', cause, detail },
+    { probedTests: [], redObserved: false, restoredClean: true },
+    riskTier,
+  );
 }
 
 /**

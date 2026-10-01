@@ -45,13 +45,18 @@ When no `intentGrounding` is supplied, review against the diff alone — do not 
 Review the **combined** diff across all tasks in one view — this catches cross-task interface mismatches, bugs invisible in isolation, and inconsistent patterns. Cover all three lenses in the single pass:
 
 1. **Spec-compliance** — functional completeness, specification alignment, intended-vs-delivered. See `references/spec-compliance-checklist.md`.
-2. **Test adequacy** — outcome-based, tier-scaled (not test-first ordering). Run the kill-probe so a vacuous test fails the gate:
+2. **Test adequacy** — outcome-based, tier-scaled (not test-first ordering). Settlement already ran the kill probe for every task it verified, measured from the base the capsule froze. Read the verdict it recorded; do not run the probe again:
+   ```typescript
+   exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "gate.executed" }, limit: 200 })
+   ```
+   Each row with `gateName: "test-adequacy"` is one task's verdict: `details.taskId`, `passed`, and `details.verdict` (`details.skipped` marks a policy skip). A `passed: false` verdict is a finding against that task. Only for a task with no such row, run the probe yourself, from the branch the task forked from — without a base the gate blocks with `base-missing`:
    ```typescript
    exarchos_orchestrate({
      action: "check_test_adequacy",
      featureId: "<featureId>",
      taskId: "<taskId>",
      branch: "<branch>",
+     baseBranch: "<integration branch>",
      riskTier: "<low|medium|high>",
      phase: "review"
    })
@@ -173,7 +178,7 @@ All transitions are automatic — this is not a human checkpoint. See `reference
 | Don't | Do instead |
 |-------|-----------|
 | Confirm what's right | Hunt for what's wrong (adversarial posture) |
-| Approve without the kill-probe | Run `check_test_adequacy` — a test that can't fail is not coverage |
+| Approve without the kill-probe | Read each task's recorded `test-adequacy` verdict (or run `check_test_adequacy` for a task settlement did not verify) — a test that can't fail is not coverage |
 | Treat an unanswered audit-mode invariant as a pass | Answer every id in `auditInvariantIds`; an unrun check is not a clean one |
 | Rubber-stamp on a rationalization | Consult `references/rationalization-refutation.md` |
 | Let scope creep pass | Flag intended-vs-delivered drift as a `spec` issue |

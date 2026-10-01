@@ -333,7 +333,7 @@ describe('compileIntent over the live registry', () => {
     const outcome = compileIntent(
       'task-completion',
       { streamId: 'wf-live' },
-      { taskId: 'task-9', worktreePath: '/tmp/agent-wt', riskTier: 'high', boundaryTouching: true },
+      { taskId: 'task-9', worktreePath: '/tmp/agent-wt', riskTier: 'high', boundaryTouching: true, baseRef: 'feature/wave' },
       PRODUCTION_COMPILE_DEPS,
     );
     const leaves = segmentOf(outcome);
@@ -360,6 +360,45 @@ describe('compileIntent over the live registry', () => {
       streamId: 'wf-live',
     });
     expect(leaves.map((leaf) => leaf.onFail)).toEqual(['stop', 'stop', 'continue', 'stop', 'stop']);
+  });
+
+  it('TaskCompletion_TheFrozenBase_ReachesTheKillProbeAndNoOtherGate', () => {
+    const outcome = compileIntent(
+      'task-completion',
+      { streamId: 'wf-live' },
+      { taskId: 'task-9', worktreePath: '/tmp/agent-wt', riskTier: 'high', boundaryTouching: true, baseRef: 'feature/wave' },
+      PRODUCTION_COMPILE_DEPS,
+    );
+    const byAction = new Map(segmentOf(outcome).map((leaf) => [leaf.action, leaf.args]));
+    expect(byAction.get('check_test_adequacy')).toMatchObject({ baseBranch: 'feature/wave' });
+    for (const gate of ['check_contract_drift', 'check_mock_boundary', 'check_static_analysis']) {
+      const args = byAction.get(gate);
+      expect(args, gate).toBeDefined();
+      expect(args, gate).not.toHaveProperty('baseBranch');
+      expect(args, gate).not.toHaveProperty('baseRef');
+    }
+  });
+
+  it('TaskCompletion_WithoutABase_RefusesBeforeAnyEffect', () => {
+    const outcome = compileIntent(
+      'task-completion',
+      { streamId: 'wf-live' },
+      { taskId: 'task-9', worktreePath: '/tmp/agent-wt', riskTier: 'high', boundaryTouching: true },
+      PRODUCTION_COMPILE_DEPS,
+    );
+    const refusal = refusalOf(outcome);
+    expect(refusal.code).toBe('INTENT_ARGS_INVALID');
+    expect(refusal.message).toContain('baseRef');
+  });
+
+  it('TaskCompletion_ABaseThatCouldBeReadAsAnOption_IsRefused', () => {
+    const outcome = compileIntent(
+      'task-completion',
+      { streamId: 'wf-live' },
+      { taskId: 'task-9', worktreePath: '/tmp/agent-wt', riskTier: 'high', boundaryTouching: true, baseRef: '--all' },
+      PRODUCTION_COMPILE_DEPS,
+    );
+    expect(refusalOf(outcome).code).toBe('INTENT_ARGS_INVALID');
   });
 
   it('TaskCompletion_MissingWorktreePath_RefusesBeforeAnyEffect', () => {

@@ -99,14 +99,14 @@ async function call(tool: string, args: Record<string, unknown>): Promise<{
 const STAMP = { riskTier: 'low', boundaryTouching: false } as const;
 const TASKS = [
   { id: 'task-a', title: 'first', status: 'pending', blockedBy: [], ...STAMP },
-  { id: 'task-b', title: 'second', status: 'pending', blockedBy: ['task-a'], ...STAMP },
+  { id: 'task-b', title: 'second', status: 'pending', blockedBy: [], ...STAMP },
   { id: 'task-c', title: 'third', status: 'pending', blockedBy: [], ...STAMP },
 ];
 
 /**
- * A feature workflow standing in `delegate` with three outstanding tasks, one
- * waiting on another: the events the projection folds, and the document the
- * transition guards read, saying the same thing.
+ * A feature workflow standing in `delegate` with three ready tasks and the
+ * integration branch they fork from: the events the projection folds, and the
+ * document the transition guards read, saying the same thing.
  */
 async function seedDelegatingFeature(): Promise<void> {
   await initStateFile(stateDir, STREAM, 'feature', {
@@ -117,7 +117,7 @@ async function seedDelegatingFeature(): Promise<void> {
   await eventStore.append(STREAM, { type: 'workflow.transition', data: { from: 'plan-review', to: 'delegate' } });
   await eventStore.append(STREAM, {
     type: 'state.patched',
-    data: { patch: { tasks: TASKS } },
+    data: { patch: { 'synthesis.integrationBranch': 'feature/prepare-settle', tasks: TASKS } },
   });
 }
 

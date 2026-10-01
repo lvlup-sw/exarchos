@@ -452,7 +452,8 @@ export const gateActions: readonly BuiltinToolAction[] = [
       'asserts at least one goes red — proving the tests are not vacuous. ' +
       'Restores the working tree unconditionally (INV-14) and persists canonical ' +
       'subject-bound evidence. Pass repoRoot ("auto" to resolve the calling ' +
-      "delegation's worktree). Stamp riskTier + boundaryTouching (from " +
+      "delegation's worktree) and baseBranch, the branch the task forked from; " +
+      'without a base the gate blocks (base-missing). Stamp riskTier + boundaryTouching (from ' +
       'prepare_delegation) to let the gate self-skip when the verification ' +
       'policy excludes it for that tier (skipped-by-policy). This is the sole ' +
       'per-task verification gate: it subsumes the regression-coverage intent of ' +

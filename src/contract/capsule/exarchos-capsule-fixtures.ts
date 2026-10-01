@@ -103,7 +103,9 @@ export function baseValidCapsule(): ExarchosCapsuleV1 {
     },
     settlementContract: {
       requiredResults: ['task-verify'],
-      taskVerification: { 'task-verify': { riskTier: 'low', boundaryTouching: false } },
+      taskVerification: {
+        'task-verify': { riskTier: 'low', boundaryTouching: false, baseRef: 'feature/capsule-corpus' },
+      },
     },
   };
 }
@@ -128,6 +130,17 @@ export interface CapsuleFixture {
 
 function bend(name: string, mutate: (base: ExarchosCapsuleV1) => unknown): CapsuleFixture {
   return { name, valid: false, document: mutate(baseValidCapsule()) };
+}
+
+/** The base capsule with its one task's base replaced, and nothing else changed. */
+function withBase(base: ExarchosCapsuleV1, baseRef: string): unknown {
+  return {
+    ...base,
+    settlementContract: {
+      ...base.settlementContract,
+      taskVerification: { 'task-verify': { riskTier: 'low', boundaryTouching: false, baseRef } },
+    },
+  };
 }
 
 /** The shared corpus. Both the Zod source and the Ajv validator run every entry. */
@@ -223,9 +236,21 @@ export const CAPSULE_ROUNDTRIP_FIXTURES: readonly CapsuleFixture[] = [
     ...b,
     settlementContract: {
       ...b.settlementContract,
-      taskVerification: { 'task-verify': { riskTier: 'extreme', boundaryTouching: false } },
+      taskVerification: {
+        'task-verify': { riskTier: 'extreme', boundaryTouching: false, baseRef: 'feature/capsule-corpus' },
+      },
     },
   })),
+  bend('verification terms with no base', (b) => ({
+    ...b,
+    settlementContract: {
+      ...b.settlementContract,
+      taskVerification: { 'task-verify': { riskTier: 'low', boundaryTouching: false } },
+    },
+  })),
+  bend('a base that starts with a dash', (b) => withBase(b, '-feature')),
+  bend('a base that names a range', (b) => withBase(b, 'main..feature/x')),
+  bend('a base that holds whitespace', (b) => withBase(b, 'feature x')),
   // The batch is named by the settlement request, never compiled in: one
   // capsule is settled over as many batches as it takes to get one accepted.
   bend('a batch id compiled into the settlement contract', (b) => ({

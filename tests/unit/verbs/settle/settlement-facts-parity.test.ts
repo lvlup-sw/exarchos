@@ -70,6 +70,8 @@ import { seedActivePhaseAttempt } from '../../../../tools/test-helpers/trusted-c
 const STREAM = 'feat-settlement-parity';
 const TASK_IDS = ['task-one', 'task-two'] as const;
 const WORKTREE = '/nonexistent-parity-worktree';
+/** The integration branch the plan's tasks fork from; prepare freezes it as each task's base. */
+const INTEGRATION_BRANCH = 'feature/settlement-parity';
 /** Stamped on the plan so the one gate the cut runbook carries is IN the resolved sequence, not policy-skipped. */
 const STAMP = { riskTier: 'medium', boundaryTouching: true } as const;
 const CAPABILITIES = ['fs:read', 'fs:write', 'shell:exec', 'mcp:exarchos', 'admission:issue-gate-evidence'];
@@ -178,7 +180,10 @@ async function seed(dir: string, store: EventStore): Promise<void> {
   await initStateFile(dir, STREAM, 'feature', { phase: 'delegate', tasks });
   await seedActivePhaseAttempt(store, STREAM);
   await store.append(STREAM, { type: 'workflow.transition', data: { from: 'plan-review', to: 'delegate' } });
-  await store.append(STREAM, { type: 'state.patched', data: { patch: { tasks } } });
+  await store.append(STREAM, {
+    type: 'state.patched',
+    data: { patch: { 'synthesis.integrationBranch': INTEGRATION_BRANCH, tasks } },
+  });
   for (const taskId of TASK_IDS) {
     await store.append(STREAM, {
       type: 'gate.executed',
@@ -235,7 +240,7 @@ async function completeByHand(): Promise<void> {
     const compiled = compileIntent(
       'task-completion',
       { streamId: STREAM },
-      { taskId, worktreePath: WORKTREE, ...STAMP, result: { worktreePath: WORKTREE } },
+      { taskId, worktreePath: WORKTREE, ...STAMP, baseRef: INTEGRATION_BRANCH, result: { worktreePath: WORKTREE } },
       executeDeps(),
     );
     expect(compiled.ok, JSON.stringify(compiled)).toBe(true);

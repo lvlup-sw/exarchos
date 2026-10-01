@@ -190,6 +190,12 @@ export interface PrepareDelegationResult {
    * would let a future return path re-open the improvisation gap.
    */
   readonly dispatch: DispatchShape;
+  /**
+   * The integration branch every task of the wave forks from. The kill probe
+   * measures a task's diff from it, so the task-completion runbook binds it as
+   * `baseRef`; without it the gate blocks rather than guess a base.
+   */
+  readonly baseBranch: string;
   readonly blockers?: string[];
   readonly qualityHints?: Array<{ category: string; severity: string; hint: string }>;
   readonly isolation?: 'native';
@@ -1559,6 +1565,7 @@ export async function handlePrepareDelegation(
         readiness: effectiveReadiness,
         posture: DELEGATION_POSTURE,
         dispatch: DELEGATION_DISPATCH,
+        baseBranch: integrationBranch,
         blockers: effectiveBlockers,
         ...(args.nativeIsolation ? { isolation: 'native' as const } : {}),
       };
@@ -1711,6 +1718,7 @@ export async function handlePrepareDelegation(
       readiness: effectiveReadiness,
       posture: DELEGATION_POSTURE,
       dispatch: DELEGATION_DISPATCH,
+      baseBranch: integrationBranch,
       qualityHints,
       ...(args.nativeIsolation ? { isolation: 'native' as const } : {}),
       ...(taskClassifications ? { taskClassifications } : {}),

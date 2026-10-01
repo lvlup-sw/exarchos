@@ -55,9 +55,9 @@ export const executeActions: readonly BuiltinToolAction[] = [
     description:
       'Compile a NAMED intent (a runbook id) into a segment of already-registered local ' +
       'actions and run it leaf by leaf, committing one orchestrate.intent_executed record ' +
-      "on either outcome. `args` is validated against that intent's own typed schema — the " +
-      "caller can never submit an action array. Intents: 'task-completion' (delegate) " +
-      '{ taskId, worktreePath, riskTier, boundaryTouching, branch?, result? }, whose riskTier/' +
+      "on either outcome. `args` is validated against that intent's own typed schema, never " +
+      "an action array. Intents: 'task-completion' (delegate) " +
+      '{ taskId, worktreePath, riskTier, boundaryTouching, baseRef, branch?, result? }, whose riskTier/' +
       "boundaryTouching are recorded as steering.source:'caller-args'; 'quality-evaluation' " +
       '(review) { high, medium, low, diffContent, diff?, repoRoot?, worktreePath?, ' +
       'blockedReason? }, which REQUIRES passing gate evidence on the stream for the active ' +
