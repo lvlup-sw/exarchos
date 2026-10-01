@@ -143,9 +143,6 @@ src/runtime/lib/plugin-compat.ts	f5ce873a9055	1
 src/runtime/lib/plugin-compat.ts	f87ff77892d7	1
 src/runtime/lib/plugin-compat.ts	f931f97c3679	1
 src/runtime/lib/plugin-compat.ts	f9b142e6b9b3	1
-src/verbs/gates/test-adequacy.ts	d6ca8b92a282	1
-src/verbs/team/prepare-delegation.ts	d6cb70f23ba4	1
-src/workflow/topology/builtin.ts	f2676300e505	1
 stryker.conf.mjs	78468a90e15f	1
 stryker.conf.mjs	ceff2c08c2f7	1
 tests/acceptance/action-contract-next-actions.test.ts	cc98dfb3ad14	1
