@@ -52,6 +52,7 @@ const MEMBER_TYPES = new Set([
 const TYPE_DECLARATION_TAG = /@(?:typedef|callback)\b/;
 const DECORATION_RUN = /[─━═\-=~_*#]{4,}/;
 const DECORATION_ONLY = /^[\s─━═\-=~_*#+./\\|:<>·•]{3,}$/;
+const TITLED_RULE = /^(?:[─━═]{2,}|[─━═\-=~_*#]{3,})\s+\S.*\s+(?:[─━═]{2,}|[─━═\-=~_*#]{3,})$/;
 
 /**
  * An ESTree node, as far as this module reads it.
@@ -160,7 +161,8 @@ function isTestCallExpression(node, callees) {
 }
 
 /**
- * Whether a block is a section banner: every line is decoration or a short title.
+ * Whether a block is a section banner. Every line is decoration, a short title, or a title with a
+ * decoration run on each side, such as `── Setup ──`.
  *
  * @param {string} raw
  * @returns {boolean}
@@ -170,9 +172,10 @@ export function isBanner(raw) {
     .split('\n')
     .map((line) => line.replace(/^\s*(?:\/\/+|\/\*+|\*+(?!\/))\s?/, '').replace(/\*+\/\s*$/, '').trim())
     .filter((line) => line.length > 0);
-  if (lines.length === 0 || !lines.some((line) => DECORATION_RUN.test(line))) return false;
+  if (lines.length === 0 || !lines.some((line) => DECORATION_RUN.test(line) || TITLED_RULE.test(line))) return false;
   return lines.every((line) => {
     if (DECORATION_ONLY.test(line)) return true;
+    if (TITLED_RULE.test(line)) return line.length <= 120;
     const title = line.replace(/[─━═\-=~_*#]{2,}/g, ' ').trim();
     return title.length <= 60 && (DECORATION_RUN.test(line) || lines.length <= 3);
   });
