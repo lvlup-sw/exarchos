@@ -82,6 +82,59 @@ import * as path from 'node:path';
 export {
 };
 
+
+// State-mutation primitives (DR-4, task 009). Extracted to a leaf module so the
+// projection can share them WITHOUT re-entering state-store — breaking the
+// state-store ↔ workflow-state-projection runtime import cycle. Re-exported below
+// so every existing `state-store.js` importer is unaffected.
+export {
+};
+// Canonical workflow-state fold (#1554). Imported for its `apply` at call time
+// only (inside reconcileFromEvents) — the state-store ↔ workflow-state-projection
+// edge is a call-time-only ESM cycle (the projection imports isPlainObject/
+// applyDotPath from here, also call-time), which live bindings resolve safely.
+// ─── Temp-File Naming (collision-free, sweep-safe) ────────────────────────────
+//
+// A temp path of `<stateFile>.<kind>.<pid>` is unique across *processes* but NOT
+// within one: two concurrent in-process writers to the same stateFile derive the
+// identical path, then race — one writer truncates the temp file the other is
+// still filling, and whichever renames first can publish a half-written payload
+// (or the loser's rename fails ENOENT). A process-lifetime-monotonic counter
+// makes the path unique per writer, restoring write/rename atomicity.
+//
+// WHERE the counter goes is load-bearing. The orphan sweep in `listStateFiles`
+// reclaims temp files by extracting a PID and testing liveness. It reads the
+// SECOND capture group of {@link TEMP_FILE_PATTERN}, whose PID group is anchored
+// to `$`. So the counter is placed BEFORE the pid — `.tmp.<counter>.<pid>` — and
+// matched by a NON-capturing optional group. Two properties fall out by
+// construction:
+//
+//   1. The pid is always the trailing segment, so the end-anchored `(\d+)$`
+//      group — i.e. `match[2]` — can only ever land on the pid.
+//   2. Group numbering is unaffected by the counter, so the sweep's extraction
+//      index does not shift.
+//
+// The naive alternative, `.tmp.<pid>.<counter>`, inverts this: the end-anchored
+// group captures the COUNTER, so liveness is tested against a counter value
+// rather than the writer. Whenever that value collides with a live pid, the
+// sweep concludes the orphan is "still being written" and never reaps it — a
+// silent, permanent temp-file leak. Counters are small and dense, so collisions
+// are routine rather than exotic. Keeping the pid last makes the whole class
+// unrepresentable instead of merely unlikely.
+//
+// The counter segment is OPTIONAL in the pattern so temp files written by an
+// older version (`.tmp.<pid>`, no counter) remain reapable after upgrade.
+/**
+ * The workflow state store. It reads, writes, and lists workflow state through
+ * the module-level storage backend, or through `.state.json` files when no
+ * backend is set. It re-exports the state-mutation primitives of the leaf module
+ * `state-mutation.js`, and `resolveStateDir` for backward compatibility. The
+ * primitives live in the leaf module, so the workflow-state projection can use
+ * them without an import cycle through this module.
+ */
+export {
+};
+
 /**
  * Matches an orphaned temp state file. Group 1 is the temp kind: `tmp` for an
  * update, `init` for a creation. Group 2 is the writer pid, at the end.
@@ -291,7 +344,8 @@ export async function initStateFile(
 /**
  * Read and validate workflow state, with migration. A backend read checks only
  * the required fields, because the schema format rules can differ from the
- * backend. A file read backs up the file before it migrates another version.
+ * backend. A file read backs up the file first when its `version` is not the
+ * current version.
  */
 export async function readStateFile(stateFile: string): Promise<WorkflowState> {
   if (_stateStoreBackend) {
@@ -657,9 +711,10 @@ export async function markTasksCompleteInStateDocument(
  * It merges the hook-event sidecar files first. With no state, it creates the
  * state from a `workflow.started` event, if one exists, with its time. Then it
  * folds the events after `_eventSequence` through
- * `workflowStateProjection.apply`, and it hydrates `_events` for the guards. On
- * a version conflict, the write retries with the fresh version and then writes
- * without CAS, because reconcile is the recovery path.
+ * `workflowStateProjection.apply`. It takes the phase from the last transition
+ * event and hydrates `_events` for the guards. The backend version
+ * can drift from `_version`. Thus a version conflict retries with the fresh
+ * version and then writes without CAS, because reconcile is the recovery path.
  */
 export async function reconcileFromEvents(
   stateDir: string,

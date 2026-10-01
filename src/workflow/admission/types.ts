@@ -183,7 +183,7 @@ export type EvidenceSubjectV1 = z.infer<typeof EvidenceSubjectV1Schema>;
 
 /**
  * A reference to an evidence artifact blob. An evidence row carries it, so a
- * later reader can find the input of the content digest of the row. The subject
+ * later reader can find the blob that the content digest of the row covers. The subject
  * is the real artifact-subject object, not a `.refine` over the union. A
  * `.refine` is absent from JSON Schema, so a schema sampler never sees the
  * artifact shape.

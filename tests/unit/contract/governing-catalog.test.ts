@@ -249,7 +249,6 @@ const REPOINTED_CITATION_SITES: readonly string[] = Object.freeze([
   // barrel consumers import: the barrel re-exports and holds no prose, so
   // naming it would assert against a file that can never satisfy the check.
   'registry/actions/workflow.ts',
-  'workflow/composite.ts',
   'contract/cli/cli-contract-seam.ts',
 ]);
 

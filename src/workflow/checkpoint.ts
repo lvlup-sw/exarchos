@@ -94,9 +94,9 @@ export interface CheckpointEnforcementConfig {
 }
 
 /**
- * Tell if the checkpoint gate blocks the current action. A missing checkpoint
- * does not block and gives a warning. The config can turn off the gate for each
- * action type.
+ * Tell if the checkpoint gate blocks the current action. The gate blocks when
+ * `operationsSince` reaches `operationThreshold`. A missing checkpoint does not block
+ * and gives a warning. The config can turn off the gate for each action type.
  */
 export function shouldEnforceCheckpoint(
   checkpoint: CheckpointState | undefined | null,

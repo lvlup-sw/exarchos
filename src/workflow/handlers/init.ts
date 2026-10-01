@@ -11,14 +11,15 @@ import * as path from 'node:path';
 import { CURRENT_ES_VERSION } from './shared.js';
 
 /**
- * Initialize a new workflow state file. Input is validated again for direct callers.
+ * Initialize a new workflow state file. The handler validates the input again for
+ * direct callers.
  *
- * The handler refuses an existing state file before it appends, so a repeated init
- * does not leave an orphan event. With an event store, `workflow.started` is appended first, and an append
- * failure writes no state file. The event carries `repoKey` as `repoRoot` and the
- * oneshot `synthesisPolicy`, so a rebuild from events keeps them. On an idempotent
- * retry, the persisted `phaseAttemptId` wins. A failed stream registration does not
- * stop init, because the streams table is only a read index.
+ * The handler refuses an existing state file before it appends, so a repeated init does
+ * not leave an orphan event. With an event store, it appends `workflow.started` first,
+ * and an append failure writes no state file. The event carries `repoKey` as `repoRoot`
+ * and the oneshot `synthesisPolicy`, so a rebuild from events keeps them. On an
+ * idempotent retry, the persisted `phaseAttemptId` wins. A failed stream registration
+ * does not stop init, because the streams table is only a read index.
  */
 export async function handleInit(
   input: InitInput,

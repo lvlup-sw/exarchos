@@ -35,7 +35,7 @@ function isRetryable(err: unknown): boolean {
 
 /**
  * Retry `fn` on a retryable error, at most `MAX_STATE_RETRIES` attempts, with exponential backoff and jitter.
- * Other errors propagate immediately.
+ * Other errors propagate immediately. `fn` must read the state again on each call, or a retry writes the same stale payload.
  * After the last attempt, the original error propagates, so `wrapError` in `format.ts` can map it to a structured `ToolResult`.
  */
 export async function withStateRetry<T>(fn: () => Promise<T>): Promise<T> {

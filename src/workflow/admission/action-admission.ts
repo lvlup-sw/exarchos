@@ -357,8 +357,9 @@ function snapshotAuthorizesEvidence(
  *
  * The checks run in a fixed order: a known ActionId, then capabilities, then the
  * ActionId requires. Without a phase attempt, a waivable `missing` or `failed` result
- * gives `indeterminate`. Missing trusted input, a capability failure, unsatisfied requires, and stale or
- * unauthorized evidence never allow. The decision does not replace the HSM transition guard.
+ * gives `indeterminate`. Missing trusted input, a capability failure, unsatisfied
+ * requires, and contradictory, stale or unauthorized evidence never allow. The decision
+ * selects no transition target and does not replace the HSM transition guard.
  */
 export function evaluateActionAdmission(
   actionId: unknown,

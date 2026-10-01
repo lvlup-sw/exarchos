@@ -199,7 +199,10 @@ function independenceKey(evidence: AdmissionEvidenceV1): string {
     : `approval:${evidence.attributedTo.principalId}`;
 }
 
-/** Evaluates a gate-evidence requirement. Fresh evidence with neither a pass nor a fail verdict is `EVALUATOR_FAILED`. */
+/**
+ * Evaluates a gate-evidence requirement. One passing record satisfies it, also next to a failing record.
+ * When the checked, fresh evidence holds no pass and no fail, the result is `EVALUATOR_FAILED`.
+ */
 function evaluateGate(
   subject: EvidenceSubjectV1,
   phaseAttemptId: PhaseAttemptId,
@@ -567,7 +570,8 @@ function evaluateAuthoredRequirement(
 /**
  * Evaluates authored ActionId-wide requires against the evidence in the snapshot.
  * It matches discriminants by authored key, not by minted requirement id.
- * A waivable miss with no phase attempt is `indeterminate`, because no attempt exists to bind a waiver.
+ * When the obligations are waivable, no phase attempt exists, and each deny is `missing` or `failed`, the verdict is `indeterminate`.
+ * No attempt exists to bind a waiver.
  * Contradictory, stale, unauthorized, failed, or missing evidence never allows.
  */
 export function evaluateAuthoredRequirements(

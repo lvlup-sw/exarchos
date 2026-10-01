@@ -4,7 +4,7 @@
 
 /**
  * The required review dimensions for each workflow type.
- * A key must equal a skill folder name under `content/<domain>/skills/`.
+ * Each dimension name must equal a skill folder name under `content/<domain>/skills/`.
  * Thus the skill, the `reviews[<name>].status` state key, and the engine roster use one name.
  * To add a dimension, add its skill folder first.
  */

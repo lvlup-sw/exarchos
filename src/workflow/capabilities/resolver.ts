@@ -77,7 +77,7 @@ export interface CapabilityAuthorization {
 
 /**
  * Returns an immutable authorization snapshot from the effective capability set of the resolver.
- * Unknown capabilities are left out. Incomplete or absent authority fails closed to read-only.
+ * The function leaves out unknown capabilities. Incomplete or absent authority fails closed to read-only.
  * The function never widens the resolver result.
  */
 export function resolveCapabilityAuthorization(

@@ -63,7 +63,7 @@ export interface MigrationRecord {
 
 /**
  * Applies the migration chain from the state version (`1.0` when absent) to `CURRENT_VERSION`.
- * @throws an error with a `MIGRATION_FAILED` message when no migration path exists.
+ * @throws an error with a `MIGRATION_FAILED` message when the input is not an object or no migration path exists.
  */
 export function migrateState(raw: unknown): unknown {
   if (typeof raw !== 'object' || raw === null) {

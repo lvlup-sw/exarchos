@@ -10,7 +10,7 @@ export interface UpdateInput {
 
 /**
  * Canonical handler for non-phase state changes. It delegates to `handleSet`,
- * which supplies the event-first, CAS, and per-stream lock behavior.
+ * so an update gets the same event-first write and CAS check.
  *
  * A `phase` field in `updates` gets an `INVALID_INPUT` error. Phase changes go
  * through the HSM-guarded `transition` action, and this path must not bypass

@@ -2,7 +2,7 @@
  * The closed edge-condition AST and its compile-time validator.
  * An edge condition answers one question: is this edge structurally legal to take?
  * It is a pure selector over projected facts and observed event identities. It does no I/O and is not admission.
- * Route selection picks the legal edge. Evidence-backed admission decides if the transition can occur.
+ * Route selection picks which legal edge to take. Evidence-backed admission decides if the transition can occur.
  *
  * The AST is a closed union of seven node kinds. It has no escape-hatch node and no literal boolean leaf.
  * An empty `all` is always legal, and an empty `any` is never legal. A `never` check enforces exhaustiveness.
@@ -12,7 +12,7 @@
  * The evaluator accepts only a compiled condition, so an invalid condition never reaches evaluation.
  */
 
-/** The closed set of declared field types/** The closed set of declared field types that the AST can reference. */
+/** The closed set of declared field types that the AST can reference. */
 export type FactType = 'string' | 'number' | 'boolean';
 
 /** The closed set of scalar values that the AST can compare against. */
@@ -124,7 +124,8 @@ export interface CompiledEdgeCondition {
  * `EXECUTABLE_VALUE` is a function value. `UNKNOWN_PROPERTY` is a key outside the closed node shape, such as `expression`.
  * `INVALID_PROPERTY_TYPE` is a required property that is missing or has the wrong primitive type.
  * `FIELD_TYPE_MISMATCH` is a field whose declared type does not fit the node.
- * The other names state their rule.
+ *
+ * `INVALID_NUMBER` is a number that is not finite. The other names state their rule.
  */
 export type EdgeConditionCompileErrorCode =
   | 'NOT_AN_OBJECT'
@@ -422,7 +423,7 @@ function parseNode(
   }
 }
 
-/** Validate the declaration and convert it to lookup maps. */
+/** Validate the declaration and convert it to a field map and an event set. */
 function normalizeDeclaration(
   declaration: EdgeConditionDeclaration,
 ): NormalizedEdgeConditionDeclaration {

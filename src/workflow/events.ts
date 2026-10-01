@@ -123,7 +123,7 @@ export function getPhaseDuration(events: readonly Event[], phase: string): numbe
 /**
  * Maps an internal event type of `_events` to its external event store type.
  * Phase-kind and admission types are canonical store types, so they pass unchanged.
- * The `workflow.${type}` fallback turns them into unregistered types that the refine of `WorkflowEventBase` rejects.
+ * Without these entries, the `workflow.${type}` fallback gives unregistered types, which the refine of `WorkflowEventBase` rejects.
  */
 export function mapInternalToExternalType(internalType: string): string {
   const typeMap: Record<string, string> = {

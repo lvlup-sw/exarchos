@@ -1,5 +1,5 @@
 // Helpers that several workflow handlers share.
-// This module also re-exports the cancel and query handlers for existing importers.
+// This module also re-exports the cancel and query handlers.
 
 export { handleCancel } from '../cancel.js';
 export { handleSummary, handleReconcile, handleTransitions } from '../query.js';

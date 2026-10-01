@@ -32,7 +32,8 @@ export interface HandleCheckpointOptions {
  * The handler validates the input with `CheckpointInputSchema` before any I/O.
  * A handoff lint finding is a warning. With `options.handoffLint.hardFail`, it rejects the call before any write.
  *
- * The checkpoint key holds `_version` and a handoff digest, so a retry collapses and a refined handoff gets a new event.
+ * The idempotency key of `workflow.checkpoint` holds `_version` and a handoff digest.
+ * Thus a retry collapses, and a refined handoff gets a new event.
  * The snapshot `sequence`, `projectionSequence` and the written-event key use the absorbed stream position, not the reducer counter.
  * Unhandled events make the two values differ, and a later `rehydrate` queries from `sequence`.
  *

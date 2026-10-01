@@ -4,7 +4,8 @@
  * Each denial ends in a safe verb that the caller can perform, or in a stable
  * terminal reason. A remediation is data and never a mutation. It does not mark
  * a requirement satisfied, rewrite evidence, or advance a phase. Each action is
- * validated against the `NextAction` schema at construction. The module is pure.
+ * validated against the `NextAction` schema at construction. The module is pure, and
+ * `remediation-purity.ts` checks that it imports no state-mutation surface.
  */
 import { assertNever, type StableErrorCode } from '../../contract/error-families.js';
 import { NextAction } from '../../next-action.js';

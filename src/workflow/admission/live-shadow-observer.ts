@@ -1,7 +1,8 @@
-// The live side of the shadow. The guard passes a legacy transition and the
-// real legacy state to this module through `GuardContext.shadowObserver`. The
-// module runs the evidence-backed admission engine beside the legacy decision,
-// classifies any disagreement, and records the pair for the cutover gate.
+// The live side of the shadow. The guard passes a legacy transition through
+// `GuardContext.shadowObserver`, and the caller of the guard binds the real
+// legacy state. The module runs the evidence-backed admission engine beside
+// the legacy decision, classifies any disagreement, and records the pair for
+// the cutover gate.
 //
 // The observer is not authoritative. The legacy decision is already made, and
 // nothing here can change it. Every path is error-isolated, and the guard also
@@ -845,8 +846,8 @@ const LIVE_FRESHNESS_HORIZON_MS = 60 * 60 * 1000;
  * Minted evidence carries `evaluatedAt`, and the check compares against it. Thus
  * the exact instant never makes evidence stale.
  *
- * `appender` is the durable store from the caller. When it is `null`, the
- * observation uses only the in-memory cache.
+ * `appender` is the durable store from the caller. When it is `null` or
+ * `undefined`, the observation uses only the in-memory cache.
  */
 export function recordLiveTransition(
   observation: LegacyTransitionObservation,

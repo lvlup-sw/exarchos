@@ -15,7 +15,8 @@ import { isEventSourced, mergeFileOwnedFields, stripInternalFields } from './sha
 
 /**
  * Reads a workflow state, a field projection, or a dot-path query.
- * Every query, a scalar query too, uses one resolution. With an event store, an ES v2 workflow answers from the event fold.
+ * Every query, a scalar query too, uses one resolution, because the state file can be stale.
+ * With an event store, an ES v2 workflow answers from the event fold.
  * The state file gives the version marker, and it is the fallback for a legacy workflow or a missing event store.
  * The check is `eventStore != null`, so an `undefined` store from a loosely typed adapter also takes the fallback.
  */

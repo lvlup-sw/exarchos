@@ -115,6 +115,7 @@ export interface DecisionExplanation {
 /**
  * Returns whether the obligation set was waivable, from the persisted decision only.
  * A `deny` is waivable when it carries a `request_waiver` remediation. An `allow` that waived a requirement is waivable.
+ * The value steers only the remediation of a `deny`, so it is exact where it matters.
  */
 export function deriveWaivable(decision: AdmissionDecisionRecordV1): boolean {
   switch (decision.outcome) {

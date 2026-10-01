@@ -513,10 +513,12 @@ export function findTransition(
  * Computes a transition and does no I/O. A guard failure, an open circuit and a blocked phase return diagnostic events, and the caller must append them.
  * When the mergeVerified guard of the universal cleanup fails, the normal lookup runs, so an edge such as `synthesize → completed` still works.
  *
- * A fix-cycle edge records `phase.exited` with `allRequiredGatesPassed: false`.
+ * A fix-cycle edge records `phase.exited` with `allRequiredGatesPassed: false`. The `phase.exited` event comes before `phase.entered`.
  * A top-level phase has no parent, so `fix-cycle` and `plan-revision` omit `compoundStateId` and never set it to `undefined`.
  * The standard feature `plan-review → plan` edge emits no `plan-revision`, because `prepare_review` counts that loop.
- * IMPLEMENT records no phase-level gate sequence, because its per-task sequences come from the wave stamp.
+ *
+ * The gate union keeps the resolution order, because gate order is evaluation order. IMPLEMENT records no phase-level gate sequence, because the wave stamp holds its per-task sequences.
+ * `policySource` and `mode` are fixed defaults. The orchestrate layer resolves the IMPLEMENT mode, so this module does not depend on that layer.
  * @param resolveGatesFn the gate-set resolver. A test injects it to reach the fail-closed branch.
  * @param floor the coordinates and the prior frozen gates that the resolution must also cover.
  */

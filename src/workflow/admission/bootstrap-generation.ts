@@ -3,7 +3,7 @@
  * Both freeze a requirement generation for a phase attempt by appending `admission.requirement-resolved` facts.
  * Neither rewrites a past event or stamps a `.state.json`.
  *
- * The same frozen set and provenance always give byte-identical events, because every id comes from content.
+ * The same inputs always give byte-identical events, because every id comes from content.
  * The fold collapses a repeated append, so a second bootstrap cannot fork an attempt into two generations.
  * The module is pure. The caller supplies the trusted `resolvedAt` instant.
  */

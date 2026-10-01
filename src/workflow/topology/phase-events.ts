@@ -95,7 +95,7 @@ const REVIEW_GATE_EXECUTED: PhaseRuntimeEmissionRow = {
   fields: ['gateName', 'layer', 'passed'],
 };
 
-/** The team events of the delegate phases. The runtime appends `task.assigned`, so it is in `TASK_ASSIGNED_BY_RUNTIME`. */
+/** The team events of the delegate phases. The runtime appends `task.assigned`, so that event is in `TASK_ASSIGNED_BY_RUNTIME` and not here. */
 const DELEGATE_EXPECTS: readonly PhaseEventRow[] = [
   TEAM_SPAWNED,
   TEAM_TASK_PLANNED,

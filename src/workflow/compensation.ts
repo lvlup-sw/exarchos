@@ -63,7 +63,7 @@ function execErrorStderr(err: ExecError): string {
 }
 
 /**
- * True when the exec error shows a broken environment: a timeout, a signal, no git repository, or a remote or permission error.
+ * True when the exec error shows a broken environment: a timeout, a signal, no git repository, or a remote, auth or permission error.
  * The existence helpers never read such an error as "already absent".
  */
 function isOperationalFailure(err: ExecError): boolean {
@@ -260,7 +260,7 @@ async function loadWorktreesProjection(
 
 /**
  * Removes one worktree through the `worktrees` stream, in four steps:
- *   1. If the stream has no entry for the worktree, it appends `worktree.adopted`. Else the remove drops nothing and the view keeps a stale entry.
+ *   1. If the stream has no entry for the worktree, it appends `worktree.adopted`. Without that entry, the remove drops nothing and the view keeps a stale entry.
  *   2. It appends `worktree.remove.requested` and reuses the operationId of a crashed removal.
  *   3. If the worktree is registered, it runs `git worktree remove --force` in {@link withIndexLockRetry}, outside the append retry.
  *   4. It appends `worktree.remove.executed` with the outcome, and the reducer drops the entry.
@@ -600,8 +600,8 @@ function createDeleteIntegrationBranchAction(): CompensationAction {
  * Removes the worktrees in `state.worktrees`.
  * It keeps a worktree that exists on disk and has uncommitted work, and reports it as `dirty-worktree-preserved`.
  * It does not probe an absent path, because the removal treats that path as a no-op.
- * With an event store, it removes through {@link unifyWorktreeRemove}. Without one, it ignores a failed `git worktree remove`.
- * The count excludes a worktree whose removal throws.
+ * With an event store, it removes through {@link unifyWorktreeRemove}, and a throw from it fails the whole action.
+ * Without one, it ignores a failed `git worktree remove` and still counts that worktree.
  */
 function createCleanupWorktreesAction(): CompensationAction {
   return {
@@ -693,7 +693,7 @@ function createCleanupWorktreesAction(): CompensationAction {
  * With an event store, it appends `branch.delete.requested`, deletes each branch that exists, and appends `branch.delete.executed`.
  * It reuses the operationId of an orphan request. The git commands run outside the append retry, so a retry does not repeat them.
  *
- * An absent branch is an idempotent success. A failed delete fails the action while the branch still exists.
+ * An absent branch is an idempotent success. If a delete fails and the branch still exists, the action fails.
  * Without an event store, it ignores each failed delete.
  */
 function createDeleteFeatureBranchesAction(): CompensationAction {
@@ -1130,8 +1130,9 @@ function orderedCompensationActions(currentPhase: string): CompensationAction[] 
 /**
  * Runs the compensation actions for `currentPhase` and the phases before it, in reverse phase order.
  * With `cancelProcess`, it runs the process-managed path. That path needs `eventStore` and `featureId` and cannot be a dry run.
- * Without it, it skips the actions in the checkpoint and logs one `compensation` event for each action.
- * @throws {Error} When `eventStore` is set without `featureId`. Else git effects run without an audit trail.
+ * Without it, it skips the actions in the checkpoint and returns one `compensation` event for each action.
+ * @throws {Error} When `eventStore` is set without `featureId`, so git effects never run without an audit trail.
+ * It also throws when `cancelProcess` comes without `eventStore` and `featureId`, or with `dryRun`.
  */
 export async function executeCompensation(
   state: Record<string, unknown>,

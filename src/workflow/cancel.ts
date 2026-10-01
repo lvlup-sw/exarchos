@@ -77,13 +77,15 @@ function trustedCancellationProvenance(stateDir: string): Record<string, unknown
 /**
  * Cancel a workflow: run compensation, then move the phase to `cancelled`.
  *
- * The event-first path needs an ES v2 state and a store that is not nullish. It takes
- * ownership under a fencing epoch before it records intent. Only `buildCancelReadiness`
- * makes the `cancel.ready` proof, and it refuses until each compensation has a durable
- * success. The trail commits atomically before the state changes. The legacy path
- * keeps its checkpoint in the state file and ignores store failures. The guard runs in
- * pure evaluation, and `allowUniversalFinalTransition` admits the `cancelled` edge,
- * which has no HSM definition.
+ * The event-first path needs an ES v2 state and a non-nullish store. It takes ownership
+ * under a fencing epoch before it records intent. Only `buildCancelReadiness` makes the
+ * `cancel.ready` proof, after each compensation has a durable success. The legacy path
+ * keeps its checkpoint in the state file and ignores store failures.
+ *
+ * The guard runs in pure evaluation, so this handler owns emission. The trail commits
+ * atomically before the state changes, under a retry-stable operation id. The flag
+ * `allowUniversalFinalTransition` admits the `cancelled` edge, which has no HSM definition.
+ * The shadow observer gets the real store, because shadow evidence is a separate stream.
  */
 export async function handleCancel(
   input: CancelInput,

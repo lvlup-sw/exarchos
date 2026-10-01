@@ -115,8 +115,8 @@ export function failSafeVerificationProfile(
  * tier gives `undefined`, so no tier-coupled dimension applies.
  *
  * This direction is the opposite of {@link failSafeVerificationProfile} on purpose.
- * A `high` claim adds the `mutation-adequacy` dimension. No producer satisfies it
- * for a workflow without a tier stamp, so the review guard deadlocks.
+ * An `unknown` tier that became `high` adds `mutation-adequacy` to a workflow without a
+ * tier stamp. No producer satisfies that dimension there, so the review guard deadlocks.
  */
 export function reviewRosterTier(riskTier: ResolvedRiskTier): RiskTier | undefined {
   return riskTier === 'unknown' ? undefined : riskTier;
@@ -134,7 +134,7 @@ export interface ResolvedVerificationPolicy {
  * Resolve the gate sequence for a task profile. The config cell applies over the
  * built-in table. An `unknown` tier resolves through {@link failSafeVerificationProfile}.
  * A config without a `verification` block acts as no config. The returned sequence
- * is a frozen copy and never aliases the config array.
+ * is frozen and never aliases the config array.
  *
  * @param riskTier         the blast-radius tier of the task, or `'unknown'`
  * @param boundaryTouching whether the task crosses an I/O or schema boundary
