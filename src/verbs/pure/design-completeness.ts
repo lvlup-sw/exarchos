@@ -1,9 +1,10 @@
 /**
- * Design completeness checks at the boundary between ideate and plan. They read files but run no
- * shell command.
+ * Design completeness checks for a design document. They read files but run no shell command.
  *
  * {@link handleDesignCompleteness} runs the checks. It resolves the design file, then checks the
  * required sections, the option count, the design path in the state, and the acceptance criteria.
+ * The `check_design_completeness` action does not call it. That action delegates to
+ * `check_plan_coverage`, which uses only {@link acceptanceCriteriaFinding} from this module.
  */
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
@@ -366,7 +367,8 @@ export interface HandleDesignCompletenessArgs {
  *   1. The design document exists. Without it, the run stops.
  *   2. The 7 required sections are present.
  *   3. The document has at least 2 option headings.
- *   4. The state records a design path, from `designPathFromState` or else from `stateFile`.
+ *   4. The state records a design path, from `designPathFromState` or else from `stateFile`. The
+ *      check does not run when the caller supplies neither.
  *   5. Each `DR-N` entry has acceptance criteria. This check is advisory and fails nothing.
  */
 export function handleDesignCompleteness(args: HandleDesignCompletenessArgs): DesignCompletenessResult {

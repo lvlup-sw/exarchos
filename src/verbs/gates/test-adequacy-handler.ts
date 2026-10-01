@@ -91,7 +91,7 @@ export interface TestAdequacyArgs {
  *
  * A missing, blank, or unparseable command counts as a passing run, so the probe reports `redObserved: false` and never a false kill.
  * The runner uses `runCommandSync`, not `execFileSync`. On Windows, `execFile` refuses a `.cmd` shim with EINVAL.
- * The catch then reads that as a red test, which falsely passes the kill probe.
+ * With `execFile`, the catch reads that error as a red test and falsely passes the kill probe.
  */
 function buildDefaultRunTests(repoRoot: string): TestRunFn {
   const resolved = resolveTestRuntime(repoRoot);

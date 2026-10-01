@@ -116,8 +116,8 @@ export interface CanonicalBlockDeps {
 
 /**
  * Resolves `binding/standard/block.md`, a bundled asset that is not in the consumer repo. It tries
- * two paths relative to this module, then the process cwd. It returns the first path that exists,
- * or the first candidate when none exists.
+ * the repo root of the source layout (six levels up), then the bundled layout (five levels up),
+ * then the process cwd. It returns the first path that exists, or the first candidate.
  */
 export function resolveCanonicalBlockPath(existsSync: (p: string) => boolean = fs.existsSync): string {
   const here = dirname(fileURLToPath(import.meta.url));

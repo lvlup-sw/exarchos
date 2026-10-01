@@ -101,9 +101,8 @@ export interface MergePreflightResult {
 }
 
 /**
- * Diagnostic payload for an ancestry failure. Each field is best-effort: a failed git call gives
- * an empty string or a default value, so the helper cannot hide the ancestry failure. The field
- * order is the reading order for an operator.
+ * Diagnostic payload for an ancestry failure. Each field is best-effort, so the helper cannot throw
+ * and hide the ancestry failure. The field order is the reading order for an operator.
  */
 export interface PreflightDebug {
   /** Output of `git --version`, stripped of trailing newlines. */
@@ -128,9 +127,10 @@ export interface PreflightDebug {
 }
 
 /**
- * Collects the ancestry debug payload through the injected `gitExec`. A non-zero exit or a throw
- * gives an empty string or a default value for that field, and the helper does not throw.
- * `packed` is always `false`, and an empty `sha` marks a failed ref lookup.
+ * Collects the ancestry debug payload through the injected `gitExec`, and does not throw. A throw
+ * from `gitExec` counts as exit 1 with empty output. A non-zero exit gives an empty string for the
+ * version, root, worktree, and ref fields. The `merge-base` fields keep the raw exit code and
+ * output. `packed` is always `false`, and an empty `sha` marks a failed ref lookup.
  */
 export function gatherPreflightDebug(
   gitExec: GitExec,

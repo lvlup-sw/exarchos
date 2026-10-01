@@ -85,8 +85,9 @@ export interface DoctorPlugin {
 export interface DoctorInvariantsCatalog {
   /**
    * Resolves the invariant catalog from `.exarchos.yml`. `configured` is true when a catalog
-   * source is registered, for any phase. The built-in baseline does not count. The check turns
-   * each warning into a doctor Warning. Must honor `signal` and finish within the probe budget.
+   * source is registered, for any phase. The built-in baseline does not count. One or more
+   * warnings make the check give one doctor Warning. Must honor `signal` and finish within the
+   * probe budget.
    */
   resolve(signal?: AbortSignal): Promise<{ configured: boolean; warnings: string[] }>;
 }
@@ -184,10 +185,11 @@ const DEFAULT_GIT: DoctorGit = {
 };
 
 /**
- * Walks up from `startDir`, at most eight levels, to the first directory that holds `marker`.
- * `startDir` defaults to this module directory, which finds the artifacts of the plugin.
- * For a consumer artifact such as `.exarchos.yml`, pass `process.cwd()`. In plugin mode the
- * module is in the plugin cache, which has no consumer ancestor.
+ * Returns the first directory, from `startDir` upward, that holds `marker`. It checks at most
+ * eight directories, `startDir` included. `startDir` defaults to this module directory, which
+ * finds the artifacts of the plugin. For a consumer artifact such as `.exarchos.yml`, pass
+ * `process.cwd()`. In plugin mode the module is in the plugin cache, which has no consumer
+ * ancestor.
  */
 async function findRepoRoot(
   marker: string,
@@ -290,7 +292,10 @@ async function readPackageVersion(path: string): Promise<string | null> {
   }
 }
 
-/** Reads the version from the newest plugin-cache version directory that has a readable `package.json`. */
+/**
+ * Reads the plugin-cache version directories in descending numeric name order. Returns the first
+ * string `version` from a `package.json`, or null.
+ */
 async function defaultInstalledPluginVersion(): Promise<string | null> {
   const home = process.env.HOME ?? process.env.USERPROFILE;
   if (!home) return null;
@@ -392,8 +397,9 @@ const POLICY_CELLS: ReadonlyArray<{ riskTier: RiskTier; boundaryTouching: boolea
 
 /**
  * Resolves the verification ladder for the verification-toolchain doctor check.
- * It anchors at the nearest `.exarchos.yml` or `.git` above `process.cwd()`. Thus the runtime
- * resolver and the config load use the same root from a nested directory.
+ * It anchors at the nearest `.exarchos.yml` from `process.cwd()` upward. Without one, it uses the
+ * nearest `.git`, then `process.cwd()`. Thus the runtime resolver and the config load use the
+ * same root from a nested directory.
  *
  * `detected` is false when the source is `unresolved` and each command is null. A missing or
  * bad config gives the built-in policy table. The probe passes no event store, so it emits no
@@ -457,8 +463,8 @@ export async function resolveVerificationToolchain(
 
 /**
  * Builds the real probe bundle from a dispatch context. The `sqlite` and `bundles` probes
- * forward to the event store, which owns the timeout, the abort, and the skip when no backend
- * is attached.
+ * forward to the event store. The store owns the timeout and the abort. It also returns a skip
+ * when the backend does not support the probe.
  */
 export function buildProbes(ctx: DispatchContext): DoctorProbes {
   return {

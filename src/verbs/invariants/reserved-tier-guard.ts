@@ -1,11 +1,12 @@
 /**
  * Keeps consumers out of the reserved `dev` invariant tier of exarchos.
- * The `dev` tier holds the built-in `INV-N` catalog, which merges into each
- * `invariants_effective` projection. A consumer `dev` catalog makes colliding ids, and the
- * doctor `invariants-catalog` check flags `INV-*` ids only in user-tier catalogs. Thus this
- * guard rejects `tier: dev` in a repo whose `package.json` name is not the exarchos name, and
- * points to `tier: user`. An exarchos fork opts in with `allowReservedTier`. The `package.json`
- * read goes through the injected `ScaffoldDeps`.
+ * The `dev` tier is for the `INV-N` catalog that the exarchos repo keeps for itself. A consumer
+ * `dev` catalog takes ids from that reserved namespace. The doctor `invariants-catalog` check does
+ * not report it, because the check flags `INV-*` ids only in user-tier catalogs.
+ *
+ * Thus this guard rejects `tier: dev` in a repo whose `package.json` name is not the exarchos
+ * name, and points to `tier: user`. An exarchos fork opts in with `allowReservedTier`. The
+ * `package.json` read goes through the injected `ScaffoldDeps`.
  */
 import * as path from 'node:path';
 import { toPosix } from '../../utils/paths.js';

@@ -1,9 +1,9 @@
 /**
  * The compiled form of an intent and its refusals.
- * `execute_intent` takes only a named intent, so the executor runs only steps that the compiler
- * derives from a declared runbook. `CompiledSegment` is an interim form, private to
- * `verbs/execute/`. Code outside this directory must not depend on it, so that a later lowering
- * to `WorkflowDefinitionV1` can replace it.
+ * `execute_intent` takes a named intent, never an action list. Thus the executor runs only steps
+ * that the compiler derives from a declared runbook. `CompiledSegment` is an interim form,
+ * private to `verbs/execute/`. Code outside this directory must not depend on it, so that a later
+ * lowering to `WorkflowDefinitionV1` can replace it.
  */
 
 import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
@@ -50,12 +50,13 @@ export interface CompiledSegment {
 
 /**
  * Why a named intent did not compile. Each code is a refusal before any effect.
- * - `INTENT_NOT_CLOSED`: a step names a `native:` tool, or an action absent from the handler
- *   table. The refusal comes before the first leaf, so no irreversible step runs before a stop.
+ * - `INTENT_NOT_COMPILABLE`: the runbook has no typed argument schema.
+ * - `INTENT_NOT_CLOSED`: a step names a `native:` tool, or an action not in the handler table.
  * - `INTENT_HANDLER_TABLE_UNOWNED`: the compile deps name no owner tool for the handler table.
- * - `INTENT_HANDLER_TOOL_MISMATCH`: the step tool differs from the table owner. Without this
- *   check, a colliding action name runs the handler of the wrong tool.
+ * - `INTENT_HANDLER_TOOL_MISMATCH`: the step tool differs from the table owner.
  * - `INTENT_HOST_OBLIGATION`: a step is a decision point with no tool, and the caller decides.
+ * - `INTENT_RETRY_UNSUPPORTED`: a step asks for `onFail: 'retry'`. The executor has no retry.
+ * - `INTENT_ACTION_NOT_LOCAL`: the action has no contract, or its authority is not local.
  * - `INTENT_TEMPLATE_VAR_UNBOUND`: a step passes a `<var>` that has no binding.
  */
 export type CompileRefusalCode =
@@ -153,8 +154,8 @@ export interface IntentReceipt {
   readonly failure?: { readonly code: ExecuteRefusalCode; readonly message: string };
   readonly interaction: ReceiptInteraction;
   /**
-   * The run bundle that holds the per-leaf trace, as artifact id and digest pairs. The bundle
-   * is written before the operation record, so its bytes are durable when the claim commits.
+   * The run bundle that holds the per-leaf trace, as artifact id and digest pairs. The executor
+   * writes the bundle before the operation record, so its bytes are durable when the claim commits.
    * It is optional because an older stored receipt can lack it, and a replay returns that
    * receipt verbatim.
    */

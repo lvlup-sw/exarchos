@@ -189,7 +189,7 @@ function adaptWithEventStoreAndConfig<T>(
 
 /**
  * Resolves the workflow type of a feature from the event store, through `resolveWorkflowState`.
- * It returns `'feature'` when the type is absent or the state does not resolve, the same default as `check-invariant-conformance`.
+ * It returns `'feature'` when `featureId` or the type is absent, or the state does not resolve. `check-invariant-conformance` uses the same default.
  */
 async function resolveWorkflowTypeForGate(
   featureId: string | undefined,
@@ -253,8 +253,8 @@ function adaptLadderGate<T>(
 
 /**
  * Like {@link adaptWithEventStore}, but the `eventStore` argument is optional, and the adapter does not throw without it.
- * These handlers resolve state from `stateFile`, or from `featureId` with the event store, so they can serve a dispatch with no event store.
- * Examples are `select_debug_track` and `investigation_timer`.
+ * The handlers can serve a dispatch with no event store.
+ * For example, `select_debug_track` and `investigation_timer` resolve state from `stateFile`, or from `featureId` with the event store.
  */
 function adaptWithOptionalEventStore<T>(
   handler: (args: T, stateDir: string, eventStore?: EventStore) => Promise<ToolResult>,
@@ -346,7 +346,7 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_design_completeness: adaptWithEventStore(handleDesignCompleteness),
   check_plan_coverage: adaptWithEventStore(handlePlanCoverage),
   /**
-   * Exploration-citation gate for the deep depth. At thin and standard depth, it skips itself.
+   * Exploration-citation gate for the deep depth. At any other depth, or with no depth stamp, it skips itself.
    * At deep depth, it verifies that the `### Exploration` section of the spec cites the discover pass by path and `correlationId`.
    */
   check_exploration_depth: adaptWithEventStore(handleCheckExplorationDepth),
@@ -634,7 +634,8 @@ function validateInvariantsAmendArgs(
  * A branch action needs both a registry entry and a branch here. Without the branch, it returns `UNKNOWN_ACTION`.
  * The `invariants_*` branches validate their args before the handler gets them.
  *
- * The `no-handler-throw` rule reads these `if (action === '<verb>')` branches to find the registered handlers. It reports a branch shape that it cannot read.
+ * The `no-handler-throw` rule reads these `if (action === '<verb>')` branches to find the handlers that are not in `ACTION_HANDLERS`.
+ * It reports a branch shape that it cannot read.
  * The router does not refuse a projection-derived verb on a `projection.degraded` marker. Such a verb folds a lagging projection forward before it answers.
  */
 export async function handleOrchestrate(

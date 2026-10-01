@@ -100,8 +100,8 @@ function resolveParams(
  * Builds the arguments of one leaf and validates them with the registered schema of that leaf.
  *
  * Runbook params are partial by design. The `task_complete` step has no params, but its schema
- * needs a task and a stream. The candidate thus merges the declared intent arguments, the
- * resolved step params, and the subject identity.
+ * needs a task and a stream. The candidate thus merges the intent arguments that the leaf schema
+ * declares, the resolved step params, and the subject identity, in that order.
  *
  * The subject identity goes in last, so it overrides a step param or argument with the same name.
  * Otherwise the leaf can commit to one stream while the emission check watches another.

@@ -1,6 +1,6 @@
 /**
  * Contract for a writer that deploys the configuration of one agent runtime.
- * The init compositor dispatches to the writer of each detected or requested runtime.
+ * The reconciler GENERATE stage runs each writer in the `getAllWriters` list.
  */
 
 import type { AgentRuntimeName } from '../../../runtime/agent-environment-detector.js';

@@ -1,7 +1,8 @@
 /**
  * Ownership census for admission evidence. The durable gate runner must be the only module that
  * appends it. The census fails on an alternate emitter, on a gate with no registered provider,
- * and on a runner success without a durable evidence append. It checks the real system: a
+ * and on a runner success without a durable evidence append. It also fails on an unresolved append
+ * site in an unacknowledged module, and on a stale acknowledgement. It checks the real system: a
  * source scan, the live registry, and a probe of the real runner. The scan resolves constants,
  * aliased imports, and hoisted event objects.
  */

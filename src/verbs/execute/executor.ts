@@ -625,8 +625,11 @@ function blockingGateRefusal(leaf: CompiledLeaf, result: ToolResult): string | u
  * Admission uses the dispatch evaluator in segment order, so each leaf sees the state that earlier leaves left.
  * Each receipt event names its stream, because a leaf can write to a shared infrastructure stream.
  *
+ * The handler runs inside the append observer, and the verifier runs outside it. So the receipt counts the leaf appends and not the verifier row.
  * The held rows are read before the emission verifier runs, because the verifier appends its own finding under the same id.
- * A postcondition failure, and an emission failure in `block` mode, halt even when `onFail` is `continue`. That policy covers only the gate verdict.
+ *
+ * A postcondition failure, and an emission failure in `block` mode, halt even when `onFail` is `continue`.
+ * `onFail` does not cover a broken emission or postcondition contract, because that breaks the integrity of the log.
  * A postcondition observation that throws counts as a violation, because the leaf already ran its effects.
  * In `advisory` mode, the receipt leaf records a missing emission, and the leaf does not fail for it.
  */

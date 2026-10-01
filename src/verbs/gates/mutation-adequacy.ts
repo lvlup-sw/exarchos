@@ -6,7 +6,9 @@
  * a cross-language mutation-report standard. `parseMutationReport` does not
  * throw. A malformed or empty report gives a typed degrade signal, and the
  * handler maps it to a Warning carrier. A skip, a degrade, or a deferred full
- * run gives `success: true` with `data.passed`, not an error envelope.
+ * run gives `success: true` with `data.passed`, not an error envelope. If the
+ * gate event of a skip or a degrade does not append, the handler returns that
+ * append error.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -1084,8 +1086,9 @@ function resolveThreshold(args: MutationAdequacyArgs): number {
 /**
  * Resolves the NoCoverage budget: the argument, then the config, then the
  * default. The budget is a count, so only a non-negative integer is valid at
- * each layer. An invalid value falls through to the next layer. A NaN disarms
- * the axis, and a negative value blocks each run that is not a trivial pass.
+ * each layer. An invalid value falls through to the next layer. This rule
+ * rejects a NaN budget, which disarms the axis, and a negative budget, which
+ * blocks each run that is not a trivial pass.
  */
 function resolveMaxNoCoverage(args: MutationAdequacyArgs): number {
   if (
@@ -1104,8 +1107,10 @@ function resolveMaxNoCoverage(args: MutationAdequacyArgs): number {
 
 /**
  * Records a passing advisory `gate.executed` for a degrade: a runner is present,
- * but it failed or gave no report. The skip-pass keeps the required review
- * dimension present, so `review → synthesize` does not block.
+ * but the gate has no score to trust. The causes are an unjustified run root, a
+ * failed run, a report that does not parse, and zero mutants for a diff with
+ * mutatable files. The skip-pass keeps the required review dimension present,
+ * so `review → synthesize` does not block.
  *
  * The marker `{ skipped: true, degraded: true }` differs from the no-toolchain
  * skip-pass. With `review.mutationEnforcement: 'block'`, `degraded` makes the

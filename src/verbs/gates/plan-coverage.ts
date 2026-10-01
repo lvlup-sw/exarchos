@@ -448,9 +448,10 @@ export function parseAcceptanceTestTasks(planContent: string): AcceptanceTestTas
 /**
  * Computes the coverage of the design sections by the plan tasks.
  *
- * A deferred section counts as deferred. A `DR-N` section first resolves through the
- * `**Implements:**` references. Then come substring and keyword matches on the task titles, and
- * then on the task bodies without table rows. A section without a match is a gap.
+ * A section that matches a deferred name counts as deferred, not as a gap. A `DR-N` section first
+ * resolves through the `**Implements:**` references. Then come substring and keyword matches on
+ * the task titles, and then on the task bodies without table rows. A section without a match is a
+ * gap.
  *
  * With `designContent`, it also adds advisories for Given/When/Then requirements without an
  * acceptance test task. Advisories do not change the verdict.
@@ -742,7 +743,8 @@ export async function handlePlanCoverage(
  * Parses the design and the plan, computes the coverage, and records the gate event.
  *
  * It also adds the acceptance-criteria finding of the design-completeness check as an advisory,
- * through the shared `acceptanceCriteriaFinding`. That advisory does not change `passed`.
+ * through the shared `acceptanceCriteriaFinding`. That advisory does not change `passed`. The
+ * other design-completeness checks are not here, because the spec template owns them.
  */
 async function executePlanCoverage(
   args: { featureId: string; designPath: string; planPath: string },

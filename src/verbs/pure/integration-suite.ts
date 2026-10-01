@@ -175,9 +175,9 @@ function* vitestJsonCandidates(raw: string): Generator<string> {
 
 /**
  * Parses one candidate JSON document into a failure view with load failures
- * added. It returns `null` for a value that is not a plain object, and for an
- * object with no summary counter. Zero failures for such a value make the gate
- * fail open.
+ * added. It returns `null` for text that is not JSON, a value that is not a
+ * plain object, or an object with no summary counter. If the parser reads
+ * such a value as zero failures, the gate fails open.
  *
  * A load failure is a failed suite with zero assertion results. Without that
  * per-suite detail, failed suites with no failed tests count as load failures.

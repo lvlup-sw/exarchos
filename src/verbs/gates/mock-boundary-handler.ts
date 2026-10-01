@@ -64,8 +64,8 @@ export interface MockBoundaryHandlerArgs {
   /** Base ref the branch diverged from (merge-base target). Defaults to 'main'. */
   readonly baseBranch?: string;
   /**
-   * Repo to check. A literal path is used as is. `'auto'` resolves the agent worktree of the
-   * calling delegation. Without a value, the handler uses `process.cwd()`.
+   * Repo to check. The handler uses a literal path as is. `'auto'` resolves the agent worktree of
+   * the calling delegation. Without a value, the handler uses `process.cwd()`.
    */
   readonly repoRoot?: string;
   /** Explicit agent worktree path — preferred resolver seam for 'auto'. */
@@ -164,7 +164,8 @@ export function parseUnifiedDiff(diff: string): FileDiff[] {
  * unified diff and gives zero findings. A git failure gives zero findings.
  *
  * The gate fails only when the severity is blocking, an unowned mock exists, and no `reason` is
- * given. Steers appear only when findings exist and no `reason` is given.
+ * given. The built-in severity is `warning`, so only a project override makes the gate block.
+ * Steers appear only when findings exist and no `reason` is given.
  */
 export async function handleMockBoundary(
   args: MockBoundaryHandlerArgs,

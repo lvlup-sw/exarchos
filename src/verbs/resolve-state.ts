@@ -1,7 +1,7 @@
 /**
  * Resolves workflow state for a feature.
  * The SQLite event store is the source of truth. The `.state.json` file on disk is a derived stamp.
- * The resolver reads the file only when the caller supplies no event store.
+ * The resolver reads the file only when the caller does not supply both `featureId` and an event store.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -33,8 +33,8 @@ export type StateFileStatus = 'absent' | 'missing' | 'malformed' | 'ok';
 
 /**
  * Classifies an explicit `stateFile` path and changes nothing.
- * {@link resolveWorkflowState} ignores the file when an event store is supplied.
- * Without an event store, it reports a malformed file as `NO_STATE_SOURCE`, the same as a missing file.
+ * {@link resolveWorkflowState} ignores the file when `featureId` and an event store are supplied.
+ * Otherwise, it reports a malformed file as `NO_STATE_SOURCE`, the same as a missing file.
  * A missing `.state.json` is normal, but a corrupt file that the caller supplied is an error.
  * A caller that must report that error calls this function first.
  */
@@ -51,11 +51,11 @@ export function classifyStateFile(stateFile: string | undefined): StateFileStatu
 
 /**
  * Resolves workflow state from the best available source, in this order:
- * 1. With `featureId` and `eventStore`, it folds the stream through `workflowStateProjection`.
- * 2. Without an event store, it parses `stateFile` when the file exists.
- * 3. Otherwise it returns a `NO_STATE_SOURCE` error. A file that does not parse gives the same error.
+ * 1. With `featureId` and `eventStore`, it folds the stream through `workflowStateProjection`. A store failure gives `EVENT_STORE_ERROR`.
+ * 2. Else it parses `stateFile` when the file exists.
+ * 3. Else it returns a `NO_STATE_SOURCE` error. A file that does not parse gives the same error.
  *
- * The file can go stale, so it never shadows the projection when an event store exists.
+ * The file can go stale, so it never shadows the projection when the caller supplies both inputs of step 1.
  * A caller that must compare the file with the projection reads the file directly.
  */
 export async function resolveWorkflowState(opts: ResolveOpts): Promise<ResolveResult> {

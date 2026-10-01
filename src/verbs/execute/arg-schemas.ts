@@ -13,7 +13,7 @@ import { CapsuleBaseRefSchema } from '../../contract/capsule/exarchos-capsule.js
 /**
  * Arguments for `task-completion`: four per-task gates, then `task_complete`.
  * `riskTier` and `boundaryTouching` come from the caller, because no durable per-task stamp
- * holds them. Both are required, because the gate steps bind them as `<var>` placeholders,
+ * holds them. Both are required, because three gate steps bind them as `<var>` placeholders,
  * and the compiler refuses an unbound placeholder. The enum matches the gate registrations.
  */
 export const TaskCompletionArgs = z

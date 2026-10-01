@@ -1,11 +1,13 @@
 /**
  * check_event_emissions: checks that the model-emitted events that the current
  * phase expects are in the event stream of the workflow. It returns a hint for
- * each missing event and records a `gate.executed` event.
+ * each missing event. For a phase with expected events, it records a
+ * `gate.executed` event.
  *
- * Both tables are projections of the phase event contract in
- * `workflow/topology/phase-events.ts`, so neither can drift from the other.
- * The verdict depends on each listed type, so each row is a dependency.
+ * `PHASE_EXPECTED_EVENTS` and `EVENT_DESCRIPTIONS` are projections of the phase
+ * event contract in `workflow/topology/phase-events.ts`, so neither can drift
+ * from the other. The verdict depends on each listed type, so each row is a
+ * dependency.
  */
 
 import type { EventType } from '../../events/schemas.js';
@@ -84,7 +86,7 @@ function extractRequiredFields(eventType: EventType): string[] | undefined {
  * Checks the expected events for the current phase. It folds the workflow-state
  * view to the durable tail to read the phase. It reads events only up to that
  * fold sequence, so events from a later phase cannot mark this phase complete.
- * A phase with no table row is complete with zero checks.
+ * A phase with no table row is complete with zero checks and records no gate event.
  */
 export async function handleCheckEventEmissions(
   args: CheckEventEmissionsArgs,

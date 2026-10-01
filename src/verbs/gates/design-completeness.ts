@@ -16,10 +16,10 @@ export const DESIGN_COMPLETENESS_DEPRECATION_NOTICE =
 /**
  * Deprecated alias for `check_plan_coverage`. Design and plan are one spec
  * artifact, so the resolved path goes to plan coverage as both `designPath`
- * and `planPath`. The path comes from the `designPath` or `planPath` argument,
- * then from `artifacts.plan` or `artifacts.design` in the workflow state. A
- * state read error returns as is, not as a missing artifact. The result
- * carries a `deprecated` marker and the notice.
+ * and `planPath`. The path comes from `designPath`, then `planPath`, then
+ * `artifacts.plan` and `artifacts.design` in the workflow state. A state read
+ * error returns as is, not as a missing artifact. A successful result carries
+ * a `deprecated` marker and the notice. A failed result returns unchanged.
  */
 export async function handleDesignCompleteness(
   args: { featureId: string; stateFile?: string; designPath?: string; planPath?: string },

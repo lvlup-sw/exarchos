@@ -1,6 +1,6 @@
 /**
  * Test helper that builds a `DoctorProbes` bundle in which each probe function throws.
- * A check test overrides only the probes it uses. A call to a probe that is not stubbed fails loudly.
+ * A check test overrides only the probes it uses. A call to a probe that the test does not override throws an error.
  */
 
 import { DEFAULT_CHECK_BUDGET_MS, type DoctorProbes } from '../../probes.js';
