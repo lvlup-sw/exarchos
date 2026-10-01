@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { checkPostMerge } from '../../../../src/verbs/pure/post-merge.js';
 import type { VcsProvider, CiStatus, CiCheck } from '../../../../src/vcs/provider.js';
 
@@ -47,7 +50,28 @@ function createCommandRunner(results: Record<string, CommandResult>): (
   };
 }
 
+const fixtureDirs: string[] = [];
+
+/** A real temporary repository holding `files`, removed after the suite. */
+function fixtureRepo(files: Record<string, string>): string {
+  const dir = mkdtempSync(join(tmpdir(), 'post-merge-'));
+  fixtureDirs.push(dir);
+  for (const [name, content] of Object.entries(files)) writeFileSync(join(dir, name), content);
+  return dir;
+}
+
 describe('checkPostMerge', () => {
+  /** A node project: the toolchain resolver resolves `npm run test:run`. */
+  let nodeRepo: string;
+
+  beforeAll(() => {
+    nodeRepo = fixtureRepo({ 'package.json': JSON.stringify({ scripts: { 'test:run': 'vitest run' } }) });
+  });
+
+  afterAll(() => {
+    for (const dir of fixtureDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
   beforeEach(() => {
     vi.restoreAllMocks();
   });
@@ -73,6 +97,7 @@ describe('checkPostMerge', () => {
     const result = await checkPostMerge({
       prUrl: 'https://github.com/org/repo/pull/42',
       mergeSha: 'abc1234',
+      repoRoot: nodeRepo,
       runCommand: testRunner,
       provider,
     });
@@ -102,6 +127,7 @@ describe('checkPostMerge', () => {
     const result = await checkPostMerge({
       prUrl: 'https://github.com/org/repo/pull/42',
       mergeSha: 'abc1234',
+      repoRoot: nodeRepo,
       runCommand: testRunner,
       provider,
     });
@@ -129,6 +155,7 @@ describe('checkPostMerge', () => {
     const result = await checkPostMerge({
       prUrl: 'https://github.com/org/repo/pull/42',
       mergeSha: 'abc1234',
+      repoRoot: nodeRepo,
       runCommand: testRunner,
       provider,
     });
@@ -156,6 +183,7 @@ describe('checkPostMerge', () => {
     const result = await checkPostMerge({
       prUrl: 'https://github.com/org/repo/pull/42',
       mergeSha: 'abc1234',
+      repoRoot: nodeRepo,
       runCommand: testRunner,
       provider,
     });
@@ -177,6 +205,7 @@ describe('checkPostMerge', () => {
     const result = await checkPostMerge({
       prUrl: 'https://github.com/org/repo/pull/42',
       mergeSha: 'abc1234',
+      repoRoot: nodeRepo,
       runCommand: testRunner,
       provider,
     });
@@ -200,6 +229,7 @@ describe('checkPostMerge', () => {
     const result = await checkPostMerge({
       prUrl: 'https://github.com/org/repo/pull/42',
       mergeSha: 'abc1234',
+      repoRoot: nodeRepo,
       runCommand: testRunner,
       provider,
     });
@@ -225,6 +255,7 @@ describe('checkPostMerge', () => {
     const result = await checkPostMerge({
       prUrl: 'https://github.com/org/repo/pull/42',
       mergeSha: 'abc1234',
+      repoRoot: nodeRepo,
       runCommand: testRunner,
       provider,
     });
@@ -245,11 +276,54 @@ describe('checkPostMerge', () => {
     const result = await checkPostMerge({
       prUrl: 'https://github.com/org/repo/pull/42',
       mergeSha: 'abc1234',
+      repoRoot: nodeRepo,
       runCommand: testRunner,
       provider,
     });
 
     expect(result.status).toBe('pass');
     expect(result.passCount).toBe(2);
+  });
+
+  /** A Go module resolves `go test ./...` from the toolchain registry, and that command runs. */
+  it('runs the resolved test command for a Go module', async () => {
+    const goRepo = fixtureRepo({ 'go.mod': 'module example.com/fixture\n' });
+    const runs: Array<{ cmd: string; args: readonly string[] }> = [];
+
+    const result = await checkPostMerge({
+      prUrl: 'https://github.com/org/repo/pull/42',
+      mergeSha: 'abc1234',
+      repoRoot: goRepo,
+      runCommand: (cmd, args) => {
+        runs.push({ cmd, args });
+        return { exitCode: 0, stdout: 'ok', stderr: '' };
+      },
+      provider: createMockProvider(),
+    });
+
+    expect(runs).toEqual([{ cmd: 'go', args: ['test', './...'] }]);
+    expect(result.status).toBe('pass');
+    expect(result.results).toContain('- **PASS**: Test suite (go test ./... passed)');
+  });
+
+  /** No project markers and no configuration: the test check fails closed and runs nothing. */
+  it('fails the test suite check when no test command resolves', async () => {
+    const emptyRepo = fixtureRepo({});
+    const runCommand = vi.fn();
+
+    const result = await checkPostMerge({
+      prUrl: 'https://github.com/org/repo/pull/42',
+      mergeSha: 'abc1234',
+      repoRoot: emptyRepo,
+      runCommand,
+      provider: createMockProvider(),
+    });
+
+    expect(runCommand).not.toHaveBeenCalled();
+    expect(result.status).toBe('fail');
+    expect(result.findings).toEqual([
+      'FINDING [D4] [HIGH] criterion="test-suite" evidence="no test command resolved (merge-sha: abc1234)"',
+    ]);
+    expect(result.results[1]).toMatch(/^- \*\*FAIL\*\*: Test suite -- no test command resolved: No project markers detected/);
   });
 });

@@ -1056,7 +1056,7 @@
   },
   "src/registry/actions/orchestrate/coordination.ts": {
     "comments/comment-content": {
-      "count": 17
+      "count": 16
     }
   },
   "src/registry/actions/orchestrate/cutover.ts": {
@@ -1101,7 +1101,7 @@
   },
   "src/registry/actions/orchestrate/verification.ts": {
     "comments/comment-content": {
-      "count": 10
+      "count": 9
     }
   },
   "src/registry/actions/orchestrate/worktree.ts": {
@@ -1806,7 +1806,7 @@
   },
   "src/verbs/team/prepare-synthesis.ts": {
     "comments/comment-content": {
-      "count": 6
+      "count": 5
     }
   },
   "src/verbs/team/prune-stale-workflows.ts": {

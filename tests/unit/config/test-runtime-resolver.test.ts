@@ -8,6 +8,7 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  resolveRunnableCommand,
   resolveTestRuntime,
   resolveVerificationRuntime,
 } from '../../../src/config/test-runtime-resolver.js';
@@ -1318,5 +1319,81 @@ describe('top-level mutation config shape (WFQ-013 / DOC-5)', () => {
     const result = resolveVerificationRuntime(dir);
 
     expect(result.mutation).toBe('echo mutate');
+  });
+});
+
+describe('resolveRunnableCommand', () => {
+  const tmpDirs: string[] = [];
+  function makeTmpDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'runnable-'));
+    tmpDirs.push(dir);
+    return dir;
+  }
+  afterEach(() => {
+    for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+    tmpDirs.length = 0;
+  });
+
+  it('RunnableCommand_GoModule_SplitsTheDetectedTestCommand', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'go.mod'), 'module example.com/fixture\n');
+
+    expect(resolveRunnableCommand(dir, 'test')).toEqual({
+      kind: 'runnable',
+      command: 'go test ./...',
+      bin: 'go',
+      args: ['test', './...'],
+    });
+  });
+
+  it('RunnableCommand_ConfiguredCommand_KeepsAQuotedArgumentWhole', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, '.exarchos.yml'), `test: 'pytest -k "slow api"'\n`);
+
+    expect(resolveRunnableCommand(dir, 'test')).toEqual({
+      kind: 'runnable',
+      command: 'pytest -k "slow api"',
+      bin: 'pytest',
+      args: ['-k', 'slow api'],
+    });
+  });
+
+  it('RunnableCommand_NoProjectMarkers_IsUnresolvedWithTheRemediation', () => {
+    const dir = makeTmpDir();
+
+    const result = resolveRunnableCommand(dir, 'test');
+
+    expect(result.kind).toBe('unresolved');
+    expect(result.kind !== 'runnable' && result.reason).toMatch(/No project markers detected/);
+  });
+
+  it('RunnableCommand_ToolchainWithoutTypecheck_IsUnresolvedNotInvalid', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'go.mod'), 'module example.com/fixture\n');
+
+    const result = resolveRunnableCommand(dir, 'typecheck');
+
+    expect(result.kind).toBe('unresolved');
+    expect(result.kind !== 'runnable' && result.reason).toMatch(/"typecheck" entry to \.exarchos\.yml/);
+  });
+
+  it('RunnableCommand_InvalidConfig_IsInvalidAndDoesNotThrow', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, '.exarchos.yml'), `test: 'pytest; rm -rf build'\n`);
+
+    const result = resolveRunnableCommand(dir, 'test');
+
+    expect(result.kind).toBe('invalid');
+    expect(result.kind !== 'runnable' && result.reason).toMatch(/toolchain resolver failed/);
+  });
+
+  it('RunnableCommand_UnterminatedQuote_IsInvalid', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, '.exarchos.yml'), `test: 'pytest -k "slow'\n`);
+
+    const result = resolveRunnableCommand(dir, 'test');
+
+    expect(result.kind).toBe('invalid');
+    expect(result.kind !== 'runnable' && result.reason).toMatch(/cannot be parsed/);
   });
 });

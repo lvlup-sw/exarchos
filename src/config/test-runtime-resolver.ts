@@ -22,6 +22,7 @@ import { logger } from '../logger.js';
 import { loadExarchosConfig, type LoadResult } from './load-exarchos-config.js';
 import { detectToolchain, toolchainFromConfig, type ContractCommands, type Toolchain } from './toolchains.js';
 import { resolveTaskRunner } from './task-runners.js';
+import { splitCommand } from './tokenize-command.js';
 import { LOCKS, INSTALL_METADATA } from './vendor/package-manager-detector/lockfiles.generated.js';
 
 const resolverLogger = logger.child({ subsystem: 'test-runtime-resolver' });
@@ -601,6 +602,61 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
   }
 
   return result;
+}
+
+/**
+ * One command field, ready for a gate to run, or the reason it cannot run.
+ * `unresolved`: the resolver found no command for the field.
+ * `invalid`: resolution failed, or the resolved command cannot be split into a
+ * program and its arguments.
+ */
+export type RunnableCommand =
+  | {
+      readonly kind: 'runnable';
+      readonly command: string;
+      readonly bin: string;
+      readonly args: readonly string[];
+    }
+  | { readonly kind: 'unresolved'; readonly reason: string }
+  | { readonly kind: 'invalid'; readonly reason: string };
+
+/**
+ * Resolve one command field for a gate that runs it. This function never
+ * throws and never guesses a command. A caller that needs the leg to pass
+ * treats every result other than `runnable` as a failed leg.
+ */
+export function resolveRunnableCommand(
+  repoRoot: string,
+  field: 'test' | 'typecheck',
+  options?: ResolveOptions,
+): RunnableCommand {
+  let runtime: ResolvedRuntime;
+  try {
+    runtime = resolveTestRuntime(repoRoot, options);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { kind: 'invalid', reason: `The toolchain resolver failed for ${repoRoot}: ${message}` };
+  }
+  const command = runtime[field];
+  if (command === null) {
+    return {
+      kind: 'unresolved',
+      reason:
+        runtime.remediation ??
+        `No ${field} command resolved for ${repoRoot}. Add a "${field}" entry to .exarchos.yml.`,
+    };
+  }
+  let parts: { cmd: string; args: readonly string[] };
+  try {
+    parts = splitCommand(command);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { kind: 'invalid', reason: `The resolved ${field} command "${command}" cannot be parsed: ${message}` };
+  }
+  if (parts.cmd.length === 0) {
+    return { kind: 'invalid', reason: `The resolved ${field} command for ${repoRoot} is empty.` };
+  }
+  return { kind: 'runnable', command, bin: parts.cmd, args: parts.args };
 }
 
 // ─── Generalized Verification Runtime Resolver (task 017) ───────────────────

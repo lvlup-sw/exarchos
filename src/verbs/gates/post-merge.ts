@@ -6,6 +6,7 @@
 // flywheel integration.
 // ────────────────────────────────────────────────────────────────────────────
 
+import { isAbsolute } from 'node:path';
 import { spawnCommandSync } from '../../utils/process.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
@@ -21,7 +22,8 @@ interface PostMergeArgs {
   readonly featureId: string;
   readonly prUrl: string;
   readonly mergeSha: string;
-  readonly repoRoot?: string;
+  /** The absolute path of the checkout whose resolved test command runs. */
+  readonly repoRoot: string;
 }
 
 interface PostMergeResult {
@@ -37,14 +39,14 @@ interface PostMergeResult {
 /**
  * Wraps spawnSync to match the command runner signature expected by
  * the pure TypeScript checkPostMerge function. Routes through
- * `spawnCommandSync` so a resolved package-manager command (`checkPostMerge`
- * spawns `npm`) launches its `.cmd` shim on Windows — raw `spawnSync('npm', …)`
- * throws EINVAL since CVE-2024-27980 (Node >= 20.12.2). (#1623)
+ * `spawnCommandSync` so a resolved package-manager command launches its `.cmd`
+ * shim on Windows. A raw `spawnSync` of such a shim throws EINVAL since
+ * CVE-2024-27980 (Node >= 20.12.2). (#1623)
  */
 function execCommandRunner(
   cmd: string,
   args: readonly string[],
-  cwd?: string,
+  cwd: string,
 ): CommandResult {
   const result = spawnCommandSync(cmd, [...args], {
     cwd,
@@ -89,6 +91,19 @@ export async function handlePostMerge(
     };
   }
 
+  if (typeof args.repoRoot !== 'string' || !isAbsolute(args.repoRoot)) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message:
+          'repoRoot is required and must be an absolute path: check_post_merge runs the ' +
+          "repository's resolved test command there and does not fall back to the server's " +
+          'own working directory.',
+      },
+    };
+  }
+
   // Durable gate evidence is a declared postcondition here, and a bare
   // `gate.executed` append does not pay it — the observer reads
   // `admission.evidence-recorded`. The shared phase-gate runner records that
@@ -119,12 +134,12 @@ async function executePostMerge(
   args: PostMergeArgs,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  // Run the pure TypeScript post-merge check
-  const cwd = args.repoRoot;
+  const { repoRoot } = args;
   const checkResult = await checkPostMerge({
     prUrl: args.prUrl,
     mergeSha: args.mergeSha,
-    runCommand: (cmd, cmdArgs) => execCommandRunner(cmd, cmdArgs, cwd),
+    repoRoot,
+    runCommand: (cmd, cmdArgs) => execCommandRunner(cmd, cmdArgs, repoRoot),
   });
 
   const passed = checkResult.status === 'pass';

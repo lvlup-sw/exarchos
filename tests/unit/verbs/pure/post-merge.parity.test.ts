@@ -1,4 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { checkPostMerge } from '../../../../src/verbs/pure/post-merge.js';
 import type { CommandResult } from '../../../../src/verbs/pure/post-merge.js';
 import type { VcsProvider, CiStatus } from '../../../../src/vcs/provider.js';
@@ -43,6 +46,18 @@ function makeTestFailRunner(): (cmd: string, args: readonly string[]) => Command
 }
 
 describe('behavioral parity with check-post-merge.sh', () => {
+  /** A node project, so the resolved test command is the script's `npm run test:run`. */
+  let nodeRepo: string;
+
+  beforeAll(() => {
+    nodeRepo = mkdtempSync(join(tmpdir(), 'post-merge-parity-'));
+    writeFileSync(join(nodeRepo, 'package.json'), JSON.stringify({ scripts: { 'test:run': 'vitest run' } }));
+  });
+
+  afterAll(() => {
+    rmSync(nodeRepo, { recursive: true, force: true });
+  });
+
   it('all pass — CI green + tests pass yields PASS (2/2)', async () => {
     const provider = createMockProvider({
       status: 'pass',
@@ -55,6 +70,7 @@ describe('behavioral parity with check-post-merge.sh', () => {
     expect(await checkPostMerge({
       prUrl: PR_URL,
       mergeSha: MERGE_SHA,
+      repoRoot: nodeRepo,
       runCommand: makeTestPassRunner(),
       provider,
     })).toEqual({
@@ -96,6 +112,7 @@ describe('behavioral parity with check-post-merge.sh', () => {
     expect(await checkPostMerge({
       prUrl: PR_URL,
       mergeSha: MERGE_SHA,
+      repoRoot: nodeRepo,
       runCommand: makeTestPassRunner(),
       provider,
     })).toEqual({
@@ -139,6 +156,7 @@ describe('behavioral parity with check-post-merge.sh', () => {
     expect(await checkPostMerge({
       prUrl: PR_URL,
       mergeSha: MERGE_SHA,
+      repoRoot: nodeRepo,
       runCommand: makeTestFailRunner(),
       provider,
     })).toEqual({
@@ -182,6 +200,7 @@ describe('behavioral parity with check-post-merge.sh', () => {
     expect(await checkPostMerge({
       prUrl: PR_URL,
       mergeSha: MERGE_SHA,
+      repoRoot: nodeRepo,
       runCommand: makeTestFailRunner(),
       provider,
     })).toEqual({
@@ -226,6 +245,7 @@ describe('behavioral parity with check-post-merge.sh', () => {
     expect(await checkPostMerge({
       prUrl: PR_URL,
       mergeSha: MERGE_SHA,
+      repoRoot: nodeRepo,
       runCommand: makeTestPassRunner(),
       provider,
     })).toEqual({

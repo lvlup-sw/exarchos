@@ -1,6 +1,8 @@
 // ─── Post-Delegation Check Handler Tests ────────────────────────────────────
 
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { ToolResult } from '../../../../src/format.js';
 
 // ─── Mock fs and child_process ──────────────────────────────────────────────
@@ -88,6 +90,25 @@ function gateWiring(): { featureId: string; stateDir: string; eventStore: EventS
 
 // ─── Test Helpers ───────────────────────────────────────────────────────────
 
+/** A node project the toolchain resolver resolves to its `test:run` script. */
+const NODE_PACKAGE_JSON = JSON.stringify({ scripts: { 'test:run': 'vitest run' } });
+
+const realFs = await vi.importActual<typeof import('node:fs')>('node:fs');
+const fixtureDirs: string[] = [];
+
+/** A real temporary repository, removed after each test. */
+function fixtureRepo(): string {
+  const dir = realFs.mkdtempSync(join(tmpdir(), 'post-delegation-'));
+  fixtureDirs.push(dir);
+  return dir;
+}
+
+/** Route the mocked `existsSync` and `readFileSync` to the real file system. */
+function useRealFs(): void {
+  mockExistsSync.mockImplementation(realFs.existsSync);
+  mockReadFileSync.mockImplementation(realFs.readFileSync);
+}
+
 function makeState(tasks: Record<string, unknown>[]) {
   return JSON.stringify({ tasks });
 }
@@ -106,6 +127,10 @@ describe('handlePostDelegationCheck', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     currentStore = unavailableStore();
+  });
+
+  afterEach(() => {
+    for (const dir of fixtureDirs.splice(0)) realFs.rmSync(dir, { recursive: true, force: true });
   });
 
   // ─── Test 1: All tasks complete, tests pass → passed: true ────────────
@@ -128,7 +153,8 @@ describe('handlePostDelegationCheck', () => {
       if (path === '/repo/wt-2/package.json') return true;
       return false;
     });
-    mockReadFileSync.mockReturnValue(stateJson);
+    mockReadFileSync.mockImplementation(((p: unknown) =>
+      String(p).endsWith('package.json') ? NODE_PACKAGE_JSON : stateJson) as typeof readFileSync);
     currentStore = storeFrom(stateJson);
     mockExecFileSync.mockReturnValue(Buffer.from(''));
 
@@ -145,6 +171,44 @@ describe('handlePostDelegationCheck', () => {
     expect(data.passed).toBe(true);
     expect(data.checks.fail).toBe(0);
     expect(data.report).toContain('PASS');
+  });
+
+  /** A worktree without a package.json still runs its tests. A Go module resolves `go test ./...`. */
+  it('worktreeGoModule_runsTheResolvedTestCommand', async () => {
+    const repoRoot = fixtureRepo();
+    realFs.mkdirSync(join(repoRoot, 'wt-go'));
+    realFs.writeFileSync(join(repoRoot, 'wt-go', 'go.mod'), 'module example.com/fixture\n');
+    useRealFs();
+    currentStore = storeFrom(makeState([makeCompleteTask('task-1', 'wt-go')]));
+    mockExecFileSync.mockReturnValue(Buffer.from(''));
+
+    const result = await handlePostDelegationCheck({ ...gateWiring(), repoRoot });
+
+    expect(mockExecFileSync).toHaveBeenCalledTimes(1);
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      'go',
+      ['test', './...'],
+      expect.objectContaining({ cwd: expect.stringMatching(/wt-go$/) }),
+    );
+    const data = result.data as { passed: boolean; report: string };
+    expect(data.passed).toBe(true);
+    expect(data.report).toContain('Worktree tests: wt-go (go test ./...)');
+  });
+
+  /** A worktree with nothing to resolve fails the check. It is not skipped. */
+  it('worktreeWithoutResolvableTestCommand_failsTheCheck', async () => {
+    const repoRoot = fixtureRepo();
+    realFs.mkdirSync(join(repoRoot, 'wt-empty'));
+    useRealFs();
+    currentStore = storeFrom(makeState([makeCompleteTask('task-1', 'wt-empty')]));
+
+    const result = await handlePostDelegationCheck({ ...gateWiring(), repoRoot });
+
+    const data = result.data as { passed: boolean; report: string; checks: { skip: number } };
+    expect(data.passed).toBe(false);
+    expect(data.checks.skip).toBe(0);
+    expect(data.report).toMatch(/FAIL\*\*: Worktree tests: wt-empty — No test command resolved: No project markers detected/);
+    expect(mockExecFileSync).not.toHaveBeenCalled();
   });
 
   // ─── Test 2: no usable state source → error ──────────────────────────

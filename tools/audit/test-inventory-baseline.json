@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1286,
-    "parsedFiles": 1241,
+    "testFiles": 1287,
+    "parsedFiles": 1242,
     "shellFiles": 45,
-    "cases": 14204,
+    "cases": 14226,
     "dynamicTitles": 172,
     "unparseableFiles": 0
   },
@@ -18162,6 +18162,36 @@
         {
           "suite": "top-level mutation config shape (WFQ-013 / DOC-5)",
           "name": "resolveVerificationRuntime honors a top-level `mutation` via the config-direct tier",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveRunnableCommand",
+          "name": "RunnableCommand_GoModule_SplitsTheDetectedTestCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveRunnableCommand",
+          "name": "RunnableCommand_ConfiguredCommand_KeepsAQuotedArgumentWhole",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveRunnableCommand",
+          "name": "RunnableCommand_NoProjectMarkers_IsUnresolvedWithTheRemediation",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveRunnableCommand",
+          "name": "RunnableCommand_ToolchainWithoutTypecheck_IsUnresolvedNotInvalid",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveRunnableCommand",
+          "name": "RunnableCommand_InvalidConfig_IsInvalidAndDoesNotThrow",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveRunnableCommand",
+          "name": "RunnableCommand_UnterminatedQuote_IsInvalid",
           "dynamic": false
         }
       ]
@@ -55273,6 +55303,16 @@
         },
         {
           "suite": "handlePostMerge",
+          "name": "handlePostMerge_RunCommandAdapter_RunsInRepoRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePostMerge",
+          "name": "handlePostMerge_MissingOrRelativeRepoRoot_ReturnsErrorWithoutRunning",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePostMerge",
           "name": "PostMerge_GateEventAppendFails_WithholdsTheSuccessCarrier",
           "dynamic": false
         }
@@ -59756,6 +59796,16 @@
           "suite": "checkPostMerge",
           "name": "empty checks from provider returns pass for CI",
           "dynamic": false
+        },
+        {
+          "suite": "checkPostMerge",
+          "name": "runs the resolved test command for a Go module",
+          "dynamic": false
+        },
+        {
+          "suite": "checkPostMerge",
+          "name": "fails the test suite check when no test command resolves",
+          "dynamic": false
         }
       ]
     },
@@ -60384,7 +60434,7 @@
         },
         {
           "suite": "handleDebugReviewGate",
-          "name": "returns failed when npm test:run fails",
+          "name": "returns failed when the resolved test command fails",
           "dynamic": false
         },
         {
@@ -60400,6 +60450,16 @@
         {
           "suite": "handleDebugReviewGate",
           "name": "detects all supported test file extensions",
+          "dynamic": false
+        },
+        {
+          "suite": "handleDebugReviewGate",
+          "name": "runs the resolved test command for a Go module",
+          "dynamic": false
+        },
+        {
+          "suite": "handleDebugReviewGate",
+          "name": "fails the test check when no test command resolves",
           "dynamic": false
         },
         {
@@ -62502,6 +62562,16 @@
         },
         {
           "suite": "handlePostDelegationCheck",
+          "name": "worktreeGoModule_runsTheResolvedTestCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePostDelegationCheck",
+          "name": "worktreeWithoutResolvableTestCommand_failsTheCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePostDelegationCheck",
           "name": "stateSourceUnreadable_returnsError",
           "dynamic": false
         },
@@ -63478,6 +63548,26 @@
         {
           "suite": "handlePrepareSynthesis",
           "name": "PrepareSynthesis_TypecheckFails_ReturnsNotReady",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "PrepareSynthesis_GoModule_RunsTheResolvedTestCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "PrepareSynthesis_ConfiguredCommands_RunInArgumentForm",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "PrepareSynthesis_NoTestCommandResolves_IsNotReady",
+          "dynamic": false
+        },
+        {
+          "suite": "handlePrepareSynthesis",
+          "name": "PrepareSynthesis_UnparseableTypecheckCommand_IsNotReady",
           "dynamic": false
         },
         {
@@ -83200,6 +83290,32 @@
         {
           "suite": "static call-shape census",
           "name": "CallShapeCensus_CheckedInSummary_IsRenderedFromTheSameCensus",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/phase-gates-resolve-test-command.test.ts": {
+      "file": "tests/architecture/phase-gates-resolve-test-command.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "phase gates resolve their test command",
+          "name": "PhaseGateGuard_ScansAllFourGateFiles",
+          "dynamic": false
+        },
+        {
+          "suite": "phase gates resolve their test command",
+          "name": "PhaseGateGuard_NoGateBuildsAnNpmOrNpxCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "phase gates resolve their test command",
+          "name": "PhaseGateGuard_Matcher_FindsSeededViolations",
+          "dynamic": false
+        },
+        {
+          "suite": "phase gates resolve their test command",
+          "name": "PhaseGateGuard_Matcher_IgnoresCommentsAndOtherPrograms",
           "dynamic": false
         }
       ]

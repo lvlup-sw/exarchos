@@ -8,6 +8,8 @@
 import { execSync, execFileSync } from 'node:child_process';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
+import { runCommandSync } from '../../utils/process.js';
+import { resolveRunnableCommand, type RunnableCommand } from '../../config/test-runtime-resolver.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import { emitGateEvent } from '../gates/gate-utils.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
@@ -25,17 +27,31 @@ interface SynthesisReadinessState {
   stackHealthy: boolean;
 }
 
+/**
+ * The test leg. `passed` is the exit status of the resolved command. The counts
+ * are read from its output where the runner prints them, else they are 0.
+ * `command` is null when no test command resolved; the leg then fails.
+ */
 interface TestResult {
   passed: boolean;
   passCount: number;
   failCount: number;
+  command: string | null;
   output?: string;
+  reason?: string;
 }
 
+/**
+ * The typecheck leg. `command` is null when the toolchain declares no typecheck
+ * command; the leg then does not run and does not block. A typecheck command
+ * that resolves but cannot be parsed fails the leg.
+ */
 interface TypecheckResult {
   passed: boolean;
   errorCount: number;
+  command: string | null;
   errors?: string[];
+  reason?: string;
 }
 
 interface StackResult {
@@ -56,35 +72,57 @@ interface PrepareSynthesisResult {
 
 // ─── Test Runner ───────────────────────────────────────────────────────────
 
+/** The outcome of one resolved command, decided by its exit status. */
+interface LegRun {
+  readonly exitedZero: boolean;
+  readonly output: string;
+}
+
 /**
- * `repoRoot` is threaded as `cwd` on every leg below (DR-8 / #1756): the
- * process this MCP server happens to have been launched in is never an
- * implicit scan surface — the caller must name the tree it wants judged.
+ * Run a resolved command in `repoRoot` in argument form, with no shell. The
+ * caller names the tree; the server's own working directory is never used.
  */
-function runTestSuite(repoRoot: string): TestResult {
+function runLeg(
+  command: Extract<RunnableCommand, { kind: 'runnable' }>,
+  repoRoot: string,
+  timeout: number,
+): LegRun {
   try {
-    const output = execSync('npm run test:run', {
+    const output = runCommandSync(command.bin, command.args, {
       cwd: repoRoot,
       encoding: 'buffer',
-      timeout: 120_000,
+      timeout,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    const text = output.toString('utf-8');
-    const { passCount, failCount } = parseTestOutput(text);
-    return { passed: true, passCount, failCount, output: text };
+    return { exitedZero: true, output: outputText(output) };
   } catch (err: unknown) {
-    const execError = err as { stdout?: Buffer; stderr?: Buffer; status?: number };
-    const text = [execError.stdout, execError.stderr]
-      .filter((chunk): chunk is Buffer => chunk instanceof Buffer)
-      .map((chunk) => chunk.toString('utf-8'))
+    const execError = err as { stdout?: Buffer | string; stderr?: Buffer | string };
+    const output = [execError.stdout, execError.stderr]
+      .filter((chunk): chunk is Buffer | string => chunk !== undefined && chunk !== null)
+      .map(outputText)
       .join('\n');
-    const { passCount, failCount } = parseTestOutput(text);
-    return { passed: false, passCount, failCount, output: text };
+    const message = err instanceof Error ? err.message : String(err);
+    return { exitedZero: false, output: output.trim().length > 0 ? output : message };
   }
 }
 
+function outputText(chunk: Buffer | string): string {
+  return typeof chunk === 'string' ? chunk : chunk.toString('utf-8');
+}
+
+/** Runs the resolved test command. No resolved command fails the leg. */
+function runTestSuite(repoRoot: string): TestResult {
+  const resolved = resolveRunnableCommand(repoRoot, 'test');
+  if (resolved.kind !== 'runnable') {
+    return { passed: false, passCount: 0, failCount: 0, command: null, reason: resolved.reason };
+  }
+  const run = runLeg(resolved, repoRoot, 120_000);
+  const { passCount, failCount } = parseTestOutput(run.output);
+  return { passed: run.exitedZero, passCount, failCount, command: resolved.command, output: run.output };
+}
+
+/** Counts printed as "<n> passed" and "<n> failed". Informational only. */
 function parseTestOutput(output: string): { passCount: number; failCount: number } {
-  // Match patterns like "10 passed" and "2 failed"
   const passMatch = output.match(/(\d+)\s+passed/);
   const failMatch = output.match(/(\d+)\s+failed/);
   return {
@@ -93,32 +131,32 @@ function parseTestOutput(output: string): { passCount: number; failCount: number
   };
 }
 
-// ─── Typecheck Runner ──────────────────────────────────────────────────────
-
+/** Runs the resolved typecheck command, if the toolchain declares one. */
 function runTypecheck(repoRoot: string): TypecheckResult {
-  try {
-    execSync('npm run typecheck', {
-      cwd: repoRoot,
-      encoding: 'buffer',
-      timeout: 60_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return { passed: true, errorCount: 0 };
-  } catch (err: unknown) {
-    const execError = err as { stdout?: Buffer; stderr?: Buffer; status?: number };
-    const text = [execError.stdout, execError.stderr]
-      .filter((chunk): chunk is Buffer => chunk instanceof Buffer)
-      .map((chunk) => chunk.toString('utf-8'))
-      .join('\n');
-    const errors = parseTypecheckErrors(text);
-    return { passed: false, errorCount: errors.length, errors };
+  const resolved = resolveRunnableCommand(repoRoot, 'typecheck');
+  if (resolved.kind === 'unresolved') {
+    return { passed: true, errorCount: 0, command: null, reason: resolved.reason };
   }
+  if (resolved.kind === 'invalid') {
+    return { passed: false, errorCount: 1, command: null, errors: [resolved.reason], reason: resolved.reason };
+  }
+  const run = runLeg(resolved, repoRoot, 60_000);
+  if (run.exitedZero) {
+    return { passed: true, errorCount: 0, command: resolved.command };
+  }
+  const errors = parseTypecheckErrors(run.output, resolved.command);
+  return { passed: false, errorCount: errors.length, command: resolved.command, errors };
 }
 
-function parseTypecheckErrors(output: string): string[] {
-  // Match lines like "error TS2322: ..."
+/**
+ * TypeScript error lines when the output has them, else the whole output as
+ * one error. A failed run always yields at least one error.
+ */
+function parseTypecheckErrors(output: string, command: string): string[] {
   const errorLines = output.split('\n').filter((line) => line.includes('error TS'));
-  return errorLines.length > 0 ? errorLines : output.trim() ? [output.trim()] : [];
+  if (errorLines.length > 0) return errorLines;
+  const trimmed = output.trim();
+  return [trimmed.length > 0 ? trimmed : `${command} exited with a non-zero status`];
 }
 
 // ─── Default Branch Detection ─────────────────────────────────────────────
@@ -376,8 +414,8 @@ async function executePrepareSynthesis(
         ready: false,
         readiness,
         blockers,
-        tests: { passed: false, passCount: 0, failCount: 0 },
-        typecheck: { passed: false, errorCount: 0 },
+        tests: { passed: false, passCount: 0, failCount: 0, command: null },
+        typecheck: { passed: false, errorCount: 0, command: null },
         document: { evaluated: false, covered: false, severity: 'advisory', surfaceFiles: [] },
         stack: { healthy: false },
       };
@@ -436,27 +474,26 @@ async function executePrepareSynthesis(
     }
     const repoRoot = args.repoRoot;
 
-    // 4. Run test suite
     const tests = runTestSuite(repoRoot);
-
-    // 5. Emit gate.executed event for test-suite (feeds flywheel)
     await emitGateEvent(store, streamId, 'test-suite', 'CI', tests.passed, {
       dimension: 'D1',
       phase: 'synthesize',
       passCount: tests.passCount,
       failCount: tests.failCount,
+      command: tests.command,
+      ...(tests.reason !== undefined ? { reason: tests.reason } : {}),
     });
 
-    // 6. Run typecheck
     const typecheck = runTypecheck(repoRoot);
-
-    // 7. Emit gate.executed event for typecheck (feeds flywheel)
-    await emitGateEvent(store, streamId, 'typecheck', 'CI', typecheck.passed, {
-      dimension: 'D1',
-      phase: 'synthesize',
-      errorCount: typecheck.errorCount,
-      errors: typecheck.errors,
-    });
+    if (typecheck.command !== null || !typecheck.passed) {
+      await emitGateEvent(store, streamId, 'typecheck', 'CI', typecheck.passed, {
+        dimension: 'D1',
+        phase: 'synthesize',
+        errorCount: typecheck.errorCount,
+        errors: typecheck.errors,
+        command: typecheck.command,
+      });
+    }
 
     // 8. Verify branch stack
     const stack = verifyStack(repoRoot);
@@ -509,8 +546,20 @@ async function executePrepareSynthesis(
       && readiness.stackHealthy;
 
     const allBlockers: string[] = [];
-    if (!readiness.testsPass) allBlockers.push('Test suite failed');
-    if (!readiness.typecheckPass) allBlockers.push('Typecheck failed');
+    if (!readiness.testsPass) {
+      allBlockers.push(
+        tests.command === null
+          ? `Test suite not run: ${tests.reason ?? 'no test command resolved'}`
+          : `Test suite failed (${tests.command})`,
+      );
+    }
+    if (!readiness.typecheckPass) {
+      allBlockers.push(
+        typecheck.command === null
+          ? `Typecheck not run: ${typecheck.reason ?? 'the typecheck command is invalid'}`
+          : `Typecheck failed (${typecheck.command})`,
+      );
+    }
     if (!readiness.documentReady) {
       allBlockers.push(documentLeg.message ?? 'Documentation not updated for a doc-bearing change');
     }
