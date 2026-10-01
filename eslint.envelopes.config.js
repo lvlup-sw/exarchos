@@ -1,9 +1,4 @@
 // @ts-check
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
-import tseslint from 'typescript-eslint';
-import noHandlerThrow from './tools/eslint-rules/no-handler-throw.js';
-
 /**
  * Dedicated flat config for the error-envelope lint. Only `tools/audit/gates/lint-envelopes.mjs`
  * uses it, on the unfiltered `grep-gates` lane.
@@ -15,6 +10,11 @@ import noHandlerThrow from './tools/eslint-rules/no-handler-throw.js';
  * type-aware run. `parserOptions.project` still lets the type checker resolve handler symbols in
  * other files. The glob bounds only the number of files that ESLint reports on.
  */
+
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import tseslint from 'typescript-eslint';
+import noHandlerThrow from './tools/eslint-rules/no-handler-throw.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
