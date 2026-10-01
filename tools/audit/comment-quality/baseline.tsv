@@ -1243,7 +1243,6 @@ src/registry/actions/orchestrate/coordination.ts	04ed203441e4	3
 src/registry/actions/orchestrate/coordination.ts	125a94e00df6	1
 src/registry/actions/orchestrate/coordination.ts	7592c401fd60	1
 src/registry/actions/orchestrate/coordination.ts	87e9bc644d27	1
-src/registry/actions/orchestrate/coordination.ts	8c0e3c92990e	1
 src/registry/actions/orchestrate/coordination.ts	9402b8b9cd40	1
 src/registry/actions/orchestrate/coordination.ts	cac764d3592c	1
 src/registry/actions/orchestrate/coordination.ts	f16a052fc42f	1
@@ -1287,7 +1286,6 @@ src/registry/actions/orchestrate/verification.ts	17cee0ff7139	1
 src/registry/actions/orchestrate/verification.ts	31ba7c19d4c9	1
 src/registry/actions/orchestrate/verification.ts	46459ef69c3f	1
 src/registry/actions/orchestrate/verification.ts	621acec36a4a	1
-src/registry/actions/orchestrate/verification.ts	857395e3dee0	1
 src/registry/actions/orchestrate/verification.ts	b1944d44534f	1
 src/registry/actions/orchestrate/verification.ts	f3e841cf792c	1
 src/registry/actions/orchestrate/verification.ts	f743650376ce	1
@@ -1759,7 +1757,7 @@ src/verbs/gates/static-analysis.ts	ebef6aceaadb	1
 src/verbs/gates/test-adequacy-handler.ts	190853a4043b	1
 src/verbs/gates/test-adequacy-handler.ts	33884f93162e	1
 src/verbs/gates/test-adequacy-handler.ts	449cc23f874e	1
-src/verbs/gates/test-adequacy-handler.ts	936f52fc4ed9	1
+src/verbs/gates/test-adequacy-handler.ts	c67fcf697f0b	1
 src/verbs/gates/test-adequacy.ts	86794d38861c	1
 src/verbs/gates/test-adequacy.ts	9bd197ae2392	1
 src/verbs/gates/test-adequacy.ts	afc07ce445f4	1
@@ -2102,7 +2100,6 @@ src/verbs/team/prepare-review.ts	e2a5b8e1ace9	1
 src/verbs/team/prepare-review.ts	e3d14f0180c3	1
 src/verbs/team/prepare-review.ts	eb7920d1fd90	1
 src/verbs/team/prepare-review.ts	f8a15d7bddf9	1
-src/verbs/team/prepare-synthesis.ts	20b3b87c1fa0	1
 src/verbs/team/prepare-synthesis.ts	3bcd7bd47242	1
 src/verbs/team/prepare-synthesis.ts	4dd05da539eb	1
 src/verbs/team/prepare-synthesis.ts	635c3c09b441	1
@@ -2112,9 +2109,8 @@ src/verbs/team/prune-stale-workflows.ts	03a3829f5c28	1
 src/verbs/team/prune-stale-workflows.ts	0597d147cf12	1
 src/verbs/team/prune-stale-workflows.ts	179afa8f7ade	1
 src/verbs/team/prune-stale-workflows.ts	2423c83bd720	1
+src/verbs/team/prune-stale-workflows.ts	29c3df64ad6e	1
 src/verbs/team/prune-stale-workflows.ts	412c6037002b	1
-src/verbs/team/prune-stale-workflows.ts	4e90ad17e829	1
-src/verbs/team/prune-stale-workflows.ts	7edf0df2a770	1
 src/verbs/team/prune-stale-workflows.ts	84cdea464427	1
 src/verbs/team/prune-stale-workflows.ts	a5718275cb25	1
 src/verbs/team/prune-stale-workflows.ts	bba8fa3b0cdc	1
@@ -2832,7 +2828,7 @@ tests/integration/perf-validation.test.ts	6cd386b261cc	1
 tests/integration/tools-call.test.ts	0906f4048839	1
 tests/integration/tools-list-2020-12.test.ts	5e80004a7cad	1
 tests/integration/tools-list-2020-12.test.ts	6fccdeae78f9	1
-tests/integration/tools-list-golden.test.ts	00dd92bcdafa	1
+tests/integration/tools-list-golden.test.ts	fc9643845870	1
 tests/integration/tools-list.test.ts	12b54801d419	1
 tests/integration/tools-list.test.ts	c4b60e110c6e	1
 tests/migration/batch-migration.test.ts	1d8a3f20b52a	1
@@ -2970,7 +2966,6 @@ tests/scripts/guard-inventory.test.ts	d4e3e6241445	1
 tests/scripts/guard-inventory.test.ts	dd35910ae930	1
 tests/scripts/installer-verify.test.ts	35327e3ba4fa	1
 tests/scripts/installer-verify.test.ts	62398c92ece5	1
-tests/scripts/installer-verify.test.ts	b4adf038f4e4	1
 tests/scripts/installer-verify.test.ts	fa5a9b9408f5	1
 tests/scripts/lint-envelopes.test.sh	279478dae3aa	1
 tests/scripts/lint-envelopes.test.sh	94cfa05f85cb	1
@@ -5529,13 +5524,13 @@ tools/release/build-release-manifest.ts	4e92b84b890e	1
 tools/release/build-release-manifest.ts	fa27aeb612b0	1
 tools/release/generate-legacy-skill-hashes.mjs	ebafab573fda	1
 tools/release/generate-legacy-skill-hashes.mjs	f3ad54647708	1
-tools/release/get-exarchos.ps1	67a36fbaad0f	1
 tools/release/get-exarchos.ps1	68aaee7f50e5	1
 tools/release/get-exarchos.ps1	7232d3cdcccd	1
+tools/release/get-exarchos.ps1	a9045679fa55	1
 tools/release/get-exarchos.ps1	b3a8a262975f	1
 tools/release/get-exarchos.ps1.test.ps1	8692509d7324	1
 tools/release/get-exarchos.sh	ac69999fad68	1
-tools/release/get-exarchos.sh	faafc6c7b18a	1
+tools/release/get-exarchos.sh	ceed2e36fdb6	1
 tools/release/sync-versions.sh	033b9abfe97f	1
 tools/release/sync-versions.sh	5caa832a6b0e	1
 tools/test-helpers/adversarial-lexer-inputs.ts	1a95d3d5f724	1
