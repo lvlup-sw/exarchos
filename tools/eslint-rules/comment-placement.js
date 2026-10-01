@@ -3,8 +3,8 @@
  * @fileoverview ESLint rule: a comment is a file header or a `/** *\/` description, nowhere else.
  *
  * The placement classes and their messages live in `.exarchos/comment-policy.json`. A `//`
- * description gets a suggestion, not an autofix, that rewrites it as `/** *\/`. An autofix would
- * rewrite text on save, and new text leaves the baseline.
+ * description gets a suggestion, not an autofix, that rewrites it as `/** *\/`. An autofix rewrites
+ * the text when an editor saves the file, and the new text is not in the baseline.
  */
 
 import { analysisFor } from './comment-context.js';
