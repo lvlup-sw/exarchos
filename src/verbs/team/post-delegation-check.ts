@@ -2,17 +2,17 @@
  * The post-delegation check. It checks the workflow state, task completion, the tests of each
  * worktree, and state consistency. It returns a markdown report with a task status table.
  */
-import type { EventStore } from '../../events/store.js';
-import type { ToolResult } from '../../format.js';
-import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
-import { emitGateEvent, sameOperationGateKey } from '../gates/gate-utils.js';
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { resolveRunnableCommand } from '../../config/test-runtime-resolver.js';
-import { resolveWorkflowState } from '../resolve-state.js';
 import { runCommandSync } from '../../utils/process.js';
-import { runPhaseGateWithEvidence } from '../gates/gate-runner.js';
+import { resolve } from 'node:path';
 import { toPosix } from '../../utils/paths.js';
+import { resolveRunnableCommand } from '../../config/test-runtime-resolver.js';
+import type { ToolResult } from '../../format.js';
+import type { EventStore } from '../../events/store.js';
+import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
+import { runPhaseGateWithEvidence } from '../gates/gate-runner.js';
+import { emitGateEvent, sameOperationGateKey } from '../gates/gate-utils.js';
+import { resolveWorkflowState } from '../resolve-state.js';
 
 export interface PostDelegationCheckArgs {
   readonly stateFile?: string;
