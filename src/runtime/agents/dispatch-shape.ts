@@ -1,56 +1,21 @@
-// ─── Posture → dispatch-shape table (DR-25) ────────────────────────────────
-//
-// A provisioning verb that declares a `posture` but not the LAUNCH SHAPE the
-// orchestrator must use has declared a posture it does not bind. The
-// orchestrator then improvises the harness invocation, and for a `read-only`
-// posture the natural improvisation — a `name` without `isolation` — spawns an
-// idle mailbox teammate that never runs the prompt. The spawn returns success,
-// the agent emits idle pings that read like progress, and the review never
-// happens.
-//
-// Live incident (2026-08-07): the plan-review panel was provisioned
-// `posture: 'read-only'`, dispatched with `name` and no isolation, and produced
-// three phantom teammates and zero verdicts. `ListAgents` omitted them
-// entirely; recovery via a follow-up message also failed. Only a fresh
-// anonymous dispatch worked.
-//
-// This module makes the launch shape DATA the verb reads, not prose in a skill:
-//
-//   read-only       → anonymous async subagent (a `name` is FORBIDDEN)
-//   task-isolated   → named subagent PLUS worktree isolation
-//   shared-mutating → main worktree, never a subagent
-//
-// Editing rules:
-//   - Every value of the declared `AgentPosture` enum must have EXACTLY ONE
-//     entry. The totality test enumerates `AgentPosture.options` (the Zod
-//     declaration), so a posture added there without an entry here fails the
-//     suite. The mapping cannot be partial.
-//   - Each entry declares the harness capabilities it REQUIRES and, when a
-//     runtime cannot honour them, the FALLBACK shape to use instead. A fallback
-//     must still RUN THE PROMPT — degrading to a shape that spawns something
-//     which never executes is the exact defect this table exists to remove.
-//   - An entry with `fallback: null` is terminal: on an undeclared capability
-//     the resolution is a TYPED ERROR, never a silent no-op (INV-4).
-//   - The table is frozen TRANSITIVELY (`deepFreezeTable`), not just at the
-//     top. Any nested object or array added to an entry must be reached by
-//     that walk, or the table's advertised immutability stops being true for
-//     the part that was added.
-//
-// The posture TYPE is taken from `types.ts` (the interface declaration), NOT
-// from `spec.ts` (the Zod declaration). The two are deliberate twins that
-// `spec.ts` requires be kept in sync, and keeping this module off the Zod
-// module makes them two INDEPENDENT authorities: the totality test enumerates
-// `spec.ts`'s runtime enum and checks it against this table, which is typed off
-// `types.ts`. Neither reaches the other in the import graph, so the census
-// cannot pass by comparing one authority with itself (DR-30).
-//
-// Implements: DR-25.
+/**
+ * The table from agent posture to dispatch shape. A provisioning verb reads it, so the orchestrator does not improvise the harness invocation.
+ * For a `read-only` posture, the natural improvisation is a `name` without isolation. That spawns an idle mailbox teammate that never runs the prompt.
+ *
+ *   read-only       → anonymous async subagent (a `name` is forbidden)
+ *   task-isolated   → named subagent plus worktree isolation
+ *   shared-mutating → main worktree, never a subagent
+ *
+ * Rules for an edit:
+ *   - Each `AgentPosture` value must have exactly one entry. The totality test enumerates `AgentPosture.options` and fails on a missing entry.
+ *   - A fallback must still run the prompt. With `fallback: null`, an unmet capability gives a typed error, not a silent no-op.
+ *   - `deepFreezeTable` must reach each nested object or array of an entry.
+ *   - The posture type comes from `types.ts`, not from the Zod enum in `spec.ts`. Thus the totality test compares two independent authorities.
+ */
 
 import type { AgentPosture } from './types.js';
 import type { Capability } from './capabilities.js';
 import type { SupportLevel } from './adapters/types.js';
-
-// ─── Launch mechanics ───────────────────────────────────────────────────────
 
 /**
  * How the harness spawn is addressed.
@@ -61,13 +26,15 @@ import type { SupportLevel } from './adapters/types.js';
  */
 export type DispatchNaming = 'anonymous' | 'named';
 
-/** The workspace the dispatched work must run in. */
+/**
+ * The workspace that the dispatched work must run in.
+ *   - `inherited` — the checkout of the caller, with no isolation.
+ *   - `worktree` — a dedicated worktree that the harness creates for the spawn.
+ *   - `main-worktree` — the main worktree of the repository, not a subagent workspace.
+ */
 export type DispatchWorkspace =
-  /** The caller's own checkout — no isolation is materialized. */
   | 'inherited'
-  /** A dedicated worktree the harness materializes for the spawn. */
   | 'worktree'
-  /** The repository's main worktree, explicitly NOT a subagent workspace. */
   | 'main-worktree';
 
 /**
@@ -77,7 +44,7 @@ export type DispatchWorkspace =
 export interface DispatchLaunch {
   /** Hand the work to a subagent at all? `false` ⇒ the caller runs it itself. */
   readonly subagent: boolean;
-  /** Whether the spawn may carry a `name`. */
+  /** Whether the spawn can carry a `name`. */
   readonly naming: DispatchNaming;
   /** Workspace the work must run in. */
   readonly workspace: DispatchWorkspace;
@@ -104,8 +71,6 @@ export interface DispatchShape extends DispatchLaunch {
   /** Operator-facing statement of what this shape prevents. */
   readonly rationale: string;
 }
-
-// ─── The table ──────────────────────────────────────────────────────────────
 
 const READ_ONLY_FALLBACK: DispatchShape = {
   posture: 'read-only',
@@ -137,11 +102,10 @@ const TASK_ISOLATED_FALLBACK: DispatchShape = {
 };
 
 const RAW_DISPATCH_MAP: Readonly<Record<AgentPosture, DispatchShape>> = {
-  // Read-only reviewers, researchers, and the plan-review panel. Worktree
-  // isolation is genuinely pointless here — the agent mutates nothing — so the
-  // shape is a plain anonymous async subagent. The `name` field is FORBIDDEN,
-  // not merely unnecessary: naming the spawn is what produced three phantom
-  // teammates and zero verdicts on 2026-08-07.
+  /**
+   * Read-only reviewers, researchers, and the plan-review panel. They mutate nothing, so worktree isolation has no use.
+   * The `name` field is forbidden. A named spawn produced three phantom teammates and zero verdicts on 2026-08-07.
+   */
   'read-only': {
     posture: 'read-only',
     subagent: true,
@@ -156,10 +120,10 @@ const RAW_DISPATCH_MAP: Readonly<Record<AgentPosture, DispatchShape>> = {
       'prompt.',
   },
 
-  // Implementers, fixers, and scaffolders dispatched across a wave. These
-  // mutate, so the worktree boundary is what contains the blast radius, and the
-  // name is what lets the orchestrator address and merge each one. Named WITH
-  // isolation — the two travel together or not at all.
+  /**
+   * Implementers, fixers, and scaffolders across a wave. The worktree contains the blast radius.
+   * The name lets the orchestrator address and merge each one.
+   */
   'task-isolated': {
     posture: 'task-isolated',
     subagent: true,
@@ -173,10 +137,10 @@ const RAW_DISPATCH_MAP: Readonly<Record<AgentPosture, DispatchShape>> = {
       'and a worktree without a name is unaddressable for merge.',
   },
 
-  // Orchestrators and migration runners that mutate shared state. This posture
-  // is NOT a subagent shape at all — it runs in the main worktree, in the
-  // caller's own process. There is no degradation path: a dispatch that cannot
-  // write cannot be honoured by any other shape.
+  /**
+   * Orchestrators and migration runners that mutate shared state. They run in the main worktree, in the process of the caller.
+   * There is no fallback, because no other shape can honor a dispatch that cannot write.
+   */
   'shared-mutating': {
     posture: 'shared-mutating',
     subagent: false,
@@ -191,23 +155,7 @@ const RAW_DISPATCH_MAP: Readonly<Record<AgentPosture, DispatchShape>> = {
   },
 };
 
-// ─── Immutability (transitive, and therefore actually true) ─────────────────
-//
-// `readonly` is a COMPILE-TIME claim. This table is handed out by reference —
-// `dispatchShapeFor` returns the shared entry, and `resolveDispatchShape`
-// returns the shared `fallback` object to every capability-degraded caller —
-// so a single mutation would corrupt every subsequent dispatch process-wide.
-// Freezing only the outer object and its three entries left the parts BELOW
-// those entries writable at runtime: each entry's `requires` array, and the
-// `fallback` shapes (plus their own `requires`), which are exactly what a
-// degraded runtime receives. The walk below closes all of it.
-
-/**
- * Freeze a shape and everything reachable through it: its `requires` array and
- * its declared `fallback` (itself a `DispatchShape`, so it gets the same
- * treatment, recursively). Freezing is in place, so the returned reference is
- * the one that was passed in.
- */
+/** Freeze a shape, its `requires` array, and its `fallback`, recursively. The freeze is in place, so the return value is the input reference. */
 function deepFreezeShape(shape: DispatchShape): DispatchShape {
   Object.freeze(shape.requires);
   if (shape.fallback !== null) deepFreezeShape(shape.fallback);
@@ -215,13 +163,8 @@ function deepFreezeShape(shape: DispatchShape): DispatchShape {
 }
 
 /**
- * Freeze the whole table transitively: the container, every entry, and
- * everything reachable from an entry.
- *
- * Iterates the table's OWN values rather than naming the three postures, so a
- * posture added to the table is frozen by construction — a hand-written list
- * here would silently leave the newest entry mutable, which is the same
- * partial-freeze defect this replaces.
+ * Freeze the table, each entry, and each object that an entry reaches.
+ * It iterates the own values of the table, so a new posture entry is frozen with no change here.
  */
 function deepFreezeTable(
   table: Readonly<Record<AgentPosture, DispatchShape>>,
@@ -231,24 +174,16 @@ function deepFreezeTable(
 }
 
 /**
- * Posture → dispatch-shape map, frozen TRANSITIVELY: the map, each entry, each
- * entry's `requires` array, and each declared `fallback` (with its own
- * `requires`). Direct lookups are O(1).
- *
- * The immutability is a RUNTIME guarantee, not merely the `readonly` types —
- * `DispatchShape_FallbackMutationAttempt_LeavesTheSharedShapeIntact` proves it
- * by attempting real mutations through `Reflect` and `Object.assign`.
+ * The posture to dispatch-shape map, frozen transitively: the map, each entry, each `requires` array, and each `fallback`.
+ * `dispatchShapeFor` and `resolveDispatchShape` hand out shared references. Without a runtime freeze, one mutation corrupts each later dispatch.
+ * `DispatchShape_FallbackMutationAttempt_LeavesTheSharedShapeIntact` attempts real mutations to prove the freeze.
  */
 export const POSTURE_DISPATCH_MAP: Readonly<Record<AgentPosture, DispatchShape>> =
   deepFreezeTable(RAW_DISPATCH_MAP);
 
 /**
- * The postures this table actually binds — its OWN key set, read off the frozen
- * object at runtime.
- *
- * Deliberately NOT a read of the posture declaration: the totality test's job is
- * to check this key set AGAINST that declaration, and a helper that returned the
- * declaration would make the comparison a tautology.
+ * The postures that this table binds: its own key set, read from the frozen object at runtime.
+ * It does not read the posture declaration, because the totality test compares this key set with that declaration.
  */
 export function posturesWithDispatchShape(): readonly AgentPosture[] {
   return Object.keys(POSTURE_DISPATCH_MAP).filter(isDispatchablePosture);
@@ -263,8 +198,6 @@ function isDispatchablePosture(value: unknown): value is AgentPosture {
 export function dispatchShapeFor(posture: AgentPosture): DispatchShape {
   return POSTURE_DISPATCH_MAP[posture];
 }
-
-// ─── Runtime resolution (INV-4 platform agnosticity) ────────────────────────
 
 /**
  * The subset of a `RuntimeAdapter` this module needs: the runtime's own
@@ -290,11 +223,8 @@ export interface DispatchShapeError {
 }
 
 /**
- * Outcome of resolving a posture's shape against a runtime's declaration.
- *
- * `degraded: true` is the DECLARED fallback, carried alongside the shape it
- * replaced and the capabilities that forced the swap — a caller can see it
- * degraded and say so. It is never a quiet substitution.
+ * The result of a resolution of the shape of a posture against the declaration of a runtime.
+ * `degraded: true` carries the declared fallback, the replaced shape, and the capabilities that forced the swap. Thus a caller can report the degradation.
  */
 export type DispatchResolution =
   | { readonly honoured: true; readonly degraded: false; readonly shape: DispatchShape }
@@ -324,18 +254,12 @@ function unmetCapabilities(
 }
 
 /**
- * Resolve the dispatch shape for `posture` against a runtime's declared
- * capabilities.
+ * Resolve the dispatch shape for `posture` against the declared capabilities of a runtime.
+ * Without `runtime`, the result is the canonical shape. The provisioning verbs omit it, because they do not know the harness of the orchestrator.
+ * The shape carries its `requires` and `fallback`, so the host can do the same resolution against its own declaration.
  *
- * Omit `runtime` to get the canonical shape unresolved — the provisioning verbs
- * do this, because the verb does not know which harness the orchestrator will
- * launch on. The emitted shape carries its own `requires` and `fallback`, so
- * the host can run this same resolution against its own declaration.
- *
- * When the runtime does not declare a required capability `native`, the DECLARED
- * fallback is returned with `degraded: true`. When there is no fallback — or the
- * fallback is itself unmet — the result is a typed
- * {@link DISPATCH_SHAPE_UNSUPPORTED} error (INV-4).
+ * When a required capability is not `native`, the result is the declared fallback with `degraded: true`.
+ * With no fallback, or with an unmet fallback, the result is a typed {@link DISPATCH_SHAPE_UNSUPPORTED} error.
  */
 export function resolveDispatchShape(
   posture: AgentPosture,
@@ -391,8 +315,6 @@ export function resolveDispatchShape(
   };
 }
 
-// ─── Validation (the self-test surface) ─────────────────────────────────────
-
 /** Outcome of validating an emitted dispatch shape against its posture. */
 export type DispatchValidation =
   | { readonly ok: true }
@@ -416,12 +338,8 @@ function describeLaunch(launch: DispatchLaunch): string {
 }
 
 /**
- * Validate that a launch shape is one the posture actually admits.
- *
- * This is what makes the contract binding rather than descriptive: a
- * `read-only` provisioning carrying a named, worktree-isolated launch is
- * REJECTED, because the `read-only` entry admits no named launch. The set is
- * derived from the table, so it cannot drift from the policy it enforces.
+ * Validate that the posture admits a launch shape. This check makes the contract binding, not only descriptive.
+ * For example, a `read-only` provisioning with a named, worktree-isolated launch fails, because the `read-only` entry admits no named launch.
  */
 export function validateDispatchShape(
   posture: AgentPosture,
@@ -436,8 +354,6 @@ export function validateDispatchShape(
       `admissible shapes are ${admissible.map(describeLaunch).join(' | ')}`,
   };
 }
-
-// ─── Structural guards over unknown payloads ────────────────────────────────
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -462,17 +378,13 @@ function isDispatchLaunch(value: unknown): value is DispatchLaunch {
 }
 
 /**
- * Validate an emitted provisioning payload: it must declare a known `posture`
- * AND a `dispatch` launch shape that posture admits.
- *
- * Takes `unknown` so a serialized result (a frozen fixture, an MCP response
- * read back off the wire) can be checked without being trusted. The three
- * failure modes are named separately because they mean different things:
- *
- *   - no `posture`  — the payload is not a provisioning contract at all.
- *   - no `dispatch` — the payload declares a posture it does not BIND. This is
- *     the pre-DR-25 shape, and the reason task 047's kill fixture exists.
- *   - contradictory `dispatch` — the payload binds a shape the posture forbids.
+ * Validate an emitted provisioning payload. It must declare a known `posture` and a `dispatch` launch shape that the posture admits.
+ * It takes `unknown`, so a serialized result, such as a fixture or an MCP response, gets a check without trust.
+ * Each failure mode has its own reason, because each means a different thing:
+ *   - no known `posture` — the payload is not a provisioning contract.
+ *   - no `dispatch` — the payload declares a posture that it does not bind.
+ *   - a malformed `dispatch` — the field is not a valid launch shape.
+ *   - a contradictory `dispatch` — the payload binds a shape that the posture forbids.
  */
 export function validateProvisionedDispatch(value: unknown): DispatchValidation {
   if (!isRecord(value)) {

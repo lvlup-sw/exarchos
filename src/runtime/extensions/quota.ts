@@ -1,13 +1,11 @@
-// ─── Declared extension resource quotas (P03-08) ──────────────────────────
-//
-// An extension declares the resource ceiling it needs inside its signed
-// manifest. Admission enforces two independent things, both fail-closed:
-//   1. Every declared ceiling is ≤ the host's allowed budget — an extension
-//      cannot demand more than the host is willing to grant.
-//   2. The actual loaded content is ≤ what the extension declared (and the
-//      host budget) — content cannot silently exceed its own declaration.
-// The quota is part of the signed body, so a trusted manifest carries trusted
-// ceilings; the checks below decide whether those ceilings are admissible.
+/**
+ * Declared resource quotas for an extension.
+ *
+ * An extension declares its resource ceilings in its signed manifest.
+ * Admission makes two checks, and each check rejects on failure:
+ *   1. Each declared ceiling is less than or equal to the host budget.
+ *   2. The loaded content size is less than or equal to the declared ceiling and the host budget.
+ */
 
 import { z } from 'zod';
 
@@ -16,7 +14,7 @@ export const ExtensionQuotaSchema = z
   .object({
     /** Maximum size, in bytes, of the extension's content payload. */
     maxContentBytes: z.number().int().nonnegative(),
-    /** Maximum resident memory the extension may use, in bytes. */
+    /** Maximum resident memory for the extension, in bytes. */
     maxMemoryBytes: z.number().int().nonnegative(),
     /** Maximum wall-clock runtime per invocation, in milliseconds. */
     maxRuntimeMillis: z.number().int().nonnegative(),

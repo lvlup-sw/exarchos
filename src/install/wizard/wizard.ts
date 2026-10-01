@@ -1,8 +1,6 @@
 /**
- * Interactive wizard flow for the Exarchos installer.
- *
- * Guides the user through component selection via a series of prompts,
- * producing a {@link WizardResult} that drives installation.
+ * Interactive wizard flow for the installer. Its prompts produce the
+ * {@link WizardResult} that drives the installation.
  */
 
 import type { Manifest } from '../manifest/types.js';
@@ -21,16 +19,10 @@ export interface WizardResult {
 }
 
 /**
- * Run the interactive wizard flow.
- *
- * Presents a series of prompts to the user for mode selection,
- * component selection, and confirmation. Required components are
- * always included in the result regardless of user selection.
- *
- * @param manifest - The validated installation manifest.
- * @param prompts - The prompt adapter to use for user interaction.
- * @param existingConfig - Optional existing config to use as defaults.
- * @returns The wizard result with mode and selections.
+ * Run the interactive wizard. It prompts for the mode, the optional MCP
+ * servers, the optional plugins and the rule sets. Then it shows a summary and
+ * asks for confirmation. The result always includes the required components.
+ * When `existingConfig` is set, its selections are the defaults.
  */
 export async function runWizard(
   manifest: Manifest,
@@ -42,7 +34,6 @@ export async function runWizard(
     ? existingConfig.selections
     : getDefaultSelections(manifest);
 
-  // Welcome banner
   console.log('');
   console.log(formatHeader('Exarchos', manifest.version));
   if (existingConfig) {
@@ -50,13 +41,11 @@ export async function runWizard(
   }
   console.log('');
 
-  // Step 1: Mode selection
   const mode = await prompts.select<'standard' | 'dev'>('Installation mode:', [
     { label: 'Standard', value: 'standard', description: 'Copy files to ~/.claude/ — recommended for most users' },
     { label: 'Dev', value: 'dev', description: 'Symlink to repo for live editing — for Exarchos contributors' },
   ]);
 
-  // Step 2: MCP Servers (optional only — required are always included)
   const requiredServerNames = manifest.components.mcpServers
     .filter((s) => s.required)
     .map((s) => s.name);
@@ -74,7 +63,6 @@ export async function runWizard(
     selectedOptionalServers = await prompts.multiselect('Additional MCP servers:', serverOptions);
   }
 
-  // Step 3: Plugins (optional only — required are always included)
   const requiredPluginNames = manifest.components.plugins
     .filter((p) => p.required)
     .map((p) => p.name);
@@ -94,7 +82,6 @@ export async function runWizard(
     selectedOptionalPlugins = await prompts.multiselect('Claude plugins:', pluginOptions);
   }
 
-  // Step 4: Rule sets
   console.log('\n  Rule sets configure coding standards and workflow behavior.');
   const ruleSetOptions: MultiselectOption<string>[] = manifest.components.ruleSets.map((r) => ({
     label: r.name,
@@ -104,7 +91,6 @@ export async function runWizard(
   }));
   const selectedRuleSets = await prompts.multiselect('Rule sets:', ruleSetOptions);
 
-  // Summary before confirmation
   const allServers = [...requiredServerNames, ...optionalServers.filter((s) => selectedOptionalServers.includes(s.id)).map((s) => s.name)];
   const allPlugins = [...requiredPluginNames, ...optionalPlugins.filter((p) => selectedOptionalPlugins.includes(p.id)).map((p) => p.name)];
   const selectedRuleNames = manifest.components.ruleSets.filter((r) => selectedRuleSets.includes(r.id)).map((r) => r.name);
@@ -116,10 +102,8 @@ export async function runWizard(
   console.log(`    Rule sets:   ${selectedRuleNames.length > 0 ? selectedRuleNames.join(', ') : '(none)'}`);
   console.log('');
 
-  // Step 5: Confirmation
   await prompts.confirm('Proceed with installation?', true);
 
-  // Merge required components with user selections
   const mcpServers = [
     ...required.servers,
     ...selectedOptionalServers.filter((id) => !required.servers.includes(id)),
@@ -141,8 +125,6 @@ export async function runWizard(
   };
 }
 
-// ─── Non-interactive mode ─────────────────────────────────────────────────────
-
 /** Options for non-interactive installation. */
 interface NonInteractiveOptions {
   /** Use manifest defaults (or existing config if provided). */
@@ -154,15 +136,12 @@ interface NonInteractiveOptions {
 }
 
 /**
- * Run the installer in non-interactive mode.
+ * Return the wizard result without prompts. The selections come from the file
+ * at `configPath`, else from `existingConfig` when `useDefaults` is set, else
+ * from the manifest defaults. The result always includes the required
+ * components.
  *
- * Determines selections without user prompts, using either manifest defaults,
- * a previous config, or a config file.
- *
- * @param manifest - The validated installation manifest.
- * @param options - Non-interactive mode options.
- * @returns The wizard result with mode and selections.
- * @throws If configPath is provided but the file cannot be read.
+ * @throws When `configPath` is set but the file cannot be read.
  */
 export function runNonInteractive(
   manifest: Manifest,
@@ -174,7 +153,6 @@ export function runNonInteractive(
   let baseMode: 'standard' | 'dev';
 
   if (options.configPath) {
-    // Read config from file
     const config = readConfig(options.configPath);
     if (!config) {
       throw new Error(`Config file not found: ${options.configPath}`);
@@ -182,16 +160,13 @@ export function runNonInteractive(
     baseSelections = config.selections;
     baseMode = config.mode;
   } else if (options.useDefaults && options.existingConfig) {
-    // Use existing config's selections
     baseSelections = options.existingConfig.selections;
     baseMode = options.existingConfig.mode;
   } else {
-    // Use manifest defaults
     baseSelections = getDefaultSelections(manifest);
     baseMode = manifest.defaults.mode;
   }
 
-  // Ensure required components are always included
   const mcpServers = [
     ...required.servers,
     ...baseSelections.mcpServers.filter((id) => !required.servers.includes(id)),

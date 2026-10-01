@@ -1,17 +1,7 @@
 /**
- * Runtime YAML loader.
- *
- * Reads `content/harness/runtimes/<name>.yaml` files from disk, parses them via `js-yaml`,
- * and validates them against `RuntimeMapSchema`. On any failure path
- * (missing file, malformed YAML, schema violation) a descriptive `Error` is
- * thrown that always names the offending file and — for schema failures —
- * also names the offending field path.
- *
- * Consumed by:
- *   - the renderer (Task 007)
- *   - the install-skills CLI (Task 019)
- *
- * Implements: DR-4 (runtime capability matrix), DR-10 (schema violation error path).
+ * Load the runtime YAML files under `content/harness/runtimes/`, parse them
+ * with `js-yaml`, and validate them against `RuntimeMapSchema`. Each error
+ * names the file. A schema error also names each failing field path.
  */
 
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
@@ -22,9 +12,8 @@ import { RuntimeMapSchema } from './types.js';
 import type { RuntimeMap } from './types.js';
 
 /**
- * Canonical list of runtimes that the build system must ship. Any additional
- * YAML files in the runtimes directory are permitted (and loaded) but emit a
- * warning via the injected logger so stray experiments are visible.
+ * The runtimes that the build must ship. `loadAllRuntimes` also loads other
+ * YAML files in the directory, but it warns about each one.
  */
 export const REQUIRED_RUNTIME_NAMES = [
   'generic',
@@ -36,19 +25,12 @@ export const REQUIRED_RUNTIME_NAMES = [
 ] as const;
 
 
-/**
- * Side-effecting collaborators that `loadAllRuntimes` uses. Injected so tests
- * can assert on warning emission without capturing stderr.
- */
+/** Injected side effects of `loadAllRuntimes`, so tests can read the warnings. */
 export interface LoadAllRuntimesDeps {
   warn?: (message: string) => void;
 }
 
-/**
- * Format a Zod validation error into a single human-readable string that
- * names the filename and each failing field path. Exported so the renderer
- * and CLI can reuse the same format for uniform diagnostics.
- */
+/** Format a Zod error as one message that names the file and each failing field path. */
 export function formatZodError(filename: string, err: ZodError): string {
   const issueLines = err.issues.map((issue) => {
     const path = issue.path.length > 0 ? issue.path.join('.') : '<root>';
@@ -58,24 +40,17 @@ export function formatZodError(filename: string, err: ZodError): string {
 }
 
 /**
- * Narrow the raw return of `yamlLoad` to an object-shaped value before we
- * hand it to Zod. `js-yaml.load` returns `unknown` and can legitimately
- * return `null`, a scalar, or an array when given valid-but-wrong YAML.
+ * True when `value` is a non-null, non-array object. Valid YAML can load as
+ * `null`, a scalar or an array.
  */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
- * Load and validate a single runtime map from a YAML file.
- *
- * Error handling contract:
- *   - Missing file → `Error` mentioning the attempted path and "not found".
- *   - YAML parse failure → `Error` mentioning the filename and wrapping the
- *     underlying `YAMLException` message.
- *   - Parses as YAML but is not an object → `Error` mentioning the filename.
- *   - Fails `RuntimeMapSchema.parse` → `Error` formatted by `formatZodError`
- *     so the filename and every failing field path are present.
+ * Load and validate one runtime map from a YAML file. A missing file, a read
+ * failure, a YAML parse failure, a non-object value and a schema failure each
+ * throw an `Error` that names the file.
  */
 export function loadRuntime(path: string): RuntimeMap {
   const filename = basename(path);
@@ -118,17 +93,10 @@ export function loadRuntime(path: string): RuntimeMap {
 }
 
 /**
- * Load every `*.yaml` file in the given runtimes directory, validate each
- * against `RuntimeMapSchema`, and return them as an array.
- *
- * Contract:
- *   - Directory must exist — otherwise throws with the attempted path.
- *   - Every runtime in `REQUIRED_RUNTIME_NAMES` MUST be present; a single
- *     aggregated error is thrown listing all missing required runtimes.
- *   - Extra YAML files whose `name` is not in `REQUIRED_RUNTIME_NAMES` are
- *     loaded and included in the returned array, but a warning is emitted
- *     via `deps.warn` (default `console.warn`).
- *   - Individual file failures (parse, schema) propagate as-is.
+ * Load and validate each `*.yaml` and `*.yml` file in `runtimesDir`, in name
+ * order. Throws when the directory is absent, and throws one error that lists
+ * each missing runtime of `REQUIRED_RUNTIME_NAMES`. A runtime outside that list
+ * stays in the result, and `deps.warn` reports it.
  */
 export function loadAllRuntimes(
   runtimesDir = 'content/harness/runtimes',

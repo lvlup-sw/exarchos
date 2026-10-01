@@ -1,33 +1,20 @@
 /**
- * T1 (v2.10.1 Bundle A, #1472) — Canonical command → skill source-of-truth.
+ * Canonical map from a workflow command name to the skill directories that the
+ * command delegates to. Consumers read this map and do not derive it again.
  *
- * `COMMAND_TO_SKILL` is the single authoritative mapping from a canonical
- * workflow command name (the `commands/<name>.md` slash command, e.g. `/ideate`)
- * to the underlying skill directory name(s) under `content/<dir>/` that the
- * command delegates to. Downstream consumers (T2 alias emission, T5 docs) read
- * this map instead of re-deriving it, so there is exactly one place the mapping
- * lives.
+ * The map holds each `@skills/<dir>/SKILL.md` reference in a command file.
+ * `@skills/<dir>/references/*.md` paths are not skill entry points.
+ * Most commands map to the skill of the same name. Some commands also use a
+ * second skill.
  *
- * Derived from the "Skill Reference" prose in each command file — specifically
- * every `@skills/<dir>/SKILL.md` entry-point reference. Post the atomic rename
- * wave (DR-3) the map collapses toward identity — the command verb equals the
- * skill directory name — but a command may still reference more than one skill:
- *   - `delegate`  → `delegate` + `git-worktrees`
- *   - `oneshot`   → `oneshot` + `synthesize`
- *   - `review`    → `review` + `mutation-adequacy`
- *
- * `@skills/<dir>/references/*.md` include paths are NOT skill entry points and
- * are deliberately excluded.
- *
- * Commands that delegate to no skill are listed in `COMMAND_ONLY` and MUST NOT
- * appear in `COMMAND_TO_SKILL`. The co-located drift guard
- * (`canonical-skills.test.ts`) re-derives this map from the actual command files
- * and fails CI on any divergence.
+ * A command that delegates to no skill goes in `COMMAND_ONLY`, not in
+ * `COMMAND_TO_SKILL`. `canonical-skills.test.ts` derives the map again from the
+ * command files and fails on a difference.
  */
 
 /**
- * Canonical command name → sorted list of skill directory names it delegates to.
- * Skill dirs are sorted to give a stable, comparable shape for the drift guard.
+ * Command name to the sorted skill directory names that it delegates to. The
+ * sort gives the drift test a stable shape.
  */
 export const COMMAND_TO_SKILL: Readonly<Record<string, readonly string[]>> = {
   checkpoint: ['checkpoint'],
@@ -49,8 +36,8 @@ export const COMMAND_TO_SKILL: Readonly<Record<string, readonly string[]>> = {
 } as const;
 
 /**
- * Canonical commands that delegate to no skill — they carry their own inline
- * prompt (or defer to a `rules/*.md` rule) rather than chaining into a skill.
+ * Canonical commands that delegate to no skill. Each one carries its own
+ * prompt or defers to a `rules/*.md` rule.
  */
 export const COMMAND_ONLY: ReadonlySet<string> = new Set<string>([
   'autocompact',
@@ -58,11 +45,8 @@ export const COMMAND_ONLY: ReadonlySet<string> = new Set<string>([
 ]);
 
 /**
- * The canonical set of workflow command names: the sorted union of every
- * skill-delegating command (`COMMAND_TO_SKILL` keys) and every command-only
- * command (`COMMAND_ONLY`). This is the one accessor downstream consumers
- * read to learn "which `/commands` exist" without re-deriving the set from
- * the two underlying structures (or, worse, hand-maintaining a third copy).
+ * Return the sorted canonical command names: the keys of `COMMAND_TO_SKILL`
+ * and the members of `COMMAND_ONLY`.
  */
 export function canonicalCommandSet(): readonly string[] {
   return [...Object.keys(COMMAND_TO_SKILL), ...COMMAND_ONLY].sort();

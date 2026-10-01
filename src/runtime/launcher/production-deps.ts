@@ -1,38 +1,13 @@
-// ─── Production launcher wiring — compose the built modules into live deps ───
-//
-// The `exarchos <harness>` CLI verb owns a real child's lifecycle, but the verb
-// and lifecycle core are deliberately DI-only: they accept an event-store
-// substrate + spawn/teardown/signal seams and never construct them. Without a
-// production wiring point, a real non-dry-run launch has no `lifecycleDeps` and
-// falls through to the structured `NOT_WIRED` result (spawns nothing).
-//
-// This module IS that wiring point (INV-2 — behavior lives in the built modules;
-// this only composes them):
-//
-//   - {@link makeLauncherLifecycleDeps} builds a {@link RunLifecycleDeps} over a
-//     live {@link DispatchContext} (the `eventStore` append substrate), binding:
-//       * the guaranteed teardown-safety seam ({@link makeLifecycleTeardown}) —
-//         releases the `worktree.reserved` reservation, fail-closes a non-git /
-//         unreachable-origin target, and NEVER `git reset --hard`s (DR-6);
-//       * the signal-install seam ({@link installSignalHandlers}) — a trapped
-//         SIGINT/SIGTERM is forwarded to the child, teardown + the guaranteed
-//         terminal run, and the child is reaped, so no orphan survives a
-//         catchable interruption of the launcher (DR-6).
-//     The reservation `owner` handed to teardown is the SAME holder identity the
-//     lifecycle reserves the worktree under (`holderPid` + `holderStartedAt`), so
-//     the teardown release is a CLEAN same-owner relinquish (INV-14).
-//   - {@link recoverBeforeLaunch} runs the crash-mid-spawn reconciler
-//     ({@link recoverCrashedLaunch}) as a best-effort self-heal at launcher
-//     startup: it finishes any half-created worktree and reclaims a prior crashed
-//     launcher's now-dead reservation, so no orphaned half-created worktree
-//     escapes a subsequent launch (DR-6). Failures never block a launch.
-//
-// Every seam is overridable via {@link LauncherWiringOverrides} so the CLI-surface
-// tests inject an OS-effect fake (spawn / signal registrar / recovery) at the
-// production boundary WITHOUT re-implementing the wiring the verb runs. This
-// module contains NO per-harness branching (DR-4): every per-harness difference
-// stays in the declarative descriptors the registry resolves.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Production wiring for the launcher. It composes the built modules into live deps.
+ *
+ * The `exarchos <harness>` verb and the lifecycle core accept their event store and
+ * their spawn, teardown and signal seams as deps, and never construct them.
+ * Without this wiring, a real launch has no `lifecycleDeps` and returns `NOT_WIRED`.
+ * This module holds no behavior of its own and no per-harness branch.
+ * {@link LauncherWiringOverrides} lets the CLI-surface tests inject OS-effect fakes
+ * into the same composition that the verb runs.
+ */
 
 import type { EventStore } from '../../events/store.js';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
@@ -59,9 +34,8 @@ import type { RealpathResolver } from '../../verbs/worktree/pure/path-containmen
 import type { CreateLauncherWorktreeDeps } from './create-worktree.js';
 
 /**
- * A launcher startup-recovery pass — the crash-mid-spawn self-heal run before a
- * launch. Defaults to {@link recoverCrashedLaunch}; injectable so a test observes
- * or stubs it deterministically.
+ * The crash recovery pass that runs before a launch. It defaults to
+ * {@link recoverCrashedLaunch}. A test can inject a stub.
  */
 export type StartupRecover = (
   eventStore: EventStore,
@@ -69,11 +43,10 @@ export type StartupRecover = (
 ) => Promise<unknown>;
 
 /**
- * OS-effect / advanced-caller overrides for the production launcher wiring. Every
- * field is a DI seam — production callers omit them all so the real spawn / git /
- * process-table / signal seams are wired; the CLI-surface tests inject fakes HERE
- * so they exercise the real composition without touching the host OS. Kept out of
- * any user-facing flag surface.
+ * Overrides for the production launcher wiring. Production callers omit all fields,
+ * so the real spawn, git, process-table and signal seams are wired.
+ * The CLI-surface tests inject fakes here to run the real composition without host OS effects.
+ * No user-facing flag sets these fields.
  */
 export interface LauncherWiringOverrides {
   /**
@@ -118,10 +91,10 @@ export interface LauncherWiringOverrides {
 /**
  * Build the production {@link RunLifecycleDeps} over a live {@link DispatchContext}.
  *
- * Wires the fail-closed teardown seam and the real signal-install seam (see the
- * module header). The reservation `owner` handed to teardown mirrors the holder
- * identity the lifecycle reserves under, so the release is a clean same-owner
- * relinquish. Overrides substitute individual OS seams for deterministic tests.
+ * The teardown seam releases the `worktree.reserved` reservation, fails closed on a
+ * non-git or unreachable-origin target, and never runs `git reset --hard`.
+ * Its `owner` is the same holder identity that the lifecycle reserves under, so the release is a same-owner release.
+ * The signal seam forwards SIGINT and SIGTERM to the child, runs teardown and the terminal event, and reaps the child.
  */
 export function makeLauncherLifecycleDeps(
   ctx: DispatchContext,
@@ -133,8 +106,6 @@ export function makeLauncherLifecycleDeps(
     overrides.holderStartedAt ?? resolveStartedAt(holderPid, processSource);
   const owner: ReservationOwner = { ownerPid: holderPid, ownerStartedAt: holderStartedAt };
 
-  // ── R-3: fail-closed teardown — release the reservation (clean same-owner),
-  //     fail-close a non-git / unreachable-origin target, never `reset --hard`. ──
   const teardown: LifecycleTeardown = makeLifecycleTeardown({
     owner,
     selfPid: holderPid,
@@ -145,8 +116,6 @@ export function makeLauncherLifecycleDeps(
       : {}),
   });
 
-  // ── R-2: install the real signal handlers over the live child right after
-  //     spawn — forward SIGINT/SIGTERM, teardown + guaranteed terminal, reap. ──
   const installSignals: InstallSignals =
     overrides.installSignals ??
     ((sigCtx) =>
@@ -181,11 +150,9 @@ export function makeLauncherLifecycleDeps(
 }
 
 /**
- * Best-effort crash-mid-spawn self-heal, run at launcher startup before a real
- * launch (DR-6 / R-4). Finishes any half-created worktree and reclaims a prior
- * crashed launcher's now-dead reservation via {@link recoverCrashedLaunch}, so no
- * orphaned half-created worktree escapes the upcoming launch. A recovery failure
- * is swallowed — self-heal must NEVER block a launch.
+ * Best-effort crash recovery at launcher startup, before a real launch.
+ * {@link recoverCrashedLaunch} finishes a half-created worktree and reclaims the
+ * reservation of a dead launcher. The function ignores a recovery failure, so recovery never blocks a launch.
  */
 export async function recoverBeforeLaunch(
   ctx: DispatchContext,
@@ -196,11 +163,8 @@ export async function recoverBeforeLaunch(
   try {
     await recover(ctx.eventStore, repoRoot);
   } catch {
-    // Self-heal is best-effort: a recovery failure must never block a launch.
   }
 }
-
-// ─── Internal ────────────────────────────────────────────────────────────────
 
 /** Bind {@link recoverCrashedLaunch} with the override-derived recovery deps. */
 function defaultStartupRecover(overrides: LauncherWiringOverrides): StartupRecover {
@@ -218,11 +182,9 @@ function buildRecoverDeps(overrides: LauncherWiringOverrides): RecoverCrashedLau
 }
 
 /**
- * Probe a process's create-time via the injected source; `null` (NEVER the empty
- * string `''`) when the platform cannot resolve it. `null` threads cleanly
- * through the launcher's null-ready `holderStartedAt` claim contract
- * (`z.string().min(1).nullable()`), whereas `''` would be the `''`-vs-`.min(1)`
- * invalid-raw-event class. Mirrors `merge-serializer`'s `resolveSelfStartedAt`.
+ * Probe the create time of a process through the injected source. Return `null`,
+ * never `''`, when the platform cannot resolve it. The `holderStartedAt` claim schema
+ * is `z.string().min(1).nullable()`, so `''` makes an invalid event.
  */
 function resolveStartedAt(pid: number, source: ProcessSource): string | null {
   const probe = source.getStartTime(pid);

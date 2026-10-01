@@ -1,29 +1,14 @@
 /**
- * freshness-check — the pre-workflow-execution gate that blocks a stale or
- * mixed Exarchos installation before any workflow runs (P05-04; ART-006,
- * ART-007, ART-009, ART-013).
+ * Freshness gate. It blocks a stale or mixed Exarchos installation before a workflow runs.
  *
- * It compares an `expected` identity (what the running binary requires — its
- * own version/digest and the artifacts it ships) against an `observed` identity
- * (what is actually installed at the runtime locations: the plugin manifest on
- * disk, the rendered skills, the event store's schema version, the cache).
- * Divergence on any of the five dimensions produces a typed, actionable block.
+ * It compares an `expected` identity (what the running binary requires) with an
+ * `observed` identity (what is installed: plugin manifest, rendered skills,
+ * event store schema version, cache). A difference gives a typed block that names the dimension.
  *
- * The failure this prevents: a user upgrades the binary but keeps a stale
- * plugin / skill / cache directory, or an event store written under a newer
- * schema is opened by an older binary. Today that silently half-works; here it
- * blocks with an {@link InstallFreshnessError} naming exactly which dimension
- * mismatched and what to do about it.
- *
- * Directional policy per dimension:
- *   - binary / plugin / skill / cache — ANY difference between expected and
- *     observed is stale and blocks (these are the artifacts the binary ships,
- *     so they must match exactly).
- *   - schema — asymmetric, mirroring the forward-only migration machinery: an
- *     OLDER store (observed < expected) is forward-migrated on open and does
- *     NOT block here; only a NEWER store (observed > expected) blocks, because
- *     an older binary must not open a store written by a newer one (the store's
- *     own open path enforces the same rule via `SchemaVersionTooNewError`).
+ * Policy for each dimension:
+ *   - binary, plugin, skill, cache: any difference is stale and blocks.
+ *   - schema: only a store newer than the binary blocks. An older store migrates
+ *     forward on open. The store open path enforces the same rule with `SchemaVersionTooNewError`.
  */
 
 import { UNKNOWN_VERSION_SENTINEL, type InstallIdentity } from './install-identity.js';
@@ -49,21 +34,12 @@ export interface FreshnessMismatch {
 }
 
 /**
- * Result of a freshness verification.
+ * Result of a freshness verification. It has three states: fresh, mismatched, and `indeterminate`.
  *
- * `indeterminate` is the third state, and its absence was a defect: the binary
- * version falls back to {@link UNKNOWN_VERSION_SENTINEL} when it cannot be
- * read, and comparing two unknowns by equality reported the dimension as
- * MATCHING. `doctor` then printed "binary, plugin, skill, schema, and cache
- * match the recorded identity" while separately warning it could not determine
- * the running plugin version — an absent observation converted into positive
- * assurance.
- *
- * An undetermined dimension now yields `indeterminate`, which callers surface
- * as a non-assertion. It is deliberately NOT a mismatch: blocking on an
- * unreadable `package.json` would turn the freshness gate into a new outage
- * class, which this module's robustness policy exists to prevent. The trade is
- * a false pass for an honest "cannot tell", not for a block.
+ * The binary version falls back to {@link UNKNOWN_VERSION_SENTINEL} when it cannot be read.
+ * Two unknown values must not count as a match, so an unreadable dimension gives `indeterminate`.
+ * Callers show it as "cannot tell". It is not a mismatch, because a block on an
+ * unreadable `package.json` makes the gate a new cause of outage.
  */
 export type FreshnessResult =
   | { readonly fresh: true }
@@ -76,10 +52,9 @@ function isIndeterminateVersion(value: string): boolean {
 }
 
 /**
- * Thrown by {@link assertInstallFreshness} when one or more install dimensions
- * are stale/mixed. Carries the structured `mismatches` so a caller can render
- * per-dimension remediation rather than parsing a string. Terminates before
- * workflow execution — consumers must not catch it and continue.
+ * Thrown by {@link assertInstallFreshness} when one or more dimensions are stale.
+ * It carries the structured `mismatches`, so a caller can show the remediation for each dimension.
+ * A caller must not catch it and continue the workflow.
  */
 export class InstallFreshnessError extends Error {
   override readonly name = 'InstallFreshnessError';
@@ -122,9 +97,10 @@ function binaryFingerprint(id: InstallIdentity): string {
 }
 
 /**
- * Compare an `expected` identity against an `observed` identity across all five
- * dimensions and report every mismatch (never short-circuits — a caller sees
- * the full stale/mixed picture, not just the first failure).
+ * Compare an `expected` identity with an `observed` identity.
+ * If a binary version is unreadable, the result is `indeterminate` before any comparison.
+ * This stops two unknown values from counting as a match.
+ * If not, the function reports each mismatched dimension, not only the first.
  */
 export function verifyInstallFreshness(
   expected: InstallIdentity,
@@ -132,8 +108,6 @@ export function verifyInstallFreshness(
 ): FreshnessResult {
   const mismatches: FreshnessMismatch[] = [];
 
-  // Indeterminate dimensions are settled BEFORE any equality comparison, so an
-  // unknown can never be folded into a pass by matching another unknown.
   const undetermined: FreshnessDimension[] = [];
   if (isIndeterminateVersion(expected.binary.version) || isIndeterminateVersion(observed.binary.version)) {
     undetermined.push('binary');
@@ -150,7 +124,6 @@ export function verifyInstallFreshness(
     };
   }
 
-  // binary — exact match on version AND artifact digest.
   if (
     expected.binary.version !== observed.binary.version ||
     expected.binary.digest !== observed.binary.digest
@@ -163,7 +136,6 @@ export function verifyInstallFreshness(
     });
   }
 
-  // plugin — exact match on manifest digest.
   if (expected.plugin.manifestDigest !== observed.plugin.manifestDigest) {
     mismatches.push({
       dimension: 'plugin',
@@ -173,7 +145,6 @@ export function verifyInstallFreshness(
     });
   }
 
-  // skill — exact match on rendered-tree digest.
   if (expected.skill.digest !== observed.skill.digest) {
     mismatches.push({
       dimension: 'skill',
@@ -183,8 +154,6 @@ export function verifyInstallFreshness(
     });
   }
 
-  // schema — directional. Only a store NEWER than the binary blocks; older
-  // stores are forward-migrated on open, equal stores match.
   if (observed.schema.version > expected.schema.version) {
     mismatches.push({
       dimension: 'schema',
@@ -194,7 +163,6 @@ export function verifyInstallFreshness(
     });
   }
 
-  // cache — exact match on location AND content digest.
   if (
     expected.cache.location !== observed.cache.location ||
     expected.cache.digest !== observed.cache.digest
@@ -211,10 +179,9 @@ export function verifyInstallFreshness(
 }
 
 /**
- * The blocking gate: verify freshness and THROW {@link InstallFreshnessError}
- * on any mismatch. This is the primitive to call before workflow execution;
- * on a matching installation it returns normally (the store's own open path
- * additionally enforces the schema dimension via `SchemaVersionTooNewError`).
+ * The blocking gate. Call it before workflow execution. It throws
+ * {@link InstallFreshnessError} on a confirmed mismatch.
+ * It returns normally when the result is fresh or `indeterminate`.
  */
 export function assertInstallFreshness(
   expected: InstallIdentity,
@@ -222,8 +189,6 @@ export function assertInstallFreshness(
 ): void {
   const result = verifyInstallFreshness(expected, observed);
   if (result.fresh) return;
-  // An undetermined dimension is not a confirmed mismatch — only a CONFIRMED
-  // mismatch blocks. See the `indeterminate` note on FreshnessResult.
   if ('indeterminate' in result) return;
   throw new InstallFreshnessError(result.mismatches);
 }

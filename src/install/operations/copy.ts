@@ -1,12 +1,7 @@
 /**
- * Content hash utilities for the Exarchos installer.
- *
- * Provides SHA-256 hashing for individual files and entire directory
- * trees. Used for drift detection — comparing installed file hashes
- * against the manifest to identify manual modifications.
- *
- * This module will be extended in later tasks (B1–B3) with copy and
- * symlink operations.
+ * Hash and copy operations for the Exarchos installer.
+ * SHA-256 hashes of files and directory trees support drift detection: a
+ * comparison of installed file hashes with the manifest finds manual changes.
  */
 
 import * as fs from 'node:fs';
@@ -109,8 +104,8 @@ export interface CopyDirectoryResult {
 /**
  * Recursively copy a directory tree from source to target.
  *
- * Creates the target directory and all subdirectories. Copies every file
- * (optionally filtered) and returns content hashes for all copied files.
+ * Creates the target directory and its subdirectories. Skips names that start
+ * with `.`, and returns content hashes for the copied files.
  *
  * @param source - Absolute or relative path to the source directory.
  * @param target - Absolute or relative path to the target directory.
@@ -213,7 +208,7 @@ export interface SmartCopyDirectoryResult {
  * If they match, the file is skipped. If the source does not exist
  * but an existing hash is provided, the file is reported as removed.
  *
- * @param source - Path to the source file (may not exist for removals).
+ * @param source - Path to the source file. It is absent for a removal.
  * @param target - Path to the target file.
  * @param existingHash - SHA-256 hex digest of the previously installed file.
  * @returns The action taken and the resulting file hash.
@@ -225,27 +220,21 @@ export function smartCopy(
 ): SmartCopyResult {
   const sourceExists = fs.existsSync(source);
 
-  // Source deleted — report removal
   if (!sourceExists) {
     if (existingHash) {
       return { action: 'removed', hash: '' };
     }
-    // No source, no existing hash — nothing to do
     return { action: 'skipped', hash: '' };
   }
 
-  // Compute source hash
   const sourceHash = computeFileHash(source);
 
-  // Source unchanged — skip
   if (existingHash && sourceHash === existingHash) {
     return { action: 'skipped', hash: existingHash };
   }
 
-  // Copy the file
   copyFile(source, target);
 
-  // Determine action
   const action = existingHash ? 'updated' : 'created';
   return { action, hash: sourceHash };
 }
@@ -253,9 +242,9 @@ export function smartCopy(
 /**
  * Idempotent directory copy that skips unchanged files and detects removals.
  *
- * Compares source files against existing hashes. Files that haven't
- * changed are skipped. Files present in `existingHashes` but absent
- * from the source are reported as removed.
+ * Compares source files with existing hashes and skips unchanged files.
+ * A path in `existingHashes` that is absent from the source counts as removed.
+ * The function does not delete it from the target.
  *
  * @param source - Path to the source directory.
  * @param target - Path to the target directory.
@@ -278,10 +267,8 @@ export function smartCopyDirectory(
   let removed = 0;
   const hashes: Record<string, string> = {};
 
-  // Track which existing files we've seen in the source
   const seenPaths = new Set<string>();
 
-  // Walk source directory and smart-copy each file
   smartCopyDirectoryWalk(
     source,
     source,
@@ -299,7 +286,6 @@ export function smartCopyDirectory(
     },
   );
 
-  // Detect removals: files in existingHashes not found in source
   for (const relativePath of Object.keys(existingHashes)) {
     if (!seenPaths.has(relativePath)) {
       removed++;
@@ -369,7 +355,6 @@ function walkDirectory(
   const entries = fs.readdirSync(currentDir, { withFileTypes: true });
 
   for (const entry of entries) {
-    // Skip hidden files and directories
     if (entry.name.startsWith('.')) {
       continue;
     }

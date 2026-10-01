@@ -1,24 +1,15 @@
-// ─── #1290 — Roots-based workspace discovery ─────────────────────────────────
-//
-// Resolution priority for a missing `featureId` at the dispatch boundary:
-//
-//     explicit > roots > cwd
-//
-// The dispatch path (see `dispatch/core/dispatch.ts`) only invokes
-// `resolveWorkspace` when the caller's payload omits `featureId`; an
-// explicitly-supplied id always wins. When the client has declared the
-// `roots` capability via `notifications/roots/list_changed`, the
-// resolver inspects each root for an Exarchos workspace signature
-// (`.exarchos.yml` or a state file under `docs/workflow-state/`). A
-// single match returns the resolution; multiple matches return an
-// `INVALID_INPUT` shape with `validTargets` so the caller can disambig-
-// uate; zero matches falls back to a cwd-walk.
-//
-// The roots list is cached on the supplied {@link CapabilityResolver}.
-// MCP clients emit `notifications/roots/list_changed` when the
-// workspace boundary mutates; the `mcp/notifications.ts` handler
-// calls `resolver.invalidateRootsCache()` so the next discovery call
-// re-fetches.
+/**
+ * Roots-based workspace discovery for a dispatch payload without a `featureId`.
+ * The priority is: explicit `featureId`, then roots, then cwd.
+ *
+ * When the client declares the `roots` capability, the resolver checks each root for an
+ * Exarchos workspace signature. One match gives the resolution. More than one match gives
+ * `INVALID_INPUT` with `validTargets`. Zero matches fall back to a cwd walk.
+ *
+ * The roots list is cached on the {@link CapabilityResolver}. On
+ * `notifications/roots/list_changed`, `mcp/notifications.ts` calls
+ * `resolver.invalidateRootsCache()`, so the next call fetches the list again.
+ */
 
 import * as fs from 'node:fs/promises';
 import * as fsSync from 'node:fs';
@@ -33,29 +24,22 @@ import type { CapabilityResolver } from '../../workflow/capabilities/resolver.js
 import type { EventStore } from '../../events/store.js';
 import type { StorageBackend } from '../../storage/backend.js';
 
-// ─── Public types ───────────────────────────────────────────────────────────
-
 /**
- * Minimal `roots/list` surface consumed by {@link resolveWorkspace}. The
- * MCP SDK's full `RootsResult` carries more metadata; we accept only the
- * `uri` field so callers can pass a thin adapter or a test fixture
- * without dragging the SDK's type graph into discovery.
+ * Minimal `roots/list` surface for {@link resolveWorkspace}. It reads only `uri`,
+ * so a caller can pass a thin adapter or a test fixture without the MCP SDK types.
  */
 export interface RootsClient {
   list(): Promise<readonly { uri: string }[]>;
 }
 
 /**
- * Discriminated-union return type for `resolveWorkspace`.
+ * Result of `resolveWorkspace`.
  *
- *   - `{success: true, source, featureId, path}` — single match (roots or cwd).
- *   - `{success: false, code: 'INVALID_INPUT', validTargets}` — multi-match;
- *     the caller must disambiguate by supplying an explicit `featureId`.
+ *   - `success: true`: one match, from roots or cwd.
+ *   - `success: false`: more than one match. The caller must supply an explicit `featureId`.
  *
- * Zero-match (no roots hit and no cwd hit) returns `undefined` from
- * `resolveWorkspace` rather than a success+empty shape so the dispatch
- * boundary can distinguish "discovery silently produced nothing" from
- * "discovery found multiple candidates."
+ * Zero matches give `undefined`, so the dispatch boundary can tell "nothing found"
+ * from "more than one candidate".
  */
 export type WorkspaceResolution =
   | {
@@ -82,42 +66,27 @@ export interface ResolveWorkspaceOpts {
   /** Event store used to emit `workspace.resolved` on single-match. */
   readonly eventStore: EventStore;
   /**
-   * Storage backend exposing the projected `workflow_state` table (#1504).
-   * When the probed workspace is the one this backend serves
-   * (`wfDir === eventStore.dir`), `deriveFeatureId` enumerates tracked
-   * workflows from `listStates()` — the authoritative source — instead of
-   * scanning `.state.json` files (which are absent once the write-path is
-   * removed). Optional: CLI/legacy callers that omit it fall back to the
-   * file scan.
+   * Storage backend with the projected `workflow_state` table. When the probed
+   * workspace is the one this backend serves, `deriveFeatureId` reads `listStates()`,
+   * not `.state.json` files. A caller that omits it gets the file scan.
    */
   readonly storage?: StorageBackend | undefined;
 }
 
-// ─── Pure detector ──────────────────────────────────────────────────────────
-
-/** Event-store SQLite filenames that signal a tracked workspace (#1504). */
+/** Event-store SQLite filenames that signal a tracked workspace. */
 const EVENT_DB_FILENAMES = new Set(['exarchos.db', 'events.db']);
 
 /**
- * Synchronous workspace detector. Returns `true` when `dir` carries an
- * Exarchos workspace signature: a `.exarchos.yml` file at the root, an
- * event-store db (`exarchos.db`/`events.db`) under `docs/workflow-state/`,
- * or at least one `<id>.state.json` there. Exported so unit tests can pin
- * the contract independently of `resolveWorkspace`'s integration surface.
- *
- * The db check (#1504) keeps detection working after the `.state.json`
- * write-path is removed: a tracked workspace may then carry only the event
- * store, with no state files on disk.
+ * Return `true` when `dir` has an Exarchos workspace signature: `.exarchos.yml` at
+ * the root, or an event-store db or a `<id>.state.json` under `docs/workflow-state/`.
+ * A tracked workspace can have only the event store and no state files.
+ * The detector is synchronous, so a walk over many roots has no promise round-trip for each root.
+ * A missing or unreadable directory gives `false`, not an error.
  */
 export function isExarchosWorkspace(dir: string): boolean {
-  // The detector is sync because discovery walks N roots in a tight
-  // loop and we don't want N promise round-trips per call. Errors are
-  // swallowed silently — a missing root or unreadable workflow-state
-  // dir is "not a workspace," not a hard failure.
   try {
     if (fsSync.existsSync(path.join(dir, '.exarchos.yml'))) return true;
   } catch {
-    // fall through
   }
   try {
     const wfDir = path.join(dir, 'docs', 'workflow-state');
@@ -129,13 +98,9 @@ export function isExarchosWorkspace(dir: string): boolean {
   }
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 /**
- * Convert a `file://` URI to an absolute filesystem path. Falls back to
- * a literal interpretation when the URI is not a `file:` scheme — the
- * caller is responsible for filtering out non-file roots ahead of
- * detector dispatch.
+ * Convert a `file://` URI to an absolute filesystem path. Return `undefined` for
+ * another scheme or a URI that does not convert.
  */
 function uriToPath(uri: string): string | undefined {
   try {
@@ -149,18 +114,12 @@ function uriToPath(uri: string): string | undefined {
 }
 
 /**
- * Find a `featureId` inside a known-good workspace directory. Picks the
- * lexically-first tracked workflow so the result is deterministic across
- * calls. Returns `undefined` when the workspace carries the `.exarchos.yml`
- * (or db) signature but has no tracked workflows yet.
+ * Find a `featureId` in a workspace directory. Pick the lexically first tracked
+ * workflow, so the result is deterministic. Return `undefined` when there is no tracked workflow.
  *
- * Backend-first (#1504): when `storage` is supplied AND the probed workspace
- * is the one this server's event store serves (`wfDir === eventStore.dir`),
- * enumerate the authoritative `workflow_state` projection via `listStates()`
- * — `.state.json` files are absent once the write-path is removed. Other
- * roots (a different repo in the roots list) fall back to the file scan; the
- * single server-bound backend knows nothing about them. Mirrors the
- * lifecycle/prune migration (`storage/lifecycle.ts`).
+ * If `storage` is given and the workspace is the one that the event store serves,
+ * read the `workflow_state` projection with `listStates()`.
+ * Other roots fall back to the `.state.json` file scan, because the backend has no data for them.
  */
 async function deriveFeatureId(
   workspace: string,
@@ -191,10 +150,9 @@ async function deriveFeatureId(
 }
 
 /**
- * Read-through cache: returns the cached roots list, or fetches via
- * `rootsClient.list()` and stores the result on the resolver before
- * returning. The cache is invalidated by the MCP notifications handler
- * (`mcp/notifications.ts`) on `roots/list_changed`.
+ * Return the cached roots list, or fetch it with `rootsClient.list()` and cache it.
+ * A failed fetch gives an empty list, so discovery falls through to the cwd walk.
+ * The function caches nothing on failure, so the next dispatch tries the fetch again.
  */
 async function getOrFetchRoots(
   resolver: CapabilityResolver,
@@ -207,28 +165,17 @@ async function getOrFetchRoots(
     resolver.setCachedRoots(fetched);
     return fetched;
   } catch {
-    // CodeRabbit MAJOR #1424: a transient `roots/list` failure must not
-    // abort discovery — degrade to "no roots returned" so the caller's
-    // for-loop yields no matches and dispatch falls through to the cwd
-    // branch (which is the intended best-effort behavior, see DR-12 of
-    // the workspace-discovery design). Cache nothing on failure so the
-    // next dispatch retries the fetch instead of locking in an empty
-    // snapshot.
     return [];
   }
 }
 
 /**
- * Walk from `cwd` upward looking for an Exarchos workspace signature.
- * Stops at the first hit (deepest wins) or when the parent equals the
- * current directory (filesystem root). Returns `undefined` on miss.
+ * Walk up from `cwd` to find an Exarchos workspace signature. The deepest hit wins.
+ * The walk stops at the filesystem root or after 64 steps, so a symlink loop cannot spin.
+ * Return `undefined` on a miss.
  */
 function cwdWalk(cwd: string): string | undefined {
   let cur = path.resolve(cwd);
-  // Bound the walk so a pathological symlink loop or a /-mounted cwd
-  // doesn't spin. 64 iterations is far above the deepest realistic
-  // workspace nesting (basileus → exarchos has been our worst case
-  // and lives 3 levels deep).
   for (let i = 0; i < 64; i++) {
     if (isExarchosWorkspace(cur)) return cur;
     const parent = path.dirname(cur);
@@ -238,24 +185,20 @@ function cwdWalk(cwd: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Append `workspace.resolved`, best effort. An append error never fails discovery.
+ * The function logs it as a warning, so the missed audit event is visible.
+ */
 async function emitResolved(
   eventStore: EventStore,
   data: { source: 'roots' | 'cwd'; path: string; featureId: string },
 ): Promise<void> {
-  // Emit best-effort: observability emission must never fail discovery.
-  // The handler logs through the event store's own error surface if the
-  // append fails for non-fatal reasons (idempotency conflict, etc.).
   try {
     await eventStore.append(data.featureId, {
       type: 'workspace.resolved',
       data,
     });
   } catch (err) {
-    // Discovery is a read-side audit hook, not a write barrier — never
-    // fail discovery on an emission error (idempotency conflicts on
-    // replay, transient backend hiccups, etc.). CodeRabbit MINOR #1423:
-    // surface via the workspace-discovery logger child so the missed
-    // audit trail is observable instead of silently swallowed.
     discoveryLogger.warn(
       {
         featureId: data.featureId,
@@ -267,37 +210,22 @@ async function emitResolved(
   }
 }
 
-// ─── Main entry point ───────────────────────────────────────────────────────
-
 /**
- * Resolve a workspace + `featureId` for a dispatch payload that did not
- * supply one. See module header for the priority chain and event
- * emission semantics.
- *
- * Returns:
- *   - `WorkspaceResolution & {success: true}` on single-match (roots or cwd).
- *   - `WorkspaceResolution & {success: false}` on multi-match (multiple roots
- *     contain workspaces). The dispatch boundary surfaces this as an
- *     `INVALID_INPUT` envelope so the caller can disambiguate.
- *   - `undefined` on full miss (no roots match, no cwd-walk hit). Callers
- *     should fall through to the existing `INVALID_INPUT: featureId is
- *     required` envelope.
+ * Resolve a workspace and a `featureId` for a dispatch payload that has none.
+ * An explicit `featureId` gives `undefined` with no event.
+ * The roots branch runs only when the client declared roots and `rootsClient` is given.
+ * Zero root matches fall through to the cwd walk.
+ * A full miss gives `undefined`, and the caller returns its `featureId is required` error.
  */
 export async function resolveWorkspace(
   opts: ResolveWorkspaceOpts,
 ): Promise<WorkspaceResolution | undefined> {
   const { resolver, rootsClient, cwd, eventStore, storage } = opts;
 
-  // Explicit featureId short-circuits — the dispatch boundary should
-  // have filtered this case out before calling, but the guard keeps
-  // the contract symmetric for direct callers and avoids surprising
-  // event emissions when the caller already has authoritative state.
   if (opts.featureId !== undefined && opts.featureId.length > 0) {
     return undefined;
   }
 
-  // Branch 1: Roots-based inference (only when the client declared roots
-  // AND we have a client adapter to fetch them through).
   if (resolver.isRootsDeclared() && rootsClient !== undefined) {
     const roots = await getOrFetchRoots(resolver, rootsClient);
     const matches: { featureId: string; path: string }[] = [];
@@ -333,12 +261,8 @@ export async function resolveWorkspace(
         validTargets: matches.map((m) => ({ featureId: m.featureId, path: m.path })),
       };
     }
-    // Zero match in roots → fall through to cwd-walk.
   }
 
-  // Branch 2: cwd-walk fallback. The walk is bounded; on miss we return
-  // undefined and let the caller surface the existing `featureId is
-  // required` envelope.
   const cwdHit = cwdWalk(cwd);
   if (cwdHit === undefined) return undefined;
   const featureId = await deriveFeatureId(cwdHit, eventStore, storage);

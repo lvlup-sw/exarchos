@@ -2,6 +2,11 @@ import { type RuntimeMap, RuntimeTokenKey } from '../runtimes/types.js';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
+/**
+ * Throw when a loaded runtime has no value for a token in `RuntimeTokenKey`.
+ * The error lists every missing (runtime, token) pair, sorted by token and then
+ * by runtime, so authors can fix all runtime YAML files in one pass.
+ */
 export function assertRuntimeTokenCoverage(runtimes: RuntimeMap[]): void {
   const missing: Array<{ runtime: string; token: string }> = [];
   for (const rt of runtimes) {
@@ -13,9 +18,6 @@ export function assertRuntimeTokenCoverage(runtimes: RuntimeMap[]): void {
   }
   if (missing.length === 0) return;
 
-  // Sort by (token, runtime) so the message is reproducible regardless
-  // of YAML load order — most useful when the same token is missing on
-  // multiple runtimes.
   missing.sort((a, b) =>
     a.token === b.token ? a.runtime.localeCompare(b.runtime) : a.token.localeCompare(b.token),
   );
@@ -33,11 +35,9 @@ export function assertRuntimeTokenCoverage(runtimes: RuntimeMap[]): void {
 }
 
 /**
- * Collect every placeholder identifier defined by any loaded runtime
- * map into a sorted, de-duplicated list. The `buildAllSkills` lint
- * preflight uses this as its vocabulary so a skill source is allowed
- * to reference any token that at least one runtime knows how to
- * render. Sorted for determinism in diagnostic messages.
+ * Return the sorted, de-duplicated placeholder keys of all `runtimes`. The
+ * placeholder lint uses this set, so a skill source can use a token that at
+ * least one runtime can render.
  */
 export function unionPlaceholderKeys(runtimes: RuntimeMap[]): string[] {
   const set = new Set<string>();
@@ -48,10 +48,10 @@ export function unionPlaceholderKeys(runtimes: RuntimeMap[]): string[] {
 }
 
 /**
- * Walk `srcDir` recursively and return the absolute path of every
- * directory that contains a `SKILL.md` file. We return directories (not
- * the `SKILL.md` files themselves) so downstream code can locate the
- * adjacent `references/` and `SKILL.<runtime>.md` override files.
+ * Return, sorted, every directory under `srcDir` that holds a `SKILL.md` file.
+ * The walk skips `references/` directories and continues into nested skill
+ * directories. A directory result lets callers find the adjacent `references/`
+ * and `SKILL.<runtime>.md` override files.
  */
 export function walkSkillSourceDirs(srcDir: string): string[] {
   const results: string[] = [];
@@ -67,12 +67,10 @@ export function walkSkillSourceDirs(srcDir: string): string[] {
       continue;
     }
 
-    // If this directory contains a SKILL.md, record it.
     if (entries.includes('SKILL.md')) {
       results.push(current);
     }
 
-    // Recurse into subdirectories regardless — skill trees may nest.
     for (const entry of entries) {
       const full = join(current, entry);
       let st;
@@ -88,13 +86,3 @@ export function walkSkillSourceDirs(srcDir: string): string[] {
   }
   return results.sort();
 }
-
-// -----------------------------------------------------------------------------
-// Task 008: CLI entry (`npm run build:skills`)
-// -----------------------------------------------------------------------------
-
-/**
- * Re-export of the shared `MainDeps` shape so existing callers that
- * imported it from this module continue to work. The canonical
- * definition lives in `cli-helpers.ts`.
- */

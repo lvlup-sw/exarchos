@@ -1,50 +1,18 @@
 /**
- * Launcher lifecycle orchestration — spawn → place → observe → teardown (DR-1, DR-6).
+ * The launcher lifecycle. It has no per-harness branch. Each per-harness
+ * difference lives in the {@link HarnessDescriptor}, so one flow drives all
+ * five Tier-1 harnesses:
  *
- * This is the harness-AGNOSTIC integrator that composes the launcher building
- * blocks into one supervised launch. It contains NO per-harness branching: every
- * per-harness difference lives in the declarative {@link HarnessDescriptor} the
- * registry resolves, so the same seven-step flow drives all five Tier-1
- * harnesses:
+ *   1. Resolve the descriptor with {@link resolveHarness}.
+ *   2. Create the task-less worktree with {@link LauncherWlm.createWorktree}.
+ *   3. Place the child: replace `descriptor.cwd` with the worktree path.
+ *   4. Claim: emit `launch.executing_started` with the `worktreeId`, the
+ *      supervisor `holderPid` and `holderStartedAt`.
+ *   5. Spawn the child with {@link spawnHarnessChild}, and observe its `exit`.
+ *   6. Tear down once: emit the `launch.executed` terminal.
  *
- *   1. **Resolve** the {@link HarnessDescriptor} via {@link resolveHarness}.
- *   2. **Create** the top-level, task-less worktree via
- *      {@link LauncherWlm.createWorktree} (guard → reserve → create pair). The
- *      canonical `worktreeId` + on-disk `worktreePath` come back from here.
- *   3. **Place** — overlay `descriptor.cwd` with the created worktree path so the
- *      child runs *in* the created worktree (the chdir/place step).
- *   4. **Claim** — emit `launch.executing_started` (liveness) carrying the
- *      canonical `worktreeId` + the launcher/supervisor `holderPid`
- *      (`process.pid`) + `holderStartedAt`, so task-016's dead-holder reconciler
- *      is expressible against a live supervisor PID.
- *   5. **Spawn** the child via {@link spawnHarnessChild} → a {@link ChildHandle}.
- *   6. **Observe** — await the child's `exit`.
- *   7. **Teardown exactly once** — emit the guaranteed `launch.executed` terminal
- *      via the idempotent Task-006 {@link emitLaunchExecuted} seam and release. No
- *      process, timer, or handle outlives the child.
- *
- * ## Guaranteed-terminal-once
- *
- * The teardown body runs AT MOST ONCE per launch: {@link once} memoizes the first
- * invocation's promise, so the normal-exit path AND the defensive `finally`
- * (which guarantees the terminal even if a throw slips between the claim and the
- * observe) collapse to a single teardown. The terminal itself additionally rides
- * the idempotent {@link emitLaunchExecuted} seam, so even a second teardown that
- * somehow ran could never persist a second `launch.executed` row.
- *
- * ## Injectable teardown seam (scope: later tasks extend, not reshape)
- *
- * {@link RunLifecycleDeps.teardown} is an overridable seam defaulting to
- * {@link defaultTeardown} (emit the terminal). Teardown-safety edges — never
- * `reset --hard`, recoveryError, crash / cwd-drift / origin — extend teardown
- * WITHOUT reshaping this core. Signal trapping/forwarding rides a SEPARATE
- * default-noop extension point, {@link RunLifecycleDeps.installSignals}
- * (defaulting to {@link noopInstallSignals}), invoked right after a successful
- * spawn and uninstalled in the `finally`: production wires the real
- * `signals#installSignalHandlers` there so a catchable interruption forwards to
- * the child, runs the same guaranteed-once teardown + terminal, and reaps — no
- * orphan. Orientation injection and the phantom reconciler likewise compose
- * around these seams; none of those concerns live here.
+ * The teardown body runs at most once, through {@link once}. The terminal
+ * emitter is also idempotent, so the store never gets a second terminal row.
  */
 
 import { rmSync } from 'node:fs';
@@ -89,27 +57,22 @@ import {
 } from '../../verbs/worktree/pure/process-identity.js';
 import type { ResolvedLaunch, LifecycleRunner } from './verb.js';
 
-// ============================================================
-// Injectable seam types
-// ============================================================
-
-/** The async harness-spawn primitive (task 003) — injectable for deterministic tests. */
+/** The async harness-spawn primitive. Tests inject it. */
 export type SpawnHarnessChildFn = (
   request: AsyncSpawnRequest,
   deps?: SpawnDeps,
 ) => Promise<ChildHandle>;
 
-/** The liveness CLAIM emitter (task 006). */
+/** The liveness claim emitter. */
 export type EmitExecutingStartedFn = typeof emitLaunchExecutingStarted;
 
-/** The idempotent liveness TERMINAL emitter (task 006). */
+/** The idempotent liveness terminal emitter. */
 export type EmitExecutedFn = typeof emitLaunchExecuted;
 
 /**
- * The context handed to the teardown seam. Carries the terminal correlator
- * (`worktreeId`), the observed `exitCode`, and the idempotent terminal emitter so
- * an override (tasks 011/012) can still route the guaranteed `launch.executed`
- * through the Task-006 seam.
+ * The context of the teardown seam. It carries the `worktreeId` correlator, the
+ * `exitCode`, and the idempotent terminal emitter. Thus an override can still
+ * emit `launch.executed`.
  */
 export interface LifecycleTeardownContext {
   readonly eventStore: EventStore;
@@ -119,22 +82,18 @@ export interface LifecycleTeardownContext {
   readonly worktreePath: string;
   /** Child exit code, or `null` when terminated by signal / not captured. */
   readonly exitCode: number | null;
-  /** The idempotent Task-006 terminal emitter (guaranteed at-most-once). */
+  /** The idempotent terminal emitter. It persists at most one row. */
   readonly emitExecuted: EmitExecutedFn;
 }
 
 /**
- * The teardown seam — the guaranteed-terminal path. Defaults to
- * {@link defaultTeardown}; overridable so signal (task 011) and teardown-safety
- * (task 012) work extends it WITHOUT reshaping {@link runLifecycle}.
+ * The teardown seam, the path that emits the terminal. It defaults to
+ * {@link defaultTeardown}. An override adds teardown steps without a change to
+ * {@link runLifecycle}.
  */
 export type LifecycleTeardown = (ctx: LifecycleTeardownContext) => Promise<void>;
 
-/**
- * Default teardown: emit the guaranteed `launch.executed` terminal through the
- * idempotent Task-006 seam. Kept minimal on purpose — later tasks compose extra
- * teardown-safety edges around it, they do not replace this emit.
- */
+/** Emit the `launch.executed` terminal through the idempotent emitter. */
 export async function defaultTeardown(ctx: LifecycleTeardownContext): Promise<void> {
   await ctx.emitExecuted(ctx.eventStore, {
     worktreeId: ctx.worktreeId,
@@ -142,77 +101,55 @@ export async function defaultTeardown(ctx: LifecycleTeardownContext): Promise<vo
   });
 }
 
-// ============================================================
-// Signal-install seam (DR-6) — default no-op extension point
-// ============================================================
-
 /**
- * The context the signal-install seam receives right after a successful spawn.
- * It exposes exactly what the DR-6 signal path needs — the live child (to
- * forward the terminating signal to + reap), the guaranteed-once teardown to run
- * on parent interruption, and a pre-bound idempotent terminal emitter — WITHOUT
- * this core importing the signal module. The production `lifecycleDeps` wires the
- * real `signals#installSignalHandlers` into it; everything else defaults to
- * {@link noopInstallSignals}.
- *
- * `teardown`/`emitTerminal` are the SAME guaranteed-once seams the normal-exit
- * path uses (`teardown` collapses onto the memoized {@link once} body;
- * `emitTerminal` rides the idempotent Task-006 seam), so a signal-driven teardown
- * and a normal-exit teardown can never persist two terminals.
+ * The context of the signal-install seam after a successful spawn: the live
+ * child, the once-only teardown, and a bound terminal emitter. Thus this core
+ * does not import the signal module. `teardown` and `emitTerminal` are the same
+ * once-only paths as the normal exit, so a launch cannot persist two terminals.
  */
 export interface LifecycleSignalContext {
-  /** The live supervised child — forward the terminating signal + reap. */
+  /** The live child. The handler forwards the signal to it and reaps it. */
   readonly child: Pick<ChildHandle, 'kill' | 'exit'>;
-  /** Guaranteed-once teardown to run on a trapped SIGINT/SIGTERM. */
+  /** The once-only teardown to run on a trapped SIGINT or SIGTERM. */
   readonly teardown: (signal: 'SIGINT' | 'SIGTERM') => void | Promise<void>;
-  /** Pre-bound idempotent Task-006 terminal emitter (`worktreeId` + `exitCode: null`). */
+  /** The bound idempotent terminal emitter, with `exitCode: null`. */
   readonly emitTerminal: () => Promise<EmitLaunchExecutedResult>;
 }
 
 /**
- * Signal-install seam: trap + forward + reap the child, returning an UNINSTALLER
- * the core calls once the launch is over so no handler outlives the child.
- * Defaults to {@link noopInstallSignals} (installs nothing — the unit-test /
- * no-supervisor case); the production `lifecycleDeps` wires the real
- * `signals#installSignalHandlers`. A default-noop extension point does not
- * reshape the core observe→teardown flow.
+ * The signal-install seam. It traps signals, forwards them to the child, and
+ * reaps it. It returns an uninstaller that the core calls at the end of the
+ * launch. It defaults to {@link noopInstallSignals}, and `production-deps.ts`
+ * wires `installSignalHandlers`.
  */
 export type InstallSignals = (ctx: LifecycleSignalContext) => () => void;
 
-/** No-op {@link InstallSignals}: installs no handler; its uninstaller is a no-op. */
+/** An {@link InstallSignals} that installs no handler and returns a no-op uninstaller. */
 export const noopInstallSignals: InstallSignals = () => noopUninstall;
 
 /** Shared no-op uninstaller for {@link noopInstallSignals}. */
 function noopUninstall(): void {
-  /* intentionally empty — nothing was installed */
 }
 
-// ============================================================
-// Spawn-time injection-channel probe (DR-6) — cached per process
-// ============================================================
-
 /**
- * Injectable help-probe seam: run `<command> --help` and return the combined
- * help text, or `null` when the CLI is absent / unspawnable (the fail-open
- * signal). Injected in tests so the probe path is deterministic without a real
- * CLI on the host.
+ * Run `<command> --help` and return the combined help text, or `null` when the
+ * CLI is absent or cannot spawn. Tests inject it.
  */
 export type HelpProbe = (command: string) => string | null;
 
-/** Per-process cache of help-probe OUTPUT keyed by command — the DR-6 "cached-per-process" store. */
+/** The help-probe output of each command, cached for the process. */
 const helpProbeCache = new Map<string, string | null>();
 
-/** Clear the per-process help-probe cache. Test seam only (hermetic per-file isolation). */
+/** Clear the help-probe cache. Tests call it for isolation. */
 export function clearHelpProbeCache(): void {
   helpProbeCache.clear();
 }
 
 /**
- * Default win32-safe help probe. Runs `<command> --help` through the
- * `.cmd`-shim-safe {@link spawnCommandSync} (the non-throwing sibling of
- * `runCommandSync`) — NEVER a raw `execFileSync`/`spawnSync` of a shim, which
- * breaks on win32 for `.cmd` shims (#1623). Returns combined stdout+stderr, or
- * `null` when the CLI is absent/unspawnable (a set `.error`, e.g. `ENOENT`).
+ * The default help probe. It runs `<command> --help` through
+ * {@link spawnCommandSync}, which is safe for `.cmd` shims on win32, where a raw
+ * `execFileSync` of a shim fails. It returns stdout and stderr, or `null` when
+ * the spawn sets `error`, such as `ENOENT`.
  */
 function defaultHelpProbe(command: string): string | null {
   const result = spawnCommandSync(command, ['--help'], {
@@ -223,7 +160,7 @@ function defaultHelpProbe(command: string): string | null {
   return `${result.stdout ?? ''}${result.stderr ?? ''}`;
 }
 
-/** Run (or cache-hit) the help probe for `command`; caches null (missing CLI) too. */
+/** Run the help probe for `command` once for each process. It also caches a `null` result. */
 function cachedHelpProbe(command: string, probe: HelpProbe): string | null {
   if (helpProbeCache.has(command)) return helpProbeCache.get(command) ?? null;
   const output = probe(command);
@@ -232,10 +169,8 @@ function cachedHelpProbe(command: string, probe: HelpProbe): string | null {
 }
 
 /**
- * Whether a CLI's help text advertises `flag` as a WHOLE token — a boundary match
- * so `--append-system-prompt` does NOT falsely match inside
- * `--append-system-prompt-file` (the char after the flag must not continue a flag
- * name). Order-independent, so the preference-ordered walk is robust either way.
+ * True when the help text names `flag` as a whole token. Thus
+ * `--append-system-prompt` does not match inside `--append-system-prompt-file`.
  */
 function helpMentionsFlag(helpText: string, flag: string): boolean {
   const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -246,31 +181,27 @@ function helpMentionsFlag(helpText: string, flag: string): boolean {
 export interface ChannelResolution {
   /** The resolved native channel (a supported `flag`/`env`, or `none`). */
   readonly channel: ResolvedInjectionChannel;
-  /** True when the launch will proceed WITHOUT native orientation (DR-8 fail-open). */
+  /** True when the launch proceeds without native orientation. */
   readonly degraded: boolean;
-  /** Human/log-safe degradation reason — present iff {@link degraded}. */
+  /** A log-safe degradation reason, present only when {@link degraded} is true. */
   readonly degradation?: string;
 }
 
 /** Injectable seams for {@link resolveInjectionChannel}. */
 export interface ResolveInjectionChannelDeps {
-  /** Help-probe seam; defaults to the win32-safe `<command> --help` probe. */
+  /** The help-probe seam. It defaults to the win32-safe `<command> --help` probe. */
   readonly helpProbe?: HelpProbe;
 }
 
 /**
- * Resolve the injection channel AT SPAWN TIME (DR-6). Walks the descriptor's
- * preference-ordered candidate list front-to-back:
- *   - a `flag` candidate is selected iff the live CLI's `--help` output advertises
- *     its flag token (help probed once, cached per process);
- *   - an `env` candidate is a contract channel the harness auto-loads — selected
- *     directly (no help probe);
- *   - a `none` candidate is the documented out-of-band fallback — resolved to
- *     `none` WITHOUT degradation (it is declared, not a failure).
+ * Resolve the injection channel at spawn time. It walks the candidates in order:
+ *   - It selects a `flag` candidate when the `--help` output of the CLI names the
+ *     flag. The probe runs only for a flag candidate, once for each process.
+ *   - It selects an `env` candidate directly, because the harness loads it.
+ *   - A `none` candidate gives `none` with no degradation, because it is declared.
  *
- * CLI absent / probe failure (all flag candidates unverifiable), or a present CLI
- * advertising none of the declared flags, ⇒ `none` + a degradation (composes with
- * DR-8 fail-open). Never throws.
+ * When the probe fails, or the CLI names no declared flag, the result is `none`
+ * with a degradation. It never throws.
  */
 export function resolveInjectionChannel(
   candidates: readonly InjectionCandidate[],
@@ -278,7 +209,7 @@ export function resolveInjectionChannel(
   deps: ResolveInjectionChannelDeps = {},
 ): ChannelResolution {
   const probe = deps.helpProbe ?? defaultHelpProbe;
-  let help: string | null | undefined; // probed lazily only when a flag candidate needs it
+  let help: string | null | undefined;
   let probeFailed = false;
 
   for (const candidate of candidates) {
@@ -307,27 +238,21 @@ export function resolveInjectionChannel(
   return { channel: { kind: 'none', reason }, degraded: true, degradation: reason };
 }
 
-// ============================================================
-// Orientation injection wiring (DR-6 / DR-8) — fail-open
-// ============================================================
-
 /**
- * Injectable dependencies controlling spawn-time orientation injection. All
- * default to the live path (block-content loader + win32-safe probe + native
- * applier), so PRODUCTION injects by default — this is the first live wiring of
- * the injection seam. Tests inject deterministic seams (or `disabled`) to stay
- * hermetic.
+ * The seams of spawn-time orientation injection. Each defaults to the live path,
+ * so a production launch injects orientation. Tests inject fixed seams or
+ * `disabled`.
  */
 export interface OrientationInjectionDeps {
-  /** Skip orientation injection entirely (deterministic launches that don't exercise it). */
+  /** Skip orientation injection. */
   readonly disabled?: boolean;
-  /** Explicit orientation content; overrides {@link loadContent}. */
+  /** Explicit orientation content. It overrides {@link loadContent}. */
   readonly content?: string;
-  /** Content loader; defaults to reading `binding/standard/block.md` best-effort. */
+  /** The content loader. It defaults to a best-effort read of `binding/standard/block.md`. */
   readonly loadContent?: () => string | undefined;
   /** Help-probe seam threaded to {@link resolveInjectionChannel}. */
   readonly helpProbe?: HelpProbe;
-  /** Resolved-channel applier; defaults to {@link applyOrientationChannel}. */
+  /** The resolved-channel applier. It defaults to {@link applyOrientationChannel}. */
   readonly apply?: (
     base: AsyncSpawnRequest,
     channel: ResolvedInjectionChannel,
@@ -343,19 +268,19 @@ interface InjectionOutcome {
   readonly descriptor: AsyncSpawnRequest;
   /** The resolved-channel label surfaced on the result (`flag:…`/`env:…`/`none`/`disabled`). */
   readonly channel: string;
-  /** True when the launch proceeds WITHOUT native orientation (DR-8 fail-open). */
+  /** True when the launch proceeds without native orientation. */
   readonly degraded: boolean;
-  /** Degradation reason — present iff {@link degraded}. */
+  /** The degradation reason, present only when {@link degraded} is true. */
   readonly degradation?: string;
-  /** Ephemeral temp file/dir materialized for a `file`/`dir` channel, if any — the caller removes it on teardown. */
+  /** The temp file or directory of a `file` or `dir` channel. The caller removes it at teardown. */
   readonly tempPath?: string;
 }
 
 /**
- * Resolve + apply spawn-time orientation for the placed descriptor (DR-6),
- * failing OPEN at every edge (DR-8): missing content, a `none`/failed channel, or
- * a construction throw all yield the UNMODIFIED descriptor + a degradation — the
- * launch always proceeds. Never throws.
+ * Resolve and apply spawn-time orientation for the placed descriptor. Missing
+ * content, a failed channel or a throw gives the unchanged descriptor and a
+ * degradation, so the launch proceeds. A declared `none` channel gives the
+ * unchanged descriptor with no degradation. It never throws.
  */
 function resolveOrientationInjection(
   placed: AsyncSpawnRequest,
@@ -412,49 +337,39 @@ function resolveOrientationInjection(
   }
 }
 
-// ============================================================
-// Lifecycle deps + result
-// ============================================================
-
 /** Injectable dependencies for {@link runLifecycle}. */
 export interface RunLifecycleDeps {
   /**
-   * Dispatch context whose `eventStore` is the append substrate every lifecycle
-   * event lands on, and whose seams the composed {@link LauncherWlm} threads. In
-   * tests this is a `{ stateDir, eventStore, enableTelemetry: false }` literal
-   * over a real SQLite store.
+   * The dispatch context. Its `eventStore` receives each lifecycle event, and
+   * the composed {@link LauncherWlm} uses its seams.
    */
   readonly ctx: DispatchContext;
-  /** WLM composition facade; defaults to a fresh one over `ctx`. */
+  /** The WLM facade. It defaults to a new one over `ctx`. */
   readonly wlm?: LauncherWlm;
-  /** Async harness-spawn primitive; defaults to the real {@link spawnHarnessChild}. */
+  /** The async harness-spawn primitive. It defaults to {@link spawnHarnessChild}. */
   readonly spawnChild?: SpawnHarnessChildFn;
-  /** Harness resolver; defaults to the real {@link resolveHarness}. */
+  /** The harness resolver. It defaults to {@link resolveHarness}. */
   readonly resolveHarness?: (target: string) => HarnessResolution;
-  /** Liveness CLAIM emitter; defaults to the real {@link emitLaunchExecutingStarted}. */
+  /** The liveness claim emitter. It defaults to {@link emitLaunchExecutingStarted}. */
   readonly emitExecutingStarted?: EmitExecutingStartedFn;
-  /** Idempotent terminal emitter; defaults to the real {@link emitLaunchExecuted}. */
+  /** The idempotent terminal emitter. It defaults to {@link emitLaunchExecuted}. */
   readonly emitExecuted?: EmitExecutedFn;
-  /** Teardown seam; defaults to {@link defaultTeardown}. */
+  /** The teardown seam. It defaults to {@link defaultTeardown}. */
   readonly teardown?: LifecycleTeardown;
   /**
-   * Signal-install seam invoked right after a successful spawn (DR-6). Defaults
-   * to {@link noopInstallSignals}; the production `lifecycleDeps` wires the real
-   * `signals#installSignalHandlers` so a trapped SIGINT/SIGTERM is forwarded to
-   * the child, teardown + the guaranteed terminal run, and the child is reaped —
-   * no orphan survives a catchable interruption of the launcher.
+   * The signal-install seam, called after a successful spawn. It defaults to
+   * {@link noopInstallSignals}. With `installSignalHandlers`, a trapped signal
+   * goes to the child, teardown emits the terminal, and the child is reaped.
    */
   readonly installSignals?: InstallSignals;
   /**
-   * The launcher/supervisor PID recorded on the liveness CLAIM (task-016's
-   * dead-holder anchor). Defaults to `process.pid` — the long-lived supervisor
-   * that owns the child's lifecycle and emits the terminal.
+   * The supervisor PID on the liveness claim, the anchor of the dead-holder
+   * check. It defaults to `process.pid`, the supervisor that owns the child.
    */
   readonly holderPid?: number;
   /**
-   * Supervisor create-time fingerprint (defeats PID reuse). Defaults to a probed
-   * value — `null` (NEVER `''`) when the platform cannot resolve it, so the
-   * emitted claim honors the null-ready `holderStartedAt` schema contract.
+   * The supervisor start-time fingerprint, which defeats PID reuse. It defaults
+   * to a probed value, or `null` when the platform cannot resolve it.
    */
   readonly holderStartedAt?: string | null;
   /** Process-identity source for the holder start-time probe. Defaults to the OS source. */
@@ -466,32 +381,29 @@ export interface RunLifecycleDeps {
   /** Repo root `git worktree add` runs from. Defaults to the base worktree. */
   readonly repoRoot?: string;
   /**
-   * Extra create-worktree seams (git runner / guard / realpath). The reserve
-   * owner defaults to the holder identity ({@link holderPid} /
-   * {@link holderStartedAt}); anything here overrides.
+   * Extra create-worktree seams, such as the git runner, guard and realpath.
+   * The reserve owner defaults to the holder identity, and a value here
+   * overrides it.
    */
   readonly createDeps?: CreateLauncherWorktreeDeps;
   /**
-   * Spawn-time orientation-injection seams (DR-6). Absent → the live default
-   * path (block-content loader + win32-safe help probe + native applier), so a
-   * production launch injects orientation into the resolved native channel and
-   * records a degradation on any fail-open edge. Tests inject deterministic
-   * seams (or `{ disabled: true }`).
+   * The spawn-time orientation seams. When absent, a launch uses the live path
+   * and records a degradation on each fail-open edge. Tests inject fixed seams
+   * or `{ disabled: true }`.
    */
   readonly orientation?: OrientationInjectionDeps;
 }
 
 /**
- * The spawn-time orientation-injection record surfaced on a completed launch
- * (DR-6 / DR-8). Carries the resolved channel and, when the launch fell open,
- * the degradation reason — recorded at the `launch.executing_started` phase.
+ * The orientation record of a completed launch: the resolved channel and, on a
+ * fail-open launch, the degradation reason.
  */
 export interface LaunchInjectionInfo {
   /** Resolved-channel label — `flag:<flag>` / `env:<var>` / `none` / `disabled`. */
   readonly channel: string;
-  /** True when the launch proceeded WITHOUT native orientation (fail-open). */
+  /** True when the launch proceeded without native orientation. */
   readonly degraded: boolean;
-  /** Degradation reason — present iff {@link degraded}. */
+  /** The degradation reason, present only when {@link degraded} is true. */
   readonly degradation?: string;
 }
 
@@ -511,14 +423,14 @@ export interface LifecycleResultData {
   readonly injection: LaunchInjectionInfo;
 }
 
-// ============================================================
-// Lifecycle core
-// ============================================================
-
 /**
- * Run one supervised harness launch end-to-end: resolve → create → place →
- * claim → spawn → observe → teardown-once. Harness-agnostic; see the module
- * header for the DR-1/DR-6 contract and the guaranteed-terminal-once guarantee.
+ * Run one supervised harness launch, in the steps of the module header.
+ * Orientation injection fails open, so the launch proceeds without it.
+ *
+ * The signal handlers install after a successful spawn. The `finally` block
+ * removes them, and kills and reaps a child that is still live after an error.
+ * It then calls the once-only teardown, which does nothing when teardown already
+ * ran. Last, it removes the orientation temp path and ignores a failure.
  */
 export async function runLifecycle(
   params: ResolvedLaunch,
@@ -534,7 +446,6 @@ export async function runLifecycle(
   const processSource = deps.processSource ?? defaultProcessSource;
   const wlm = deps.wlm ?? createLauncherWlm({ ctx: deps.ctx });
 
-  // ── (1) Resolve the declarative descriptor. ────────────────────────────────
   const resolution = resolveHarnessFn(params.harness);
   if (!resolution.success) {
     return {
@@ -547,7 +458,6 @@ export async function runLifecycle(
     };
   }
 
-  // ── (2) Create the top-level, task-less worktree (guard + reserve + pair). ──
   const holderPid = deps.holderPid ?? process.pid;
   const holderStartedAt =
     deps.holderStartedAt ?? resolveHolderStartedAt(holderPid, processSource);
@@ -572,13 +482,8 @@ export async function runLifecycle(
   }
   const { worktreeId, worktreePath } = created;
 
-  // ── (3) Place: overlay the descriptor cwd so the child runs IN the worktree. ─
   const placed: AsyncSpawnRequest = { ...resolution.descriptor, cwd: worktreePath };
 
-  // ── (3b) Resolve + apply spawn-time orientation (DR-6), failing OPEN (DR-8). ─
-  // The channel is probed at spawn time (cached per process) and applied via the
-  // injection seam. Any edge — missing content, none/failed channel, construction
-  // throw — yields the unmodified descriptor + a degradation; the launch proceeds.
   const injection = resolveOrientationInjection(
     placed,
     resolution.descriptor.injection,
@@ -586,57 +491,37 @@ export async function runLifecycle(
   );
   const descriptor = injection.descriptor;
 
-  // The guaranteed-terminal-once teardown: memoized so the normal-exit path and
-  // the defensive `finally` collapse to a single teardown body invocation.
   const teardownOnce = once((exitCode: number | null) =>
     teardown({ eventStore, worktreeId, worktreePath, exitCode, emitExecuted }),
   );
 
   let exitCode: number | null = null;
   let childPid: number | undefined;
-  // Signal handlers are installed only AFTER a successful spawn (they need the
-  // live child); the uninstaller is called in the `finally` so no handler
-  // outlives the launch. Undefined until installed (spawn-failure path).
   let uninstallSignals: (() => void) | undefined;
-  // The live child, tracked so the `finally` can guarantee it is reaped even when
-  // a post-spawn step throws. Set right after a successful spawn and CLEARED the
-  // instant its exit is cleanly observed — so the finally kills it ONLY on the
-  // post-spawn error path (see the finally below).
   let liveChild: ChildHandle | undefined;
   try {
-    // ── (4) Liveness CLAIM (supervisor holderPid), BEFORE the spawn. ──────────
     await emitExecutingStarted(eventStore, { worktreeId, holderPid, holderStartedAt });
 
-    // ── (5) Spawn the child into the placed worktree. ─────────────────────────
     let child: ChildHandle;
     try {
       child = await spawnChild(descriptor);
     } catch (err) {
-      // Spawn never started: close the launch (terminal) and report structured.
       await teardownOnce(null);
       return spawnFailureResult(err);
     }
     childPid = child.pid;
     liveChild = child;
 
-    // ── (5b) Install signal handlers over the live child (DR-6). ──────────────
-    // A trapped SIGINT/SIGTERM forwards to the child, runs the SAME guaranteed-
-    // once teardown (memoized `teardownOnce`, `null` exit for a signalled child),
-    // guarantees the idempotent terminal, and reaps — no orphan if the launcher
-    // is interrupted. Defaults to a no-op; production wires the real installer.
     uninstallSignals = installSignals({
       child,
       teardown: () => teardownOnce(null),
       emitTerminal: () => emitExecuted(eventStore, { worktreeId, exitCode: null }),
     });
 
-    // ── (6) Observe: await the child's exit. ──────────────────────────────────
     const exit = await child.exit;
     exitCode = exit.code;
-    // Cleanly observed → the child is gone; the finally must NOT kill it.
     liveChild = undefined;
 
-    // ── (7) Teardown exactly once: emit the guaranteed terminal + release. ────
     await teardownOnce(exitCode);
 
     const data: LifecycleResultData = {
@@ -654,51 +539,33 @@ export async function runLifecycle(
     };
     return { success: true, data };
   } finally {
-    // Uninstall the signal handlers so none outlives the launch.
     uninstallSignals?.();
-    // Guard the post-spawn failure path: if `installSignals` or `await child.exit`
-    // threw/rejected with the child still live, neither the normal-exit nor the
-    // signal path reaped it — kill and reap it here so no orphan survives an error
-    // path. A cleanly-observed exit cleared `liveChild`, so this runs ONLY on the
-    // failure path; it also drops the child before teardown's occupancy probe.
     if (liveChild !== undefined) {
       await killAndReapChild(liveChild);
     }
-    // THEN guarantee the terminal-once even if a throw slipped between claim and
-    // observe (idempotent; a no-op if the try body or signal path already fired).
     await teardownOnce(exitCode);
-    // Remove the ephemeral orientation temp file/dir (if a `file`/`dir` channel
-    // materialized one) now that the child is done with it — best-effort, since a
-    // launch must never fail on cleanup of a scratch path.
     if (injection.tempPath !== undefined) {
       try {
         rmSync(injection.tempPath, { recursive: true, force: true });
       } catch {
-        /* best-effort — an orphaned temp path is a disk-space nit, not a launch failure. */
       }
     }
   }
 }
 
 /**
- * Best-effort kill-and-reap of a still-live child on the post-spawn ERROR path
- * (an `installSignals` throw or an `await child.exit` rejection). SIGKILL is
- * uncatchable so the child terminates promptly; awaiting `exit` afterwards
- * collects it so THIS parent reaps it rather than leaving an orphan reparented to
- * init. Both steps swallow their own errors — the exit promise may already be the
- * rejection that brought us here — so the ORIGINAL failure still propagates and
- * teardown still runs.
+ * Kill and reap a live child after a post-spawn error. SIGKILL cannot be
+ * caught, so the child stops. The await on `exit` then reaps it in this parent.
+ * Both steps ignore their own errors, so the original failure still propagates.
  */
 async function killAndReapChild(child: Pick<ChildHandle, 'kill' | 'exit'>): Promise<void> {
   try {
     child.kill('SIGKILL');
   } catch {
-    /* the child may already be gone — best-effort. */
   }
   try {
     await child.exit;
   } catch {
-    /* exit may itself reject (the failure that brought us here); swallow it. */
   }
 }
 
@@ -710,15 +577,10 @@ export function makeLifecycleRunner(deps: RunLifecycleDeps): LifecycleRunner {
   return (launch) => runLifecycle(launch, deps);
 }
 
-// ============================================================
-// Internal helpers
-// ============================================================
-
 /**
- * Memoize a single-argument async body so it runs AT MOST ONCE: the first call
- * records the promise; every later call returns that same promise (its argument
- * ignored). This is the guaranteed-terminal-once guard — the normal-exit path
- * and the defensive `finally` both call it, and only the first actually tears down.
+ * Run an async body at most once. The first call keeps the promise, and each
+ * later call returns it and ignores its argument. The normal exit, the signal
+ * path and the `finally` block call it, so only the first call tears down.
  */
 function once(
   body: (exitCode: number | null) => Promise<void>,
@@ -728,11 +590,9 @@ function once(
 }
 
 /**
- * Resolve the supervisor create-time via the injected source; `null` (NEVER the
- * empty string `''`) when the platform cannot resolve it. `null` threads through
- * the launcher's null-ready `holderStartedAt` claim contract
- * (`z.string().min(1).nullable()`); `''` would be the `''`-vs-`.min(1)`
- * invalid-raw-event class. Mirrors `merge-serializer`'s `resolveSelfStartedAt`.
+ * Resolve the supervisor start time through `source`, or `null` when the
+ * platform cannot resolve it. It never returns an empty string, because the
+ * `holderStartedAt` schema is `z.string().min(1).nullable()`.
  */
 function resolveHolderStartedAt(pid: number, source: ProcessSource): string | null {
   const probe = source.getStartTime(pid);

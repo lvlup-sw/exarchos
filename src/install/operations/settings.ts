@@ -18,11 +18,9 @@ export interface Settings {
 }
 
 /**
- * Generate a complete settings.json from wizard selections.
- *
- * Combines the comprehensive permission list, selected model,
- * and enabled plugin map into a single settings object. Optionally
- * includes Claude Code hook definitions when provided.
+ * Generate settings.json from wizard selections. It combines the permission
+ * list, the selected model, the enabled plugins, fixed env values and
+ * `teammateMode`. It adds `hooks` only when the map is not empty.
  *
  * @param selections - The user's wizard selections.
  * @param hooks - Optional hook definitions keyed by event name.
@@ -56,16 +54,13 @@ export function generateSettings(
 }
 
 /**
- * Generate the comprehensive permission allow-list.
- *
- * Returns a hardcoded list of all tool and bash command permissions
- * needed for full Exarchos functionality.
+ * Generate the permission allow-list: the native Claude Code tools, the MCP
+ * wildcard, and Bash commands grouped by ecosystem and purpose.
  *
  * @returns The permission strings for settings.json.
  */
 export function generatePermissions(): string[] {
   return [
-    // Claude Code native tools
     'Read',
     'Write',
     'Edit',
@@ -77,15 +72,12 @@ export function generatePermissions(): string[] {
     'WebSearch',
     'WebFetch',
 
-    // MCP wildcard
     'mcp__*',
 
-    // Version control and stacking
     'Bash(gt:*)',
     'Bash(gh:*)',
     'Bash(git:*)',
 
-    // Package managers
     'Bash(npm:*)',
     'Bash(npx:*)',
     'Bash(yarn:*)',
@@ -93,20 +85,16 @@ export function generatePermissions(): string[] {
     'Bash(bun:*)',
     'Bash(node:*)',
 
-    // .NET ecosystem
     'Bash(dotnet:*)',
     'Bash(nuget:*)',
     'Bash(msbuild:*)',
 
-    // Rust
     'Bash(cargo:*)',
     'Bash(rustc:*)',
     'Bash(rustup:*)',
 
-    // Go
     'Bash(go:*)',
 
-    // Python
     'Bash(python:*)',
     'Bash(python3:*)',
     'Bash(pip:*)',
@@ -114,61 +102,51 @@ export function generatePermissions(): string[] {
     'Bash(poetry:*)',
     'Bash(uv:*)',
 
-    // Ruby
     'Bash(ruby:*)',
     'Bash(gem:*)',
     'Bash(bundle:*)',
 
-    // Java/JVM
     'Bash(java:*)',
     'Bash(javac:*)',
     'Bash(mvn:*)',
     'Bash(gradle:*)',
 
-    // Containers and orchestration
     'Bash(docker:*)',
     'Bash(docker-compose:*)',
     'Bash(podman:*)',
     'Bash(kubectl:*)',
     'Bash(helm:*)',
 
-    // Infrastructure
     'Bash(terraform:*)',
     'Bash(pulumi:*)',
     'Bash(aws:*)',
     'Bash(az:*)',
     'Bash(gcloud:*)',
 
-    // Build systems
     'Bash(make:*)',
     'Bash(cmake:*)',
     'Bash(ninja:*)',
 
-    // Testing
     'Bash(jest:*)',
     'Bash(vitest:*)',
     'Bash(pytest:*)',
     'Bash(mocha:*)',
 
-    // Linting and formatting
     'Bash(eslint:*)',
     'Bash(prettier:*)',
     'Bash(tsc:*)',
 
-    // Network
     'Bash(curl:*)',
     'Bash(wget:*)',
     'Bash(ssh:*)',
     'Bash(scp:*)',
     'Bash(rsync:*)',
 
-    // File reading
     'Bash(ls:*)',
     'Bash(cat:*)',
     'Bash(head:*)',
     'Bash(tail:*)',
 
-    // Search
     'Bash(find:*)',
     'Bash(grep:*)',
     'Bash(rg:*)',
@@ -176,7 +154,6 @@ export function generatePermissions(): string[] {
     'Bash(ag:*)',
     'Bash(ack:*)',
 
-    // Text processing
     'Bash(sed:*)',
     'Bash(awk:*)',
     'Bash(sort:*)',
@@ -189,7 +166,6 @@ export function generatePermissions(): string[] {
     'Bash(jq:*)',
     'Bash(yq:*)',
 
-    // File operations
     'Bash(mkdir:*)',
     'Bash(rm:*)',
     'Bash(rmdir:*)',
@@ -199,18 +175,15 @@ export function generatePermissions(): string[] {
     'Bash(chmod:*)',
     'Bash(ln:*)',
 
-    // Archives
     'Bash(tar:*)',
     'Bash(zip:*)',
     'Bash(unzip:*)',
     'Bash(gzip:*)',
     'Bash(gunzip:*)',
 
-    // Diff and patch
     'Bash(diff:*)',
     'Bash(patch:*)',
 
-    // Output and environment
     'Bash(echo:*)',
     'Bash(printf:*)',
     'Bash(date:*)',
@@ -220,7 +193,6 @@ export function generatePermissions(): string[] {
     'Bash(whereis:*)',
     'Bash(type:*)',
 
-    // Navigation
     'Bash(pwd:*)',
     'Bash(cd:*)',
     'Bash(pushd:*)',
@@ -229,7 +201,6 @@ export function generatePermissions(): string[] {
     'Bash(basename:*)',
     'Bash(dirname:*)',
 
-    // Process management
     'Bash(ps:*)',
     'Bash(kill:*)',
     'Bash(pkill:*)',
@@ -238,21 +209,18 @@ export function generatePermissions(): string[] {
     'Bash(timeout:*)',
     'Bash(watch:*)',
 
-    // Disk and file info
     'Bash(du:*)',
     'Bash(df:*)',
     'Bash(stat:*)',
     'Bash(file:*)',
     'Bash(tree:*)',
 
-    // Network diagnostics
     'Bash(ping:*)',
     'Bash(nc:*)',
     'Bash(netstat:*)',
     'Bash(ss:*)',
     'Bash(lsof:*)',
 
-    // Shell builtins
     'Bash(source:*)',
     'Bash(.:*)',
     'Bash(test:*)',

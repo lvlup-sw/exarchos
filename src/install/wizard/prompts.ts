@@ -1,8 +1,6 @@
 /**
- * Prompt adapter interface and implementations for the Exarchos installer wizard.
- *
- * Provides an abstract interface over interactive prompts so the wizard
- * can be tested with a mock adapter and run with @inquirer/prompts at runtime.
+ * Prompt adapter interface and implementations for the installer wizard. Tests
+ * use a mock adapter, and the runtime uses `@inquirer/prompts`.
  */
 
 import {
@@ -30,11 +28,7 @@ export interface MultiselectOption<T> extends SelectOption<T> {
   readonly selected?: boolean;
 }
 
-/**
- * Abstract interface for interactive prompts.
- *
- * Implementations handle the actual I/O (terminal prompts, mock responses, etc.)
- */
+/** Interface for interactive prompts. An implementation does the terminal or mock I/O. */
 export interface PromptAdapter {
   /** Show a single-select prompt and return the chosen value. */
   select<T>(message: string, options: SelectOption<T>[]): Promise<T>;
@@ -46,12 +40,7 @@ export interface PromptAdapter {
   text(message: string, placeholder?: string): Promise<string>;
 }
 
-/**
- * Interactive prompt adapter backed by @inquirer/prompts.
- *
- * Maps the PromptAdapter interface to @inquirer/prompts API calls,
- * translating option shapes between the two formats.
- */
+/** Interactive prompt adapter that maps each prompt and its options to `@inquirer/prompts`. */
 export class InquirerPromptAdapter implements PromptAdapter {
   async select<T>(message: string, options: SelectOption<T>[]): Promise<T> {
     return inquirerSelect<T>({
@@ -94,10 +83,8 @@ export class InquirerPromptAdapter implements PromptAdapter {
 }
 
 /**
- * Mock prompt adapter for testing.
- *
- * Accepts an array of preset responses that are dequeued in FIFO order
- * as each prompt method is called.
+ * Mock prompt adapter for tests. Each prompt call returns the next preset
+ * response, and a call after the last response throws.
  */
 export class MockPromptAdapter implements PromptAdapter {
   private readonly responses: unknown[];
@@ -131,11 +118,7 @@ export class MockPromptAdapter implements PromptAdapter {
   }
 }
 
-/**
- * Create an interactive prompt adapter for terminal use.
- *
- * @returns An InquirerPromptAdapter instance.
- */
+/** Create an interactive prompt adapter for terminal use. */
 export function createPromptAdapter(): PromptAdapter {
   return new InquirerPromptAdapter();
 }

@@ -1,15 +1,12 @@
-// ─── Trust roots + detached signature verification (P03-08) ───────────────
-//
-// A trust root is a configured public key that anchors trust. An extension
-// manifest (and a revocation list) is admitted only if its signature chains to
-// one of these roots. This is a direct-anchor chain: a root signs the leaf
-// (manifest/revocation) itself — a chain of length one, the same model a single
-// self-issued CA uses when it signs leaves directly. The set is explicit and
-// injected, so a test constructs its own roots and no ambient/implicit key is
-// ever trusted.
-//
-// Ed25519 is used via `node:crypto` (`sign`/`verify` with a `null` digest
-// algorithm, which is how Node signs with EdDSA). No crypto is hand-rolled.
+/**
+ * Trust roots and detached signature checks. A trust root is a configured
+ * public key. An extension manifest or a revocation list is admitted only when
+ * its signature chains to a root. The root signs the leaf directly, so the
+ * chain has a length of one.
+ *
+ * Signing uses Ed25519 through `node:crypto`, with a `null` digest algorithm,
+ * as Node requires for EdDSA.
+ */
 
 import {
   createPrivateKey,
@@ -19,7 +16,7 @@ import {
   type KeyObject,
 } from 'node:crypto';
 
-/** The one signature algorithm P03-08 accepts. */
+/** The only accepted signature algorithm. */
 export const SIGNATURE_ALGORITHM = 'ed25519' as const;
 export type SignatureAlgorithm = typeof SIGNATURE_ALGORITHM;
 
@@ -44,10 +41,9 @@ export type SignatureVerification =
   | { readonly trusted: false; readonly detail: string };
 
 /**
- * An explicit, immutable set of trust roots. Constructed from configuration so
- * tests inject their own anchors; there is no default/global root set, so trust
- * is never ambient. Duplicate key ids are rejected at construction — a silently
- * shadowed root is a trust-boundary bug.
+ * An explicit, immutable set of trust roots from configuration. There is no
+ * default root set, so no key is trusted implicitly. The constructor throws on
+ * a duplicate key id, because a shadowed root is a trust-boundary bug.
  */
 export class TrustRootSet {
   private readonly roots: ReadonlyMap<
@@ -81,10 +77,10 @@ export class TrustRootSet {
   }
 
   /**
-   * Verify `signature` over `signedBytes` chains to a configured root. Fails
-   * closed for every failure shape — unknown key id, algorithm mismatch,
-   * malformed signature, or bytes that do not verify — never throwing to the
-   * caller, so a verification error can never be mistaken for a pass.
+   * Check that `signature` over `signedBytes` chains to a configured root. An
+   * unknown key id, an algorithm mismatch, a malformed signature, or bytes that
+   * do not verify give `trusted: false`. A throw from `node:crypto` also gives
+   * `trusted: false`, so an error cannot pass as success.
    */
   verify(signature: DetachedSignature, signedBytes: Buffer): SignatureVerification {
     const root = this.roots.get(signature.keyId);
@@ -106,7 +102,6 @@ export class TrustRootSet {
       const signatureBytes = Buffer.from(signature.value, 'base64');
       ok = cryptoVerify(null, signedBytes, root.key, signatureBytes);
     } catch {
-      // A malformed key/signature makes `verify` throw; treat as untrusted.
       return {
         trusted: false,
         detail: `signature verification error for keyId ${signature.keyId}`,
@@ -123,9 +118,8 @@ export class TrustRootSet {
 }
 
 /**
- * Produce a detached Ed25519 signature over `signedBytes` with the private key
- * matching a configured root. Used by legitimate publishers (and tests) — the
- * signing side of {@link TrustRootSet.verify}.
+ * Make a detached Ed25519 signature over `signedBytes` with the private key of
+ * a root. This is the signing side of {@link TrustRootSet.verify}.
  */
 export function signDetached(privateKeyPem: string, signedBytes: Buffer): string {
   const key = createPrivateKey(privateKeyPem);

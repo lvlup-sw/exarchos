@@ -2,12 +2,15 @@ import { PLACEHOLDER_REGEX } from '../skill-vocabulary.js';
 import { lineOf, placeholderError } from './placeholder-error.js';
 import { parseTokenArgs } from './render.js';
 
+/**
+ * Throw when a `{{CHAIN next="..."}}` token names a target that is not in `validTargets`.
+ * The function uses a new regex, because `PLACEHOLDER_REGEX` is a stateful `/g` singleton.
+ */
 export function validateChainTargets(
   body: string,
   sourcePath: string,
   validTargets: ReadonlySet<string>,
 ): void {
-  // Fresh instance — PLACEHOLDER_REGEX is a stateful /g singleton.
   const regex = new RegExp(PLACEHOLDER_REGEX.source, 'g');
   let match: RegExpExecArray | null;
   while ((match = regex.exec(body)) !== null) {
@@ -29,10 +32,9 @@ export function validateChainTargets(
 }
 
 /**
- * Scan a rendered string for any residual `{{...}}` tokens and throw with
- * the same diagnostic format as `render()` if any are found. Intended as
- * a post-render sanity check in `buildAllSkills` so broken variants never
- * reach disk.
+ * Throw when a rendered string still holds a `{{...}}` token.
+ * The error has the same format as the `render()` error. `buildAllSkills` calls this check before it writes a variant.
+ * The function resets `PLACEHOLDER_REGEX.lastIndex` on each path, because the regex is a module-scoped `/g` instance.
  *
  * @param rendered - Output of `render()`.
  * @param sourcePath - Origin file of the rendered content (for diagnostics).
@@ -46,19 +48,10 @@ export function assertNoUnresolvedPlaceholders(
   PLACEHOLDER_REGEX.lastIndex = 0;
   const match = PLACEHOLDER_REGEX.exec(rendered);
   if (match) {
-    // Group 1 (the token name) is always present on a match; `?? ''` narrows to
-    // `string` for the error constructor.
     const tokenName = match[1] ?? '';
     const line = lineOf(rendered, match.index);
-    // Reset the regex state so the stateful /g instance doesn't leak into
-    // later calls (matters because PLACEHOLDER_REGEX is module-scoped).
     PLACEHOLDER_REGEX.lastIndex = 0;
     throw placeholderError(tokenName, sourcePath, runtimeName, line, []);
   }
   PLACEHOLDER_REGEX.lastIndex = 0;
 }
-
-/**
- * Build a uniform `unknown placeholder` error. Known tokens are sorted so
- * the error message is deterministic regardless of map iteration order.
- */

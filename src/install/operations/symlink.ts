@@ -1,9 +1,8 @@
 /**
  * Symlink operations for dev-mode installation.
  *
- * In dev mode the installer creates symbolic links from `~/.claude/`
- * back into the Exarchos repo so that edits to commands, skills, and
- * rules take effect immediately without re-running the installer.
+ * In dev mode, the installer links `~/.claude/` back into the Exarchos repo. Edits to commands, skills,
+ * and rules then take effect with no new install.
  */
 
 import * as fs from 'node:fs';
@@ -16,13 +15,12 @@ export type SymlinkResult = 'created' | 'skipped' | 'backed_up' | 'relinked';
 export type RemoveResult = 'removed' | 'skipped';
 
 /**
- * Create a symbolic link from `target` pointing to `source`.
+ * Creates a symbolic link at `target` that points to `source`.
  *
- * Handles four scenarios:
- * - Target does not exist: creates the link.
- * - Target is a symlink pointing to the correct source: skips.
- * - Target is a symlink pointing elsewhere: removes and relinks.
- * - Target is a real directory: renames to `<name>.backup.<timestamp>` then links.
+ * - Target missing: creates the parent directories and the link.
+ * - Target is a link to `source`: skips.
+ * - Target is a directory: renames it to `<name>.backup.<timestamp>`, then links.
+ * - Any other target (a link to a different path, or a file): removes it, then links.
  *
  * @param source - Absolute path to the link destination (the actual content).
  * @param target - Absolute path where the symlink will be created.
@@ -37,7 +35,6 @@ export function createSymlink(source: string, target: string): SymlinkResult {
     if (code !== 'ENOENT') {
       throw err;
     }
-    // Target does not exist — fall through to create
   }
 
   if (stat) {
@@ -46,14 +43,12 @@ export function createSymlink(source: string, target: string): SymlinkResult {
       if (currentTarget === source) {
         return 'skipped';
       }
-      // Wrong target — remove and relink
       fs.unlinkSync(target);
       fs.symlinkSync(source, target);
       return 'relinked';
     }
 
     if (stat.isDirectory()) {
-      // Back up existing directory
       const timestamp = Date.now();
       const baseName = path.basename(target);
       const parentDir = path.dirname(target);
@@ -64,13 +59,11 @@ export function createSymlink(source: string, target: string): SymlinkResult {
       return 'backed_up';
     }
 
-    // Target is a regular file or other — remove and link
     fs.unlinkSync(target);
     fs.symlinkSync(source, target);
     return 'relinked';
   }
 
-  // Target does not exist — create parent dirs if needed
   const parentDir = path.dirname(target);
   fs.mkdirSync(parentDir, { recursive: true });
   fs.symlinkSync(source, target);
@@ -120,19 +113,10 @@ export interface SymlinkHealthReport {
 }
 
 /**
- * Validate a set of expected symbolic links.
+ * Classifies each expected link as healthy, broken, or missing.
  *
- * Checks each expected symlink target to determine whether it exists,
- * is a symlink, and points to the expected source. Classifies each
- * entry as healthy, broken, or missing.
- *
- * A link is "broken" if:
- * - It is a symlink but its target (the source) no longer exists.
- * - It is a symlink pointing to the wrong source.
- *
- * A link is "missing" if:
- * - The target path does not exist at all.
- * - The target path exists but is not a symlink.
+ * A link is broken when it points to the wrong source, or when its source does not exist. A link is
+ * missing when the target path does not exist or is not a symlink.
  *
  * @param expectedLinks - Map of target path to expected source path.
  * @returns A health report classifying each link.
@@ -162,14 +146,12 @@ export function validateSymlinks(
       continue;
     }
 
-    // It is a symlink — check if it points to the right place and source exists
     const actualTarget = fs.readlinkSync(target);
     if (actualTarget !== expectedSource) {
       broken.push(target);
       continue;
     }
 
-    // Check that the source actually exists
     if (!fs.existsSync(expectedSource)) {
       broken.push(target);
       continue;

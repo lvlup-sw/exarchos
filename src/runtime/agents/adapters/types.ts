@@ -1,13 +1,8 @@
-// ─── RuntimeAdapter port (Hexagonal/ACL) ───────────────────────────────────
-//
-// Defines the port that per-runtime adapters plug into. Domain-language
-// `AgentSpec` values are lowered into runtime-specific agent definition
-// files via `RuntimeAdapter.lowerSpec`, and runtime support for a spec's
-// capabilities is checked via `validateSupport`. Concrete adapters
-// (Claude, Codex, OpenCode, Cursor, Copilot) live alongside this file.
-//
-// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The `RuntimeAdapter` port. Each per-runtime adapter lowers a domain-language
+ * `AgentSpec` into a runtime-specific agent definition file with `lowerSpec`.
+ * `validateSupport` checks that the runtime supports the capabilities of a spec.
+ */
 
 import type { AgentSpec } from '../types.js';
 import type { Capability } from '../capabilities.js';
@@ -16,18 +11,13 @@ import type { Capability } from '../capabilities.js';
 export type Runtime = 'claude' | 'codex' | 'opencode' | 'cursor' | 'copilot';
 
 /**
- * Three-state classification of a runtime's coverage of a capability.
+ * Coverage of a capability by a runtime.
  *
- *   - `native`: the runtime has a first-class primitive for the capability;
- *     `lowerSpec` emits a tool/frontmatter entry for it.
- *   - `advisory`: the spec may declare the capability and the adapter
- *     accepts it without error, but the runtime has no primitive to
- *     enforce or expose it. `lowerSpec` emits NO tool/frontmatter entry.
- *   - `unsupported`: the runtime cannot honor the capability at all;
- *     `validateSupport` rejects specs that declare it.
- *
- * Contract introduced in Task 4f to converge five divergent per-adapter
- * policies (see docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4).
+ *   - `native`: the runtime has a primitive for the capability.
+ *     `lowerSpec` emits a tool or frontmatter entry for it.
+ *   - `advisory`: the adapter accepts the capability without error, but the runtime
+ *     cannot enforce or expose it. `lowerSpec` emits no entry for it.
+ *   - `unsupported`: `validateSupport` rejects a spec that declares the capability.
  */
 export type SupportLevel = 'native' | 'advisory' | 'unsupported';
 
@@ -55,10 +45,9 @@ export interface RuntimeAdapter {
   readonly runtime: Runtime;
 
   /**
-   * Per-capability support classification. Every value of the
-   * `Capability` enum MUST appear as a key. `validateSupport` rejects
-   * specs declaring an `unsupported` capability; `lowerSpec` emits
-   * tool/frontmatter entries for `native` capabilities only.
+   * Support level for each capability. Each value of the `Capability` enum
+   * must appear as a key. `validateSupport` rejects a spec that declares an
+   * `unsupported` capability. `lowerSpec` emits entries for `native` capabilities only.
    */
   readonly supportLevels: Readonly<Record<Capability, SupportLevel>>;
 

@@ -1,114 +1,26 @@
 /**
- * advisory-registry — governed inventory + ratchet for ADVISORY controls
- * (P07-07; WFQ-017, WFQ-018).
+ * The governed inventory and ratchet for advisory controls. An advisory control warns and does not block:
+ * CI runs it, but `|| true`, `continue-on-error: true`, or an `--observe` flag softens its exit code.
+ * An advisory with no owner, no expiry, or a kill fixture that cannot fire is only theatre.
  *
- * An ADVISORY control is a check that WARNS rather than BLOCKS: it runs in CI,
- * surfaces findings, but its exit code is deliberately softened (`|| true`,
- * `continue-on-error: true`, or an `--observe` soak flag) so it cannot fail the
- * job. Advisories are a legitimate soak-window tool — but an unowned, un-expiring
- * advisory whose kill fixture can no longer fire is pure THEATRE: a gate that
- * exists only to look like coverage. This registry makes that impossible.
+ * Each entry of {@link ADVISORY_REGISTRY} carries an owner, promotion and removal thresholds, and an expiry.
+ * It also carries a kill fixture, its softening sites, a verified CI-path claim, and an approval issue.
+ * {@link discoverSofteningSites} finds each softening in the real tree, so an advisory does not need to
+ * declare itself. {@link verifyAdvisoryRatchet} checks the registry against those sites, the advisory
+ * markers, the CI-path analyses, and the kill-fixture results.
  *
- * ## The governance contract
- *
- * Every advisory control must carry, in {@link ADVISORY_REGISTRY}:
- *   - an OWNER (non-empty) — someone accountable for promoting or retiring it;
- *   - a PROMOTION THRESHOLD — the measured evidence that would justify making it
- *     blocking (non-empty);
- *   - a REMOVAL THRESHOLD — the measured evidence that would justify deleting it
- *     (non-empty);
- *   - an EXPIRY (`YYYY-MM-DD`) — a past expiry FAILS the ratchet, the same
- *     "deletion happens at expiry" philosophy as the shim ratchet and the
- *     `RESERVED(...)` module-intent gate;
- *   - a KILL FIXTURE (a probe id) — a seeded violation proving the advisory
- *     actually detects something. An advisory that cannot fire is theatre;
- *   - its SOFTENING SITES (`softening`) — every place the exit code is actually
- *     softened (`continue-on-error`, `--observe`, `|| true`), each keyed to the
- *     file it lives in and the target whose exit it swallows;
- *   - a CI PATH (`ciPath` + `ciStepMatch`) plus an explicit, MACHINE-VERIFIED
- *     claim about whether that path is filtered (`ciPathFiltered`);
- *   - an approval ISSUE (`#<number>`).
- *
- * ## Discovery is EXHAUSTIVE, not opt-in (DR-15)
- *
- * The original discovery scanned `scripts/**` for a hand-written
- * `ADVISORY(control: <id>)` marker comment. That mechanism can only see
- * advisories whose author volunteered to declare them — which is how the repo's
- * THIRD advisory (`tools/audit/gates/check-mutation-gate.mjs --observe`, softened inside
- * `.github/workflows/ci.yml`) and its FOURTH (the `continue-on-error: true`
- * capability-eval step in `.github/workflows/eval-gate.yml`) both sat outside
- * the registry: neither file carries a marker, and neither `.github/workflows`
- * nor `package.json` was even in the scan set. A detector that cannot see the
- * surface it claims to govern is the DR-12/13/14 failure class.
- *
- * {@link discoverSofteningSites} replaces that with EVIDENCE-BASED discovery
- * over the real tree. It walks `.github/workflows/**`, `package.json` scripts
- * and `scripts/**` and reports every occurrence of the three softening markers:
- *
- *   - `continue-on-error:` (any non-`false` value) on a workflow step;
- *   - `--observe` on an invocation of an enforcement primary;
- *   - `|| true` / `|| :` catching an invocation of an enforcement primary.
- *
- * "Enforcement primary" means a `scripts/(check|lint)-*.{mjs,sh}` file, directly
- * or through an `npm run <name>` chain. That narrowing is what keeps the scan
- * from drowning in the ~50 shell-idiom `|| true`s (`grep -c … || true`) that
- * soften nothing enforcement-bearing — see the module report for the shapes
- * deliberately NOT modelled.
- *
- * The `ADVISORY(...)` marker survives as a SUPPLEMENTARY, human-facing pointer:
- * a stray marker still fails the ratchet, but a registry entry is now backed by
- * a real softening site on disk, not by a comment.
- *
- * ## The ratchet
- *
- * {@link verifyAdvisoryRatchet} cross-checks the registry against the softening
- * sites discovered on disk, the markers discovered on disk, the parsed CI-path
- * analyses, AND the kill-fixture probe results:
- *   - a discovered SOFTENING SITE claimed by no registry entry FAILS (an
- *     advisory was added without complete governance — the count grew);
- *   - a discovered marker with no matching registry entry FAILS;
- *   - a registry entry with any missing/invalid governance field FAILS;
- *   - a registry entry whose `expires` is in the past FAILS (retire it);
- *   - a registry entry with a declared softening site that is NOT on disk FAILS
- *     (stale/dangling entry);
- *   - a registry entry whose `ciPathFiltered` claim disagrees with the PARSED
- *     workflow trigger / job / step `if:` gates FAILS, in BOTH directions — the
- *     "unfiltered CI path" claim used to be free text checked only for filename
- *     shape;
- *   - a registry entry whose kill fixture NO LONGER FIRES — the probe did not
- *     detect the seeded violation, or wrongly fired on the clean control — FAILS
- *     (the advisory has degraded into theatre).
- *
- * This module is PURE over its ratchet inputs — {@link verifyAdvisoryRatchet}
- * takes the registry, the discovered sets, the CI-path analyses, the probe
- * results, and `now` explicitly — so the ratchet rules are unit-testable without
- * a filesystem or a subprocess. {@link discoverAdvisories} and
- * {@link discoverSofteningSites} are the thin, injectable I/O adapters; the
- * CI-path analyses come from `tools/audit/gates/check-enforcer-wiring.mjs`
- * (`analyzeCiPathFilters`), which owns the workflow path-filter model.
- *
- * ## Marker grammar
- *
- * An advisory control file carries a single-line comment (any comment style):
- *
- *   `ADVISORY(control: <control-id>) — <free note>`
- *
- * Fields are `key: value` pairs separated by commas. The trailing ` — note`
- * after the close paren is not parsed.
+ * The ratchet is pure over its inputs, so its tests need no filesystem or subprocess.
+ * {@link discoverAdvisories} and {@link discoverSofteningSites} are the injectable I/O adapters.
+ * `analyzeCiPathFilters` in `tools/audit/gates/check-enforcer-wiring.mjs` supplies the CI-path analyses.
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
 /**
- * The three ways this repo softens an exit code so a failure cannot block:
- *   - `continue-on-error` — a workflow step's `continue-on-error:` key;
- *   - `observe`           — an `--observe` soak-window flag on an enforcement
- *                           primary's invocation;
- *   - `or-true`           — a `|| true` / `|| :` catching an enforcement
- *                           primary's invocation.
+ * The three ways this repo softens an exit code so a failure cannot block: `continue-on-error` (the key of
+ * a workflow step), `observe` (an `--observe` flag on an enforcement primary), and `or-true` (a `|| true`
+ * or `|| :` after an enforcement primary).
  */
 export type SofteningKind = 'continue-on-error' | 'observe' | 'or-true';
 
@@ -120,10 +32,9 @@ export const SOFTENING_KINDS: readonly SofteningKind[] = [
 ];
 
 /**
- * A registry entry's CLAIM on one softening site: "this advisory owns the
- * `<kind>` softening in `<file>` that swallows `<target>`". The ratchet matches
- * claims to discovered sites on the exact (file, kind, target) triple in BOTH
- * directions, so neither an unclaimed site nor a stale claim can survive.
+ * The claim of a registry entry on one softening site: the `<kind>` softening in `<file>` that swallows
+ * `<target>`. The ratchet matches claims and discovered sites on the exact (file, kind, target) triple in
+ * both directions. Thus neither an unclaimed site nor a stale claim survives.
  */
 export interface AdvisorySofteningRef {
   /** POSIX repo-relative file carrying the softening marker. */
@@ -143,10 +54,9 @@ export interface SofteningSite extends AdvisorySofteningRef {
 }
 
 /**
- * The structural result of `analyzeCiPathFilters` in
- * `tools/audit/gates/check-enforcer-wiring.mjs`. Kept as a structural type (not an import)
- * because `src/` is a separate `tsc` rootDir from `scripts/` — the CALLER
- * composes the two, exactly as it already composes the kill probes.
+ * The structural result of `analyzeCiPathFilters` in `tools/audit/gates/check-enforcer-wiring.mjs`. It is
+ * a structural type and not an import, because that script is outside the `tsc` rootDir of `src/`. The
+ * caller composes the two, as it does with the kill probes.
  */
 export interface CiPathAnalysis {
   /** The event the analysis is about (`pull_request`). */
@@ -159,7 +69,7 @@ export interface CiPathAnalysis {
 
 /** One governed advisory control, keyed by (file, control). */
 export interface AdvisoryEntry {
-  /** Stable human id, e.g. `lint-inv6`. Unique across the registry. */
+  /** Stable human id, such as `lint-inv6`. Unique across the registry. */
   readonly id: string;
   /** POSIX repo-relative path to the advisory control source file. */
   readonly file: string;
@@ -167,34 +77,31 @@ export interface AdvisoryEntry {
   readonly control: string;
   /** Owning team / person — must be non-empty. */
   readonly owner: string;
-  /** Measured evidence that would justify making the control BLOCKING. */
+  /** The measured evidence that justifies making the control blocking. */
   readonly promotionThreshold: string;
-  /** Measured evidence that would justify DELETING the control. */
+  /** The measured evidence that justifies deleting the control. */
   readonly removalThreshold: string;
   /** Approval issue ref: `#<number>`. */
   readonly issue: string;
-  /** Expiry date `YYYY-MM-DD`; a past expiry FAILS the ratchet. */
+  /** Expiry date `YYYY-MM-DD`. A past expiry fails the ratchet. */
   readonly expires: string;
   /** The kill-fixture probe id proving the advisory detects a seeded violation. */
   readonly killFixture: string;
   /** The `.github/workflows/*.yml` workflow hosting this advisory in CI. */
   readonly ciPath: string;
   /**
-   * A plain SUBSTRING locating the hosting step inside `ciPath` (matched
-   * against the step's `name` / `run` / `uses`). Required: without it the
-   * "unfiltered CI path" claim cannot be verified past the workflow trigger.
+   * A plain substring that finds the hosting step in `ciPath`, matched against its `name`, `run`, or
+   * `uses`. Without it, the CI-path claim cannot be checked past the workflow trigger.
    */
   readonly ciStepMatch: string;
   /**
-   * The CLAIM: is the hosting CI lane path-filtered? Verified against the
-   * PARSED trigger + job/step `if:` gates in BOTH directions — claiming
-   * `false` when the lane is filtered, or `true` when it is not, both FAIL.
+   * The claim that the hosting CI lane is path-filtered. The ratchet checks it against the parsed trigger
+   * and the job and step `if:` gates, and a wrong value fails in either direction.
    */
   readonly ciPathFiltered: boolean;
   /**
-   * Why the filtered lane is tolerated + what would move it to an unfiltered
-   * host. Required (non-empty) iff `ciPathFiltered` is true; must be empty
-   * when it is false, so the field cannot rot into decoration.
+   * Why the filtered lane is acceptable, and what moves the advisory to an unfiltered host. It must be
+   * non-empty when `ciPathFiltered` is true and empty when it is false.
    */
   readonly ciFilterRationale: string;
   /** Every place this advisory's exit code is softened. Must be non-empty. */
@@ -212,10 +119,8 @@ export interface DiscoveredAdvisory {
 }
 
 /**
- * The result of running an advisory's kill-fixture probe. A probe is HEALTHY
- * iff it FIRED on the seeded violation and stayed silent on the clean control —
- * i.e. it is discriminating. Anything else means the advisory can no longer be
- * trusted to detect its target.
+ * The result of the kill-fixture probe of an advisory. A healthy probe fires on the seeded violation and
+ * stays silent on the clean control. Any other result means that the advisory no longer detects its target.
  */
 export interface KillProbeResult {
   /** The advisory id this probe attests. */
@@ -255,52 +160,15 @@ export interface AdvisoryRatchetResult {
   readonly violations: readonly AdvisoryViolation[];
 }
 
-// ─── The governed inventory ──────────────────────────────────────────────────
-
 /**
- * The single authored list of governed advisory controls.
+ * The one authored list of governed advisory controls. A softening site or an advisory marker with no
+ * complete entry here fails {@link verifyAdvisoryRatchet}.
  *
- * Adding an `ADVISORY(...)` marker to the tree WITHOUT a complete matching entry
- * here fails {@link verifyAdvisoryRatchet}. Each entry pins an owner, a
- * promotion threshold (the measured evidence to make it blocking), a removal
- * threshold, an approval issue, an expiry, a kill-fixture probe, and the
- * unfiltered CI path where its findings reach CI.
- *
- * ### Inventory notes (P07-07, DR-15)
- *
- * The inventory is no longer taken from the enforcer-wiring manifest
- * (`tools/audit/gates/enforcer-wiring-manifest.json`, disposition `advisory`). That
- * manifest's domain is `scripts/check-*|lint-*` PRIMARIES, so it structurally
- * cannot name an advisory that is a built artifact — which is why it lists
- * THREE advisories while an exhaustive scan of the real tree finds FOUR. The
- * inventory below is reconciled against {@link discoverSofteningSites}, which
- * scans `.github/workflows/**`, `package.json` and `scripts/**` directly.
- *
- *   - `lint-inv6`             — grep lint for INV-6 workflow-agnosticism leaks.
- *     Softened by `(npm run lint:inv6 || true)` in the root `skills:guard`
- *     script. Its kill fixture spawns the REAL `tools/audit/gates/lint-inv6.mjs` against a
- *     seeded SKILL.md that leaks a workflow literal without a `workflow-type`
- *     declaration.
- *
- *   - `benchmark-regression`  — perf non-regression check, softened by
- *     `continue-on-error: true` in `benchmark-gate.yml`. Its kill fixture is a
- *     seeded (results, baselines) pair over the real script.
- *
- *   - `check-mutation-gate`   — diff-scoped mutation-adequacy gate, softened by
- *     `--observe` in `ci.yml`. NEWLY REGISTERED (DR-15). It escaped the previous
- *     registry because discovery required a hand-written `ADVISORY(...)` marker
- *     in a `scripts/**` file, and this advisory's softening lives in a WORKFLOW.
- *
- *   - `eval-capability-layer` — the promptfoo-backed capability eval suite,
- *     softened TWICE: `continue-on-error: true` on the `eval-gate.yml` step AND
- *     an in-code `layer === 'capability' ⇒ exit 0` rule in
- *     `tools/evals/evals/run-evals-cli.ts`. NEWLY DISCOVERED
- *     (DR-15) — no marker, not a `scripts/` primary, so neither the marker scan
- *     nor the enforcer-wiring manifest could see it.
- *
- * THREE of the four run on FILTERED CI lanes. That is recorded honestly in each
- * row's `ciPathFiltered` claim and machine-verified against the parsed
- * workflow, rather than asserted in prose.
+ * The inventory comes from {@link discoverSofteningSites}, not from the enforcer-wiring manifest. That
+ * manifest covers only `check-*` and `lint-*` primaries, so it cannot name `eval-capability-layer`, whose
+ * control is `run-evals-cli.ts`. That entry is softened twice: by `continue-on-error: true` in
+ * `eval-gate.yml`, and by an exit-0 rule for the `capability` layer in `run-evals-cli.ts`. Three of the
+ * four entries run on filtered CI lanes, and each `ciPathFiltered` claim records that.
  */
 export const ADVISORY_REGISTRY: readonly AdvisoryEntry[] = [
   {
@@ -434,26 +302,25 @@ export const ADVISORY_REGISTRY: readonly AdvisoryEntry[] = [
 ];
 
 /**
- * Source roots scanned by {@link discoverAdvisories} in the real-repo ratchet
- * check. Advisory controls live with the repo automation, under `tools/` since
- * task 036; the scan is bounded so it stays fast and so "where advisories may
- * live" is an explicit list. An advisory marker smuggled outside these roots is
- * out of the ratchet's scope by design (add the root here to bring it in).
+ * Source roots that {@link discoverAdvisories} scans in the real-repo ratchet check. Advisory controls live
+ * under `tools/`. The list is short, so the scan stays fast and the allowed places are explicit. A marker
+ * outside these roots is out of scope until its root joins the list.
  */
 export const ADVISORY_SCAN_ROOTS: readonly string[] = ['tools'];
 
 /** File extensions scanned for advisory markers (advisories are scripts). */
 export const ADVISORY_SCAN_EXTENSIONS: readonly string[] = ['.mjs', '.sh', '.js', '.cjs'];
 
-/** This module's own repo-relative path — excluded from its own marker scan. */
+/**
+ * The path that {@link discoverAdvisories} skips as this module. It does not match the real path of this
+ * module, `src/install/advisory-registry.ts`.
+ */
 const SELF_PATH = 'src/advisory-registry.ts';
 
-// ─── Marker parsing ──────────────────────────────────────────────────────────
-
 /**
- * Matches an `ADVISORY(<fields>)` marker. Built from a spliced string literal so
- * the regex source itself does NOT contain the literal marker token — that keeps
- * this module from matching itself if it is ever accidentally scanned.
+ * Matches an advisory marker: the token `ADVISORY`, then `(<fields>)`, in a comment of any style. The
+ * fields are `key: value` pairs separated by commas, and a note after the parenthesis is not parsed. A
+ * spliced string builds the regex, so its source does not hold the literal marker token.
  */
 const ADVISORY_MARKER_RE = new RegExp('ADVISORY' + '\\(([^)]*)\\)', 'g');
 
@@ -488,8 +355,6 @@ export function parseAdvisoryMarkers(source: string, file: string): DiscoveredAd
   return out;
 }
 
-// ─── Filesystem discovery (injectable I/O) ───────────────────────────────────
-
 /** Narrow, injectable filesystem surface so discovery is testable. */
 export interface AdvisoryDiscoveryFs {
   readFile(abs: string): string;
@@ -518,14 +383,17 @@ function isExcludedFile(name: string): boolean {
   return /\.test\.[a-z]+$/.test(name) || name.endsWith('.d.ts');
 }
 
-/** Recursively collect files with a scanned extension under `absRoot`. */
+/**
+ * Recursively collects files with a scanned extension under `absRoot`. The `undefined` check after `pop()`
+ * cannot fire, but it satisfies `noUncheckedIndexedAccess` with no assertion.
+ */
 function listFilesReal(absRoot: string, extensions: readonly string[]): string[] {
   const results: string[] = [];
   if (!existsSync(absRoot)) return results;
   const stack: string[] = [absRoot];
   while (stack.length > 0) {
     const current = stack.pop();
-    if (current === undefined) break; // len>0 makes this unreachable; satisfies noUncheckedIndexedAccess without an assertion
+    if (current === undefined) break;
     let entries: string[];
     try {
       entries = readdirSync(current);
@@ -557,9 +425,8 @@ function toPosix(p: string): string {
 }
 
 /**
- * Walk the configured roots and return every `ADVISORY(...)` marker found, as
- * POSIX-repo-relative {@link DiscoveredAdvisory}s. This module's own file is
- * excluded so its documentation/regex can never be mistaken for a live marker.
+ * Walks the configured roots and returns each advisory marker as a {@link DiscoveredAdvisory} with a POSIX
+ * repo-relative path. It skips the file at {@link SELF_PATH}.
  */
 export function discoverAdvisories(opts: DiscoverAdvisoriesOptions): DiscoveredAdvisory[] {
   const extensions = opts.extensions ?? ADVISORY_SCAN_EXTENSIONS;
@@ -582,11 +449,6 @@ export function discoverAdvisories(opts: DiscoverAdvisoriesOptions): DiscoveredA
   return found;
 }
 
-// ─── Exhaustive softening discovery (DR-15) ──────────────────────────────────
-//
-// The mechanism that actually closes the registry gap. It does NOT look for a
-// voluntary marker — it looks for the SOFTENING ITSELF, over the real tree.
-
 /** Repo-relative roots scanned for `|| true` / `--observe` softening. */
 export const SOFTENING_SCRIPT_ROOTS: readonly string[] = ['tools'];
 
@@ -597,13 +459,9 @@ export const SOFTENING_WORKFLOW_ROOT = '.github/workflows';
 export const SOFTENING_SCRIPT_EXTENSIONS: readonly string[] = ['.mjs', '.sh', '.js', '.cjs'];
 
 /**
- * Where enforcement primaries live — the single spelling this scan recognizes.
- *
- * Exported so a synthetic fixture can seed a path the scan will actually match
- * instead of restating the prefix. A fixture that hard-codes it keeps passing
- * against a vocabulary the scanner no longer speaks: after task 036 moved the
- * tree, half this module's fixtures still seeded `scripts/` and the scan
- * reported zero sites — an empty result that reads exactly like "clean".
+ * The directory of enforcement primaries, the one spelling that this scan recognizes. A synthetic fixture
+ * imports it, so the fixture seeds a path that the scan matches. A fixture with a hard-coded prefix can
+ * drift from this value. It then finds zero sites, and that empty result looks the same as a clean result.
  */
 export const ENFORCEMENT_PRIMARY_DIR = 'tools/audit/gates';
 
@@ -622,7 +480,7 @@ function evidenceOf(text: string, max = 120): string {
   return collapsed.length > max ? `${collapsed.slice(0, max - 1)}…` : collapsed;
 }
 
-/** Direct `scripts/(check|lint)-*.{mjs,sh}` references, self-tests excluded. */
+/** Direct references to `tools/audit/gates/(check|lint)-*.{mjs,sh}`, with self-tests excluded. */
 function directPrimaryRefs(text: string): string[] {
   const out: string[] = [];
   for (const m of text.matchAll(PRIMARY_PATH_RE)) {
@@ -836,12 +694,9 @@ function extractRun(stepLines: readonly string[]): { command: string; offset: nu
 /**
  * Every softening site in one workflow file.
  *
- * `continue-on-error:` is enumerated from the LINES (every structural
- * occurrence), then attributed to the step block containing it. A
- * `continue-on-error:` that belongs to no step — a JOB-level softening — still
- * produces a site, with a coarse `job-level:<line>` target, so it cannot
- * escape. `--observe` / `|| true` are scanned inside `run:` bodies only, so a
- * YAML comment mentioning them is not mistaken for a live softening.
+ * Each structural `continue-on-error:` line with a value other than `false` gives a site, attributed to
+ * its step. A job-level one, outside any step, still gives a site with a coarse `job-level:<line>` target.
+ * `--observe` and `|| true` count only inside `run:` bodies, so a YAML comment that names them is no site.
  */
 export function discoverWorkflowSoftening(
   text: string,
@@ -852,7 +707,6 @@ export function discoverWorkflowSoftening(
   const items = groupListItems(lines);
   const sites: SofteningSite[] = [];
 
-  // 1. `--observe` / `|| true` inside step `run:` bodies.
   for (const item of items) {
     const run = extractRun(item.lines);
     if (!run) continue;
@@ -861,12 +715,11 @@ export function discoverWorkflowSoftening(
     );
   }
 
-  // 2. Every structural `continue-on-error:` line, attributed to its step.
   for (let i = 0; i < lines.length; i++) {
     const m = (lines[i] ?? '').match(/^\s*(?:-\s+)?continue-on-error:\s*(.+?)\s*$/);
     if (!m) continue;
     const value = m[1] ?? '';
-    if (/^false$/i.test(value)) continue; // explicitly NOT softened
+    if (/^false$/i.test(value)) continue;
     const owner = items.find((it) => i >= it.start && i < it.start + it.lines.length);
     const run = owner ? extractRun(owner.lines) : null;
     sites.push({
@@ -911,15 +764,14 @@ function realSofteningFs(): SofteningDiscoveryFs {
 }
 
 /**
- * Walk the REAL tree and return every softening site. Exhaustive over the three
- * surfaces a softening can live on in this repo:
+ * Walks the real tree and returns each softening site, sorted by file, line, and kind:
  *
- *   1. `.github/workflows/**` — `continue-on-error:`, plus `--observe` /
- *      `|| true` inside step `run:` bodies;
- *   2. `package.json` scripts — `--observe` / `|| true`;
- *   3. `scripts/**` (non-self-test) — `--observe` / `|| true`.
+ *   1. `.github/workflows/**`: `continue-on-error:`, and `--observe` or `|| true` in step `run:` bodies.
+ *   2. `package.json` scripts: `--observe` or `|| true`. A site gets the line of its script in the raw file.
+ *   3. The script roots, `tools/` by default: `--observe` or `|| true`.
  *
- * Sites are sorted (file, line, kind) so the output is stable.
+ * It reads the npm script map to follow `npm run <name>` chains to primaries. It skips `*.test.*` files in
+ * discovery itself, not only in the fs adapter, because a harness that softens its subject is a test.
  */
 export function discoverSofteningSites(opts: DiscoverSofteningOptions): SofteningSite[] {
   const fs = opts.fs ?? realSofteningFs();
@@ -927,7 +779,6 @@ export function discoverSofteningSites(opts: DiscoverSofteningOptions): Softenin
   const scriptRoots = opts.scriptRoots ?? SOFTENING_SCRIPT_ROOTS;
   const pkgPath = opts.packageJsonPath ?? 'package.json';
 
-  // npm script map — needed to resolve `npm run <name>` chains to primaries.
   let scripts: Record<string, string> = {};
   const absPkg = join(opts.repoRoot, pkgPath);
   let pkgRaw: string | null = null;
@@ -948,15 +799,12 @@ export function discoverSofteningSites(opts: DiscoverSofteningOptions): Softenin
 
   const sites: SofteningSite[] = [];
 
-  // 1. Workflows.
   const absWorkflows = join(opts.repoRoot, workflowRoot);
   for (const abs of fs.listFiles(absWorkflows, ['.yml', '.yaml'])) {
     const rel = toPosix(relative(opts.repoRoot, abs));
     sites.push(...discoverWorkflowSoftening(fs.readFile(abs), rel, scripts));
   }
 
-  // 2. package.json scripts. Line numbers are resolved against the raw file so
-  //    a violation points at a real line.
   for (const [name, body] of Object.entries(scripts)) {
     const found = scanCommandSoftening(body, pkgPath, 1, scripts);
     if (found.length === 0) continue;
@@ -968,10 +816,6 @@ export function discoverSofteningSites(opts: DiscoverSofteningOptions): Softenin
     for (const site of found) sites.push({ ...site, line });
   }
 
-  // 3. Script roots. Self-tests (`*.test.sh` / `*.test.mjs`) are excluded here,
-  //    in DISCOVERY rather than only in the fs adapter: a harness that softens
-  //    the subject it is probing is a test, not a live advisory, and that must
-  //    hold for every filesystem the scan runs against.
   for (const root of scriptRoots) {
     const absRoot = join(opts.repoRoot, root);
     for (const abs of fs.listFiles(absRoot, SOFTENING_SCRIPT_EXTENSIONS)) {
@@ -986,8 +830,6 @@ export function discoverSofteningSites(opts: DiscoverSofteningOptions): Softenin
   );
 }
 
-// ─── Governance validation ───────────────────────────────────────────────────
-
 /** UTC midnight of a date, for a whole-day expiry comparison. */
 function startOfUtcDay(date: Date): number {
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
@@ -1001,17 +843,11 @@ interface GovernanceProblem {
 const WORKFLOW_PATH_RE = /^\.github\/workflows\/[\w.-]+\.ya?ml$/;
 
 /**
- * Validate a registry entry's governance fields against `now`. Returns the list
- * of problems (empty ⇒ valid): a non-empty owner, promotion threshold, removal
- * threshold, and kill fixture; a well-formed issue ref (`#<number>`); a CLEAN
- * `YYYY-MM-DD` expiry that is a real calendar date and not in the past; a
- * `ciPath` that names a `.github/workflows/*.yml` workflow; a non-empty
- * `ciStepMatch`; a `ciFilterRationale` present iff `ciPathFiltered`; and at
- * least one well-formed softening ref.
- *
- * This is the STRUCTURAL enforcement of "owner, threshold, expiry and kill
- * fixture" (DR-15) — the four mandated fields cannot be omitted (the type
- * forbids it) and cannot be blank (this pass forbids it).
+ * Returns the governance problems of a registry entry at `now`, or an empty list. It requires a non-empty
+ * owner, thresholds, kill fixture, and `ciStepMatch`, an issue ref `#<number>`, and a real `YYYY-MM-DD`
+ * expiry that is not past. It also requires a `.github/workflows/*.yml` `ciPath`, a `ciFilterRationale`
+ * exactly when `ciPathFiltered` is true, and at least one well-formed softening ref. The type makes the
+ * fields required, and this pass rejects blank values.
  */
 export function validateAdvisoryGovernance(
   entry: AdvisoryEntry,
@@ -1047,8 +883,6 @@ export function validateAdvisoryGovernance(
     });
   }
 
-  // The filtered claim and its rationale move together, in BOTH directions —
-  // a rationale on an unfiltered row is stale decoration.
   if (entry.ciPathFiltered && !/\S/.test(entry.ciFilterRationale)) {
     problems.push({
       kind: 'malformed',
@@ -1114,8 +948,6 @@ export function validateAdvisoryGovernance(
   return problems;
 }
 
-// ─── The ratchet ─────────────────────────────────────────────────────────────
-
 const PAIR_SEP = '\u0000';
 const pairKey = (file: string, control: string): string => `${file}${PAIR_SEP}${control}`;
 const siteKey = (ref: AdvisorySofteningRef): string =>
@@ -1143,34 +975,21 @@ export interface AdvisoryRatchetInputs {
 }
 
 /**
- * The ratchet. Compares the governed registry against the softening sites and
- * advisory markers discovered on disk, validates each entry's governance,
- * verifies each entry's CI-path claim against the parsed workflow, and verifies
- * each entry's kill fixture still fires. Never short-circuits — a caller sees
- * every violation in one pass.
+ * The ratchet. It never stops at the first problem, so a caller sees each violation in one pass:
  *
- * Violation classes:
- *   - `duplicate-id`         — two registry entries share an id.
- *   - `malformed`/`expired`  — a registry entry's governance is invalid / past.
- *   - `unregistered`         — a discovered softening site or advisory marker
- *                              has no entry (the count grew without complete
- *                              governance).
- *   - `control-mismatch`     — the marker's control disagrees with the entry.
- *   - `missing-on-disk`      — a registry entry claims a softening site that is
- *                              not on disk (stale claim).
- *   - `ci-path-mismatch`     — the entry's `ciPathFiltered` claim disagrees with
- *                              the PARSED trigger / job / step `if:` gates.
- *   - `ci-path-unverified`   — no CI-path analysis was supplied for an entry.
- *   - `kill-fixture-missing` — a registry entry has no probe result at all.
- *   - `kill-fixture-dead`    — the probe did not fire on the seeded violation,
- *                              or wrongly fired on the clean control (the
- *                              advisory has decayed into theatre).
+ *   - `duplicate-id`, `malformed`, `expired`: the registry itself is invalid.
+ *   - `unregistered`: a softening site or a marker on disk has no entry.
+ *   - `control-mismatch`: a marker names a control that differs from the entry for its file.
+ *   - `missing-on-disk`: an entry claims a softening site that is not on disk.
+ *   - `ci-path-mismatch`, `ci-path-unverified`: the `ciPathFiltered` claim disagrees with the parsed
+ *     trigger and gates, or it has no analysis.
+ *   - `kill-fixture-missing`, `kill-fixture-dead`: the probe result is absent, missed the violation, or
+ *     fired on the clean control.
  */
 export function verifyAdvisoryRatchet(inputs: AdvisoryRatchetInputs): AdvisoryRatchetResult {
   const { registry, discovered, probeResults, softeningSites, ciPathAnalyses, now } = inputs;
   const violations: AdvisoryViolation[] = [];
 
-  // 0. Registry ids must be unique — a duplicate id makes remediation ambiguous.
   const seenIds = new Set<string>();
   for (const e of registry) {
     if (seenIds.has(e.id)) {
@@ -1183,7 +1002,6 @@ export function verifyAdvisoryRatchet(inputs: AdvisoryRatchetInputs): AdvisoryRa
     seenIds.add(e.id);
   }
 
-  // 1. Governance: every entry must be well-formed and unexpired.
   for (const e of registry) {
     for (const p of validateAdvisoryGovernance(e, now)) {
       violations.push({
@@ -1196,11 +1014,6 @@ export function verifyAdvisoryRatchet(inputs: AdvisoryRatchetInputs): AdvisoryRa
     }
   }
 
-  // 2. Every discovered SOFTENING SITE must be claimed by a registry entry.
-  //    This is the exhaustive-discovery ratchet: a `continue-on-error` /
-  //    `--observe` / `|| true` added anywhere on the scanned surfaces without a
-  //    complete registry row fails here. It does NOT depend on anyone
-  //    remembering to write an `ADVISORY(...)` marker.
   const claimed = new Map<string, AdvisoryEntry>();
   for (const e of registry) {
     for (const ref of e.softening) claimed.set(siteKey(ref), e);
@@ -1219,7 +1032,6 @@ export function verifyAdvisoryRatchet(inputs: AdvisoryRatchetInputs): AdvisoryRa
     });
   }
 
-  // 3. Every claimed softening site must still exist on disk (no stale claims).
   for (const e of registry) {
     for (const ref of e.softening) {
       if (sitesOnDisk.has(siteKey(ref))) continue;
@@ -1239,8 +1051,6 @@ export function verifyAdvisoryRatchet(inputs: AdvisoryRatchetInputs): AdvisoryRa
   const regByPair = new Map<string, AdvisoryEntry>();
   for (const e of registry) regByPair.set(pairKey(e.file, e.control), e);
 
-  // 4. An `ADVISORY(...)` marker is now SUPPLEMENTARY (human-facing), but a
-  //    stray one still fails: it would document an advisory nobody governs.
   for (const d of discovered) {
     const key = pairKey(d.file, d.control);
     const entry = regByPair.get(key);
@@ -1270,10 +1080,6 @@ export function verifyAdvisoryRatchet(inputs: AdvisoryRatchetInputs): AdvisoryRa
     }
   }
 
-  // 5. The "unfiltered CI path" claim is VERIFIED against the parsed workflow,
-  //    in BOTH directions. Before DR-15 this was free text checked only for
-  //    filename shape, so `.github/workflows/anything.yml` satisfied it even
-  //    when the lane was narrowed by `paths:` or gated by a job `if:`.
   for (const e of registry) {
     const analysis = ciPathAnalyses.get(e.id);
     if (!analysis) {
@@ -1305,7 +1111,6 @@ export function verifyAdvisoryRatchet(inputs: AdvisoryRatchetInputs): AdvisoryRa
     });
   }
 
-  // 6. Every registry entry's kill fixture must still fire (and be discriminating).
   const probeById = new Map<string, KillProbeResult>();
   for (const r of probeResults) probeById.set(r.advisoryId, r);
   for (const e of registry) {
@@ -1370,21 +1175,6 @@ export function assertAdvisoryRatchet(inputs: AdvisoryRatchetInputs): void {
   if (!result.ok) throw new AdvisoryRatchetError(result.violations);
 }
 
-// ─── Kill fixtures for the DR-15 rows ────────────────────────────────────────
-//
-// DESIGN TENSION (reported, not absorbed): the executable kill fixtures belong
-// in `advisory-kill-probes.ts` beside `probeLintInv6` /
-// `probeBenchmarkRegression`. They live here because T-21's file scope is
-// (advisory-registry.ts, check-enforcer-wiring.mjs, advisory-registry.test.ts)
-// and a row without a firing kill fixture would fail the ratchet. Relocating
-// them is a mechanical follow-up.
-//
-// Both probes follow the pattern `probeBenchmarkRegression` already established
-// for a control that cannot be spawned portably: a FAITHFUL IN-PROCESS PORT of
-// the control's decision rule, run against a seeded (violation, clean) pair,
-// GUARDED by a structural assertion that the real control still contains the
-// branch being ported. A gutted or deleted control therefore still fails.
-
 /** Options accepted by the local kill probes. */
 export interface LocalKillProbeOptions {
   /** Absolute repo root. */
@@ -1423,10 +1213,9 @@ interface MutationCarrier {
 }
 
 /**
- * A faithful port of `computeVerdict`'s FAILURE decision in
- * `tools/audit/gates/check-mutation-gate.mjs`: a carrier fails when the handler errored,
- * when it is a degrade/skip/warning carrier (no verifiable verdict), when its
- * scored axes are not finite, or when `passed !== true`.
+ * A port of the failure decision of `computeVerdict` in `tools/audit/gates/check-mutation-gate.mjs`. A
+ * carrier fails when the handler errored, or when it is a degrade, skip, or warning carrier. It also fails
+ * when a scored axis is not finite, or when `passed !== true`.
  */
 export function mutationVerdictFires(result: MutationCarrier): boolean {
   if (result.success !== true) return true;
@@ -1446,22 +1235,13 @@ export function mutationVerdictFires(result: MutationCarrier): boolean {
 }
 
 /**
- * Kill fixture `mutation-gate-failing-verdict`.
+ * Kill fixture `mutation-gate-failing-verdict`. The violation is a scored carrier with `passed: false`, and
+ * the clean control has `passed: true`.
  *
- * Seeded pair over the real gate's verdict rule:
- *   - violation: a scored carrier with `passed:false` (mutationScore 41 under a
- *     threshold of 60, noCoverage 9 over a budget of 3)  → the gate FAILS;
- *   - clean:     a scored carrier with `passed:true`                → silent.
- *
- * The real gate cannot be spawned here: it shells `git` to resolve a PR diff and
- * drives the mutation-adequacy handler through a `bun` bridge. So the port
- * decides, bound to the real script by asserting its failing-verdict branch and
- * its `--observe` collapse are both still present.
- *
- * SCOPE, stated plainly: this attests that the gate's DETECTION logic still
- * discriminates. It does NOT attest that the gate can fire in the configuration
- * CI actually runs — `--observe` collapses exactly this verdict to exit 0. That
- * is the registered softening, and clearing it is the row's promotion threshold.
+ * The real gate cannot run here, because it calls `git` for the PR diff and a `bun` bridge for the handler.
+ * So the port decides, and the probe checks that the failing-verdict branch and the `--observe` collapse
+ * are still in the real script. The probe proves that detection still discriminates. It does not prove
+ * that the gate can fail in CI, where `--observe` turns this verdict into exit 0.
  */
 export function probeMutationGateVerdict(
   advisory: AdvisoryEntry,
@@ -1513,21 +1293,12 @@ export function evalRunnerExitCode(
 }
 
 /**
- * Kill fixture `eval-capability-failing-summary`.
+ * Kill fixture `eval-capability-failing-summary`. The violation is a suite summary with `failed: 2`, and
+ * the clean control has `failed: 0`. The probe also checks the in-code softening: the failing summary exits
+ * 0 on the `capability` layer and 1 on the `regression` layer. Without that softening, the probe does not
+ * fire, and the ratchet reports `kill-fixture-dead`.
  *
- * Seeded pair over the real eval runner's failure accounting:
- *   - violation: a suite summary carrying `failed: 2` → the runner accounts a
- *     failure (and, on the BLOCKING `regression` layer, exits 1);
- *   - clean:     `failed: 0`                          → silent, exits 0.
- *
- * Also asserts the softening it is registered for: the SAME failing summary
- * exits 0 on the `capability` layer. If that in-code softening were removed the
- * advisory would be blocking and its registry row would fail as a stale claim —
- * which is the ratchet working.
- *
- * SCOPE: this attests the runner's failure accounting + exit rule. It does not
- * execute promptfoo or the graders (they need `bun`, the opt-in eval package and
- * an ANTHROPIC_API_KEY), so grader accuracy is out of the fixture's reach.
+ * It does not run promptfoo or the graders, which need `bun`, the eval package, and an `ANTHROPIC_API_KEY`.
  */
 export function probeEvalCapabilityLayer(
   advisory: AdvisoryEntry,
@@ -1562,9 +1333,10 @@ export function probeEvalCapabilityLayer(
 }
 
 /**
- * Kill probes owned by this module (the DR-15 rows). Callers compose these with
- * `runKillProbe` from `advisory-kill-probes.ts`, which owns the two original
- * rows — see the DESIGN TENSION note above.
+ * The kill probes of this module, for `check-mutation-gate` and `eval-capability-layer`. Callers compose
+ * them with `runKillProbe` from `advisory-kill-probes.ts`, which owns the other two probes. Each probe runs
+ * an in-process port of the decision rule of its control on a seeded violation and clean pair. It also
+ * checks that the real control still holds the ported branch, so a gutted control still fails.
  */
 export const REGISTRY_LOCAL_KILL_PROBES: Readonly<Record<string, AdvisoryProbeRunner>> = {
   'check-mutation-gate': probeMutationGateVerdict,
