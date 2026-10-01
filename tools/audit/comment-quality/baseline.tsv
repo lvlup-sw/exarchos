@@ -9024,7 +9024,6 @@ src/verbs/worktree/pure/path-containment.ts	c844e085ceec	1
 src/verbs/worktree/pure/path-containment.ts	cc7834598b79	1
 src/verbs/worktree/pure/path-containment.ts	cecd146dd37f	1
 src/verbs/worktree/pure/path-containment.ts	e8898d47973a	1
-src/verbs/worktree/pure/probe.ts	04d7f7b7f99b	1
 src/verbs/worktree/pure/probe.ts	0ffc0ec6b79d	1
 src/verbs/worktree/pure/probe.ts	10d5d5e843a8	1
 src/verbs/worktree/pure/probe.ts	27a4477e6097	1
@@ -9036,16 +9035,16 @@ src/verbs/worktree/pure/probe.ts	3e90807908a4	1
 src/verbs/worktree/pure/probe.ts	3f4411fb159e	1
 src/verbs/worktree/pure/probe.ts	4160667bf0c8	1
 src/verbs/worktree/pure/probe.ts	439221f9cd9a	1
-src/verbs/worktree/pure/probe.ts	48b6527ab40b	1
 src/verbs/worktree/pure/probe.ts	50482ea7dfbc	1
 src/verbs/worktree/pure/probe.ts	537d14ca7427	1
 src/verbs/worktree/pure/probe.ts	55f0b78bacf4	1
+src/verbs/worktree/pure/probe.ts	57d653f70957	1
 src/verbs/worktree/pure/probe.ts	5c9effb5c9fe	1
-src/verbs/worktree/pure/probe.ts	5d163832fff8	1
 src/verbs/worktree/pure/probe.ts	64dfdb403fb1	1
 src/verbs/worktree/pure/probe.ts	71ddb14bae04	1
 src/verbs/worktree/pure/probe.ts	7bae8768bdd4	1
 src/verbs/worktree/pure/probe.ts	8e0d9bbc6962	1
+src/verbs/worktree/pure/probe.ts	a18933f9588c	1
 src/verbs/worktree/pure/probe.ts	a421ea8fcbcc	1
 src/verbs/worktree/pure/probe.ts	a73c2fab01c8	1
 src/verbs/worktree/pure/probe.ts	b3ef9d203f4b	1
@@ -13210,7 +13209,6 @@ tests/scripts/lib/comment-policy.test.ts	270c8e36052f	1
 tests/scripts/lib/comment-policy.test.ts	28cee0f97d47	1
 tests/scripts/lib/comment-policy.test.ts	9aa0263a2baa	1
 tests/scripts/lib/comment-prose.test.ts	215d47d699c3	1
-tests/scripts/lib/comment-prose.test.ts	23194aa8ab7d	1
 tests/scripts/lib/comment-prose.test.ts	52025263738f	1
 tests/scripts/lib/comment-prose.test.ts	9178868a022f	1
 tests/scripts/lib/comment-prose.test.ts	a7a2fa477bbd	1
@@ -26335,6 +26333,7 @@ tests/unit/verbs/settle/adjudicate.test.ts	ae54dca66b86	1
 tests/unit/verbs/settle/adjudicate.test.ts	bf52ebdeeb0e	1
 tests/unit/verbs/settle/adjudicate.test.ts	d32c18fad966	1
 tests/unit/verbs/settle/adjudicate.test.ts	d3a576cd5b99	1
+tests/unit/verbs/settle/blocking-gate.test.ts	0531924ab8b2	1
 tests/unit/verbs/settle/handler.test.ts	036a03a46fe1	1
 tests/unit/verbs/settle/handler.test.ts	08599aa1a030	1
 tests/unit/verbs/settle/handler.test.ts	0bb7a10196fe	1
@@ -33432,7 +33431,6 @@ tools/eslint-rules/__fixtures__/handler-throw.violating.ts	d49bdec3cf0a	1
 tools/eslint-rules/__fixtures__/handler-throw.violating.ts	e1bbb143145e	1
 tools/eslint-rules/__fixtures__/handler-throw.violating.ts	f136d175f782	1
 tools/eslint-rules/__fixtures__/handler-throw.violating.ts	f2f138ffc9e0	1
-tools/eslint-rules/comment-placement.js	a610180af0c0	1
 tools/eslint-rules/no-handler-throw.js	0c2bb5f717b1	1
 tools/eslint-rules/no-handler-throw.js	126536056679	1
 tools/eslint-rules/no-handler-throw.js	1683779275ce	1
