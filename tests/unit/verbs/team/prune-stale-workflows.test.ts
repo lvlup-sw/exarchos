@@ -10,16 +10,20 @@ import { orchestrateLogger } from '../../../../src/logger.js';
 import type { ToolResult } from '../../../../src/format.js';
 import type { Topology } from '../../../../src/workflow/topology/phase-contract.js';
 
-// #1334 (β-07/β-08): the handler now calls `getTopology()` to obtain the
-// typed phase contracts that drive staleness scoring. The handler test
-// suite below is module-isolated and never wires up the real topology
-// loader, so we mock the loader to return a fixture topology by default.
-// Individual tests can override via `mockGetTopology.mockImplementationOnce(...)`
-// to exercise the "topology not loaded" skip path (β-08).
+/**
+ * The handler suite never loads a real topology file. It mocks the loader to
+ * report an explicit topology that loaded a fixture. A test can make
+ * `mockGetTopology` throw to exercise the skip path for a topology file that
+ * failed to load.
+ */
 const mockGetTopology = vi.fn<() => Topology>();
+
+/** Whether the mocked loader reports that a topology file was requested. */
+const mockExplicitTopologyRequested = vi.fn<() => boolean>();
 
 vi.mock('../../../../src/workflow/topology/loader.js', () => ({
   getTopology: () => mockGetTopology(),
+  isExplicitTopologyRequested: () => mockExplicitTopologyRequested(),
   loadTopology: vi.fn(),
   __resetTopologyCacheForTesting: vi.fn(),
 }));
@@ -434,6 +438,35 @@ describe('selectPruneCandidates', () => {
     expect(orphan?.reason).toBe('phase-not-in-topology');
   });
 
+  it('SelectPruneCandidates_TypeOutsideCoveredWorkflowTypes_ExcludedAsWorkflowTypeNotInTopology', () => {
+    const entries: WorkflowListEntry[] = [
+      makeEntry({ featureId: 'custom-plan', workflowType: 'custom-flow', phase: 'plan', lastActivityTimestamp: minutesAgo(30_000) }),
+      makeEntry({ featureId: 'feature-plan', workflowType: 'feature', phase: 'plan', lastActivityTimestamp: minutesAgo(30_000) }),
+    ];
+
+    const { candidates, excluded } = selectPruneCandidates(
+      entries,
+      buildTestTopology(),
+      { coveredWorkflowTypes: new Set(['feature']) },
+      NOW,
+    );
+
+    expect(candidates.map((c) => c.featureId)).toEqual(['feature-plan']);
+    expect(excluded).toEqual([{ featureId: 'custom-plan', reason: 'workflow-type-not-in-topology' }]);
+  });
+
+  it('SelectPruneCandidates_NoCoveredWorkflowTypes_ScoresEveryWorkflowType', () => {
+    const entries: WorkflowListEntry[] = [
+      makeEntry({ featureId: 'custom-plan', workflowType: 'custom-flow', phase: 'plan', lastActivityTimestamp: minutesAgo(30_000) }),
+      makeEntry({ featureId: 'feature-plan', workflowType: 'feature', phase: 'plan', lastActivityTimestamp: minutesAgo(30_000) }),
+    ];
+
+    const { candidates, excluded } = selectPruneCandidates(entries, buildTestTopology(), {}, NOW);
+
+    expect(candidates.map((c) => c.featureId)).toEqual(['custom-plan', 'feature-plan']);
+    expect(excluded).toEqual([]);
+  });
+
   it('SelectPruneCandidates_WithTopologyArgument_ReturnsCandidatesScoredByPhaseContract', () => {
     // Topology: phase 'implementing' declares two signals with a 60-minute
     // threshold and `freshnessRequires: 'all'`. With 'all', the entry is
@@ -579,6 +612,8 @@ describe('handlePruneStaleWorkflows', () => {
   beforeEach(() => {
     mockGetTopology.mockReset();
     mockGetTopology.mockImplementation(() => buildTestTopology());
+    mockExplicitTopologyRequested.mockReset();
+    mockExplicitTopologyRequested.mockReturnValue(true);
   });
 
   // Restore all spies between tests (e.g. orchestrateLogger.warn spies in
@@ -588,22 +623,10 @@ describe('handlePruneStaleWorkflows', () => {
     vi.restoreAllMocks();
   });
 
-  // ─── #1334 β-08: graceful skip when topology not loaded ────────────────────
-  //
-  // The CLI fast path (e.g. running `prune` outside a fully-bootstrapped
-  // MCP server) may invoke this handler before the lifecycle has called
-  // `loadTopology()`. Rather than letting the loader's "Topology not
-  // loaded: call loadTopology() before getTopology()" throw escape and
-  // surface as an unhandled rejection, the handler must catch it,
-  // return a structured `{ aborted: true, reason: 'topology_not_loaded' }`
-  // envelope, and emit a warning log so operators see why the prune ran
-  // produced no candidates. Field is `aborted` (not `skipped`) so it
-  // doesn't collide with `PruneHandlerResult.skipped: PruneSkipped[]`.
-  it('PruneStaleWorkflows_TopologyNotLoaded_SkipsPruningWithLoggedReason', async () => {
+  it('PruneStaleWorkflows_TopologyYamlFailedToLoad_SkipsPruningWithLoggedReason', async () => {
     const { ctx } = makeEventStoreStub();
     const deps = makeDeps();
-    // Simulate loadTopology() never having been called: getTopology()
-    // throws the canonical "load before" error from `topology/loader.ts`.
+    mockExplicitTopologyRequested.mockReturnValue(true);
     mockGetTopology.mockImplementationOnce(() => {
       throw new Error(
         'Topology not loaded: call loadTopology() before getTopology()',
@@ -666,6 +689,55 @@ describe('handlePruneStaleWorkflows', () => {
   // dispatch-level arbiter in `dispatch/core/dispatch.test.ts`
   // (`Dispatch_PruneLegacyThresholdMinutes_ActionableRemovalError`) and the
   // yaml-config seam by `config/yaml-schema.test.ts`.
+
+  it('PruneStaleWorkflows_NoTopologyYamlApplyMode_CustomWorkflowTypeInABuiltInPhaseIsNotCancelled', async () => {
+    const { ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+    mockExplicitTopologyRequested.mockReturnValue(false);
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        { featureId: 'custom-plan', workflowType: 'custom-flow', phase: 'plan', lastActivityTimestamp: staleIso(30_000) },
+        { featureId: 'feature-plan', workflowType: 'feature', phase: 'plan', lastActivityTimestamp: staleIso(30_000) },
+      ]),
+    );
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: false, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { candidates: Array<{ featureId: string }>; pruned: Array<{ featureId: string }> };
+    expect(data.candidates.map((c) => c.featureId)).toEqual(['feature-plan']);
+    expect(data.pruned.map((p) => p.featureId)).toEqual(['feature-plan']);
+    const cancelledIds = deps.cancelSpy.mock.calls.map((c) => (c[0] as { featureId: string }).featureId);
+    expect(cancelledIds).toEqual(['feature-plan']);
+  });
+
+  it('PruneStaleWorkflows_ExplicitTopology_CustomWorkflowTypeIsStillScored', async () => {
+    const { ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+    mockExplicitTopologyRequested.mockReturnValue(true);
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        { featureId: 'custom-plan', workflowType: 'custom-flow', phase: 'plan', lastActivityTimestamp: staleIso(30_000) },
+        { featureId: 'feature-plan', workflowType: 'feature', phase: 'plan', lastActivityTimestamp: staleIso(30_000) },
+      ]),
+    );
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { candidates: Array<{ featureId: string }> };
+    expect(data.candidates.map((c) => c.featureId)).toEqual(['custom-plan', 'feature-plan']);
+  });
 
   it('dry run returns candidates without calling cancel', async () => {
     const { ctx } = makeEventStoreStub();
@@ -1454,6 +1526,48 @@ describe('handlePruneStaleWorkflows', () => {
     const envelope = payload as { type: string; data: Record<string, unknown> };
     expect(envelope.data.malformedCount).toBe(0);
     expect(envelope.data.candidateCount).toBe(1);
+  });
+
+  it('handlePrune_DiagnosticsAppend_SettlesBeforeTheHandlerReturns', async () => {
+    const { append, ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+    let appendSettled = false;
+    append.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            appendSettled = true;
+            resolve({ sequence: 1, type: 'prune.diagnostics' });
+          }, 5);
+        }),
+    );
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    expect(append).toHaveBeenCalledTimes(1);
+    expect(appendSettled).toBe(true);
+  });
+
+  it('handlePrune_DiagnosticsAppendRejects_PruneStillSucceeds', async () => {
+    const { append, ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+    append.mockRejectedValue(new Error('append failed'));
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    expect(append).toHaveBeenCalledTimes(1);
   });
 
   // ─── Task 011: Wire prune config from .exarchos.yml ───────────────────────

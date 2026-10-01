@@ -53,6 +53,8 @@ let cached: Topology | undefined;
  */
 let loadingPromise: Promise<Topology> | undefined;
 
+let explicitTopologyRequested = false;
+
 /**
  * Recursively freeze a topology object. `Object.freeze` is shallow, but
  * the design contract is "immutable Topology object" — callers must not
@@ -67,6 +69,7 @@ function deepFreeze<T>(value: T): T {
 }
 
 export async function loadTopology(options: LoadTopologyOptions): Promise<Topology> {
+  explicitTopologyRequested = true;
   if (cached !== undefined) return cached;
   // Concurrent first-load short-circuit (T71). If another caller is
   // already mid-flight, await the same Promise instead of re-parsing
@@ -143,8 +146,18 @@ export function getTopology(): Topology {
   return cached;
 }
 
+/**
+ * True once a caller has asked `loadTopology()` for a topology file, whether
+ * or not the load succeeded. Staleness scoring reads it to tell a project with
+ * no topology file from a project whose topology file failed to load.
+ */
+export function isExplicitTopologyRequested(): boolean {
+  return explicitTopologyRequested;
+}
+
 /** Test-only cache reset. Not exported through the package barrel. */
 export function __resetTopologyCacheForTesting(): void {
   cached = undefined;
   loadingPromise = undefined;
+  explicitTopologyRequested = false;
 }
