@@ -46,6 +46,7 @@ const ALLOWED_DIRS: Record<string, string> = {
 /** Classified dot-directories. Tooling homes, not repository structure. */
 const ALLOWED_DOT_DIRS: Record<string, string> = {
   '.github': 'Workflows, CODEOWNERS, issue templates.',
+  '.agents': 'Skills vendored for every agent that works on this repository. Codex reads `.agents/skills`.',
   '.claude': 'Claude Code harness config and worktrees.',
   '.claude-plugin': 'Plugin packaging manifest.',
   '.codex': 'Codex harness config.',
