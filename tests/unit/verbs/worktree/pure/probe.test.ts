@@ -348,10 +348,6 @@ describe('makeDefaultProcessTableSource (win32 process source — DR-5)', () => 
       readWin32ProcessTable: () => WIN32_RAW,
     });
 
-    // `Get-CimInstance Win32_Process` is a COMPLETE enumeration → authoritative,
-    // so an absent PID is provably gone: win32 is a SUPPORTED table.
-    expect(source.isSupported?.()).toBe(true);
-
     // Malformed/blank rows dropped; the three well-formed processes each resolve
     // BOTH cwd (verbatim, spaces/backslashes preserved) and create-time.
     expect(source.list()).toEqual([
@@ -369,6 +365,7 @@ describe('makeDefaultProcessTableSource (win32 process source — DR-5)', () => 
       },
       { pid: 77, ppid: 1, cwd: '', startTime: '133700000000000000' },
     ]);
+    expect(source.isSupported?.()).toBe(true);
 
     // The resolved create-time DRIVES owner-liveness over the win32 table: a
     // matching FILETIME is alive; a reused (mismatched) one is dead; a PID absent
@@ -411,6 +408,124 @@ describe('makeDefaultProcessTableSource (win32 process source — DR-5)', () => 
     );
     expect(findings[0].liveness).toBe('unknown');
     expect(findings[0].releasable).toBe(false);
+  });
+
+  /** A holder that is alive in `WIN32_RAW`: same pid, same FILETIME. */
+  const LIVE_HOLDER: { readonly pid: number; readonly startedAt: string } = {
+    pid: 4242,
+    startedAt: '133600000000000000',
+  };
+
+  /** A win32 reader that fails the way a PowerShell spawn error does. */
+  function throwingReader(): string {
+    throw new Error('transient CIM enumeration failure');
+  }
+
+  /**
+   * Lists `source` once, then asserts that it reads as unsupported and that
+   * every probe holds the live holder: no release, no reconcile.
+   */
+  function expectLiveHolderHeld(source: ProcessTableSource): void {
+    expect(source.list()).toEqual([]);
+    expect(source.isSupported?.()).toBe(false);
+
+    const [reservation] = probeReservations(
+      [{ worktreePath: '/wt/live', ownerPid: LIVE_HOLDER.pid, ownerStartedAt: LIVE_HOLDER.startedAt }],
+      source,
+    );
+    expect(reservation?.liveness).toBe('unknown');
+    expect(reservation?.releasable).toBe(false);
+
+    const [launch] = probeLaunchHolders(
+      [{ worktreeId: '/wt/live', holderPid: LIVE_HOLDER.pid, holderStartedAt: LIVE_HOLDER.startedAt }],
+      source,
+    );
+    expect(launch?.liveness).toBe('unknown');
+    expect(launch?.reconcilable).toBe(false);
+
+    const [composite] = probeWorktrees(
+      {
+        targets: [
+          {
+            worktreePath: '/wt/live',
+            owner: { ownerPid: LIVE_HOLDER.pid, ownerStartedAt: LIVE_HOLDER.startedAt },
+          },
+        ],
+        selfPid: 999999,
+      },
+      source,
+      identity,
+    );
+    expect(composite?.ownerLiveness).toBe('unknown');
+    expect(composite?.releasable).toBe(false);
+  }
+
+  it('WinLiveness_BeforeFirstList_IsUnsupported', () => {
+    let readerCalls = 0;
+    const source = makeDefaultProcessTableSource({
+      platform: 'win32',
+      readWin32ProcessTable: () => {
+        readerCalls += 1;
+        return WIN32_RAW;
+      },
+    });
+
+    expect(source.isSupported?.()).toBe(false);
+    expect(readerCalls).toBe(0);
+  });
+
+  it('WinLiveness_ReaderThrows_FailsClosed', () => {
+    expectLiveHolderHeld(
+      makeDefaultProcessTableSource({ platform: 'win32', readWin32ProcessTable: throwingReader }),
+    );
+  });
+
+  it('WinLiveness_ReaderReturnsNoRows_FailsClosed', () => {
+    expectLiveHolderHeld(
+      makeDefaultProcessTableSource({ platform: 'win32', readWin32ProcessTable: () => '' }),
+    );
+  });
+
+  it('WinLiveness_SupportFollowsMostRecentSnapshot', () => {
+    const reads: Array<() => string> = [
+      throwingReader,
+      () => WIN32_RAW,
+      () => '',
+    ];
+    let call = 0;
+    const source = makeDefaultProcessTableSource({
+      platform: 'win32',
+      readWin32ProcessTable: () => {
+        const read = reads[call] ?? ((): string => WIN32_RAW);
+        call += 1;
+        return read();
+      },
+    });
+    const owners = [
+      { worktreePath: '/wt/live', ownerPid: LIVE_HOLDER.pid, ownerStartedAt: LIVE_HOLDER.startedAt },
+      { worktreePath: '/wt/gone', ownerPid: 999, ownerStartedAt: 'boot-999' },
+    ];
+
+    const failed = probeReservations(owners, source);
+    expect(source.isSupported?.()).toBe(false);
+    expect(failed.map((f) => [f.liveness, f.releasable])).toEqual([
+      ['unknown', false],
+      ['unknown', false],
+    ]);
+
+    const recovered = probeReservations(owners, source);
+    expect(source.isSupported?.()).toBe(true);
+    expect(recovered.map((f) => [f.liveness, f.releasable])).toEqual([
+      ['alive', false],
+      ['dead', true],
+    ]);
+
+    const failedAgain = probeReservations(owners, source);
+    expect(source.isSupported?.()).toBe(false);
+    expect(failedAgain.map((f) => [f.liveness, f.releasable])).toEqual([
+      ['unknown', false],
+      ['unknown', false],
+    ]);
   });
 
   it('Win32ProcessTable_Parses_SkipsMalformed_KeepsEmptyCwd_PreservesSpaces', () => {
