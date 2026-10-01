@@ -4,8 +4,6 @@ import type { StorageBackend } from '../../storage/backend.js';
 import { viewLogger } from '../../logger.js';
 import type { ProjectionCursor } from '../freshness.js';
 
-// ─── View Projection Interface ─────────────────────────────────────────────
-
 export interface ViewProjection<T> {
   /** Create the initial/default view state. */
   init(): T;
@@ -13,14 +11,10 @@ export interface ViewProjection<T> {
   apply(view: T, event: WorkflowEvent): T;
 }
 
-// ─── View State Entry ──────────────────────────────────────────────────────
-
 interface ViewState<T = unknown> {
   readonly view: T;
   readonly highWaterMark: number;
 }
-
-// ─── Materializer Options ──────────────────────────────────────────────────
 
 export interface MaterializerOptions {
   readonly snapshotStore?: SnapshotStore;
@@ -31,27 +25,15 @@ export interface MaterializerOptions {
   readonly thrashingWindowSize?: number;
 }
 
-// ─── Default Snapshot Interval ─────────────────────────────────────────────
-
 const DEFAULT_SNAPSHOT_INTERVAL = 50;
 const DEFAULT_MAX_CACHE_ENTRIES = 100;
 const DEFAULT_THRASHING_WINDOW_SIZE = 100;
 
-// ─── Internal Sentinel Streams (#1434) ─────────────────────────────────────
-//
-// The event store writes progress events to `__`-prefixed sentinel streams
-// (e.g. `__migration__` from `migrateV5ToV6`). These are intentionally
-// outside the user-facing kebab-only featureId vocabulary, but the pipeline
-// view's stream-iteration path forwards every discovered streamId into
-// `materialize`, which transitively reaches `SnapshotStore.getSnapshotPath`
-// — and that enforces `SAFE_ID_PATTERN = /^[a-z0-9-]+$/`, crashing the view
-// with `VIEW_ERROR: Invalid streamId: "__migration__"` on any clean install
-// that has run a schema migration.
-//
-// Skipping at this layer is narrower than relaxing `SAFE_ID_PATTERN` (option
-// (b) in #1434, explicitly rejected); the kebab-only constraint is the
-// right shape for user-facing featureIds and we don't want a future caller
-// to accidentally name a snapshot file `..` or `subdir/foo`.
+/**
+ * True for a `__`-prefixed sentinel stream, such as `__migration__`, where the event store writes progress events.
+ * `SnapshotStore` accepts only ids that match `/^[a-z0-9-]+$/`, so a sentinel id that reaches it crashes the view.
+ * The materializer skips sentinel streams and keeps that strict id pattern, which stops a snapshot file name such as `..`.
+ */
 export const isInternalSentinelStream = (id: string): boolean => id.startsWith('__');
 
 /** Read EXARCHOS_MAX_CACHE_ENTRIES from env, falling back to default on invalid/missing. */
@@ -72,13 +54,11 @@ function parseEnvSnapshotInterval(): number {
   return parsed;
 }
 
-// ─── View Materializer ─────────────────────────────────────────────────────
-
 export class ViewMaterializer {
   private readonly projections = new Map<string, ViewProjection<unknown>>();
-  // Key: `${viewName}:${streamId}` → ViewState
+  /** Cached view states, keyed by `${viewName}:${streamId}`. The first key in map order is the least recently used. */
   private readonly states = new Map<string, ViewState>();
-  // Track last snapshot high-water mark per key for interval-based snapshotting
+  /** The high-water mark of the last snapshot for each key. */
   private readonly lastSnapshotHwm = new Map<string, number>();
 
   private readonly snapshotStore?: SnapshotStore | undefined;
@@ -86,20 +66,15 @@ export class ViewMaterializer {
   private readonly maxCacheEntries: number;
   private readonly backend?: StorageBackend | undefined;
 
-  // Pending snapshot writes (fire-and-forget, but flushable for tests/shutdown)
+  /** Snapshot writes in progress. Materialization does not wait for them, but `flush` does. */
   private pendingSnapshots: Promise<void>[] = [];
 
-  // Cache hit/miss counters
   private cacheHits = 0;
   private cacheMisses = 0;
-  // Cache-bypass counter (#1448 item 5 / PR #1447 DIM-2 audit). Incremented by
-  // `materializeFiltered` in `projections/views/tools.ts`, which skips the LRU cache entirely
-  // for correlation-filtered queries. Tracked on a separate axis from hits/misses
-  // so the existing hit-rate calculation stays well-defined; otherwise a healthy
-  // hitRate could mask thousands of invisible bypass calls.
+  /** Count of `materializeFresh` calls, which skip the LRU cache. It is kept apart from hits and misses, so a good hit rate cannot hide bypass traffic. */
   private cacheBypasses = 0;
 
-  // Thrashing detection sliding window
+  /** Lookups per thrashing check. The materializer logs a warning when more than half of the lookups in one window miss. */
   private readonly thrashingWindowSize: number;
   private recentMisses = 0;
   private recentTotal = 0;
@@ -124,7 +99,6 @@ export class ViewMaterializer {
    */
   unregister(viewName: string): void {
     this.projections.delete(viewName);
-    // Remove all cached states for this projection
     const prefix = `${viewName}:`;
     for (const key of [...this.states.keys()]) {
       if (key.startsWith(prefix)) {
@@ -143,14 +117,14 @@ export class ViewMaterializer {
   }
 
   /**
-   * Materialize, and return the fold together with the sequence it covers.
+   * Materializes a view and returns the fold with the sequence it covers.
+   * The pair keeps a fold and the evidence of its coverage together, and `projections/fold-at-tail.ts` turns the pair into a guarantee.
+   * A sentinel stream returns `projection.init()` at sequence 0, with no cache entry and no snapshot.
    *
-   * `materialize` above drops the cursor and hands back a bare view. That is
-   * the shape #1855 turned on: a fold and the evidence of what it covers were
-   * separable, so an answer could be derived from one without the other, and
-   * the coverage question moved to a separate comparison that ran too late to
-   * do anything but refuse. Returning the pair keeps the two together, and
-   * `projections/fold-at-tail.ts` is what turns the pair into a guarantee.
+   * The fold applies only the events past the high-water mark of the cached state.
+   * The caller must pass events in sequence order, because the last new event sets the high-water mark.
+   * When the high-water mark moves `snapshotInterval` past the last snapshot, the materializer saves to the backend view cache.
+   * With no backend, it starts a snapshot write and does not wait for it.
    */
   materializeAt<T>(
     streamId: string,
@@ -162,11 +136,6 @@ export class ViewMaterializer {
       throw new Error(`No projection registered for view: ${viewName}`);
     }
 
-    // #1434 — skip `__`-prefixed sentinel streams (e.g. `__migration__`) so
-    // they never reach `SnapshotStore.getSnapshotPath`, whose `SAFE_ID_PATTERN`
-    // rejects underscores and crashes the pipeline view. Returning
-    // `projection.init()` keeps the caller's iteration loop happy without
-    // polluting the LRU cache or persisting a snapshot for the sentinel.
     if (isInternalSentinelStream(streamId)) {
       viewLogger.debug(
         { streamId, viewName },
@@ -178,7 +147,6 @@ export class ViewMaterializer {
     const stateKey = `${viewName}:${streamId}`;
     let state = this.states.get(stateKey) as ViewState<T> | undefined;
 
-    // Track cache hit/miss
     if (state) {
       this.cacheHits++;
     } else {
@@ -187,7 +155,6 @@ export class ViewMaterializer {
     }
     this.recentTotal++;
 
-    // Check for thrashing at window boundary
     if (this.recentTotal >= this.thrashingWindowSize) {
       if (this.recentMisses / this.recentTotal > 0.5) {
         viewLogger.warn(
@@ -206,7 +173,6 @@ export class ViewMaterializer {
       };
     }
 
-    // Only process events past the high-water mark
     const newEvents = events.filter((e) => e.sequence > state!.highWaterMark);
 
     let currentView = state.view;
@@ -214,8 +180,6 @@ export class ViewMaterializer {
       currentView = projection.apply(currentView, event) as T;
     }
 
-    // Update high-water mark to the max sequence seen
-    // Events are append-only and monotonically increasing, so the last element is the max
     const maxSequence =
       newEvents.length > 0
         ? (newEvents[newEvents.length - 1]?.sequence ?? state.highWaterMark)
@@ -226,14 +190,11 @@ export class ViewMaterializer {
       highWaterMark: maxSequence,
     };
 
-    // LRU: delete and re-insert to move to end (most recently used)
     this.states.delete(stateKey);
     this.states.set(stateKey, updatedState as ViewState);
 
-    // Evict least recently used if over limit
     this.evictIfNeeded();
 
-    // Trigger cache/snapshot save if interval crossed
     if (newEvents.length > 0) {
       const lastSnapHwm = this.lastSnapshotHwm.get(stateKey) ?? 0;
       if (maxSequence - lastSnapHwm >= this.snapshotInterval) {
@@ -246,8 +207,6 @@ export class ViewMaterializer {
             viewLogger.error({ err: err instanceof Error ? err.message : String(err) }, 'Backend view cache save failed');
           }
         } else if (this.snapshotStore) {
-          // Fire and forget - snapshot is async but we don't block materialization.
-          // Track the promise so flush() can await completion for tests/shutdown.
           const savePromise = this.snapshotStore.save(streamId, viewName, currentView, maxSequence).catch((err) => {
             viewLogger.error({ err: err instanceof Error ? err.message : String(err) }, 'Snapshot save failed');
           });
@@ -268,13 +227,10 @@ export class ViewMaterializer {
   }
 
   /**
-   * Load view state from a snapshot, if one exists.
-   * Falls back to default init state if snapshot is missing or corrupt.
+   * Loads view state from the backend view cache, or from the snapshot store when there is no backend.
+   * Returns false when nothing loads. A sentinel stream returns false and reads nothing.
    */
   async loadFromSnapshot(streamId: string, viewName: string): Promise<boolean> {
-    // #1434 — sentinel streams never have a meaningful snapshot to load and
-    // would otherwise trip `SnapshotStore.getSnapshotPath`'s kebab-only
-    // validator. Short-circuit before touching the backend/snapshotStore.
     if (isInternalSentinelStream(streamId)) {
       viewLogger.debug(
         { streamId, viewName },
@@ -282,7 +238,6 @@ export class ViewMaterializer {
       );
       return false;
     }
-    // Prefer backend view cache when available
     if (this.backend) {
       const cached = this.backend.getViewCache(streamId, viewName);
       if (!cached) return false;
@@ -313,14 +268,13 @@ export class ViewMaterializer {
   }
 
   /**
-   * Get the current cached view state without processing new events.
-   * Returns undefined if no state has been materialized yet.
+   * Returns the cached view state without new events, or `undefined` when the cache has no entry.
+   * A read moves the entry to the most recently used position.
    */
   getState<T>(streamId: string, viewName: string): ViewState<T> | undefined {
     const stateKey = `${viewName}:${streamId}`;
     const state = this.states.get(stateKey);
     if (state) {
-      // Refresh LRU order: delete and re-insert to move to end
       this.states.delete(stateKey);
       this.states.set(stateKey, state);
     }
@@ -328,11 +282,8 @@ export class ViewMaterializer {
   }
 
   /**
-   * EFF-002: enumerate every cached fold's cursor for `streamId`.
-   *
-   * The freshness chokepoint compares these against the stream's durable event
-   * tail. Read-only — unlike {@link getState} it deliberately does NOT refresh
-   * LRU order, so observing freshness cannot change eviction behaviour.
+   * Returns the cursor of each cached fold for `streamId`. The freshness check compares them with the durable event tail.
+   * Unlike {@link getState}, it does not change the LRU order, so a freshness read cannot change eviction.
    */
   getStreamCursors(streamId: string): ProjectionCursor[] {
     const suffix = `:${streamId}`;
@@ -348,12 +299,8 @@ export class ViewMaterializer {
   }
 
   /**
-   * Return cumulative cache statistics for monitoring and diagnostics.
-   *
-   * `bypasses` counts calls to `materializeFiltered` (correlation-filtered
-   * queries that skip the LRU cache entirely). It is reported alongside hits
-   * and misses but is NOT folded into the missRate denominator — bypasses are
-   * an orthogonal axis, not a cache outcome.
+   * Returns cumulative cache statistics.
+   * `bypasses` counts the `materializeFresh` calls, which skip the LRU cache. It is not part of the `missRate` denominator.
    */
   getCacheStats(): { hits: number; misses: number; size: number; missRate: number; bypasses: number } {
     const total = this.cacheHits + this.cacheMisses;
@@ -366,28 +313,16 @@ export class ViewMaterializer {
     };
   }
 
-  /**
-   * Record a cache bypass (called by `materializeFiltered` in `projections/views/tools.ts`).
-   * Increments the `bypasses` counter exposed via `getCacheStats()`.
-   *
-   * Cache-bypass paths skip the LRU entirely, so without this counter their
-   * traffic is invisible to hit/miss telemetry — `cacheHits=950, cacheMisses=50`
-   * could look healthy while 5,000 filtered calls bypassed silently (PR #1447
-   * DIM-2 audit finding).
-   */
+  /** Adds 1 to the `bypasses` count of `getCacheStats`. `materializeFresh` calls it. */
   recordBypass(): void {
     this.cacheBypasses++;
   }
 
   /**
-   * Drop one stream's cached fold for `viewName`.
-   *
-   * The repair half of the `projection-ahead` case: a fold whose cursor sits
-   * past the durable tail was built over events the log can no longer produce,
-   * and `materialize` cannot heal it — its high-water-mark filter discards
-   * every event below that cursor, so a re-fold applies nothing. Dropping the
-   * entry makes the next fold a full replay from the log, which is the source of
-   * truth and therefore authoritative by construction.
+   * Drops the cached fold of one stream for `viewName`. This is the repair for the `projection-ahead` case.
+   * A fold with a cursor past the durable tail holds events that the log does not have.
+   * `materialize` cannot repair it, because its high-water-mark filter discards every event at or below that cursor.
+   * After the drop, the next fold replays the full log.
    */
   discardFold(streamId: string, viewName: string): void {
     const stateKey = `${viewName}:${streamId}`;
@@ -396,7 +331,7 @@ export class ViewMaterializer {
   }
 
   /**
-   * Load a pre-existing view state (e.g., from a snapshot).
+   * Loads a view state from outside the materializer, such as a snapshot.
    */
   loadState<T>(streamId: string, viewName: string, view: T, highWaterMark: number): void {
     const stateKey = `${viewName}:${streamId}`;
@@ -419,22 +354,10 @@ export class ViewMaterializer {
   }
 
   /**
-   * Cache-bypassing fresh fold over an explicit, already-bounded event list.
-   *
-   * Folds `events` from `projection.init()` and returns the result WITHOUT
-   * reading or writing the LRU cache (so the next cached `materialize` call
-   * still sees the full unbounded roll-up). Records a bypass for telemetry.
-   *
-   * Used by:
-   *  - correlation-filtered view queries (`materializeFiltered` in
-   *    `projections/views/tools.ts` delegates here — #1437), and
-   *  - `asOf` bounded-fold reads (#1555) on both the `get` and `view`
-   *    surfaces, where the caller has already trimmed the list to
-   *    `events[0..N]` via `boundEvents`/`resolveAsOfEvents`.
-   *
-   * Centralizing the fresh fold here keeps the cache-bypass contract in ONE
-   * place: a bounded read can never bleed the hwm-cached unbounded base into
-   * its result, and can never contaminate the cache for later live reads.
+   * Folds `events` from `projection.init()` and records a bypass. It does not read or write the LRU cache.
+   * `materializeFiltered` uses it for correlation-filtered queries.
+   * `asOf` reads use it after `resolveAsOfEvents` trims the event list.
+   * As a result, a bounded read cannot mix the cached fold into its result, or change the cache for later live reads.
    */
   materializeFresh<T>(viewName: string, events: readonly WorkflowEvent[]): T {
     const projection = this.getProjection<T>(viewName);

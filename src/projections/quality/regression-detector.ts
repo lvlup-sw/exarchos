@@ -1,15 +1,9 @@
-// ─── Quality Regression Detector ────────────────────────────────────────────
-//
-// Extracts regression data from the CodeQualityView's internal failure
-// trackers and emits quality.regression events to the event store.
-//
-// The failure tracker structure mirrors what code-quality-view.ts uses
-// internally: a Record<string, FailureTracker> keyed by "gate:skill".
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Finds quality regressions in the failure trackers of the code-quality view, and
+ * appends `quality.regression` events for them. A tracker key has the form `gate:skill`.
+ */
 
 import type { EventStore } from '../../events/store.js';
-
-// ─── Interfaces ─────────────────────────────────────────────────────────────
 
 export interface FailureTracker {
   count: number;
@@ -26,18 +20,11 @@ export interface QualityRegressionData {
   detectedAt: string;
 }
 
-// ─── Regression Threshold ───────────────────────────────────────────────────
-
 const REGRESSION_THRESHOLD = 3;
 
-// ─── Detector ───────────────────────────────────────────────────────────────
-
 /**
- * Detect quality regressions from view state failure trackers.
- *
- * Reads the `_failureTrackers` property from the view state (which is
- * the internal tracking state from CodeQualityView) and returns entries
- * where consecutive failures meet or exceed the threshold (3).
+ * Returns the trackers in `_failureTrackers` with at least `REGRESSION_THRESHOLD`
+ * consecutive failures. It skips a key that has no `:` separator.
  */
 export function detectRegressions(
   viewState: { _failureTrackers?: Record<string, FailureTracker> },
@@ -51,7 +38,6 @@ export function detectRegressions(
   for (const [key, tracker] of Object.entries(trackers)) {
     if (tracker.count < REGRESSION_THRESHOLD) continue;
 
-    // Key format is "gate:skill" as used in code-quality-view.ts
     const separatorIndex = key.indexOf(':');
     if (separatorIndex === -1) continue;
 
@@ -71,13 +57,9 @@ export function detectRegressions(
   return regressions;
 }
 
-// ─── Event Emitter ──────────────────────────────────────────────────────────
-
 /**
- * Emit quality.regression events for each detected regression.
- *
- * Fire-and-forget: individual append failures are silently swallowed
- * so callers are never blocked by event emission errors.
+ * Appends one `quality.regression` event for each regression. It ignores a failed
+ * append, so an append error does not stop the caller.
  */
 export async function emitRegressionEvents(
   regressions: QualityRegressionData[],
@@ -98,7 +80,6 @@ export async function emitRegressionEvents(
         },
       });
     } catch {
-      // Intentionally swallowed — event emission is fire-and-forget
     }
   }
 }

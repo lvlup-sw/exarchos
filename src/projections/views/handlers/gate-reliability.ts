@@ -5,14 +5,10 @@ import { GATE_RELIABILITY_VIEW, type GateReliabilityViewState } from '../gate-re
 import { getOrCreateMaterializer } from './materializer.js';
 import { foldToTail } from '../../fold-at-tail.js';
 
-// ─── View Gate Reliability Handler ─────────────────────────────────────────
-//
-// BASE-002 (structural-closure Wave 0): the gate-reliability read model is a
-// production view action, not a dead module. It stays diagnostic-only — no
-// admission or transition authority — but it is now reachable through the
-// registered `gate_reliability` action and folded through the same production
-// materializer as every other projection.
-
+/**
+ * Handles the `gate_reliability` view. The view is diagnostic only, with no admission or
+ * transition authority. The response omits `_foldEvents` unless `detail` is true.
+ */
 export async function handleViewGateReliability(
   args: {
     workflowId?: string;

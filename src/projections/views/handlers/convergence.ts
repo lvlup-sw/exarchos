@@ -6,13 +6,15 @@ import { getOrCreateMaterializer } from './materializer.js';
 import { foldToTail } from '../../fold-at-tail.js';
 import { readWorkflowStateJson } from './streams.js';
 
-// ─── View Convergence Handler ──────────────────────────────────────────────
-
+/**
+ * Returns the convergence view for a workflow.
+ * The handler removes a dimension from `uncheckedDimensions` when `state.reviews.findingsByDimension` has an entry for it.
+ * A reviewer can write those findings through `workflow set` with no gate run. The handler does not invent gate results for such a dimension.
+ * By default, the result drops the `gateResults` array of each dimension. `detail: true` keeps it.
+ */
 export async function handleViewConvergence(
   args: {
     workflowId?: string;
-    // DR-8 (Task 024) — compact-by-default drops each dimension's per-gate
-    // `gateResults` array; `detail: true` restores the gate-level detail.
     detail?: boolean;
   },
   stateDir: string,
@@ -25,13 +27,6 @@ export async function handleViewConvergence(
 
     const { view } = await foldToTail<ConvergenceViewState>(store, materializer, streamId, CONVERGENCE_VIEW);
 
-    // Fix 2 (#1184) — when `gate.executed` events don't cover all dimensions,
-    // fall back to `state.reviews.findingsByDimension`. The reviewer stamps
-    // findings into state.json via `workflow set` even when the gate harness
-    // didn't run, so an unchecked dimension here may still have ground-truth
-    // data that should mark it as covered. We don't synthesize gate results
-    // (we lack pass/fail timestamps), but we DO remove the dimension from
-    // `uncheckedDimensions` so consumers stop blocking on a phantom gap.
     const state = await readWorkflowStateJson(stateDir, streamId);
     const reviews = state?.['reviews'];
     const findingsByDimension =
@@ -52,9 +47,6 @@ export async function handleViewConvergence(
       }
     }
 
-    // DR-8 (Task 024) compact-by-default — drop each dimension's per-gate
-    // `gateResults` array; the `converged` / `lastChecked` headline +
-    // `uncheckedDimensions` stay. `detail: true` restores the gate-level detail.
     if (args.detail) {
       return { success: true, data: effectiveView };
     }

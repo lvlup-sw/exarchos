@@ -1,56 +1,16 @@
 /**
- * DR-4 — the ONE typed degraded result every consumer returns.
+ * The typed degraded result for a read whose coverage is undecidable.
  *
- * ## Why this module exists
+ * `PROJECTION_DEGRADED` does not mean stale. A lag that a re-fold can close is folded
+ * forward by `fold-at-tail.ts` before the read answers. The code means that a fold
+ * finished short of its pinned tail, because the log did not produce events that a
+ * cursor already counted. No re-fold closes that gap, so the read gives no answer.
  *
- * T-06 made the projection-freshness verdict durable: `projection.degraded` /
- * `projection.recovered` on `meta/projection-health`, folded back by
- * `readProjectionDegradedState`. It published a fact that nothing consumed.
- *
- * Every read surface still answered `success: true` off the same in-memory
- * materializer LRU that CB-8 caught lying — a cancelled workflow reporting
- * `plan-review`, 7 of 10 tasks visible, lag past 500s. The only signal was
- * `_meta.projectionDegraded`, an ephemeral per-response courtesy on ONE
- * composite that a consumer had to know to look for and that vanished the
- * moment the process restarted with a cold cache.
- *
- * This module closes that: one shape, one error code, one guard, reused
- * verbatim by every readiness / workflow / reliability consumer. No consumer
- * invents its own degraded envelope, so an agent can branch on a single
- * condition rather than a per-surface dialect.
- *
- * ## The contract, after #1855
- *
- * The rule above was right about the harm and wrong about the remedy. It read
- * "a fold that does not cover the tail must not be served" as "must not be
- * answered", when the read holds everything needed to make the fold cover the
- * tail — and `projections/fold-at-tail.ts` now does exactly that before any
- * answer is produced. Refusing a lag a re-fold closes cost more than the
- * staleness did: the refusal was published durably, only the refused surface
- * could clear it, and `workflow get` stayed unreadable on a lag of one event.
- *
- * So `PROJECTION_DEGRADED` no longer means "stale". It means **undecidable**:
- * a fold finished SHORT of the tail it was pinned against, because the log did
- * not produce events a cursor had already counted. There is no re-fold that
- * closes that, and there is no answer to give. Everything a re-fold closes is
- * closed instead of reported.
- *
- * ## Distinguishability (the four outcomes must never be confused)
- *
- * | outcome        | shape                                                      |
- * |----------------|------------------------------------------------------------|
- * | healthy answer | `success: true` + payload, folded to the tail              |
- * | **no data**    | `success: true` with an empty payload, or a domain code     |
- * |                | such as `STATE_NOT_FOUND` — the store was asked and         |
- * |                | answered "nothing here", which is a TRUE fact about the tail|
- * | **undecidable**| `success: false`, `code: 'PROJECTION_DEGRADED'` — the fold  |
- * |                | could not be shown to cover the tail. NOT "stale", and NOT  |
- * |                | "no data"                                                   |
- * | genuine fault  | `success: false` with any other code                        |
- *
- * The reserved code is what keeps those separable: "no tasks completed" and
- * "coverage could not be established" are different claims, and CB-8 is what
- * happens when a surface conflates them.
+ * The four outcomes stay separate:
+ * - Healthy answer: `success: true` with a payload folded to the tail.
+ * - No data: `success: true` with an empty payload, or a domain code such as `STATE_NOT_FOUND`.
+ * - Undecidable: `success: false` with `code: 'PROJECTION_DEGRADED'`.
+ * - Genuine fault: `success: false` with a different code.
  */
 
 import type { ToolResult } from '../format.js';
@@ -63,20 +23,18 @@ import {
 } from './freshness.js';
 
 /**
- * The reserved error code for a refused-because-stale read.
+ * The reserved error code for a read whose coverage is undecidable.
  *
- * Reserved: no other failure mode may use it, so `code === PROJECTION_DEGRADED`
- * is a total test for "the answer was withheld because the projection could not
- * be trusted" and never overlaps a domain error.
+ * Other failures must not use this code, so `code === PROJECTION_DEGRADED` never
+ * overlaps a domain error.
  */
 export const PROJECTION_DEGRADED_ERROR_CODE = 'PROJECTION_DEGRADED';
 
 /**
- * The typed degraded payload carried on `error.projectionDegraded`.
+ * The typed degraded payload on `error.projectionDegraded`.
  *
- * A structural copy of the durable state (minus nothing) so a consumer can act
- * on the verdict — how far behind, which folds, observed when — without
- * re-reading the health stream itself.
+ * It copies the durable state, so a consumer can act on the verdict without a read
+ * of the health stream.
  */
 export interface ProjectionDegradedDetail {
   /** The assessed stream (the workflow / feature id). */
@@ -86,7 +44,7 @@ export interface ProjectionDegradedDetail {
   readonly eventTail: number;
   /** The worst (trailing or contradicting) projection cursor observed. */
   readonly projectionCursor: number;
-  /** `eventTail - projectionCursor`; negative when a projection runs ahead. */
+  /** `eventTail - projectionCursor`. It is negative when a projection runs ahead. */
   readonly lag: number;
   /** The folds that disagree with the tail, worst first. */
   readonly staleViews: readonly string[];
@@ -121,18 +79,9 @@ function describe(detail: ProjectionDegradedDetail): string {
 /**
  * Build the typed degraded result for a read whose coverage is undecidable.
  *
- * `suggestedFix` names the durable event log, and it is chosen rather than
- * hardcoded. The old suggestion was a constant — `exarchos_view`
- * `workflow_status` — which named the failing call itself whenever that was the
- * refusing surface. A caller following it re-ran the same read, failed
- * identically, and each attempt left a window for more events to land, so the
- * loop never converged (#1855). A remedy that can be the disease is not a
- * remedy: `remedyFor` below drops the suggestion entirely when `isSameCall`
- * shows it would name the call that just failed.
- *
- * `exarchos_event` `query` is the right destination on the merits too. This
- * result means no fold could be shown to cover the tail, and the log is the one
- * surface that answers without folding anything.
+ * `suggestedFix` points at `exarchos_event` `query`, because the log answers
+ * without a fold. `remedyFor` drops the suggestion when it names the call that
+ * failed. Otherwise a caller repeats the failing read in a loop that never ends.
  */
 export function toProjectionDegradedResult(
   state: DurableProjectionDegradedState,
@@ -158,7 +107,7 @@ export function toProjectionDegradedResult(
   };
 }
 
-/** The remedy this result points at, or `undefined` when it would be circular. */
+/** The remedy for this result, or `undefined` when the remedy names the failing call. */
 function remedyFor(
   streamId: string,
   context?: { readonly tool?: string | undefined; readonly action?: string | undefined },
@@ -170,12 +119,7 @@ function remedyFor(
 const REMEDY_TOOL = 'exarchos_event';
 const REMEDY_ACTION = 'query';
 
-/**
- * True when a suggestion names the very call that produced the error.
- *
- * Exported so the invariant is testable directly rather than only through the
- * surfaces that happen to build a suggestion today.
- */
+/** True when a suggestion names the call that produced the error. Tests call it directly. */
 export function isSameCall(
   remedy: { tool: string; params: Record<string, unknown> },
   context?: { readonly tool?: string | undefined; readonly action?: string | undefined },
@@ -189,13 +133,10 @@ export function isProjectionDegradedResult(result: ToolResult): boolean {
 }
 
 /**
- * The failure envelope for a view handler's catch block.
+ * The failure envelope for the catch block of a view handler.
  *
- * One place decides which faults are `PROJECTION_DEGRADED` and which are
- * `VIEW_ERROR`, so the distinction cannot drift across seventeen handlers that
- * each wrote the same catch by hand. A {@link ProjectionCoverageError} is the
- * undecidable case and keeps the reserved code; everything else is an ordinary
- * view fault.
+ * A {@link ProjectionCoverageError} keeps the reserved code. Each other fault
+ * becomes `VIEW_ERROR`. One function decides this, so the handlers cannot drift apart.
  */
 export function toViewFailure(
   err: unknown,
@@ -211,17 +152,12 @@ export function toViewFailure(
 }
 
 /**
- * The degraded result for a coverage failure, or `undefined` for any other
- * fault.
+ * The degraded result for a coverage failure, or `undefined` for a different fault.
  *
- * Separate from {@link toViewFailure} because not every catch site wants
- * `VIEW_ERROR` as its fallback: some fall back to a legacy default, some to
- * `STATUS_FAILED`. Each of those is a reasonable answer to an ordinary fault
- * and the wrong answer to "no fold could be shown to cover the tail" — a
- * best-effort fallback there is the silent degradation this whole seam exists
- * to remove. Reading as `const refusal = toCoverageFailure(err, ctx); if
- * (refusal) return refusal;` keeps the distinction at every site instead of
- * forcing one fallback on all of them.
+ * It is separate from {@link toViewFailure} because some catch sites use a
+ * different fallback, such as a legacy default or `STATUS_FAILED`. That fallback
+ * is correct for an ordinary fault, but it hides a coverage failure. So a site
+ * calls this function first and returns its result when the result is defined.
  */
 export function toCoverageFailure(
   err: unknown,
@@ -242,22 +178,3 @@ export function toCoverageFailure(
     context,
   );
 }
-
-// ─── Removed: `resolveProjectionStreamId` / `guardProjectionDegraded` ───────
-//
-// A consumer-side chokepoint that refused to serve any stream carrying a
-// durable `projection.degraded` row, plus the arg-dialect resolver that told it
-// which stream a composite's args named.
-//
-// It has no consumers because the question it answered is now answered earlier
-// and better. A durable marker is a point-in-time OBSERVATION, not a current
-// fact about the stream: by the time a read consults it, the lagging fold has
-// already been folded forward (`projections/fold-at-tail.ts`) and the read can
-// prove its own coverage. Deferring to the marker anyway wedges a healthy
-// stream on a spent observation — the latch that
-// `FoldAtTail_FabricatedDegradedMarker_DoesNotWedgeAHealthyStream` and
-// `Consumer_StaleFoldAndDurableMarker_IsNotWedged` exist to reject.
-//
-// `toProjectionDegradedResult` and `readProjectionDegradedState` above are what
-// survive: the durable row is still WRITTEN and still readable, so the journal
-// records live conditions. Nothing reads it to refuse.

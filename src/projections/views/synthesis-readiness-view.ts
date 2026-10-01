@@ -1,11 +1,7 @@
 import type { ViewProjection } from './materializer.js';
 import type { WorkflowEvent } from '../../events/schemas.js';
 
-// ─── View Name Constant ────────────────────────────────────────────────────
-
 export const SYNTHESIS_READINESS_VIEW = 'synthesis-readiness';
-
-// ─── View State ────────────────────────────────────────────────────────────
 
 export interface SynthesisReadinessState {
   ready: boolean;
@@ -29,8 +25,6 @@ export interface SynthesisReadinessState {
     conflicts: boolean;
   };
 }
-
-// ─── Readiness Predicate ───────────────────────────────────────────────────
 
 /** Compute readiness and blockers from the current projected state. */
 function computeReadiness(state: SynthesisReadinessState): {
@@ -67,8 +61,11 @@ function computeReadiness(state: SynthesisReadinessState): {
   return { ready, blockers };
 }
 
-// ─── Projection ────────────────────────────────────────────────────────────
-
+/**
+ * Folds task, review, test, typecheck, and restack events into the synthesis readiness view.
+ * Each change recomputes `ready` and `blockers`. The `review` gate sets `reviewPassed`. The old
+ * `spec-review` and `quality-review` gate names also set it, so historical events still project.
+ */
 export const synthesisReadinessProjection: ViewProjection<SynthesisReadinessState> = {
   init: () => ({
     ready: false,
@@ -80,8 +77,6 @@ export const synthesisReadinessProjection: ViewProjection<SynthesisReadinessStat
   }),
 
   apply: (view, event) => {
-    // Use string comparison for event.type to handle event types that may
-    // not yet be in the EventTypes enum (e.g., test.result, typecheck.result)
     const eventType = event.type as string;
     let updated: SynthesisReadinessState;
 
@@ -116,8 +111,6 @@ export const synthesisReadinessProjection: ViewProjection<SynthesisReadinessStat
           | undefined;
         if (!data?.gateName) return view;
 
-        // 'review' is the single review dimension; the legacy 'spec-review' /
-        // 'quality-review' gate names are still folded so historical events project.
         if (
           data.gateName === 'review' ||
           data.gateName === 'spec-review' ||
@@ -197,12 +190,7 @@ export const synthesisReadinessProjection: ViewProjection<SynthesisReadinessStat
         return view;
     }
 
-    // Recompute readiness after every state change
     const { ready, blockers } = computeReadiness(updated);
     return { ...updated, ready, blockers };
   },
 };
-
-// Note: the live `handleViewSynthesisReadiness` lives in `projections/views/tools.ts`;
-// this file owns only the projection + state shapes that the live handler
-// re-exports through that module.

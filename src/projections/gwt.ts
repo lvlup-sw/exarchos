@@ -1,88 +1,38 @@
 /**
- * Given-When-Then harness for projection reducers (T044, DR-10).
- *
- * Provides an ergonomic, chainable DSL for writing projection-reducer tests in
- * canonical GWT form:
+ * Given-When-Then harness for tests of projection reducers.
  *
  * ```ts
- * given(events)
- *   .when(reducer)
- *   .then(expectedState);
+ * given(events).when(reducer).then(expectedState);
  * ```
  *
- * The chain folds `events` through `reducer.apply`, seeded with
- * `reducer.initial`, then asserts deep equality of the final state against
- * `expectedState` via vitest's `toEqual`. A mismatch throws an assertion
- * error that surfaces the offending delta to the enclosing `it(...)` block.
- *
- * This harness is the ergonomic sibling of {@link assertReducerImmutable}
- * (T003): that one is a *property* check (reducer must not mutate state);
- * this one is a *value* check (reducer must fold events to the expected
- * state). Tests typically use both — immutability as a sanity property and
- * `given/when/then` to pin specific fixtures.
- *
- * ## Design notes
- *
- * - **Test-framework coupling.** The happy path uses vitest's `expect`
- *   directly so test output integrates with the rest of the suite
- *   (diff display, `--reporter=verbose`, etc.). `.thenSatisfies` throws
- *   a plain `Error` so callers who prefer to keep the helper
- *   framework-agnostic at that call site have an escape hatch.
- * - **Generic parameters.** Fully generic over `<State, Event>`; the test
- *   author pins them at the call site (or lets TypeScript infer from the
- *   `events` array and `reducer.initial`). No `any` appears on the public
- *   surface.
- * - **Immutability.** The harness does not deep-freeze intermediates — that
- *   is {@link assertReducerImmutable}'s job. This helper assumes the reducer
- *   already satisfies DR-1 purity (enforced separately by T003 tests).
+ * The chain folds `events` through `reducer.apply`, from `reducer.initial`. Then it
+ * compares the final state with the expected state. This is a value check. The
+ * harness does not freeze intermediate states. `assertReducerImmutable` checks for mutation.
  */
 import { expect } from 'vitest';
 import type { ProjectionReducer } from './types.js';
 
-/**
- * Terminal stage of the GWT chain.
- *
- * Returned from `.when(reducer)` after the reducer has been bound. Provides
- * the two assertion verbs — {@link ThenAssertable.then} for deep equality
- * and {@link ThenAssertable.thenSatisfies} for arbitrary predicates.
- */
+/** Terminal stage of the chain, returned from `.when(reducer)`. */
 export interface ThenAssertable<State> {
-  /**
-   * Asserts the folded final state deep-equals `expected` via vitest's
-   * `toEqual`. Throws an assertion error on mismatch.
-   */
+  /** Asserts that the final state deep-equals `expected`, with the `toEqual` of vitest. */
   then(expected: State): void;
 
   /**
-   * Asserts the folded final state satisfies `predicate`. Throws a plain
-   * `Error` on failure with a descriptive message including the offending
-   * state (JSON-stringified, best-effort).
+   * Asserts that the final state satisfies `predicate`. On failure, it throws a
+   * plain `Error` that holds the state as JSON, when the state can be serialized.
    */
   thenSatisfies(predicate: (state: State) => boolean): void;
 }
 
-/**
- * Intermediate stage of the GWT chain.
- *
- * Returned from `given(events)` with the event fixture bound. The caller
- * must supply a reducer via {@link WhenBindable.when} to obtain the
- * terminal {@link ThenAssertable}.
- */
+/** Middle stage of the chain, returned from `given(events)`. It takes the reducer. */
 export interface WhenBindable<Event> {
   when<State>(reducer: ProjectionReducer<State, Event>): ThenAssertable<State>;
 }
 
 /**
- * Entry point for the GWT chain.
+ * Entry point for the chain. It binds an event fixture.
  *
- * Binds an event fixture and returns a {@link WhenBindable} that accepts a
- * reducer. See the module-level docstring for the full chain and design
- * notes.
- *
- * @typeParam State - The reducer's projected state type.
- * @typeParam Event - The event type folded by the reducer.
- * @param events - The event sequence to fold. May be empty (the fold then
- *   yields `reducer.initial` unchanged).
+ * @param events - The events to fold. When the list is empty, the fold gives `reducer.initial`.
  */
 export function given<State, Event>(
   events: readonly Event[],

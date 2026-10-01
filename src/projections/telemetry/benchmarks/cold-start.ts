@@ -10,8 +10,8 @@ type WorkflowEventType =
 const PHASES = ['plan', 'plan-review', 'delegate', 'review', 'synthesize'];
 
 /**
- * Generate N realistic workflow events with a mix of types
- * that the WorkflowStatusProjection can process.
+ * Generates `count` workflow events for `streamId`. The first event is `workflow.started`.
+ * The rest cycle by `seq % 5`: two of each five are `workflow.transition`, and the others are `task.assigned`, `task.completed` and `task.failed`.
  */
 export function generateWorkflowEvents(
   streamId: string,
@@ -29,7 +29,6 @@ export function generateWorkflowEvents(
     };
 
     if (seq === 1) {
-      // First event is always workflow.started
       events.push({
         ...baseEvent,
         type: 'workflow.started' as const,
@@ -41,14 +40,12 @@ export function generateWorkflowEvents(
       continue;
     }
 
-    // Distribute remaining events across types
     const bucket = seq % 5;
     let type: WorkflowEventType;
     let data: Record<string, unknown>;
 
     switch (bucket) {
       case 0: {
-        // workflow.transition
         type = 'workflow.transition';
         const phaseIndex = seq % PHASES.length;
         data = {
@@ -60,7 +57,6 @@ export function generateWorkflowEvents(
         break;
       }
       case 1: {
-        // task.assigned
         type = 'task.assigned';
         taskCounter++;
         data = {
@@ -71,7 +67,6 @@ export function generateWorkflowEvents(
         break;
       }
       case 2: {
-        // task.completed
         type = 'task.completed';
         data = {
           taskId: `task-${taskCounter || 1}`,
@@ -81,7 +76,6 @@ export function generateWorkflowEvents(
         break;
       }
       case 3: {
-        // task.failed (occasional)
         type = 'task.failed';
         data = {
           taskId: `task-${taskCounter || 1}`,
@@ -90,7 +84,6 @@ export function generateWorkflowEvents(
         break;
       }
       default: {
-        // workflow.transition (extra transitions)
         type = 'workflow.transition';
         const idx = seq % PHASES.length;
         data = {

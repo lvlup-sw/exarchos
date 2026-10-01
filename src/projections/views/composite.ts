@@ -1,7 +1,7 @@
-// ─── Composite View Handler ─────────────────────────────────────────────────
-//
-// Routes `action` to the appropriate view or stack handler, replacing 6
-// individual MCP tools with a single `exarchos_view` entry point.
+/**
+ * The `exarchos_view` composite handler. It routes `action` to a view, stack, or lifecycle handler.
+ * A view module imports no writer, so only the stack read comes from `verbs/stack/tools.ts`.
+ */
 
 import { type ToolResult } from '../../format.js';
 import type { NextAction } from '../../next-action.js';
@@ -35,9 +35,6 @@ import { handleViewExport } from './lifecycle/export.js';
 import { handleViewWait, type WaitDeps } from './lifecycle/wait.js';
 import { handleViewPs } from './lifecycle/ps.js';
 import { handleViewWorktrees } from '../../verbs/worktree/handlers.js';
-// Only the stack READ is reachable from here. `handleStackPlace` moved to the
-// orchestrate router with its action: it appends, and a view module importing
-// the writer kept an upward edge that nothing on this surface could declare.
 import { handleStackStatus } from '../../verbs/stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
 import type { QualityHintsConfig } from '../../workflow/capabilities/resolver.js';
@@ -48,41 +45,21 @@ import { publishProjectionFreshness, readProjectionDegradedState } from '../fres
 const viewActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_view')!.actions;
 
 /**
- * View-composite envelope wrap — the shared `envelopeWrap` (../envelope-wrap.ts)
- * with `mergeHandlerActions` enabled (T039 + T041, DR-7/DR-8; DR-10 dedup).
- *
- * #1262 — view handlers may pre-populate `result.next_actions` with
- * telemetry-derived hints (e.g. the `output_tokens_high` checkpoint hint
- * surfaced by `handleViewTelemetry`). The `mergeHandlerActions` knob prepends
- * those to the HSM-derived verbs so the envelope carries both, rather than the
- * wrap silently dropping the handler source (which the workflow / orchestrate /
- * event-store composites do — their handlers carry no such hints). This is the
- * ONLY per-composite difference; everything else is the shared helper.
+ * Wraps a view result with the shared `envelopeWrap` and `mergeHandlerActions` on. A view handler can set
+ * `result.next_actions`, such as the `output_tokens_high` hint of `handleViewTelemetry`. The wrap puts
+ * those actions before the HSM-derived verbs, so the envelope carries both.
  */
 function wrapView(result: ToolResult, startedAt: number): ToolResult {
   return envelopeWrap(result, startedAt, { mergeHandlerActions: true });
 }
 
 /**
- * DR-7 (Task 018) — launcher-session liveness affordance for the `ps` surface.
+ * Appends one `next_actions` hint to a successful `ps` result with a `launchCount` of 1 or more.
+ * Only the worktree scope returns `launchCount`. The launch column answers liveness from the
+ * `launch.executing_started` and `launch.executed` pair, with no process scan. The hint tells the
+ * agent this. The payload stays unchanged.
  *
- * The `ps` launch column answers a launcher-spawned session's liveness from the
- * `launch.executing_started` / `launch.executed` event pair ALONE: an entry is
- * in-flight while the CLAIM has no paired terminal, and the fold clears it the
- * moment the terminal lands — no live process scan is consulted (that is only
- * the opt-in `probe: true` reclaim path). When one or more launcher sessions are
- * in flight, surface that guarantee to the agent as a single `next_actions`
- * hint so the event-sourced liveness is discoverable rather than implicit.
- *
- * Pure annotation: the WLM fold's `launches` / `launchCount` payload is returned
- * untouched; only the `next_actions` channel is appended to. Errors and the
- * probe/no-launch cases pass through unchanged.
- *
- * Known limitation (documented follow-up, out of scope here): injection
- * *degradation* is computed on the launcher lifecycle result at the
- * `launch.executing_started` phase but is NOT yet persisted as a field on the
- * event, so `ps` can answer launch *liveness* from events alone but cannot yet
- * surface *degradation* from events alone.
+ * The launch events hold no degradation field, so `ps` cannot report launch degradation from events.
  */
 function withLaunchLivenessAffordance(result: ToolResult): ToolResult {
   if (!result.success) return result;
@@ -97,20 +74,13 @@ function withLaunchLivenessAffordance(result: ToolResult): ToolResult {
 }
 
 /**
- * Composite handler that dispatches to existing view/stack handlers
- * based on the `action` field in args.
+ * The `exarchos_view` composite handler. It dispatches `action`, then clears projection health after a
+ * successful read. `deps` is a test seam for the `ps` and `wait` arms. Production dispatch omits it, so
+ * the real defaults apply. The optional parameter keeps `handleView` assignable to `CompositeHandler`.
  */
 export async function handleView(
   args: Record<string, unknown>,
   ctx: DispatchContext,
-  // WLM operational core (DR-4) — test-only DI seam for the `ps` / `wait`
-  // liveness arms. `WaitDeps` is the superset (it extends `WorktreeViewDeps`
-  // with the generic-`wait` subscription/deadline seams) so one param threads
-  // both the worktree ps/wait scope AND the generic wait's phase/status/operation
-  // predicates. Production dispatch (`dispatch/core/dispatch.ts`) calls `handleView(args,
-  // ctx)` with no third argument, so the real OS-backed defaults are wired; only
-  // the named lifecycle tests thread it. Other action arms ignore it. An extra
-  // optional parameter keeps `handleView` assignable to `CompositeHandler`.
   deps?: WaitDeps,
 ): Promise<ToolResult> {
   const result = await dispatchViewAction(args, ctx, deps);
@@ -118,30 +88,13 @@ export async function handleView(
 }
 
 /**
- * The read-surface chokepoint, after #1855: it CLEARS projection health, it no
- * longer withholds on it.
+ * Clears the projection health of the `workflowId` stream after a successful read. The view handlers fold
+ * to the tail before they answer (`fold-at-tail.ts`), so a successful read proves coverage. A durable
+ * `projection.degraded` row on that stream is then stale. Clearing it keeps the health journal a record
+ * of live conditions.
  *
- * What used to stand here compared every cached fold of the stream against the
- * durable tail, published the verdict, and dropped the payload when any fold
- * disagreed. The comparison quantified over every fold; a read advances exactly
- * one. So on any stream with more than one cached fold the verdict could not
- * come back clean, and `workflow-state` — folded by orchestrate verbs and gates,
- * folded by no view action — made it permanent. Since this surface was the only
- * publisher of `projection.recovered`, the state it published was one only it
- * could clear and one it could no longer reach.
- *
- * Each handler now folds its own view to the tail before answering
- * (`projections/fold-at-tail.ts`), so by the time a successful result arrives
- * here its coverage is already established and there is nothing to withhold.
- * What is left is the other half of the old job: a stream that answered a read
- * is a stream that can be served, so any durable `projection.degraded` row it
- * still carries is a spent observation. Clearing it is what keeps the health
- * journal a record of live conditions rather than a latch.
- *
- * Deliberately conservative, unchanged from before:
- * - A failed result is returned untouched; the error is the signal.
- * - Any fault publishing recovery leaves the response alone. The health journal
- *   must never be the reason a healthy read fails.
+ * A failed result returns unchanged. A fault in the recovery publish only logs a warning, so the health
+ * journal never fails a healthy read. The held row is read first, so the healthy case skips `tailSequence`.
  */
 async function clearProjectionHealth(
   result: ToolResult,
@@ -153,11 +106,6 @@ async function clearProjectionHealth(
   if (streamId === undefined || streamId.length === 0) return result;
 
   try {
-    // The held row decides whether there is anything to do, so it is read
-    // first. `publishProjectionFreshness` would reach the same conclusion, but
-    // only after this response path had already paid for a `tailSequence` call
-    // whose value the healthy case discards. Almost every read is the healthy
-    // case.
     const held = await readProjectionDegradedState(ctx.eventStore, streamId);
     if (held === undefined) return result;
 
@@ -176,8 +124,11 @@ async function clearProjectionHealth(
 }
 
 /**
- * Composite handler that dispatches to existing view/stack handlers
- * based on the `action` field in args.
+ * Dispatches `action` to its handler and wraps the result in the envelope. This layer owns caller
+ * identity: `pipeline` gets a repo key from `ctx.cwd`, and `deriveRepoKey` maps the main checkout and
+ * each worktree to one key. `pipeline` and `telemetry` get `ctx.config` for
+ * `qualityHints.outputTokenThreshold`. `gate_reliability` is diagnostic only and has no admission or
+ * transition authority. An unknown action gives `UNKNOWN_ACTION`.
  */
 async function dispatchViewAction(
   args: Record<string, unknown>,
@@ -197,24 +148,12 @@ async function dispatchViewAction(
             offset?: number;
             includeCompleted?: boolean;
             detail?: boolean;
-            // DR-6 — explicit scope inputs ride through `rest` from the CLI/MCP
-            // args; the handler resolves them against the caller key below.
             repoRoot?: string;
             scope?: 'repo' | 'all';
           },
           stateDir,
           eventStore,
-          // DR-3 — thread the resolved `.exarchos.yml` so
-          // `qualityHints.outputTokenThreshold` drives the measured-size summary
-          // (same single-hop cast the `telemetry` arm uses).
           ctx.config as QualityHintsConfig | undefined,
-          // DR-6 — the composite layer OWNS caller identity: compute the memoized
-          // repo key from the serving process's directory (`ctx.cwd` defaults to
-          // `process.cwd()` per core/dispatch.ts) and thread it so the pipeline
-          // view scopes to the caller's repo by default. `deriveRepoKey` collapses
-          // the main checkout and every worktree to one key and memoizes, so this
-          // is a map lookup after the first call. Mirrors `workflow/composite.ts`
-          // threading the same key into `handleInit`.
           deriveRepoKey(ctx.cwd ?? process.cwd()),
         ),
         startedAt,
@@ -238,8 +177,6 @@ async function dispatchViewAction(
 
     case 'workflow_status':
       return wrapView(
-        // #1555 — `asOf` rides through `rest` unchanged; the dispatch core
-        // (`handleViewWorkflowStatus`) owns the bounded-fold behavior (INV-2).
         await handleViewWorkflowStatus(
           rest as { workflowId?: string; asOf?: import('../cursor.js').AsOfParam },
           stateDir,
@@ -266,20 +203,12 @@ async function dispatchViewAction(
             tool?: string;
             sort?: 'tokens' | 'invocations' | 'duration';
             limit?: number;
-            // Wave 5 (#1437) — correlation tuple filters scope the
-            // telemetry rollup to a single dispatch boundary.
             operationId?: string;
             correlationId?: string;
             causationId?: string;
           },
           stateDir,
           eventStore,
-          // #1262 — thread the resolved `.exarchos.yml` so
-          // `qualityHints.outputTokenThreshold` flows into the hint
-          // generator. `ExarchosConfig` already declares a structurally-
-          // compatible `qualityHints` slice; the cast is a single hop to
-          // `QualityHintsConfig` (no `unknown` indirection needed) so
-          // the readonly mismatch surfaces clearly if either type drifts.
           ctx.config as QualityHintsConfig | undefined,
         ),
         startedAt,
@@ -300,8 +229,6 @@ async function dispatchViewAction(
         await handleViewDelegationTimeline(
           rest as {
             workflowId?: string;
-            // Wave 5 (#1437) — correlation tuple filters scope the
-            // projection fold to a single dispatch boundary.
             operationId?: string;
             correlationId?: string;
             causationId?: string;
@@ -330,8 +257,6 @@ async function dispatchViewAction(
             skill?: string;
             gate?: string;
             limit?: number;
-            // Wave 5 (#1437) — correlation tuple filters scope the
-            // projection fold to a single dispatch boundary.
             operationId?: string;
             correlationId?: string;
             causationId?: string;
@@ -359,8 +284,6 @@ async function dispatchViewAction(
             workflowId?: string;
             skill?: string;
             limit?: number;
-            // Wave 5 (#1437) — correlation tuple filters scope the
-            // projection fold to a single dispatch boundary.
             operationId?: string;
             correlationId?: string;
             causationId?: string;
@@ -376,9 +299,6 @@ async function dispatchViewAction(
         await handleViewQualityCorrelation(
           rest as {
             workflowId?: string;
-            // Wave 5 (#1437) — correlation tuple filters scope both
-            // underlying projection folds (CQ + ER) to a single dispatch
-            // boundary.
             operationId?: string;
             correlationId?: string;
             causationId?: string;
@@ -397,9 +317,6 @@ async function dispatchViewAction(
             dimension?: string;
             skill?: string;
             timeRange?: { start: string; end: string };
-            // Wave 5 (#1437) — correlation tuple filters scope both
-            // underlying projection folds (CQ + ER) to a single dispatch
-            // boundary.
             operationId?: string;
             correlationId?: string;
             causationId?: string;
@@ -459,8 +376,6 @@ async function dispatchViewAction(
         startedAt,
       );
 
-    // BASE-002 — the gate-reliability read model reaches production through
-    // this action. It is diagnostic-only: no admission or transition authority.
     case 'gate_reliability':
       return wrapView(
         await handleViewGateReliability(
@@ -472,10 +387,6 @@ async function dispatchViewAction(
       );
 
     case 'invariants_effective':
-      // DR-7 (T-20) — the facade delegates to `resolveEffectiveCatalog`; the
-      // `repoRoot` falls back to `ctx.cwd` (then `process.cwd()` inside the
-      // handler) so the dev-catalog + `.exarchos.yml` resolve from the active
-      // workspace.
       return wrapView(
         await handleViewInvariantsEffective(
           rest as {
@@ -489,57 +400,21 @@ async function dispatchViewAction(
       );
 
     case 'worktrees':
-      // WLM foundation (task 008) — read the `worktrees@v1` projection via the
-      // WorktreeManager facade. Behavior lives in the shared dispatch core
-      // (INV-2); the handler takes the full DispatchContext for `ctx.eventStore`.
       return wrapView(await handleViewWorktrees(rest, ctx), startedAt);
 
     case 'ps':
-      // DR-3 (Task 007) — scope-parameterized process-plane lister. `scope: 'all'`
-      // (default) composes task 005's workflows fold + task 006's operations fold;
-      // `scope: 'workflow'` returns the workflows section; `scope: 'worktree'`
-      // delegates to the CONSUMED WLM-6 kernel (inFlightMerges / launches /
-      // inFlightPrunes + the `probe: true` reclaim/reconcile write path — the sole
-      // write path, valid ONLY in worktree scope). `rest`/`deps` thread every
-      // field/mode.
-      //
-      // DR-7 (Task 018) — for launcher-spawned worktree-scope sessions the launch
-      // column answers liveness from the `launch.*` event pair ALONE;
-      // `withLaunchLivenessAffordance` surfaces that guarantee as an agent-first
-      // `next_actions` hint when any launcher session is in flight (pure
-      // annotation — keyed on the worktree-scope `launchCount`, a no-op otherwise).
       return wrapView(
         withLaunchLivenessAffordance(await handleViewPs(rest, ctx, deps)),
         startedAt,
       );
 
     case 'wait':
-      // Generic event-driven gate (DR-5/DR-8) — a PURE CONSUMER that appends
-      // nothing. Feature-scoped phase/status/operation predicates resolve via a
-      // precheck then a DR-1 subscription (Tier-1 wake / Tier-2 floor), with
-      // structured WAIT_TIMEOUT/WAIT_FAILED on expiry/failure; the worktree
-      // `until: merge|idle` scope delegates to the absorbed WLM-6 kernel. `rest`
-      // carries featureId/phase/status/operation/until/integrationRef/timeoutMs.
       return wrapView(await handleViewWait(rest, ctx, deps), startedAt);
 
     case 'inspect':
-      // Worktree-lifecycle single-workflow projection (DR-4). Pure read: folds
-      // the feature stream ONCE via the canonical event-store-first
-      // `resolveWorkflowState` and projects state / recent events + correlation
-      // tuple / artifacts / task progress. Appends nothing on any path — a cold
-      // probe of an unknown featureId returns `workflowExists:false` with ZERO
-      // events emitted (the CB-2 no-phantom-stream guarantee).
       return wrapView(await handleViewInspect(rest, ctx), startedAt);
 
     case 'export':
-      // Worktree-lifecycle diagnostic bundle (DR-6). Writes a zip
-      // (events.jsonl / state.json / metadata.json / artifacts/) to a path
-      // OUTSIDE `.exarchos/` and journals the INV-13 export.requested →
-      // export.executed pair around the write (storage idempotency key derived
-      // from a logical key per INV-8 — a crash-retry completes the SAME intent,
-      // a fresh invocation mints a new pair). Cold-probe safe: an unknown
-      // featureId returns workflowExists:false, writes NO zip and emits ZERO
-      // events. The CLI verb promotion is task-015.
       return wrapView(await handleViewExport(rest, ctx), startedAt);
 
     case 'describe':

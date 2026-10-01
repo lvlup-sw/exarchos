@@ -1,48 +1,17 @@
-// ─── Lifecycle verb: `export` — diagnostic zip bundle (DR-6) ──────────────────
-//
-// The last worktree-lifecycle verb: writes a portable diagnostic bundle of ONE
-// workflow to a zip on disk (a path OUTSIDE `.exarchos/` — a non-idempotent
-// external side effect). The bundle carries
-//
-//   • events.jsonl   — the workflow's domain event stream, one JSON event/line
-//                       (the export's OWN `export.*` bookkeeping events are
-//                       excluded so the bundle is a stable function of the
-//                       domain log);
-//   • state.json      — `fold(events.jsonl)` via the canonical
-//                        `workflowStateProjection`, so REPLAYING events.jsonl
-//                        reconstructs state.json byte-for-byte (round-trip);
-//   • metadata.json   — deterministic bundle manifest (featureId / eventCount /
-//                        phase / workflowType / artifacts + missingArtifacts);
-//   • artifacts/       — every referenced artifact FILE that exists on disk;
-//                        references that do NOT exist are tolerated and listed
-//                        in `missingArtifacts` (metadata + the executed event).
-//
-// TWO-EVENT SPLIT (INV-13) + IDEMPOTENCY (INV-8). The write is journaled as a
-// `export.requested` INTENT (resolved destination path) BEFORE the zip is
-// written and a `export.executed` RESULT (contentHash / eventCount /
-// missingArtifacts) AFTER. Both carry a logical `idempotencyKey`; the STORAGE
-// idempotency key is DERIVED from it (`export.requested:<K>` / `export.executed
-// :<K>`) so a crash-retry of the SAME logical export collapses onto one intent
-// while a fresh invocation mints a distinct key and a NEW pair.
-//
-// CRASH PRECHECK. On invocation the handler scans for a `export.requested` with
-// no paired `export.executed` (a crash between the two events). When found it
-// REUSES that intent's key + destination and COMPLETES it rather than minting a
-// new intent — re-emitting `export.requested` with the same storage key is a
-// no-op cache-hit (never a duplicate intent), the on-disk zip is compared
-// against the freshly-built bundle's `contentHash` (deterministic bytes) and the
-// write is skipped when it already matches, then `export.executed` is emitted.
-//
-// COLD-PROBE SIDE-EFFECT-FREE (RCA 2026-05-30). `export` on an unknown /
-// never-`init`'d featureId returns `workflowExists:false`, writes NO zip and
-// emits ZERO events (existence is answered from the event log alone).
-//
-// WINDOWS / INV-16. Zip ENTRY names are built with `path.posix`; filesystem
-// paths with `path.join`; the zip is written to a temp sibling and atomically
-// renamed, and every stream/file handle is closed before the rename — so a
-// temp-dir removal on NTFS is never blocked by an open handle.
-// ─────────────────────────────────────────────────────────────────────────────
-
+/**
+ * Lifecycle verb `export`: write a diagnostic zip bundle of one workflow to a path outside `.exarchos/`.
+ *
+ * The bundle holds `events.jsonl` (the domain events, without the `export.*` events), `state.json`
+ * (the fold of those events, so a replay reproduces it), `metadata.json`, and each artifact file
+ * that exists inside the base directory. A missing artifact goes into `missingArtifacts`.
+ *
+ * The write sits between an `export.requested` intent and an `export.executed` result. Both storage
+ * idempotency keys derive from one logical key. A retry after a crash completes the open intent,
+ * and skips the write when the zip on disk already matches. An unknown featureId gets no zip and no event.
+ *
+ * Zip entry names use `path.posix`, and file paths use `path.join`. Each handle closes before the
+ * atomic rename, so an open handle cannot block a temp-dir removal on Windows.
+ */
 import { z } from 'zod';
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
@@ -57,8 +26,6 @@ import { workflowStateProjection, type WorkflowStateView } from '../workflow-sta
 import { EnvelopeSchema } from '../../../contract/schemas/envelope.js';
 import { atomicReplace } from '../../../utils/atomic-write.js';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
 /** Bundle manifest version — bumps if the entry layout changes. */
 const EXPORT_FORMAT_VERSION = 1;
 
@@ -66,15 +33,12 @@ const EXPORT_FORMAT_VERSION = 1;
 const EXPORT_EVENT_TYPES = new Set<string>(['export.requested', 'export.executed']);
 
 /**
- * Fixed entry mtime so the produced zip is byte-DETERMINISTIC for identical
- * bundle content — the load-bearing precondition for the INV-13 crash precheck
- * (compare a freshly-built bundle's contentHash against the on-disk zip). Epoch
- * (UTC) keeps the extended-timestamp extra field timezone-independent.
+ * Fixed entry mtime, so identical bundle content gives identical zip bytes. The crash precheck
+ * compares content hashes and depends on this. The epoch keeps the extended-timestamp field
+ * independent of the time zone.
  */
 const FIXED_ZIP_MTIME = new Date(0);
 const FIXED_ZIP_MODE = 0o100644;
-
-// ─── Local input helpers (kept private — never user-facing flags) ─────────────
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
@@ -93,15 +57,11 @@ function isUrl(value: string): boolean {
 }
 
 /**
- * CONTAINMENT. True when `abs` resolves to a path strictly inside `baseDir`.
+ * True when `abs` is strictly inside `baseDir`. `baseDir` itself is not an artifact file, so it fails.
  *
- * An artifact reference is workflow-authored data, not a trusted path: both a
- * traversal (`../../etc/passwd`) and a bare absolute (`/etc/passwd`) would
- * otherwise be `statSync`'d and read straight into the bundle, so an export zip
- * could absorb arbitrary readable files. `path.relative` is the containment
- * primitive — an escaping target yields a `..`-prefixed (or absolute) relative
- * path, and an identical target yields `''` (baseDir itself is a directory, not
- * an artifact file, so it is excluded too).
+ * An artifact reference is workflow data, not a trusted path. Without this check, a traversal
+ * (`../../etc/passwd`) or an absolute path (`/etc/passwd`) can put any readable file into the zip.
+ * The relative path of an escaping target starts with `..` or is absolute.
  */
 function isContainedIn(abs: string, baseDir: string): boolean {
   const rel = path.relative(baseDir, abs);
@@ -112,19 +72,18 @@ function sha256(buf: Buffer): string {
   return createHash('sha256').update(buf).digest('hex');
 }
 
-// ─── Pure bundle construction (the round-trip core) ───────────────────────────
-
 interface IncludedArtifact {
   readonly entryName: string;
   readonly bytes: Buffer;
 }
 
 /**
- * Resolve the referenced-artifact set against `baseDir`: split into artifact
- * FILES that exist on disk (included, as `artifacts/<key>/<basename>` entries)
- * and referenced paths that do NOT exist (tolerated — listed in
- * `missingArtifacts`). URL-valued artifacts (e.g. a `pr` link) are neither
- * included nor treated as missing. Deterministic: both lists are sorted.
+ * Split the referenced artifacts into files inside `baseDir`, as `artifacts/<key>/<basename>`
+ * entries, and missing paths. A URL value, for example a `pr` link, is in neither list. Both lists are sorted.
+ *
+ * `path.resolve` collapses `..` and accepts an absolute value, so one containment check covers both
+ * escape routes before any file read. A path outside `baseDir`, or a file that cannot be read, counts
+ * as missing. The entry basename comes from the platform path, because `path.posix.basename` does not split on `\`.
  */
 function collectArtifacts(
   artifacts: WorkflowStateView['artifacts'] | undefined,
@@ -145,12 +104,7 @@ function collectArtifacts(
   }
 
   for (const { key, value } of candidates) {
-    if (isUrl(value)) continue; // e.g. a `pr` URL is not a filesystem artifact
-    // `path.resolve` collapses `..` segments AND absorbs an already-absolute
-    // `value` — so ONE containment check covers both escape routes. Anything
-    // outside `baseDir` is refused BEFORE statSync/readFileSync ever touch it
-    // and is reported as `missing` (the reference is real; the bundle just
-    // won't carry a file from outside the workflow's tree).
+    if (isUrl(value)) continue;
     const abs = path.resolve(baseDir, value);
     let bytes: Buffer | undefined;
     if (isContainedIn(abs, baseDir)) {
@@ -158,17 +112,9 @@ function collectArtifacts(
         const st = fs.statSync(abs);
         if (st.isFile()) bytes = fs.readFileSync(abs);
       } catch {
-        // ENOENT / unreadable → tolerated as missing
       }
     }
     if (bytes) {
-      // Entry name uses path.posix (INV-16: zip entries are always posix), but
-      // the basename MUST come off the RESOLVED platform path: path.posix
-      // does not treat `\` as a separator, so `path.posix.basename` on a
-      // Windows path (`C:\...\a.md`) returns the WHOLE string and yields a
-      // malformed `artifacts/<key>/C:\...\a.md` entry. `path.basename(abs)` is
-      // platform-native, and `abs` is by construction a path that stat'd on
-      // THIS platform.
       const entryName = path.posix.join('artifacts', key, path.basename(abs));
       included.push({ entryName, bytes });
     } else {
@@ -235,9 +181,8 @@ export function buildExportBundle(
 }
 
 /**
- * Serialize the bundle to a DETERMINISTIC zip (fixed mtime + STORE mode + sorted
- * entry order) so identical content yields byte-identical bytes. Closes the
- * output stream before resolving (INV-16 — no lingering handle).
+ * Serialize the bundle to a deterministic zip: fixed mtime, STORE mode and sorted entries.
+ * Identical content gives identical bytes. The promise resolves after the output stream ends.
  */
 export function zipBundle(entries: ReadonlyMap<string, Buffer>): Promise<Buffer> {
   return new Promise<Buffer>((resolve, reject) => {
@@ -258,8 +203,6 @@ export function zipBundle(entries: ReadonlyMap<string, Buffer>): Promise<Buffer>
     zip.end();
   });
 }
-
-// ─── Output-path resolution + validation ──────────────────────────────────────
 
 interface OutputPathValidation {
   readonly ok: boolean;
@@ -301,7 +244,6 @@ function validateAndPrepareOutputPath(outputPath: string, featureId: string): Ou
       };
     }
   } catch {
-    // ENOENT is the happy path — the file does not exist yet.
   }
   try {
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
@@ -315,17 +257,14 @@ function validateAndPrepareOutputPath(outputPath: string, featureId: string): Ou
   return { ok: true };
 }
 
-// ─── Crash precheck ───────────────────────────────────────────────────────────
-
 interface DanglingIntent {
   readonly idempotencyKey: string;
   readonly outputPath: string;
 }
 
 /**
- * The most-recent `export.requested` whose logical `idempotencyKey` has no
- * paired `export.executed` — a crash between the INV-13 pair. `undefined` when
- * every request is completed (the fresh-invocation path).
+ * The latest `export.requested` whose logical `idempotencyKey` has no `export.executed`, which
+ * means a crash between the two events. `undefined` when each request has its result.
  */
 function findDanglingIntent(events: readonly WorkflowEvent[]): DanglingIntent | undefined {
   const executedKeys = new Set<string>();
@@ -349,14 +288,16 @@ function findDanglingIntent(events: readonly WorkflowEvent[]): DanglingIntent | 
   return undefined;
 }
 
-// ─── Handler ──────────────────────────────────────────────────────────────────
-
 /**
- * `export` — write a diagnostic zip bundle of one workflow (DR-6). Emits the
- * INV-13 `export.requested` → `export.executed` pair around the write, derives
- * the storage idempotency key from a logical key (INV-8), completes a crashed
- * pair without duplicating the intent, and is cold-probe safe on an unknown
- * featureId.
+ * Write a diagnostic zip bundle of one workflow.
+ *
+ * An unknown featureId returns `workflowExists: false`, with no zip and no event, because the
+ * event log alone answers existence. An open intent from a crashed run completes with its own key
+ * and destination. The destination check runs before any append, so a rejection has no side effect.
+ *
+ * The bundle uses domain events only, so its `contentHash` stays the same across a retry. The intent
+ * and result storage keys differ, so both events persist, and a repeated intent is a cache hit. The
+ * zip write is skipped when the file on disk already has the same hash.
  */
 export async function handleViewExport(
   args: Record<string, unknown>,
@@ -370,10 +311,6 @@ export async function handleViewExport(
   const { eventStore } = ctx;
   const baseDir = ctx.cwd ?? process.cwd();
 
-  // Existence is answered from the event log ALONE (RCA 2026-05-30). A cold
-  // probe of an unknown / never-`init`'d featureId returns workflowExists:false
-  // and writes NOTHING (no zip) + emits ZERO events — the CB-2 no-phantom-stream
-  // guarantee.
   const events = await eventStore.query(featureId);
   if (events.length === 0) {
     return {
@@ -383,9 +320,6 @@ export async function handleViewExport(
     };
   }
 
-  // Crash precheck: a `export.requested` with no paired `export.executed` means
-  // a prior invocation crashed mid-flight. Complete THAT intent (reuse its key +
-  // destination) rather than minting a new one.
   const dangling = findDanglingIntent(events);
   const idempotencyKey = dangling?.idempotencyKey ?? randomUUID();
   const outputPath = dangling
@@ -393,7 +327,6 @@ export async function handleViewExport(
     : resolveOutputPath(optionalString(args.output), featureId, baseDir);
   const recovered = dangling !== undefined;
 
-  // Validate the destination BEFORE any append (side-effect-free on rejection).
   const validation = validateAndPrepareOutputPath(outputPath, featureId);
   if (!validation.ok) {
     return {
@@ -409,26 +342,17 @@ export async function handleViewExport(
     };
   }
 
-  // Build the bundle from DOMAIN events only (exclude the export's own
-  // bookkeeping) so the bundle — and its contentHash — is a stable function of
-  // the domain log across a crash-retry.
   const domainEvents = events.filter((e) => !EXPORT_EVENT_TYPES.has(e.type));
   const bundle = buildExportBundle(featureId, domainEvents, baseDir);
   const zipBytes = await zipBundle(bundle.entries);
   const contentHash = sha256(zipBytes);
 
-  // INV-13 INTENT — journaled BEFORE the write. On a crash-retry the reused
-  // storage key makes this a cache-hit (no duplicate intent). INV-8: the storage
-  // key is DERIVED from the logical key, and distinct from the executed key so
-  // both events persist.
   await eventStore.append(
     featureId,
     { type: 'export.requested', data: { featureId, outputPath, idempotencyKey } },
     { idempotencyKey: `export.requested:${idempotencyKey}` },
   );
 
-  // Idempotent write: skip when the on-disk zip already matches (crash-recovery
-  // where the write completed but the executed event never landed).
   let existingHash: string | undefined;
   try {
     existingHash = sha256(await fsp.readFile(outputPath));
@@ -440,8 +364,6 @@ export async function handleViewExport(
     await atomicReplace(outputPath, zipBytes);
   }
 
-  // INV-13 RESULT — journaled AFTER the write, carrying the bundle's contentHash
-  // (the crash precheck's disk comparator), eventCount, and missingArtifacts.
   await eventStore.append(
     featureId,
     {
@@ -476,14 +398,11 @@ export async function handleViewExport(
   };
 }
 
-// ─── Typed output schema (DR-1 — typed `data`, not a bare unknown envelope) ────
-//
-// Same derivation discipline as `inspect`: the MCP adapter `safeParse`s the REAL
-// handler output against this schema, so a STRICTER shape than the handler emits
-// breaks production. Declared in strip+passthrough mode; fields absent on the
-// cold-probe branch are `.optional()` so BOTH the exported and cold-probe shapes
-// validate against one schema.
-
+/**
+ * Typed `data` of the `export` result. The MCP adapter parses the real handler output with this
+ * schema, so a stricter shape than the handler emits breaks production. The fields that the
+ * cold-probe result omits are optional, so both shapes pass.
+ */
 const ExportData = z
   .object({
     featureId: z.string(),

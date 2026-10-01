@@ -9,18 +9,12 @@ import {
   TEAM_STATUS_INVOCATION_THRESHOLD,
 } from './constants.js';
 
-// ─── Hint Interface ──────────────────────────────────────────────────────────
-
 export interface Hint {
   readonly tool: string;
   readonly hint: string;
 }
 
-// ─── Rule Type ───────────────────────────────────────────────────────────────
-
 type HintRule = (metrics: ToolMetrics, toolName: string) => Hint | null;
-
-// ─── Rules ───────────────────────────────────────────────────────────────────
 
 const rules: readonly HintRule[] = [
   (metrics, toolName) => {
@@ -66,8 +60,6 @@ const rules: readonly HintRule[] = [
     return null;
   },
 ];
-
-// ─── Generator ───────────────────────────────────────────────────────────────
 
 export function generateHints(state: TelemetryViewState): Hint[] {
   const hints: Hint[] = [];

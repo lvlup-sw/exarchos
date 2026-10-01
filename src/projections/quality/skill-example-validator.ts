@@ -1,33 +1,16 @@
-// ─── Skill / Command Example Validator ──────────────────────────────────────
-//
-// Documentation across `content/**` and `commands/**` embeds tool-invocation
-// examples of the form:
-//
-//     exarchos_workflow({ action: "describe", actions: ["update", "init"] })
-//
-// These examples drift silently from the live MCP schemas — an action gets
-// renamed, a param is added/removed, a value type changes — and nothing
-// mechanically catches it, so the docs quietly start to lie (P02-07 / WFQ-011…015).
-//
-// This module is that mechanical check. It extracts the structured
-// call-expression examples from Markdown and validates each against the SAME
-// oracle the runtime surfaces to agents via `exarchos_view describe`:
-// `zodToJsonSchema(action.schema)`. Unknown tools, unknown/stale action names,
-// unknown/misspelled params, and type-incompatible literal values are reported.
-//
-// Design notes:
-//   • The oracle is derived from the registry at call time (never a hand-kept
-//     duplicate list), so it can never drift from what agents actually see.
-//   • Examples are tolerant-parsed: doc snippets legitimately contain JS the way
-//     an agent would type it (arrow functions, `.map(...)`, comments, trailing
-//     commas, `<placeholder>` strings). We validate the parts we CAN parse
-//     unambiguously — the action discriminator, the top-level param keys, and
-//     literal value types — and abstain on the parts we cannot (nested
-//     expressions), rather than emitting false positives.
-//   • Validation is KEY-level, not full-schema: doc examples are intentionally
-//     partial (they show only the relevant params), so a missing *required*
-//     field is NOT an error. Presence of an unknown key IS.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Checks the tool-call examples in Markdown against the live MCP schemas.
+ *
+ * An example has the form `exarchos_workflow({ action: "describe", actions: ["init"] })`.
+ * The oracle is `zodToJsonSchema(action.schema)` for each registry action, the same
+ * projection that `exarchos_view describe` shows. The check reports an unknown tool, a
+ * missing or unknown action, an unknown param, and a literal with a wrong type, enum
+ * member, or range.
+ *
+ * The parser is tolerant. It checks the action, the top-level param keys, and literal
+ * types, and it ignores nested expressions. Examples are partial, so a missing required
+ * param is not an error.
+ */
 
 import { zodToJsonSchema } from '../../utils/json-schema.js';
 import type { CompositeTool } from '../../registry.js';
@@ -37,7 +20,7 @@ export type JsonType = 'string' | 'number' | 'integer' | 'boolean' | 'array' | '
 
 /** Normalized per-property constraints extracted from a live action schema. */
 export interface PropertySchema {
-  /** Acceptable JSON types. Empty = unconstrained (e.g. a union we don't narrow). */
+  /** Acceptable JSON types. An empty list means no constraint, for example for a union. */
   readonly types: readonly JsonType[];
   /** Enum members, when the property is a closed set of literals. */
   readonly enumValues?: readonly (string | number | boolean)[];
@@ -113,8 +96,6 @@ export interface ValidationIssue {
   readonly message: string;
 }
 
-// ─── Oracle construction ────────────────────────────────────────────────────
-
 interface RawJsonSchema {
   type?: string | string[];
   enum?: unknown[];
@@ -142,6 +123,10 @@ function toJsonTypes(value: string | string[] | undefined): JsonType[] {
   );
 }
 
+/**
+ * Normalizes one property. Draft 2020-12 output from `zodToJsonSchema` gives exclusive
+ * bounds as numbers, not booleans, so a `typeof` number check reads each bound.
+ */
 function normalizeProperty(prop: RawJsonSchema): PropertySchema {
   const types = toJsonTypes(prop.type);
   const enumValues = Array.isArray(prop.enum)
@@ -150,9 +135,6 @@ function normalizeProperty(prop: RawJsonSchema): PropertySchema {
           typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean',
       )
     : undefined;
-  // Numeric bounds are only meaningful for number/integer properties. Draft
-  // 2020-12 (what zodToJsonSchema emits) renders exclusive bounds as numbers,
-  // not booleans, so a plain typeof-number guard is sufficient.
   const bounds: {
     minimum?: number;
     maximum?: number;
@@ -167,7 +149,10 @@ function normalizeProperty(prop: RawJsonSchema): PropertySchema {
   return enumValues && enumValues.length > 0 ? { ...base, enumValues } : base;
 }
 
-/** Convert a single Zod action schema into the normalized {@link ActionSchema}. */
+/**
+ * Converts the JSON Schema of one action into the normalized {@link ActionSchema}.
+ * Only `additionalProperties: false`, the output for a strict object, rejects unknown keys.
+ */
 export function normalizeActionSchema(jsonSchema: unknown): ActionSchema {
   const js = (jsonSchema ?? {}) as RawJsonSchema;
   const rawProps = js.properties ?? {};
@@ -175,16 +160,13 @@ export function normalizeActionSchema(jsonSchema: unknown): ActionSchema {
   for (const [key, prop] of Object.entries(rawProps)) {
     properties[key] = normalizeProperty(prop);
   }
-  // zodToJsonSchema emits `additionalProperties: false` for strict objects.
-  // Absent / non-false ⇒ treat as permissive (don't flag unknown keys).
   const additionalProperties = js.additionalProperties !== false;
   return { properties, additionalProperties };
 }
 
 /**
- * Build the validation oracle from the live registry. Uses the exact same
- * `zodToJsonSchema(action.schema)` projection the `describe` handler surfaces,
- * so the docs are validated against what agents actually observe at runtime.
+ * Builds the oracle from the live registry, with the same `zodToJsonSchema(action.schema)`
+ * projection that the `describe` handler shows to agents.
  */
 export function buildOracleFromRegistry(registry: readonly CompositeTool[]): SchemaOracle {
   const tools: Record<string, Record<string, ActionSchema>> = {};
@@ -198,8 +180,6 @@ export function buildOracleFromRegistry(registry: readonly CompositeTool[]): Sch
   return { tools };
 }
 
-// ─── Example extraction ─────────────────────────────────────────────────────
-
 const TOOL_CALL_RE = /exarchos_(workflow|event|orchestrate|view|sync)\s*\(\s*\{/g;
 
 /** A string value counts as a placeholder (type-wildcard) when it carries doc
@@ -209,9 +189,9 @@ function isPlaceholderText(inner: string): boolean {
 }
 
 /**
- * Scan from an opening `{` (or `[`) and return the index of its matching close,
- * respecting string literals and nested brackets/parens. Returns -1 if
- * unterminated.
+ * Returns the index of the bracket that closes the bracket at `openIndex`, or -1.
+ * It skips comments before it detects strings. Otherwise an apostrophe in a `//`
+ * comment opens a false string and breaks the match for the rest of the document.
  */
 function findMatchingClose(text: string, openIndex: number): number {
   let depth = 0;
@@ -226,10 +206,6 @@ function findMatchingClose(text: string, openIndex: number): number {
       else if (c === inString) inString = null;
       continue;
     }
-    // Comments must be skipped BEFORE string detection: a `//` line comment can
-    // contain an unbalanced apostrophe (e.g. `// resolves the delegation's
-    // worktree`) that would otherwise open a phantom string and corrupt the
-    // brace match, swallowing the rest of the document.
     if (c === '/' && next === '/') {
       while (i < text.length && text[i] !== '\n') i++;
       continue;
@@ -237,7 +213,7 @@ function findMatchingClose(text: string, openIndex: number): number {
     if (c === '/' && next === '*') {
       i += 2;
       while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) i++;
-      i++; // consume the closing '/'
+      i++;
       continue;
     }
     if (c === '"' || c === "'" || c === '`') {
@@ -271,15 +247,13 @@ function splitTopLevelSegments(body: string): string[] {
       continue;
     }
     if (c === '/' && next === '/') {
-      // Line comment: skip to end of line.
       while (i < body.length && body[i] !== '\n') i++;
       continue;
     }
     if (c === '/' && next === '*') {
-      // Block comment: skip to closing */.
       i += 2;
       while (i < body.length && !(body[i] === '*' && body[i + 1] === '/')) i++;
-      i++; // consume the '/'
+      i++;
       continue;
     }
     if (c === '"' || c === "'" || c === '`') {
@@ -304,7 +278,6 @@ function classifyValue(rawInput: string): ExampleValue {
   const raw = rawInput.trim();
   const first = raw[0];
   if (first === '"' || first === "'" || first === '`') {
-    // Extract inner text up to matching quote.
     const closeIdx = findClosingQuote(raw, first);
     const inner = closeIdx > 0 ? raw.slice(1, closeIdx) : raw.slice(1);
     return {
@@ -383,9 +356,9 @@ function lineOf(text: string, index: number): number {
 }
 
 /**
- * Extract every structured tool-invocation example from a Markdown document.
- * Recognizes `exarchos_<tool>({ ... })` call expressions (single- or multi-line,
- * with or without an `exarchos:` / `mcp__…__` namespace prefix).
+ * Extracts each `exarchos_<tool>({ ... })` call example from a Markdown document.
+ * It removes blockquote markers (`>`) at the start of body lines, because a marker
+ * hides the param key. The scan continues after each call, so a nested call is not counted twice.
  */
 export function extractToolExamples(markdown: string, file = '<memory>'): ToolExample[] {
   const examples: ToolExample[] = [];
@@ -393,15 +366,10 @@ export function extractToolExamples(markdown: string, file = '<memory>'): ToolEx
   let match: RegExpExecArray | null;
   while ((match = TOOL_CALL_RE.exec(markdown)) !== null) {
     const tool = `exarchos_${match[1]}`;
-    // The regex ends at the `{`; find its position (last char of the match).
     const openBrace = markdown.indexOf('{', match.index);
     if (openBrace < 0) continue;
     const close = findMatchingClose(markdown, openBrace);
     if (close < 0) continue;
-    // Strip Markdown blockquote prefixes (`> `) that lead each body line when
-    // the example is embedded in a blockquote — otherwise the `>` masks the
-    // param key and the example parses as action-less. Blockquote markers only
-    // appear at line start, so `>` inside a value (e.g. `"<PR diff>"`) is safe.
     const body = markdown.slice(openBrace + 1, close).replace(/^[ \t]*>+[ \t]?/gm, '');
     const params = parseParams(body);
     const actionVal = params['action'];
@@ -409,7 +377,6 @@ export function extractToolExamples(markdown: string, file = '<memory>'): ToolEx
     if (actionVal && (actionVal.kind === 'string' || actionVal.kind === 'placeholder')) {
       action = actionVal.text ?? null;
     }
-    // Remove the discriminator from params — it's validated separately.
     const rest: Record<string, ExampleValue> = {};
     for (const [k, v] of Object.entries(params)) {
       if (k !== 'action') rest[k] = v;
@@ -422,13 +389,10 @@ export function extractToolExamples(markdown: string, file = '<memory>'): ToolEx
       line: lineOf(markdown, match.index),
       raw: markdown.slice(match.index, close + 1),
     });
-    // Advance past this call so nested matches inside the body aren't double-counted.
     TOOL_CALL_RE.lastIndex = close + 1;
   }
   return examples;
 }
-
-// ─── Validation ─────────────────────────────────────────────────────────────
 
 function valueKindToJsonTypes(kind: ExampleValueKind): JsonType[] {
   switch (kind) {
@@ -451,7 +415,11 @@ function valueKindToJsonTypes(kind: ExampleValueKind): JsonType[] {
   }
 }
 
-/** Validate a single extracted example against the oracle. */
+/**
+ * Validates one example against the oracle. A placeholder, an expression, or `null`
+ * matches each type, because docs use `"<id>"` for each field. An enum property gets
+ * a membership check. Otherwise a typed property gets a type check, then a range check.
+ */
 export function validateExample(example: ToolExample, oracle: SchemaOracle): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const base = { file: example.file, line: example.line, tool: example.tool, action: example.action };
@@ -503,13 +471,10 @@ export function validateExample(example: ToolExample, oracle: SchemaOracle): Val
       continue;
     }
 
-    // Placeholder strings and un-parseable expressions are type-wildcards:
-    // docs use `"<id>"` for every field regardless of the real type.
     if (value.kind === 'placeholder' || value.kind === 'expression' || value.kind === 'null') {
       continue;
     }
 
-    // Enum membership (only for concrete string/number/boolean literals).
     if (prop.enumValues && prop.enumValues.length > 0) {
       const literal = value.kind === 'string' ? value.text : coerceLiteral(value);
       if (literal !== undefined && !prop.enumValues.includes(literal)) {
@@ -525,8 +490,7 @@ export function validateExample(example: ToolExample, oracle: SchemaOracle): Val
       continue;
     }
 
-    // Type compatibility for concrete literals against a constrained property.
-    if (prop.types.length === 0) continue; // unconstrained (union) — abstain.
+    if (prop.types.length === 0) continue;
     const candidateTypes = valueKindToJsonTypes(value.kind);
     if (candidateTypes.length === 0) continue;
     const compatible = candidateTypes.some((t) => prop.types.includes(t));
@@ -542,8 +506,6 @@ export function validateExample(example: ToolExample, oracle: SchemaOracle): Val
       continue;
     }
 
-    // Numeric range check for concrete integer/number literals against a
-    // bounded property (e.g. a threshold declared 0..1 documented as `80`).
     if (value.kind === 'integer' || value.kind === 'number') {
       const num = Number(value.raw);
       if (Number.isFinite(num)) {
@@ -571,12 +533,7 @@ function coerceLiteral(value: ExampleValue): string | number | boolean | undefin
   return undefined;
 }
 
-/**
- * Return a human-readable description of the first bound `num` violates, or
- * `null` when it satisfies every declared bound. Inclusive (`minimum`/
- * `maximum`) and exclusive (`exclusiveMinimum`/`exclusiveMaximum`) bounds are
- * both honored; a property with no numeric bounds always passes.
- */
+/** Returns a message for the first bound that `num` violates, or `null` when it satisfies all bounds. */
 function rangeViolation(num: number, prop: PropertySchema): string | null {
   if (prop.minimum !== undefined && num < prop.minimum) {
     return `must be >= ${prop.minimum}`;

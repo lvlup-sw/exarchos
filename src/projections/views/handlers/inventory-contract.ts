@@ -1,29 +1,20 @@
+/**
+ * Shared contract helpers for the list-shaped inventory views.
+ *
+ * A list view reports `page: {total, offset, limit, hasMore}` and returns compact rows
+ * unless the caller sets `detail: true`. A scoped view also reports `scope` and
+ * `unscopedTotal`, so rows that a filter hides stay visible. The `tasks` view keeps a
+ * bare-array `data` and puts that metadata in `_meta`, because callers read `data` as an array.
+ */
 import { DEFAULT_VIEW_ITEM_CAP } from '../../../dispatch/core/economy.js';
 import type { NextAction } from '../../../next-action.js';
 import type { TimelineTask } from '../delegation-timeline-view.js';
 import type { TaskDetail } from '../task-detail-view.js';
 import type { TeammateMetrics } from '../team-performance-view.js';
 
-// ─── DR-8 (Task 013): generalized inventory-view contract helpers ────────────
-//
-// The `pipeline` and `worktrees` views were migrated first (#1659 + the shared
-// `dispatch/core/economy.ts` kit). This batch generalizes the SAME contract to the
-// remaining list/inventory-shaped views in this file:
-//   • `page: {total, offset, limit, hasMore}` metadata when list-shaped;
-//   • `detail: true` honored — compact by default, full rows on request;
-//   • P5 scope perceivability — a scoped view reports `scope` + `unscopedTotal`
-//     so rows hidden by the scope (a filter, not just paging) stay perceivable.
-// Each migrated view rides Task 003's dispatch-core economy backstop and carries
-// a DR-2-style token-budget test. The `tasks` view keeps its bare-array `data`
-// contract for now (many in-repo consumers read `data` as an array); its page /
-// scope metadata rides `_meta` in the interim, and the full `data` reshape is
-// DR-12's consumer-migration work. The other list views carry the metadata in
-// `data` directly, matching the `pipeline` precedent.
-
 /**
- * Resolve the deterministic paging window shared by the inventory views. When
- * the caller omits `limit`, cap at `defaultCap` so a large inventory never dumps
- * every row; an explicit `limit` is honored verbatim.
+ * Resolve the paging window of an inventory view. Without `limit`, the window holds at most
+ * `defaultCap` rows, so a large inventory does not return every row. An explicit `limit` is used as given.
  */
 export function resolveInventoryWindow(
   args: { limit?: number; offset?: number },
@@ -36,10 +27,9 @@ export function resolveInventoryWindow(
 }
 
 /**
- * P5 escape-hatch affordance for a FILTER-scoped view (mirrors pipeline's
- * `scopeAllAffordance` for repo scope). Fires whenever the active scope hid rows
- * (`unscopedTotal > page.total`) so the elided rows are always perceivable. Verb
- * is the view's own name so it validates against the catch-all `NextActionSchema`.
+ * Next action that tells the caller how many rows the active filter hides. It is the filter
+ * counterpart of the pipeline `scopeAllAffordance`. The verb is the view name, so it passes
+ * the catch-all `NextActionSchema`.
  */
 export function scopeHiddenAffordance(verb: string, hiddenCount: number): NextAction {
   return {
@@ -49,21 +39,21 @@ export function scopeHiddenAffordance(verb: string, hiddenCount: number): NextAc
   };
 }
 
-/** DR-8 compact `TimelineTask`: drop the verbose ISO timestamps; `detail:true` restores them. */
+/** Compact `TimelineTask` without the ISO timestamps. `detail: true` returns them. */
 export type CompactTimelineTask = Omit<TimelineTask, 'assignedAt' | 'completedAt'>;
 export function compactTimelineTask(t: TimelineTask): CompactTimelineTask {
   const { assignedAt: _assignedAt, completedAt: _completedAt, ...rest } = t;
   return rest;
 }
 
-/** DR-8 compact `TeammateMetrics`: drop the per-teammate module-expertise list; `detail:true` restores it. */
+/** Compact `TeammateMetrics` without the module-expertise list. `detail: true` returns it. */
 export type CompactTeammateMetrics = Omit<TeammateMetrics, 'moduleExpertise'>;
 export function compactTeammate(m: TeammateMetrics): CompactTeammateMetrics {
   const { moduleExpertise: _moduleExpertise, ...rest } = m;
   return rest;
 }
 
-/** DR-8 compact `TaskDetail`: drop the verbose/optional fields; `detail:true` restores them. */
+/** Compact `TaskDetail` without the optional detail fields. `detail: true` returns them. */
 export type CompactTaskDetail = Omit<TaskDetail, 'artifacts' | 'error' | 'tddPhase' | 'duration'>;
 export function compactTaskDetail(t: TaskDetail): CompactTaskDetail {
   const { artifacts: _artifacts, error: _error, tddPhase: _tddPhase, duration: _duration, ...rest } = t;

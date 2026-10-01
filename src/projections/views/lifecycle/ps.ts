@@ -1,43 +1,13 @@
-// ─── Lifecycle verb: `ps` — scope-parameterized process-plane lister (DR-3) ───
-//
-// The one lifecycle verb that answers "what is RUNNING / TRACKED right now?".
-// It is a scope-parameterized COMPOSITION of three folds — it carries no fold
-// logic of its own (INV-2), only the scope routing + section shaping:
-//
-//   • scope: 'workflow'  → the WORKFLOWS section: task 005's `foldWorkflowSummaries`
-//                          over the storage backend (every tracked workflow, one
-//                          row: featureId / workflowType / phase / status / ageMs),
-//                          filterable by status / phase / workflowType / all.
-//   • scope: 'worktree'  → the WLM-6 worktree liveness fold, CONSUMED not
-//                          duplicated: delegates to `handleWorktreeScopePs`
-//                          (`verbs/worktree/handlers.ts`) so the
-//                          inFlightMerges / launches / inFlightPrunes columns are
-//                          preserved byte-for-byte.
-//   • scope: 'all'       → DEFAULT. BOTH the workflows section (005) AND an
-//                          OPERATIONS section: task 006's `foldInFlightOperations`
-//                          over every liveness surface (merge / launch / mutation /
-//                          prune — surface-generic, registry-driven), gathered
-//                          across every stream.
-//
-// ## Scope collision resolution (task 007, honoring task 019's discovery)
-//
-// The `scope` field is the SHARED `schema-fields.ts` shape — widened by task 007
-// to the union `['repo','all','workflow','worktree']` so `pipeline` (`repo`/`all`)
-// and `ps` (`workflow`/`worktree`/`all`) declare ONE `scope` definition on the
-// `exarchos_view` tool (a divergent enum value set would make
-// `buildRegistrationSchema` THROW). `ps` validates its OWN subset here — it
-// REJECTS `repo` (a pipeline-only member) — and `pipeline` ignores the ps-only
-// members at its handler. The flattener only requires the value SET to match
-// across the two actions, which the single shared shape guarantees.
-//
-// ## No write path (was: probe gating)
-//
-// `probe: true` used to be a worktree-scope-only capability here, running the
-// DR-5 process probe and emitting reclaim/reconcile writes. It is gone: those
-// passes are `exarchos_orchestrate.reconcile_worktrees`, because the appends
-// live in `verbs/` and a read surface could not honestly declare them. Every
-// scope of `ps` is now a pure fold, and the action is annotated read-only.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * The `ps` lifecycle verb lists what is running or tracked now. It holds no fold logic. It routes by
+ * scope and shapes the sections that three folds return.
+ *
+ * `scope` uses the shared `scopeField` shape from `schema-fields.ts`, so `pipeline` and `ps` declare one
+ * `scope` definition on `exarchos_view`. Two different enum value sets make `buildRegistrationSchema`
+ * throw. `ps` validates its own subset and rejects `repo`.
+ *
+ * Every scope is a pure read. The reclaim and reconcile writes are `exarchos_orchestrate.reconcile_worktrees`.
+ */
 
 import type { DispatchContext } from '../../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../../format.js';
@@ -66,23 +36,18 @@ import {
 } from '../../../events/liveness-registry.js';
 import { scopeField } from './schema-fields.js';
 
-// ─── Scope vocabulary ─────────────────────────────────────────────────────────
-
-/** The `ps`-plane scopes. A SUBSET of the shared `scopeField` union — `repo` is
- *  a `pipeline`-only member `ps` rejects. */
+/** The `ps` scopes: the shared `scopeField` union without the `pipeline`-only `repo`. */
 export type PsScope = 'workflow' | 'worktree' | 'all';
 
 const PS_SCOPES: readonly PsScope[] = ['workflow', 'worktree', 'all'];
 
-/** The workflow lifecycle statuses a `ps --status` filter may request. */
+/** The workflow lifecycle statuses that a `ps --status` filter accepts. */
 const WORKFLOW_STATUSES: readonly WorkflowLifecycleStatus[] = [
   'active',
   'completed',
   'cancelled',
   'blocked',
 ];
-
-// ─── Local input helpers (kept private — never user-facing flags) ─────────────
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
@@ -122,13 +87,13 @@ function invalidInput(
   };
 }
 
-/** Resolve the requested `ps` scope, defaulting to `all`, or an error result. */
+/**
+ * Resolves the `ps` scope, with `all` as the default, or returns an error result.
+ * `repo` gets an explicit error that points to `pipeline`, not a silent default.
+ */
 function resolveScope(raw: unknown): { scope: PsScope } | { error: ToolResult } {
   const s = optionalString(raw);
   if (s === undefined) return { scope: 'all' };
-  // `repo` is a valid shared-`scopeField` member but a `pipeline`-only axis — a
-  // `ps --scope repo` request has no meaning here, so reject it explicitly
-  // (INV-5b self-correcting error) rather than silently defaulting.
   if (s === 'repo') {
     return {
       error: invalidInput(
@@ -151,27 +116,21 @@ function resolveScope(raw: unknown): { scope: PsScope } | { error: ToolResult } 
   };
 }
 
-// ─── Workflows section (task 005) ─────────────────────────────────────────────
-
 /** The workflows-section payload: the folded rows + their count. */
 interface WorkflowsSection {
   readonly workflows: readonly WorkflowFoldRow[];
   readonly workflowCount: number;
 }
 
-/** `_meta.warning` surfaced when the workflows section can't be read (no backend). */
+/** The `_meta.warning` when no storage backend is wired and the workflows section cannot be read. */
 const NO_STORAGE_WARNING =
   'workflows section unavailable: no storage backend wired to this context — ' +
   'the operations section (event-store-backed) is unaffected';
 
 /**
- * Fold the WORKFLOWS section for the `workflow` / `all` scopes: task 005's
- * `foldWorkflowSummaries` over `ctx.storage`, honoring the status / phase /
- * workflowType / all (includeTerminal) filters. When no storage backend is wired
- * (a test-context shape only — production always supplies a SqliteBackend), the
- * section degrades to empty AND surfaces a structured `_meta.warning` (rather
- * than a silent empty section that reads as "no workflows exist"); the
- * operations section (which rides `eventStore`, always present) is unaffected.
+ * Folds the workflows section for the `workflow` and `all` scopes with `foldWorkflowSummaries`.
+ * It applies the `status`, `phase`, `workflowType`, `all`, and `limit` arguments. With no storage backend,
+ * the section is empty and the result holds a warning, so the empty section does not read as "no workflows".
  */
 function foldWorkflowsSection(
   backend: StorageBackend | undefined,
@@ -211,14 +170,9 @@ function foldWorkflowsSection(
   return { section: { workflows, workflowCount: workflows.length } };
 }
 
-// ─── Operations section (task 006) ────────────────────────────────────────────
-
 /**
- * The registry's liveness event types — every `<surface>.executing_started`
- * START plus every declared TERMINAL, deduplicated. Derived from the DR-2
- * registry (never hardcoded), so a fifth surface's types are picked up
- * automatically. This is the type-scoped pushdown set `gatherOperationEvents`
- * restricts its reads to.
+ * Returns the liveness event types of the registry: each `<surface>.executing_started` type and each
+ * terminal type, without duplicates. A new registry surface adds its types with no change here.
  */
 function livenessEventTypes(): readonly string[] {
   const types = new Set<string>(everyExecutingStartedType());
@@ -229,19 +183,10 @@ function livenessEventTypes(): readonly string[] {
 }
 
 /**
- * Gather the liveness events across every stream, globally ordered by
- * `(timestamp, sequence)`, so `foldInFlightOperations` can pair START/TERMINAL
- * across the feature streams (merge / mutation) AND the singleton `worktrees`
- * stream (launch / prune) in one pass. `WorkflowEvent` rows satisfy
- * {@link OperationEventLike} structurally (including `streamId`, load-bearing for
- * the DR-2 per-stream pairing) — no adapter needed.
- *
- * Perf (DR-3): rather than loading the FULL event log of every stream and
- * global-sorting it on each `ps --scope all`, this pushes the type filter down
- * to the backend — only the registry's liveness start/terminal types are
- * materialized (`query(streamId, { type })`, which the SqliteBackend and
- * InMemoryBackend both honor at the storage layer). The remaining sort is over
- * the small liveness slice, not the whole log.
+ * Gathers the liveness events of every stream, sorted by `(timestamp, sequence)`. Thus
+ * `foldInFlightOperations` can pair start and terminal events across the feature streams and the
+ * `worktrees` stream in one pass. A `WorkflowEvent` satisfies {@link OperationEventLike} with no adapter.
+ * Each query filters by type, so the read and the sort cover only the liveness events, not the full log.
  */
 async function gatherOperationEvents(
   eventStore: DispatchContext['eventStore'],
@@ -268,7 +213,7 @@ interface OperationsSection {
   readonly operationCount: number;
 }
 
-/** Fold the OPERATIONS section for the `all` scope (task 006, surface-generic). */
+/** Folds the operations section for the `all` scope. */
 async function foldOperationsSection(
   eventStore: DispatchContext['eventStore'],
   nowMs: number | undefined,
@@ -281,18 +226,13 @@ async function foldOperationsSection(
   return { operations, operationCount: operations.length };
 }
 
-// ─── Handler ────────────────────────────────────────────────────────────────────
-
 /**
- * `ps` — the scope-parameterized process-plane lister (DR-3). Routes:
+ * Lists processes by scope. `worktree` delegates to `handleWorktreeScopePs`, which owns the worktree
+ * liveness fold. `workflow` returns the workflows section, and `all`, the default, adds the operations
+ * section. A degraded workflows section adds `_meta.warning`.
  *
- *   - `scope: 'worktree'` → the CONSUMED WLM-6 fold (`handleWorktreeScopePs`);
- *   - `scope: 'workflow'` → the workflows section only;
- *   - `scope: 'all'` (default) → workflows section + operations section.
- *
- * Every path is a pure read. The reclaim/reconcile write path that used to ride
- * `scope: 'worktree'` + `probe: true` is now the `reconcile_worktrees` action on
- * `exarchos_orchestrate`, so `ps` appends nothing on any scope.
+ * The handler does not check `probe`. The dispatch boundary refuses an undeclared parameter, and a
+ * copy of that check here can drift from it after a rename.
  */
 export async function handleViewPs(
   args: Record<string, unknown>,
@@ -303,26 +243,15 @@ export async function handleViewPs(
   if ('error' in resolved) return resolved.error;
   const { scope } = resolved;
 
-  // `probe` is NOT rejected here. It left this action's schema with the write
-  // path, so the undeclared-parameter guard at the dispatch boundary already
-  // refuses it — naming the key and the fact no `exarchos_view` action declares
-  // it — rather than ignoring it while reporting success. Re-checking here would
-  // shadow that guard with a hand-written copy that a rename could not update.
-
-  // Worktree scope: delegate to the CONSUMED WLM-6 kernel unchanged — it owns the
-  // inFlightMerges / launches / inFlightPrunes fold.
   if (scope === 'worktree') {
     return handleWorktreeScopePs(args, ctx, deps);
   }
 
   const nowMs = deps?.now?.();
 
-  // Workflows section (both remaining scopes need it).
   const workflowsResult = foldWorkflowsSection(ctx.storage, args, nowMs);
   if ('error' in workflowsResult) return workflowsResult.error;
   const { section: workflows, warning } = workflowsResult;
-  // Surface a degraded-read warning structurally instead of a silent empty
-  // section (finding 6a). Only present when a section actually degraded.
   const metaField = warning !== undefined ? { _meta: { warning } } : {};
 
   if (scope === 'workflow') {
@@ -333,7 +262,6 @@ export async function handleViewPs(
     };
   }
 
-  // scope: 'all' → workflows + operations.
   const operations = await foldOperationsSection(ctx.eventStore, nowMs);
   return {
     success: true,

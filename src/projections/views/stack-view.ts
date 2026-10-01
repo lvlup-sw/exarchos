@@ -1,11 +1,7 @@
 import type { ViewProjection } from './materializer.js';
 import type { WorkflowEvent } from '../../events/schemas.js';
 
-// ─── View Name Constant ────────────────────────────────────────────────────
-
 export const STACK_VIEW = 'stack';
-
-// ─── Stack Position ────────────────────────────────────────────────────────
 
 export interface StackPosition {
   position: number;
@@ -14,13 +10,9 @@ export interface StackPosition {
   prUrl?: string;
 }
 
-// ─── View State ────────────────────────────────────────────────────────────
-
 export interface StackViewState {
   positions: StackPosition[];
 }
-
-// ─── Projection ────────────────────────────────────────────────────────────
 
 export const stackViewProjection: ViewProjection<StackViewState> = {
   init: () => ({ positions: [] }),

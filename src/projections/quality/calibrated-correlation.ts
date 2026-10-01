@@ -3,8 +3,6 @@ import type { EvalResultsViewState } from '../views/eval-results-view.js';
 import type { SkillCorrelation } from './quality-correlation.js';
 import { correlateQualityAndEvals } from './quality-correlation.js';
 
-// ─── Interfaces ─────────────────────────────────────────────────────────────
-
 export interface JudgeCalibration {
   readonly skill: string;
   readonly tpr: number;
@@ -28,14 +26,10 @@ export interface SignalConfidenceInput {
   readonly totalGateExecutions: number;
 }
 
-// ─── Calibration Thresholds ─────────────────────────────────────────────────
-
 const TPR_THRESHOLD = 0.85;
 const TNR_THRESHOLD = 0.80;
 const MIN_EVAL_RUNS = 10;
 const MIN_GATE_EXECUTIONS = 20;
-
-// ─── Signal Confidence Derivation ───────────────────────────────────────────
 
 /**
  * Derive signal confidence from judge calibration data and data volume.
@@ -61,11 +55,7 @@ export function deriveSignalConfidence(input: SignalConfidenceInput): 'high' | '
   return 'high';
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-/**
- * Find the latest calibration for a given skill, sorted by calibratedAt timestamp.
- */
+/** Return the calibration for a skill with the latest `calibratedAt`. */
 function findLatestCalibration(
   calibrations: ReadonlyArray<JudgeCalibration>,
   skill: string,
@@ -78,14 +68,9 @@ function findLatestCalibration(
   );
 }
 
-// ─── Main Function ──────────────────────────────────────────────────────────
-
 /**
- * Extend quality correlation with judge calibration data to produce
- * confidence-weighted signals.
- *
- * For each skill present in both views, finds the latest calibration,
- * derives judge calibrated state, and computes signal confidence.
+ * Add judge calibration and signal confidence to the quality correlation.
+ * Each skill in both views gets the values from its latest calibration.
  */
 export function correlateWithCalibration(
   codeQuality: CodeQualityViewState,
