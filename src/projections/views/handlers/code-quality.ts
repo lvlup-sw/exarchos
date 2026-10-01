@@ -10,7 +10,7 @@ import { getOrCreateMaterializer } from './materializer.js';
 import { deriveCorrelationFilters, hasCorrelationFilters, materializeFiltered, queryDeltaEvents } from './query.js';
 
 /**
- * Handles the `code_quality` view. The response omits `models` unless `detail` is true.
+ * Returns the `code_quality` view. The response omits `models` unless `detail` is true.
  * `scope` and `unscopedTotal` count the skill and gate records.
  *
  * A correlation filter (`operationId`, `correlationId`, `causationId`) folds a new
@@ -18,7 +18,7 @@ import { deriveCorrelationFilters, hasCorrelationFilters, materializeFiltered, q
  * handler then skips regression detection, because a slice hides the failures outside it.
  *
  * Without that filter, it appends each new regression, keyed on gate, skill, and first
- * failure commit. A failed append goes to the log and does not fail the view.
+ * failure commit. `emitRegressionEvents` ignores a failed append, so it does not fail the view.
  */
 export async function handleViewCodeQuality(
   args: {

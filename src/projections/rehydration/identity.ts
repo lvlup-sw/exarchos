@@ -1,7 +1,7 @@
 /**
  * The projection-identity pair for rehydration snapshot reads and writes (`projectionId` and `projectionVersion` in `projections/store.ts`).
  * Both values come from the reducer record, so they cannot drift from the `id` and `version` of the registered reducer.
- * With other strings, each snapshot lookup misses, and the read falls back to a full event replay.
+ * If the writer and the reader use different strings, the snapshot lookup misses and the read falls back to a full event replay.
  */
 
 import { rehydrationReducer } from './reducer.js';

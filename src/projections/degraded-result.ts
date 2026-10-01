@@ -5,6 +5,8 @@
  * forward by `fold-at-tail.ts` before the read answers. The code means that a fold
  * finished short of its pinned tail, because the log did not produce events that a
  * cursor already counted. No re-fold closes that gap, so the read gives no answer.
+ * The durable `projection.degraded` row is an observation at one time, not a current fact.
+ * A read must not refuse because of that row, or a healthy stream stays blocked.
  *
  * The four outcomes stay separate:
  * - Healthy answer: `success: true` with a payload folded to the tail.

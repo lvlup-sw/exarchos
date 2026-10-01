@@ -4,8 +4,8 @@
  * An example has the form `exarchos_workflow({ action: "describe", actions: ["init"] })`.
  * The oracle is `zodToJsonSchema(action.schema)` for each registry action, the same
  * projection that `exarchos_view describe` shows. The check reports an unknown tool, a
- * missing or unknown action, an unknown param, and a literal with a wrong type, enum
- * member, or range.
+ * missing or unknown action, and a literal with a wrong type, enum member, or range.
+ * For a strict schema, it also reports an unknown param.
  *
  * The parser is tolerant. It checks the action, the top-level param keys, and literal
  * types, and it ignores nested expressions. Examples are partial, so a missing required

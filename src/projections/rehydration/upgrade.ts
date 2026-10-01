@@ -92,8 +92,8 @@ function degradedBlocker(scope: string, error: Error): Record<string, unknown> {
 /**
  * Upgrade a parsed v:1 rehydration document to v:2.
  *
- * Each handoff entry that throws `HandoffEntryUpgradeError` is dropped, and a
- * degraded blocker is appended. Other errors propagate. The function builds the
+ * The function drops each handoff entry that throws `HandoffEntryUpgradeError`,
+ * and appends a degraded blocker. Other errors propagate. The function builds the
  * v:2 envelope field by field, not with a spread, so no v:1 field leaks into
  * the strict v:2 envelope.
  */

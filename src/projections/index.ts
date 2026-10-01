@@ -16,5 +16,6 @@ export { assertReducerImmutable } from './testing.js';
 /**
  * Lag in milliseconds above which a response sets `_meta.projectionLag`.
  * The lag is `Date.now()` minus the projection's `projectionAsOf`. A fresh projection omits the field.
+ * Five seconds keeps a normal cold-cache fold below the threshold, and still shows a stale snapshot to agents.
  */
 export const PROJECTION_LAG_THRESHOLD_MS = 5000;

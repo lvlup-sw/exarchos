@@ -70,7 +70,8 @@ function findLatestCalibration(
 
 /**
  * Add judge calibration and signal confidence to the quality correlation.
- * Each skill in both views gets the values from its latest calibration.
+ * Each skill in both views gets the values from its latest calibration. A skill without a
+ * calibration gets zero rates and `judgeCalibrated: false`.
  */
 export function correlateWithCalibration(
   codeQuality: CodeQualityViewState,

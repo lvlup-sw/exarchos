@@ -9,9 +9,10 @@
  *
  * Each status maps to one event: `assigned` to `task.assigned`, `claimed` to
  * `task.claimed`, `in-progress` to `task.progressed`, `completed` to `task.completed`,
- * and `failed` to `task.failed`. The workflow `task.*` family has no pending or
- * cancelled event, so there is no such status. Pending tasks from the plan are in
- * `taskProgress` of the rehydration document.
+ * and `failed` to `task.failed`. These workflow events include no pending or cancelled
+ * event, so there is no such status. The `task.cancelled` event belongs to the
+ * `task-store/<taskId>` streams, not to a workflow stream. Pending tasks from the plan
+ * are in `taskProgress` of the rehydration document.
  */
 
 /** The status of a {@link TaskRecord}. The file header maps each status to its event. */

@@ -7,8 +7,8 @@
  * For a predicate that is not monotonic, `bisect` returns one flip boundary, not every flip.
  * To find every transition of such a predicate, scan the stream linearly.
  *
- * The search does `O(log n)` probes. When a projection snapshot exists, `projectAt` warm-starts each probe from it.
- * Without a snapshot, each probe folds from the first event, so the total cost is `O(n log n)` reducer applies.
+ * The search does `O(log n)` probes. `projectAt` warm-starts a probe from the latest snapshot only when that snapshot is at or below the probe sequence.
+ * Without a usable snapshot, a probe folds from the first event, so the worst total cost is `O(n log n)` reducer applies.
  * No public verb exposes `bisect`.
  */
 

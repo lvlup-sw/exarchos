@@ -239,11 +239,11 @@ function applyTaskEvent(
 
 /**
  * Handles `merge.executed`, `merge.recovered`, the retired `merge.rollback` and `merge.aborted`.
- * It sets `terminalPhase` on `mergeOrchestrator` and moves the phase back to `delegate`, like the HSM `mergePendingExit` guard.
+ * It sets `terminalPhase` on `mergeOrchestrator` and sets the phase to `delegate` from any phase, like the HSM `mergePendingExit` guard.
  * With no `mergeOrchestrator` entry, it returns `state` unchanged, so a stray merge event does not invent one.
  *
- * A repeat of the same terminal phase returns `state` unchanged, so a duplicate does not advance `projectionSequence`.
- * It reads no event field. Thus `merge.recovered` and `merge.rollback` fold the same, and the second event of such a pair changes nothing.
+ * A repeat of the same terminal phase while the phase is `delegate` returns `state` unchanged, so it does not advance `projectionSequence`.
+ * It reads no event field, so `merge.recovered` and `merge.rollback` fold the same. In an old log with both events, the second event changes nothing.
  */
 function applyMergeTerminalEvent(
   state: RehydrationDocument,
@@ -346,7 +346,7 @@ function applyWorkflowGuardFailed(
  * Handles `state.patched`, the event behind `exarchos_workflow set`.
  * It folds `data.patch.artifacts` into `artifacts` and `data.patch.tasks` into `taskProgress`. The event can have one, both or neither.
  * Planners stamp the full task list before the first `task.assigned`, so the plan tasks show the pending tasks.
- * An event with neither subtree returns `state` unchanged. Otherwise `projectionSequence` advances once.
+ * An event with no actionable subtree returns `state` unchanged. Otherwise `projectionSequence` advances once.
  */
 function applyStatePatched(
   state: RehydrationDocument,

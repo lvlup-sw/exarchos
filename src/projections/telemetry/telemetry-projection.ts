@@ -58,7 +58,10 @@ export interface TelemetryViewState {
   readonly totalInvocations: number;
   readonly totalTokens: number;
   readonly windowSize: number;
-  /** Per-turn output-token records. The reducer keeps the last `windowSize + 1` turns, so a long session cannot grow the view state without limit. */
+  /**
+   * Per-turn output-token records. The reducer keeps the last `windowSize + 1` turns, so a long session cannot grow the view state without limit.
+   * The one extra turn lets the streak walk in `computeOutputTokenHints` look one turn past the window.
+   */
   readonly turns: readonly TurnRecord[];
 }
 
@@ -262,8 +265,8 @@ export interface OutputTokenHint {
  * Otherwise it returns one hint, and only the latest turn decides it.
  *
  * The function walks back from the latest turn to the first kept turn of the current streak above the threshold.
- * The `idempotencyKey` uses that turn, so one streak gives the same key on each view request, and callers can dedupe.
- * When every kept turn is above the threshold, the key uses the earliest kept turn.
+ * The `idempotencyKey` uses that turn, so callers can dedupe one streak across view requests.
+ * When every kept turn is above the threshold, the key uses the earliest kept turn, and it changes when that turn drops out of `view.turns`.
  */
 export function computeOutputTokenHints(
   view: TelemetryViewState,

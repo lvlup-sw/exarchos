@@ -221,7 +221,8 @@ function resolveOutputPath(output: string | undefined, featureId: string, baseDi
  * must be side-effect-free). Rejects an empty path, a directory-intent path
  * (trailing separator or an existing directory), and a path whose parent cannot
  * be created. Creating the parent directory for a valid path is expected setup,
- * not a workflow mutation.
+ * not a workflow mutation. A failed `stat` means that the path does not exist yet, so the
+ * check continues.
  */
 function validateAndPrepareOutputPath(outputPath: string, featureId: string): OutputPathValidation {
   if (!outputPath) {
@@ -293,7 +294,7 @@ function findDanglingIntent(events: readonly WorkflowEvent[]): DanglingIntent | 
  *
  * An unknown featureId returns `workflowExists: false`, with no zip and no event, because the
  * event log alone answers existence. An open intent from a crashed run completes with its own key
- * and destination. The destination check runs before any append, so a rejection has no side effect.
+ * and destination. The destination check runs before any append, so a rejection appends no event and writes no zip.
  *
  * The bundle uses domain events only, so its `contentHash` stays the same across a retry. The intent
  * and result storage keys differ, so both events persist, and a repeated intent is a cache hit. The
