@@ -1,28 +1,14 @@
-// ─── P07-02 / Transition tasks 029–032 — Built-in workflows as shared IR ──────
-//
-// The five built-in workflows (feature, debug, refactor, oneshot, discovery)
-// expressed in the SHARED admission IR rather than as legacy guard closures:
-//
-//   - route conditions  — the "is this edge structurally legal?" selector, as a
-//     compiled P06-02 {@link CompiledEdgeCondition} AST (closed, declarative,
-//     no executable escape hatch);
-//   - admission obligations — the gate/approval requirement each edge carries,
-//     declared as data (never a guard reference);
-//   - phase-kind and provenance metadata for the live shadow observer.
-//
-// Load-bearing property (P07-02 exit-proof b — proved structurally by
-// `built-in-workflow-ir.structure.test.ts`): this module has NO import path to
-// any LEGACY GUARD module — `guards.ts`, `hsm-definitions.ts`, `config/guards.ts`
-// or `config/register.ts`. The IR is a self-contained projection of the P06-01
-// classification, not a wrapper around legacy guard code. The legacy guard
-// remains the authoritative decider until P07-05; what is true NOW is that these
-// definitions do not reach back into legacy guard code.
-//
-// The route conditions and evidence-presence probes are BOTH expressed in the
-// P06-02 edge-condition AST over ONE shared fact vocabulary
-// ({@link FACT_DECLARATION}). The `legacy-state-translation` module owns the
-// projection of real legacy state into that vocabulary; nothing here reads
-// state.
+/**
+ * The five built-in workflows in the shared admission IR.
+ *
+ * Each edge has a route condition as a compiled {@link CompiledEdgeCondition} and an admission obligation as data.
+ * It also carries the phase kind and the legacy guard id for the live shadow observer.
+ * Route conditions and presence probes use one fact vocabulary, {@link FACT_DECLARATION}.
+ * The `legacy-state-translation` module projects legacy state into it. Nothing here reads state.
+ *
+ * This module has no import path to a legacy guard module: `guards.ts`, `hsm-definitions.ts`, `config/guards.ts` or `config/register.ts`.
+ * `built-in-workflow-ir.structure.test.ts` proves this.
+ */
 
 import {
   compileEdgeCondition,
@@ -30,8 +16,6 @@ import {
   type EdgeConditionDeclaration,
 } from './edge-condition.js';
 import type { PhaseKind } from '../phase-kind.js';
-
-// ─── Workflow identity ─────────────────────────────────────────────────────────
 
 export type BuiltInWorkflowType =
   | 'feature'
@@ -44,10 +28,9 @@ export const BUILT_IN_WORKFLOW_TYPES: readonly BuiltInWorkflowType[] =
   Object.freeze(['feature', 'debug', 'refactor', 'oneshot', 'discovery']);
 
 /**
- * The P06-01 classification category an edge is derived from. Kept as data (a
- * string union), NOT an import of the classification fixture — the cross-check
- * that this matches the P06-01 corpus lives in the test, so this module stays
- * free of any legacy-guard / fixture dependency.
+ * The legacy-guard classification category of an edge.
+ * It is a string union and not an import of the classification fixture, so this module has no fixture dependency.
+ * A test checks it against the corpus.
  */
 export type EdgeCategory =
   | 'route-condition'
@@ -56,20 +39,10 @@ export type EdgeCategory =
   | 'approval'
   | 'obsolete-predicate';
 
-// ─── Admission obligation ──────────────────────────────────────────────────────
-
 /**
- * The admission obligation an edge carries once routing legality is decided:
- *   - `none`     — pure routing / bounded-loop / universal edge; no evidence
- *                  obligation (routing legality is the whole decision);
- *   - `gate`     — a gate-evidence requirement; the `presence` probe decides
- *                  whether the certifying fact is genuinely present in state;
- *   - `approval` — a typed approval requirement; the `presence` probe decides
- *                  whether the approval signal is present.
- *
- * The `presence` condition is a P06-02 edge condition evaluated by the
- * translation against the projected legacy state; it is NOT re-derived from the
- * route condition.
+ * The admission obligation of an edge after the route is legal.
+ * `none` has no evidence obligation. `gate` and `approval` have a `presence` probe.
+ * The translation evaluates the probe against the projected legacy state. The probe is separate from the route condition.
  */
 export type EdgeObligation =
   | { readonly kind: 'none' }
@@ -90,33 +63,24 @@ export interface WorkflowEdgeIR {
   readonly workflowType: BuiltInWorkflowType;
   readonly from: string;
   readonly to: string;
-  /** Phase kind entered by this edge (target kind, or source kind for finals). */
+  /** The phase kind that this edge enters. A final edge uses the source kind. */
   readonly toPhaseKind: PhaseKind;
-  /** P06-01 classification category this edge is derived from. */
+  /** The classification category of this edge. */
   readonly category: EdgeCategory;
-  /**
-   * The legacy guard id this edge corresponds to, for cross-referencing the
-   * P06-01 corpus. A STRING ONLY — never a reference to guard code. `null` for
-   * an edge that carries no legacy guard.
-   */
+  /** The legacy guard id, as a string only and never a reference to guard code. `null` when the edge has no guard. */
   readonly legacyGuardId: string | null;
-  /** Route legality (P06-02). `all([])` (always legal) for single-target edges. */
+  /** The route legality. An edge without a route selector uses `all([])`, which is always legal. */
   readonly routeCondition: CompiledEdgeCondition;
-  /** Admission obligation once the edge is routable. */
+  /** The admission obligation after the route is legal. */
   readonly obligation: EdgeObligation;
 }
 
-// ─── Shared fact vocabulary ────────────────────────────────────────────────────
-
 /**
- * The closed vocabulary every route condition and evidence-presence probe is
- * declared against. The translation's projector produces EXACTLY these facts;
- * a test asserts every referenced field is projectable (so the IR can never
- * reference a fact the projector cannot populate).
+ * The closed fact vocabulary of all route conditions and presence probes.
+ * The projector of the translation produces exactly these facts. A test proves that it can fill each field that the IR uses.
  */
 export const FACT_DECLARATION: EdgeConditionDeclaration = {
   fields: {
-    // ── presence facts (string) ──
     'artifacts.plan': 'string',
     plan: 'string',
     'artifacts.pr': 'string',
@@ -128,10 +92,8 @@ export const FACT_DECLARATION: EdgeConditionDeclaration = {
     'explore.scopeAssessment': 'string',
     'resolution.commitSha': 'string',
     'synthesis.lastError': 'string',
-    // ── routing selector facts (string) ──
     track: 'string',
     'oneshot.synthesisPolicy': 'string',
-    // ── boolean facts ──
     'planReview.approved': 'boolean',
     'planReview.gapsFound': 'boolean',
     'validation.testsPass': 'boolean',
@@ -148,11 +110,14 @@ export const FACT_DECLARATION: EdgeConditionDeclaration = {
     'mergePending.entryReady': 'boolean',
     'mergePending.exitReady': 'boolean',
     'team.disbandedOk': 'boolean',
-    // ── CONFIG-DERIVED obligation facts (see the note below) ──
+    /**
+     * This fact and the next two come from config. `projectStateToFacts` resolves them from the state that the legacy guard reads.
+     * A hardcoded threshold here becomes a second authority that can drift and over-admit.
+     */
     'planReview.revisionsExhausted': 'boolean',
     'reviews.requiredSatisfied': 'boolean',
     'artifacts.planNonEmpty': 'boolean',
-    // ── counter facts (number) ──
+    /** This counter and `policy.maxPlanRevisions` are evidence for an explanation. They do not make the decision. */
     'planReview.revisionCount': 'number',
     'policy.maxPlanRevisions': 'number',
     'synthesis.retryCount': 'number',
@@ -161,39 +126,6 @@ export const FACT_DECLARATION: EdgeConditionDeclaration = {
   },
   events: ['synthesize.requested'],
 } as const satisfies EdgeConditionDeclaration;
-
-// ─── Single authority for config-bearing obligations (P07-02 soundness fix) ────
-//
-// A transition boundary must have exactly ONE authority. The legacy guards read
-// per-project configuration and resolved tier state that `workflow/tools.ts`
-// injects onto the workflow state before the pure guard runs:
-//
-//   `_maxPlanRevisions`   → `revisionsExhausted`  (the plan-revision cap)
-//   `_requiredReviews`    → `allReviewsPassed`    (required review dimensions)
-//   `_mutationEnforcement` / `_mutationThreshold` / `_maxNoCoverage`
-//                         → `allReviewsPassed`    (HIGH-tier mutation gates)
-//   a MISSING `oneshot.synthesisPolicy` → `'on-request'` (the default branch)
-//
-// Expressing those obligations as HARDCODED CONSTANTS in this IR would create a
-// SECOND authority that silently drifts from the first: with a configured cap of
-// 3 and `revisionCount === 1`, a `revisionCount >= 1` constant admits an edge the
-// legacy guard denies — an OVER-admission, the unsafe direction. The drift is
-// invisible to a corpus generated from default/no-config fixtures, because that
-// is exactly the input region where the constant and the config agree.
-//
-// So none of these thresholds live here. `legacy-state-translation`'s
-// `projectStateToFacts` reads the SAME injected state the legacy guard reads and
-// projects the resolved obligation as a DERIVED FACT
-// (`planReview.revisionsExhausted`, `reviews.requiredSatisfied`,
-// `artifacts.planNonEmpty`, and a policy-defaulted `oneshot.synthesisPolicy`).
-// The IR consumes the resolved fact; the projection owns the resolution. One
-// authority, one place to change, no constant to drift.
-//
-// `planReview.revisionCount` and `policy.maxPlanRevisions` remain declared as
-// observable counters so a decision explanation can still name BOTH sides of the
-// comparison — they are evidence, not the decision.
-
-// ─── Node / obligation builders (compile-time validated) ───────────────────────
 
 function compile(node: unknown): CompiledEdgeCondition {
   return compileEdgeCondition(node, FACT_DECLARATION);
@@ -239,29 +171,21 @@ const approval = (
   });
 
 /**
- * The plan-revision cap is NOT a constant here — it is per-project config the
- * legacy guard reads from `state._maxPlanRevisions`. The projection resolves
- * `revisionCount >= cap` against that injected value and publishes the result as
- * `planReview.revisionsExhausted`, so this edge consumes ONE authority's answer.
+ * The plan-revision cap is project config in `state._maxPlanRevisions`, not a constant here.
+ * The projection resolves `revisionCount >= cap` and publishes it as `planReview.revisionsExhausted`.
  */
 const REVISIONS_EXHAUSTED = eqBool('planReview.revisionsExhausted', true);
 
 /**
- * `all-reviews-passed` is not "the present reviews passed" — the legacy guard
- * ALSO denies on missing `_requiredReviews` dimensions and on HIGH-tier
- * mutation-score / NoCoverage enforcement. The projection resolves all three
- * axes from the same injected state and publishes the conjunction.
+ * The legacy `all-reviews-passed` guard checks the present reviews, the `_requiredReviews` dimensions and high-tier mutation enforcement.
+ * The projection resolves all three from the injected state and publishes the conjunction.
  */
 const REQUIRED_REVIEWS_SATISFIED = eqBool('reviews.requiredSatisfied', true);
 
 /**
- * The oneshot synthesis branch, mirroring `synthesisOptedIn` /
- * `synthesisOptedOut` EXACTLY — including the `'on-request'` DEFAULT for a
- * missing policy. `never` is an absolute opt-out (a stray `synthesize.requested`
- * event must not re-open the synthesize branch), and `on-request` with no
- * request event takes the DIRECT-COMMIT edge. Modelling only
- * `policy === 'never'` on the direct-commit edge deadlocked the DEFAULT oneshot
- * flow: both outbound edges of `implementing` denied.
+ * The oneshot synthesis branch. It matches `synthesisOptedIn` and `synthesisOptedOut`, with `'on-request'` as the default.
+ * `never` is an absolute opt-out, and a stray `synthesize.requested` event does not reopen synthesis.
+ * `on-request` without a request event takes the direct-commit edge.
  */
 const SYNTHESIS_OPTED_IN = any(
   eqStr('oneshot.synthesisPolicy', 'always'),
@@ -275,7 +199,7 @@ const SYNTHESIS_OPTED_OUT = any(
   ),
 );
 
-/** Synthesize retry cap (MAX_SYNTHESIZE_RETRIES). */
+/** The synthesize retry cap. */
 const MAX_SYNTHESIZE_RETRIES = 3;
 
 interface EdgeSpec {
@@ -306,7 +230,7 @@ function buildEdges(
   );
 }
 
-// Shared presence probes reused across workflows.
+/** The plan presence probe. More than one workflow uses it. */
 const PLAN_ARTIFACT_PRESENT = any(present('artifacts.plan'), present('plan'));
 const PR_URL_PRESENT = any(present('synthesis.prUrl'), present('artifacts.pr'));
 const TASKS_COMPLETE = all(
@@ -315,21 +239,15 @@ const TASKS_COMPLETE = all(
 );
 
 /**
- * Every planned task complete, compiled — the obligation on its own.
- *
- * Exported for the capsule compiler, which states what delegated work must
- * achieve and nothing about how a harness runs it. The feature delegate edge
- * conjoins this with team teardown; teardown is how one harness organises its
- * workers, so a capsule that required it would bind every other runtime to that
- * harness's mechanics.
+ * The compiled obligation that every planned task is complete. The capsule compiler uses it.
+ * The feature delegate edge also requires team teardown, but teardown is a harness detail.
+ * Thus a capsule that requires teardown binds every runtime to one harness.
  */
 export const TASKS_COMPLETE_CONDITION: CompiledEdgeCondition = compile(TASKS_COMPLETE);
 const RETRYABLE = all(
   present('synthesis.lastError'),
   cmp('synthesis.retryCount', 'lt', MAX_SYNTHESIZE_RETRIES),
 );
-
-// ─── Feature workflow ──────────────────────────────────────────────────────────
 
 const FEATURE_EDGES = buildEdges('feature', [
   {
@@ -436,8 +354,6 @@ const FEATURE_EDGES = buildEdges('feature', [
     obligation: approval('unblock', eqBool('unblocked', true)),
   },
 ]);
-
-// ─── Debug workflow ────────────────────────────────────────────────────────────
 
 const DEBUG_EDGES = buildEdges('debug', [
   {
@@ -581,8 +497,6 @@ const DEBUG_EDGES = buildEdges('debug', [
   },
 ]);
 
-// ─── Oneshot workflow ──────────────────────────────────────────────────────────
-
 const ONESHOT_EDGES = buildEdges('oneshot', [
   {
     from: 'plan',
@@ -590,9 +504,10 @@ const ONESHOT_EDGES = buildEdges('oneshot', [
     toPhaseKind: 'IMPLEMENT',
     category: 'admission-requirement',
     legacyGuardId: 'oneshot-plan-set',
-    // NOT a bare presence probe: `oneshotPlanSet` requires a TRIMMED NON-EMPTY
-    // STRING. A bare `factPresent` admits `artifacts.plan = true`, `{}` or
-    // `'   '`, all of which the guard denies.
+    /**
+     * `oneshotPlanSet` requires a trimmed, non-empty string.
+     * A bare `factPresent` admits `true`, `{}` or blanks, which the guard denies.
+     */
     obligation: gate('oneshot-plan', eqBool('artifacts.planNonEmpty', true)),
   },
   {
@@ -623,8 +538,6 @@ const ONESHOT_EDGES = buildEdges('oneshot', [
   },
 ]);
 
-// ─── Discovery workflow ────────────────────────────────────────────────────────
-
 const DISCOVERY_EDGES = buildEdges('discovery', [
   {
     from: 'gathering',
@@ -643,8 +556,6 @@ const DISCOVERY_EDGES = buildEdges('discovery', [
     obligation: gate('report', present('artifacts.report')),
   },
 ]);
-
-// ─── Refactor workflow ─────────────────────────────────────────────────────────
 
 const REFACTOR_EDGES = buildEdges('refactor', [
   {
@@ -791,9 +702,7 @@ const REFACTOR_EDGES = buildEdges('refactor', [
   },
 ]);
 
-// ─── Registry ──────────────────────────────────────────────────────────────────
-
-/** All built-in-workflow edges expressed in shared IR (deterministic order). */
+/** All built-in workflow edges in shared IR, in a fixed order. */
 export const BUILT_IN_WORKFLOW_IR: readonly WorkflowEdgeIR[] = Object.freeze([
   ...FEATURE_EDGES,
   ...DEBUG_EDGES,
@@ -806,7 +715,7 @@ const EDGE_INDEX: ReadonlyMap<string, WorkflowEdgeIR> = new Map(
   BUILT_IN_WORKFLOW_IR.map((e) => [edgeKey(e.workflowType, e.from, e.to), e]),
 );
 
-/** Canonical key for an edge, stable across the IR and the translation. */
+/** The canonical key of an edge. The IR and the translation use the same key. */
 export function edgeKey(
   workflowType: string,
   from: string,
@@ -815,7 +724,7 @@ export function edgeKey(
   return `${workflowType}:${from}:${to}`;
 }
 
-/** Look up the shared-IR edge for a (workflow, from, to), or undefined. */
+/** Returns the shared-IR edge for a workflow, source and target, or undefined. */
 export function getEdgeIR(
   workflowType: string,
   from: string,

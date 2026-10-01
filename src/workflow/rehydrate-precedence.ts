@@ -1,28 +1,12 @@
 /**
- * Deterministic fallback precedence for workflow rehydration (P04-06, EFF-004).
+ * Declared fallback precedence for workflow rehydration.
+ * Rehydration reads the event log, a cached summary snapshot, and under hard degradation the `.state.json` stamp.
+ * When these sources disagree, a declared total order decides, not the order of the control flow.
  *
- * Rehydration draws state from more than one surface — the durable event log, a
- * cached summary snapshot, and (only under hard degradation) the planner's
- * `<featureId>.state.json` stamp. When those surfaces disagree, the answer must
- * be decided by a DECLARED, total ordering rather than by whichever branch the
- * control flow happens to reach first. This module is that declared ordering
- * (`REHYDRATION_SOURCE_PRECEDENCE`) plus the pure decision that maps a snapshot's
- * position relative to the durable event tail onto a source
- * (`planRehydrationSource`).
- *
- * The load-bearing rule (exit proof): rehydration NEVER silently trusts a
- * projection that contradicts the durable event log. A snapshot whose recorded
- * cursor sits PAST the event tail — a snapshot restored over a pruned or rebuilt
- * store, `projection-ahead` in P01-02's freshness vocabulary — is discarded and
- * the state is re-folded from the authoritative log, with the result flagged
- * degraded so no consumer mistakes it for a clean read. A snapshot that merely
- * lags the tail (`projection-behind`) is not trusted as-is either: the tail is
- * folded forward over it so the answer reaches the authoritative tail state.
- *
- * This CONSUMES P01-02's freshness verdict (`assessProjectionFreshness`) rather
- * than inventing a second degradation signal — the same `projection-behind` /
- * `projection-ahead` reasons the view surface stamps on `_meta.projectionDegraded`
- * (see `projections/views/composite.ts`).
+ * Rehydration never trusts a snapshot that contradicts the durable event log.
+ * A snapshot ahead of the event tail is discarded, the log is folded again, and the result is flagged degraded.
+ * A snapshot behind the tail gets the tail folded forward over it.
+ * The freshness reasons come from `assessProjectionFreshness`, the same reasons that the view surface reports.
  */
 import {
   assessProjectionFreshness,
@@ -30,26 +14,12 @@ import {
 } from '../projections/freshness.js';
 
 /**
- * Ordered, total precedence of rehydration sources. Index 0 is the highest
- * authority. Rehydration ALWAYS returns the state from the highest-authority
- * source that is available and self-consistent with the durable event tail; it
- * never falls through to a stale or contradictory projection.
- *
- *   - `event-fold`      — authoritative: the state was folded from the durable
- *     event log up to its tail (a cold fold from sequence 0, a snapshot baseline
- *     with the tail folded forward, or — after discarding a contradictory
- *     snapshot — a full replay). This is the canonical answer.
- *   - `summary-snapshot` — an explicit summary snapshot PROVEN to sit exactly on
- *     the durable tail (its recorded cursor equals `MAX(events.sequence)`), so it
- *     is served directly with no tail to fold. A high-fidelity cached read.
- *   - `state-store`     — the planner's `<featureId>.state.json` stamp. A
- *     last-resort read used only when NO authoritative projection source can be
- *     served (hard degradation: reducer throw, corrupt snapshot, event stream
- *     offline — see `buildDegradedResponse` in `rehydrate.ts`). Included here so
- *     the precedence is TOTAL, but it is never chosen by the pure planner below.
- *
- * A stale/contradictory projection is deliberately ABSENT from this list — that
- * is the whole point: there is no precedence slot that silently trusts it.
+ * Total precedence of rehydration sources. Index 0 is the highest authority.
+ *  - `event-fold`: the state folded from the event log up to its tail. This is the canonical answer.
+ *  - `summary-snapshot`: a snapshot whose cursor equals `MAX(events.sequence)`, served with no tail to fold.
+ *  - `state-store`: the `.state.json` stamp, read only under hard degradation by `buildDegradedResponse` in `rehydrate.ts`.
+ *    The pure planner never chooses it.
+ * No slot trusts a stale or contradictory projection.
  */
 export const REHYDRATION_SOURCE_PRECEDENCE = [
   'event-fold',
@@ -60,11 +30,7 @@ export const REHYDRATION_SOURCE_PRECEDENCE = [
 /** A declared rehydration source (a member of {@link REHYDRATION_SOURCE_PRECEDENCE}). */
 export type RehydrationSource = (typeof REHYDRATION_SOURCE_PRECEDENCE)[number];
 
-/**
- * Rank a source by its position in the declared precedence. Lower rank = higher
- * authority. Exposed so callers (and tests) can compare two sources without
- * re-deriving the ordering.
- */
+/** Rank a source by its position in the declared precedence. A lower rank is a higher authority. */
 export function rehydrationSourceRank(source: RehydrationSource): number {
   return REHYDRATION_SOURCE_PRECEDENCE.indexOf(source);
 }
@@ -76,9 +42,8 @@ export interface SnapshotPosition {
   /** The snapshot's recorded event-store sequence (0 when no snapshot). */
   readonly snapshotCursor: number;
   /**
-   * The durable event tail (`MAX(events.sequence)`), or `undefined` when the
-   * backend cannot answer it. When `undefined` the planner cannot prove a
-   * contradiction and preserves the historical warm-cache behaviour.
+   * The durable event tail (`MAX(events.sequence)`), or `undefined` when the backend cannot give it.
+   * Without a tail, the planner cannot prove a contradiction, so it seeds from the snapshot and reports no degradation.
    */
   readonly eventTail: number | undefined;
   /** View name stamped onto the freshness verdict's `staleViews` (optional). */
@@ -90,41 +55,27 @@ export interface RehydrationPlan {
   /** The selected source per the declared precedence. */
   readonly source: RehydrationSource;
   /**
-   * When true, seed the fold from the cached snapshot state and fold the tail
-   * forward. When false, DISCARD the snapshot and fold the whole stream from
-   * sequence 0 — either there was no snapshot, or the snapshot contradicted the
-   * durable tail (projection-ahead) and must never be trusted.
+   * When true, seed the fold from the snapshot and fold the tail forward.
+   * When false, discard the snapshot and fold the whole stream from sequence 0.
    */
   readonly seedFromSnapshot: boolean;
-  /**
-   * The `sinceSequence` to pass to the tail query: the snapshot cursor when
-   * seeding from the snapshot, else 0 (full replay from the event log).
-   */
+  /** The `sinceSequence` for the tail query: the snapshot cursor when seeding from the snapshot, otherwise 0. */
   readonly sinceSequence: number;
   /**
-   * True when the returned result MUST be flagged degraded — the projection
-   * contradicted the durable tail (projection-ahead) and was discarded. A
-   * merely-behind snapshot is NOT degraded: folding the tail forward self-heals
-   * it to the authoritative state.
+   * True when the snapshot was ahead of the durable tail and was discarded.
+   * A snapshot that is only behind is not degraded, because the tail fold repairs it.
    */
   readonly degraded: boolean;
-  /**
-   * The P01-02 freshness verdict, present only when `degraded` is true so the
-   * caller can project it onto `_meta.projectionDegraded` via
-   * `toProjectionDegradedMeta`.
-   */
+  /** The freshness verdict, present only when `degraded` is true, for `toProjectionDegradedMeta`. */
   readonly freshness?: ProjectionFreshness;
 }
 
 /**
- * Decide the rehydration source for a snapshot's position relative to the
- * durable event tail, per {@link REHYDRATION_SOURCE_PRECEDENCE}.
- *
- * Pure — no I/O. The caller supplies the snapshot cursor and the durable tail;
- * this returns the plan the handler executes.
+ * Decide the rehydration source from the snapshot position, per {@link REHYDRATION_SOURCE_PRECEDENCE}. Pure.
+ * A snapshot exactly on the tail is served directly. A snapshot behind the tail gets an `event-fold` that seeds from it.
+ * A snapshot ahead of the tail, from a pruned or rebuilt store, is discarded and the result is degraded.
  */
 export function planRehydrationSource(pos: SnapshotPosition): RehydrationPlan {
-  // No cached projection at all: fold the whole stream from the event log.
   if (!pos.hasSnapshot) {
     return {
       source: 'event-fold',
@@ -134,10 +85,6 @@ export function planRehydrationSource(pos: SnapshotPosition): RehydrationPlan {
     };
   }
 
-  // Tail unknown (backend cannot answer MAX(sequence) — e.g. a test stub with
-  // no `tailSequence`). We cannot prove a contradiction, so preserve the
-  // historical warm-cache behaviour: seed from the snapshot and fold the tail
-  // forward. We do NOT fabricate a degradation signal on missing information.
   if (pos.eventTail === undefined) {
     return {
       source: 'summary-snapshot',
@@ -157,10 +104,6 @@ export function planRehydrationSource(pos: SnapshotPosition): RehydrationPlan {
         },
   );
 
-  // Projection-ahead: the snapshot claims events past the durable tail — a
-  // snapshot restored over a pruned or rebuilt store. NEVER trust it. Discard
-  // the snapshot, re-fold from the authoritative log (sequence 0), and flag the
-  // result degraded so it is never mistaken for a clean read.
   if (freshness.reason === 'projection-ahead') {
     return {
       source: 'event-fold',
@@ -171,10 +114,6 @@ export function planRehydrationSource(pos: SnapshotPosition): RehydrationPlan {
     };
   }
 
-  // Projection-behind: the snapshot lags the tail. Folding the tail forward over
-  // the snapshot baseline self-heals it to the authoritative tail state, so the
-  // answer is event-derived and NOT degraded — but it must not be served as the
-  // snapshot alone.
   if (freshness.reason === 'projection-behind') {
     return {
       source: 'event-fold',
@@ -184,8 +123,6 @@ export function planRehydrationSource(pos: SnapshotPosition): RehydrationPlan {
     };
   }
 
-  // Fresh: the snapshot sits exactly on the tail. Serve it directly as the
-  // explicit summary snapshot — the highest-fidelity cached read.
   return {
     source: 'summary-snapshot',
     seedFromSnapshot: true,

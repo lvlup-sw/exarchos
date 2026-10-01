@@ -1,24 +1,17 @@
-// ─── P06-04 / Transition tasks 021, 022, 044 — Scoped expiring waivers ───────
-//
-// A waiver is a SEPARATE, scoped, expiring, authorized artifact that permits
-// admission despite a recorded failure. It is emphatically NOT a rewrite of the
-// failed evidence: the underlying failure stays on record and stays reported
-// (see `policy-evaluation.ts`). This module answers exactly one question about
-// one waiver against one target requirement: does it apply?
-//
-// A waiver applies to a (requirement, subject, phase-attempt) target iff ALL of:
-//   1. it is an ISSUANCE (a revoked/superseded lifecycle fact never grants),
-//   2. the obligation set is waivable at all (`resolveRequirements(ctx).waivable`),
-//   3. the requirement id is in the waiver's DECLARED `waivedRequirementIds`,
-//   4. the waiver's SCOPE covers the target subject,
-//   5. the target instant is strictly before the waiver's `expiresAt`,
-//   6. the waiver's actor is AUTHORIZED to grant waivers (P01-07 trust, not a
-//      self-asserted role on the record).
-//
-// Every failing check yields a specific, deterministic reason, so an explaining
-// caller (P06-06) can say precisely why a waiver did not save admission.
-//
-// Pure: no I/O; the "now" instant is a trusted input, never `Date.now()`.
+/**
+ * Scoped, expiring waivers.
+ *
+ * A waiver is a separate, authorized artifact that permits admission despite a recorded failure.
+ * It does not change the failed evidence. That failure stays on record and in reports.
+ * A waiver applies to a target only when all of these checks pass, in this order:
+ *   1. The waiver is an issuance. A revoked or superseded fact never grants.
+ *   2. The resolved obligation set is waivable.
+ *   3. The waiver declares the requirement id in `waivedRequirementIds`.
+ *   4. The waiver scope covers the target subject.
+ *   5. The evaluation instant is strictly before `expiresAt`.
+ *   6. The trust authority accepts the waiver actor. A role on the record cannot authorize.
+ * Each failed check gives one fixed reason. The module does no I/O, and "now" is a trusted input.
+ */
 
 import type { PolicyAuthority } from './policy-authority.js';
 import type {
@@ -49,7 +42,7 @@ export type WaiverInapplicableReason =
   | 'expired'
   | 'unauthorized';
 
-/** The requirement instance a waiver is being tested against. */
+/** The requirement instance that a waiver is evaluated against. */
 export interface WaiverTarget {
   readonly requirementId: RequirementId;
   readonly subject: EvidenceSubjectV1;
@@ -62,7 +55,7 @@ export interface WaiverEvaluationOptions {
   readonly evaluatedAt: string;
   /** Whether the resolved obligation set permits waivers at all. */
   readonly waivable: boolean;
-  /** Out-of-band trust oracle; a self-asserted role cannot authorize. */
+  /** The out-of-band trust oracle. A self-asserted role cannot authorize. */
   readonly authority: PolicyAuthority;
 }
 
@@ -76,9 +69,9 @@ export type WaiverApplicability =
     };
 
 /**
- * A stable identity key for an evidence subject — kind, id, and content digest.
- * Two subjects are the same target iff their keys are equal, so a waiver bound
- * to subject A's digest never silently covers subject B or a re-digested A.
+ * A stable identity key for an evidence subject: kind, id and content digest.
+ * Two subjects are the same target only when their keys are equal.
+ * Thus a waiver for one digest never covers another subject or a new digest.
  */
 export function subjectIdentityKey(subject: EvidenceSubjectV1): string {
   const digest = `${subject.digest.algorithm}:${subject.digest.value}`;
@@ -101,13 +94,10 @@ export function subjectIdentityKey(subject: EvidenceSubjectV1): string {
 }
 
 /**
- * Whether a waiver's declared scope covers a target subject/phase-attempt.
- *
- * The three scopes are read CONSERVATIVELY (fail-closed): a subject scope must
- * match the exact subject identity (kind + id + digest); a phase-attempt scope
- * must match the target's phase-attempt id; a workflow scope covers only a
- * workflow-kind subject with the matching workflow id. Nothing is inferred
- * across the subject graph, so a scope never over-applies.
+ * True when the waiver scope covers the target. The check fails closed.
+ * A subject scope must match the exact subject identity key.
+ * A phase-attempt scope must match the target phase-attempt id.
+ * A workflow scope covers only a workflow subject with the same workflow id.
  */
 export function waiverScopeCovers(
   scope: WaiverScopeV1,
@@ -127,10 +117,9 @@ export function waiverScopeCovers(
 }
 
 /**
- * True iff `evaluatedAt` is strictly before `expiresAt`. Both are RFC3339 with
- * an offset, so parse to epoch millis before comparing (a lexical compare is
- * wrong across differing offsets). An unparseable instant is treated as expired
- * — fail closed.
+ * True when `evaluatedAt` is strictly before `expiresAt`.
+ * It compares epoch millis, because a text compare is wrong across different offsets.
+ * An instant that does not parse counts as expired.
  */
 function beforeExpiry(evaluatedAt: string, expiresAt: string): boolean {
   const now = Date.parse(evaluatedAt);
@@ -140,10 +129,9 @@ function beforeExpiry(evaluatedAt: string, expiresAt: string): boolean {
 }
 
 /**
- * Evaluate one waiver against one requirement target. Total and deterministic:
- * the first failing gate (in the order documented at the top of the module)
- * fixes the reason. The underlying failed evidence is never touched — this
- * function only decides whether the waiver *permits admission despite* it.
+ * Evaluates one waiver against one requirement target.
+ * The first failed check, in the order of the file header, sets the reason.
+ * The function does not change the failed evidence.
  */
 export function evaluateWaiver(
   waiver: WaiverProvenanceV1,
@@ -170,9 +158,8 @@ export function evaluateWaiver(
 }
 
 /**
- * The single applicable waiver for a target, or `undefined` if none applies.
- * Candidates are considered in ascending `waiverId` order so the choice is
- * independent of input order; the first that applies wins.
+ * Returns the first waiver that applies to the target, or `undefined`.
+ * It sorts the candidates by `waiverId`, so the input order does not change the result.
  */
 export function selectApplicableWaiver(
   waivers: readonly WaiverProvenanceV1[],

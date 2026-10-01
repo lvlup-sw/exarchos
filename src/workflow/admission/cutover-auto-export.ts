@@ -1,29 +1,15 @@
-// ─── #1739 — cutover readiness auto-export ───────────────────────────────────
+// Cutover readiness auto-export. The promotion path learns that it is ready
+// without an operator who polls `cutover_readiness`.
 //
-// The promotion path's "you are ready" moment should not depend on an operator
-// remembering to poll `cutover_readiness`. This module hooks the observer's
-// DURABLE-APPEND SUCCESS path (`setDurableAppendSuccessListener` — a listener
-// seam, because the observer cannot import the gate without a runtime cycle)
-// and, when all six conditions are satisfied for the FIRST time:
+// The module hooks the durable-append success seam of the observer. The seam is
+// a listener because the observer cannot import the gate without a runtime
+// cycle. The first time that all six conditions hold, the hook writes the full
+// report to `<stateDir>/admission/cutover-readiness.json` with an atomic write.
+// Then it appends one `admission.cutover-ready` fact to the `exarchos-admission`
+// stream.
 //
-//   1. atomically writes the full report to
-//      `<stateDir>/admission/cutover-readiness.json` (atomicWriteFile — fsync'd
-//      temp + rename publish), and
-//   2. appends ONE registered `admission.cutover-ready` fact to the reserved
-//      `exarchos-admission` stream, keyed on a DETERMINISTIC idempotency key
-//      derived from store identity (`cutover-ready:sha256(stateDir)`) — never
-//      clock- or random-derived (the T-49 lesson), so a repeat evaluation after
-//      readiness (or a post-restart re-fire) collapses onto the stored row.
-//
-// Cost discipline: a cheap IN-MEMORY pre-filter runs first — the observer
-// health counter must have seen at least MINIMUM_LIVE_ATTEMPTS attempts before
-// the durable reader is touched at all. Below threshold the hook is O(1) and
-// store-free.
-//
-// Failure discipline: the hook MUST NOT throw into the transition path. Every
-// failure is COUNTED (`cutoverAutoExportDiagnostics().failures`) and swallowed;
-// the next durable-append success simply retries. The observer's listener call
-// site is additionally try/catch-wrapped — defence in depth.
+// The hook never throws into the transition path. It counts each failure, and
+// the next durable-append success retries.
 
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -54,8 +40,6 @@ import {
   AuthorizationSnapshotV1Schema,
 } from './types.js';
 
-// ─── Configuration ────────────────────────────────────────────────────────────
-
 /** One local store, readable (enumeration + query) AND appendable. */
 export interface CutoverAutoExportStore extends ShadowEvidenceSource {
   append: ShadowEvidenceAppender['append'];
@@ -65,9 +49,9 @@ export interface CutoverAutoExportConfig {
   readonly store: CutoverAutoExportStore;
   /** The store's state directory — both the export root and the identity input. */
   readonly stateDir: string;
-  /** Live-attempt source; defaults to the process-level {@link liveShadowSink}. */
+  /** Live-attempt source. The default is the process-level {@link liveShadowSink}. */
   readonly liveAttempts?: () => readonly LiveShadowAttempt[];
-  /** Health source; defaults to the process-level {@link liveShadowHealth}. */
+  /** Health source. The default is the process-level {@link liveShadowHealth}. */
   readonly observerHealth?: () => LiveShadowHealth;
   /** Trusted payload instant (NEVER identity — see the key derivation). */
   readonly now?: () => string;
@@ -83,17 +67,14 @@ export const CUTOVER_READINESS_EXPORT_SEGMENTS: readonly string[] = Object.freez
 export const CUTOVER_AUTO_EXPORT_SOURCE = 'cutover-auto-export';
 
 /**
- * The deterministic first-readiness identity for one store: a pure function of
- * store identity (the stateDir path), NOTHING wall-clock and NOTHING random —
- * so every process, restart, and retry that reaches readiness over the same
- * store derives the same key and the append dedupes (INV-8 / T-49).
+ * The first-readiness idempotency key for one store. It is a pure function of
+ * the stateDir path, with no clock or random input. Thus every process, restart,
+ * and retry over the same store derives the same key, and the append dedupes.
  */
 export function cutoverReadinessIdempotencyKey(stateDir: string): string {
   const digest = createHash('sha256').update(stateDir, 'utf8').digest('hex');
   return `cutover-ready:${digest}`;
 }
-
-// ─── Module state (process-level, mirroring the observer's own wiring) ───────
 
 interface AutoExportState {
   config: CutoverAutoExportConfig | undefined;
@@ -115,11 +96,10 @@ const state: AutoExportState = {
 };
 
 /**
- * Install (or, with `undefined`, tear down) the auto-export wiring: stores the
- * config, resets the first-time latch and counters, and registers
- * {@link maybeExportCutoverReadiness} for the observer's durable-append
- * success seam. Called from lifecycle wiring (`dispatch/core/context.ts`) with the real
- * EventStore + stateDir; tests call it with fakes and tear down after.
+ * Install the auto-export wiring, or tear it down with `undefined`. It stores
+ * the config, resets the latch and counters, and registers
+ * {@link maybeExportCutoverReadiness} on the durable-append success seam of the
+ * observer. `dispatch/core/context.ts` calls it with the real store.
  */
 export function configureCutoverAutoExport(
   config: CutoverAutoExportConfig | undefined,
@@ -155,30 +135,27 @@ export async function flushCutoverAutoExport(): Promise<void> {
   }
 }
 
-// ─── The hook ─────────────────────────────────────────────────────────────────
-
 /**
- * The durable-append success hook. Synchronous entry (the observer's
- * settlement chain must not await it); the full evaluation runs on a tracked
- * single-flight promise. Total: never throws.
+ * The durable-append success hook. The entry is synchronous because the
+ * settlement chain of the observer must not await it. The full evaluation runs
+ * on one tracked promise at a time.
+ *
+ * An in-memory pre-filter runs first. Below `MINIMUM_LIVE_ATTEMPTS` observed
+ * attempts the gate cannot pass, so the hook does not read the store. The
+ * rejection arm exists only to stop an unhandled rejection, because `runExport`
+ * counts its own failures.
  */
 export function maybeExportCutoverReadiness(): void {
   const config = state.config;
   if (config === undefined || state.exported) return;
 
-  // Cheap in-memory pre-filter (#1739): below the live-attempt threshold the
-  // gate CANNOT be satisfied (`live-attempt-threshold` needs >= MINIMUM
-  // comparable attempts, and comparable <= observed), so the durable reader is
-  // never touched.
   const health = (config.observerHealth ?? processObserverHealth)();
   if (health.attemptsObserved < MINIMUM_LIVE_ATTEMPTS) return;
 
-  if (state.inFlight !== undefined) return; // single flight
+  if (state.inFlight !== undefined) return;
   const run = runExport(config, health).then(
     () => undefined,
     () => {
-      // runExport already counts its own failures; this arm only guarantees
-      // the in-flight promise can never reject into an unhandled rejection.
       state.failures += 1;
     },
   );
@@ -192,6 +169,11 @@ function processObserverHealth(): LiveShadowHealth {
   return liveShadowHealth.snapshot();
 }
 
+/**
+ * Evaluate durable readiness, then write the report and append the fact once.
+ * A failure increments the counter and never throws, so it cannot block the
+ * transition whose durable append started it.
+ */
 async function runExport(
   config: CutoverAutoExportConfig,
   observerHealth: LiveShadowHealth,
@@ -246,8 +228,6 @@ async function runExport(
     );
     state.exported = true;
   } catch {
-    // Counted, never thrown: a failed export must not block (or even be
-    // visible to) the transition whose durable append triggered it.
     state.failures += 1;
   }
 }

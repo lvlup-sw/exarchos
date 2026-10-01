@@ -1,69 +1,17 @@
-// ─── P07-01 / Transition tasks 027, 051 — The cutover gate ────────────────────
-//
-// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31) — production
-// code awaiting live shadow evidence. The gate is deliberately not yet consulted
-// by a production caller: it can only be satisfied once P07-02 wires the live
-// `shadowObserver` into the built-in workflows and accumulates >=20 live
-// attempts across every phase kind with both allow and deny outcomes. Consulting
-// it before that evidence exists would be the exact premature cutover it is
-// designed to prevent. P07-05 retires it together with the legacy path.
-//
-// The gate that decides whether enforcement may flip from the legacy HSM guard
-// path to the evidence-backed admission engine. Enforcement may flip ONLY when
-// every one of six INDEPENDENT conditions holds (dogfood exit criterion 16;
-// conditions 5 and 6 are DR-23 / T-32):
-//
-//   1. deterministic-corpus-clean — ZERO unexplained disagreements across the
-//      P06-01 legacy-guard corpus run in shadow mode. Explained disagreements
-//      (known legacy defects) do NOT block; only `unexplained` ones do.
-//   2. live-attempt-threshold    — at least {@link MINIMUM_LIVE_ATTEMPTS}
-//      COMPARABLE live shadow attempts recorded.
-//   3. phase-kind-coverage       — every {@link PhaseKind} exercised by the
-//      comparable live attempts (no phase kind left unobserved).
-//   4. outcome-coverage          — both `allow` AND `deny` outcomes present in
-//      the comparable live attempts (a corpus that only ever allowed, or only
-//      ever denied, proves nothing about the deny path).
-//   5. live-disagreement-class   — durable shadow evidence EXISTS and every
-//      recorded attempt, in the durable substrate and in memory, carries a
-//      comparable admission verdict. An attempt whose adjudication threw or came
-//      back `indeterminate` is not a comparison and cannot count as one.
-//   6. live-observer-health      — the observer that produced the evidence is
-//      HEALTHY, not dead or lossy. A dead observer's empty evidence stream must
-//      never be read as a clean one.
-//
-// The conditions are modelled independently and the report names exactly which
-// are unmet, so a caller (and a test) can drive any single one red.
-//
-// Enforcement enablement is itself EVENT-SOURCED (plan Wave E — "enforcement
-// enablement through an event-sourced decision"): flipping enforcement is not a
-// config edit, it is a recorded `admission.rollout-decision` followed, only when
-// the gate is satisfied, by an `admission.enforcement-enabled` fact. This module
-// refuses to build an enablement fact for an unsatisfied gate, so the gate
-// structurally gates the flip.
-
-// ─── DR-23 / T-32: the gate reads the DURABLE evidence and the observer's health
-//
-// Two of DR-23's three acceptance bullets land here:
-//   * "a gate condition reads live disagreement class" — the live conditions no
-//     longer read only the LEGACY verdict. Every {@link LiveShadowAttempt} now
-//     carries the {@link DisagreementClass} the shadow runner assigned, and
-//     `evaluateCutoverGate` counts only COMPARABLE attempts (ones where the
-//     admission engine actually produced a verdict to compare). The audited
-//     defect — "20 attempts that all threw would satisfy three of four
-//     conditions" — is exactly what that closes: an attempt whose adjudication
-//     threw is `shadow-error`, contributes nothing to the threshold or to either
-//     coverage condition, and independently fails `live-disagreement-class`.
-//   * "a dead observer is DETECTED, not silently zero" — `live-observer-health`
-//     reads the observer's health counter. A process that observed transitions
-//     and landed no durable evidence reads as `dead`, and a dead observer can
-//     never present as a clean gate.
-//
-// The disagreement evidence the gate weighs is read back from the DURABLE
-// sidecar stream (`<featureId>/admission-shadow`), not from the process-scoped
-// in-memory ring buffer: a buffer that is empty after a restart cannot tell "no
-// disagreements" from "the observer never ran", which is the INV-1 violation
-// DR-23 exists to close.
-
+/**
+ * The cutover gate decides when enforcement can move from the legacy HSM guard path to the admission engine.
+ *
+ * RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31)
+ *
+ * Enforcement can flip only when all six conditions hold:
+ *   1. `deterministic-corpus-clean`: the shadow corpus has zero unexplained disagreements.
+ *   2. `live-attempt-threshold`: at least {@link MINIMUM_LIVE_ATTEMPTS} comparable live attempts exist.
+ *   3. `phase-kind-coverage`: the comparable attempts cover every {@link PhaseKind}.
+ *   4. `outcome-coverage`: the comparable attempts include both `allow` and `deny`.
+ *   5. `live-disagreement-class`: durable evidence exists, and every attempt has a comparable verdict.
+ *   6. `live-observer-health`: the observer is healthy. A dead observer never reads as a clean gate.
+ * The report names each unmet condition. An `admission.enforcement-enabled` fact needs a satisfied gate.
+ */
 import {
   AdmissionEnforcementEnabledData,
   AdmissionRolloutDecisionData,
@@ -93,12 +41,9 @@ import {
   type PolicyId,
 } from './types.js';
 
-// ─── Phase-kind universe ───────────────────────────────────────────────────────
-
 /**
- * Every {@link PhaseKind}, kept exhaustive by the `satisfies Record<PhaseKind,
- * true>` witness: adding a kind to the union without adding it here is a compile
- * error, so `phase-kind-coverage` can never silently drop a kind.
+ * Every {@link PhaseKind}. The `satisfies` clause makes a missing kind a compile error.
+ * Thus `phase-kind-coverage` never drops a kind.
  */
 const PHASE_KIND_PRESENCE = {
   IMPLEMENT: true,
@@ -116,19 +61,12 @@ export const ALL_PHASE_KINDS: readonly PhaseKind[] = Object.freeze(
 /** The minimum number of live shadow attempts the gate demands. */
 export const MINIMUM_LIVE_ATTEMPTS = 20;
 
-// ─── Inputs ─────────────────────────────────────────────────────────────────
-
 /** The enforcement outcome the legacy path produced for a live attempt. */
 export type LiveAttemptOutcome = 'allow' | 'deny';
 
 /**
- * The disagreement classes that represent a REAL comparison — the admission
- * engine produced a verdict that could be held against the legacy one.
- *
- * `shadow-error` (the adjudication threw) and `admission-indeterminate` (the
- * engine could not decide) are deliberately NOT here: neither is evidence that
- * admission agrees with, or defensibly differs from, the legacy path, so
- * neither may be spent as coverage towards a cutover.
+ * The classes in which the admission engine gave a verdict to compare with the legacy one.
+ * `shadow-error` and `admission-indeterminate` are not here, so they never count as coverage.
  */
 const COMPARABLE_CLASSES: ReadonlySet<DisagreementClass> = new Set([
   'agree',
@@ -136,40 +74,34 @@ const COMPARABLE_CLASSES: ReadonlySet<DisagreementClass> = new Set([
   'legacy-deny-admission-allow',
 ]);
 
-/** True iff the class records an admission verdict comparable to the legacy one. */
+/** True when the class records an admission verdict that compares with the legacy one. */
 export function isComparableShadowClass(cls: DisagreementClass): boolean {
   return COMPARABLE_CLASSES.has(cls);
 }
 
-/** One recorded live shadow attempt (the coverage substrate for the gate). */
+/** One recorded live shadow attempt. */
 export interface LiveShadowAttempt {
   readonly phaseKind: PhaseKind;
   /** The LEGACY verdict. Alone it says nothing about the admission engine. */
   readonly outcome: LiveAttemptOutcome;
   /**
-   * DR-23 / T-32 — how the admission engine's verdict related to the legacy one.
-   * Required: an attempt recorded without a class cannot be distinguished from
-   * one whose adjudication threw, and that ambiguity is the audited defect.
+   * How the admission verdict relates to the legacy one.
+   * It is required, because without it an attempt looks the same as one whose adjudication threw.
    */
   readonly disagreementClass: DisagreementClass;
 }
 
 /**
- * One `admission.shadow-attempt` fact read back OUT of the durable sidecar
- * stream. The registered event carries the legacy outcome and the persisted
- * admission decision; the class is DERIVED from that pair by the same
- * {@link classifyShadowOutcome} the live path uses, so the durable reading and
- * the in-memory one cannot drift into two different classifiers.
- *
- * `phaseKind` is absent because the registered `admission.shadow-attempt` schema
- * does not carry it — see `readDurableShadowAttempts`.
+ * One `admission.shadow-attempt` fact from the durable sidecar stream.
+ * {@link classifyShadowOutcome} derives the class, as on the live path, so the two readings cannot drift.
+ * It has no `phaseKind`, because the event schema does not carry one.
  */
 export interface DurableShadowAttemptFact {
   readonly legacyOutcome: LiveAttemptOutcome;
   readonly disagreementClass: DisagreementClass;
 }
 
-/** The `EventStore` slice the gate needs to read the durable shadow substrate. */
+/** The `EventStore` slice that reads the durable shadow streams. */
 export interface DurableShadowEvidenceReader {
   query(
     streamId: string,
@@ -178,16 +110,10 @@ export interface DurableShadowEvidenceReader {
 }
 
 /**
- * Read the durable shadow-attempt facts for the given features out of their
- * SIDECAR evidence streams and derive each attempt's disagreement class.
- *
- * This — not the process-scoped ring buffer — is the substrate the gate's
- * disagreement-class condition is meant to weigh: a buffer that is empty after a
- * restart cannot distinguish "no disagreements" from "the observer never ran".
- *
- * A persisted event that fails schema validation is DROPPED rather than
- * defaulted: unreadable evidence is not evidence, and silently coercing it to
- * `agree` would be the same vacuity in a new place.
+ * Reads the shadow-attempt facts from the sidecar stream of each feature and derives each class.
+ * The gate uses these durable facts and not the in-memory ring buffer.
+ * After a restart, an empty buffer cannot tell "no disagreements" from "the observer never ran".
+ * The function drops an event that fails schema validation and never defaults it to `agree`.
  */
 export async function readDurableShadowAttempts(
   reader: DurableShadowEvidenceReader,
@@ -217,28 +143,18 @@ export async function readDurableShadowAttempts(
 /** Everything the gate weighs. */
 export interface CutoverGateEvidence {
   /**
-   * Disposition-bearing shadow records. In tests this is the deterministic
-   * P06-01 corpus run; in the production assembly (#1739,
-   * `evidence-reader.ts`) it is the DURABLE attempt+disposition fold, so an
-   * undisposed live disagreement blocks `deterministic-corpus-clean` until a
-   * human records an explained `admission.disagreement-disposition`.
+   * Shadow records with their dispositions. In tests this is the deterministic corpus run.
+   * In production, `evidence-reader.ts` folds the durable attempts and dispositions.
+   * An undisposed live disagreement blocks `deterministic-corpus-clean` until a human records an explained disposition.
    */
   readonly corpusRecords: readonly ShadowDispositionView[];
   /** Live shadow attempts observed against real workflows. */
   readonly liveAttempts: readonly LiveShadowAttempt[];
-  /**
-   * DR-23 — the same attempts as read back from the DURABLE sidecar streams.
-   * Required, so a caller cannot justify a cutover on process-scoped memory.
-   */
+  /** The same attempts, read from the durable sidecar streams. Process memory alone cannot justify a cutover. */
   readonly durableAttempts: readonly DurableShadowAttemptFact[];
-  /**
-   * DR-23 — the observer's health reading. Required, so "no evidence" always
-   * arrives with the answer to "was anyone watching?".
-   */
+  /** The observer health reading. Thus "no evidence" always comes with the observer status. */
   readonly observerHealth: LiveShadowHealth;
 }
-
-// ─── Report ─────────────────────────────────────────────────────────────────
 
 export type GateConditionId =
   | 'deterministic-corpus-clean'
@@ -254,25 +170,24 @@ export interface GateCondition {
   readonly detail: string;
 }
 
-/** A count per {@link DisagreementClass}; every class is always present. */
+/** A count for each {@link DisagreementClass}. Every class is always present. */
 export type DisagreementClassTally = Readonly<Record<DisagreementClass, number>>;
 
 export interface CutoverGateReport {
-  /** True iff EVERY condition is met. */
+  /** True when every condition is met. */
   readonly satisfied: boolean;
   readonly conditions: readonly GateCondition[];
-  /** The ids of the conditions that are NOT met (empty iff satisfied). */
+  /** The ids of the unmet conditions. It is empty only when the gate is satisfied. */
   readonly unmet: readonly GateConditionId[];
-  // ── Derived facts, surfaced so callers need not recompute ──
   readonly unexplainedDisagreements: number;
   /** ALL live attempts, comparable or not. */
   readonly liveAttemptCount: number;
-  /** Live attempts carrying a comparable admission verdict (the coverage base). */
+  /** The live attempts with a comparable admission verdict. Coverage counts only these. */
   readonly comparableLiveAttemptCount: number;
-  /** Live attempts whose admission verdict is missing (`shadow-error`) or undecided. */
+  /** The live attempts with a missing (`shadow-error`) or undecided admission verdict. */
   readonly nonComparableLiveAttemptCount: number;
   readonly liveDisagreementClasses: DisagreementClassTally;
-  /** Attempts read back out of the durable sidecar streams. */
+  /** The attempts read from the durable sidecar streams. */
   readonly durableAttemptCount: number;
   readonly nonComparableDurableAttemptCount: number;
   readonly durableDisagreementClasses: DisagreementClassTally;
@@ -282,8 +197,6 @@ export interface CutoverGateReport {
   readonly hasAllowOutcome: boolean;
   readonly hasDenyOutcome: boolean;
 }
-
-// ─── Gate evaluation (pure) ────────────────────────────────────────────────────
 
 function emptyTally(): Record<DisagreementClass, number> {
   return {
@@ -304,8 +217,9 @@ function tally(
 }
 
 /**
- * Evaluate the six cutover conditions independently and fold them into a
- * report. Pure and total: no I/O, no clock, deterministic ordering.
+ * Evaluates the six conditions independently and folds them into a report. It does no I/O.
+ * Only attempts that the admission engine decided count as coverage.
+ * Thus 20 attempts that all threw are 20 non-comparisons.
  */
 export function evaluateCutoverGate(
   evidence: CutoverGateEvidence,
@@ -314,8 +228,6 @@ export function evaluateCutoverGate(
   const unexplainedDisagreements = summary.unexplained;
 
   const liveAttemptCount = evidence.liveAttempts.length;
-  // DR-23 / T-32: only attempts the admission engine actually decided count as
-  // coverage. Twenty attempts that all threw are twenty non-comparisons.
   const comparableAttempts = evidence.liveAttempts.filter((a) =>
     isComparableShadowClass(a.disagreementClass),
   );
@@ -448,18 +360,8 @@ function formatTally(counts: DisagreementClassTally): string {
 }
 
 /**
- * Assemble the gate's evidence from the DURABLE substrate and evaluate it.
- *
- * The composition seam a production caller would use: it reads the sidecar
- * shadow streams through the ordinary `EventStore` contract, folds in the
- * observer's health reading, and evaluates the six conditions.
- *
- * #1739 (cutover promotion path) supersedes the former RESERVED note: the
- * production callers are `verbs/gates/cutover-readiness.ts` (the
- * `cutover_readiness` / `cutover_decide` verbs) and the observer's
- * durable-append auto-export hook (`cutover-auto-export.ts`), both assembling
- * evidence through `evidence-reader.ts`. What T-32 closed remains: the gate
- * cannot be satisfied by evidence that proves nothing.
+ * Reads the durable shadow streams, adds the observer health, and evaluates the gate.
+ * No production code calls this function. `evidence-reader.ts` assembles the evidence and calls {@link evaluateCutoverGate}.
  */
 export async function assessCutoverReadiness(input: {
   readonly reader: DurableShadowEvidenceReader;
@@ -480,17 +382,15 @@ export async function assessCutoverReadiness(input: {
   });
 }
 
-// ─── Event-sourced enforcement enablement (plan Wave E) ────────────────────────
-
 /** The rollout outcome — matches the `admission.rollout-decision` event enum. */
 export type RolloutOutcome = 'approve-enforcement' | 'continue-shadow';
 
-/** A satisfied gate approves enforcement; otherwise shadow mode continues. */
+/** A satisfied gate approves enforcement. Otherwise shadow mode continues. */
 export function decideRollout(report: CutoverGateReport): RolloutOutcome {
   return report.satisfied ? 'approve-enforcement' : 'continue-shadow';
 }
 
-/** Trusted policy identity stamped on the recorded rollout/enablement facts. */
+/** The trusted policy identity on the recorded rollout and enablement facts. */
 export interface CutoverPolicyRef {
   readonly policyId: PolicyId;
   readonly policyVersion: string;
@@ -510,9 +410,8 @@ export interface RolloutDecisionEventInput {
 }
 
 /**
- * Build a schema-validated `admission.rollout-decision` payload. The recorded
- * outcome is derived from the gate report, so the rollout decision is a
- * FUNCTION of the evidence, never a free-standing assertion.
+ * Builds a schema-validated `admission.rollout-decision` payload.
+ * The gate report sets the outcome, so the decision always follows from the evidence.
  */
 export function toRolloutDecisionData(
   input: RolloutDecisionEventInput,
@@ -554,11 +453,7 @@ export interface EnforcementEnabledEventInput {
   readonly provenance: ShadowProvenance;
 }
 
-/**
- * Raised when an enforcement-enabled fact is requested for an UNSATISFIED gate.
- * This is the structural guarantee that the gate gates the flip: you cannot
- * event-source enablement past an unmet condition.
- */
+/** Thrown for a request to enable enforcement behind an unsatisfied gate. */
 export class CutoverGateNotSatisfiedError extends Error {
   readonly unmet: readonly GateConditionId[];
   constructor(unmet: readonly GateConditionId[]) {
@@ -573,9 +468,8 @@ export class CutoverGateNotSatisfiedError extends Error {
 }
 
 /**
- * Build a schema-validated `admission.enforcement-enabled` payload. Refuses
- * (throws {@link CutoverGateNotSatisfiedError}) unless the gate report is
- * satisfied — enforcement enablement is only ever recorded behind a green gate.
+ * Builds a schema-validated `admission.enforcement-enabled` payload.
+ * @throws {CutoverGateNotSatisfiedError} When the gate report is not satisfied.
  */
 export function toEnforcementEnabledData(
   input: EnforcementEnabledEventInput,

@@ -35,8 +35,6 @@ import { type ToolResult } from '../format.js';
 import * as path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 
-// ─── Event-Sourcing Version Discriminator ───────────────────────────────────
-
 const CURRENT_ES_VERSION = 2;
 
 /** Check whether a workflow state uses the pure event-sourcing path. */
@@ -76,10 +74,17 @@ function trustedCancellationProvenance(stateDir: string): Record<string, unknown
   };
 }
 
-// ─── Module-Level EventStore (removed — now threaded via DispatchContext) ─────
-
-// ─── handleCancel ──────────────────────────────────────────────────────────
-
+/**
+ * Cancel a workflow: run compensation, then move the phase to `cancelled`.
+ *
+ * The event-first path needs an ES v2 state and a store that is not nullish. It takes
+ * ownership under a fencing epoch before it records intent. Only `buildCancelReadiness`
+ * makes the `cancel.ready` proof, and it refuses until each compensation has a durable
+ * success. The trail commits atomically before the state changes. The legacy path
+ * keeps its checkpoint in the state file and ignores store failures. The guard runs in
+ * pure evaluation, and `allowUniversalFinalTransition` admits the `cancelled` edge,
+ * which has no HSM definition.
+ */
 export async function handleCancel(
   input: CancelInput,
   stateDir: string,
@@ -103,7 +108,6 @@ export async function handleCancel(
     throw err;
   }
 
-  // Check if already cancelled
   if (state.phase === 'cancelled') {
     return {
       success: false,
@@ -125,20 +129,11 @@ export async function handleCancel(
     state._version ?? 1,
   );
   const cancelId = `cancel:${phaseAttemptId}`;
-  // v2 workflows without a store retain the migration-compatible legacy path.
-  // `!== null` alone does NOT exclude `undefined`: the legacy two-arg call
-  // `handleCancel(input, stateDir)` passes no store at all. The pre-existing
-  // event-first block was shielded by an outer `if (eventStore)`, but the
-  // cancellation process manager runs BEFORE that guard, so an undefined store
-  // reached `appendCancellationFactOnce` and crashed. Exclude both nullish
-  // forms here, at the one place the decision is made.
   const useEventFirst =
     isEventSourced(mutableState) && eventStore !== null && eventStore !== undefined;
 
-  // Read existing compensation checkpoint from prior partial failure (if any)
   const existingCheckpoint = mutableState._compensationCheckpoint as CompensationCheckpoint | undefined;
 
-  // If dry run, return what would happen without modifying state
   if (dryRun) {
     const compensationResult = await executeCompensation(
       mutableState,
@@ -160,9 +155,6 @@ export async function handleCancel(
   }
 
   let compensationResult;
-  // Fencing epoch acquired on ownership (P04-02). 0 means "no owner yet"; the
-  // event-sourced path replaces it with a strictly-monotonic epoch that fences
-  // out any stale instance's subsequent writes.
   let cancelEpoch = 0;
   const cancelInstanceId = `cancel-instance:${randomUUID()}`;
   if (useEventFirst) {
@@ -200,10 +192,6 @@ export async function handleCancel(
       };
     }
     try {
-      // ── Acquire ownership + fencing epoch (P04-02) ───────────────────────
-      // The process manager takes the cancellation under a monotonic fencing
-      // token BEFORE recording intent. Every subsequent write carries this
-      // epoch and is rejected atomically if a newer instance has taken over.
       const owned = await acquireCancelOwnership(eventStore, {
         featureId: input.featureId,
         cancelId,
@@ -259,10 +247,7 @@ export async function handleCancel(
     );
   }
 
-  // Check if compensation had failures
   if (!compensationResult.success) {
-    // Legacy callers still resume from the state checkpoint. ES v2 resumes
-    // exclusively by folding durable cancellation outcomes.
     if (!useEventFirst) {
       mutableState._compensationCheckpoint = compensationResult.checkpoint;
       mutableState.updatedAt = new Date().toISOString();
@@ -270,8 +255,6 @@ export async function handleCancel(
     }
 
     const failedActions = compensationResult.actions.filter((a) => a.status === 'failed');
-    // Surface manual-intervention explicitly (P04-02): retry-exhausted actions
-    // are a real, queryable terminal state, not a silently swallowed failure.
     let manualNote = '';
     if (useEventFirst) {
       const saga = await queryCancelSaga(eventStore, input.featureId, cancelId);
@@ -290,7 +273,6 @@ export async function handleCancel(
     };
   }
 
-  // Legacy bridge only. ES v2 compensation already emitted typed process facts.
   if (eventStore && compensationResult.events.length > 0) {
     try {
       for (let i = 0; i < compensationResult.events.length; i++) {
@@ -303,17 +285,10 @@ export async function handleCancel(
         });
       }
     } catch {
-      // V1 legacy: external store is supplementary.
     }
   }
 
   if (useEventFirst) {
-    // ── Completion gate (P04-02) ─────────────────────────────────────────
-    // `buildCancelReadiness` is the SOLE constructor of a `cancel.ready` proof:
-    // it folds the durable log and refuses unless EVERY required compensation
-    // has a durably-recorded success. Reporting cancellation complete before all
-    // outcomes are recorded is therefore structurally impossible, not merely
-    // avoided by convention.
     const saga = await queryCancelSaga(eventStore, input.featureId, cancelId);
     const requiredActionIds = compensationResult.actions.map((a) => a.actionId);
     const provenance = trustedCancellationProvenance(stateDir);
@@ -373,13 +348,6 @@ export async function handleCancel(
     }
   }
 
-  // ─── Phase mutation — the SINGLE guarded primitive (DR-7 / INV-9) ─────
-  //
-  // Characterized bypass this replaces: cancel called `executeTransition`
-  // directly (cancel.ts:367), so the cancellation phase mutation ran with no
-  // guard dispatch and no shadow observation. `allowUniversalFinalTransition`
-  // admits the universal `cancelled` edge, which carries no explicit HSM
-  // definition and is exactly why the bypass existed.
   mutableState._pendingPhaseAttemptId = phaseAttemptId;
   const attempt = await hsmTransitionGuard.attempt(
     input.featureId,
@@ -388,16 +356,8 @@ export async function handleCancel(
     {
       state: mutableState,
       workflowType: state.workflowType,
-      // Pure evaluation — this handler owns emission so the cancellation
-      // trail commits atomically below.
       eventStore: null,
       allowUniversalFinalTransition: true,
-      // The same live shadow observer `tools.ts` wires onto the guarded
-      // transition path. DR-23 / T-31: the guard context is in pure-evaluation
-      // mode (`eventStore: null`) because THIS handler owns authoritative
-      // emission — but the shadow evidence is a separate, non-authoritative
-      // stream, so the observer is handed this handler's real store rather than
-      // the (deliberately null) context one.
       shadowObserver: (observation) =>
         recordLiveTransition(observation, mutableState, eventStore),
     },
@@ -420,7 +380,6 @@ export async function handleCancel(
     };
   }
 
-  // Build cancel metadata
   const cancelMetadata: Record<string, unknown> = {};
   if (input.reason) {
     cancelMetadata.reason = input.reason;
@@ -429,12 +388,6 @@ export async function handleCancel(
   cancelMetadata.compensationSuccess = compensationResult.success;
   cancelMetadata.phaseAttemptId = phaseAttemptId;
 
-  // Event-first: emit to external event store BEFORE mutating state.
-  //
-  // DR-7, third criterion — the cancellation trail (HSM lifecycle events +
-  // the explicit `workflow.cancel` event) commits in ONE atomic transaction.
-  // It was previously a sequential `append` loop, so a failure after event k
-  // left a PARTIAL cancellation trail durably on the stream.
   if (eventStore) {
     const cancelTrail = [
       ...attempt.emittedEvents.map((transitionEvent) => ({
@@ -460,11 +413,8 @@ export async function handleCancel(
         idempotencyKey: `${input.featureId}:cancel:complete`,
       },
     ];
-    // `phaseAttemptId` is retry-stable, so the operation id is stable across
-    // retries of the SAME cancellation.
     const cancelTrailOperationId = `cancel:${input.featureId}:${phaseAttemptId}`;
     if (useEventFirst) {
-      // ES v2: event-first — propagate errors, abort cancel if append fails
       try {
         await eventStore.appendTrailAtomically(
           input.featureId,
@@ -481,7 +431,6 @@ export async function handleCancel(
         };
       }
     } else {
-      // V1 legacy: best-effort — swallow errors
       try {
         await eventStore.appendTrailAtomically(
           input.featureId,
@@ -489,17 +438,14 @@ export async function handleCancel(
           `${cancelTrailOperationId}:legacy`,
         );
       } catch {
-        // V1 legacy: external store is supplementary; JSONL append failure must not break cancel
       }
     }
   }
 
-  // THEN mutate state
   mutableState.phase = 'cancelled';
   mutableState.phaseAttemptId = phaseAttemptId;
   delete mutableState._pendingPhaseAttemptId;
 
-  // Apply history updates from transition
   if (Object.keys(attempt.historyUpdates).length > 0) {
     const history = { ...(mutableState._history as Record<string, string>) };
     for (const [key, value] of Object.entries(attempt.historyUpdates)) {
@@ -508,23 +454,19 @@ export async function handleCancel(
     mutableState._history = history;
   }
 
-  // Reset checkpoint counter
   mutableState._checkpoint = resetCounter(
     mutableState._checkpoint as WorkflowState['_checkpoint'],
     'cancelled',
     'Workflow cancelled',
   );
 
-  // Update timestamp
   mutableState.updatedAt = new Date().toISOString();
 
   const checkpoint = mutableState._checkpoint as Record<string, unknown>;
   checkpoint.lastActivityTimestamp = new Date().toISOString();
 
-  // Clear compensation checkpoint on successful cancellation
   delete mutableState._compensationCheckpoint;
 
-  // Write updated state
   await writeStateFile(stateFile, mutableState as WorkflowState);
 
   return {

@@ -3,21 +3,18 @@ import type { ToolResult } from '../../format.js';
 import { ErrorCode } from '../schemas.js';
 import { reconcileFromEvents, StateStoreError } from '../state-store.js';
 
-// ─── handleReconcileState ───────────────────────────────────────────────
-
 /**
- * Reconcile workflow state from events in the JSONL event store.
+ * Reconcile workflow state from the event store.
  *
- * Delegates to `reconcileFromEvents` which rebuilds state from events,
- * applying any that are newer than the state's `_eventSequence`.
- * Idempotent — running with no new events returns `{ reconciled: false, eventsApplied: 0 }`.
+ * `reconcileFromEvents` applies the events that are newer than the
+ * `_eventSequence` of the state. With no new events, the result is
+ * `{ reconciled: false, eventsApplied: 0 }`.
  */
 export async function handleReconcileState(
   input: { featureId: string },
   stateDir: string,
   eventStore: EventStore | null,
 ): Promise<ToolResult> {
-  // Validate featureId
   if (!input.featureId) {
     return {
       success: false,
@@ -28,7 +25,6 @@ export async function handleReconcileState(
     };
   }
 
-  // Guard: event store must be configured
   if (!eventStore) {
     return {
       success: false,

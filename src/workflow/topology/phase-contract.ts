@@ -1,30 +1,26 @@
 /**
- * Phase contract types and Zod schema (DR-7).
+ * Phase contract types and Zod schema. The `staleness` block of a phase in
+ * `topology.yaml` tells the pruner how to judge workflow staleness for that
+ * phase. The pruner reads typed `PhaseContract` objects through
+ * `topology/loader.ts`, and the load rejects a malformed contract.
  *
- * Each phase in `topology.yaml` may declare a `staleness` block describing
- * how the pruner should evaluate workflow staleness for that phase. The
- * pruner reads typed `PhaseContract` objects through `topology/loader.ts`;
- * malformed contracts are rejected at load time with structured errors.
- *
- * `signals` are named indicators the scorer reduces over. The `name` field
- * is loosely-typed (string) at this layer — T45 GREEN narrows it to a
- * known enum. `freshnessRequires` selects the reduction operator:
- *   - `'all'` → fresh iff every declared signal is fresh
- *   - `'any'` → fresh iff at least one declared signal is fresh
+ * `signals` are named indicators that the scorer reduces. `freshnessRequires`
+ * selects the reduction:
+ *   - `'all'`: fresh when every declared signal is fresh
+ *   - `'any'`: fresh when at least one declared signal is fresh
  */
 import { z } from 'zod';
 
 /**
- * Known staleness-signal names. Mirrors the secondary signals already
- * derived by `prune-stale-workflows.ts` for backward compatibility:
+ * Known staleness-signal names, the same signals that
+ * `prune-stale-workflows.ts` derives:
  *
  *   - `lastActivity`     ← `_checkpoint.lastActivityTimestamp`
  *   - `phaseTransition`  ← latest `workflow.transition` event timestamp
  *   - `branchActivity`   ← latest commit on the workflow's tracked branch
  *
- * Adding a new signal name requires updating both this enum AND the
- * scorer's reduction over signals (`pruner/score.ts`) — fail-closed at
- * load time keeps unknown names from silently no-op'ing.
+ * A new signal name needs a change here and in the scorer in
+ * `pruner/score.ts`. The load rejects an unknown name.
  */
 export const StalenessSignalNames = [
   'lastActivity',
@@ -37,17 +33,13 @@ export const StalenessSignalNameSchema = z.enum(StalenessSignalNames);
 export type StalenessSignalName = z.infer<typeof StalenessSignalNameSchema>;
 
 /**
- * A single staleness signal: a named indicator with a per-signal threshold
- * (in minutes). Per-signal thresholds let one phase mix signals with
- * different sensitivity windows (e.g. lastActivity at 60min, branchActivity
- * at 1440min for daily commits).
+ * A single staleness signal: a named indicator with its own threshold in
+ * minutes. Thus one phase can mix windows, such as `lastActivity` at 60 and
+ * `branchActivity` at 1440.
  *
- * `.strict()` is applied across the topology object schemas so a typo in
- * `topology.yaml` (e.g. `treshholdMinutes`) fails loudly at load time
- * rather than getting silently stripped by Zod's default unknown-key
- * behavior. Operators editing the contract get a structured error that
- * names the offending key, instead of a phase that pruner-evaluates with
- * the wrong threshold (DR-7 fail-closed).
+ * The topology object schemas use `.strict()`. Thus a key typo in
+ * `topology.yaml` fails the load with an error that names the key, and Zod
+ * does not strip it.
  */
 export const StalenessSignalSchema = z
   .object({
@@ -58,6 +50,11 @@ export const StalenessSignalSchema = z
 
 export type StalenessSignal = z.infer<typeof StalenessSignalSchema>;
 
+/**
+ * The staleness contract of one phase. Duplicate signal names fail the load,
+ * because the scorer in `pruner/score.ts` keys verdicts by `signal.name`. A
+ * duplicate hides the threshold of the earlier declaration.
+ */
 export const PhaseContractSchema = z
   .object({
     expectedMaxDwellMinutes: z.number().int().positive(),
@@ -65,11 +62,6 @@ export const PhaseContractSchema = z
     freshnessRequires: z.enum(['all', 'any']),
   })
   .strict()
-  // Reject duplicate signal names. The scorer keys verdicts by `signal.name`
-  // (`pruner/score.ts`), so duplicates would silently collapse to
-  // last-write-wins — masking the second declaration's threshold and
-  // breaking the operator's expressed intent. Fail-closed at load time
-  // matches the topology contract's overall posture (DR-7).
   .superRefine(({ signals }, ctx) => {
     const seen = new Set<StalenessSignalName>();
     signals.forEach((signal, index) => {
@@ -88,9 +80,8 @@ export const PhaseContractSchema = z
 export type PhaseContract = z.infer<typeof PhaseContractSchema>;
 
 /**
- * A phase entry in the topology — staleness is optional. When absent, the
- * pruner falls back to the v2.9 single-signal heuristic and a
- * `phase.contract_missing` event is emitted at load time.
+ * A phase entry in the topology. The schema accepts a missing `staleness`, and
+ * `loadTopology` then rejects the topology with an error that names the phase.
  */
 export const PhaseEntrySchema = z
   .object({

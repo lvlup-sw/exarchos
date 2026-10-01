@@ -1,46 +1,18 @@
-// ─── P06-05 / Transition tasks 003, 023, 024, 045 — the admission chokepoint ──
-//
-// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31) — production
-// code awaiting the legacy HSM cutover. The evidence-backed admission system is
-// complete, but `hsm-transition-guard.ts` remains the authoritative decider
-// until P07-01 shadow mode reports zero unexplained disagreements and P07-02
-// migrates the built-in workflows. Deliberately staged that way: flipping the
-// decider in the same change that builds it would land an unverified cutover.
-// P07-05 deletes the legacy guard once this is the only path.
-//
-// This module is the SOLE admission chokepoint. A guarded phase transition
-// folds the stream at an explicit expected version, decides route legality
-// (topology) and then admission (evidence-backed permission), and appends the
-// admission decision together with the phase-transition lifecycle event in ONE
-// atomic {@link AtomicAppender.decideOnce} transaction. The same primitive backs
-// workflow cleanup, so every phase mutation shares one atomic + idempotent path.
-//
-// Ordering is load-bearing and explicit (Transition task 003 / requirement #2):
-//
-//   1. ROUTE  (P06-02 `selectEdge`)  — is the edge LEGAL to take at all?
-//                                      Illegal ⇒ no admission, no phase change,
-//                                      nothing persisted.
-//   2. ADMISSION (P06-03 resolve → P06-05 freeze → P06-04 evaluatePolicy) — is
-//      the legal edge PERMITTED by evidence? `allow` ⇒ the phase advances;
-//      `deny` / `indeterminate` ⇒ the attempt + decision are recorded but the
-//      phase is UNCHANGED (fail closed — requirement #5, task 024).
-//
-// Atomicity (requirement #3, task 045): the decision event and the lifecycle
-// event are members of the SAME `decideOnce` decision — one BEGIN IMMEDIATE
-// transaction. It is structurally impossible to observe a decision without its
-// lifecycle sibling, or a lifecycle event without its decision.
-//
-// Idempotency (requirement #4, task 023): retries key on `operationId` via
-// `decideOnce`, so a retried transition returns the SAME recorded decision and
-// never re-evaluates to a different one.
-//
-// Optimistic concurrency (requirement #1): the caller's observed
-// `expectedVersion` is the sequence gate. A concurrent writer that advanced the
-// stream raises a typed {@link ConcurrencyError}, never a silent lost update.
-//
-// This module orchestrates the pure admission pieces; it evaluates them BEFORE
-// opening the transaction (they are pure and deterministic) and appends inside
-// it. `decideOnce`'s closure is synchronous, which suits the pure pipeline.
+/**
+ * The admission chokepoint for a guarded phase transition.
+ * It folds the stream at an explicit expected version, decides route legality, and then decides admission.
+ * The decision, and under `allow` the lifecycle event, append in one atomic `decideOnce` transaction.
+ *  1. Route: `selectEdge` decides if the edge is legal. An illegal edge changes nothing and persists nothing.
+ *  2. Admission: resolve, freeze, and `evaluatePolicy`. Only `allow` advances the phase.
+ *     A `deny` or `indeterminate` verdict records the decision, and the phase stays unchanged.
+ *
+ * A retry with the same `operationId` returns the same recorded decision.
+ * A stale `expectedVersion` raises a typed {@link ConcurrencyError}.
+ * The pure admission pieces run before the transaction opens.
+ */
+
+// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31) — production code that waits for the legacy HSM cutover.
+// Until the cutover, `hsm-transition-guard.ts` stays the authoritative decider.
 
 import { createHash } from 'node:crypto';
 
@@ -98,13 +70,9 @@ import {
   type WaiverProvenanceV1,
 } from './types.js';
 
-// ─── Injected substrate ──────────────────────────────────────────────────────
-
 /**
- * The narrow slice of {@link AtomicAppender} the chokepoint depends on. Keeping
- * the dependency to `decideOnce` lets tests inject a recording double to prove
- * the single-transaction, both-siblings contract without a real backend, while
- * the production `AtomicAppender` satisfies it structurally.
+ * The `decideOnce` slice of {@link AtomicAppender} that the chokepoint needs.
+ * Tests inject a recording double. The production `AtomicAppender` satisfies it structurally.
  */
 export interface AdmissionDecider {
   decideOnce<TResult>(
@@ -114,9 +82,7 @@ export interface AdmissionDecider {
   ): Promise<TResult>;
 }
 
-// ─── Public command shapes ────────────────────────────────────────────────────
-
-/** Topology: the legal-route question (P06-02). */
+/** The topology input: the candidate edges and the facts that select one. */
 export interface TransitionRoute {
   readonly candidates: readonly EdgeCandidate[];
   readonly facts: EdgeConditionFacts;
@@ -132,15 +98,15 @@ export interface TransitionLifecycle {
   readonly featureId: string;
 }
 
-/** Everything the evidence-backed admission decision folds over (P06-03/04). */
+/** Everything that the evidence-backed admission decision reads. */
 export interface TransitionAdmission {
-  /** Normalized resolution context; resolved and frozen inside the chokepoint. */
+  /** Normalized resolution context. The chokepoint resolves and freezes it. */
   readonly requirementContext: RequirementContext;
   readonly approvalClass?: ApprovalClass;
   readonly activeEvidence: readonly AdmissionEvidenceV1[];
   readonly contradictions?: readonly EvidenceContradiction[];
   readonly waivers?: readonly WaiverProvenanceV1[];
-  /** Out-of-band trust oracle (P01-07); self-asserted roles cannot authorize. */
+  /** Out-of-band trust oracle. Self-asserted roles cannot authorize. */
   readonly authority: PolicyAuthority;
   /** Trusted RFC3339 evaluation instant — never `Date.now()`. */
   readonly evaluatedAt: string;
@@ -150,12 +116,13 @@ export interface TransitionAdmission {
   readonly policyDigest: ContentDigestV1;
 }
 
-/** Trusted, frozen provenance stamped on the persisted decision (P01-07). */
+/** Trusted, frozen provenance stamped on the persisted decision. */
 export interface TransitionProvenance {
   readonly caller: AttributedPrincipalV1;
   readonly authorization: AuthorizationSnapshotV1;
 }
 
+/** The input of {@link runTransitionCommand}. */
 export interface TransitionCommandInput {
   readonly appender: AdmissionDecider;
   readonly streamId: string;
@@ -183,7 +150,7 @@ export interface TransitionDecided {
   readonly requirementSetDigest: ContentDigestV1;
   /** The append-only event types committed in the single atomic decision. */
   readonly appendedEventTypes: readonly string[];
-  /** Integrity of the folded prior stream state (P01-04). */
+  /** Integrity of the folded prior stream state. */
   readonly foldIntegrity: PhaseAttemptAdmissionFold['integrity'];
 }
 
@@ -193,10 +160,10 @@ export interface TransitionRouteRejected {
   readonly route: EdgeSelection;
 }
 
+/** The result of {@link runTransitionCommand}. */
 export type TransitionCommandResult = TransitionDecided | TransitionRouteRejected;
 
-// ─── Canonical serialization for content-addressed request digests ───────────
-
+/** A JSON value that `canonicalJson` serializes with sorted keys, for content-addressed digests. */
 type CanonicalJson =
   | null
   | boolean
@@ -220,13 +187,9 @@ function sha256Hex(input: string): string {
   return createHash('sha256').update(input, 'utf8').digest('hex');
 }
 
-// ─── Stream fold (P01-04) ─────────────────────────────────────────────────────
-
 /**
- * Fold the stream's admission facts at the transaction-consistent snapshot.
- * Reconstructs prior requirement / evidence / decision state so the chokepoint
- * reads state — never assumes it — before appending. Total: a malformed
- * historical fact degrades integrity to `'contested'`, it never throws.
+ * Fold the admission facts of the stream at the transaction snapshot, so the chokepoint reads the prior state before it appends.
+ * A malformed historical fact sets integrity to `'contested'`. The fold does not throw.
  */
 function foldTransitionStream(
   events: readonly DecideOnceStoredEvent[],
@@ -256,8 +219,7 @@ function foldTransitionStream(
   });
 }
 
-// ─── Decision record construction ─────────────────────────────────────────────
-
+/** The sorted, unique evidence ids of all requirement evaluations. */
 function collectEvidenceIds(evaluation: PolicyEvaluation): readonly EvidenceId[] {
   const ids = new Set<EvidenceId>();
   for (const evaluationEntry of evaluation.requirementEvaluations) {
@@ -303,6 +265,10 @@ interface DecisionBuildInput {
   readonly freshnessHorizonMs: number;
 }
 
+/**
+ * Build the schema-validated decision record. Its ids come from content, so the same inputs give the same record.
+ * An `indeterminate` verdict fails closed, and its only remediation is `retry_transition`.
+ */
 function buildDecisionRecord(input: DecisionBuildInput): AdmissionDecisionRecordV1 {
   const {
     operationId,
@@ -409,7 +375,6 @@ function buildDecisionRecord(input: DecisionBuildInput): AdmissionDecisionRecord
     });
   }
 
-  // indeterminate — fail closed, never rescued.
   const unresolved = evaluation.requirementEvaluations.filter(
     (entry) => entry.status === 'indeterminate',
   );
@@ -426,8 +391,6 @@ function buildDecisionRecord(input: DecisionBuildInput): AdmissionDecisionRecord
     remediation: [{ action: 'retry_transition', phaseAttemptId }],
   });
 }
-
-// ─── Event construction ───────────────────────────────────────────────────────
 
 function decisionEvent(
   decision: AdmissionDecisionRecordV1,
@@ -467,8 +430,6 @@ function transitionLifecycleEvent(
   };
 }
 
-// ─── The chokepoint ───────────────────────────────────────────────────────────
-
 interface AtomicDecisionResult {
   readonly decision: AdmissionDecisionRecordV1;
   readonly verdict: PolicyVerdict;
@@ -478,19 +439,13 @@ interface AtomicDecisionResult {
 }
 
 /**
- * Run a guarded phase transition through the sole admission chokepoint.
- *
- * Route legality is decided first and purely; an illegal edge returns without
- * touching the store. A legal edge is admitted, and the admission decision plus
- * (only under `allow`) the phase-transition lifecycle event are appended in ONE
- * atomic transaction. Retries with the same `operationId` return the identical
- * recorded decision; a stale `expectedVersion` raises a typed
- * {@link ConcurrencyError}.
+ * Run a guarded phase transition through the admission chokepoint.
+ * Route legality comes first. An illegal edge returns without a store call.
+ * The decision event always records the attempt. The lifecycle event joins it only under `allow`.
  */
 export async function runTransitionCommand(
   input: TransitionCommandInput,
 ): Promise<TransitionCommandResult> {
-  // ─── 1. Route (topology legality) — pure, no persistence on rejection ──────
   const route = selectEdge(input.route.candidates, input.route.facts);
   if (route.outcome === 'no-match') {
     return { outcome: 'no-route', route };
@@ -499,7 +454,6 @@ export async function runTransitionCommand(
     return { outcome: 'route-blocked', route };
   }
 
-  // ─── 2. Admission (permission) — pure resolve → freeze → evaluate ──────────
   const resolved = resolveRequirements(input.admission.requirementContext);
   const frozen = freezeRequirements({
     resolved,
@@ -539,8 +493,6 @@ export async function runTransitionCommand(
 
   const phaseChanged = evaluation.verdict === 'allow';
 
-  // The decision event ALWAYS records the attempt; the lifecycle event is its
-  // sibling ONLY under an allow. deny / indeterminate fail closed (task 024).
   const events: EventInput[] = [
     decisionEvent(decision, input.lifecycle, input.provenance, input.operationId),
   ];
@@ -548,7 +500,6 @@ export async function runTransitionCommand(
     events.push(transitionLifecycleEvent(input.lifecycle, input.operationId));
   }
 
-  // ─── 3. Atomic append: decision + lifecycle siblings in ONE transaction ────
   const requestDigest = `sha256:${sha256Hex(
     canonicalJson({
       operationId: input.operationId,
@@ -609,8 +560,7 @@ export async function runTransitionCommand(
   };
 }
 
-// ─── Cleanup — routed through the SAME atomic primitive (requirement #6) ──────
-
+/** The input of {@link runCleanupCommand}. */
 export interface CleanupCommandInput {
   readonly appender: AdmissionDecider;
   readonly streamId: string;
@@ -635,10 +585,8 @@ interface AtomicCleanupResult {
 }
 
 /**
- * Route a workflow cleanup phase mutation through the SAME atomic primitive the
- * transition chokepoint uses: one `decideOnce` transaction, the caller's
- * `expectedVersion` as the OCC gate, and `operationId` idempotency. There is no
- * second phase-mutation write path.
+ * Route a cleanup phase mutation through the `decideOnce` primitive of the transition chokepoint.
+ * It uses one transaction, the `expectedVersion` of the caller as the OCC gate, and `operationId` idempotency.
  */
 export async function runCleanupCommand(
   input: CleanupCommandInput,
