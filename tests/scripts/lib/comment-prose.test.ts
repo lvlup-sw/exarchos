@@ -187,7 +187,7 @@ describe('isQuotedMention', () => {
     expect(isQuotedMention(used, used.indexOf('parity'))).toBe(false);
   });
 
-  /** A bare `'` is usually an apostrophe. Read as a quote, it would silence the rest of the sentence. */
+  /** A bare `'` is usually an apostrophe. A parser that reads it as a quote silences the rest of the sentence. */
   it('QuotedMention_ApostropheIsNotAQuote', () => {
     const prose = "The detector's answer about parity is unchanged.";
 
