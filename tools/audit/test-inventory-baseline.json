@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1309,
-    "parsedFiles": 1263,
+    "testFiles": 1311,
+    "parsedFiles": 1265,
     "shellFiles": 46,
-    "cases": 14431,
+    "cases": 14466,
     "dynamicTitles": 162,
     "unparseableFiles": 0
   },
@@ -12251,6 +12251,47 @@
         }
       ]
     },
+    "tests/scripts/eslint-rules/comment-placement.test.ts": {
+      "file": "tests/scripts/eslint-rules/comment-placement.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "PlacementRule_CommentInsideAFunction_IsReportedAtTheBlock",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "PlacementRule_HeaderAndDescriptions_AreNotReported",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "PlacementRule_LineDescription_OffersAJsdocSuggestion",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "PlacementRule_OtherChecks_OfferNoSuggestion",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "PlacementRule_BaselinedBlock_IsNotReported",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "PlacementRule_ExemptPath_IsNotReported",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "ToJsdoc_MultiLineBlock_KeepsTheIndentation",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/scripts/generate-legacy-skill-hashes.test.ts": {
       "file": "tests/scripts/generate-legacy-skill-hashes.test.ts",
       "runner": "vitest:root",
@@ -12883,6 +12924,11 @@
         },
         {
           "suite": "isTypeAnnotation",
+          "name": "IsTypeAnnotation_TypeTagFollowedByProse_ReturnsFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "isTypeAnnotation",
           "name": "IsTypeAnnotation_TagWithProse_ReturnsFalse",
           "dynamic": false
         },
@@ -13206,6 +13252,137 @@
         }
       ]
     },
+    "tests/scripts/lib/comment-placement.test.ts": {
+      "file": "tests/scripts/lib/comment-placement.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "allowed placements",
+          "name": "Placement_CommentsBeforeTheFirstStatement_AreTheHeader",
+          "dynamic": false
+        },
+        {
+          "suite": "allowed placements",
+          "name": "Placement_LastHeaderBlockAttachedToADeclaration_IsADescription",
+          "dynamic": false
+        },
+        {
+          "suite": "allowed placements",
+          "name": "Placement_JsdocOnModuleLevelDeclarations_IsADescription",
+          "dynamic": false
+        },
+        {
+          "suite": "allowed placements",
+          "name": "Placement_JsdocOnMembers_IsADescription",
+          "dynamic": false
+        },
+        {
+          "suite": "allowed placements",
+          "name": "Placement_JsdocOnModuleLevelLiteralElements_IsADescription",
+          "dynamic": false
+        },
+        {
+          "suite": "allowed placements",
+          "name": "Placement_JsdocAboveNestedTestCalls_IsADescription",
+          "dynamic": false
+        },
+        {
+          "suite": "allowed placements",
+          "name": "Placement_DirectiveBetweenDocAndTarget_IsTransparent",
+          "dynamic": false
+        },
+        {
+          "suite": "allowed placements",
+          "name": "Placement_ModuleLevelTypedef_IsADeclarationOfItsOwn",
+          "dynamic": false
+        },
+        {
+          "suite": "allowed placements",
+          "name": "Placement_TypedefInsideAFunction_IsInBody",
+          "dynamic": false
+        },
+        {
+          "suite": "allowed placements",
+          "name": "Placement_DeclareModuleMember_CountsAsModuleLevel",
+          "dynamic": false
+        },
+        {
+          "suite": "violations",
+          "name": "Placement_CommentInsideAFunctionBody_IsInBody",
+          "dynamic": false
+        },
+        {
+          "suite": "violations",
+          "name": "Placement_JsdocOnANestedDeclaration_IsInBody",
+          "dynamic": false
+        },
+        {
+          "suite": "violations",
+          "name": "Placement_CommentInsideATestBody_IsInBody",
+          "dynamic": false
+        },
+        {
+          "suite": "violations",
+          "name": "Placement_CommentAboveAHelperInsideDescribe_IsInBody",
+          "dynamic": false
+        },
+        {
+          "suite": "violations",
+          "name": "Placement_MethodBodyInAModuleLevelObject_IsInBody",
+          "dynamic": false
+        },
+        {
+          "suite": "violations",
+          "name": "Placement_CommentAfterCodeOnTheSameLine_IsTrailing",
+          "dynamic": false
+        },
+        {
+          "suite": "violations",
+          "name": "Placement_LineCommentOnADeclaration_IsNonJsdoc",
+          "dynamic": false
+        },
+        {
+          "suite": "violations",
+          "name": "Placement_LineCommentAboveATestCall_IsNonJsdoc",
+          "dynamic": false
+        },
+        {
+          "suite": "violations",
+          "name": "Placement_BlankLineAfterTheBlock_IsDetached",
+          "dynamic": false
+        },
+        {
+          "suite": "violations",
+          "name": "Placement_SectionBanner_IsABanner",
+          "dynamic": false
+        },
+        {
+          "suite": "violations",
+          "name": "Placement_CommentOnAnImportOrExpression_IsFloating",
+          "dynamic": false
+        },
+        {
+          "suite": "violations",
+          "name": "Placement_CommentAtTheEndOfTheFile_IsFloating",
+          "dynamic": false
+        },
+        {
+          "suite": "violations",
+          "name": "Placement_CommentOnAUnionMemberOrParameter_IsFloating",
+          "dynamic": false
+        },
+        {
+          "suite": "isBanner",
+          "name": "IsBanner_DecorationAndShortTitles_AreBanners",
+          "dynamic": false
+        },
+        {
+          "suite": "isBanner",
+          "name": "IsBanner_DecorationWithLongProse_IsNotABanner",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/scripts/lib/comment-policy.test.ts": {
       "file": "tests/scripts/lib/comment-policy.test.ts",
       "runner": "vitest:root",
@@ -13258,6 +13435,16 @@
         {
           "suite": "loadPolicy",
           "name": "LoadPolicy_ExemptPathNamingUnknownRule_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "loadPolicy",
+          "name": "LoadPolicy_PlacementInRoster_RequiresEveryPlacementCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "loadPolicy",
+          "name": "LoadPolicy_PlacementOutsideRoster_IsAbsent",
           "dynamic": false
         },
         {

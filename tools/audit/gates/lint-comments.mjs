@@ -148,15 +148,17 @@ function runEslint(args) {
 }
 
 /**
- * The comment blocks of one file, from the same parser that the ESLint rules use.
+ * The comment blocks of one file, and its syntax tree for JavaScript and TypeScript.
+ *
+ * The parser is the one that the ESLint rules use, so the blocks and placements match.
  *
  * @param {string} relPath
  * @param {string} text
- * @returns {import('../lib/comment-baseline.mjs').CommentBlock[]}
+ * @returns {{ blocks: import('../lib/comment-baseline.mjs').CommentBlock[], syntax?: import('../lib/comment-analysis.mjs').FileSyntax }}
  */
-function blocksFor(relPath, text) {
-  if (sourceLanguage(relPath) !== undefined) return sourceBlocks(relPath, text);
-  if (!isInLintScope(relPath)) return [];
+function parseFile(relPath, text) {
+  if (sourceLanguage(relPath) !== undefined) return { blocks: sourceBlocks(relPath, text) };
+  if (!isInLintScope(relPath)) return { blocks: [] };
   const { Linter } = require('eslint');
   const { parser } = require('typescript-eslint');
   const linter = new Linter({ configType: 'flat', cwd: REPO_ROOT });
@@ -177,7 +179,22 @@ function blocksFor(relPath, text) {
     value: c.value,
     range: /** @type {[number, number]} */ (c.range ?? [0, 0]),
   }));
-  return groupBlocks(comments, sourceCode.text);
+  const ast = /** @type {import('../lib/comment-placement.mjs').EsNode} */ (/** @type {unknown} */ (sourceCode.ast));
+  return { blocks: groupBlocks(comments, sourceCode.text), syntax: { ast, comments, text: sourceCode.text } };
+}
+
+/**
+ * Analyze one file from disk, with its syntax tree when it has one.
+ *
+ * @param {string} relPath
+ * @param {ReturnType<typeof loadPolicy>} policy
+ * @param {ReadonlyMap<string, number> | undefined} entries
+ * @param {typeof policy} [policyOverride] A policy variant, such as one without an exemption.
+ * @returns {ReturnType<typeof analyzeFile>}
+ */
+function analyzeOnDisk(relPath, policy, entries, policyOverride) {
+  const { blocks, syntax } = parseFile(relPath, fs.readFileSync(path.join(REPO_ROOT, relPath), 'utf8'));
+  return analyzeFile({ relPath, blocks, policy: policyOverride ?? policy, entries, ...(syntax === undefined ? {} : { syntax }) });
 }
 
 /**
@@ -242,8 +259,7 @@ function checkIntegrity(baseline, text) {
 function scanSources(args, policy, baseline) {
   const problems = [];
   for (const file of scopedFiles(args).filter((p) => sourceLanguage(p) !== undefined)) {
-    const text = fs.readFileSync(path.join(REPO_ROOT, file), 'utf8');
-    const { analyzed, stale } = analyzeFile({ relPath: file, blocks: sourceBlocks(file, text), policy, entries: baseline.get(file) });
+    const { analyzed, stale } = analyzeOnDisk(file, policy, baseline.get(file));
     for (const item of analyzed) {
       if (item.suppressed) continue;
       for (const finding of item.findings) problems.push(`${file}:${item.block.line}  ${finding.message}  (comments/${finding.rule})`);
@@ -288,8 +304,7 @@ function exemptionPairs(doc, roster) {
  */
 function hiddenNewText(file, baseFile, pair, policy, baseRef) {
   const without = { ...policy, exemptPaths: policy.exemptPaths.filter((entry) => entry.glob !== pair.glob) };
-  const blocks = blocksFor(file, fs.readFileSync(path.join(REPO_ROOT, file), 'utf8'));
-  const { analyzed } = analyzeFile({ relPath: file, blocks, policy: without, entries: undefined });
+  const { analyzed } = analyzeOnDisk(file, policy, undefined, without);
   const baseText = readAtRef(baseRef, [baseFile], REPO_ROOT).get(baseFile) ?? '';
   /** @type {Map<string, { raw: string, count: number }>} */
   const byHash = new Map();
@@ -343,12 +358,12 @@ function checkAdmission(args, policy, baseline) {
     }
   }
   const baseTexts = readAtRef(base.ref, [...new Set(grown.map((g) => g.baseFile))], REPO_ROOT);
-  /** @type {Map<string, import('../lib/comment-baseline.mjs').CommentBlock[]>} */
-  const blockCache = new Map();
+  /** @type {Map<string, ReturnType<typeof analyzeFile>>} */
+  const analysisCache = new Map();
   for (const { file, baseFile, hash, count } of grown) {
-    const blocks = blockCache.get(file) ?? blocksFor(file, fs.readFileSync(path.join(REPO_ROOT, file), 'utf8'));
-    blockCache.set(file, blocks);
-    const block = analyzeFile({ relPath: file, blocks, policy, entries: undefined }).analyzed.find((item) => item.hash === hash);
+    const analysis = analysisCache.get(file) ?? analyzeOnDisk(file, policy, undefined);
+    analysisCache.set(file, analysis);
+    const block = analysis.analyzed.find((item) => item.hash === hash);
     const baseText = baseTexts.get(baseFile);
     const available = block === undefined || baseText === undefined ? 0 : countTextOccurrences(baseText, block.block.raw);
     if (count > available) {
@@ -426,8 +441,7 @@ function commandPrune(args) {
       removed += total;
       continue;
     }
-    const blocks = blocksFor(target, fs.readFileSync(path.join(REPO_ROOT, target), 'utf8'));
-    const live = liveEntries(analyzeFile({ relPath: target, blocks, policy, entries: undefined }).analyzed);
+    const live = liveEntries(analyzeOnDisk(target, policy, undefined).analyzed);
     const kept = next.get(target) ?? new Map();
     for (const [hash, count] of entries) {
       const keep = Math.min(count + (kept.get(hash) ?? 0), live.get(hash) ?? 0);
@@ -459,8 +473,7 @@ function commandSeed(args) {
   let added = 0;
   const refused = [];
   for (const file of files) {
-    const blocks = blocksFor(file, fs.readFileSync(path.join(REPO_ROOT, file), 'utf8'));
-    const { analyzed } = analyzeFile({ relPath: file, blocks, policy, entries: undefined });
+    const { analyzed } = analyzeOnDisk(file, policy, undefined);
     const live = liveEntries(analyzed);
     const entries = baseline.get(file) ?? new Map();
     const baseText = baseTexts.get(renamedFrom.get(file) ?? file);
@@ -496,8 +509,7 @@ function commandReport(args) {
   const { baseline } = readBaseline(args, { allowMissing: true });
   let count = 0;
   for (const file of args.paths.map(rel)) {
-    const blocks = blocksFor(file, fs.readFileSync(path.join(REPO_ROOT, file), 'utf8'));
-    const { analyzed } = analyzeFile({ relPath: file, blocks, policy, entries: baseline.get(file) });
+    const { analyzed } = analyzeOnDisk(file, policy, baseline.get(file));
     for (const item of analyzed) {
       for (const finding of item.findings) {
         count += 1;

@@ -51,8 +51,17 @@ export class BaselineError extends Error {
 const DIRECTIVE_RE =
   /^\s*(?:eslint\b|eslint-disable|eslint-enable|eslint-env|globals?\b|exported\b|prettier-ignore|@ts-(?:ignore|expect-error|nocheck|check)|istanbul\s|c8\s|v8\s|jshint\b|jslint\b|biome-ignore|deno-lint-ignore|@vite-ignore|webpackChunkName|#!|\/\s*<reference\b)/;
 
-const TYPE_TAG_RE = /^@(?:type|typedef|template|satisfies|import|callback|enum|this|extends|augments|implements|overload)\b/;
-const TYPED_NAME_TAG_RE = /^@(?:param|arg|argument|property|prop|returns|return)\s+\{[^}]*\}(?:\s+\[?[\w$.]+\]?)?\s*$/;
+const TYPE_ONLY_TAGS = [
+  /^@(?:type|satisfies|enum|this|extends|augments|implements)\s+\{.*\}$/,
+  /^@typedef(?:\s+\{.*\})?\s+[\w$.]+$/,
+  /^@typedef\s+\{.*\}$/,
+  /^@callback\s+[\w$.]+$/,
+  /^@template(?:\s+\{.*\})?\s+[\w$]+(?:\s*,\s*[\w$]+)*$/,
+  /^@import\s+.+\s+from\s+['"][^'"]+['"];?$/,
+  /^@overload$/,
+  /^@(?:param|arg|argument|property|prop)\s+\{.*\}\s+\[?[\w$.]+(?:=[^\]]*)?\]?$/,
+  /^@(?:returns|return)\s+\{.*\}$/,
+];
 
 /**
  * Whether a comment is an instruction to a tool. The consumer fixes its text, so no rule reads it.
@@ -67,17 +76,20 @@ export function isDirective(value) {
 /**
  * Whether a `/** *\/` comment holds only JSDoc type syntax. Under `@ts-check` it is code, not prose.
  *
+ * Every tag must be in a strict type-only form with nothing after it. A tag with prose is a block.
+ *
  * @param {string} value Block-comment text without the outer markers, starting with `*`.
  * @returns {boolean}
  */
 export function isTypeAnnotation(value) {
   if (!value.startsWith('*')) return false;
-  const lines = value
+  const content = value
     .split('\n')
     .map((line) => line.replace(/^\s*\*+\s?/, '').trim())
-    .filter((line) => line.length > 0);
-  if (lines.length === 0) return false;
-  return lines.every((line) => TYPE_TAG_RE.test(line) || TYPED_NAME_TAG_RE.test(line));
+    .filter((line) => line.length > 0)
+    .join(' ');
+  if (!content.startsWith('@')) return false;
+  return content.split(/\s+(?=@\w)/).every((tag) => TYPE_ONLY_TAGS.some((re) => re.test(tag)));
 }
 
 /**
