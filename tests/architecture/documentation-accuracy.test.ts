@@ -52,6 +52,9 @@ const REMOVED_ROOTS = [
   'eslint-rules/',
 ] as const;
 
+/** One linted file per lint root. A rule enforces a claim only if it is on for each of them. */
+const RULE_SAMPLES = ['src/registry.ts', 'tools/audit/gates/lint-comments.mjs', 'tests/architecture/documentation-accuracy.test.ts'];
+
 function read(rel: string): string {
   return fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8');
 }
@@ -149,9 +152,6 @@ describe('Documentation_EveryStatedRule_IsOneThatIsEnforced', () => {
       where: 'CLAUDE.md',
     },
   ];
-
-  /** One linted file per lint root. A rule enforces a claim only if it is on for each of them. */
-  const RULE_SAMPLES = ['src/registry.ts', 'tools/audit/gates/lint-comments.mjs', 'tests/architecture/documentation-accuracy.test.ts'];
 
   it('every rule the instructions state has a live enforcer', async () => {
     const unenforced: string[] = [];
