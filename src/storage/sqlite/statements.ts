@@ -18,7 +18,7 @@ export interface Statements {
   getViewCache: Statement;
   upsertViewCache: Statement;
   insertSchemaVersion: Statement;
-  /** Used by the SQLite-backed body of `AtomicAppender`, with the two statements below. */
+  /** This statement and the two statements below serve the SQLite-backed body of `AtomicAppender`. */
   selectIdempotencyClaim: Statement;
   insertIdempotencyClaim: Statement;
   insertEventStrict: Statement;

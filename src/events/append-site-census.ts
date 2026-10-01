@@ -4,14 +4,16 @@
  * A `capability` registration names a `provider`, and a provider names an area
  * of the tree. The module that appends the event must live inside that area.
  * The provider check in `registration-validate.ts` compares two declarations and
- * never reads the append site. This census reads the append sites.
+ * never reads the append site. Thus agreement between the two declarations proves
+ * nothing about the append site. This census reads the append sites.
  *
  * The population comes from a parse of the tree, not from a maintained table.
  * The caller injects the parser, because `typescript` is a devDependency and
  * must not become a runtime dependency. The implementation is
  * `tools/test-helpers/evidence-emission-scanner.ts`.
  *
- * An append whose discriminant does not reduce to a string is reported, never dropped.
+ * The census reports an append whose discriminant does not reduce to a string, and
+ * never drops it.
  */
 
 import { readdir, readFile } from 'node:fs/promises';

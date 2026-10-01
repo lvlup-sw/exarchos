@@ -10,7 +10,8 @@
 //
 // This module does not name `EventAnnotationSource`, not even as a type. The reachability checks
 // follow type-only imports, and that name makes `contract/declaration.ts` reachable from every
-// registration site. The proof that this table implements the port is in `event-declarations.ts`.
+// registration site. A registration site must not import that envelope. The proof that this table
+// implements the port is in `event-declarations.ts`.
 
 import type { EventEmissionSource } from './schemas.js';
 import {
@@ -154,7 +155,10 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     tier: 'substrate',
     rationale: 'session-lifecycle',
   },
-  /** The JSONL-to-SQLite importer and the V5-to-V6 backfill append these store events. */
+  /**
+   * The JSONL-to-SQLite importer and the V3-to-V4 and V5-to-V6 schema migrations append these
+   * store events.
+   */
   'migration.legacy_jsonl_imported': {
     lifecycle: 'active',
     tier: 'substrate',
@@ -299,7 +303,8 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   'export.executed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   /**
    * The two-event VCS operations. `*.requested` records the intent before the effect, which is
-   * not idempotent. `*.executed` records the result.
+   * not idempotent. `*.executed` records the result. `worktree.remove.executed` has a consumer
+   * fold, so it is a `capability` entry.
    */
   'pr.create.requested': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'pr.create.executed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
@@ -381,8 +386,8 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     rationale: 'operation-record',
   },
   /**
-   * `settle` appends one proposal for each deviation that holds a batch. A later `settle` call on
-   * that batch appends one decision for each proposal. Only `settle` reads these events.
+   * When `settle` holds a batch, it appends one proposal for each deviation. A later `settle`
+   * call on that batch appends one decision for each proposal. Only `settle` reads these events.
    */
   'deviation.proposed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'deviation.decided': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },

@@ -214,10 +214,10 @@ class Subscription {
    * One Tier-2 poll tick. It reads {@link SubscriptionEventReader.dataVersion} once and drains only
    * when the token changed, which is when a foreign process committed.
    *
-   * The tick advances the baseline before the drain, so a commit during the drain causes one more
-   * tick. The tick catches every error, because it runs in a native `setInterval` callback and
-   * `requestDrain()` lets listener errors through. On an error, the baseline goes back so that the
-   * next tick tries again. The cursor prevents a second delivery.
+   * The tick advances the baseline before the drain, so a commit during the drain moves the token
+   * again and the next tick drains it. The tick catches every error, because it runs in a native
+   * `setInterval` callback and `requestDrain()` lets read errors through. On an error, the
+   * baseline goes back so that the next tick tries again. The cursor prevents a second delivery.
    */
   private floorTick(): void {
     if (this.disposed) return;
@@ -392,10 +392,9 @@ export class SubscriptionRegistry {
   }
 
   /**
-   * The Tier-1 wake. The append path calls it after the commit and after it releases the
-   * per-stream mutex. Each matching subscription drains in isolation, so a failure cannot reach
-   * siblings or the append. The loop iterates a copy, because a listener can register or dispose
-   * a subscription.
+   * The Tier-1 wake. The append path calls it after the commit, outside the per-stream mutex.
+   * Each matching subscription drains in isolation, so a failure cannot reach siblings or the
+   * append. The loop iterates a copy, because a listener can register or dispose a subscription.
    */
   wake(streamId: string): void {
     if (this.subscriptions.size === 0) return;

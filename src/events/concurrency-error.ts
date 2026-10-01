@@ -15,6 +15,7 @@ export interface ConcurrencyErrorOptions {
  * `VersionConflictError` guards `.state.json` writes, and this error guards event
  * appends. `StorageBusyError` is transient contention that needs no new fold.
  * `wrapError` maps this error to `CONCURRENCY_CONFLICT` with `validTargets: ['retry']`.
+ * The fixed `name` lets middleware match the error without an import of the class.
  */
 export class ConcurrencyError extends Error {
   readonly streamId: string;

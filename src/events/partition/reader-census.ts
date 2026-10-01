@@ -93,7 +93,9 @@ export interface EventReaderCensus {
 
 /**
  * Every non-test TypeScript module under `sourceDir`, sorted. A file that the build
- * does not emit cannot hold a shipped reader. The walk skips `excludeDirs`.
+ * does not emit cannot hold a shipped reader. The walk skips `excludeDirs`. The
+ * caller excludes the projections, because they fold every event and the census
+ * counts only readers outside the fold.
  */
 async function collectSources(
   sourceDir: string,

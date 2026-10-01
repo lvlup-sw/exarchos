@@ -84,7 +84,8 @@ function reservedEventAppendError(
  * For `team.disbanded` with a `teamId`, the handler counts `task.completed` events for that team
  * across the feature stream and its subagent streams. It replaces the `tasksCompleted` value of
  * the caller with this count, because agents often miscount. The query runs before the append, so
- * the count covers every child of the team. Without a `teamId`, the event takes the normal path.
+ * the count covers the children that exist at that time. Without a `teamId`, the event takes the
+ * normal path.
  * The sequence `1` is a placeholder that `appendValidated` replaces.
  */
 export async function handleEventAppend(
@@ -279,9 +280,9 @@ export async function handleEventAppend(
  * returns an EventAck for each.
  *
  * `resolveBatchEvents` removes duplicates by `idempotencyKey`, and the first occurrence wins.
- * All checks run over these survivors, and each error names the index of the caller. The first
- * invalid event rejects the whole batch. `validateEventData` is the same data check that `append`
- * uses.
+ * All checks run over these survivors, and each error names the index in the caller input. The
+ * first invalid event rejects the whole batch. `validateEventData` is the same data check that
+ * `append` uses. The sequence `1` only satisfies the schema, and the appender sets the real one.
  *
  * When all events share one `idempotencyKey`, it is the batch key, so a retry gets the cached
  * events. Otherwise the batch key is a fresh UUID. On a cache hit, each ack takes the type of the

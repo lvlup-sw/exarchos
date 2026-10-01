@@ -62,8 +62,8 @@ async function unlinkIfExists(filePath: string): Promise<void> {
  * Compacts a completed workflow. It archives the final state and event count, then
  * deletes the state file and the SQLite rows.
  *
- * It does nothing for an active workflow, or one completed less than `retentionDays`
- * ago. The SQLite backend is the source of truth. Only the no-backend path reads
+ * It does nothing for a workflow that is not `completed` or `cancelled`, or that
+ * changed less than `retentionDays` ago. The SQLite backend is the source of truth. Only the no-backend path reads
  * `.state.json`, and that path archives zero events. A state that fails schema
  * validation is not compacted, and the function logs a warning.
  */

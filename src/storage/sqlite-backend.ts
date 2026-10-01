@@ -95,8 +95,8 @@ function hasFinalize(value: unknown): value is { finalize: () => void } {
  * `resolve()` keeps aliases, such as an 8.3 short name and its long form, or a
  * symlink and its target. `closeOpenUnder` tests containment by prefix, so an
  * alias makes a contained handle look outside. That handle stays open, and
- * NTFS then refuses the unlink with `EBUSY`. For an absent file, the parent is
- * resolved, because the alias is there. The function never throws.
+ * NTFS then refuses the unlink with `EBUSY`. For an absent file, the function
+ * resolves the parent, because the alias is there. It never throws.
  */
 function canonicalPath(p: string): string {
   try {
@@ -124,9 +124,9 @@ export class SqliteBackend implements StorageBackend {
 
   /**
    * The backends with an open handle. A backend adds itself in
-   * {@link initialize} and removes itself in {@link close}. Shutdown uses it to
-   * close every handle. {@link closeOpenUnder} uses it to close a handle that a
-   * test never named, because NTFS cannot delete a file with an open handle.
+   * {@link initialize} and removes itself in {@link close}.
+   * {@link closeOpenUnder} uses it to close a handle that a test never named,
+   * because NTFS cannot delete a file with an open handle.
    */
   private static readonly openInstances = new Set<SqliteBackend>();
 
@@ -144,7 +144,7 @@ export class SqliteBackend implements StorageBackend {
     }
   }
 
-  /** The number of open backends, for leak and shutdown checks. */
+  /** The number of open backends, for leak checks. */
   static openHandleCount(): number {
     return SqliteBackend.openInstances.size;
   }
@@ -199,14 +199,14 @@ export class SqliteBackend implements StorageBackend {
   }
 
   /**
-   * Opens and prepares the database. The handle registers before any other
-   * step, so a failed init still leaves a handle that {@link close} can
+   * Opens and prepares the database. The backend registers itself right after
+   * the open, so a failed init still leaves a handle that {@link close} can
    * release. The correlation indexes come after `migrateSchema()`, because a
    * legacy `events` table gets those columns only from the migration.
    *
-   * A corrupt file closes the handle and throws {@link SqliteCorruptError}.
-   * Init never rebuilds the file, because a rebuild destroys the evidence of
-   * the fault.
+   * If the file is corrupt, init closes the handle and throws
+   * {@link SqliteCorruptError}. Init never rebuilds the file, because a rebuild
+   * destroys the evidence of the fault.
    */
   initialize(): void {
     this.assertOpen();
@@ -259,8 +259,9 @@ export class SqliteBackend implements StorageBackend {
 
   /**
    * Finalizes every prepared statement and then closes the connection,
-   * because bun:sqlite can refuse to close with live statements. A finalize
-   * error is ignored. `stmts` and `db` are undefined after a partial init.
+   * because bun:sqlite can refuse to close with live statements. The method
+   * ignores a finalize error. `stmts` and `db` can be undefined after a
+   * partial init.
    *
    * If `db.close()` fails, the OS handle stays open. The backend then stays
    * registered, so a later {@link closeOpenUnder} sweep tries again.
@@ -301,8 +302,8 @@ export class SqliteBackend implements StorageBackend {
    * Refuses a store whose schema version is newer than this binary. It runs
    * after `SCHEMA_DDL` creates `schema_version` and before `migrateSchema()`.
    * A fresh or older store passes, and an older store then migrates forward.
-   * A newer store closes the handle, so the file stays free for repair, and
-   * throws {@link SchemaVersionTooNewError}.
+   * For a newer store, it closes the handle, so the file stays free for
+   * repair, and throws {@link SchemaVersionTooNewError}.
    */
   private assertSchemaNotNewerThanBinary(): void {
     const row = this.db
@@ -475,7 +476,8 @@ export class SqliteBackend implements StorageBackend {
    * columns to `events`, with indexes, so queries filter on them without a
    * JSON scan. Each ALTER runs only when its column is absent, because
    * `SCHEMA_DDL` creates them on a fresh database. The step then backfills the
-   * columns from the payload JSON and stamps version 6, in one transaction.
+   * columns from the payload JSON and stamps version 6. The whole step runs in
+   * one transaction.
    *
    * A payload that is not valid JSON, or that lacks the fields, keeps NULL
    * columns. NULL marks an event that is older than correlation stamping.
@@ -520,14 +522,14 @@ export class SqliteBackend implements StorageBackend {
   /**
    * Backfills the correlation columns in chunks of 1,000 rows, with one
    * progress event for each chunk on the `__migration__` stream. The scan
-   * skips that stream, because its progress events have NULL columns and the
-   * scan selects them again.
+   * skips that stream, because its progress events also have NULL columns.
    *
-   * A rowid cursor drives the loop, because a row without the fields stays
-   * NULL and a NULL-only WHERE selects it again. `json_valid` stops one
-   * malformed payload from aborting the migration. `rowsBackfilled` is the
-   * chunk size, because `changes()` skips NULL-to-NULL updates. At
-   * `MAX_ITERATIONS`, the call throws, so the outer transaction rolls back.
+   * A row without the fields stays NULL, so a rowid cursor, not the NULL test,
+   * moves the loop forward. bun:sqlite has no `UPDATE ... LIMIT`, so the loop
+   * selects the rowids first. `json_valid` stops one malformed payload from
+   * aborting the migration. `rowsBackfilled` is the chunk size, because
+   * `changes()` skips NULL-to-NULL updates. At `MAX_ITERATIONS`, the call
+   * throws, so the outer transaction rolls back.
    */
   private backfillCorrelationColumnsChunked(timestamp: string): void {
     const CHUNK_SIZE = 1000;
@@ -1131,7 +1133,8 @@ export class SqliteBackend implements StorageBackend {
   /**
    * Returns the sequence high-water mark of a stream, or 0 when the stream has
    * no `sequences` row. `allocateSequence` calls it inside the write
-   * transaction.
+   * transaction. The appender also calls it outside a transaction, to find a
+   * concurrent append after an empty decision.
    */
   readSequenceHighWaterMark(streamId: string): number {
     const row = this.stmts.selectSequence.get(streamId) as { sequence: number } | undefined;
@@ -1139,9 +1142,9 @@ export class SqliteBackend implements StorageBackend {
   }
 
   /**
-   * Startup repair of each stream gate against its durable event tail. A gate
-   * below the tail makes the next append reuse a stored sequence, so the repair
-   * raises it to the tail. A gate above the tail is a gap from a rolled-back or
+   * Repairs the gate of each stream, its `sequences` row, against its durable
+   * event tail. A gate below the tail makes the next append reuse a stored
+   * sequence, so the repair raises it to the tail. A gate above the tail is a gap from a rolled-back or
    * pruned append. It stays, because sequences must stay monotonic.
    *
    * The SELECT and the upserts share one `BEGIN IMMEDIATE` transaction, so a
@@ -1210,8 +1213,8 @@ export class SqliteBackend implements StorageBackend {
 
   /**
    * The sequence gate. Inside the `BEGIN IMMEDIATE` transaction of the caller,
-   * it reads the tail, compares it with `expected`, and advances it by `n`. It
-   * returns the base, and the events take `base + 1` to `base + n`.
+   * it reads the high-water mark, compares it with `expected`, and advances it
+   * by `n`. It returns the base, and the events take `base + 1` to `base + n`.
    *
    * The write lock makes the read and the advance race-free. A mismatch throws
    * {@link SequenceGateConflictError}, so the whole append rolls back. This
@@ -1233,8 +1236,8 @@ export class SqliteBackend implements StorageBackend {
   /**
    * Runs the sequence gate, the idempotency claim, and the event INSERTs in
    * one `BEGIN IMMEDIATE` transaction. `finalize(base)` builds the rows inside
-   * it. It must be fast and free of I/O, because it holds the write lock and a
-   * busy retry runs it again.
+   * it. It must be fast and free of I/O, because it runs under the write lock
+   * and a busy retry runs it again.
    *
    * A gate mismatch throws {@link SequenceGateConflictError}, and a strict
    * INSERT throws on a claim race or an `events` collision. SQLITE_BUSY
@@ -1626,10 +1629,10 @@ export class SqliteBackend implements StorageBackend {
 
   /**
    * Lists workflow summaries with the `workflowType` filter in the SQL WHERE.
-   * The filter uses the same `WORKFLOW_TYPE_EXPR` as the SELECT, so a row with
-   * no `streams` entry keeps the type from its state JSON. The LEFT JOIN keeps
-   * those rows, because init ignores `registerStream` errors and the in-memory
-   * backend lists the same rows.
+   * The filter uses the `WORKFLOW_TYPE_EXPR` of the SELECT, so it also matches
+   * a row with no `streams` entry by the type in its state JSON. The
+   * LEFT JOIN keeps those rows, because init ignores `registerStream` errors
+   * and the in-memory backend lists the same rows.
    *
    * The lifecycle filters run in {@link matchesWorkflowSummaryFilter}, as in
    * the in-memory backend. `createdAt` is the earliest event timestamp.

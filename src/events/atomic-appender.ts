@@ -307,7 +307,7 @@ export class AtomicAppender {
   /**
    * The SQLite backend. The appender never closes an injected backend.
    *
-   * Assign this field only through the `sqliteBackendPromise` cache.
+   * Assign this field only together with the `sqliteBackendPromise` cache.
    * `runExclusive` serializes each stream on its own, so two first writes to
    * different streams can race. Without the cache, each opens a handle and
    * one handle leaks.
@@ -359,8 +359,8 @@ export class AtomicAppender {
 
   /**
    * Fires the post-commit hook for a fresh commit only. Each append entry point
-   * calls it after `runExclusive` resolves, so the hook runs outside the
-   * stream lock. With no hook, the cost is one `undefined` check.
+   * calls it after the commit and outside the stream lock. With no hook, the
+   * cost is one `undefined` check.
    */
   private notifyCommit(streamId: string, result: AppendResult): void {
     const hook = this.commitHook;
@@ -871,8 +871,8 @@ export class AtomicAppender {
    * The append body. The caller holds the stream lock.
    *
    * The idempotency lookup runs before `BEGIN IMMEDIATE`, so a retry does not
-   * take the write lock. The backend allocates the sequence and checks
-   * `expectedSequence` inside the transaction, so no read happens outside it.
+   * take the write lock. The backend reads and allocates the sequence and
+   * checks `expectedSequence` inside the transaction, never before it.
    * `finalize` builds the rows there from the allocated base. It has no side
    * effects, because a busy retry runs it again. The payload JSON is the
    * record, and the id columns only index it.

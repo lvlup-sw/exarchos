@@ -9,7 +9,9 @@
  *
  * The differential fold, the raw-reader census, the declaration check, and the
  * load-time refusals give a name to each wrong row. They do not prove a demotion
- * right. `because` records what the author read in the tree.
+ * right. `because` records what the author read in the tree. A demotion for a type
+ * that the charter does not call telemetry is a new decision, and the partition
+ * test refuses it.
  */
 
 import type { EventType } from '../schemas.js';

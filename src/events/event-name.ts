@@ -11,14 +11,16 @@
 //
 // `registerEventType` calls {@link assertWellFormedEventName}, and {@link EVENT_NAME_PATTERN} is a
 // regex built from this grammar. The read path does not validate names again, so persisted events
-// still replay. The only import is `import type`, so the grammar does not depend on the catalog.
+// still replay. The only import is `import type`, because `schemas.ts` imports this module and a
+// value import makes a runtime cycle.
 
 import type { EventType } from './schemas.js';
 
 /**
  * {@link LowerAlpha} as data, the 26 characters of a {@link Word}. {@link classifyEventName} reads
  * these tuples at runtime, because a type cannot be iterated. A proof at the end of this file binds
- * each tuple to its union.
+ * each tuple to its union. The tuples use explicit types and not `as const`, because the repo
+ * counts type assertions.
  */
 export const LOWER_ALPHA: readonly [
   'a',

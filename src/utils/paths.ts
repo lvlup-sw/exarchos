@@ -23,7 +23,7 @@ export interface DeriveRepoKeyDeps {
   /**
    * Returns the absolute git common dir for `cwd`, from `git rev-parse
    * --git-common-dir`. All linked worktrees of one repository share this dir,
-   * so they get one key. Must throw when `cwd` is not inside a git repository.
+   * so they get one key. It must throw when `cwd` is not inside a git repository.
    */
   readonly gitCommonDir?: (cwd: string) => string;
   /** Resolves symlinks and Windows 8.3 short names. Default: `fs.realpathSync.native`. */
@@ -96,8 +96,8 @@ function defaultNativeRealpath(p: string): string {
 /**
  * Reduce a path to an absolute, canonical form with POSIX separators.
  *
- * A win32 `C:\…` input is normalized with `path.win32`, so the Windows contract
- * is testable on a POSIX host. When `realpath` fails, for example on a path that
+ * The function normalizes a win32 `C:\…` input with `path.win32`, so the Windows
+ * contract is testable on a POSIX host. When `realpath` fails, for example on a path that
  * does not exist yet, the function returns the absolute form and does not throw.
  */
 function normalizeRepoPath(p: string, realpath: (x: string) => string): string {
@@ -316,7 +316,7 @@ export interface ActiveStoreDivergence extends StorePathDivergence {
  *
  * Divergence alone is not that condition. With `WORKFLOW_STATE_DIR` unset, the CLI
  * resolves `~/.exarchos/state` and the plugin resolves `~/.claude/workflow-state`.
- * Thus each standalone CLI call diverges, also for users without the plugin. The
+ * Thus each standalone CLI call diverges, even for a user without the plugin. The
  * split is active only when the other store exists and the operator does not opt in.
  * An opt-in value of `0`, `false`, `no`, or `off` keeps the guard armed.
  */
@@ -350,8 +350,9 @@ export function detectActiveStoreDivergence(
 }
 
 /**
- * Operator-facing message for a live split: the store in use, the store that this
- * surface ignores, and the settings that remove the split.
+ * Operator-facing message for a live split. It names the store in use and the store
+ * that this surface ignores. It also names the env var that pins one store, and the
+ * env var that accepts two.
  */
 export function describeStoreDivergence(d: ActiveStoreDivergence): string {
   return (

@@ -14,6 +14,7 @@ export interface StorageBusyErrorOptions {
  *
  * A {@link ConcurrencyError} differs: the caller must re-fetch state first.
  * `wrapError` maps this error to `STORAGE_BUSY` with `validTargets: ['retry']`.
+ * The fixed `code` lets middleware match the error without an import of the class.
  */
 export class StorageBusyError extends Error {
   readonly code = 'STORAGE_BUSY' as const;

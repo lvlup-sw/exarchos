@@ -66,6 +66,7 @@ export interface CharterDemotion {
  * Partitions a population of event types into governance and telemetry. A type is
  * `governance` when it has a witness, or when its tier derives `auto` and it has no demotion.
  * `tierSourceOf` must ignore lifecycle, because a `retired` type can still sit in a replayed stream.
+ * Do not pass `resolveEmissionSource`, which applies lifecycle first.
  *
  * It throws on an empty population and on an unannotated type. It throws on a witness or a
  * demotion for a type outside the population, and on a type with both. It throws on dead

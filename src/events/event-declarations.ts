@@ -7,7 +7,8 @@
 // call time, because `registerEventType` and `unregisterEventType` change the registry. The lift
 // reads `schemas.ts` and changes nothing in it.
 //
-// This module imports the declaration contract and a declaration store. It is therefore a
+// This module imports the declaration contract and a declaration store. The seam census reports
+// that shape as `DIRECT_STORAGE_READ`, but a lift needs both. This module is therefore a
 // {@link DeclarationSourceAdapter} in `DECLARATION_SEAM.sourceAdapters`. `STALE_SOURCE_ADAPTER`
 // fails the census if this module stops importing the store. Consumers call
 // {@link openEventDeclarationSeam} and never see `schemas.ts`.

@@ -83,8 +83,8 @@ function owningProviderOf(
  * append sites for its event. It returns a verdict and never throws.
  *
  * Every population is a parameter with a live default, so a test can show that
- * the audit reports findings. An id that names no provider is skipped, because
- * the weld gate reports it.
+ * the audit reports findings. The audit skips an id that names no provider,
+ * because the weld gate reports it.
  */
 export function auditProviderAreas(
   census: AppendSiteCensus,

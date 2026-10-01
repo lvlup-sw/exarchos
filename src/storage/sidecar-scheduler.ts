@@ -95,9 +95,11 @@ export async function startPeriodicMerge(
  * appends the events to the EventStore, and unlinks the drain file.
  *
  * The rename is a claim, not a publish, so it does not use `publishTempFile`. Each
- * drain path is unique per process and time. A failed rename means that another
- * drainer claimed the file. If the read fails, the drain file goes back to the
- * sidecar path. An append counts as merged when the stream grows, else as skipped.
+ * drain path is unique per process and time, so no two drainers replace one target
+ * and the Windows replace race cannot occur. A failed rename means that another
+ * drainer claimed the file. If the read fails, the function renames the drain file
+ * back to the sidecar path. An append counts as merged when the stream grows, else
+ * as skipped.
  */
 async function drainOnce(
   stateDir: string,

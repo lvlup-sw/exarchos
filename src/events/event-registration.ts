@@ -1,13 +1,17 @@
 /**
+ * RESERVED(issue: #1473, owner: exarchos, expires: 2026-11-30)
+ *
  * The event registration union. Each registered event type declares two independent axes: a
  * coupling tier, which names the weld that its emission rides on, and a lifecycle. Every tier
  * arm demands a weld field, so a registration that only reports has no constructible form.
- * The emission source is derived from the tier, and a non-active lifecycle overrides it.
+ * The tier gives the emission source, and a non-active lifecycle overrides it.
  *
  * The `_EventRegistration_*` type aliases at the end of this file prove these claims. They live
  * in source because the build excludes `*.test.ts`, so its `tsc` checks them. Every import is
- * `import type`, so this module adds no runtime import edges. It does not import
- * `contract/declaration.ts`, but the union is usable as the `subject` of a `Declaration`.
+ * `import type`, so this module adds no runtime import edges. The union is usable as the `subject`
+ * of a `Declaration`, but this module does not import `contract/declaration.ts`. With that import,
+ * it becomes a declaration consumer that imports a declaration store, which
+ * `layer-boundaries-seam.ts` rejects.
  */
 
 import type { z } from 'zod';
@@ -344,8 +348,8 @@ export function resolveEmissionSource(registration: EmissionAxes): EventEmission
 /**
  * Builds the emission registry for a set of event types. It derives each source from the
  * registration of the type, so no source can disagree with its tier. It throws on an empty set,
- * because an empty registry reads as "no event has a source". It also throws on each type that
- * has no registration, and it names every such type.
+ * because an empty registry reads as "no event has a source". It also throws when a type has no
+ * registration, and the error names every such type.
  *
  * `registrationOf` is a parameter, not an import, so the module keeps zero runtime import edges
  * and a test can pass a seeded set. The caller sets the key type through its binding annotation.
