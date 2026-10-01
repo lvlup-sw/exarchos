@@ -180,6 +180,9 @@ function aggregateToolAnnotations(
  * On a violation, it returns an `INTERNAL_ERROR` envelope with the Zod issues in
  * `_meta.outputSchemaViolation`. If `args.action` is absent or names no action of the tool, it
  * returns the envelope unchanged, so a dispatch error stays as dispatch reported it.
+ * The check runs on every call, because it costs less than a millisecond. If that changes, the
+ * planned switch is an `EXARCHOS_OUTPUT_VALIDATE` env var. Doctor recognizes that name, but no
+ * code reads it yet.
  */
 function validateAgainstActionSchema(
   toolName: string,
