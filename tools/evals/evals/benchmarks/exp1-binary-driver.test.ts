@@ -25,8 +25,6 @@ import {
 import { ProvenanceError, assertMeasured } from '../provenance.js';
 import { rmrf } from '../../../test-helpers/temp-dir.js';
 
-// ─── Pure diff core: property tests (symmetric + complete) ───────────────────
-
 const snapshotArb = fc.record({
   taskId: fc.string({ minLength: 1, maxLength: 4 }),
   riskTier: fc.constantFrom<string | null>('low', 'medium', 'high', null),

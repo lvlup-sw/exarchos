@@ -11,8 +11,6 @@ import {
 } from '../calibration-types.js';
 import { rmrfAsync } from '../../../test-helpers/temp-dir.js';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 let tmpDir: string;
 
 function tmpFile(name: string): string {
