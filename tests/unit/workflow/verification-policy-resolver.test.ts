@@ -9,9 +9,10 @@ import type { ResolvedProjectConfig } from '../../../src/config/resolve.js';
 import type { VerificationPolicyOverlay } from '../../../src/config/yaml-schema.js';
 import { resolveVerificationPolicy } from '../../../src/workflow/verification-policy-resolver.js';
 
-// Build a real ResolvedProjectConfig threaded with the given overlay, going
-// through the production `resolveConfig` path so the fixture matches what a
-// caller actually passes (deep-cloned + frozen overlay), not a hand-rolled stub.
+/**
+ * Builds a `ResolvedProjectConfig` with the given policy overlay through the production `resolveConfig` path,
+ * not a hand-built stub.
+ */
 function configWith(policy: VerificationPolicyOverlay): ResolvedProjectConfig {
   return resolveConfig({ verification: { policy } });
 }
@@ -21,7 +22,6 @@ const ALL_BOUNDARY: readonly boolean[] = [false, true];
 
 describe('resolveVerificationPolicy', () => {
   it('ResolveVerificationPolicy_NoConfig_DelegatesToBuiltinTable', () => {
-    // No config at all → builtin table verbatim, source: 'builtin'.
     const result = resolveVerificationPolicy('medium', false);
     expect(result.sequence).toEqual(resolveVerificationSequence('medium', false));
     expect(result.source).toBe('builtin');
@@ -37,8 +37,6 @@ describe('resolveVerificationPolicy', () => {
   });
 
   it('ResolveVerificationPolicy_AbsentCell_FallsBackPerCell', () => {
-    // Config sets ONLY medium (base). low / high / all boundary cells unset →
-    // each independently resolves to the builtin table.
     const overlay: VerificationPolicyOverlay = {
       medium: ['check_mock_boundary'],
     };
@@ -56,7 +54,6 @@ describe('resolveVerificationPolicy', () => {
     expect(high.source).toBe('builtin');
     expect(high.sequence).toEqual(resolveVerificationSequence('high', false));
 
-    // Boundary cells untouched by a base-tier override.
     for (const tier of ALL_TIERS) {
       const boundary = resolveVerificationPolicy(tier, true, config);
       expect(boundary.source).toBe('builtin');
@@ -64,21 +61,17 @@ describe('resolveVerificationPolicy', () => {
     }
   });
 
+  /** An empty cell is a valid override that runs no gate. */
   it('ResolveVerificationPolicy_EmptyCell_ResolvesToEmptySequence', () => {
-    // Explicit empty array is the legitimate "run nothing" override — it wins
-    // over the builtin table with source: 'config'.
     const overlay: VerificationPolicyOverlay = { medium: [] };
     const result = resolveVerificationPolicy('medium', false, configWith(overlay));
     expect(result.sequence).toEqual([]);
     expect(result.source).toBe('config');
 
-    // And it does NOT collapse to the (non-empty) builtin sequence.
     expect(result.sequence).not.toEqual(resolveVerificationSequence('medium', false));
   });
 
   it('ResolveVerificationPolicy_BoundaryCell_ResolvesIndependentlyOfBase', () => {
-    // boundary.medium configured, base medium NOT: boundary uses config, base
-    // resolution still uses the builtin table.
     const overlay: VerificationPolicyOverlay = {
       boundary: { medium: ['check_contract_drift'] },
     };
@@ -94,14 +87,12 @@ describe('resolveVerificationPolicy', () => {
   });
 
   it('ResolveVerificationPolicy_Output_IsFrozen', () => {
-    // Builtin-sourced output is frozen.
     const builtin = resolveVerificationPolicy('high', true);
     expect(Object.isFrozen(builtin.sequence)).toBe(true);
     expect(() => {
       (builtin.sequence as GateName[]).push('check_mock_boundary');
     }).toThrow();
 
-    // Config-sourced output is frozen and not aliased to a caller-mutable array.
     const overlay: VerificationPolicyOverlay = {
       low: ['check_static_analysis'],
     };
@@ -113,14 +104,11 @@ describe('resolveVerificationPolicy', () => {
     }).toThrow();
   });
 
+  /**
+   * A config without a `verification` block must resolve like no config. `resolveConfig` always adds a
+   * `verification` block, so the test builds the partial object by hand.
+   */
   it('ResolveVerificationPolicy_PartialConfigWithoutVerification_BehavesAsNoConfig', () => {
-    // task 004: a present-but-partial config object — one that predates the
-    // `verification` overlay (legacy/partial shape) — must NOT throw. The
-    // resolver optional-chains on `config?.verification?.policy`, so a config
-    // whose `verification` block is genuinely absent behaves identically to
-    // "no config" (the built-in table), source: 'builtin'. Hand-build the
-    // partial object (the production `resolveConfig` path always synthesises a
-    // `verification` block, so it cannot reproduce the legacy shape).
     const partial = { agents: {} } as unknown as ResolvedProjectConfig;
 
     for (const tier of ALL_TIERS) {
@@ -135,10 +123,8 @@ describe('resolveVerificationPolicy', () => {
     }
   });
 
+  /** With no config, each of the six cells equals the builtin table, so the overlay changes no default. */
   it('ResolveVerificationPolicy_NoConfigSweep_ExtensionallyEqualsSlice1Table', () => {
-    // Acceptance line: with no config, resolution is deep-equal to the slice-1
-    // table for ALL six cells (3 tiers x 2 boundary values) — additive change,
-    // no default behavior shift.
     for (const tier of ALL_TIERS) {
       for (const boundary of ALL_BOUNDARY) {
         const result = resolveVerificationPolicy(tier, boundary);

@@ -11,8 +11,6 @@ import {
 import type { HSMDefinition, State, Transition, WorkflowDefinition } from '../../../src/workflow/state-machine.js';
 import { guards } from '../../../src/workflow/guards.js';
 
-// ─── Task 003: HSM State/Transition Definitions ─────────────────────────────
-
 describe('HSM State Definitions', () => {
   describe('Feature Workflow HSM', () => {
     let hsm: HSMDefinition;
@@ -26,7 +24,6 @@ describe('HSM State Definitions', () => {
     it('FeatureHSM_AllStatesExist_CorrectTypes', () => {
       hsm = getHSMDefinition('feature');
 
-      // Atomic states. DR-4 (#1581): ideate (GATHER) removed — plan is initial.
       expect(hsm.states['ideate']).toBeUndefined();
 
       expect(hsm.states['plan']).toBeDefined();
@@ -44,12 +41,10 @@ describe('HSM State Definitions', () => {
       expect(hsm.states['blocked']).toBeDefined();
       expect(hsm.states['blocked'].type).toBe('atomic');
 
-      // Compound state: Implementation
       expect(hsm.states['implementation']).toBeDefined();
       expect(hsm.states['implementation'].type).toBe('compound');
       expect(hsm.states['implementation'].initial).toBe('delegate');
 
-      // Children of Implementation compound
       expect(hsm.states['delegate']).toBeDefined();
       expect(hsm.states['delegate'].type).toBe('atomic');
       expect(hsm.states['delegate'].parent).toBe('implementation');
@@ -58,7 +53,6 @@ describe('HSM State Definitions', () => {
       expect(hsm.states['review'].type).toBe('atomic');
       expect(hsm.states['review'].parent).toBe('implementation');
 
-      // integrate state should NOT exist
       expect(hsm.states['integrate']).toBeUndefined();
     });
 
@@ -66,11 +60,8 @@ describe('HSM State Definitions', () => {
       hsm = getHSMDefinition('feature');
       const transitions = hsm.transitions;
 
-      // DR-4 (#1581): ideate removed — no transition originates from ideate;
-      // plan is initial and needs no inbound bootstrap transition.
       expect(transitions.find((t) => t.from === 'ideate')).toBeUndefined();
 
-      // plan → plan-review (now the first transition, guarded by planArtifactExists)
       const planToPlanReview = transitions.find(
         (t) => t.from === 'plan' && t.to === 'plan-review'
       );
@@ -80,7 +71,6 @@ describe('HSM State Definitions', () => {
       expect(planToPlanReview!.guard).toBeDefined();
       expect(planToPlanReview!.guard!.id).toBe('plan-artifact-exists');
 
-      // plan-review → delegate (enters Implementation compound)
       const planReviewToDelegate = transitions.find(
         (t) => t.from === 'plan-review' && t.to === 'delegate'
       );
@@ -88,25 +78,21 @@ describe('HSM State Definitions', () => {
       expect(planReviewToDelegate!.guard).toBeDefined();
       expect(planReviewToDelegate!.guard!.id).toBe('plan-review-complete');
 
-      // delegate → review (direct, no integrate step)
       const delegateToReview = transitions.find(
         (t) => t.from === 'delegate' && t.to === 'review'
       );
       expect(delegateToReview).toBeDefined();
       expect(delegateToReview!.guard!.id).toBe('all-tasks-complete+team-disbanded');
 
-      // integrate transitions should NOT exist
       expect(transitions.find((t) => t.from === 'integrate')).toBeUndefined();
       expect(transitions.find((t) => t.to === 'integrate')).toBeUndefined();
 
-      // review → synthesize (exits Implementation compound)
       const reviewToSynthesize = transitions.find(
         (t) => t.from === 'review' && t.to === 'synthesize'
       );
       expect(reviewToSynthesize).toBeDefined();
       expect(reviewToSynthesize!.guard!.id).toBe('all-reviews-passed');
 
-      // review → delegate (fix cycle)
       const reviewToDelegate = transitions.find(
         (t) => t.from === 'review' && t.to === 'delegate'
       );
@@ -114,14 +100,12 @@ describe('HSM State Definitions', () => {
       expect(reviewToDelegate!.guard!.id).toBe('any-review-failed');
       expect(reviewToDelegate!.isFixCycle).toBe(true);
 
-      // synthesize → completed
       const synthesizeToCompleted = transitions.find(
         (t) => t.from === 'synthesize' && t.to === 'completed'
       );
       expect(synthesizeToCompleted).toBeDefined();
       expect(synthesizeToCompleted!.guard!.id).toBe('pr-url-exists');
 
-      // blocked → delegate
       const blockedToDelegate = transitions.find(
         (t) => t.from === 'blocked' && t.to === 'delegate'
       );
@@ -129,24 +113,19 @@ describe('HSM State Definitions', () => {
       expect(blockedToDelegate!.guard!.id).toBe('human-unblocked');
     });
 
-    // ─── DR-4 (#1581 task 007): GATHER collapsed into PLAN ──────────────────
+    /** No state or transition uses `ideate`, and `plan` is the initial phase, with the `PLAN` kind. */
     it('FeatureHSM_NoIdeateState_PlanIsInitial', () => {
       const hsm = getHSMDefinition('feature');
-      // The ideate (GATHER) state is gone, and no transition references it.
       expect(hsm.states['ideate']).toBeUndefined();
       expect(hsm.transitions.some((t) => t.from === 'ideate' || t.to === 'ideate')).toBe(false);
-      // plan (PLAN, read-only) is the registry-declared initial phase and needs
-      // no inbound bootstrap transition (the plan-review→plan gaps loop aside).
       expect(getInitialPhase('feature')).toBe('plan');
       expect(hsm.states['plan']).toBeDefined();
       expect((hsm.states['plan'] as { kind?: string }).kind).toBe('PLAN');
     });
 
+    /** `plan-review` is the only human approval gate. One transition, from `plan-review` to `delegate`, carries the `plan-review-complete` guard. */
     it('FeatureHSM_SingleApprovalPoint_PlanReviewOnly', () => {
       const hsm = getHSMDefinition('feature');
-      // plan-review is the SOLE human approval gate: it is the only phase whose
-      // outbound advance is gated by the plan-review-complete approval guard,
-      // and the only PLAN-kind phase that approval flows through.
       const approvalEdges = hsm.transitions.filter(
         (t) => t.guard?.id === 'plan-review-complete',
       );
@@ -161,7 +140,6 @@ describe('HSM State Definitions', () => {
       const hsm = getHSMDefinition('debug');
       expect(hsm.id).toBe('debug');
 
-      // Atomic states
       expect(hsm.states['triage']).toBeDefined();
       expect(hsm.states['triage'].type).toBe('atomic');
 
@@ -180,12 +158,10 @@ describe('HSM State Definitions', () => {
       expect(hsm.states['blocked']).toBeDefined();
       expect(hsm.states['blocked'].type).toBe('atomic');
 
-      // ThoroughTrack compound state
       expect(hsm.states['thorough-track']).toBeDefined();
       expect(hsm.states['thorough-track'].type).toBe('compound');
       expect(hsm.states['thorough-track'].maxFixCycles).toBe(2);
 
-      // ThoroughTrack children: rca, design, implement, validate, review
       for (const child of [
         'rca',
         'design',
@@ -197,84 +173,70 @@ describe('HSM State Definitions', () => {
         expect(hsm.states[child].parent).toBe('thorough-track');
       }
 
-      // HotfixTrack compound state
       expect(hsm.states['hotfix-track']).toBeDefined();
       expect(hsm.states['hotfix-track'].type).toBe('compound');
 
-      // HotfixTrack children: implement, validate
       for (const child of ['hotfix-implement', 'hotfix-validate']) {
         expect(hsm.states[child]).toBeDefined();
         expect(hsm.states[child].parent).toBe('hotfix-track');
       }
 
-      // Key transitions
       const transitions = hsm.transitions;
 
-      // triage → investigate
       expect(
         transitions.find((t) => t.from === 'triage' && t.to === 'investigate')
       ).toBeDefined();
 
-      // investigate → rca (thorough track entry)
       expect(
         transitions.find((t) => t.from === 'investigate' && t.to === 'rca')
       ).toBeDefined();
 
-      // investigate → hotfix-implement (hotfix track entry)
       expect(
         transitions.find(
           (t) => t.from === 'investigate' && t.to === 'hotfix-implement'
         )
       ).toBeDefined();
 
-      // rca → design
       expect(
         transitions.find((t) => t.from === 'rca' && t.to === 'design')
       ).toBeDefined();
 
-      // design → debug-implement
       expect(
         transitions.find(
           (t) => t.from === 'design' && t.to === 'debug-implement'
         )
       ).toBeDefined();
 
-      // debug-implement → debug-validate
       expect(
         transitions.find(
           (t) => t.from === 'debug-implement' && t.to === 'debug-validate'
         )
       ).toBeDefined();
 
-      // debug-validate → debug-review
       expect(
         transitions.find(
           (t) => t.from === 'debug-validate' && t.to === 'debug-review'
         )
       ).toBeDefined();
 
-      // debug-review → synthesize
       expect(
         transitions.find(
           (t) => t.from === 'debug-review' && t.to === 'synthesize'
         )
       ).toBeDefined();
 
-      // hotfix-implement → hotfix-validate
       expect(
         transitions.find(
           (t) => t.from === 'hotfix-implement' && t.to === 'hotfix-validate'
         )
       ).toBeDefined();
 
-      // hotfix-validate → completed
       expect(
         transitions.find(
           (t) => t.from === 'hotfix-validate' && t.to === 'completed'
         )
       ).toBeDefined();
 
-      // synthesize → completed
       expect(
         transitions.find(
           (t) => t.from === 'synthesize' && t.to === 'completed'
@@ -288,7 +250,6 @@ describe('HSM State Definitions', () => {
       const hsm = getHSMDefinition('refactor');
       expect(hsm.id).toBe('refactor');
 
-      // Atomic states
       expect(hsm.states['explore']).toBeDefined();
       expect(hsm.states['explore'].type).toBe('atomic');
 
@@ -307,11 +268,9 @@ describe('HSM State Definitions', () => {
       expect(hsm.states['blocked']).toBeDefined();
       expect(hsm.states['blocked'].type).toBe('atomic');
 
-      // PolishTrack compound state
       expect(hsm.states['polish-track']).toBeDefined();
       expect(hsm.states['polish-track'].type).toBe('compound');
 
-      // PolishTrack children: implement, validate, update-docs
       for (const child of [
         'polish-implement',
         'polish-validate',
@@ -321,12 +280,10 @@ describe('HSM State Definitions', () => {
         expect(hsm.states[child].parent).toBe('polish-track');
       }
 
-      // OverhaulTrack compound state
       expect(hsm.states['overhaul-track']).toBeDefined();
       expect(hsm.states['overhaul-track'].type).toBe('compound');
       expect(hsm.states['overhaul-track'].maxFixCycles).toBe(3);
 
-      // OverhaulTrack children: plan, plan-review, delegate, review, update-docs (no integrate)
       for (const child of [
         'overhaul-plan',
         'overhaul-plan-review',
@@ -338,32 +295,26 @@ describe('HSM State Definitions', () => {
         expect(hsm.states[child].parent).toBe('overhaul-track');
       }
 
-      // overhaul-integrate should NOT exist
       expect(hsm.states['overhaul-integrate']).toBeUndefined();
 
-      // Key transitions
       const transitions = hsm.transitions;
 
-      // explore → brief
       expect(
         transitions.find((t) => t.from === 'explore' && t.to === 'brief')
       ).toBeDefined();
 
-      // brief → polish-implement (polish track entry)
       expect(
         transitions.find(
           (t) => t.from === 'brief' && t.to === 'polish-implement'
         )
       ).toBeDefined();
 
-      // brief → overhaul-plan (overhaul track entry)
       expect(
         transitions.find(
           (t) => t.from === 'brief' && t.to === 'overhaul-plan'
         )
       ).toBeDefined();
 
-      // Polish track flow
       expect(
         transitions.find(
           (t) =>
@@ -382,7 +333,6 @@ describe('HSM State Definitions', () => {
         )
       ).toBeDefined();
 
-      // Overhaul track flow (no integrate step, plan-review before delegate)
       expect(
         transitions.find(
           (t) => t.from === 'overhaul-plan' && t.to === 'overhaul-plan-review'
@@ -412,25 +362,21 @@ describe('HSM State Definitions', () => {
         )
       ).toBeDefined();
 
-      // overhaul-integrate transitions should NOT exist
       expect(transitions.find((t) => t.from === 'overhaul-integrate')).toBeUndefined();
       expect(transitions.find((t) => t.to === 'overhaul-integrate')).toBeUndefined();
 
-      // Overhaul fix cycles (only review → delegate, no integrate → delegate)
       const reviewToDelegate = transitions.find(
         (t) => t.from === 'overhaul-review' && t.to === 'overhaul-delegate'
       );
       expect(reviewToDelegate).toBeDefined();
       expect(reviewToDelegate!.isFixCycle).toBe(true);
 
-      // blocked → overhaul-delegate (recovery)
       expect(
         transitions.find(
           (t) => t.from === 'blocked' && t.to === 'overhaul-delegate'
         )
       ).toBeDefined();
 
-      // synthesize → completed
       expect(
         transitions.find(
           (t) => t.from === 'synthesize' && t.to === 'completed'
@@ -441,7 +387,6 @@ describe('HSM State Definitions', () => {
 
   describe('Compound States', () => {
     it('CompoundStates_HaveEntryExitEffects_AndMaxFixCycles', () => {
-      // Feature: Implementation compound
       const feature = getHSMDefinition('feature');
       const implementation = feature.states['implementation'];
       expect(implementation.type).toBe('compound');
@@ -451,7 +396,6 @@ describe('HSM State Definitions', () => {
       expect(implementation.onExit).toBeDefined();
       expect(implementation.onExit).toContain('log');
 
-      // Debug: ThoroughTrack compound
       const debug = getHSMDefinition('debug');
       const thoroughTrack = debug.states['thorough-track'];
       expect(thoroughTrack.type).toBe('compound');
@@ -461,20 +405,17 @@ describe('HSM State Definitions', () => {
       expect(thoroughTrack.onExit).toBeDefined();
       expect(thoroughTrack.onExit).toContain('log');
 
-      // Debug: HotfixTrack compound
       const hotfixTrack = debug.states['hotfix-track'];
       expect(hotfixTrack.type).toBe('compound');
       expect(hotfixTrack.onEntry).toBeDefined();
       expect(hotfixTrack.onExit).toBeDefined();
 
-      // Refactor: PolishTrack compound
       const refactor = getHSMDefinition('refactor');
       const polishTrack = refactor.states['polish-track'];
       expect(polishTrack.type).toBe('compound');
       expect(polishTrack.onEntry).toBeDefined();
       expect(polishTrack.onExit).toBeDefined();
 
-      // Refactor: OverhaulTrack compound
       const overhaulTrack = refactor.states['overhaul-track'];
       expect(overhaulTrack.type).toBe('compound');
       expect(overhaulTrack.maxFixCycles).toBe(3);
@@ -492,13 +433,10 @@ describe('HSM State Definitions', () => {
   });
 });
 
-// ─── Task 004: HSM Transition Algorithm ──────────────────────────────────────
-
 describe('HSM Transition Algorithm', () => {
   describe('executeTransition', () => {
     it('ExecuteTransition_ValidTransition_ReturnsSuccess', () => {
       const hsm = getHSMDefinition('feature');
-      // DR-4 (#1581): plan is initial; first transition is plan → plan-review.
       const state: Record<string, unknown> = {
         phase: 'plan',
         artifacts: { design: null, plan: 'docs/specs/x.md', pr: null },
@@ -531,6 +469,7 @@ describe('HSM Transition Algorithm', () => {
       expect(result.events).toEqual([]);
     });
 
+    /** The valid targets carry guard metadata. From `plan`, the `plan-review` target carries the `plan-artifact-exists` guard. */
     it('ExecuteTransition_InvalidTarget_ReturnsInvalidTransition', () => {
       const hsm = getHSMDefinition('feature');
       const state: Record<string, unknown> = {
@@ -546,8 +485,6 @@ describe('HSM Transition Algorithm', () => {
       expect(result.validTargets).toBeDefined();
       expect(result.validTargets!.length).toBeGreaterThan(0);
 
-      // Enriched validTargets include guard metadata — from plan the valid
-      // target is plan-review (guarded by planArtifactExists).
       const planReviewTarget = result.validTargets!.find((t) => t.phase === 'plan-review');
       expect(planReviewTarget).toBeDefined();
       expect(planReviewTarget!.guard).toBeDefined();
@@ -598,7 +535,6 @@ describe('HSM Transition Algorithm', () => {
       const result = executeTransition(hsm, state, 'synthesize');
 
       expect(result.success).toBe(true);
-      // Exiting Implementation compound should fire exit effects
       expect(result.effects).toContain('log');
     });
 
@@ -614,7 +550,6 @@ describe('HSM Transition Algorithm', () => {
       const result = executeTransition(hsm, state, 'synthesize');
 
       expect(result.success).toBe(true);
-      // Should record last sub-state when leaving compound
       expect(result.historyUpdates).toBeDefined();
       expect(result.historyUpdates!['implementation']).toBe('review');
     });
@@ -656,7 +591,6 @@ describe('HSM Transition Algorithm', () => {
       const result = executeTransition(hsm, state, 'delegate');
 
       expect(result.success).toBe(true);
-      // Fix-cycle event should use compoundStateId key, not compound
       const fixCycleEvent = result.events.find((e) => e.type === 'fix-cycle');
       expect(fixCycleEvent).toBeDefined();
       expect(fixCycleEvent!.metadata).toBeDefined();
@@ -676,7 +610,6 @@ describe('HSM Transition Algorithm', () => {
       const result = executeTransition(hsm, state, 'delegate');
 
       expect(result.success).toBe(true);
-      // compound-entry event should include compoundStateId metadata
       const compoundEntryEvent = result.events.find((e) => e.type === 'compound-entry');
       expect(compoundEntryEvent).toBeDefined();
       expect(compoundEntryEvent!.metadata).toBeDefined();
@@ -686,7 +619,6 @@ describe('HSM Transition Algorithm', () => {
     it('ExecuteTransition_CircuitBreaker_ReturnsCircuitOpen', () => {
       const hsm = getHSMDefinition('feature');
 
-      // Simulate 3 fix-cycle events within the implementation compound
       const fixCycleEvents = Array.from({ length: 3 }, (_, i) => ({
         sequence: i + 1,
         version: '1.0' as const,
@@ -711,11 +643,9 @@ describe('HSM Transition Algorithm', () => {
       expect(result.errorCode).toBe('CIRCUIT_OPEN');
     });
 
+    /** An array-like `tasks` object makes the `allTasksComplete` guard throw. The transition returns GUARD_FAILED and does not throw. */
     it('ExecuteTransition_GuardThrows_ReturnsGuardFailed (Bug 7)', () => {
       const hsm = getHSMDefinition('feature');
-      // Corrupt state: tasks is an array-like object (not a real Array)
-      // The allTasksComplete guard calls tasks.every() which is undefined on non-arrays
-      // This triggers: TypeError: tasks.every is not a function
       const state: Record<string, unknown> = {
         phase: 'delegate',
         tasks: { length: 1, 0: { status: 'pending' } },
@@ -723,7 +653,6 @@ describe('HSM Transition Algorithm', () => {
         _history: {},
       };
 
-      // Should NOT throw — should return structured error
       const result = executeTransition(hsm, state, 'review');
 
       expect(result.success).toBe(false);
@@ -733,7 +662,6 @@ describe('HSM Transition Algorithm', () => {
   });
 
   describe('getValidTransitions', () => {
-    /** Extract phase strings from enriched ValidTransitionTarget array */
     const phases = (targets: readonly { phase: string }[]) => targets.map((t) => t.phase);
 
     it('returns valid target phases from a given phase', () => {
@@ -754,13 +682,11 @@ describe('HSM Transition Algorithm', () => {
     it('returns valid transitions for compound state children', () => {
       const hsm = getHSMDefinition('feature');
 
-      // delegate is inside implementation compound — goes directly to review
       const delegateTargets = getValidTransitions(hsm, 'delegate');
       expect(phases(delegateTargets)).toContain('review');
       expect(phases(delegateTargets)).toContain('cancelled');
       expect(phases(delegateTargets)).not.toContain('integrate');
 
-      // review has two transitions: synthesize (passed) and delegate (fix cycle)
       const reviewTargets = getValidTransitions(hsm, 'review');
       expect(phases(reviewTargets)).toContain('synthesize');
       expect(phases(reviewTargets)).toContain('delegate');
@@ -805,8 +731,6 @@ describe('HSM Transition Algorithm', () => {
   });
 });
 
-// ─── Task: Debug HSM executeTransition Tests ──────────────────────────────────
-
 describe('Debug HSM executeTransition', () => {
   describe('investigate to thorough track', () => {
     it('transitions from investigate to rca when thorough track selected', () => {
@@ -823,13 +747,11 @@ describe('Debug HSM executeTransition', () => {
       expect(result.success).toBe(true);
       expect(result.newPhase).toBe('rca');
       expect(result.idempotent).toBe(false);
-      // Should have compound-entry event for thorough-track
       const compoundEntry = result.events.find(
         (e) => e.type === 'compound-entry'
       );
       expect(compoundEntry).toBeDefined();
       expect(compoundEntry!.metadata!.compoundStateId).toBe('thorough-track');
-      // Should have onEntry effect from thorough-track compound
       expect(result.effects).toContain('log');
     });
 
@@ -863,13 +785,11 @@ describe('Debug HSM executeTransition', () => {
 
       expect(result.success).toBe(true);
       expect(result.newPhase).toBe('hotfix-implement');
-      // Should have compound-entry event for hotfix-track
       const compoundEntry = result.events.find(
         (e) => e.type === 'compound-entry'
       );
       expect(compoundEntry).toBeDefined();
       expect(compoundEntry!.metadata!.compoundStateId).toBe('hotfix-track');
-      // Should have onEntry effect from hotfix-track compound
       expect(result.effects).toContain('log');
     });
 
@@ -904,7 +824,6 @@ describe('Debug HSM executeTransition', () => {
 
       expect(result.success).toBe(true);
       expect(result.newPhase).toBe('design');
-      // Both rca and design are within thorough-track, so no compound events
       const compoundEntry = result.events.find(
         (e) => e.type === 'compound-entry'
       );
@@ -968,7 +887,6 @@ describe('Debug HSM executeTransition', () => {
         _history: {},
       };
 
-      // implementationComplete always returns true
       const result = executeTransition(hsm, state, 'debug-validate');
 
       expect(result.success).toBe(true);
@@ -1021,15 +939,12 @@ describe('Debug HSM executeTransition', () => {
 
       expect(result.success).toBe(true);
       expect(result.newPhase).toBe('synthesize');
-      // Should have compound-exit event for thorough-track
       const compoundExit = result.events.find(
         (e) => e.type === 'compound-exit'
       );
       expect(compoundExit).toBeDefined();
       expect(compoundExit!.from).toBe('thorough-track');
-      // Should have onExit effect from thorough-track compound
       expect(result.effects).toContain('log');
-      // History should record last sub-state
       expect(result.historyUpdates).toBeDefined();
       expect(result.historyUpdates!['thorough-track']).toBe('debug-review');
     });
@@ -1076,7 +991,6 @@ describe('Debug HSM executeTransition', () => {
         _history: {},
       };
 
-      // implementationComplete always returns true
       const result = executeTransition(hsm, state, 'hotfix-validate');
 
       expect(result.success).toBe(true);
@@ -1097,15 +1011,12 @@ describe('Debug HSM executeTransition', () => {
 
       expect(result.success).toBe(true);
       expect(result.newPhase).toBe('completed');
-      // Should have compound-exit event for hotfix-track
       const compoundExit = result.events.find(
         (e) => e.type === 'compound-exit'
       );
       expect(compoundExit).toBeDefined();
       expect(compoundExit!.from).toBe('hotfix-track');
-      // Should have onExit effect from hotfix-track compound
       expect(result.effects).toContain('log');
-      // History should record last sub-state
       expect(result.historyUpdates).toBeDefined();
       expect(result.historyUpdates!['hotfix-track']).toBe('hotfix-validate');
     });
@@ -1173,7 +1084,6 @@ describe('Debug HSM executeTransition', () => {
 
       expect(result.success).toBe(true);
       expect(result.newPhase).toBe('cancelled');
-      // Should record history for the thorough-track compound
       expect(result.historyUpdates).toBeDefined();
       expect(result.historyUpdates!['thorough-track']).toBe('rca');
     });
@@ -1197,8 +1107,6 @@ describe('Debug HSM executeTransition', () => {
   });
 });
 
-// ─── Task: Refactor HSM executeTransition Tests ───────────────────────────────
-
 describe('Refactor HSM executeTransition', () => {
   describe('brief to polish track', () => {
     it('transitions from brief to polish-implement when polish track selected', () => {
@@ -1215,13 +1123,11 @@ describe('Refactor HSM executeTransition', () => {
 
       expect(result.success).toBe(true);
       expect(result.newPhase).toBe('polish-implement');
-      // Should have compound-entry event for polish-track
       const compoundEntry = result.events.find(
         (e) => e.type === 'compound-entry'
       );
       expect(compoundEntry).toBeDefined();
       expect(compoundEntry!.metadata!.compoundStateId).toBe('polish-track');
-      // Should have onEntry effect from polish-track compound
       expect(result.effects).toContain('log');
     });
 
@@ -1257,7 +1163,6 @@ describe('Refactor HSM executeTransition', () => {
 
       expect(result.success).toBe(true);
       expect(result.newPhase).toBe('overhaul-plan');
-      // Should have compound-entry event for overhaul-track
       const compoundEntry = result.events.find(
         (e) => e.type === 'compound-entry'
       );
@@ -1325,7 +1230,6 @@ describe('Refactor HSM executeTransition', () => {
         _history: {},
       };
 
-      // implementationComplete always returns true
       const result = executeTransition(hsm, state, 'polish-validate');
 
       expect(result.success).toBe(true);
@@ -1378,15 +1282,12 @@ describe('Refactor HSM executeTransition', () => {
 
       expect(result.success).toBe(true);
       expect(result.newPhase).toBe('completed');
-      // Should have compound-exit event for polish-track
       const compoundExit = result.events.find(
         (e) => e.type === 'compound-exit'
       );
       expect(compoundExit).toBeDefined();
       expect(compoundExit!.from).toBe('polish-track');
-      // Should have onExit effect from polish-track compound
       expect(result.effects).toContain('log');
-      // History should record last sub-state
       expect(result.historyUpdates).toBeDefined();
       expect(result.historyUpdates!['polish-track']).toBe('polish-update-docs');
     });
@@ -1539,7 +1440,6 @@ describe('Refactor HSM executeTransition', () => {
 
       expect(result.success).toBe(true);
       expect(result.newPhase).toBe('synthesize');
-      // Should exit overhaul-track compound
       const compoundExit = result.events.find(
         (e) => e.type === 'compound-exit'
       );
@@ -1570,7 +1470,6 @@ describe('Refactor HSM executeTransition', () => {
     it('circuit breaker triggers in overhaul-track after max fix cycles', () => {
       const hsm = getHSMDefinition('refactor');
 
-      // Simulate 3 fix-cycle events within the overhaul-track compound
       const fixCycleEvents = Array.from({ length: 3 }, (_, i) => ({
         sequence: i + 1,
         version: '1.0' as const,
@@ -1637,8 +1536,6 @@ describe('Refactor HSM executeTransition', () => {
   });
 });
 
-// ─── Task: Feature HSM plan-review gap loop ───────────────────────────────────
-
 describe('Feature HSM plan-review transitions', () => {
   it('transitions plan-review back to plan when gaps found', () => {
     const hsm = getHSMDefinition('feature');
@@ -1653,7 +1550,6 @@ describe('Feature HSM plan-review transitions', () => {
 
     expect(result.success).toBe(true);
     expect(result.newPhase).toBe('plan');
-    // Should include the log effect from the transition
     expect(result.effects).toContain('log');
   });
 
@@ -1672,8 +1568,6 @@ describe('Feature HSM plan-review transitions', () => {
     expect(result.errorCode).toBe('GUARD_FAILED');
   });
 });
-
-// ─── Task: Final state and edge case transitions ──────────────────────────────
 
 describe('Final state transitions', () => {
   it('returns INVALID_TRANSITION when transitioning from completed state', () => {
@@ -1736,8 +1630,6 @@ describe('Final state transitions', () => {
   });
 });
 
-// ─── Task: getValidTransitions enriched output ────────────────────────────────
-
 describe('getValidTransitions guard metadata', () => {
   it('returns guard id and description for guarded transitions', () => {
     const hsm = getHSMDefinition('feature');
@@ -1788,8 +1680,6 @@ describe('getValidTransitions guard metadata', () => {
     expect(docsTarget!.guard!.id).toBe('goals-verified');
   });
 });
-
-// ─── Task: Additional guard coverage ──────────────────────────────────────────
 
 describe('Guard edge cases', () => {
   it('prUrlExists guard checks synthesis.prUrl', () => {
@@ -1878,15 +1768,12 @@ describe('Guard edge cases', () => {
       _history: {},
     };
 
-    // Neither allReviewsPassed nor anyReviewFailed should pass
     const toSynthesize = executeTransition(hsm, state, 'synthesize');
     expect(toSynthesize.success).toBe(false);
 
     const toDelegate = executeTransition(hsm, state, 'delegate');
     expect(toDelegate.success).toBe(false);
   });
-
-  // ─── Status-based review format (matches what skills actually write) ────
 
   it('allReviewsPassed accepts status: "approved" format', () => {
     const hsm = getHSMDefinition('feature');
@@ -1991,8 +1878,6 @@ describe('Guard edge cases', () => {
     expect(result.errorMessage).toContain('needs_fixes');
   });
 
-  // ─── Guard diagnostic reasons ────
-
   it('allReviewsPassed includes diagnostic reason when reviews missing', () => {
     const hsm = getHSMDefinition('feature');
     const state: Record<string, unknown> = {
@@ -2047,10 +1932,10 @@ describe('Guard edge cases', () => {
     expect(result.errorCode).toBe('GUARD_FAILED');
   });
 
+  /** Only two of the three fix-cycle events name `implementation`, which allows three cycles, so the transition succeeds. */
   it('countFixCycles counts only matching compound events', () => {
     const hsm = getHSMDefinition('feature');
 
-    // 2 fix cycles for 'implementation', 1 for unrelated compound
     const mixedEvents = [
       {
         type: 'fix-cycle',
@@ -2077,16 +1962,14 @@ describe('Guard edge cases', () => {
       _history: {},
     };
 
-    // Should succeed because only 2 of 3 fix-cycle events match 'implementation'
-    // and maxFixCycles for implementation is 3
     const result = executeTransition(hsm, state, 'delegate');
     expect(result.success).toBe(true);
   });
 
+  /** Three fix-cycle events for `implementation` reach its limit of three cycles. */
   it('countFixCycles triggers circuit breaker at exact limit', () => {
     const hsm = getHSMDefinition('feature');
 
-    // Exactly 3 fix-cycle events for 'implementation' (maxFixCycles is 3)
     const events = Array.from({ length: 3 }, () => ({
       type: 'fix-cycle',
       metadata: { compoundStateId: 'implementation' },
@@ -2104,10 +1987,6 @@ describe('Guard edge cases', () => {
     expect(result.errorCode).toBe('CIRCUIT_OPEN');
   });
 });
-
-// ─── Task: Missing state/edge case coverage ──────────────────────────────────
-
-// ─── Task: Diagnostic event emission on guard failure and circuit open ──────
 
 describe('Diagnostic Event Emission', () => {
   describe('guard-failed events', () => {
@@ -2134,7 +2013,6 @@ describe('Diagnostic Event Emission', () => {
 
     it('should return guard-failed event when guard throws exception', () => {
       const hsm = getHSMDefinition('feature');
-      // Corrupt state that makes the allTasksComplete guard throw
       const state: Record<string, unknown> = {
         phase: 'delegate',
         tasks: { length: 1, 0: { status: 'pending' } },
@@ -2159,7 +2037,6 @@ describe('Diagnostic Event Emission', () => {
     it('should return circuit-open event when fix-cycle limit reached', () => {
       const hsm = getHSMDefinition('feature');
 
-      // Simulate 3 fix-cycle events within the implementation compound (maxFixCycles is 3)
       const fixCycleEvents = Array.from({ length: 3 }, (_, i) => ({
         sequence: i + 1,
         version: '1.0' as const,
@@ -2195,7 +2072,6 @@ describe('Diagnostic Event Emission', () => {
     it('should return circuit-open event for overhaul-track compound', () => {
       const hsm = getHSMDefinition('refactor');
 
-      // Simulate 3 fix-cycle events within the overhaul-track compound (maxFixCycles is 3)
       const fixCycleEvents = Array.from({ length: 3 }, (_, i) => ({
         sequence: i + 1,
         version: '1.0' as const,
@@ -2225,8 +2101,6 @@ describe('Diagnostic Event Emission', () => {
     });
   });
 });
-
-// ─── Task: Synthesize retry transitions ───────────────────────────────────────
 
 describe('Synthesize retry transitions', () => {
   describe('Feature HSM', () => {
@@ -2396,7 +2270,6 @@ describe('Missing _events and _history defaults', () => {
     const state: Record<string, unknown> = {
       phase: 'review',
       reviews: { spec: { status: 'fail' } },
-      // No _events or _history
     };
 
     const result = executeTransition(hsm, state, 'delegate');
@@ -2410,7 +2283,6 @@ describe('Missing _events and _history defaults', () => {
     const state: Record<string, unknown> = {
       phase: 'plan',
       artifacts: { plan: 'docs/specs/x.md' },
-      // No _history
     };
 
     const result = executeTransition(hsm, state, 'plan-review');
@@ -2420,13 +2292,8 @@ describe('Missing _events and _history defaults', () => {
   });
 });
 
-// ─── Task: Leaf-state onEntry/onExit effect coverage ──────────────────────────
-
+/** A minimal custom HSM puts onEntry and onExit effects on atomic states, so the tests reach the leaf-state effect paths. */
 describe('Leaf-state onEntry/onExit effects', () => {
-  // Build a minimal custom HSM where leaf (atomic) states have onEntry/onExit effects.
-  // This exercises the code paths at lines 843-844 (currentState.onExit) and
-  // 876-877 (targetState.onEntry) in state-machine.ts, which are not reached
-  // by the built-in HSM definitions (only compound states have effects there).
 
   function createTestHSM(): HSMDefinition {
     const states: Record<string, State> = {
@@ -2470,7 +2337,6 @@ describe('Leaf-state onEntry/onExit effects', () => {
 
     expect(result.success).toBe(true);
     expect(result.newPhase).toBe('beta');
-    // Should include the onExit effect from the alpha leaf state
     expect(result.effects).toContain('log');
   });
 
@@ -2486,10 +2352,10 @@ describe('Leaf-state onEntry/onExit effects', () => {
 
     expect(result.success).toBe(true);
     expect(result.newPhase).toBe('beta');
-    // Should include the onEntry effect from the beta leaf state
     expect(result.effects).toContain('checkpoint');
   });
 
+  /** The exit effects come before the entry effects. */
   it('collects both onExit and onEntry leaf effects in a single transition', () => {
     const hsm = createTestHSM();
     const state: Record<string, unknown> = {
@@ -2501,10 +2367,8 @@ describe('Leaf-state onEntry/onExit effects', () => {
     const result = executeTransition(hsm, state, 'beta');
 
     expect(result.success).toBe(true);
-    // Both leaf-state exit (log) and entry (checkpoint) effects should be present
     expect(result.effects).toContain('log');
     expect(result.effects).toContain('checkpoint');
-    // Exit effects come before entry effects
     const logIdx = result.effects.indexOf('log');
     const checkpointIdx = result.effects.indexOf('checkpoint');
     expect(logIdx).toBeLessThan(checkpointIdx);
@@ -2522,12 +2386,9 @@ describe('Leaf-state onEntry/onExit effects', () => {
 
     expect(result.success).toBe(true);
     expect(result.newPhase).toBe('cancelled');
-    // Should include the onExit effect from the alpha leaf state via cancel path
     expect(result.effects).toContain('log');
   });
 });
-
-// ─── Task 1: mergeVerified guard ──────────────────────────────────────────────
 
 describe('mergeVerified guard', () => {
   it('should pass when _cleanup.mergeVerified is true', () => {
@@ -2551,8 +2412,6 @@ describe('mergeVerified guard', () => {
   });
 });
 
-// ─── Task 2: Universal cleanup transition ─────────────────────────────────────
-
 describe('universal cleanup transition', () => {
   it('should transition from review to completed when mergeVerified', () => {
     const hsm = getHSMDefinition('feature');
@@ -2572,7 +2431,6 @@ describe('universal cleanup transition', () => {
 
   it('should fall through to normal transition when mergeVerified is false', () => {
     const hsm = getHSMDefinition('feature');
-    // review has no normal transition to completed, so this should fail
     const state = { phase: 'review', _cleanup: { mergeVerified: false }, _events: [], _history: {} };
     const result = executeTransition(hsm, state as Record<string, unknown>, 'completed');
     expect(result.success).toBe(false);
@@ -2616,11 +2474,9 @@ describe('universal cleanup transition', () => {
 
   it('should collect exit effects from compound parents', () => {
     const hsm = getHSMDefinition('feature');
-    // delegate is inside 'implementation' compound
     const state = { phase: 'delegate', _cleanup: { mergeVerified: true }, _events: [], _history: {} };
     const result = executeTransition(hsm, state as Record<string, unknown>, 'completed');
     expect(result.success).toBe(true);
-    // Should have exit effects from implementation compound
     expect(result.effects.length).toBeGreaterThan(0);
   });
 
@@ -2636,13 +2492,10 @@ describe('universal cleanup transition', () => {
     const hsm = getHSMDefinition('feature');
     const state = { phase: 'completed', _cleanup: { mergeVerified: true }, _events: [], _history: {} };
     const result = executeTransition(hsm, state as Record<string, unknown>, 'completed');
-    // Should be idempotent
     expect(result.success).toBe(true);
     expect(result.idempotent).toBe(true);
   });
 });
-
-// ─── Task 3: Debug Escalation HSM Transition ────────────────────────────────
 
 describe('Debug HSM Escalation Transition', () => {
   it('debugHSM_InvestigateToCancel_EscalationTransitionExists', () => {
@@ -2670,6 +2523,7 @@ describe('Debug HSM Escalation Transition', () => {
     expect(result.newPhase).toBe('cancelled');
   });
 
+  /** The universal cancel still succeeds, so the test reads the guarded transition from the definition and evaluates its guard. */
   it('debugHSM_InvestigateToCancelled_FailsWhenNoEscalation', () => {
     const hsm = getHSMDefinition('debug');
     const state: Record<string, unknown> = {
@@ -2679,23 +2533,16 @@ describe('Debug HSM Escalation Transition', () => {
       _history: {},
     };
 
-    // Note: cancel is a universal transition, so investigate → cancelled
-    // via the escalation guard will fail, but universal cancel will succeed.
-    // The guard-gated transition is distinct from universal cancel.
-    // Let's verify the guard-gated transition is in the definition.
     const transition = hsm.transitions.find(
       (t) => t.from === 'investigate' && t.to === 'cancelled',
     );
     expect(transition).toBeDefined();
     expect(transition!.guard).toBeDefined();
 
-    // Verify the guard fails for non-escalation state
     const guardResult = transition!.guard!.evaluate(state);
     expect(guardResult).not.toBe(true);
   });
 });
-
-// ─── Task 4: Plan Revision Termination HSM Transition ───────────────────────
 
 describe('Feature HSM Plan Revision Termination', () => {
   it('featureHSM_PlanReviewToBlocked_RevisionsExhaustedTransitionExists', () => {
@@ -2708,10 +2555,8 @@ describe('Feature HSM Plan Revision Termination', () => {
     expect(transition!.guard!.id).toBe('revisions-exhausted');
   });
 
+  /** The cap is the injected `_maxPlanRevisions`, from `workflow.maxPlanRevisions` in `.exarchos.yml`. At the cap, the terminating transition fires. */
   it('featureHSM_PlanReviewToBlocked_SucceedsWhenRevisionsExhausted', () => {
-    // DR-1: cap is the injected `_maxPlanRevisions` (from
-    // `.exarchos.yml workflow.maxPlanRevisions`); at the cap the terminating
-    // edge fires.
     const hsm = getHSMDefinition('feature');
     const state: Record<string, unknown> = {
       phase: 'plan-review',
@@ -2728,7 +2573,6 @@ describe('Feature HSM Plan Revision Termination', () => {
   });
 
   it('featureHSM_PlanReviewToBlocked_FailsWhenRevisionsBelowMax', () => {
-    // Injected cap 3 keeps the revise loop open at 1 revision.
     const hsm = getHSMDefinition('feature');
     const state: Record<string, unknown> = {
       phase: 'plan-review',
@@ -2744,9 +2588,8 @@ describe('Feature HSM Plan Revision Termination', () => {
     expect(result.errorCode).toBe('GUARD_FAILED');
   });
 
+  /** With no injected cap, the default cap is 1, so one revision reaches it. */
   it('featureHSM_PlanReviewToBlocked_DefaultCapIsOne_NoInjection', () => {
-    // Flagged behavior change (DR-1): without an injected cap the default is 1
-    // (was 3), so a single revision reaches the bound.
     const hsm = getHSMDefinition('feature');
     const state: Record<string, unknown> = {
       phase: 'plan-review',
@@ -2761,8 +2604,6 @@ describe('Feature HSM Plan Revision Termination', () => {
     expect(result.newPhase).toBe('blocked');
   });
 });
-
-// ─── Task 8: Hotfix-Validate to Synthesize HSM Transition ───────────────────
 
 describe('Debug HSM Hotfix-Validate to Synthesize', () => {
   it('debugHSM_HotfixValidateToSynthesize_TransitionExists', () => {
@@ -2825,7 +2666,6 @@ describe('Debug HSM Hotfix-Validate to Synthesize', () => {
     const hsm = getHSMDefinition('debug');
     const transitions = hsm.transitions;
 
-    // Find indices of both transitions from hotfix-validate
     const synthIdx = transitions.findIndex(
       (t) => t.from === 'hotfix-validate' && t.to === 'synthesize',
     );
@@ -2833,14 +2673,11 @@ describe('Debug HSM Hotfix-Validate to Synthesize', () => {
       (t) => t.from === 'hotfix-validate' && t.to === 'completed',
     );
 
-    // synthesize transition must come before completed transition
     expect(synthIdx).toBeGreaterThanOrEqual(0);
     expect(completedIdx).toBeGreaterThanOrEqual(0);
     expect(synthIdx).toBeLessThan(completedIdx);
   });
 });
-
-// ─── Bug #957: Universal completed transition tagged as universal ─────────────
 
 describe('getValidTransitions universal tagging', () => {
   it('tags universal completed target with universal: true', () => {
@@ -2870,18 +2707,16 @@ describe('getValidTransitions universal tagging', () => {
     expect(planReviewTarget!.universal).toBeUndefined();
   });
 
+  /** `hotfix-validate` has an explicit transition to `completed`, so its `completed` target is not universal. */
   it('does not tag explicit completed transition as universal (hotfix-validate)', () => {
     const hsm = getHSMDefinition('debug');
     const targets = getValidTransitions(hsm, 'hotfix-validate');
 
     const completedTarget = targets.find((t) => t.phase === 'completed');
     expect(completedTarget).toBeDefined();
-    // hotfix-validate has an explicit completed transition, so it should NOT be universal
     expect(completedTarget!.universal).toBeUndefined();
   });
 });
-
-// ─── Bug #958: Direct-to-main hotfix completion ──────────────────────────────
 
 describe('Debug HSM direct-push completion', () => {
   it('fixVerifiedDirectly guard passes with directPush and commitSha', () => {
@@ -2949,13 +2784,11 @@ describe('Debug HSM direct-push completion', () => {
   });
 });
 
-// ─── Task 19: HSM Registry Extension for Custom Workflows ──────────────────
-
 describe('HSM Registry Extension', () => {
   const CUSTOM_NAME = 'custom-deploy';
 
   afterEach(() => {
-    try { unregisterWorkflowType(CUSTOM_NAME); } catch { /* ignore if not registered */ }
+    try { unregisterWorkflowType(CUSTOM_NAME); } catch { }
   });
 
   it('RegisterWorkflowType_AddsToHsmRegistry', () => {
@@ -2999,18 +2832,14 @@ describe('HSM Registry Extension', () => {
     const hsm = getHSMDefinition(CUSTOM_NAME);
     expect(hsm.id).toBe(CUSTOM_NAME);
 
-    // Should have inherited states from feature (DR-4 #1581: plan is initial)
     expect(hsm.states['plan']).toBeDefined();
     expect(hsm.states['plan-review']).toBeDefined();
     expect(hsm.states['delegate']).toBeDefined();
 
-    // Should have the new state
     expect(hsm.states['extra-review']).toBeDefined();
 
-    // Should have more transitions than just the custom ones (inherited + new)
     expect(hsm.transitions.length).toBeGreaterThan(2);
 
-    // The custom transition should exist
     const customTransition = hsm.transitions.find(
       (t) => t.from === 'synthesize' && t.to === 'extra-review',
     );
@@ -3031,7 +2860,6 @@ describe('HSM Registry Extension', () => {
 
     const hsm = getHSMDefinition(CUSTOM_NAME);
 
-    // Execute a transition
     const state = { phase: 'start', _events: [], _history: {} };
     const result = executeTransition(hsm, state, 'middle');
 
@@ -3101,27 +2929,22 @@ describe('findTransition', () => {
   });
 });
 
-// ─── Task T9: Oneshot Workflow HSM Tests ────────────────────────────────────
-//
-// The oneshot workflow uses a choice-state pattern at `implementing`:
-// exactly one of `synthesisOptedIn` / `synthesisOptedOut` must pass for any
-// (synthesisPolicy, synthesize.requested event) combination. The decision
-// is fully event-sourced — no live IO in guards.
-
+/**
+ * The oneshot workflow has a choice state at `implementing`.
+ * For each combination of `synthesisPolicy` and a `synthesize.requested` event, exactly one of `synthesisOptedIn` and `synthesisOptedOut` passes.
+ */
 describe('Oneshot Workflow HSM', () => {
   it('oneshot_hsmHasFourTransitions', () => {
     const hsm = getHSMDefinition('oneshot');
     expect(hsm).toBeDefined();
     expect(hsm.id).toBe('oneshot');
 
-    // plan → implementing
     const planToImpl = hsm.transitions.find(
       (t) => t.from === 'plan' && t.to === 'implementing',
     );
     expect(planToImpl).toBeDefined();
     expect(planToImpl!.guard).toBeDefined();
 
-    // implementing → synthesize (guarded by synthesisOptedIn)
     const implToSynth = hsm.transitions.find(
       (t) => t.from === 'implementing' && t.to === 'synthesize',
     );
@@ -3129,7 +2952,6 @@ describe('Oneshot Workflow HSM', () => {
     expect(implToSynth!.guard).toBeDefined();
     expect(implToSynth!.guard!.id).toBe('synthesis-opted-in');
 
-    // implementing → completed (guarded by synthesisOptedOut)
     const implToCompleted = hsm.transitions.find(
       (t) => t.from === 'implementing' && t.to === 'completed',
     );
@@ -3137,7 +2959,6 @@ describe('Oneshot Workflow HSM', () => {
     expect(implToCompleted!.guard).toBeDefined();
     expect(implToCompleted!.guard!.id).toBe('synthesis-opted-out');
 
-    // synthesize → completed (guarded by mergeVerified)
     const synthToCompleted = hsm.transitions.find(
       (t) => t.from === 'synthesize' && t.to === 'completed',
     );
@@ -3161,7 +2982,6 @@ describe('Oneshot Workflow HSM', () => {
   it('oneshot_planToImplementing_requiresPlanArtifact', () => {
     const hsm = getHSMDefinition('oneshot');
 
-    // No plan set → guard fails
     const noPlan: Record<string, unknown> = {
       phase: 'plan',
       workflowType: 'oneshot',
@@ -3174,7 +2994,6 @@ describe('Oneshot Workflow HSM', () => {
     expect(failResult.success).toBe(false);
     expect(failResult.errorCode).toBe('GUARD_FAILED');
 
-    // Plan set → transitions successfully
     const withPlan: Record<string, unknown> = {
       phase: 'plan',
       workflowType: 'oneshot',
@@ -3188,11 +3007,11 @@ describe('Oneshot Workflow HSM', () => {
     expect(okResult.newPhase).toBe('implementing');
   });
 
+  /**
+   * Runs eight combinations of policy and event. A missing policy acts as `on-request`.
+   * `always` goes to `synthesize`, and `never` goes to `completed`. `on-request` goes to `synthesize` only when the event is present.
+   */
   it('oneshot_implementingChoiceStateMutuallyExclusive', () => {
-    // Parameterized over (synthesisPolicy × synthesize.requested event present).
-    // For each of the 8 combinations (including the "policy field missing"
-    // default case), assert that executeTransition from `implementing` to
-    // exactly one of {synthesize, completed} succeeds.
     const hsm = getHSMDefinition('oneshot');
 
     const policies: Array<{
@@ -3234,19 +3053,12 @@ describe('Oneshot Workflow HSM', () => {
         const synthOk = toSynth.success === true;
         const completedOk = toCompleted.success === true;
 
-        // Exactly one branch must succeed.
         const caseLabel = `policy=${policy.label}, events=${stream.label}`;
         expect(
           synthOk !== completedOk,
           `Expected exactly one reachable target from implementing for ${caseLabel}, got synth=${synthOk}, completed=${completedOk}`,
         ).toBe(true);
 
-        // Cross-check expected target per the choice-state semantics:
-        // - policy=always → synthesize (regardless of events)
-        // - policy=never → completed (regardless of events)
-        // - policy=on-request + event → synthesize
-        // - policy=on-request + no event → completed
-        // - policy missing → defaults to on-request semantics
         const effectivePolicy =
           policy.oneshot === undefined
             ? 'on-request'
@@ -3271,7 +3083,6 @@ describe('Oneshot Workflow HSM', () => {
   it('oneshot_synthesizeToCompleted_requiresMergeVerified', () => {
     const hsm = getHSMDefinition('oneshot');
 
-    // Without merge verification → guard fails
     const pending: Record<string, unknown> = {
       phase: 'synthesize',
       workflowType: 'oneshot',
@@ -3282,7 +3093,6 @@ describe('Oneshot Workflow HSM', () => {
     const pendingResult = executeTransition(hsm, pending, 'completed');
     expect(pendingResult.success).toBe(false);
 
-    // With merge verification → guard passes
     const verified: Record<string, unknown> = {
       phase: 'synthesize',
       workflowType: 'oneshot',
@@ -3296,10 +3106,10 @@ describe('Oneshot Workflow HSM', () => {
     expect(verifiedResult.newPhase).toBe('completed');
   });
 
+  /** Cancel must succeed from each phase that is not final, and `getValidTransitions` must mark it universal. */
   it('oneshot_inheritsUniversalCancelTransition', () => {
     const hsm = getHSMDefinition('oneshot');
 
-    // Cancel must be reachable from every non-terminal phase.
     const nonFinalPhases = ['plan', 'implementing', 'synthesize'];
     for (const phase of nonFinalPhases) {
       const state: Record<string, unknown> = {
@@ -3316,7 +3126,6 @@ describe('Oneshot Workflow HSM', () => {
       expect(result.newPhase).toBe('cancelled');
     }
 
-    // getValidTransitions must also advertise cancelled as universal.
     const targets = getValidTransitions(hsm, 'plan');
     const cancelTarget = targets.find((t) => t.phase === 'cancelled');
     expect(cancelTarget).toBeDefined();

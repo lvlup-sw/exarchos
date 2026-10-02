@@ -1,3 +1,14 @@
+/**
+ * A static census that keeps one phase-mutation authority.
+ * The scan masks comments and string spans in the shipped source, then finds each `executeTransition` identifier in code.
+ * It reports `UNAUTHORIZED_PHASE_MUTATION` for a reference outside the declared owners.
+ * It reports `STALE_PHASE_MUTATION_OWNER` for an owner that does not reference the primitive.
+ * The identifier match also catches a re-export, an aliased import and a dynamic import.
+ *
+ * Known limit: the mask hides a call inside a template interpolation.
+ * `executeTransition` returns a structured result and not a string, so that bypass is not plausible.
+ */
+
 import { describe, it, expect } from 'vitest';
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
@@ -5,72 +16,16 @@ import { fileURLToPath } from 'node:url';
 import { maskLiteralsAndComments } from '../../../tools/conformance/src/delivery-safety.js';
 import { lexModule } from '../../../tools/test-helpers/module-lexer.js';
 
-/**
- * T-11 / DR-7 — single phase-mutation authority, asserted STRUCTURALLY.
- *
- * DR-7 ("exactly one action mutates a phase", INV-9) was closed behaviourally by
- * T-10/T-12: `cleanup` and `cancel` stopped calling `executeTransition` directly
- * and now route through the guarded primitive. Behaviour alone cannot keep it
- * closed — a future module can re-open the bypass by importing
- * `executeTransition` and calling it, and every existing behavioural test would
- * still pass, because those tests exercise the paths that *were* fixed, not the
- * paths that do not exist yet.
- *
- * This census is the ratchet. It is a string-aware static scan of the shipped
- * MCP source (the same shape as `architecture/vcs-ownership.ts` and
- * `verbs/gates/gate-ownership-census.ts`) that enumerates every reference to the
- * phase-mutation primitive and fails closed when one appears outside the
- * declared authority surface. It is deliberately a two-way ratchet:
- *
- *   - UNAUTHORIZED_PHASE_MUTATION — a reference in a module no rule claims (the
- *     bypass DR-7 closes, re-opened);
- *   - STALE_PHASE_MUTATION_OWNER  — a declared owner that no longer references
- *     the primitive (phantom cover), so the allowlist cannot rot into a rubber
- *     stamp if `hsm-transition-guard.ts` is renamed or stops calling through.
- *
- * ── Scope ───────────────────────────────────────────────────────────────────
- * The detector matches the bare identifier `executeTransition` in *real code*
- * only: {@link maskLiteralsAndComments} blanks comment and string/template spans
- * first (offset-preserving), so the many JSDoc mentions of the primitive across
- * `cleanup.ts`, `cancel.ts`, `guards.ts`, `schemas.ts` and friends are NOT
- * findings, and neither is the prose that names it inside a string literal
- * (`retirement/retirement-safety.ts`). Matching the identifier rather than a
- * call shape is what makes the check bypass-proof: a re-exported binding, an
- * aliased import (`executeTransition as et`), a dynamic
- * `(await import(…)).executeTransition` and a plain call all mention the
- * identifier in code and are all caught.
- *
- * Known limit, stated rather than hidden: a call written *inside* a template
- * interpolation (`` `${executeTransition(…)}` ``) is masked with the rest of the
- * template and would be missed. `executeTransition` returns a structured
- * `TransitionResult`, never a string, so that is not a plausible bypass shape;
- * the behavioural guarantee for such a path is `hsm-transition-guard.ts`'s own
- * tests, not this scan.
- */
-
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../src');
 
-/** The phase-mutation primitive whose invocation authority DR-7 constrains. */
+/** The phase-mutation primitive that the census tracks. */
 const PHASE_MUTATION_PRIMITIVE = 'executeTransition';
 
 /**
- * The modules permitted to reference the primitive in shipped source.
- *
- *   - `workflow/state-machine.ts`        — the DEFINITION site. It declares and
- *                                          exports the primitive; excluding it
- *                                          would make the census vacuous.
- *   - `workflow/hsm-transition-guard.ts` — the SINGLE production authority
- *                                          (DR-7). Every phase mutation —
- *                                          ordinary transitions, `cancel`, and
- *                                          `cleanup` since T-10 — composes
- *                                          through this primitive, which is what
- *                                          makes all of them shadow-observed and
- *                                          atomically trailed.
- *
- * `workflow/cancel.ts` and `workflow/cleanup.ts` deliberately do NOT appear:
- * they used to call `executeTransition` directly (the DR-7 bypass) and now hold
- * only a comment naming the bypass they replaced. Re-adding a live reference in
- * either trips UNAUTHORIZED_PHASE_MUTATION.
+ * The modules that can reference the primitive in shipped source.
+ * `state-machine.ts` defines the primitive.
+ * `hsm-transition-guard.ts` is the one production authority, so each phase mutation goes through it, `cancel` and `cleanup` included.
+ * `cancel.ts` and `cleanup.ts` are not owners, so a live reference in either trips `UNAUTHORIZED_PHASE_MUTATION`.
  */
 const PHASE_MUTATION_OWNERS: readonly string[] = Object.freeze([
   'workflow/hsm-transition-guard.ts',
@@ -223,8 +178,6 @@ export async function scanPhaseMutationRefs(
   return Object.freeze(perFile.flat());
 }
 
-// ─── Detector unit tests ────────────────────────────────────────────────────
-
 describe('detectPhaseMutationRefs', () => {
   it('detects a direct call, a static import and an aliased import', () => {
     const refs = detectPhaseMutationRefs(
@@ -315,13 +268,10 @@ describe('runPhaseMutationOwnershipCensus — verdict logic', () => {
   });
 });
 
-// ─── Exit proof over the live tree ──────────────────────────────────────────
-
 describe('EXIT PROOF — single phase-mutation authority (DR-7)', () => {
   it('the live shipped source has ZERO unauthorized phase mutations and no stale owner', async () => {
     const refs = await scanPhaseMutationRefs(SRC_ROOT);
     const result = runPhaseMutationOwnershipCensus(refs, PHASE_MUTATION_OWNERS);
-    // Surfacing the diagnostics array makes any regression self-describing.
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
     expect(result.refCount).toBeGreaterThan(0);

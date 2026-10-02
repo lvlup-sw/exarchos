@@ -1,13 +1,5 @@
-// ─── cancel.envelope (#1325 task α-07) ────────────────────────────────────
-//
-// Property-style assertion: every event emitted by `handleCancel` carries a
-// canonical envelope — non-empty `correlationId`, registered `source`, and
-// per-event-type data schema validates.
-//
-// RED expectation: the six raw `eventStore.append(...)` sites in `cancel.ts`
-// (lines 131, 151, 190, 202, 225, 236) currently bypass `buildValidatedEvent`
-// and emit events without `correlationId` or `source`. This test exercises
-// the four distinct emission paths and fails today; α-08 closes the gap.
+// Checks that every event from `handleCancel` carries a canonical envelope.
+// A canonical envelope has a non-empty `correlationId`, a registered `source`, and data that passes its event-type schema.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
@@ -34,9 +26,8 @@ afterEach(async () => {
 });
 
 /**
- * `handleInit` produces an ES v2 state by default. To exercise the V1 legacy
- * branches inside `handleCancel`, downgrade the state file's `_esVersion` to
- * something other than 2.
+ * Deletes `_esVersion` from the state file, so `handleCancel` takes its v1 legacy branches.
+ * `handleInit` writes an ES v2 state by default.
  */
 async function downgradeToV1(stateDir: string, featureId: string): Promise<void> {
   const stateFile = path.join(stateDir, `${featureId}.state.json`);
@@ -46,27 +37,19 @@ async function downgradeToV1(stateDir: string, featureId: string): Promise<void>
 }
 
 /**
- * Waiver for the two `it.skip`s below (DR-7, task 078).
- *
- * They were skipped with a reason but no tracking issue — the comment said
- * "TODO file as #TBD-cancel-correlation-context" — and no expiry, which is a
- * skip that outlives its justification by default. It is now tracked under the
- * residue epic and dated, and the date is ASSERTED (see the waiver test) rather
- * than written down and forgotten.
+ * The tracking issue and expiry date of the waiver for the two skipped envelope tests.
+ * The waiver test fails after the expiry date.
  */
 const CANCEL_CORRELATION_WAIVER = Object.freeze({
   issue: '#1789',
   expires: '2026-11-30',
 });
 
+/**
+ * `CancelInput` holds only `featureId`, `reason`, and `dryRun`, so no caller supplies a `correlationId`.
+ * The cancel code must not invent one, so the two envelope tests stay skipped under the waiver.
+ */
 describe('WorkflowCancel_AllEmittedEvents_HaveCanonicalEnvelope', () => {
-  // PER-SITE ABORT (α-08): all 6 emission sites in `cancel.ts` (lines 131,
-  // 151, 190, 202, 225, 236) lack a caller-supplied `correlationId` source.
-  // `CancelInput` shape is `{ featureId, reason?, dryRun? }` — there is no
-  // upstream correlation context to thread. Per the design's hard
-  // constraint ("DO NOT invent a correlationId"), all six sites stay on the
-  // raw `eventStore.append` path and the assertions below are skipped.
-
   it('WorkflowCancel_EnvelopeSkipWaiver_HasNotExpired', () => {
     expect(
       CANCEL_CORRELATION_WAIVER.expires > new Date().toISOString().slice(0, 10),
@@ -77,7 +60,6 @@ describe('WorkflowCancel_AllEmittedEvents_HaveCanonicalEnvelope', () => {
     ).toBe(true);
   });
 
-  // cancel.ts:190 + :202 — ES v2 transition + cancel emissions
   it.skip('cancel.ts:190+:202 — ES v2 transition + cancel events have canonical envelope', async () => {
     const featureId = 'cancel-envelope-es2';
     await handleInit({ featureId, workflowType: 'feature' }, tempDir, store);
@@ -93,7 +75,6 @@ describe('WorkflowCancel_AllEmittedEvents_HaveCanonicalEnvelope', () => {
     assertCanonicalEnvelope(cancelPathEvents);
   });
 
-  // cancel.ts:225 + :236 — V1 legacy transition + cancel emissions
   it.skip('cancel.ts:225+:236 — V1 legacy transition + cancel events have canonical envelope', async () => {
     const featureId = 'cancel-envelope-v1';
     await handleInit({ featureId, workflowType: 'feature' }, tempDir, store);

@@ -1,19 +1,11 @@
-// ─── Single-Composer Guard (repo conformance) ───────────────────────────────
-//
-// `resolveVerificationPolicy` (verification-policy-resolver.ts) is the DECLARED
-// only composer of config + the frozen built-in table. Every consumer that
-// needs "which gates run for a task" MUST import the resolver — never call the
-// frozen table function `resolveVerificationSequence` (verification-policy.ts)
-// directly. A direct import re-introduces the stamp/skip desync this slice
-// closes: the delegation stamp would route through config while a direct-table
-// consumer (e.g. the gate self-skip path) would silently ignore it.
-//
-// This guard scans the production source tree and FAILS if any file other than
-// the resolver + table modules themselves imports `resolveVerificationSequence`
-// from `./verification-policy.js`. It mirrors the AST-based scanner pattern in
-// `storage/__tests__/no-legacy-runtime-deps.test.ts` so a side-effect, dynamic,
-// or re-export form cannot slip past a naive regex.
-// ────────────────────────────────────────────────────────────────────────────
+// `resolveVerificationPolicy` in `verification-policy-resolver.ts` is the only
+// composer of the config and the frozen built-in gate table. A consumer that
+// needs the gates of a task must import the resolver, not the table function
+// `resolveVerificationSequence`. A direct import lets a consumer ignore the
+// config that the delegation stamp obeys. This guard parses each production
+// file under `src/` and fails when a file other than the resolver and the
+// table module reaches `resolveVerificationSequence` from
+// `verification-policy.js`.
 
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -24,49 +16,31 @@ import ts from 'typescript';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// src/workflow/__tests__/ → src/
+/** The `src/` directory at the repository root. */
 const SRC_DIR = resolve(__dirname, '../../../src');
 
-/** The frozen-table symbol no consumer may import directly. */
+/** The frozen-table function that a consumer must not import directly. */
 const FORBIDDEN_NAMED_IMPORT = 'resolveVerificationSequence';
-/**
- * The module specifier the forbidden symbol is exported from. We match on the
- * trailing `verification-policy.js` (ESM/NodeNext extension) so a relative path
- * from any depth (`./verification-policy.js`, `../workflow/verification-policy.js`)
- * is caught.
- */
+/** The scanner matches the end of the specifier, so a relative path from any depth matches. */
 const FORBIDDEN_MODULE_TAIL = 'verification-policy.js';
 
-/**
- * The ONLY two files permitted to import `resolveVerificationSequence` directly:
- *   - `verification-policy.ts`          — the table module itself (defines it)
- *   - `verification-policy-resolver.ts` — the single composer that layers config
- *                                         on top of the table
- */
+/** The table module that defines `resolveVerificationSequence`, and the resolver that layers config on the table. */
 const ALLOWED_BASENAMES = new Set([
   'verification-policy.ts',
   'verification-policy-resolver.ts',
 ]);
 
 /**
- * Returns true iff `source` reaches `resolveVerificationSequence` from a module
- * whose specifier ends in `verification-policy.js`, in ANY import/re-export form
- * TypeScript supports:
- *   - named import / aliased named import (`import { x }`, `import { x as y }`)
- *   - named re-export (`export { x } from`)
- *   - NAMESPACE import (`import * as ns from`) — binds every export, so
- *     `ns.resolveVerificationSequence(...)` bypasses the rule
- *   - EXPORT-ALL (`export * from`, `export * as ns from`) — re-exports the
- *     forbidden table function transitively
- * Only a plain side-effect import (`import '…'`) and a default import cannot name
- * this symbol; every binding form that CAN reach it is matched.
+ * Returns true when `source` reaches `resolveVerificationSequence` from a module whose specifier ends in `verification-policy.js`.
+ * It matches named, aliased, and type-only imports, named re-exports, namespace imports, and both export-all forms.
+ * A namespace import or an export-all reaches every export of the module, so it reaches the table function too.
  */
 function importsForbiddenTableFn(source: string): boolean {
   const sf = ts.createSourceFile(
     'scan.ts',
     source,
     ts.ScriptTarget.Latest,
-    /* setParentNodes */ false,
+    false,
     ts.ScriptKind.TS,
   );
 
@@ -79,18 +53,12 @@ function importsForbiddenTableFn(source: string): boolean {
 
     if (ts.isImportDeclaration(node) && specifierMatches(node.moduleSpecifier)) {
       const namedBindings = node.importClause?.namedBindings;
-      // import * as verificationPolicy from '…/verification-policy.js'
-      // A namespace binding exposes EVERY export — including the forbidden table
-      // function — so `ns.resolveVerificationSequence(...)` bypasses the rule.
       if (namedBindings && ts.isNamespaceImport(namedBindings)) {
         found = true;
         return;
       }
-      // import { resolveVerificationSequence, … } from '…/verification-policy.js'
-      // import type { resolveVerificationSequence } from '…' (type position too)
       if (namedBindings && ts.isNamedImports(namedBindings)) {
         for (const el of namedBindings.elements) {
-          // `propertyName` is the original name in `import { orig as alias }`.
           const original = el.propertyName?.text ?? el.name.text;
           if (original === FORBIDDEN_NAMED_IMPORT) {
             found = true;
@@ -105,15 +73,10 @@ function importsForbiddenTableFn(source: string): boolean {
       node.moduleSpecifier &&
       specifierMatches(node.moduleSpecifier)
     ) {
-      // export * from '…/verification-policy.js'  (exportClause === undefined)
-      // export * as ns from '…/verification-policy.js'  (NamespaceExport)
-      // Either form re-exports the forbidden table function transitively, so a
-      // consumer importing from the re-exporter reaches it without naming it.
       if (node.exportClause === undefined || ts.isNamespaceExport(node.exportClause)) {
         found = true;
         return;
       }
-      // export { resolveVerificationSequence } from '…/verification-policy.js'
       if (ts.isNamedExports(node.exportClause)) {
         for (const el of node.exportClause.elements) {
           const original = el.propertyName?.text ?? el.name.text;
@@ -183,9 +146,9 @@ function collectProductionTsFiles(rootDir: string, fs: WalkerFs = REAL_WALKER_FS
 }
 
 describe('single-composer guard', () => {
+  /** The walker must find more than 50 files, so an empty walk cannot pass. */
   it('RepoConformance_ResolveVerificationSequence_OnlyImportedByResolverAndTableTests', () => {
     const productionFiles = collectProductionTsFiles(SRC_DIR);
-    // Sanity: the walker must actually find a substantial source tree.
     expect(productionFiles.length).toBeGreaterThan(50);
 
     const offenders: string[] = [];
@@ -206,9 +169,7 @@ describe('single-composer guard', () => {
     ).toEqual([]);
   });
 
-  // Scanner-form coverage — proves the AST scanner catches the named-import and
-  // named-re-export forms and does not flag the resolver's own delegated call
-  // or an unrelated string literal.
+  /** The scanner flags each form that reaches the table function, and not the resolver import, an unrelated module, or a string literal. */
   describe('scanner-form coverage', () => {
     const POSITIVE: ReadonlyArray<{ name: string; src: string }> = [
       {

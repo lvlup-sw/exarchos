@@ -14,22 +14,12 @@ import {
 import { FEEDBACK_STREAM_ID } from '../../../src/workflow/feedback.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
-// ─── #1319 — feedback action CLI/MCP parity (INV-2 facade equivalence) ────────
-//
-// The `feedback` action's behavior lives entirely in the shared dispatch core
-// (handleWorkflow → handleFeedback); the CLI and MCP adapters only thread the
-// args through. These tests prove both carriers emit byte-equivalent
-// ToolResults for `feedback`, so the documented `exarchos wf feedback
-// --message …` CLI form and the `exarchos_workflow({action:"feedback"})` MCP
-// form cannot drift.
-
 function makeCtx(stateDir: string): DispatchContext {
   return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };
 }
 
+/** Drops `_perf`, because its timing depends on the carrier. Every other field must match. */
 function normalize(value: unknown): unknown {
-  // `_perf.ms` is measurement-path dependent (CLI parseAsync vs MCP dispatch),
-  // so drop it before deep-equal — every other field must match.
   return harnessNormalize(value, { dropKeys: new Set(['_perf']) });
 }
 
@@ -50,7 +40,12 @@ afterEach(async () => {
   await rmrfAsync(mcpDir);
 });
 
+/**
+ * The `feedback` action runs in the shared dispatch core. The CLI form `exarchos wf feedback`
+ * and the MCP form of `exarchos_workflow` must return equal results, so the two cannot drift.
+ */
 describe('exarchos_workflow.feedback CLI/MCP parity (INV-2, #1319)', () => {
+  /** Each carrier must also write one event to its own feedback stream. */
   it('FeedbackParity_Message_CliAndMcp_ReturnEqualPayload', async () => {
     const message = 'rehydrate envelope omitted taskProgress when projection lagged';
 
@@ -67,11 +62,14 @@ describe('exarchos_workflow.feedback CLI/MCP parity (INV-2, #1319)', () => {
     expect(mcpResult.success).toBe(true);
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
 
-    // Both arms actually wrote to their own meta/feedback stream.
     expect(await cliCtx.eventStore.query(FEEDBACK_STREAM_ID)).toHaveLength(1);
     expect(await mcpCtx.eventStore.query(FEEDBACK_STREAM_ID)).toHaveLength(1);
   });
 
+  /**
+   * The CLI carrier passes `--session-context` as JSON. The object flag parses it to the shape
+   * that the MCP carrier receives.
+   */
   it('FeedbackParity_WithSessionContext_CliAndMcp_ReturnEqualPayload', async () => {
     const message = 'check_static_analysis ran in the wrong worktree';
     const sessionContext = { action: 'check_static_analysis', errorCode: 'GATE_FAILED' };
@@ -81,8 +79,6 @@ describe('exarchos_workflow.feedback CLI/MCP parity (INV-2, #1319)', () => {
       message,
       sessionContext,
     });
-    // The CLI arm passes `--session-context '<json>'`; the object-classified
-    // flag JSON-coerces it to the same shape the MCP arm received.
     const { result: cliResult, exitCode } = await harnessCallCli(cliCtx, 'wf', 'feedback', {
       message,
       sessionContext,

@@ -6,7 +6,7 @@ import { mkdtemp, writeFile, readFile, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
-// Helper: minimal v1.0 state (no _history, _checkpoint)
+/** A minimal version 1.0 state, without `_history` and `_checkpoint`. */
 function makeV1_0State() {
   return {
     version: '1.0',
@@ -29,7 +29,7 @@ function makeV1_0State() {
   };
 }
 
-// Helper: minimal v1.1 state (full schema)
+/** A minimal version 1.1 state, with `_history` and `_checkpoint`. */
 function makeV1_1State() {
   return {
     ...makeV1_0State(),
@@ -55,7 +55,6 @@ describe('Migration', () => {
 
       expect(result.version).toBe('1.1');
       expect(result._history).toEqual({});
-      // _events and _eventSequence removed — events now in external JSONL store
       expect(result._events).toBeUndefined();
       expect(result._eventSequence).toBeUndefined();
       expect(result._checkpoint).toBeDefined();
@@ -131,17 +130,12 @@ describe('Migration', () => {
   });
 
   describe('MigrateState_MigrationChain_V1_0ToV1_1ToV1_2', () => {
+    /** Only the 1.0 to 1.1 migration exists, so the chain ends at `CURRENT_VERSION` after one step. */
     it('should chain migrations from v1.0 through v1.1 to v1.2 (if registered)', () => {
-      // This test validates that chain migration works.
-      // We test with v1.0 input — it should first migrate to v1.1,
-      // then (if v1.2 migration is registered) to v1.2.
-      // For now, v1.0 -> v1.1 is the only real chain.
       const v1_0 = makeV1_0State();
       const result = migrateState(v1_0) as Record<string, unknown>;
 
-      // After chain migration, should be at CURRENT_VERSION
       expect(result.version).toBe(CURRENT_VERSION);
-      // All v1.1 fields should be present (except removed _events/_eventSequence)
       expect(result._history).toBeDefined();
       expect(result._checkpoint).toBeDefined();
     });
@@ -191,7 +185,6 @@ describe('readStateFile backup integration', () => {
 
     await readStateFile(stateFile);
 
-    // Backup should exist with original v1.0 content
     const backupPath = `${stateFile}.bak`;
     await expect(access(backupPath)).resolves.toBeUndefined();
     const backupContent = JSON.parse(await readFile(backupPath, 'utf-8'));
@@ -234,7 +227,6 @@ describe('readStateFile backup integration', () => {
 
     await readStateFile(stateFile);
 
-    // No backup should be created for current version
     const backupPath = `${stateFile}.bak`;
     await expect(access(backupPath)).rejects.toThrow();
   });

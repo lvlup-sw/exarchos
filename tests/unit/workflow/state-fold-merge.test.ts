@@ -1,20 +1,9 @@
-// ─── The ES v2 read: the fold, plus what only the state file knows ──────────
-//
-// `handleGet` chose between an event fold and the state file on a settable
-// module singleton that nothing in `src/` ever set. The fold path was therefore
-// dark: every read took the file, and `get --asOf` silently answered with tip
-// state because the bounded fold lived on the branch that never ran.
-//
-// Wiring it is the fix, and it cannot be a straight swap. The two paths are
-// different projections of the same workflow: the fold derives `phaseObligation`
-// and `admissionProof`, which the file has never held, and the file holds
-// `_version`, `_checkpoint`, `_esVersion` and unmodelled plan fields, which the
-// fold cannot reconstruct. Serving the bare fold would have silently dropped
-// four fields from every `get`, `_version` among them — the optimistic-lock
-// counter a caller round-trips into CAS.
-//
-// These tests pin both halves of that merge, and the reachability that makes it
-// matter at all.
+// `handleGet` serves the event fold merged with the state file. The fold
+// derives `phaseObligation` and `admissionProof`, which the file does not hold.
+// The file supplies `FILE_OWNED_FIELDS` and each field that the projection does
+// not model. `_version` is one of them: the optimistic-lock counter that a
+// caller sends back for CAS. These tests pin both halves of the merge and the
+// bounded fold of `get --asOf`.
 
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -85,6 +74,10 @@ async function get(extra: Record<string, unknown> = {}): Promise<Record<string, 
 }
 
 describe('ES v2 get — the fold merged with the file', () => {
+  /**
+   * The file supplies the fields that the fold cannot rebuild. A field that the projection does not model also survives.
+   * The test derives that second set from the shape of the projection, so a new state field is covered.
+   */
   it('WorkflowGet_EventDerivedRead_KeepsEveryFileOwnedField', async () => {
     await seedAdvancedWorkflow();
     const onDisk = JSON.parse(
@@ -93,16 +86,10 @@ describe('ES v2 get — the fold merged with the file', () => {
 
     const answer = await get();
 
-    // The fold cannot reconstruct these, so the file supplies them. Serving the
-    // bare fold returns `_version: 1` (a dead literal in the projection) and an
-    // all-sentinel `_checkpoint`.
     for (const field of FILE_OWNED_FIELDS) {
       expect(answer[field], `${field} must come from the state file`).toEqual(onDisk[field]);
     }
 
-    // …and a field the projection has no slot for at all survives without being
-    // named anywhere. This half is derived from the projection's shape, so a
-    // state field added later is carried automatically.
     const modelled = new Set(Object.keys(workflowStateProjection.init()));
     const unmodelled = Object.keys(onDisk).filter(
       (key) => !modelled.has(key) && !key.startsWith('_e') && key !== '_history',
@@ -113,18 +100,17 @@ describe('ES v2 get — the fold merged with the file', () => {
     }
   });
 
+  /** The frozen phase obligation comes from the events, and the state file does not hold it. */
   it('WorkflowGet_EventDerivedRead_AddsWhatOnlyTheFoldKnows', async () => {
     await seedAdvancedWorkflow();
     const answer = await get();
 
-    // The reason the fold is worth reaching: the frozen phase obligation is
-    // event-derived and the state file has never carried it.
     expect(answer.phaseObligation, 'the read is not folding the log').toBeTruthy();
     expect((answer.phaseObligation as { phase?: string })?.phase).toBe('plan-review');
   });
 
+  /** `asOf` bounds the fold, so the read returns the phase at that sequence and not the tip phase. */
   it('WorkflowGet_AsOf_AnswersHistoricallyRatherThanWithTipState', async () => {
-    // The bug the dark branch was hiding: `asOf` is accepted, and was ignored.
     const sequenceAtPlan = await seedAdvancedWorkflow();
 
     expect((await get()).phase).toBe('plan-review');
@@ -134,31 +120,20 @@ describe('ES v2 get — the fold merged with the file', () => {
     ).toBe('plan');
   });
 
+  /** A bound that excludes no event gives the live read. The merge applies to both arms, so the answers are equal. */
   it('WorkflowGet_AsOfPastTheTip_IsIdenticalToTheLiveRead', async () => {
-    // A bound that excludes nothing IS the live read. Any difference would be
-    // an artifact of which branch ran rather than a fact about the stream —
-    // which is why the merge applies to both arms and not just the live one.
     await seedAdvancedWorkflow();
     expect(await get({ asOf: { untilSequence: 9999 } })).toEqual(await get());
   });
 });
 
 describe('why the state file is not re-materialized from the fold', () => {
+  /**
+   * The fold applies a `state.patched` task as it is, with no validation and no defaults.
+   * A partial task, such as one with no title, thus fails `TaskSchema`, so a state file written from the fold fails the next read.
+   * If this test fails, the two shapes agree, and a write of the state file from the fold can return.
+   */
   it('WorkflowStateFold_PatchedTask_ViolatesStateSchema', () => {
-    // `handleSet` used to rebuild `<featureId>.state.json` from this fold after
-    // every mutation. That block was dark for the same reason the read was, and
-    // wiring it revealed it cannot run as written.
-    //
-    // A planner writes a partial task through `workflow set` — no title, which
-    // is ordinary, because the normal write path validates and defaults it
-    // before the file is stored. The fold applies the same patch VERBATIM, so
-    // its task never gets that treatment, and the snapshot wrote the result
-    // back with `skipValidation: true`. The next read then rejected the whole
-    // file, after the mutation that wrote it had already committed.
-    //
-    // This is the evidence for that removal rather than an assertion about it.
-    // If the shapes are ever reconciled this test goes red, which is the signal
-    // that the block can come back.
     const patched = workflowStateProjection.apply(workflowStateProjection.init(), {
       type: 'state.patched',
       sequence: 1,

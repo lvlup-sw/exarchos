@@ -15,8 +15,6 @@ import {
   REQUIRED_REVIEWS_BY_WORKFLOW_TYPE,
 } from '../../../src/workflow/review-contract.js';
 
-// ─── Task 1: Core getPlaybook / renderPlaybook ──────────────────────────────
-
 describe('getPlaybook', () => {
   it('getPlaybook_ValidPhase_ReturnsPlaybook', () => {
     const playbook = getPlaybook('feature', 'plan');
@@ -49,13 +47,8 @@ describe('renderPlaybook', () => {
     expect(rendered.length).toBeLessThan(300);
   });
 
+  /** The render must list `task.completed` and `task.failed` apart from `events:`, so the model does not emit them itself. */
   it('renderPlaybook_DelegatePhase_IncludesAutoEmittedEvents', () => {
-    // CodeRabbit major on PR #1297: PhasePlaybook gained an
-    // autoEmittedEvents field but renderPlaybook() never surfaces it,
-    // so consumers reading the rendered guidance can't tell that
-    // task.completed / task.failed are runtime-emitted. The render
-    // MUST advertise them as a distinct surface from `events:` so the
-    // model knows not to manually re-emit them.
     const playbook = getPlaybook('feature', 'delegate')!;
     const rendered = renderPlaybook(playbook);
     expect(rendered).toMatch(/Auto-?emitted|auto[- ]emit/i);
@@ -65,31 +58,20 @@ describe('renderPlaybook', () => {
   });
 });
 
-// ─── Task 2: Feature Workflow Playbook Entries ──────────────────────────────
-
 describe('Feature workflow playbooks', () => {
-  // #1581 (DR-4): `feature:ideate` retired — the design-authoring guidance it
-  // carried is folded into `feature:plan` (asserted by
-  // getPlaybook_FeaturePlan_FoldsDesignAuthoringGuidance below).
-
   it('getPlaybook_FeaturePlan_HasPlanningSkill', () => {
     const playbook = getPlaybook('feature', 'plan')!;
     expect(playbook.skill).toBe('plan');
   });
 
+  /**
+   * `plan` is the initial phase of the feature HSM, and it authors both the design and the decomposition sections.
+   * So its guidance must hold the design-authoring half, not only the decomposition half.
+   */
   it('getPlaybook_FeaturePlan_FoldsDesignAuthoringGuidance', () => {
-    // #1581: the collapsed `plan` phase authors BOTH the Design & Rationale
-    // section and the Decomposition section of the one docs/specs/ artifact.
-    // Because the feature HSM no longer transitions through an `ideate` phase
-    // (DR-4: `plan` is initial), the live `feature:plan` playbook — what
-    // rehydrate/compaction serves a feature sitting in `plan` — must surface the
-    // design-authoring half (brainstorming), not just decomposition, or the
-    // design-authoring guidance is stranded under the unreachable `feature:ideate`
-    // key. Regression lock for the review MED finding on the design-plan-collapse.
     const playbook = getPlaybook('feature', 'plan')!;
     expect(playbook.compactGuidance).toContain('@skills/ideate/SKILL.md');
     expect(playbook.compactGuidance).toContain('Design & Rationale');
-    // and it still carries the decomposition half
     expect(playbook.compactGuidance.toLowerCase()).toContain('parallelization');
   });
 
@@ -138,8 +120,6 @@ describe('Feature workflow playbooks', () => {
   });
 });
 
-// ─── Task 3: Debug Workflow Playbook Entries ────────────────────────────────
-
 describe('Debug workflow playbooks', () => {
   it('getPlaybook_DebugTriage_HasDebugSkill', () => {
     const playbook = getPlaybook('debug', 'triage')!;
@@ -162,19 +142,18 @@ describe('Debug workflow playbooks', () => {
     expect(guard.includes('fixdesign') || guard.includes('design')).toBe(true);
   });
 
+  /**
+   * The design phase is the design-time step of a debug workflow.
+   * Its guidance must point at the Constraints step of `.exarchos/invariants.md`, so the constraint survives a compacted resume.
+   * It must name `invariants.catalogs` and must not name `devCatalog`.
+   */
   it('getPlaybook_DebugDesign_CompactGuidanceReferencesDesignTimeConstraints', () => {
-    // #1498: the design phase is /debug's design-time surface; its
-    // compactGuidance must point at the .exarchos/invariants.md Constraints
-    // step so the constraint survives a compacted resume.
-    // DR-31/T-42: the guidance names the loading mechanism, which is now an
-    // `invariants.catalogs` registration, not the retired `devCatalog` boolean.
     const playbook = getPlaybook('debug', 'design')!;
     expect(playbook.compactGuidance).toContain('.exarchos/invariants.md');
     expect(playbook.compactGuidance.toLowerCase()).toContain('constraints');
     expect(playbook.compactGuidance.toLowerCase()).toContain(
       'invariants.catalogs',
     );
-    // The retired boolean must not be advertised to agents any more.
     expect(playbook.compactGuidance.toLowerCase()).not.toContain('devcatalog');
   });
 
@@ -214,8 +193,6 @@ describe('Debug workflow playbooks', () => {
   });
 });
 
-// ─── Task 4: Refactor Workflow Playbook Entries ─────────────────────────────
-
 describe('Refactor workflow playbooks', () => {
   it('getPlaybook_RefactorExplore_HasRefactorSkill', () => {
     const playbook = getPlaybook('refactor', 'explore')!;
@@ -227,19 +204,18 @@ describe('Refactor workflow playbooks', () => {
     expect(playbook.skill).toBe('refactor');
   });
 
+  /**
+   * The brief phase is the design-time step of a refactor workflow.
+   * Its guidance must point at the Constraints step of `.exarchos/invariants.md`, so the constraint survives a compacted resume.
+   * It must name `invariants.catalogs` and must not name `devCatalog`.
+   */
   it('getPlaybook_RefactorBrief_CompactGuidanceReferencesDesignTimeConstraints', () => {
-    // #1498: the brief phase is /refactor's design-time surface; its
-    // compactGuidance must point at the .exarchos/invariants.md Constraints
-    // step so the constraint survives a compacted resume.
-    // DR-31/T-42: the guidance names the loading mechanism, which is now an
-    // `invariants.catalogs` registration, not the retired `devCatalog` boolean.
     const playbook = getPlaybook('refactor', 'brief')!;
     expect(playbook.compactGuidance).toContain('.exarchos/invariants.md');
     expect(playbook.compactGuidance.toLowerCase()).toContain('constraints');
     expect(playbook.compactGuidance.toLowerCase()).toContain(
       'invariants.catalogs',
     );
-    // The retired boolean must not be advertised to agents any more.
     expect(playbook.compactGuidance.toLowerCase()).not.toContain('devcatalog');
   });
 
@@ -290,8 +266,6 @@ describe('Refactor workflow playbooks', () => {
   });
 });
 
-// ─── Task 5: Graphite Removal from Synthesize Playbooks ──────────────────────
-
 describe('Synthesize phase guidance references GitHub CLI', () => {
   it('playbookGuidance_FeatureSynthesizePhase_ReferencesGhCli', () => {
     const playbook = getPlaybook('feature', 'synthesize')!;
@@ -312,8 +286,6 @@ describe('Synthesize phase guidance references GitHub CLI', () => {
   });
 });
 
-// ─── Task 5: Playbook Serialization ──────────────────────────────────────────
-
 describe('serializePlaybooks', () => {
   it('SerializePlaybooks_Feature_ReturnsAllPhases', () => {
     const result: SerializedPlaybooks = serializePlaybooks('feature');
@@ -330,7 +302,6 @@ describe('serializePlaybooks', () => {
     }
     expect(result.phaseCount).toBe(expectedPhases.length);
 
-    // Verify structure of a representative phase (#1581: `plan` is the initial phase)
     const plan: SerializedPhasePlaybook = result.phases['plan'];
     expect(plan.skill).toBe('plan');
     expect(plan.skillRef).toBe('@skills/plan/SKILL.md');
@@ -344,14 +315,8 @@ describe('serializePlaybooks', () => {
     expect(() => serializePlaybooks('nonexistent')).toThrow();
   });
 
+  /** The serialized delegate phase must keep `autoEmittedEvents`, with `type`, `source`, `emittedBy`, `when` and `fields` for each event. */
   it('SerializePlaybooks_DelegatePhase_IncludesAutoEmittedEvents', () => {
-    // CodeRabbit major on PR #1297: PhasePlaybook gained an
-    // autoEmittedEvents field but serializePlaybooks() drops it on the
-    // way out, so any consumer reading the serialized contract (CLI
-    // describe, telemetry, agent context) sees no auto-emit surface
-    // for the delegate phase. The serialized shape MUST carry the
-    // field through with type, source, emittedBy, when, and fields
-    // intact for each runtime-emitted event.
     const result = serializePlaybooks('feature');
     const delegate = result.phases['delegate'] as {
       autoEmittedEvents?: readonly {
@@ -373,10 +338,8 @@ describe('serializePlaybooks', () => {
     expect(completed.fields).toContain('taskId');
   });
 
+  /** A phase without runtime-emitted events has no `autoEmittedEvents` field, not an empty array. */
   it('SerializePlaybooks_NonDelegatePhase_OmitsAutoEmittedEvents', () => {
-    // Phases without runtime-emitted events leave the field undefined
-    // on the in-memory PhasePlaybook; the serialized shape must mirror
-    // that — explicit absence (not `[]`) keeps the contract minimal.
     const result = serializePlaybooks('feature');
     const plan = result.phases['plan'] as {
       autoEmittedEvents?: readonly unknown[];
@@ -395,13 +358,9 @@ describe('listPlaybookWorkflowTypes', () => {
   });
 });
 
-// ─── DR-5: EventInstruction fields + compactGuidance describe hint ──────────
-
 describe('EventInstruction fields property', () => {
+  /** The gates emit `gate.executed`, so no phase instructs it. The phases that disclose it list the fields that its schema requires. */
   it('EventInstruction_GateExecuted_IsDisclosedAsRuntimeEmittedNeverInstructed', () => {
-    // `gate.executed` is auto-emitted by the gates. The playbooks used to
-    // instruct the model to emit it in four phases; the phase event contract
-    // keeps it on the disclosure side, with the fields the schema requires.
     const playbooks = serializePlaybooks('feature');
     const instructing = Object.entries(playbooks.phases).filter(([, pb]) =>
       pb.events.some((e) => e.type === 'gate.executed'),
@@ -420,10 +379,12 @@ describe('EventInstruction fields property', () => {
     }
   });
 
+  /**
+   * `prepare` and `prepare_delegation` append `task.assigned`, so no phase instructs it.
+   * The delegation phases disclose it with the fields that the projections key on.
+   * The test checks each route by its full name, because `prepare` is a prefix of `prepare_delegation`.
+   */
   it('EventInstruction_TaskAssigned_IsDisclosedAsTheRuntimesNotInstructed', () => {
-    // `task.assigned` is appended by `prepare` and `prepare_delegation` now,
-    // so no phase instructs the model to emit it; the delegation phases
-    // disclose it instead, with the field the projections key on.
     const playbooks = serializePlaybooks('feature');
     const instructed = Object.entries(playbooks.phases).filter(
       ([, pb]) => pb.events.some((e) => e.type === 'task.assigned'),
@@ -433,7 +394,6 @@ describe('EventInstruction fields property', () => {
       const disclosed = phaseRuntimeEmissions(phase)?.find((e) => e.type === 'task.assigned');
       expect(disclosed, phase).toBeDefined();
       expect(disclosed?.fields).toEqual(expect.arrayContaining(['taskId', 'title']));
-      // Each route by its own name: `prepare` alone is a prefix of the other.
       expect(disclosed?.emittedBy).toContain('prepare (the capsule path)');
       expect(disclosed?.emittedBy).toContain('prepare_delegation (the primitive path)');
     }
@@ -443,7 +403,6 @@ describe('EventInstruction fields property', () => {
 describe('compactGuidance describe hint', () => {
   it('Playbook_CompactGuidance_ContainsDescribeHint', () => {
     const playbooks = serializePlaybooks('feature');
-    // Find phases that have events to emit
     const phasesWithEvents = Object.entries(playbooks.phases).filter(
       ([, pb]) => pb.events.length > 0,
     );
@@ -458,18 +417,11 @@ describe('compactGuidance describe hint', () => {
   });
 });
 
-// ─── Review contract consistency (prevents #1073 drift) ───────────────────
-//
-// The review-state contract is shared between three places that must agree:
-//   1. `review-contract.ts`   → REQUIRED_REVIEWS_BY_WORKFLOW_TYPE (source of truth)
-//   2. `tools.ts`             → _requiredReviews injection (calls getRequiredReviews)
-//   3. `playbooks.ts`         → review-phase guardPrerequisites string
-//
-// PR #1045 drifted these apart by updating (2) without updating (3) or the
-// skill documentation. This suite asserts that every dimension declared in
-// the source of truth appears in the corresponding phase playbook's
-// guardPrerequisites, so any future rename forces a coordinated update.
-
+/**
+ * `review-contract.ts` owns the required review dimensions.
+ * The set handler writes them to `_requiredReviews`, and the review playbook names them in `guardPrerequisites`.
+ * Each declared dimension must appear in the playbook, so a rename must change both.
+ */
 describe('Review contract consistency across playbooks and tools.ts', () => {
   it('ReviewContract_EveryWorkflowType_HasMatchingReviewPlaybook', () => {
     for (const workflowType of Object.keys(REQUIRED_REVIEWS_BY_WORKFLOW_TYPE)) {
@@ -494,23 +446,13 @@ describe('Review contract consistency across playbooks and tools.ts', () => {
     }
   });
 
+  /** The dimension names must match the skill folder names under `content/`, so a skill and the state key it writes are the same. */
   it('ReviewContract_FeatureWorkflow_UsesSkillFolderNames', () => {
-    // The dimension names MUST match skill folder names under content/
-    // so the skill an agent runs and the state key it writes are identical.
-    // Changing this assertion requires renaming skill folders too.
     expect(getRequiredReviews('feature')).toEqual(['review']);
   });
 });
 
-// ─── review.completed is not a playbook instruction ──────────────────────────
-//
-// The review playbook used to instruct the model to emit `review.completed`.
-// Measured before the phase event contract replaced the per-playbook rows:
-// nothing in `src/` emits it, the review skill never instructs it (verdicts
-// travel through `check_review_verdict`), and the gate never checked it — a
-// phantom instruction. Making it a checked expectation is a contract row plus
-// a skill instruction in one change, not a playbook row on its own.
-
+/** Review verdicts go through `check_review_verdict`, so the review playbook must not instruct the model to emit `review.completed`. */
 describe('review.completed in review phase', () => {
   it('ReviewPlaybook_Events_DoNotInstructReviewCompleted', () => {
     const playbooks = serializePlaybooks('feature');
@@ -520,8 +462,6 @@ describe('review.completed in review phase', () => {
     expect(reviewPhase?.events.length).toBeGreaterThan(0);
   });
 });
-
-// ─── DR-3: Gate prerequisites in delegation compactGuidance ─────────────────
 
 describe('Delegation playbook gate prerequisites', () => {
   it('DelegationPlaybook_CompactGuidance_MentionsGatePrerequisites', () => {
@@ -540,8 +480,6 @@ describe('Delegation playbook gate prerequisites', () => {
     expect(playbook.compactGuidance).toContain('task_complete');
   });
 });
-
-// ─── DR-4: compactGuidance drift tests ──────────────────────────────────────
 
 describe('compactGuidance drift tests', () => {
   const terminalPhases = ['completed', 'cancelled'];
@@ -582,6 +520,7 @@ describe('compactGuidance drift tests', () => {
     }
   });
 
+  /** A playbook with a `skillRef` hands its guidance to that skill, so the check skips it. */
   it('compactGuidance_NonTerminalNonBlockedPhases_ExceedsMinLength', () => {
     const playbooks = getAllPlaybooks();
     const active = playbooks.filter(
@@ -589,7 +528,6 @@ describe('compactGuidance drift tests', () => {
     );
     expect(active.length).toBeGreaterThan(0);
     for (const p of active) {
-      // Skill-ref playbooks delegate guidance to the referenced skill — skip min-length check
       if (p.skillRef) continue;
       expect(
         p.guidance.length,
@@ -598,6 +536,7 @@ describe('compactGuidance drift tests', () => {
     }
   });
 
+  /** A playbook with a `skillRef` hands its guidance to that skill, so the check skips it. */
   it('compactGuidance_AllNonTerminalNonBlockedPhases_MentionsToolOrAction', () => {
     const playbooks = getAllPlaybooks();
     const active = playbooks.filter(
@@ -607,7 +546,6 @@ describe('compactGuidance drift tests', () => {
       /exarchos_workflow|exarchos_event|exarchos_orchestrate|exarchos_view|exarchos_sync|transition|emit|record|dispatch/i;
     expect(active.length).toBeGreaterThan(0);
     for (const p of active) {
-      // Skill-ref playbooks delegate guidance to the referenced skill — skip tool/action check
       if (p.skillRef) continue;
       expect(
         toolOrActionPattern.test(p.guidance),
@@ -616,8 +554,6 @@ describe('compactGuidance drift tests', () => {
     }
   });
 });
-
-// ─── T10: Oneshot workflow playbook entries ────────────────────────────────
 
 describe('Oneshot workflow playbooks', () => {
   it('oneshotPlaybook_declaresAllFourPhases', () => {
@@ -639,8 +575,6 @@ describe('Oneshot workflow playbooks', () => {
   it('oneshotPlaybook_implementingTransitionCriteria_mentionsChoiceState', () => {
     const implementing = oneshotPlaybook.find((p) => p.phase === 'implementing');
     expect(implementing).toBeDefined();
-    // The choice-state transition criteria must mention both branches:
-    // opted-in → synthesize AND opted-out → completed.
     expect(implementing!.transitionCriteria).toMatch(/synthesize/i);
     expect(implementing!.transitionCriteria).toMatch(/completed/i);
   });
@@ -649,7 +583,6 @@ describe('Oneshot workflow playbooks', () => {
     const implementing = oneshotPlaybook.find((p) => p.phase === 'implementing');
     expect(implementing).toBeDefined();
     const guard = implementing!.guardPrerequisites.toLowerCase();
-    // Design: "Tests pass + synthesis choice made (policy or event)".
     expect(guard).toMatch(/synthesi/);
   });
 
@@ -676,7 +609,6 @@ describe('Oneshot workflow playbooks', () => {
     const entries = workflowPlaybooks.get('oneshot');
     expect(entries).toBeDefined();
     expect(entries!.length).toBeGreaterThan(0);
-    // Same reference as the exported array (single source of truth)
     expect(entries).toBe(oneshotPlaybook);
   });
 
@@ -707,16 +639,12 @@ describe('Oneshot workflow playbooks', () => {
   });
 });
 
-// ─── T6 (#1227): autoEmittedEvents sibling field on delegate-phase playbooks ─
-//
-// Auto-emitted events (`task.completed`, `task.failed`) are fired by
-// `task_complete` / `task_fail` orchestrate handlers — the model must NOT
-// emit them directly, so they're filtered out of the `events` array. But
-// downstream surfaces (telemetry, docs, agent context) still need to know
-// these events are part of the delegate-phase contract. The
-// `autoEmittedEvents` sibling field exposes them WITHOUT inviting the model
-// to manually re-emit them.
-
+/**
+ * The `task_complete` and `task_fail` handlers emit `task.completed` and `task.failed`.
+ * The model must not emit them, so the `events` array omits them.
+ * `autoEmittedEvents` lists them for telemetry, docs and agent context.
+ * `tests/unit/workflow/topology/phase-events.test.ts` tests the refusal of a wrongly sourced event.
+ */
 describe('T6: autoEmittedEvents sibling field (#1227)', () => {
   it('PhaseRegistration_DelegatePhase_ExposesAutoEmittedEvents', () => {
     const playbook = getPlaybook('feature', 'delegate')!;
@@ -792,13 +720,6 @@ describe('T6: autoEmittedEvents sibling field (#1227)', () => {
     ).toEqual([]);
   });
 
-  // The old load-time proof here stubbed the reducer's event list to smuggle an
-  // auto-source event past the playbook's metadata map. Both surfaces derive
-  // from the phase event contract now; the refusal — a disclosed event that is
-  // not `auto`-sourced, an expected one that is not `model`-sourced — fires
-  // where the contract loads and is proven with a seeded registry in
-  // `tests/unit/workflow/topology/phase-events.test.ts`.
-
   it('PhaseEvents_OverhaulDelegatePhase_ExposesAutoEmittedEvents', () => {
     const playbook = getPlaybook('refactor', 'overhaul-delegate')!;
     expect(playbook).not.toBeNull();
@@ -812,21 +733,13 @@ describe('T6: autoEmittedEvents sibling field (#1227)', () => {
   });
 });
 
-// ─── vls1-b1 (task 008): delegate-phase gate guidance from policy ───────────
-//
-// The delegate-phase playbook guidance must SOURCE its verification-gate names
-// from the verification policy (`resolveVerificationSequence`), not hand-rolled
-// literals. We prove the wiring by computing the expected gate names from the
-// policy in the test and asserting the guidance contains them — so changing the
-// policy table changes the guidance.
-
+/** The delegate guidance must take its gate names from `resolveVerificationSequence`, so a change to the policy table changes the guidance. */
 describe('PlaybookDelegatePhase_GateGuidance_SourcedFromVerificationPolicy', () => {
   it('delegate compactGuidance contains every gate the policy yields for the medium tier', async () => {
     const { resolveVerificationSequence } = await import('../../../src/workflow/verification-policy.js');
     const playbook = getPlaybook('feature', 'delegate')!;
     expect(playbook).not.toBeNull();
 
-    // Medium tier base sequence — the minimum ladder a non-trivial task clears.
     const mediumGates = resolveVerificationSequence('medium', false);
     expect(mediumGates.length).toBeGreaterThan(0);
 
@@ -835,31 +748,24 @@ describe('PlaybookDelegatePhase_GateGuidance_SourcedFromVerificationPolicy', () 
     }
   });
 
+  /** A boundary adds `check_contract_drift` at the medium tier, so guidance built from the policy names it too. */
   it('delegate guidance follows the policy table (table-change-propagates)', async () => {
-    // Stronger guarantee: the guidance must be BUILT from the policy values, so
-    // the full set of policy gate names (across every tier/boundary combo) that
-    // the delegate guidance advertises stays in lockstep with the table. We
-    // assert the guidance references the exported gate names rather than ad-hoc
-    // strings by checking that the medium+boundary sequence's added gate
-    // (contract drift) is also surfaced.
     const { resolveVerificationSequence } = await import('../../../src/workflow/verification-policy.js');
     const playbook = getPlaybook('feature', 'delegate')!;
 
     const mediumBoundary = resolveVerificationSequence('medium', true);
-    // contract_drift is the boundary-added gate; if guidance is policy-sourced
-    // it should advertise the boundary gate too.
     const contractDrift = mediumBoundary.find((g) => g === 'check_contract_drift');
     expect(contractDrift).toBeDefined();
     expect(playbook.compactGuidance).toContain(contractDrift!);
   });
 });
 
-// ─── Task 005: implement-phase mandatory-TDD prose removed (DR-5) ────────────
-
+/**
+ * `IMPLEMENT_WORK_PHASES` holds the four phases where an agent implements.
+ * `delegate` and `overhaul-delegate` are dispatch phases, so they keep their `check_tdd_compliance` guidance for the orchestrator.
+ * The verification obligation comes from the kind resolver, not from test-first prose in the playbook.
+ */
 describe('Task 005: implement-phase mandatory-TDD prose removed (DR-5)', () => {
-  // The four work-implement phases an agent actually occupies while implementing.
-  // (delegate / overhaul-delegate are dispatch phases — their check_tdd_compliance
-  // gate-running guidance is orchestrator-facing and intentionally retained.)
   const IMPLEMENT_WORK_PHASES = [
     { wf: 'debug', phase: 'debug-implement', transition: 'debug-validate', escalation: true },
     { wf: 'debug', phase: 'hotfix-implement', transition: 'hotfix-validate', escalation: true },
@@ -867,8 +773,6 @@ describe('Task 005: implement-phase mandatory-TDD prose removed (DR-5)', () => {
     { wf: 'oneshot', phase: 'implementing', transition: 'synthesize', escalation: false },
   ] as const;
 
-  // The verification obligation now flows from the kind resolver (Task 004),
-  // not from hardcoded test-first prose baked into the playbook string.
   const MANDATORY_TDD_PROSE =
     /write failing test first|fixing without a failing test|TDD rules remain mandatory|Follow TDD/i;
 
@@ -900,14 +804,10 @@ describe('Task 005: implement-phase mandatory-TDD prose removed (DR-5)', () => {
   });
 });
 
-// ─── DR-11: gate selection is resolver/SoT-derived, not hardcoded ───────────
-//
-// The phase-kind work (S3) revealed that the plan/review/synthesize playbooks
-// never duplicated phase-kind gate selection — the gate→phase binding lives in
-// the registry `phases:` sets (now mirrored by the phase-kind resolvers), and
-// the review playbook already derives its prerequisite from review-contract.ts.
-// These guards LOCK that correct end-state: a future edit that hardcodes a gate
-// list or drifts the review prerequisite from the SoT fails here.
+/**
+ * The registry `phases` sets bind gates to phases, and the review playbook derives its prerequisite from `review-contract.ts`.
+ * These guards fail when a playbook hardcodes a gate list or drifts from that source.
+ */
 describe('DR-11: gate selection is resolver/SoT-derived, not hardcoded in playbooks', () => {
   const PLAN_GATE_NAMES = [
     'check_task_decomposition',
@@ -920,8 +820,6 @@ describe('DR-11: gate selection is resolver/SoT-derived, not hardcoded in playbo
   it('ReviewPlaybook_GuardPrerequisites_IsSoTDerivedNotHardcoded', () => {
     const pb = getPlaybook('feature', 'review');
     expect(pb).not.toBeNull();
-    // Must equal the derived string — a hardcode drifting from review-contract.ts
-    // (the single source of truth for review dimensions) fails this guard.
     expect(pb?.guardPrerequisites).toBe(getRequiredReviewsPrerequisite('feature'));
   });
 

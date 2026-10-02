@@ -1,29 +1,11 @@
-// ─── DR-5 (T-08): a bare boolean cannot satisfy an artifact requirement ──────
-//
-// `makeArtifactGuard` used to evaluate `artifacts[field] != null`, so
-// `{"artifacts":{"plan":true}}` — or `false`, `0`, `''`, `'   '`, `{}` — passed
-// a phase gate that exists to require a REAL artifact reference. The admission
-// algebra already knew better (`artifacts.planNonEmpty` demands a trimmed
-// non-empty string), but that rejection lived only in the shadow/validation
-// layer; the shipped transition path bypassed it.
-//
-// These tests assert the rejection on the SHIPPED TRANSITION PATH, i.e. the
-// exact primitive production calls:
-//
-//   exarchos_workflow { action: 'transition' | 'set' }   (workflow/tools.ts)
-//     └─ hsmTransitionGuard.attempt(...)                 (hsm-transition-guard.ts)
-//         └─ executeTransition(hsm, state, targetPhase)  (state-machine.ts)
-//             └─ transition.guard.evaluate(state)        (guards.ts)
-//
-// `DefaultHSMTransitionGuard` is the REAL collaborator (no mocked guard, no
-// mocked HSM). `eventStore: null` is the documented pure-evaluation mode of
-// `GuardContext` — it makes the test hermetic (no temp dirs, no I/O) while
-// still walking the whole production decision path.
-//
-// Every track that routes an edge through `makeArtifactGuard` is enumerated in
-// ARTIFACT_EDGES below — feature, refactor, debug (x2) and discovery — plus
-// oneshot, which reaches the same contract through `oneshotPlanSet` and is
-// pinned here so the two surfaces cannot drift apart again.
+/**
+ * An artifact requirement must reject every value that is not a non-blank string. A bare boolean,
+ * a number, an object or a blank string must not pass a phase gate.
+ *
+ * The tests drive the production path: `DefaultHSMTransitionGuard.attempt` calls
+ * `executeTransition`, which calls the guard of the edge. No guard and no HSM is mocked.
+ * `eventStore: null` is the pure-evaluation mode of `GuardContext`, so the tests do no I/O.
+ */
 
 import { describe, expect, it } from 'vitest';
 
@@ -46,12 +28,8 @@ interface ArtifactEdge {
 }
 
 /**
- * EVERY built-in track whose shipped transition path gates on an artifact
- * reference. Derived by enumerating `makeArtifactGuard` call sites in guards.ts
- * (design/plan/rca/fixDesign/report) and matching them to the HSM edges that
- * actually reference them in hsm-definitions.ts. `designArtifactExists` is
- * defined but wired to NO edge (retired with `ideate` in DR-4/#1581), so it has
- * no shipped-path row here — it is covered by the direct-evaluate test below.
+ * Each HSM edge whose guard comes from `makeArtifactGuard`, plus the oneshot plan edge.
+ * `designArtifactExists` is wired to no edge, so a direct-evaluate test below covers it.
  */
 const ARTIFACT_EDGES: readonly ArtifactEdge[] = [
   {
@@ -94,10 +72,11 @@ const ARTIFACT_EDGES: readonly ArtifactEdge[] = [
     guardId: 'report-artifact-exists',
     validValue: 'docs/research/2026-08-04-report.md',
   },
+  /**
+   * The oneshot edge uses `oneshotPlanSet`, not `makeArtifactGuard`. It applies the same contract
+   * to the same field, so a looser check on either guard fails here.
+   */
   {
-    // Not a `makeArtifactGuard` edge, but the SAME contract over the same
-    // state field. Enumerated so "rejected on every track" is literally true
-    // and so a future loosening of either surface is caught here.
     workflowType: 'oneshot',
     from: 'plan',
     to: 'implementing',
@@ -107,7 +86,7 @@ const ARTIFACT_EDGES: readonly ArtifactEdge[] = [
   },
 ];
 
-/** Structural check: the enumeration above matches the real HSM definitions. */
+/** Maps each track to its HSM factory, so a test can check `ARTIFACT_EDGES` against the real HSMs. */
 const HSM_BY_TRACK: Readonly<Record<string, () => HSMDefinition>> = {
   feature: createFeatureHSM,
   refactor: createRefactorHSM,
@@ -127,10 +106,7 @@ function stateFor(edge: ArtifactEdge, value: unknown): Record<string, unknown> {
   };
 }
 
-/**
- * Drives the SHIPPED transition path end-to-end and returns the production
- * outcome. No guard/HSM is stubbed; `eventStore: null` only skips emission.
- */
+/** Runs the production transition path and returns its outcome. `eventStore: null` only skips the emission. */
 async function attempt(
   edge: ArtifactEdge,
   state: Record<string, unknown>,
@@ -158,16 +134,12 @@ async function expectRejected(
   }
 }
 
-// ─── The named acceptance tests ──────────────────────────────────────────────
-
+/** `true` and `false` must both fail. A `!= null` check admits both values. */
 describe('ArtifactGuard_BareBooleanPlan_RejectsRequirement', () => {
   it.each(ARTIFACT_EDGES.map((e) => [`${e.workflowType}:${e.from}→${e.to}`, e] as const))(
     'ArtifactGuard_BareBooleanPlan_RejectsRequirement — %s',
     async (_label, edge) => {
-      // `true` is the headline defect: a bare boolean satisfied `!= null`.
       await expectRejected(edge, true, 'true');
-      // `false` was ALSO admitted by `!= null` — the loose check never even
-      // looked at truthiness, so the "boolean" defect is two-sided.
       await expectRejected(edge, false, 'false');
     },
   );
@@ -183,8 +155,6 @@ describe('ArtifactGuard_WhitespaceOnlyPlan_RejectsRequirement', () => {
     },
   );
 });
-
-// ─── Supporting contract: the full non-artifact-reference value space ────────
 
 describe('ArtifactGuard_NonStringArtifactValues_RejectedOnEveryTrack', () => {
   const NON_REFERENCES: ReadonlyArray<readonly [string, unknown]> = [
@@ -206,8 +176,7 @@ describe('ArtifactGuard_NonStringArtifactValues_RejectedOnEveryTrack', () => {
 });
 
 describe('ArtifactGuard_TypedArtifactReference_AdmittedOnEveryTrack', () => {
-  // Liveness control. Without this the tightened guard could be a
-  // permanently-closed gate and the rejection tests would still pass.
+  /** Liveness control. Without it, a gate that is always closed passes every rejection test. */
   it.each(ARTIFACT_EDGES.map((e) => [`${e.workflowType}:${e.from}→${e.to}`, e] as const))(
     'admits a real artifact path — %s',
     async (_label, edge) => {
@@ -221,8 +190,7 @@ describe('ArtifactGuard_TypedArtifactReference_AdmittedOnEveryTrack', () => {
 });
 
 describe('ArtifactGuard_TopLevelFallbackField_RequiresTypedReference', () => {
-  // `makeArtifactGuard` has a legacy fallback onto the top-level `state[field]`.
-  // Tightening only the `artifacts.*` branch would leave the bypass open.
+  /** `makeArtifactGuard` also reads the top-level `state[field]`. That fallback must apply the same check. */
   it.each(ARTIFACT_EDGES.filter((e) => e.guardId !== 'oneshot-plan-set').map(
     (e) => [`${e.workflowType}:${e.from}→${e.to}`, e] as const,
   ))('rejects a bare boolean in the top-level fallback — %s', async (_label, edge) => {
@@ -253,13 +221,11 @@ describe('ArtifactGuard_TopLevelFallbackField_RequiresTypedReference', () => {
   });
 });
 
-// ─── Retired-but-defined guard: same contract, evaluated directly ────────────
-
 describe('ArtifactGuard_DesignArtifactExists_RequiresTypedReference', () => {
-  // `designArtifactExists` is produced by `makeArtifactGuard` but wired to no
-  // edge today. DR-5 says a bare boolean cannot satisfy a requirement — so the
-  // factory itself must reject, not just the currently-wired edges. Evaluated
-  // directly because there is no shipped edge to drive.
+  /**
+   * `designArtifactExists` comes from `makeArtifactGuard` but is wired to no edge. The factory
+   * itself must reject, so the test evaluates the guard directly.
+   */
   it('rejects bare booleans and whitespace-only values', () => {
     for (const bad of [true, false, 0, 1, {}, [], '', '   ', '\n\t ']) {
       expect(
@@ -276,11 +242,8 @@ describe('ArtifactGuard_DesignArtifactExists_RequiresTypedReference', () => {
   });
 });
 
-// ─── Enumeration integrity ───────────────────────────────────────────────────
-
 describe('ArtifactGuard_EdgeEnumeration_MatchesTheRealHSMs', () => {
-  // Pins the parameterisation to reality: if a track renames a phase or moves
-  // an artifact edge, this fails instead of silently under-covering a track.
+  /** If a track renames a phase or moves an artifact edge, this test fails and shows the gap. */
   it.each(ARTIFACT_EDGES.map((e) => [`${e.workflowType}:${e.from}→${e.to}`, e] as const))(
     'edge exists with the expected guard — %s',
     (_label, edge) => {

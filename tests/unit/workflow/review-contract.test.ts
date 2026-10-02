@@ -1,17 +1,8 @@
-// ─── Review Contract — tier-aware required-review dimensions (R5 / task 007) ──
-//
-// R5 (verification ladder slice 3) makes the review contract TIER-AWARE: the
-// `mutation-adequacy` review dimension gates the HIGH risk tier ONLY, at the
-// `/review` boundary. These tests pin:
-//   1. high tier adds `mutation-adequacy` to the required-reviews roster;
-//   2. medium/low (and the legacy no-tier call) do NOT include it;
-//   3. the dimension resolves from PURE DATA, independent of harness / worktree
-//      / runtime (INV-4 parity, design open Q4) — no fs, no native-isolation
-//      dependency, identical regardless of any cwd/worktree context.
-//
-// The no-tier call signature is preserved verbatim (backward-compat): omitting
-// `riskTier` reproduces today's per-workflow-type behaviour exactly.
-// ────────────────────────────────────────────────────────────────────────────
+// The review contract is tier-aware. At the `/review` boundary, only the high
+// risk tier requires the `mutation-adequacy` dimension. The medium and low
+// tiers, and a call with no tier, return the roster of the workflow type.
+// The roster resolves from data alone, so the working directory does not
+// change it.
 
 import { describe, it, expect } from 'vitest';
 
@@ -21,12 +12,10 @@ import {
 } from '../../../src/workflow/review-contract.js';
 
 describe('review contract — tier-aware mutation-adequacy dimension (R5)', () => {
-  // ── high-tier-only coupling ──────────────────────────────────────────────
   describe('ReviewContract_MutationAdequacy_RequiredForHighTierOnly', () => {
     it('feature workflow at the HIGH tier includes mutation-adequacy', () => {
       const dims = getRequiredReviews('feature', 'high');
       expect(dims).toContain('mutation-adequacy');
-      // the base dimension is preserved alongside the high-tier addition
       expect(dims).toContain('review');
     });
   });
@@ -42,7 +31,6 @@ describe('review contract — tier-aware mutation-adequacy dimension (R5)', () =
 
     it('the no-tier legacy call does NOT include mutation-adequacy (backward-compat)', () => {
       expect(getRequiredReviews('feature')).not.toContain('mutation-adequacy');
-      // backward-compat: the legacy call reproduces today's roster exactly
       expect(getRequiredReviews('feature')).toEqual(['review']);
     });
 
@@ -53,17 +41,13 @@ describe('review contract — tier-aware mutation-adequacy dimension (R5)', () =
     });
   });
 
-  // ── INV-4 parity (design open Q4) — pure data, harness-independent ────────
   describe('MutationAdequacyDimension_ResolvesOnNonNativeWorktreePath', () => {
+    /** A change of `process.cwd()` stands in for a managed worktree path, and it must not change the roster. */
     it('high-tier dimension resolves identically regardless of cwd / worktree context', () => {
-      // The contract is PURE: no fs, no native-isolation dependency. Mutating
-      // process.cwd() (the cheapest proxy for a managed / non-native worktree
-      // path) must not change the resolved dimension roster.
       const baseline = getRequiredReviews('feature', 'high');
 
       const originalCwd = process.cwd();
       try {
-        // simulate a managed (non-native) worktree by changing cwd to one
         process.chdir('/');
         const fromOtherCwd = getRequiredReviews('feature', 'high');
         expect(fromOtherCwd).toEqual(baseline);
@@ -80,7 +64,6 @@ describe('review contract — tier-aware mutation-adequacy dimension (R5)', () =
     });
   });
 
-  // ── prerequisite string mirrors the tier-aware roster ────────────────────
   describe('getRequiredReviewsPrerequisite is tier-aware', () => {
     it('high tier prerequisite names mutation-adequacy', () => {
       expect(getRequiredReviewsPrerequisite('feature', 'high')).toContain(

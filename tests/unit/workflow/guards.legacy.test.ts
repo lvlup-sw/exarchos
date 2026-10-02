@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { guards, PASSED_STATUSES, FAILED_STATUSES, type GuardResult, type GuardFailure } from '../../../src/workflow/guards.js';
 
-// ─── Task 1: GuardFailure type extension ─────────────────────────────────────
-
 describe('GuardFailure Type', () => {
   describe('GuardFailure_WithExpectedShape_IncludesFieldInResult', () => {
     it('GuardFailure_WithExpectedShape_IncludesFieldInResult', () => {
@@ -42,8 +40,6 @@ describe('GuardFailure Type', () => {
     });
   });
 });
-
-// ─── Task 2: allTasksComplete structured failure ─────────────────────────────
 
 describe('AllTasksComplete Structured Failure', () => {
   describe('AllTasksComplete_WithIncompleteTasks_ReturnsSuggestedFix', () => {
@@ -92,8 +88,6 @@ describe('AllTasksComplete Structured Failure', () => {
     });
   });
 });
-
-// ─── Task 3: allReviewsPassed / anyReviewFailed expectedShape ────────────────
 
 describe('AllReviewsPassed Expected Shape', () => {
   describe('AllReviewsPassed_NoReviews_ReturnsExpectedShape', () => {
@@ -149,6 +143,7 @@ describe('AllReviewsPassed Expected Shape', () => {
 
 describe('AllReviewsPassed Nested Review Paths', () => {
   describe('AllReviewsPassed_NestedFailedReviews_BuildsNestedExpectedShape', () => {
+    /** The expected shape must nest each failed review under its key, not use dotted keys. */
     it('AllReviewsPassed_NestedFailedReviews_BuildsNestedExpectedShape', () => {
       const state = {
         reviews: {
@@ -167,22 +162,17 @@ describe('AllReviewsPassed Nested Review Paths', () => {
       expect(result).not.toBe(true);
       const obj = result as GuardFailure;
       expect(obj.passed).toBe(false);
-      // The expectedShape should have nested structure, not dotted keys
       const shape = obj.expectedShape as Record<string, unknown>;
       const reviews = shape.reviews as Record<string, unknown>;
-      // A1.qualityReview should be nested: { A1: { qualityReview: { status: 'pass' } } }
       const a1 = reviews['A1'] as Record<string, unknown>;
       expect(a1).toBeDefined();
       expect(a1['qualityReview']).toEqual({ status: 'pass' });
-      // A2.specReview should be nested: { A2: { specReview: { status: 'pass' } } }
       const a2 = reviews['A2'] as Record<string, unknown>;
       expect(a2).toBeDefined();
       expect(a2['specReview']).toEqual({ status: 'pass' });
     });
   });
 });
-
-// ─── #1004: verdict synonym for status ─────────────────────────────────────
 
 describe('AllReviewsPassed Verdict Synonym', () => {
   it('AllReviewsPassed_VerdictField_TreatedAsStatus', () => {
@@ -257,8 +247,6 @@ describe('AnyReviewFailed Expected Shape', () => {
     });
   });
 });
-
-// ─── Task 4: Artifact guards and phase-specific guards ───────────────────────
 
 describe('Artifact Guard Structured Failures', () => {
   describe('DesignArtifactExists_Missing_ReturnsSuggestedFix', () => {
@@ -430,8 +418,6 @@ describe('Phase-Specific Guard Expected Shapes', () => {
   });
 });
 
-// ─── #775: scopeAssessmentComplete guard with explore field variations ───────
-
 describe('ScopeAssessmentComplete Guard (#775)', () => {
   describe('scopeAssessmentComplete_WithExploreSet_ReturnsTrue', () => {
     it('should return true when explore.scopeAssessment is set', () => {
@@ -503,8 +489,6 @@ describe('ScopeAssessmentComplete Guard (#775)', () => {
   });
 });
 
-// ─── T6: Guard null safety edge cases (ARCH-6) ──────────────────────────────
-
 describe('Guard Null Safety', () => {
   describe('AllReviewsPassed_NullReviews_ReturnsFalseWithReason', () => {
     it('should return { passed: false, reason } when reviews is explicitly null', () => {
@@ -546,8 +530,6 @@ describe('Guard Null Safety', () => {
     });
   });
 });
-
-// ─── Guard Fallback: Top-level artifact fields ──────────────────────────────
 
 describe('Guard Artifact Fallback', () => {
   describe('designArtifactExists_TopLevelDesign_Passes', () => {
@@ -597,8 +579,6 @@ describe('Guard Artifact Fallback', () => {
   });
 });
 
-// ─── Review Status: fixes-applied ───────────────────────────────────────────
-
 describe('Review Status fixes-applied', () => {
   describe('allReviewsPassed_FixesApplied_Passes', () => {
     it('should pass when review status is fixes-applied', () => {
@@ -614,6 +594,7 @@ describe('Review Status fixes-applied', () => {
   });
 
   describe('anyReviewFailed_FixesApplied_DoesNotTrigger', () => {
+    /** `fixes-applied` is not a failure, so `anyReviewFailed` must not pass. */
     it('should NOT consider fixes-applied as failed', () => {
       const state = {
         reviews: {
@@ -622,7 +603,6 @@ describe('Review Status fixes-applied', () => {
       } as Record<string, unknown>;
 
       const result = guards.anyReviewFailed.evaluate(state);
-      // anyReviewFailed should NOT pass — fixes-applied is not a failure
       expect(result).not.toBe(true);
       expect(typeof result).toBe('object');
       const obj = result as { passed: false; reason: string };
@@ -642,8 +622,6 @@ describe('Review Status fixes-applied', () => {
     });
   });
 });
-
-// ─── Track & Field Guards: expectedShape and suggestedFix (#959) ─────────────
 
 describe('Track Selection Guards Structured Failures', () => {
   const trackGuards = [
@@ -709,26 +687,27 @@ describe('PlanReviewComplete Structured Failure', () => {
 });
 
 describe('PlanReviewGapsFound Structured Failure', () => {
+  /** The failure carries no `suggestedFix`, because the plan review reports the gaps. */
   it('PlanReviewGapsFound_NoGaps_ReturnsExpectedShape', () => {
     const state = { featureId: 'test-feature' };
     const result = guards.planReviewGapsFound.evaluate(state);
     expect(result).not.toBe(true);
     const failure = result as GuardFailure;
     expect(failure.expectedShape).toEqual({ planReview: { gapsFound: true } });
-    // No suggestedFix — gaps are discovered, not forced
     expect(failure.suggestedFix).toBeUndefined();
   });
 });
 
-// ─── T7: Guard consistent return types (ARCH-6) ─────────────────────────────
-
 describe('Guard Consistent Return Types', () => {
   describe('AllGuards_OnFailure_ReturnObjectWithReason', () => {
+    /**
+     * An empty state makes most guards fail. Each failure must be an object with `passed: false`
+     * and a non-empty `reason`, not a bare `false`. The test skips `always`,
+     * `implementationComplete` and any guard that passes.
+     */
     it('should return { passed: false, reason } (not bare false) for all guards on failure', () => {
-      // Empty state should make most guards fail
       const emptyState: Record<string, unknown> = {};
 
-      // Guards that should fail on empty state (skip 'always' and 'implementationComplete')
       const failableGuards = Object.entries(guards).filter(
         ([key]) => key !== 'always' && key !== 'implementationComplete',
       );
@@ -736,11 +715,8 @@ describe('Guard Consistent Return Types', () => {
       for (const [key, guard] of failableGuards) {
         const result = guard.evaluate(emptyState);
 
-        // If the guard passed (returns true), skip — we only care about failures
         if (result === true) continue;
 
-        // On failure, the result MUST be an object with { passed: false, reason }
-        // It should NOT be bare `false`
         expect(
           typeof result,
           `Guard '${key}' returned bare false instead of { passed: false, reason }`,

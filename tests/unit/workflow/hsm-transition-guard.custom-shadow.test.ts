@@ -1,13 +1,8 @@
-// ─── P07-02 — shadow seam extended to custom-guard early-return deny paths ─────
-//
-// P07-01 fired the shadow observer only after the synchronous composite HSM
-// walk (Step 3). P07-02 extends it to the Step-2 custom-guard early-return deny
-// paths so the observer sees EVERY authoritative legacy `deny`, not only those
-// produced by the composite walk. This pins the deterministic
-// unregistered-custom-guard fail-closed path (no shell-out): it must surface a
-// `deny` observation AND remain behaviour-preserving (a throwing observer cannot
-// change the result). The registered-custom-guard-failed path fires through the
-// identical `notifyShadowObserver` helper.
+/**
+ * Tests the shadow observer on the early deny of an unregistered custom guard.
+ * This deny returns before the `executeTransition` walk and runs no shell command.
+ * A throwing observer must not change the result.
+ */
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -20,10 +15,10 @@ import type { WorkflowDefinition } from '../../../src/config/define.js';
 const guard = new DefaultHSMTransitionGuard();
 const WF = 'p07-02-custom-shadow';
 
-// A custom workflow whose `start → end` edge references a custom guard. Because
-// this test registers the HSM directly (NOT via `registerCustomWorkflows`), the
-// guard is present on the HSM edge (`custom: true`) but absent from the runtime
-// guard registry — driving the fail-closed unregistered-custom-guard deny path.
+/**
+ * A workflow whose `start` to `end` edge names a custom guard.
+ * The test registers the HSM directly, so the guard registry holds no entry for that guard.
+ */
 const definition: WorkflowDefinition = {
   phases: ['start', 'end'],
   initialPhase: 'start',
@@ -35,7 +30,6 @@ afterEach(() => {
   try {
     unregisterWorkflowType(WF);
   } catch {
-    // already removed
   }
   clearRegisteredGuards();
 });

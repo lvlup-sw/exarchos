@@ -1,24 +1,15 @@
-// ─── T041: next_actions populated on workflow envelopes ────────────────────
-//
-// DR-8: every envelope must carry `next_actions: NextAction[]` derived from
-// the current workflow state + HSM topology. This suite asserts the
-// composite-level integration — when a workflow handler returns data that
-// includes `phase` + `workflowType`, the composite layer must invoke
-// `computeNextActions` and attach the result to the envelope.
-//
-// The handler internals are mocked here so the test exercises only the
-// wrap-boundary behavior (as with T036/T039 envelope suites).
+/**
+ * Pins that `handleWorkflow` attaches `next_actions` to the envelope. When the handler data
+ * carries `phase` and `workflowType`, the list holds the outbound HSM transitions. Otherwise
+ * the list is empty. The handlers are mocked, so the suite tests only the envelope boundary.
+ * The mocked `handleGet` returns `phase` and `workflowType`, as the real handler does.
+ */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { DispatchContext } from '../../../src/dispatch/core/dispatch.js';
 import { EventStore } from '../../../src/events/store.js';
 import type { NextAction } from '../../../src/next-action.js';
 
-// Mock every handler invoked by `handleWorkflow`. Critically, the mocked
-// `handleGet` returns data containing BOTH `phase` and `workflowType`, which
-// is what the real handler does (see `handleGet` in `./tools.ts`) — so the
-// composite should look up the feature HSM and compute the outbound
-// transitions from `plan-review`.
 vi.mock('../../../src/workflow/tools.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/workflow/tools.js')>();
   return {
@@ -65,18 +56,16 @@ describe('WorkflowComposite_NextActions_Populated (T041, DR-8)', () => {
     ctx = makeCtx(stateDir);
   });
 
+  /** The feature HSM has a `plan-review` to `delegate` transition, so the envelope must list it. */
   it('NextActions_GetOnPlanReviewPhase_IncludesDelegateTransition', async () => {
     const result = await handleWorkflow({ action: 'get', featureId: 'f-test' }, ctx);
 
-    // Shape guard: envelope still conforms.
     expect(result.success).toBe(true);
 
     const env = result as unknown as Record<string, unknown>;
     expect(Array.isArray(env.next_actions)).toBe(true);
     const actions = env.next_actions as NextAction[];
 
-    // The feature HSM has plan-review → delegate as an outbound transition.
-    // The composite must compute and attach this NextAction to the envelope.
     expect(actions.length).toBeGreaterThan(0);
     const hasDelegate = actions.some(
       (a) => a.verb === 'delegate' || a.validTargets?.includes('delegate') === true,
@@ -84,9 +73,8 @@ describe('WorkflowComposite_NextActions_Populated (T041, DR-8)', () => {
     expect(hasDelegate).toBe(true);
   });
 
+  /** The `describe` data holds no `phase` and no `workflowType`, so the list must be empty. */
   it('NextActions_DescribeAction_ReturnsEmpty', async () => {
-    // `describe` has no workflow context (no phase/workflowType in its
-    // response data), so the composite must pass an empty array.
     const result = await handleWorkflow({ action: 'describe' }, ctx);
 
     expect(result.success).toBe(true);
@@ -94,10 +82,11 @@ describe('WorkflowComposite_NextActions_Populated (T041, DR-8)', () => {
     expect(env.next_actions).toEqual([]);
   });
 
+  /**
+   * The mocked `handleInit` returns only `{ phase: 'ideate' }`. Without `workflowType`, the list
+   * must be empty and the call must not throw.
+   */
   it('NextActions_InitWithoutWorkflowType_ReturnsEmpty', async () => {
-    // The mocked `handleInit` returns only `{ phase: 'ideate' }` with no
-    // `workflowType` — the composite must feature-detect and pass `[]`
-    // rather than throwing on an unknown workflow type.
     const result = await handleWorkflow(
       { action: 'init', featureId: 'test', workflowType: 'feature' },
       ctx,

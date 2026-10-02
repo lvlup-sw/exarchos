@@ -16,23 +16,20 @@ describe('buildConfigDescription', () => {
 
     expect(result.review.dimensions.D3.value).toBe('warning');
     expect(result.review.dimensions.D3.source).toBe('.exarchos.yml');
-    // Unchanged dimensions should be 'default'
     expect(result.review.dimensions.D1.source).toBe('default');
   });
 
+  /** The top-level keys of the description must match the keys of `DEFAULTS`, so no section goes missing. */
   it('DescribeConfig_AllSectionsPresent', () => {
     const result = buildConfigDescription(DEFAULTS);
-    // Parity check — any top-level section added to DEFAULTS must appear
-    // in the description output (and vice versa), so future sections can't
-    // silently regress.
     expect(Object.keys(result).sort()).toEqual(Object.keys(DEFAULTS).sort());
   });
 
+  /**
+   * `tdd-compliance` defaults to `blocking: false`. The override must use `blocking: true`, so it
+   * differs from the default and shows the `.exarchos.yml` source.
+   */
   it('DescribeConfig_GateOverride_ShowsGateAndDimension', () => {
-    // Verification-ladder slice 1: `tdd-compliance` now defaults to advisory
-    // (blocking:false), so an override must use the OPPOSITE value (blocking:
-    // true) to register as a user `.exarchos.yml` change rather than collapsing
-    // to the default. This re-blocks the gate explicitly.
     const config = resolveConfig({
       review: { gates: { 'tdd-compliance': { blocking: true } } },
     });
@@ -66,7 +63,6 @@ describe('buildConfigDescription', () => {
 
     expect(result.tools.autoMerge.value).toBe(false);
     expect(result.tools.autoMerge.source).toBe('.exarchos.yml');
-    // Non-overridden tools stay default
     expect(result.tools.commitStyle.source).toBe('default');
   });
 
@@ -118,13 +114,10 @@ describe('buildConfigDescription', () => {
     expect(result.prune.requireDryRun.source).toBe('default');
   });
 
+  /** The prune section of the description must hold no `staleAfterDays` key, but it keeps the other keys. */
   it('DescribeConfig_StaleAfterDaysRemoved_OmitsAnnotatedField', () => {
-    // DR-9: the removed `staleAfterDays` knob must no longer appear in the
-    // annotated config description — the surface disappears with the config
-    // field, not just the value.
     const result = buildConfigDescription(DEFAULTS);
     expect('staleAfterDays' in result.prune).toBe(false);
-    // Surviving prune knobs are still annotated.
     expect('maxBatchSize' in result.prune).toBe(true);
   });
 
@@ -177,12 +170,10 @@ describe('buildConfigDescription', () => {
   });
 });
 
-// ─── #1360 — describe('update') reservedFields block (PR 2 / T4) ───────────
-//
-// `exarchos_workflow.describe({actions:['update']})` enumerates the
-// `RESERVED_FIELDS_DESCRIPTOR` under a `reservedFields` key so agents
-// discover the boundary (top-level immutable keys, the underscore rule,
-// alternate write paths) without trial-and-error.
+/**
+ * The `describe` output for `update` lists `RESERVED_FIELDS_DESCRIPTOR` under `reservedFields`.
+ * Agents read the immutable keys, the underscore rule and the other write paths there.
+ */
 describe('describe(update).reservedFields (#1360)', () => {
   it('Describe_ActionUpdate_ReturnsReservedFieldsBlock', async () => {
     const { handleDescribe } = await import('../../../src/describe/handler.js');

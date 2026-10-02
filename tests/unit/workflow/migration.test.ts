@@ -107,7 +107,6 @@ describe('Migration Metadata', () => {
     expect(history[0].from).toBe('1.0');
     expect(history[0].to).toBe('1.1');
     expect(typeof history[0].timestamp).toBe('string');
-    // Verify it's a valid ISO date
     expect(new Date(history[0].timestamp).toISOString()).toBe(history[0].timestamp);
   });
 
@@ -144,7 +143,6 @@ describe('Migration Metadata', () => {
 
     const result = migrateState(v1_1) as Record<string, unknown>;
 
-    // Should NOT have _migrationHistory since no migration was applied
     expect(result._migrationHistory).toBeUndefined();
   });
 });

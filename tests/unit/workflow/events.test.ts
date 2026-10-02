@@ -11,7 +11,7 @@ import {
 import type { Event, EventType } from '../../../src/workflow/types.js';
 import { EventSchema } from '../../../src/workflow/schemas.js';
 
-// Helper to create a valid event
+/** Builds a valid event with a current timestamp. */
 function makeEvent(overrides: Partial<Event> & { sequence: number; type: EventType; trigger: string }): Event {
   return {
     version: '1.0' as const,
@@ -23,7 +23,6 @@ function makeEvent(overrides: Partial<Event> & { sequence: number; type: EventTy
 describe('Event Log', () => {
   describe('appendEvent', () => {
     it('AppendEvent_NewEvent_IncrementsSequence — Sequence goes from 0 to 1 to 2', () => {
-      // First append: sequence 0 -> 1
       const result1 = appendEvent([], 0, 'transition', 'start', {
         from: 'ideate',
         to: 'plan',
@@ -32,7 +31,6 @@ describe('Event Log', () => {
       expect(result1.event.sequence).toBe(1);
       expect(result1.events).toHaveLength(1);
 
-      // Second append: sequence 1 -> 2
       const result2 = appendEvent(result1.events, result1.eventSequence, 'transition', 'continue', {
         from: 'plan',
         to: 'delegate',
@@ -42,8 +40,8 @@ describe('Event Log', () => {
       expect(result2.events).toHaveLength(2);
     });
 
+    /** The 101st append drops the oldest event and keeps the newest at the end. */
     it('AppendEvent_CapExceeded_DiscardsFIFO — At 100, oldest removed', () => {
-      // Build up 100 events
       let events: Event[] = [];
       let seq = 0;
       for (let i = 0; i < 100; i++) {
@@ -54,13 +52,10 @@ describe('Event Log', () => {
       expect(events).toHaveLength(100);
       expect(seq).toBe(100);
 
-      // Adding one more should discard the oldest
       const result = appendEvent(events, seq, 'transition', 'trigger-overflow');
       expect(result.events).toHaveLength(100);
       expect(result.eventSequence).toBe(101);
-      // The oldest event (sequence 1) should be gone
       expect(result.events[0].sequence).toBe(2);
-      // The newest event should be at the end
       expect(result.events[result.events.length - 1].sequence).toBe(101);
     });
 
@@ -132,9 +127,8 @@ describe('Event Log', () => {
   });
 
   describe('getFixCycleCount', () => {
+    /** The events match what `executeTransition` writes: each carries `metadata.compoundStateId`. */
     it('should count fix-cycle events using compoundStateId metadata key (Bug 6 regression)', () => {
-      // This test uses events matching what executeTransition actually writes:
-      // compound-entry and fix-cycle events with metadata.compoundStateId
       const events: Event[] = [
         makeEvent({
           sequence: 1,
@@ -208,6 +202,7 @@ describe('Event Log', () => {
       expect(getFixCycleCount(events, 'delegate')).toBe(0);
     });
 
+    /** A second `compound-entry` for the compound resets the count. */
     it('should only count fix-cycle events after the most recent compound-entry', () => {
       const events: Event[] = [
         makeEvent({
@@ -228,7 +223,6 @@ describe('Event Log', () => {
           trigger: 'exit-delegate',
           metadata: { compoundStateId: 'delegate' },
         }),
-        // Re-enter the compound — this resets the count
         makeEvent({
           sequence: 4,
           type: 'compound-entry',
@@ -323,7 +317,7 @@ describe('Event Log', () => {
       ];
 
       const duration = getPhaseDuration(events, 'plan');
-      expect(duration).toBe(5 * 60 * 1000); // 5 minutes in ms
+      expect(duration).toBe(5 * 60 * 1000);
     });
 
     it('should return null when phase has no entry transition', () => {
@@ -358,9 +352,9 @@ describe('Event Log', () => {
       expect(getPhaseDuration([], 'plan')).toBeNull();
     });
 
+    /** The phase has two entry and exit pairs. The duration comes from the second pair. */
     it('should use the most recent entry and exit for a phase', () => {
       const events: Event[] = [
-        // First entry into plan
         makeEvent({
           sequence: 1,
           type: 'transition',
@@ -368,7 +362,6 @@ describe('Event Log', () => {
           to: 'plan',
           timestamp: '2025-01-15T10:00:00.000Z',
         }),
-        // Exit plan
         makeEvent({
           sequence: 2,
           type: 'transition',
@@ -377,7 +370,6 @@ describe('Event Log', () => {
           to: 'delegate',
           timestamp: '2025-01-15T10:02:00.000Z',
         }),
-        // Re-entry into plan
         makeEvent({
           sequence: 3,
           type: 'transition',
@@ -385,7 +377,6 @@ describe('Event Log', () => {
           to: 'plan',
           timestamp: '2025-01-15T11:00:00.000Z',
         }),
-        // Exit plan again
         makeEvent({
           sequence: 4,
           type: 'transition',
@@ -396,9 +387,8 @@ describe('Event Log', () => {
         }),
       ];
 
-      // Should use the most recent entry/exit pair
       const duration = getPhaseDuration(events, 'plan');
-      expect(duration).toBe(10 * 60 * 1000); // 10 minutes
+      expect(duration).toBe(10 * 60 * 1000);
     });
   });
 
@@ -434,11 +424,11 @@ describe('Event Log', () => {
       }
     });
 
-    // Phase-kind resolve-then-freeze (DR-13, epic #1546). These are already
-    // canonical event-store types — the `workflow.${type}` fallback would mint
-    // the UNREGISTERED `workflow.phase.*` which `WorkflowEventBase`'s
-    // unknown-type refine rejects. `phase.blocked` rides the guard's fail-closed
-    // branch, so its identity round-trip is load-bearing, not cosmetic.
+    /**
+     * The `phase.*` kinds are canonical event-store types. The `workflow.` prefix fallback gives an
+     * unregistered `workflow.phase.*` type, which the unknown-type refine of `WorkflowEventBase`
+     * rejects. A blocked transition emits `phase.blocked`, so its round trip matters.
+     */
     it('passes phase-kind canonical types through unchanged (no workflow. fallback)', () => {
       for (const t of ['phase.entered', 'phase.exited', 'phase.blocked'] as const) {
         expect(mapInternalToExternalType(t)).toBe(t);

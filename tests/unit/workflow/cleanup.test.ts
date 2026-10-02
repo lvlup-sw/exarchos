@@ -1,47 +1,11 @@
-// ─── DR-7 / INV-9 — exactly one action mutates a phase ───────────────────────
+// Tests for the phase mutations of `cleanup` and `cancel`.
+// Both handlers route through `hsmTransitionGuard.attempt`, the guarded primitive that `exarchos_workflow transition` also uses.
+// Both report each transition to the `recordLiveTransition` shadow observer.
+// A failure in the middle of a transition leaves no partial event trail.
 //
-// Acceptance criteria under test:
-//   1. `cleanup` and `cancel` route through the single guarded primitive.
-//   2. ALL phase mutations are shadow-observed.
-//   3. No partial event trail survives a mid-transition failure.
-//
-// ── Characterization of the behaviour these tests replace ────────────────────
-//
-// Before this change, `cleanup.ts:303` and `cancel.ts:367` called
-// `executeTransition(hsm, mutableState, …)` DIRECTLY. Measured on the
-// pre-change tree:
-//
-//   • `hsmTransitionGuard.attempt` was called ZERO times on the cleanup path —
-//     the phase mutation ran with no guard dispatch at all, and therefore with
-//     no shadow observation (the observer seam lives inside the primitive).
-//     `handleSet` was the only phase mutation the primitive ever saw.
-//   • Injecting a failure on the SECOND event append during cleanup left the
-//     stream holding exactly `["state.patched"]` — a durable, half-written
-//     phase mutation no consumer can distinguish from a complete one.
-//   • Cleanup returned `success: true` in the happy path either way, so
-//     nothing in the observable result betrayed the bypass.
-//
-// ── Why the LIVE guarded primitive, and not `runCleanupCommand` ──────────────
-//
-// `admission/transition-command.ts#runCleanupCommand` was written to close
-// exactly this gap and is dead code. It is NOT the right primitive to revive:
-//
-//   • It lives in the RESERVED admission chokepoint, which its own header
-//     stages deliberately — `hsm-transition-guard.ts` "remains the
-//     authoritative decider until P07-01 shadow mode reports zero unexplained
-//     disagreements and P07-02 migrates the built-in workflows". The cutover
-//     gate is NOT satisfied (retirement-safety pins three unmet conditions and
-//     zero live attempts). Routing cleanup through it would flip cleanup onto
-//     the evidence-backed decider ahead of the cutover — the premature cutover
-//     the whole program is staged to prevent.
-//   • It evaluates NO guard. It appends a `workflow.cleanup` event under an
-//     OCC gate; it never asks `mergeVerified`. Cleanup would lose its guard.
-//
-// So both handlers route through `hsmTransitionGuard.attempt` — the primitive
-// `exarchos_workflow transition` already uses — carrying the SAME
-// `recordLiveTransition` shadow observer `tools.ts` wires. That also feeds the
-// cutover gate live evidence from the cleanup/cancel edges, which is what the
-// staging actually needs.
+// The handlers do not use `runCleanupCommand` from `admission/transition-command.ts`.
+// That function evaluates no guard, so cleanup loses its `mergeVerified` check.
+// It also belongs to the admission chokepoint, which is not the authoritative decider before the cutover.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -50,10 +14,10 @@ import * as path from 'node:path';
 
 import type { LegacyTransitionObservation } from '../../../src/workflow/admission/shadow-decision.js';
 
-// The shadow seam is observed at its PRODUCTION wiring point: both handlers
-// call `recordLiveTransition`, the same function `tools.ts` hands the guarded
-// transition path. Mocking the module records every observation that reaches
-// production wiring, rather than asserting on the shape of a guard context.
+/**
+ * Records each observation that reaches `recordLiveTransition`, the production observer that both handlers and `handleSet` call.
+ * The mock records what reaches the production wiring, not the shape of a guard context.
+ */
 const shadowSpy = vi.hoisted(() => ({
   observations: [] as LegacyTransitionObservation[],
 }));
@@ -109,9 +73,8 @@ async function seedWorkflow(
 }
 
 /**
- * A schema-complete `synthesis` block carrying a pre-existing merge record.
- * T-12: caller-supplied `input.prUrl` is post-guard metadata — the evidence
- * `collectCleanupEvidence` reads must already be IN STATE.
+ * Builds a schema-complete `synthesis` block that holds a merge record.
+ * `collectCleanupEvidence` reads this evidence from the state, not from the `prUrl` input.
  */
 function mergeEvidenceSynthesis(prUrl: string): Record<string, unknown> {
   return {
@@ -140,13 +103,10 @@ function mockCompensationSuccess(): Promise<void> {
   });
 }
 
-// ─── Criterion 1: the single guarded primitive ────────────────────────────────
-
 describe('DR-7 — cleanup and cancel route through the guarded primitive', () => {
+  /** Cleanup calls the primitive once, for the review to completed edge, and admits the universal final transition. */
   it('Cleanup_CompletedTransition_RoutesThroughGuardedPrimitive', async () => {
     const attemptSpy = vi.spyOn(hsmTransitionGuard, 'attempt');
-    // DR-8 / T-12: real merge evidence lives IN STATE — a caller-supplied
-    // `prUrl` is post-guard metadata and no longer satisfies the guard.
     await seedWorkflow('cleanup-routes', 'review', {
       synthesis: mergeEvidenceSynthesis('https://github.com/test/pr/1'),
     });
@@ -161,9 +121,6 @@ describe('DR-7 — cleanup and cancel route through the guarded primitive', () =
     expect(result.success).toBe(true);
     expect((result.data as Record<string, unknown>).phase).toBe('completed');
 
-    // The phase mutation went through the primitive — exactly once, for the
-    // review → completed edge, with the universal-final edge explicitly
-    // admitted (the reason the direct-`executeTransition` bypass existed).
     expect(attemptSpy).toHaveBeenCalledTimes(1);
     const [featureId, fromPhase, toPhase, context] = attemptSpy.mock.calls[0]!;
     expect(featureId).toBe('cleanup-routes');
@@ -172,13 +129,12 @@ describe('DR-7 — cleanup and cancel route through the guarded primitive', () =
     expect(context.allowUniversalFinalTransition).toBe(true);
   });
 
+  /**
+   * When the primitive denies, cleanup changes neither the phase nor the stream.
+   * A handler that calls the primitive but ignores it passes the routing test, but it fails this test.
+   * The seeded merge evidence makes the injected denial the only cause of failure.
+   */
   it('Cleanup_GuardedPrimitiveDenies_PhaseIsNotMutated', async () => {
-    // The primitive is AUTHORITATIVE, not decorative: when it denies, cleanup
-    // must not mutate the phase and must not write any event. A bypass that
-    // merely *also* called the primitive would still pass the routing test
-    // above; it cannot pass this one.
-    // T-12: seed real merge evidence so the failure reported is the injected
-    // guard denial, not an evidence insufficiency.
     await seedWorkflow('cleanup-denied', 'review', {
       synthesis: mergeEvidenceSynthesis('https://github.com/test/pr/1'),
     });
@@ -226,8 +182,6 @@ describe('DR-7 — cleanup and cancel route through the guarded primitive', () =
   });
 });
 
-// ─── Criterion 2: all phase mutations are shadow-observed ─────────────────────
-
 describe('DR-7 — every phase mutation is shadow-observed', () => {
   it('Cancel_CancelledTransition_IsShadowObserved', async () => {
     await mockCompensationSuccess();
@@ -271,22 +225,11 @@ describe('DR-7 — every phase mutation is shadow-observed', () => {
   });
 });
 
-// ─── Criterion 3: no partial event trail survives a mid-transition failure ────
-
 /**
- * Install a store failure that lets exactly ONE durable write through and
- * fails every write after it.
- *
- * This is the sharpest possible probe of the all-or-nothing criterion, and it
- * is implementation-agnostic:
- *   - a handler that emits its trail as N sequential appends gets write #1
- *     committed and write #2 rejected, leaving a PARTIAL trail on the stream;
- *   - a handler that commits the whole trail in ONE transaction either lands
- *     all of it in that single permitted write, or lands none of it.
- *
- * Both are exercised against the REAL `EventStore`, the REAL HSM and the REAL
- * guards, so what is asserted is the durable content of the stream — not a
- * spy's call log.
+ * Lets exactly one durable write through and fails every later write.
+ * A handler that appends its trail one event at a time leaves a partial trail.
+ * A handler that commits the trail in one transaction lands all of it or none of it.
+ * The tests use the real `EventStore`, HSM, and guards, and check the durable stream.
  */
 function failAfterFirstWrite(store: EventStoreInstance): void {
   let writes = 0;
@@ -304,11 +247,13 @@ function failAfterFirstWrite(store: EventStoreInstance): void {
 }
 
 describe('DR-7 — no partial event trail survives a mid-transition failure', () => {
+  /**
+   * The trail is `state.patched`, the HSM lifecycle events, and the explicit `workflow.cleanup` event.
+   * Either all of it is durable or none of it is.
+   */
   it('Cleanup_MidTransitionFailure_LeavesCompleteTrailOrNothing', async () => {
     await seedWorkflow('cleanup-atomic', 'review', {
       reviews: { 'task-1': { status: 'approved' } },
-      // T-12: the merge evidence must pre-exist in state for the guard to
-      // admit the transition and reach the event-emission window under test.
       synthesis: mergeEvidenceSynthesis('https://github.com/test/pr/7'),
     });
     const store = new EventStore(tmpDir);
@@ -331,9 +276,6 @@ describe('DR-7 — no partial event trail survives a mid-transition failure', ()
     const added = (await store.query('cleanup-atomic')).slice(before.length);
     const types = added.map((event) => event.type);
 
-    // The trail is `state.patched` + the HSM lifecycle event(s) + the explicit
-    // `workflow.cleanup` completion. Either all of it is durable, or none of
-    // it is — never the `["state.patched"]` fragment the bypass produced.
     if (types.length > 0) {
       expect(types).toContain('state.patched');
       expect(types).toContain('workflow.cleanup');
@@ -343,9 +285,8 @@ describe('DR-7 — no partial event trail survives a mid-transition failure', ()
     }
   });
 
+  /** When the trail does not commit, the phase does not advance. */
   it('Cleanup_MidTransitionFailure_PhaseNeverAdvancesPastAnUnwrittenTrail', async () => {
-    // The complement of the trail invariant: if the trail did NOT commit, the
-    // phase must not have advanced either.
     await seedWorkflow('cleanup-atomic-state', 'review', {
       synthesis: mergeEvidenceSynthesis('https://github.com/test/pr/1'),
     });
@@ -369,14 +310,16 @@ describe('DR-7 — no partial event trail survives a mid-transition failure', ()
     expect((await store.query('cleanup-atomic-state')).length).toBe(before);
   });
 
+  /**
+   * The saga, up to `cancel.ready`, does not write through `appendTrailAtomically`.
+   * Thus the first call to it is the final phase-mutation trail, and the test fails that call.
+   * No part of the cancel transition trail is durable, and the phase does not advance.
+   */
   it('Cancel_MidTransitionFailure_LeavesCompleteTrailOrNothing', async () => {
     await mockCompensationSuccess();
     await seedWorkflow('cancel-atomic', 'delegate', { _esVersion: 2 });
     const store = new EventStore(tmpDir);
 
-    // Let the cancellation saga (`cancel.ready`) settle first, then interrupt
-    // only the final phase-mutation trail — that is the "mid-transition"
-    // window this criterion is about.
     const realTrail = store.appendTrailAtomically.bind(store);
     let trailWrites = 0;
     vi.spyOn(store, 'appendTrailAtomically').mockImplementation(async (...args) => {
@@ -390,8 +333,6 @@ describe('DR-7 — no partial event trail survives a mid-transition failure', ()
     vi.restoreAllMocks();
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
-    // No fragment of the cancellation transition trail is durable, and the
-    // phase did not advance.
     const events = await store.query('cancel-atomic');
     expect(events.some((e) => e.type === 'workflow.cancel')).toBe(false);
     expect(await readPhase('cancel-atomic')).toBe('delegate');

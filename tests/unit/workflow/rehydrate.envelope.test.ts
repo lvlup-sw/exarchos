@@ -1,25 +1,10 @@
-// ─── rehydrate.envelope (#1325 task α-11) ────────────────────────────────
-//
-// Property-style assertion: every event emitted by `handleRehydrate`
-// carries a canonical envelope — non-empty `correlationId`, registered
-// `source`, and per-event-type data schema validates.
-//
-// Two emission paths in `rehydrate.ts`:
-//
-//   - Line 234 (degraded path, `buildDegradedResponse`) — when the
-//     projection cold-fold fails (reducer throw, snapshot corrupt,
-//     event-store unavailable), the handler emits
-//     `workflow.projection_degraded` and returns a minimal fallback
-//     document. Exercised by spying on the rehydration reducer to throw.
-//
-//   - Line 613 (success path, audit event) — on a successful hydrate,
-//     the handler emits `workflow.rehydrated` as an audit event.
-//     Exercised by seeding a stream with workflow.started + task.* events
-//     and invoking the handler.
-//
-// RED expectation: both sites today bypass `buildValidatedEvent` and
-// do NOT supply `correlationId` / `source`. The assertion fails today
-// and α-12 closes the gap.
+// Every event that `handleRehydrate` emits carries a canonical envelope: a
+// non-empty `correlationId`, a non-empty `source`, and data that passes the
+// schema of its event type. The success path emits `workflow.rehydrated`.
+// The degraded path emits `workflow.projection_degraded`. A spy on the
+// rehydration reducer makes the fold throw to reach the degraded path.
+// The projection barrel import registers the rehydration reducer with the
+// default registry, which the handler needs.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -29,8 +14,6 @@ import * as path from 'node:path';
 import { EventStore } from '../../../src/events/store.js';
 import { handleRehydrate } from '../../../src/workflow/rehydrate.js';
 import { initStateFile } from '../../../src/workflow/state-store.js';
-// Importing the projection barrel registers the rehydration reducer
-// with the process-wide default registry — needed for handler resolution.
 import '../../../src/projections/rehydration/index.js';
 import { rehydrationReducer } from '../../../src/projections/rehydration/reducer.js';
 import { assertCanonicalEnvelope } from '../../../src/workflow/test-helpers/canonical-envelope.js';
@@ -52,7 +35,7 @@ afterEach(async () => {
 });
 
 describe('WorkflowRehydrate_AllEmittedEvents_HaveCanonicalEnvelope', () => {
-  // Line 613 — success path emits `workflow.rehydrated`
+  /** The success path emits `workflow.rehydrated`. */
   it('rehydrate.ts:613 — workflow.rehydrated event has canonical envelope', async () => {
     const featureId = 'rehydrate-envelope-success';
 
@@ -80,7 +63,7 @@ describe('WorkflowRehydrate_AllEmittedEvents_HaveCanonicalEnvelope', () => {
     assertCanonicalEnvelope(rehydratedEvents);
   });
 
-  // Line 234 — degraded path emits `workflow.projection_degraded`
+  /** The degraded path emits `workflow.projection_degraded`. */
   it('rehydrate.ts:234 — workflow.projection_degraded event has canonical envelope', async () => {
     const featureId = 'rehydrate-envelope-degraded';
 
