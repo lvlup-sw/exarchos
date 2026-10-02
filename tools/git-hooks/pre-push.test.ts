@@ -1,7 +1,7 @@
 // Black-box tests for the opt-in pre-push ship-gate hook. The suite runs
 // `pre-push.ship-gate.sample` as a POSIX `sh` script, as git runs `.git/hooks/pre-push`,
-// so the file mode does not matter. Each test puts a fake `exarchos` stub first on
-// PATH. The stub output stands in for the `--json` ToolResult of the ship-path verb.
+// so the file mode does not matter. A test that needs the engine puts a fake `exarchos`
+// stub first on PATH. The stub output stands in for the `--json` ToolResult of the ship-path verb.
 // The tests assert the exit code of the hook and, where it matters, its stderr.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
@@ -16,14 +16,6 @@ import { fileURLToPath } from 'node:url';
 import { rmrf } from '../test-helpers/temp-dir.js';
 
 import { spawnAsync, type SpawnResult } from '../test-helpers/spawn.js';
-
-
-import { spawnSync } from 'node:child_process';
-
-// Black-box tests for the opt-in pre-push ship-gate hook. The suite runs
-// so the file mode does not matter. A test that needs the engine puts a fake `exarchos`
-// stub first on PATH. The stub output stands in for the `--json` ToolResult of the ship-path verb.
-// The tests assert the exit code of the hook and, where it matters, its stderr.
 
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
