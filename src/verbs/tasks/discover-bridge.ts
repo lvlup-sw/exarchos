@@ -1,20 +1,11 @@
-// ─── Discover Bridge Orchestrate Handler (DR-7, #1581 task 018) ──────────────
-//
-// The `deep` planning rung's first-class, event-linked escalation from PLAN
-// authoring to the existing `discover` research workflow — replacing the old
-// manual "go start a new workflow" handoff. It is **opt-in** (INV-12): the
-// affordance is surfaced via `next_actions` (see `next-actions-computer.ts`) and
-// only this handler, called with explicit author confirmation (`confirm: true`),
-// performs the escalation. Without confirmation it spawns nothing and emits
-// nothing — a published affordance must never auto-run.
-//
-// On confirmation the bridge stitches the discover report to the unified spec by
-// a shared `correlationId`: the link is recorded as a `state.patched` event on
-// the feature stream (the report path + discover featureId + correlationId), so
-// a later provenance query spans BOTH the spec's stream and the discover
-// workflow's stream. The discover workflow is started by the author with the
-// SAME correlationId; this handler establishes and returns it.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Handler for the `discover_bridge` action. It links PLAN authoring on the `deep` rung to a `discover` research workflow.
+ * The bridge is opt-in. `next_actions` publishes the affordance, and only a call with `confirm: true` performs the escalation.
+ *
+ * On confirmation it records the link as a `state.patched` event on the feature stream, with a shared `correlationId`.
+ * A provenance query can then span the spec stream and the discover stream.
+ * The author starts the discover workflow with the same `correlationId`, which this handler returns.
+ */
 
 import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
@@ -25,11 +16,7 @@ export interface DiscoverBridgeArgs {
   readonly featureId: string;
   /** The unified `docs/specs/` artifact the discover report will be cited in. */
   readonly artifact?: string;
-  /**
-   * Author confirmation. The bridge is opt-in (DR-7): only `confirm: true`
-   * performs the escalation. Absent / false ⇒ the affordance is described but
-   * nothing is spawned and no event is emitted.
-   */
+  /** Author confirmation. Only `confirm: true` performs the escalation. Otherwise the handler only describes the affordance and emits no event. */
   readonly confirm?: boolean;
   /** The discover report path to cite in the spec's design section (when known). */
   readonly reportPath?: string;
@@ -39,15 +26,16 @@ export interface DiscoverBridgeArgs {
   readonly correlationId?: string;
 }
 
-/**
- * Derive the deterministic correlationId that stitches the feature spec to its
- * discover research pre-pass. Deterministic (not time/random based) so a replay
- * or a re-invocation re-derives the SAME stitch — the link is idempotent.
- */
+/** Derives the correlationId that links the feature spec to its discover pre-pass. It uses no time or random input, so a replay derives the same link. */
 export function deriveBridgeCorrelationId(featureId: string, override?: string): string {
   return override ?? `discover-bridge:${featureId}`;
 }
 
+/**
+ * Without `confirm: true`, it returns the affordance and spawns nothing.
+ * With confirmation, it appends the link event when an event store exists. An append failure only logs a warning.
+ * Without an event store, it still returns the linkage, and the author can adopt the derived correlationId.
+ */
 export async function handleDiscoverBridge(
   args: DiscoverBridgeArgs,
   _stateDir: string,
@@ -70,9 +58,6 @@ export async function handleDiscoverBridge(
   const discoverFeatureId = args.discoverFeatureId ?? `${args.featureId}-discover`;
   const reportPath = args.reportPath ?? null;
 
-  // OPT-IN GUARD (DR-7 / INV-12). Without explicit author confirmation the
-  // bridge is a described affordance only — it spawns NO discover workflow and
-  // emits NO event. This is the no-silent-spawn contract.
   if (args.confirm !== true) {
     return {
       success: true,
@@ -92,15 +77,8 @@ export async function handleDiscoverBridge(
     };
   }
 
-  // CONFIRMED — stitch the discover report to the spec by a shared correlationId.
-  // The citation and the discover linkage carry the SAME correlationId so a
-  // provenance query spans both documents/streams.
   const specCitation = { artifact: args.artifact, reportPath, correlationId };
 
-  // EVENT-LINKED: record the bridge durably on the feature stream. Best-effort —
-  // a file-based dispatch with no event store degrades to the returned linkage
-  // (the correlationId is deterministic, so the author's discover `init` can
-  // still adopt it) rather than failing the escalation.
   let eventLinked = false;
   if (eventStore) {
     try {

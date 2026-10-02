@@ -1,31 +1,25 @@
-// ─── Check PR Comments ──────────────────────────────────────────────────────
-//
-// Analyzes PR review comment threads via VcsProvider to detect unresolved
-// discussions. Comments from getPrComments() represent review comments; the
-// handler groups them by path+line to detect unreplied top-level threads.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Checks a PR for unaddressed review comments through the `VcsProvider`. Each
+ * comment that the provider returns counts as an unaddressed thread. The check
+ * does not read `parentId` or the resolution status.
+ */
 
 import type { VcsProvider, PrComment as VcsPrComment } from '../../vcs/provider.js';
 import { requiresGitHub } from '../../vcs/require-github.js';
 import { createVcsProvider } from '../../vcs/factory.js';
 import type { ToolResult } from '../../format.js';
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-
 /**
- * Counts-not-transcripts cap (DR-7, audit O-3): the FAIL report enumerates one
- * line per unaddressed comment. A PR with dozens of open threads floods the
- * gate echo, so the list is capped at N entries plus a total count and a
- * steering hint to the uncapped escape hatch (`gh pr view <pr> --comments`).
- * Fixed internal cap — NOT a schema param (that boundary is Task 022).
+ * The maximum number of comment lines in a FAIL report. Past the cap, the
+ * report gives the total and points to `gh pr view <pr> --comments`. It is an
+ * internal constant, not a schema parameter.
  */
 export const UNADDRESSED_COMMENT_LIST_CAP = 20;
 
-// ─── Types ─────────────────────────────────────────────────────────────────
-
 export interface CheckPrCommentsArgs {
   readonly pr: number;
-  readonly repo?: string; // defaults to current repo via provider.getRepository()
+  /** Defaults to the current repository from `provider.getRepository()`. Used only in the report. */
+  readonly repo?: string;
 }
 
 interface CheckPrCommentsResult {
@@ -35,8 +29,6 @@ interface CheckPrCommentsResult {
   readonly report: string;
 }
 
-// ─── Handler ───────────────────────────────────────────────────────────────
-
 export async function handleCheckPrComments(
   args: CheckPrCommentsArgs,
   provider?: VcsProvider,
@@ -44,7 +36,6 @@ export async function handleCheckPrComments(
   const vcsGuard = requiresGitHub(provider, 'check_pr_comments');
   if (vcsGuard) return vcsGuard;
 
-  // Guard: validate PR number
   if (!args.pr) {
     return {
       success: false,
@@ -54,7 +45,6 @@ export async function handleCheckPrComments(
 
   const vcs = provider ?? await createVcsProvider();
 
-  // Resolve repo (used for report display, not for API calls)
   let repo = args.repo;
   if (!repo) {
     try {
@@ -68,7 +58,6 @@ export async function handleCheckPrComments(
     }
   }
 
-  // Fetch comments via VcsProvider
   let comments: VcsPrComment[];
   try {
     comments = await vcs.getPrComments(String(args.pr));
@@ -80,19 +69,10 @@ export async function handleCheckPrComments(
     };
   }
 
-  // The VcsProvider returns flat review comments. We treat each comment as
-  // a "top-level" entry. The provider does not include in_reply_to_id, so
-  // all comments are currently treated as unresolved threads (each is a
-  // standalone review comment without reply tracking). This is conservative:
-  // the handler flags all comments as needing attention.
-  //
-  // If the provider later adds reply threading (in_reply_to_id), we can
-  // restore the original thread-grouping logic here.
   const topLevel = comments;
   const unresolvedThreads = topLevel.length;
   const passed = unresolvedThreads === 0;
 
-  // Build report
   const reportLines: string[] = [];
   reportLines.push(`## PR #${args.pr} Comment Status`);
   reportLines.push('');

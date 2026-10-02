@@ -1,17 +1,13 @@
-// ─── Select Debug Track Composite Action ─────────────────────────────────────
-//
-// Pure TypeScript debug track selection — deterministic decision tree that
-// selects between HOTFIX and THOROUGH debug tracks based on urgency level
-// and whether the root cause is known. No bash script dependency.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Handler for the `select_debug_track` action. A fixed decision tree selects the HOTFIX or the THOROUGH debug track.
+ * The inputs are the urgency level and whether the root cause is known.
+ */
 
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-
-// ─── Argument & Result Types ────────────────────────────────────────────────
 
 interface SelectDebugTrackArgs {
   readonly urgency?: string;
@@ -28,8 +24,6 @@ interface TrackSelection {
   readonly report: string;
 }
 
-// ─── Valid Urgency Levels ───────────────────────────────────────────────────
-
 const VALID_URGENCY_LEVELS = ['critical', 'high', 'medium', 'low'] as const;
 type UrgencyLevel = typeof VALID_URGENCY_LEVELS[number];
 
@@ -37,14 +31,10 @@ function isValidUrgency(value: string): value is UrgencyLevel {
   return (VALID_URGENCY_LEVELS as readonly string[]).includes(value);
 }
 
-// ─── Root Cause Normalization ───────────────────────────────────────────────
-
 function normalizeRootCauseKnown(value: boolean | string): boolean {
   if (typeof value === 'boolean') return value;
   return value === 'yes';
 }
-
-// ─── Decision Tree ──────────────────────────────────────────────────────────
 
 function selectTrack(
   urgency: UrgencyLevel,
@@ -66,8 +56,6 @@ function selectTrack(
   }
 }
 
-// ─── Report Generation ──────────────────────────────────────────────────────
-
 function generateReport(
   urgency: string,
   rootCauseKnown: boolean,
@@ -84,8 +72,11 @@ function generateReport(
   return lines.join('\n');
 }
 
-// ─── Handler ───────────────────────────────────────────────────────────────
-
+/**
+ * Selects the debug track. When `urgency` or `rootCauseKnown` is missing, it reads them from `stateFile`, or from the event store for `featureId`.
+ * The event store is the source of truth, and a `.state.json` file can be absent.
+ * An explicit `stateFile` must be inside the state directory.
+ */
 export async function handleSelectDebugTrack(
   args: SelectDebugTrackArgs,
   _stateDir: string,
@@ -97,13 +88,7 @@ export async function handleSelectDebugTrack(
   const needsStateResolution = urgency === undefined || rootCauseKnownRaw === undefined;
   const hasStateSource = !!args.stateFile || !!(args.featureId && eventStore);
 
-  // Resolve urgency/rootCauseKnown from workflow state when direct args are
-  // missing. INV-1: the event store is the sole source of truth; the
-  // `.state.json` file is a derived stamp that may be absent for MCP-only
-  // workflows. We still validate an explicit stateFile path for containment.
   if (needsStateResolution && hasStateSource) {
-    // Path-containment guard applies only to an explicit file path; the
-    // event-store path has no filesystem location to validate.
     if (args.stateFile) {
       const resolvedStateFile = path.resolve(args.stateFile);
       const resolvedStateDir = path.resolve(_stateDir);
@@ -117,7 +102,6 @@ export async function handleSelectDebugTrack(
         };
       }
 
-      // Preserve the historical "file given but missing" error.
       if (!fs.existsSync(args.stateFile) && !(args.featureId && eventStore)) {
         return {
           success: false,
@@ -177,7 +161,6 @@ export async function handleSelectDebugTrack(
     }
   }
 
-  // Validate required args
   if (!urgency || rootCauseKnownRaw === undefined) {
     return {
       success: false,
@@ -188,7 +171,6 @@ export async function handleSelectDebugTrack(
     };
   }
 
-  // Validate urgency level
   if (!isValidUrgency(urgency)) {
     return {
       success: false,

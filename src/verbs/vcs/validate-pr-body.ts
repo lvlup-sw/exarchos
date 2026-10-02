@@ -1,9 +1,7 @@
-// ─── Validate PR Body ────────────────────────────────────────────────────────
-//
-// Validates PR body content against required section headers.
-// Supports reading from PR number (via gh), file path, or direct body string.
-// Ported from scripts/validate-pr-body.sh.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Checks a PR body for its required section headers. The body comes from a
+ * string, a file, or a PR number through `gh`.
+ */
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -12,33 +10,21 @@ import type { EventStore } from '../../events/store.js';
 import type { WorkflowIntent } from '../../workflow/schemas.js';
 import { readIntent, bodyHasIntentMarker, isMeaningfulIntent } from '../tasks/extract-intent.js';
 
-// ─── Types ─────────────────────────────────────────────────────────────────
-
 export interface ValidatePrBodyArgs {
   readonly pr?: number;
   readonly bodyFile?: string;
   readonly body?: string;
   readonly template?: string;
   /**
-   * DR-1 (#1593) task 006: when present (with an event store), the handler
-   * fail-soft reads `artifacts.intent` and adds an ADVISORY grounding check —
-   * does the body reference the intent (its `## Intent` marker, or its summary /
-   * surfaces)? Surfaced as `intentGrounded` + an advisory report line. ADVISORY
-   * ONLY: it never changes `passed` (the required-sections gate stays the gate).
-   * Absent featureId / intent / event store → the grounding fields are omitted
-   * (unchanged legacy result).
+   * With an event store, the handler reads `artifacts.intent` and adds an
+   * advisory check: does the body refer to the intent? The result gets
+   * `intentGrounded` and a report line. The check never changes `passed`.
    */
   readonly featureId?: string;
   /**
-   * Turn the required-sections verdict into a REFUSAL instead of a fact on the
-   * success carrier.
-   *
-   * Absent (the default) the handler answers `success: true` with
-   * `passed: false` for a deficient body, which is what a caller that only
-   * wants the report needs. A composition that runs this check to decide
-   * whether a later step may proceed cannot read that field: a runbook step's
-   * failure policy sees the envelope, not the payload. Such a caller passes
-   * `enforce: true` and gets the verdict where its policy can act on it.
+   * Makes a failed section check a refusal. Without it, a body with missing
+   * sections gets `success: true` and `passed: false`. A runbook failure policy
+   * reads the envelope, not the payload, so such a caller sets `enforce: true`.
    */
   readonly enforce?: boolean;
 }
@@ -49,19 +35,14 @@ interface ValidatePrBodyResult {
   readonly report: string;
   readonly skipped?: boolean;
   /**
-   * ADVISORY (DR-1 task 006): whether the body is grounded in `artifacts.intent`.
-   * Present only when a meaningful intent was resolved; omitted otherwise. Does
-   * NOT affect `passed`.
+   * An advisory flag: true when the body refers to `artifacts.intent`. It is
+   * present only for a meaningful intent, and it does not change `passed`.
    */
   readonly intentGrounded?: boolean;
 }
 
-// ─── Constants ─────────────────────────────────────────────────────────────
-
 const DEFAULT_SECTIONS: readonly string[] = ['Summary', 'Changes', 'Test Plan'];
 const SKIP_AUTHORS: readonly string[] = ['renovate[bot]', 'dependabot[bot]'];
-
-// ─── Helpers ───────────────────────────────────────────────────────────────
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -143,13 +124,10 @@ function validateSections(
   };
 }
 
-// ─── DR-1 task 006: advisory intent-grounding check ──────────────────────────
-
 /**
- * Whether the PR body references the captured intent. A body is considered
- * grounded when it carries the `## Intent` grounding marker (the deterministic
- * create_pr enrichment) OR independently references the intent's `summary` or
- * any of its `surfaces`. Pure — case-insensitive substring match, never throws.
+ * True when the PR body refers to the captured intent. The body must hold the
+ * `## Intent` marker, the intent `summary`, or one of its `surfaces`. The text
+ * match ignores case.
  */
 function isBodyGroundedInIntent(body: string, intent: WorkflowIntent): boolean {
   if (bodyHasIntentMarker(body)) return true;
@@ -162,8 +140,11 @@ function isBodyGroundedInIntent(body: string, intent: WorkflowIntent): boolean {
   );
 }
 
-// ─── Handler ───────────────────────────────────────────────────────────────
-
+/**
+ * Checks the PR body for the required sections. A bot author or a merge queue
+ * branch skips the check. A `template` replaces the default sections with its
+ * `##` headers. A meaningful intent adds the advisory grounding line.
+ */
 export async function handleValidatePrBody(
   args: ValidatePrBodyArgs,
   _stateDir?: string,
@@ -173,7 +154,6 @@ export async function handleValidatePrBody(
   let author = '';
   let headRef = '';
 
-  // Resolve body from input source
   if (args.body !== undefined) {
     body = args.body;
   } else if (args.bodyFile !== undefined) {
@@ -204,7 +184,6 @@ export async function handleValidatePrBody(
     };
   }
 
-  // Skip conditions
   if (shouldSkip(author, headRef)) {
     const result: ValidatePrBodyResult = {
       passed: true,
@@ -215,7 +194,6 @@ export async function handleValidatePrBody(
     return { success: true, data: result };
   }
 
-  // Determine required sections
   let requiredSections: readonly string[];
   if (args.template !== undefined) {
     try {
@@ -236,17 +214,8 @@ export async function handleValidatePrBody(
     requiredSections = DEFAULT_SECTIONS;
   }
 
-  // Validate (required-sections gate — the load-bearing pass/fail)
   const { passed, missingSections, report } = validateSections(body, requiredSections);
 
-  // ─── DR-1 task 006 — ADVISORY intent-grounding check ──────────────────────
-  //
-  // Fail-soft read `artifacts.intent`; when it is meaningful, surface whether
-  // the body references it (`intentGrounded`) plus an advisory report line. This
-  // is ADVISORY ONLY — it MUST NOT change `passed` (the required-sections gate
-  // stays the gate). When no featureId / event store / meaningful intent is
-  // available, the grounding fields are omitted (unchanged legacy result).
-  // INV-6: no `workflowType` branch. Never throws out of validation.
   const intent = await readIntent(args.featureId, eventStore);
   if (intent !== undefined && isMeaningfulIntent(intent)) {
     const intentGrounded = isBodyGroundedInIntent(body, intent);
@@ -268,11 +237,9 @@ export async function handleValidatePrBody(
 }
 
 /**
- * Both verdict exits in one place — the advisory-grounded result and the plain
- * one. Under `enforce` a failing section verdict leaves as a refusal
- * carrying the missing sections and the report in its message — the caller that
- * asked for enforcement reads the envelope, and the detail it would have read
- * off the payload is in the text rather than dropped.
+ * Returns the verdict. Under `enforce`, a failed section check becomes a
+ * PR_BODY_INCOMPLETE refusal. Its message holds the missing sections and the
+ * report, so the caller keeps the detail.
  */
 function carry(result: ValidatePrBodyResult, enforce: boolean): ToolResult {
   if (enforce && !result.passed) {

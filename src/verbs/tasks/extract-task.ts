@@ -1,21 +1,17 @@
-// ─── Extract Task Handler ────────────────────────────────────────────────────
-//
-// Extracts a single task section from a markdown implementation plan by task ID.
-// TypeScript port of scripts/extract-task.sh.
-// ─────────────────────────────────────────────────────────────────────────────
+/** Extracts one task section from a markdown implementation plan by task id. */
 
 import * as fs from 'node:fs';
 import type { ToolResult } from '../../format.js';
-
-// ─── Types ─────────────────────────────────────────────────────────────────
 
 interface ExtractTaskArgs {
   readonly planPath: string;
   readonly taskId: string;
 }
 
-// ─── Handler ───────────────────────────────────────────────────────────────
-
+/**
+ * Returns the lines from the `Task <taskId>` header to the next header with two or more `#` whose
+ * text starts with a capital letter. It removes trailing empty lines. When the task is absent, it lists the task ids of the plan.
+ */
 export async function handleExtractTask(
   args: ExtractTaskArgs,
   _stateDir: string,
@@ -34,7 +30,6 @@ export async function handleExtractTask(
     };
   }
 
-  // Read the plan file
   let content: string;
   try {
     content = fs.readFileSync(args.planPath, 'utf-8');
@@ -55,9 +50,7 @@ export async function handleExtractTask(
   const lines = content.split('\n');
   const taskId = args.taskId;
 
-  // Match task header: ##+ Task <taskId> followed by colon, space, or end of line
   const headerPattern = new RegExp(`^#{2,}\\s*Task\\s+${escapeRegex(taskId)}([: ]|$)`);
-  // Match any task header or major section header (stops extraction)
   const stopPattern = /^#{2,}\s*(Task\s+[0-9A-Za-z]+|[A-Z])/;
 
   let capturing = false;
@@ -79,7 +72,6 @@ export async function handleExtractTask(
   }
 
   if (extracted.length === 0) {
-    // Task not found — list available tasks
     const taskHeaderPattern = /^#{2,}\s*Task\s+([0-9A-Za-z]+)/;
     const availableTasks: string[] = [];
     for (const line of lines) {
@@ -100,7 +92,6 @@ export async function handleExtractTask(
     };
   }
 
-  // Trim trailing empty lines
   while (extracted.length > 0 && extracted[extracted.length - 1]?.trim() === '') {
     extracted.pop();
   }

@@ -1,12 +1,7 @@
-// ─── Post-Delegation Check Handler ──────────────────────────────────────────
-//
-// Validates delegation results by checking state file integrity,
-// task completion, per-worktree test runs, and state consistency.
-// Produces a structured markdown report with task status table.
-//
-// Port of scripts/post-delegation-check.sh to TypeScript.
-// ────────────────────────────────────────────────────────────────────────────
-
+/**
+ * The post-delegation check. It checks the workflow state, task completion, the tests of each
+ * worktree, and state consistency. It returns a markdown report with a task status table.
+ */
 import { existsSync } from 'node:fs';
 import { runCommandSync } from '../../utils/process.js';
 import { resolve } from 'node:path';
@@ -18,8 +13,6 @@ import { createEvidenceSubject } from '../../workflow/admission/evidence-subject
 import { runPhaseGateWithEvidence } from '../gates/gate-runner.js';
 import { emitGateEvent, sameOperationGateKey } from '../gates/gate-utils.js';
 import { resolveWorkflowState } from '../resolve-state.js';
-
-// ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface PostDelegationCheckArgs {
   readonly stateFile?: string;
@@ -54,8 +47,6 @@ type CheckResult = {
   readonly detail?: string;
 };
 
-// ─── Check Helpers ──────────────────────────────────────────────────────────
-
 function checkPass(label: string): CheckResult {
   return { label, outcome: 'PASS' };
 }
@@ -67,10 +58,6 @@ function checkFail(label: string, detail: string): CheckResult {
 function checkSkip(label: string): CheckResult {
   return { label, outcome: 'SKIP' };
 }
-
-// ─── State Parsing (delegated to resolve-state.ts) ─────────────────────────
-
-// ─── Individual Checks ──────────────────────────────────────────────────────
 
 function checkTasksExist(tasks: readonly TaskEntry[]): CheckResult {
   if (tasks.length === 0) {
@@ -90,6 +77,11 @@ function checkAllTasksComplete(tasks: readonly TaskEntry[]): CheckResult {
   return checkPass(`All tasks complete (${tasks.length}/${tasks.length})`);
 }
 
+/**
+ * Runs `npm run test:run` in each distinct task worktree that has a `package.json`. A path that
+ * resolves outside the repository root fails. The paths use POSIX separators, so the containment
+ * check also works on Windows. `resolve` removes `..` segments, so the check holds.
+ */
 function checkWorktreeTests(
   tasks: readonly TaskEntry[],
   repoRoot: string,
@@ -112,17 +104,11 @@ function checkWorktreeTests(
   }
 
   const results: CheckResult[] = [];
-  // POSIX-normalize so the containment guard's `+ '/'` separator and the
-  // existsSync paths are correct on Windows — `resolve` emits backslashes there,
-  // so `startsWith(resolvedRepoRoot + '/')` never matched and valid worktrees
-  // were wrongly rejected as "escapes repository root" (#1620). `resolve` is
-  // kept (not `join`) so `..` is still normalized away — the escape guard holds.
   const resolvedRepoRoot = toPosix(resolve(repoRoot));
 
   for (const wt of worktrees) {
     const wtPath = toPosix(resolve(repoRoot, wt));
 
-    // Guard: reject worktree paths that escape the repository root
     if (!wtPath.startsWith(resolvedRepoRoot + '/') && wtPath !== resolvedRepoRoot) {
       results.push(checkFail(`Worktree tests: ${wt}`, 'Path escapes repository root'));
       continue;
@@ -173,8 +159,6 @@ function checkStateConsistency(tasks: readonly TaskEntry[]): CheckResult {
   return checkPass('State consistency (all tasks have id and status)');
 }
 
-// ─── Report Builder ─────────────────────────────────────────────────────────
-
 function buildReport(
   stateSource: string,
   tasks: readonly TaskEntry[],
@@ -188,7 +172,6 @@ function buildReport(
   lines.push(`**State source:** \`${stateSource}\``);
   lines.push('');
 
-  // Task status table
   if (tasks.length > 0) {
     lines.push('### Task Status');
     lines.push('');
@@ -200,7 +183,6 @@ function buildReport(
     lines.push('');
   }
 
-  // Check results
   for (const check of checks) {
     const detail = check.detail ? ` — ${check.detail}` : '';
     lines.push(`- **${check.outcome}**: ${check.label}${detail}`);
@@ -220,8 +202,10 @@ function buildReport(
   return lines.join('\n');
 }
 
-// ─── Handler ────────────────────────────────────────────────────────────────
-
+/**
+ * Runs the check through the shared phase-gate runner, which records durable gate evidence before a
+ * success carrier returns. The provider also records the declared gate event.
+ */
 export async function handlePostDelegationCheck(args: PostDelegationCheckArgs): Promise<ToolResult> {
   if (!args.featureId) {
     return {
@@ -240,11 +224,6 @@ export async function handlePostDelegationCheck(args: PostDelegationCheckArgs): 
     };
   }
 
-  // The gate declares BOTH durable gate evidence and an unconditional
-  // `gate.executed` emission, and honored neither. The shared phase-gate runner
-  // records the evidence before any success carrier escapes; the declared
-  // signal is minted by the provider closure, keyed so a same-operation retry
-  // collapses onto one row.
   return runPhaseGateWithEvidence({
     streamId: args.featureId,
     gateClass: 'post-delegation',
@@ -261,13 +240,16 @@ export async function handlePostDelegationCheck(args: PostDelegationCheckArgs): 
   });
 }
 
+/**
+ * Resolves the workflow state from the state file or the event store, and then runs the checks.
+ * When the state has no tasks, it stops after the task check and returns a failed report.
+ */
 async function executePostDelegationCheck(
   args: PostDelegationCheckArgs,
   store: EventStore,
 ): Promise<ToolResult> {
   const { stateFile, featureId, eventStore, repoRoot, skipTests = false } = args;
 
-  // Resolve state via file or event store fallback
   const resolveResult = await resolveWorkflowState({ stateFile, featureId, eventStore });
   if ('error' in resolveResult) {
     return resolveResult.error;
@@ -283,15 +265,12 @@ async function executePostDelegationCheck(
     counts[result.outcome === 'PASS' ? 'pass' : result.outcome === 'FAIL' ? 'fail' : 'skip']++;
   }
 
-  // Check 1: State file valid (already passed by parsing)
   addCheck(checkPass('State file exists'));
 
-  // Check 2: Tasks exist
   const tasksExistResult = checkTasksExist(tasks);
   addCheck(tasksExistResult);
 
   if (tasksExistResult.outcome === 'FAIL') {
-    // Cannot proceed without tasks
     const report = buildReport(stateFile ?? featureId, tasks, checks, counts);
     await emitPostDelegationGateEvent(store, featureId, false, counts);
     return {
@@ -300,16 +279,13 @@ async function executePostDelegationCheck(
     };
   }
 
-  // Check 3: All tasks complete
   addCheck(checkAllTasksComplete(tasks));
 
-  // Check 4: Worktree tests
   const worktreeResults = checkWorktreeTests(tasks, repoRoot, skipTests);
   for (const wr of worktreeResults) {
     addCheck(wr);
   }
 
-  // Check 5: State consistency
   addCheck(checkStateConsistency(tasks));
 
   const passed = counts.fail === 0;
@@ -323,12 +299,9 @@ async function executePostDelegationCheck(
 }
 
 /**
- * The `gate.executed` row the action declares unconditionally.
- *
- * Keyed on the operation identity a retry deliberately reuses: the runner
- * re-executes this provider before it can discover the operation already
- * produced evidence, and an unkeyed append would leave two rows describing one
- * gate run.
+ * Records the gate event that the action declares on each run. The event has a same-operation key,
+ * because the runner can run this provider again on a retry before it finds the existing evidence.
+ * An append with no key then leaves two rows for one gate run.
  */
 async function emitPostDelegationGateEvent(
   store: EventStore,

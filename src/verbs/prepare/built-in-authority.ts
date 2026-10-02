@@ -1,16 +1,12 @@
-// ─── The authority every built-in workflow's work is compiled under ──────────
-//
-// A capsule must carry invariants, assumptions, delegated decisions and
-// escalation boundaries, and carry each non-empty: an empty category is not a
-// permissive capsule, it is one nothing can be settled against. The built-in
-// workflows have no design record of their own to bind these from, so this
-// module states them.
-//
-// This is governance content, not a type. Each statement is something the
-// runtime already holds true or a worker is already trusted with; it is written
-// here so that a worker sees the terms it is judged by instead of inferring
-// them. A repository's own invariants catalog, when one is registered, is bound
-// on top of these rather than instead of them.
+/**
+ * The authority that the work of every built-in workflow compiles under.
+ *
+ * A capsule must carry invariants, assumptions, delegated decisions and
+ * escalation boundaries, and each category must not be empty. Nothing can
+ * settle against an empty category. The built-in workflows have no design
+ * record to bind these from, so this module states them. A registered
+ * repository invariants catalog binds on top of these statements.
+ */
 
 import type { ExarchosCapsuleAuthorityV1 } from '../../contract/capsule/exarchos-capsule.js';
 

@@ -1,31 +1,17 @@
-// ─── Active phase-attempt resolution (shared by both evidence adapters) ──────
-//
-// The phase-attempt stamp is minted only at workflow init and phase transition,
-// so every workflow already in flight BEFORE the v2.12 stamp shipped projects no
-// `phaseAttemptId` at all. Both durable-evidence adapters need one, and they
-// answered that differently: `durable-gate-producer` derived a legacy attempt
-// while `gate-runner`'s phase-gate adapter returned EVIDENCE_SCOPE_UNAVAILABLE —
-// which wedged pre-v2.12 workflows out of four migrated phase gates, including
-// the BLOCKING `prepare_synthesis`, i.e. out of the synthesize phase entirely.
-//
-// Two adapters resolving the same identity two ways is the divergence itself, so
-// the resolution lives here once and both call it.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Resolves the active phase-attempt id for both durable-evidence adapters.
+ * Only workflow init and phase transition mint the stamp, so an older workflow projects no `phaseAttemptId`.
+ * Without a derived id, such a workflow cannot pass the phase gates, `prepare_synthesis` among them.
+ * Both adapters call this one resolver, so they cannot resolve the same identity in two ways.
+ */
 
 import { allocatePhaseAttemptId } from '../../workflow/phase-attempt-id.js';
 
 /**
- * The active phase-attempt id for a resolved workflow state, backfilling the
- * pre-v2.12 form when the projection carries no stamp.
- *
- * The backfill is the `legacy-version:<version>` predecessor over the
- * projection's CAS version (`state._version ?? 1`, mirroring workflow/cancel.ts
- * and cleanup.ts). No transition edge exists at gate time, so the current phase
- * stands in for both `from` and `to`; a (phase, phase) edge is never minted by a
- * real transition (`fromPhase !== input.phase` guards the mint), so a derived id
- * cannot collide with a genuine attempt. It is also DETERMINISTIC for the same
- * (featureId, version): re-running a gate on the same legacy state binds its
- * evidence to the same attempt.
+ * Returns the stamped phase-attempt id, or derives a legacy id when the projection has no stamp.
+ * The legacy id uses the `legacy-version:<version>` predecessor over `state._version`, with a default of 1.
+ * The current phase is both `from` and `to`. A real transition mints only when the phase changes, so a derived id cannot collide with a real attempt.
+ * The same feature and version always give the same id.
  */
 export function resolveActivePhaseAttemptId(
   featureId: string,

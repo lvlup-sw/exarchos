@@ -1,17 +1,15 @@
-// ─── Partitioning a plan into one delegation batch ───────────────────────────
-//
-// The batch is the plan's ready frontier: every task not yet complete whose
-// `blockedBy` tasks are all complete. A task still waiting on pending work is
-// left for a later preparation, compiled after its blockers settle, so a
-// capsule never holds two tasks one of which must fork from the other's work.
-//
-// A blocker the plan does not contain is refused, because dropping it would
-// lose an ordering the plan asked for. Pending tasks with nothing ready among
-// them are refused too, and the refusal names what each one waits on.
-//
-// Each task carries the verification terms it settles under. A planner's stamp
-// wins and the file-and-layer heuristic decides otherwise. They are frozen into
-// the capsule because they choose the gates the task is judged by.
+/**
+ * Partitions a plan into one delegation batch: the ready frontier of the plan.
+ * The frontier is each task that is not complete and whose `blockedBy` tasks are all complete.
+ * A task that waits on pending work goes to a later preparation, after its blockers settle.
+ * Thus a capsule never holds a task that must fork from the work of another task in it.
+ *
+ * A blocker that the plan does not contain is refused, because dropping it loses an ordering of the plan.
+ * Pending tasks with no ready task among them are refused too, and the refusal names what each one waits on.
+ *
+ * Each task carries the verification terms that it settles under. A planner stamp wins over the file-and-layer heuristic.
+ * The capsule freezes these terms, because they choose the gates that judge the task.
+ */
 
 import { SharedStableIdSchema } from '../../contract/ir/admission-ir.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
@@ -48,7 +46,7 @@ export interface BatchTask {
 
 export interface DelegationBatch {
   readonly tasks: readonly BatchTask[];
-  /** Edges between tasks of the batch. A ready frontier has none; the compiler maps any it is given. */
+  /** Edges between tasks of the batch. A ready frontier has none, but the compiler maps any edge that it gets. */
   readonly dependencies: readonly { readonly from: string; readonly to: string }[];
   readonly joins: readonly { readonly joinId: string; readonly waitsFor: readonly string[] }[];
   /** Every task in the batch must report for the batch to settle. */
@@ -80,10 +78,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * The verification terms a planned task resolves to, or the refusal for a
- * planner stamp outside its vocabulary. A stamp that does not parse is refused
- * rather than ignored: silently deriving a tier the planner tried to set is
- * how a high-risk task ends up judged as a medium one.
+ * Resolves the verification terms of a planned task. It refuses a planner stamp outside its
+ * vocabulary and does not ignore it, because a derived tier can judge a high-risk task as medium.
  */
 function readVerification(entry: Record<string, unknown>, id: string): BatchTaskVerification | PrepareRefusal {
   const riskTier = entry.riskTier;
@@ -148,10 +144,9 @@ function describeWaits(pending: readonly PlannedTask[], done: ReadonlySet<string
 }
 
 /**
- * The first task id the plan names twice, if any. Checked across the whole
- * plan before the frontier is chosen: a frontier holding one copy would hide
- * the other from the capsule's own duplicate check, and settlement could not
- * tell the two tasks apart.
+ * The first task id that the plan names twice, if any. The check covers the whole plan before the
+ * frontier is chosen. A frontier with one copy hides the other copy from the duplicate check of the
+ * capsule, and then settlement cannot tell the two tasks apart.
  */
 function firstDuplicateId(planned: readonly PlannedTask[]): string | undefined {
   const seen = new Set<string>();

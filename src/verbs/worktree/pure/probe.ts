@@ -1,43 +1,15 @@
 /**
- * DR-5 — protected-ancestry, read-only ground-truth process probe for the
- * worktree-lifecycle manager.
- *
- * The reservation bookkeeping (`worktrees@v1`) records WHICH process claimed a
- * worktree, but the only authoritative answer to "is this worktree actually in
- * use right now?" is the live process table: a process whose cwd resolves inside
- * the worktree is using it, regardless of what the ledger says. This module is
- * that ground-truth probe. It is strictly **read-only** — it enumerates, it
- * resolves, it RETURNS findings; it NEVER terminates a process and NEVER mutates
- * state. There is no background loop, interval, or daemon: every function runs
- * only when called (INV-15).
+ * A read-only probe of the live process table for the worktree-lifecycle manager.
+ * The `worktrees@v1` ledger records which process claimed a worktree. The process table tells whether a process uses the worktree now.
+ * The probe never terminates a process and never changes state. It has no background loop, so each function runs only when called.
  *
  * Three properties make the probe safe to act on:
+ * - The process table comes only through an injected {@link ProcessTableSource}. Linux and win32 have real enumerators.
+ * - {@link isPathWithin} decides containment with symlinks resolved on both sides.
+ * - Each occupant set excludes the full parent-PID chain of the current process. Otherwise an orchestrator shell with its cwd in an agent worktree marks that worktree in use forever.
  *
- *   1. **Injected enumeration.** The host process table is reached only through
- *      an injected {@link ProcessTableSource}, so the decision logic is fully
- *      unit-testable with a fake table and zero OS calls. Linux (`/proc`) and
- *      win32 (`Get-CimInstance Win32_Process` + best-effort PEB cwd, DR-5) are
- *      the real enumerators; the macOS path (DR-11, #1579) stays open behind the
- *      same seam instead of being foreclosed by a hard-coded `ps`/native call.
- *
- *   2. **Symlink-canonicalized containment.** Whether a process cwd lives inside
- *      a worktree is decided by {@link isPathWithin}, which realpath-resolves
- *      BOTH sides — so a cwd reported under `/private/var/...` still matches a
- *      worktree recorded under the `/var/...` symlink (and vice versa), and a
- *      partial-segment sibling like `/a/bc` is never mistaken for inside `/a/b`.
- *
- *   3. **Protected-ancestry subtraction (the load-bearing requirement).** The
- *      orchestrator's own shell can drift its cwd into an agent worktree; if that
- *      self-rooted cwd counted, the orchestrator would forever see its own
- *      worktrees as in-use and never reclaim them. So the current process's FULL
- *      parent-PID chain (`pid -> ppid -> ...`) is computed and excluded from the
- *      occupant set — not just the leaf PID, the entire ancestry.
- *
- * Owner liveness reuses the {@link ownerLiveness} primitive (PID presence paired
- * with a create-time fingerprint, so a recycled PID reads as a *different* — and
- * therefore dead — owner). A worktree is a release / orphan candidate only when
- * its recorded owner is provably gone AND no live, non-ancestry process occupies
- * it: ground-truth occupancy vetoes a stale "owner dead" ledger verdict.
+ * A worktree is a release candidate only when its owner is provably dead and no live process outside the ancestry occupies it.
+ * {@link ownerLiveness} pairs PID presence with a create-time fingerprint, so a reused PID reads as a dead owner.
  */
 
 import * as fs from 'node:fs';
@@ -54,15 +26,9 @@ import {
   type StartTimeProbe,
 } from './process-identity.js';
 
-// ============================================================
-// Types
-// ============================================================
-
 /**
- * A single process as seen by the host. `startTime` is an opaque, platform-
- * defined create-time fingerprint (Linux jiffies-since-boot, macOS `lstart`,
- * Windows FILETIME) — compared only for equality, never parsed — so a PID reused
- * by a newer process is distinguishable from the original holder.
+ * One process as the host sees it.
+ * `startTime` is an opaque create-time fingerprint, compared only for equality, so a reused PID differs from the original holder.
  */
 export interface ProcessRecord {
   /** The process id. */
@@ -71,27 +37,21 @@ export interface ProcessRecord {
   readonly ppid: number;
   /** The process's current working directory (resolved against worktree roots). */
   readonly cwd: string;
-  /** Opaque create-time fingerprint; equality-compared to defeat PID reuse. */
+  /** The opaque create-time fingerprint, compared for equality to detect PID reuse. */
   readonly startTime: string;
 }
 
 /**
- * Abstraction over the host process table. Injected so the probe logic is
- * testable without touching the real OS, and so non-Linux enumeration (DR-11,
- * #1579) can be supplied later without changing the core. The signature is
- * deliberately platform-agnostic — no syscall shape leaks through it.
+ * The host process table. It is injected, so tests of the probe need no OS access.
+ * The signature carries no platform syscall shape.
  */
 export interface ProcessTableSource {
   /** Snapshot every visible process. A point-in-time read, never a live stream. */
   list(): readonly ProcessRecord[];
   /**
-   * Whether the last `list()` snapshot is a complete enumeration, so a PID absent
-   * from it is provably gone. When this is `false`, every PID lookup is `'unknown'`
-   * and every reclaim consumer fails closed. Read it after `list()`.
-   * The real {@link makeDefaultProcessTableSource} returns `true` only on Linux or
-   * win32, and only when its most recent `list()` returned at least one record.
-   * An absent predicate reads as `true` (see {@link isTableSupported}), because an
-   * in-memory double with a concrete records list asserts a real table.
+   * Whether the last `list()` snapshot is a complete enumeration, so a PID absent from it is provably gone.
+   * When it is `false`, each PID lookup is `'unknown'` and each reclaim consumer fails closed. Read it after `list()`.
+   * An absent predicate reads as `true`, because an in-memory double with a concrete records list asserts a real table.
    */
   isSupported?(): boolean;
 }
@@ -130,21 +90,15 @@ export interface ReservationFinding {
   readonly worktreePath: string;
   /** Owner liveness: `'dead'` (gone or PID-reused) is the only releasable state. */
   readonly liveness: OwnerLiveness;
-  /** True iff the owner is provably `'dead'`; `'alive'`/`'unknown'` are held. */
+  /** True when the owner is provably `'dead'`. An `'alive'` or `'unknown'` owner is held. */
   readonly releasable: boolean;
 }
 
 /**
- * A recorded in-flight launcher launch to probe for holder liveness (DR-6).
- *
- * The `holderPid` is the launcher/**supervisor** PID — the long-lived process
- * responsible for writing the `launch.executed` terminal — NOT the spawned child
- * PID. That distinction is load-bearing: on an uncatchable death (`SIGKILL` /
- * host loss) the supervisor never runs its teardown, so no terminal is ever
- * written and the launch would fold as a PERMANENT in-flight phantom. A provably
- * dead holder is therefore the signal that the terminal will never arrive on its
- * own and must be reconciled. `holderStartedAt` is the create-time fingerprint,
- * equality-compared to defeat PID reuse.
+ * A recorded in-flight launch to probe for holder liveness.
+ * `holderPid` is the supervisor PID that writes the `launch.executed` terminal, not the PID of the spawned child.
+ * After a `SIGKILL` or a host loss, the supervisor writes no terminal, so the launch stays in flight forever.
+ * A provably dead holder shows that the launch needs reconciliation.
  */
 export interface LaunchHolder {
   /** Canonical `worktrees@v1` key of the launch top-level worktree. */
@@ -161,29 +115,17 @@ export interface LaunchFinding {
   /** Holder liveness: `'dead'` (gone or PID-reused) is the only reconcilable state. */
   readonly liveness: OwnerLiveness;
   /**
-   * True iff the holder is provably `'dead'` — the terminal will never be
-   * written, so the launch is reconcilable to a `launch.executed`. `'alive'` and
-   * `'unknown'` (incl. an uncaptured `null` holder identity) are held in-flight,
-   * failing closed so a live supervisor's launch is never reconciled away.
+   * True when the holder is provably `'dead'`, so the launch can reconcile to a `launch.executed`.
+   * An `'alive'` or `'unknown'` holder, which includes a `null` holder identity, stays in flight.
    */
   readonly reconcilable: boolean;
 }
 
 /**
- * Probe each in-flight launch's SUPERVISOR-holder liveness against the process
- * table (DR-6). The dead-holder analog of {@link probeReservations}, keyed to the
- * launcher liveness pair (`holderPid` / `holderStartedAt`) rather than a
- * reservation owner.
- *
- * A launch is `reconcilable` only when {@link ownerLiveness} reports `'dead'` —
- * the supervisor PID is absent from a SUPPORTED table, or present with a
- * mismatched create-time (PID reuse). A live holder (PID present AND create-time
- * matches) is never reconcilable. A holder with an uncaptured (`null`) PID or
- * create-time cannot be proven dead, so it is `'unknown'` and held; and on an
- * UNSUPPORTED table every holder is `'unknown'` (NOT `'dead'`) so nothing is
- * reconciled — fail closed, exactly mirroring the reservation probe. Pure over
- * the injected {@link ProcessTableSource}; performs no OS access of its own and
- * registers NO timer/interval — it runs only when called (INV-10/15).
+ * Probes the liveness of the supervisor of each in-flight launch, as {@link probeReservations} does for reservation owners.
+ * A launch is `reconcilable` only when {@link ownerLiveness} reports `'dead'`.
+ * A holder with a `null` PID or create-time cannot be proven dead, so it is `'unknown'`.
+ * On an unsupported table, each holder is `'unknown'`.
  */
 export function probeLaunchHolders(
   holders: readonly LaunchHolder[],
@@ -195,7 +137,6 @@ export function probeLaunchHolders(
   );
   return holders.map((holder) => {
     if (holder.holderPid === null || holder.holderStartedAt === null) {
-      // Holder identity was never captured — cannot prove death → fail closed.
       return { worktreeId: holder.worktreeId, liveness: 'unknown', reconcilable: false };
     }
     const liveness = ownerLiveness(
@@ -228,20 +169,14 @@ export interface WorktreeProbeFinding {
   /** A live, non-ancestry process is rooted inside this worktree right now. */
   readonly inUse: boolean;
   readonly occupantPids: readonly number[];
-  /** Liveness of the recorded reservation owner; `'none'` when unreserved. */
+  /** The liveness of the recorded reservation owner, or `'none'` when the worktree has no reservation. */
   readonly ownerLiveness: OwnerLiveness | 'none';
   /**
-   * Releasable / orphan-candidate: the recorded owner is provably gone AND no
-   * live non-ancestry process occupies the worktree. Ground-truth occupancy
-   * VETOES a stale "owner dead" verdict, so a worktree a live process has
-   * re-entered is never reclaimed.
+   * True when the recorded owner is provably dead and no live process outside the ancestry occupies the worktree.
+   * Live occupancy vetoes a stale owner-dead verdict.
    */
   readonly releasable: boolean;
 }
-
-// ============================================================
-// Pure decisions
-// ============================================================
 
 /** Index a process snapshot by PID for O(1) parent/owner lookups. */
 function indexByPid(records: readonly ProcessRecord[]): Map<number, ProcessRecord> {
@@ -251,15 +186,9 @@ function indexByPid(records: readonly ProcessRecord[]): Map<number, ProcessRecor
 }
 
 /**
- * Compute the protected ancestry: the FULL parent-PID chain of `selfPid`
- * (`selfPid -> ppid -> ppid' -> ...`), which must be excluded from every
- * worktree's occupant set.
- *
- * `selfPid` is always included even when absent from the table (so a self-rooted
- * cwd is protected regardless). The walk then follows each record's `ppid` until
- * it leaves the table, reaches PID 0 (no parent / the kernel), or revisits a PID
- * — the visited-set guard makes a malformed or cyclic `ppid` graph terminate
- * instead of looping forever. Pure over its inputs; performs no OS access.
+ * The protected ancestry: the full parent-PID chain of `selfPid`, which each occupant set excludes.
+ * A positive `selfPid` is always in the set, even when the table does not list it.
+ * The walk stops when it leaves the table, reaches PID 0, or revisits a PID, so a cyclic `ppid` graph terminates.
  */
 export function protectedAncestry(
   selfPid: number,
@@ -270,16 +199,14 @@ export function protectedAncestry(
   while (cursor > 0 && !chain.has(cursor)) {
     chain.add(cursor);
     const record = byPid.get(cursor);
-    if (record === undefined) break; // selfPid stays protected even if unlisted.
+    if (record === undefined) break;
     cursor = record.ppid;
   }
   return chain;
 }
 
 /**
- * The PIDs whose cwd resolves inside `worktreePath`, excluding the protected
- * ancestry. Containment is symlink-canonicalized on both sides via
- * {@link isPathWithin}. Pure over the injected {@link RealpathResolver}.
+ * The PIDs whose cwd resolves inside `worktreePath`, without the protected ancestry.
  */
 function occupantsOf(
   worktreePath: string,
@@ -289,7 +216,7 @@ function occupantsOf(
 ): number[] {
   const occupants: number[] = [];
   for (const record of records) {
-    if (protectedPids.has(record.pid)) continue; // self + ancestry never count.
+    if (protectedPids.has(record.pid)) continue;
     if (isPathWithin(record.cwd, worktreePath, realpath)) {
       occupants.push(record.pid);
     }
@@ -298,36 +225,18 @@ function occupantsOf(
 }
 
 /**
- * Whether a {@link ProcessTableSource}'s enumeration is supported. An absent
- * `isSupported` predicate is read as supported (`true`) — see the field doc:
- * an in-memory double that supplies a concrete records list IS a real table, so
- * "PID absent → provably dead" still holds for it. Only a source that explicitly
- * reports `false` flips lookups to `'unknown'`. The real
- * {@link defaultProcessTableSource} does so on a platform without an enumerator
- * and after an empty enumeration.
+ * Whether the enumeration of a source is supported. An absent `isSupported` predicate reads as `true`.
+ * Only a source that reports `false` turns lookups into `'unknown'`.
  */
 function isTableSupported(source: ProcessTableSource): boolean {
   return source.isSupported?.() ?? true;
 }
 
 /**
- * Adapt a point-in-time {@link ProcessTableSource} snapshot into the per-PID
- * {@link ProcessSource} that {@link ownerLiveness} consumes — THREE-valued.
- *
- * When the table is SUPPORTED (`supported === true`), a PID present in the
- * enumerated snapshot resolves to `present` and an absent one to `absent`: the
- * absence is authoritative (the process is provably gone), so owner liveness is
- * two-valued (`alive` / `dead`) over a real enumeration.
- *
- * When the table is UNSUPPORTED (`supported === false` — e.g. macOS before
- * DR-11, where `list()` returns `[]` because there is no enumerator), a PID
- * lookup CANNOT distinguish "absent" from "unenumerated", so it resolves to
- * `'unknown'` for EVERY pid. That propagates through {@link ownerLiveness} to
- * an `'unknown'` verdict, and every reclaim consumer fails closed (never treats
- * the holder as provably dead) — mirroring the `unknown` fail-closed branch of
- * the live per-PID `defaultProcessSource`. This is the fix for the
- * off-supported-platform dead-holder-reclaim hole that would otherwise free a
- * LIVE merge holder.
+ * Adapts a table snapshot into the per-PID {@link ProcessSource} that {@link ownerLiveness} reads.
+ * On a supported table, a listed PID is `present` and an unlisted PID is `absent`, because the absence is authoritative.
+ * On an unsupported table, each lookup is `'unknown'`, because an empty or partial table cannot prove a PID absent.
+ * Then each reclaim consumer fails closed and cannot free a live merge holder.
  */
 function tableAsProcessSource(
   byPid: ReadonlyMap<number, ProcessRecord>,
@@ -336,8 +245,6 @@ function tableAsProcessSource(
   return {
     getStartTime(pid: number): StartTimeProbe {
       if (!supported) {
-        // Unsupported enumeration: an empty/partial table cannot prove a PID
-        // absent, so every lookup is `unknown` → callers fail closed.
         return { status: 'unknown' };
       }
       const record = byPid.get(pid);
@@ -349,13 +256,8 @@ function tableAsProcessSource(
 }
 
 /**
- * Probe which worktrees are in use by a live, non-ancestry process.
- *
- * For each requested worktree, returns the occupant PIDs (cwd resolves inside,
- * after symlink canonicalization on both sides) with the current process's
- * entire ancestry chain subtracted. `inUse` is true iff that occupant set is
- * non-empty. Pure over the injected {@link ProcessTableSource} and
- * {@link RealpathResolver}; performs no OS access of its own.
+ * Probes which worktrees a live process outside the protected ancestry uses.
+ * For each worktree it returns the PIDs whose cwd is inside it. `inUse` is true when that set is not empty.
  */
 export function probeWorktreeUsage(
   query: WorktreeUsageQuery,
@@ -372,14 +274,9 @@ export function probeWorktreeUsage(
 }
 
 /**
- * Probe each recorded reservation owner's liveness against the process table.
- *
- * An owner is `releasable` only when {@link ownerLiveness} reports `'dead'` — the
- * PID is absent from a SUPPORTED table, or present but with a mismatched
- * create-time (PID reuse). A live owner (PID present AND create-time matches) is
- * never releasable, and on an UNSUPPORTED table every owner is `'unknown'` (NOT
- * `'dead'`) so nothing is releasable — fail closed. Pure over the injected
- * {@link ProcessTableSource}.
+ * Probes the liveness of each recorded reservation owner.
+ * An owner is `releasable` only when {@link ownerLiveness} reports `'dead'`: the PID is absent from a supported table, or its create-time differs.
+ * On an unsupported table, each owner is `'unknown'`, so nothing is releasable.
  */
 export function probeReservations(
   reservations: readonly ReservationOwner[],
@@ -403,17 +300,9 @@ export function probeReservations(
 }
 
 /**
- * Composite probe: classify each worktree as in-use, owner-live, or
- * releasable / orphan-candidate.
- *
- * Combines the occupancy lens ({@link probeWorktreeUsage}) with the owner-
- * liveness lens ({@link probeReservations}) over a single process snapshot. A
- * worktree is releasable only when its recorded owner is provably `'dead'` AND it
- * is NOT in use by any live non-ancestry process — live occupancy is the ground
- * truth that vetoes a stale "owner dead" ledger verdict. On an UNSUPPORTED
- * process table the owner verdict is `'unknown'` (never `'dead'`), so nothing is
- * releasable and nothing is an orphan candidate — fail closed. Pure over the
- * injected {@link ProcessTableSource} and {@link RealpathResolver}.
+ * Classifies each worktree by occupancy and owner liveness, over one process snapshot.
+ * A worktree is releasable only when its owner is provably `'dead'` and no live process outside the ancestry uses it.
+ * On an unsupported table, the owner verdict is `'unknown'`, so nothing is releasable.
  */
 export function probeWorktrees(
   query: WorktreeProbeQuery,
@@ -445,21 +334,13 @@ export function probeWorktrees(
   });
 }
 
-// ============================================================
-// Default real source (thin; unix)
-// ============================================================
-
 /** A `/proc` entry that is a numeric PID directory. */
 const PID_DIR = /^\d+$/;
 
 /**
- * Read one Linux process from `/proc/<pid>`: `ppid` and `starttime` from the
- * `stat` line, `cwd` from the `cwd` symlink. Field parsing matches
- * `process-identity.ts` — the `comm` field (2) is parenthesized and may itself
- * contain spaces/parens, so the tail is split AFTER the final `')'`; in that tail
- * index 0 is `state` (field 3), index 1 is `ppid` (field 4), index 19 is
- * `starttime` (field 22). Returns `null` when the process vanished mid-scan or is
- * unreadable (EACCES) so the enumerator simply skips it.
+ * Reads one Linux process from `/proc/<pid>`: `ppid` and `starttime` from `stat`, and `cwd` from the `cwd` symlink.
+ * The `comm` field can hold spaces and parentheses, so the parser splits the text after the last `)`.
+ * In that tail, index 1 is `ppid` and index 19 is `starttime`. The function returns `null` for a process that is gone or unreadable.
  */
 function readProcRecord(pid: number): ProcessRecord | null {
   try {
@@ -493,16 +374,9 @@ function enumerateProcLinux(): ProcessRecord[] {
   return records;
 }
 
-// ============================================================
-// Default real source (thin; win32 — DR-5)
-// ============================================================
-
 /**
- * Reads the raw win32 process-table enumeration (the stdout of
- * {@link WIN32_PROCESS_TABLE_COMMAND}). Injected so the win32 enumeration branch
- * is unit-testable on the POSIX CI host — there is no Windows runner in this
- * repo's default CI, so the win32 tests are shape-based against this seam and the
- * pure {@link parseWin32ProcessTable}, never the real PowerShell.
+ * Reads the raw output of {@link WIN32_PROCESS_TABLE_COMMAND}.
+ * It is injected, so tests of the win32 branch run on a POSIX host without the real PowerShell.
  */
 export type Win32ProcessTableReader = () => string;
 
@@ -510,30 +384,13 @@ export type Win32ProcessTableReader = () => string;
 const WIN32_FIELD_SEP = '\t';
 
 /**
- * One-shot PowerShell that enumerates the win32 process table as TAB-separated
- * `pid<TAB>ppid<TAB>createTime<TAB>cwd` lines — one process per line, `cwd` LAST
- * because it is the only field that can be empty or contain spaces (a Windows
- * path never contains a TAB or a newline). `createTime` is the process FILETIME
- * (`CreationDate.ToFileTimeUtc()`): an opaque, monotonically-increasing 64-bit
- * integer compared only for equality, so a reused PID yields a strictly larger
- * value — exactly the create-time fingerprint the per-PID source in
- * `process-identity.ts` uses.
+ * A PowerShell script that prints the win32 process table as `pid<TAB>ppid<TAB>createTime<TAB>cwd` lines, one process on each line.
+ * `cwd` is last, because only it can be empty or hold spaces. `createTime` is the FILETIME of the process, compared only for equality.
+ * `Get-CimInstance Win32_Process` gives a complete enumeration, so a PID absent from a non-empty table is provably gone.
  *
- * pid / ppid / createTime come from `Get-CimInstance Win32_Process`, a COMPLETE
- * and authoritative enumeration, so a PID absent from a non-empty parsed table is
- * provably gone. An empty table means the enumeration failed, and the source
- * then reports `isSupported() === false`. `cwd`
- * is resolved BEST-EFFORT by reading the process PEB
- * (`ProcessParameters->CurrentDirectory`); a process whose PEB is not readable
- * (a different user's process, a denied handle) emits an EMPTY cwd rather than
- * dropping the record — so the enumeration stays complete for owner-liveness
- * while occupancy containment degrades to best-effort for those processes
- * (mirroring the `/proc/<pid>/cwd` EACCES skip on Linux). The inline PEB read is
- * the real, CI-UNVERIFIED win32 edge (no Windows host in default CI); it FAILS
- * SOFT to an empty cwd on any error (denied handle, unexpected offset), so it can
- * never crash the probe or corrupt the pid/create-time fields. Uses `[char]`
- * codes for TAB (9), NUL (0) and backslash (92) so the script embeds cleanly with
- * no shell/JS escaping.
+ * The script reads `cwd` from the process PEB. When it cannot read the PEB, it prints an empty `cwd` and keeps the record.
+ * No Windows host tests the PEB read. Each error gives an empty `cwd`, so the read cannot corrupt the other fields.
+ * `[char]` codes for TAB, NUL, and backslash keep the script free of shell and JS escapes.
  */
 const WIN32_PROCESS_TABLE_COMMAND = [
   "$ErrorActionPreference = 'SilentlyContinue'",
@@ -583,20 +440,10 @@ const WIN32_PROCESS_TABLE_COMMAND = [
 ].join('\n');
 
 /**
- * Parse the win32 process-table enumeration ({@link WIN32_PROCESS_TABLE_COMMAND}
- * output) into {@link ProcessRecord}s. Pure: no OS access, so the win32 shape is
- * unit-testable on the POSIX CI host.
- *
- * Each non-blank line is TAB-separated `pid<TAB>ppid<TAB>createTime<TAB>cwd`.
- * pid / ppid / createTime must each be a run of digits (createTime is a FILETIME
- * integer, opaque and equality-compared); a line missing any of them — a process
- * that vanished mid-enumeration, or a malformed row — is skipped, mirroring the
- * `/proc` reader's null-skip. `cwd` is field 4 onward (rejoined defensively
- * though a path never contains a TAB) and preserved VERBATIM; containment
- * canonicalization (the launcher's realpath / 8.3 handling) happens later, in
- * `path-containment` (DR-5). A record with an empty cwd is kept — its PID/
- * create-time still anchor owner-liveness — it simply never matches a worktree
- * root, so occupancy stays best-effort for PEB-unreadable processes.
+ * Parses the output of {@link WIN32_PROCESS_TABLE_COMMAND} into {@link ProcessRecord}s, with no OS access.
+ * The parser skips a line whose pid, ppid, or createTime is not a run of digits.
+ * It keeps `cwd` as it is, and `path-containment` canonicalizes it later.
+ * It keeps a record with an empty `cwd`, because its PID and create-time still serve owner liveness.
  */
 export function parseWin32ProcessTable(raw: string): ProcessRecord[] {
   const records: ProcessRecord[] = [];
@@ -614,12 +461,11 @@ export function parseWin32ProcessTable(raw: string): ProcessRecord[] {
   return records;
 }
 
-/** The real win32 reader: run the enumeration PowerShell through the #1623-safe shim. */
+/**
+ * The real win32 reader. It runs the PowerShell enumeration through `runCommandSync`.
+ * The buffer is 64 MiB, because the full table of a busy host can exceed the 1 MiB default.
+ */
 function defaultWin32ProcessTableReader(): string {
-  // `powershell` is a real binary (not a `.cmd` shim), so `runCommandSync` is a
-  // thin pass-through here — but going through it keeps the INV-16 idiom uniform
-  // (never a direct shim spawn, #1623). A busy host's full table can exceed the
-  // default 1 MiB buffer, so widen it.
   const out = runCommandSync(
     'powershell',
     ['-NoProfile', '-NonInteractive', '-Command', WIN32_PROCESS_TABLE_COMMAND],
@@ -640,27 +486,18 @@ function enumerateWin32(read: Win32ProcessTableReader): ProcessRecord[] {
   }
 }
 
-// ============================================================
-// Default real source (linux + win32; injectable platform seam)
-// ============================================================
-
 /** Injectable seams for {@link makeDefaultProcessTableSource} (default → host platform / real PowerShell). */
 export interface ProcessTableSourceDeps {
-  /** Host platform to resolve the enumerator for; defaults to `process.platform`. */
+  /** The host platform that selects the enumerator. The default is `process.platform`. */
   readonly platform?: NodeJS.Platform;
-  /** Win32 raw-table reader; defaults to the real PowerShell enumeration. Injected in tests. */
+  /** The win32 raw-table reader. The default is the real PowerShell enumeration. */
   readonly readWin32ProcessTable?: Win32ProcessTableReader;
 }
 
 /**
- * Build the real-OS {@link ProcessTableSource}. Linux reads `/proc`, win32 reads
- * `Get-CimInstance Win32_Process` through {@link Win32ProcessTableReader}, and any
- * other platform lists `[]`. `isSupported()` is `true` only on Linux or win32 and
- * only when the most recent `list()` returned a record. A real enumeration always
- * sees the process that runs it, so an empty snapshot means the enumeration failed.
- * It is `false` before the first `list()` and after an empty one: every PID then
- * reads `'unknown'` and no holder is reclaimed. A later non-empty `list()` makes
- * it `true` again.
+ * Builds the real {@link ProcessTableSource}. Linux reads `/proc`, win32 uses {@link Win32ProcessTableReader}, and each other platform lists `[]`.
+ * `isSupported()` is `true` only on Linux or win32, and only when the last `list()` returned a record.
+ * A real enumeration always sees its own process, so an empty snapshot means that the enumeration failed.
  */
 export function makeDefaultProcessTableSource(deps: ProcessTableSourceDeps = {}): ProcessTableSource {
   const platform = deps.platform ?? process.platform;

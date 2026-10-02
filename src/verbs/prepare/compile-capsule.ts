@@ -1,30 +1,15 @@
-// ─── Compiling one delegation batch into a capsule ───────────────────────────
-//
-// PURE. No store, no filesystem, no clock: the handler reads state, resolves the
-// catalog, picks the version and the timestamp, and hands them in. That keeps
-// the compilation testable against a table of inputs, and it keeps the one
-// question this module answers — "what are the terms of this batch?" —
-// separate from the questions of where the inputs came from and where the
-// answer is kept.
-//
-// The stages, in the order they run:
-//
-//   normalize   the built-in machine is lowered into a kernel definition
-//               before this module is called; its digest is the capsule's
-//               `definitionVersion`
-//   bind        the built-in authority, with the catalog's invariants on top
-//   partition   the plan's outstanding tasks, already cut into a batch
-//   lower       the execution profile: the capabilities the plane's own calls
-//               need, which the handler reads off the registry and hands in;
-//               a harness schedules the batch however its dependencies allow
-//   validate    the published contract, then every reference — against the
-//               definition the capsule pins, so a task naming a step that
-//               definition lacks is refused here rather than at settlement
-//
-// A capsule that fails validation is refused, never repaired. The failure is
-// either a plan the batch cannot express, such as a dependency cycle, or a
-// defect in this compiler, and neither is fixed by emitting something that
-// happens to parse.
+/**
+ * Compiles one delegation batch into a capsule. The module is pure: the handler reads state, resolves the catalog, and passes in the version and the timestamp.
+ *
+ * The stages run in this order:
+ * - normalize: the caller lowers the built-in machine into a kernel definition. Its digest is the `definitionVersion` of the capsule.
+ * - bind: the built-in authority, with the catalog invariants on top.
+ * - partition: the outstanding tasks of the plan, already cut into a batch.
+ * - lower: the execution profile, which holds the capabilities that the calls of the plane need.
+ * - validate: the published contract, then each reference against the pinned definition.
+ *
+ * A capsule that fails validation is refused, never repaired. The cause is a plan that the batch cannot express, such as a dependency cycle, or a compiler defect.
+ */
 
 import { z } from 'zod';
 
@@ -51,7 +36,7 @@ import type { PrepareRefusal } from './types.js';
 /** Names the compiler that produced a capsule, so a reader can tell compilations apart. */
 export const PREPARE_COMPILER_VERSION = 'exarchos-prepare-1';
 
-/** What a worker may propose when it finds the capsule's assumptions do not hold. */
+/** The deviation kinds that a worker can propose when an assumption of the capsule does not hold. */
 export const DELEGATION_DEVIATION_KINDS: readonly string[] = ['invalidated-assumption', 'missing-context'];
 
 export interface CompileCapsuleInput {
@@ -63,21 +48,19 @@ export interface CompileCapsuleInput {
   /** The workflow's design artifact reference, when it records one. */
   readonly designRef: string | undefined;
   /**
-   * The branch every task in the batch forks from: the workflow's integration
-   * branch, resolved by the handler. Frozen into each task's verification
-   * terms, so the kill probe measures a task's diff from where it started.
+   * The branch that each task in the batch forks from: the integration branch of the workflow,
+   * which the handler resolves. It is frozen into the verification terms of each task, so the
+   * kill probe measures the task diff from its start.
    */
   readonly baseRef: string;
   /**
-   * The capabilities a runtime must hold to run this batch through the plane,
-   * derived by the handler from the registry's own declarations. Empty means
-   * no profile is attached.
+   * The capabilities that a runtime must hold to run this batch through the plane.
+   * The handler derives them from the registry. An empty list attaches no profile.
    */
   readonly executionProfile: { readonly capabilities: readonly string[] };
   /**
-   * The gates a task at a given tier is verified by, as the handler resolves
-   * them through the policy's one composer — the project's overrides applied,
-   * so the capsule states the sequence the gates' own routing will honour.
+   * The gates that verify a task at a given tier, with the project overrides applied.
+   * The handler resolves them through the policy composer, so the capsule states the sequence that the gate routing uses.
    */
   readonly verificationSequence: (riskTier: RiskTier, boundaryTouching: boolean) => readonly string[];
   readonly compiledAt: string;
@@ -100,24 +83,18 @@ function capsuleFieldTypeOf(schema: z.core.$ZodType): CapsuleFieldType | undefin
 }
 
 /**
- * The fields of the completion record a runtime does NOT return, because
- * settlement derives them. `evidence` and `verified` are what running the
- * task's verification against its worktree produces; a runtime that could
- * return them could certify its own work. `taskId` is not a result field at
- * all — a claim names its task outside its fields.
+ * The fields of the completion record that a runtime does not return, because settlement derives them.
+ * Settlement produces `evidence` and `verified` when it runs the verification of the task. If a runtime returns them, the runtime certifies its own work.
+ * A claim names its task outside its fields, so `taskId` is not a result field.
  */
 const SETTLEMENT_DERIVED_FIELDS: ReadonlySet<string> = new Set(['taskId', 'evidence', 'verified']);
 
 /**
- * The result shape every delegated task returns: where the work is, then the
- * task-completion record's own provenance fields, read off its schema rather
- * than listed again here.
- *
- * `worktreePath` is not on the record's schema at all — `task_complete` copies
- * it from the result onto the fact — and here it is the one REQUIRED field:
- * settlement runs the task's verification against that worktree, and a claim
- * that names none cannot be verified. `branch` rides beside it for the gates
- * that diff against a base.
+ * The result shape that each delegated task returns: `worktreePath`, `branch`, then each task-completion schema field that settlement does not derive.
+ * `worktreePath` is not on that schema. `task_complete` copies it from the result onto the fact.
+ * `worktreePath` is required, because settlement runs the verification of the task against that worktree.
+ * `branch` is for the gates that diff against a base.
+ * The function throws when a schema field has a type that the flat capsule field vocabulary cannot carry.
  */
 function delegatedTaskResultFields(): { name: string; type: CapsuleFieldType; required: boolean }[] {
   const fields: { name: string; type: CapsuleFieldType; required: boolean }[] = [
@@ -138,11 +115,8 @@ function delegatedTaskResultFields(): { name: string; type: CapsuleFieldType; re
 }
 
 /**
- * The evidence kinds a claim may cite: the durable gate classes the
- * verification ladder records, read off each ladder gate's own registration.
- * A cited kind names a recorded requirement of that class, and the reference
- * beside it has to resolve to a row of that requirement on the stream — the
- * claim points at evidence, it does not carry any.
+ * The evidence kinds that a claim can cite: the gate class of each ladder gate, from its registration.
+ * The reference beside a cited kind must resolve to a row of that class on the stream. A claim points at evidence and does not carry it.
  */
 function delegatedEvidenceKinds(): string[] {
   return VERIFICATION_GATE_NAMES.map((name) => {
@@ -159,18 +133,8 @@ function statement(text: string): { statement: string } {
 }
 
 /**
- * One statement per distinct verification profile in the batch, naming the
- * gates settlement runs for a task at that tier. Bound as knowledge so the
- * dispatching harness can tell each worker what its work will be judged by,
- * without a second copy of the policy table in prose. Resolved through the
- * sequence the handler hands in, in profile order, so the same batch yields
- * the same statements.
- */
-/**
- * The distinct verification profiles the batch's tasks settle under, in one
- * fixed order. The capsule's pattern statements and the compilation's replay
- * key are both built over this list, so the terms the capsule states are the
- * terms the key was taken over.
+ * The distinct verification profiles of the batch tasks, in one fixed order.
+ * The pattern statements of the capsule and the replay key of the compilation both use this list, so they state the same terms.
  */
 export function verificationProfiles(batch: DelegationBatch): readonly BatchTaskVerification[] {
   const profiles = new Map<string, BatchTaskVerification>();
@@ -183,6 +147,10 @@ export function verificationProfiles(batch: DelegationBatch): readonly BatchTask
     .map(([, profile]) => profile);
 }
 
+/**
+ * One statement for each verification profile in the batch. Each statement names the gates that settlement runs for that profile.
+ * The capsule binds them as knowledge, so the harness can tell each worker how settlement judges its work.
+ */
 function verificationPatterns(
   batch: DelegationBatch,
   sequenceOf: CompileCapsuleInput['verificationSequence'],
@@ -195,16 +163,18 @@ function verificationPatterns(
   );
 }
 
-/** Compile one delegation batch, or refuse it. */
+/**
+ * Compiles one delegation batch, or refuses it.
+ * The completion predicate is the task-completion condition, parsed through the capsule condition schema, so the declares block matches the node the capsule carries.
+ * The steps that follow the batch in the pinned definition become non-goals.
+ * `designVersion` pins the digest of the design reference, not the bytes of the design record.
+ * The settlement contract freezes the tier and the boundary flag of each task, so settlement does not read them from the claim.
+ */
 export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOutcome {
   const { workflowId, capsuleVersion, lowered, batch, designRef } = input;
 
   const authority = bindCatalogInvariants(builtInWorkflowAuthority(), input.catalogInvariants);
 
-  // The completion predicate is the task-completion obligation itself, taken
-  // from the edge vocabulary that enforces it. It is parsed through the
-  // capsule's own condition schema so the declares block below is built from
-  // exactly the node the capsule will carry.
   const condition = EdgeConditionNodeSchema.parse(TASKS_COMPLETE_CONDITION.node);
   const facts: { ref: string; at: string }[] = [];
   const events: { ref: string; at: string }[] = [];
@@ -215,8 +185,6 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
     if (type !== undefined) declaredFields[fact.ref] = type;
   }
 
-  // What follows this batch in the workflow is named as out of scope, read off
-  // the pinned definition's own topology.
   const downstream = [
     ...new Set(
       lowered.definition.transitions
@@ -240,8 +208,6 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
     identity: {
       workflowId,
       definitionVersion: lowered.definitionVersion,
-      // Pins the design RECORD this compilation referenced, by the digest of
-      // that reference. It does not yet pin the record's bytes.
       designVersion: `design-${contentDigest(designRef ?? null).slice(0, 16)}`,
       capsuleVersion,
     },
@@ -290,9 +256,6 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
     },
     settlementContract: {
       requiredResults: [...batch.requiredResults],
-      // The terms each task's completion is verified under, frozen with the
-      // batch: settlement reads the tier and the boundary flag from here,
-      // never from the claim.
       taskVerification: Object.fromEntries(
         batch.tasks.map((task) => [task.taskId, { ...task.verification, baseRef: input.baseRef }]),
       ),

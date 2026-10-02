@@ -1,28 +1,19 @@
-// ─── VCS Helper: explicit-SHA force-with-lease push (DR-4 / #1596) ───────────
-//
-// A bare `git push --force-with-lease` (no `=<ref>:<sha>`) leases against the
-// LOCAL remote-tracking ref, which can be stale — it silently clobbers a
-// concurrent push the loop never observed. The explicit
-// `--force-with-lease=<ref>:<expected-sha>` form anchors the lease to a SHA the
-// shepherd loop actually observed at the remote (via `assess_stack`, else a
-// fresh `git ls-remote`), so the push fails closed when the remote has moved.
-//
-// This module locks that contract: PURE argv construction is split from the
-// IMPURE git read of the remote SHA, with the git exec behind an injectable
-// seam so tests never touch a real remote. Production call sites (the SDK push
-// consolidation) adopt `buildPushWithLease` later — forward-compatible by
-// design.
-
-// RESERVED(issue: #1596, owner: exarchos, expires: 2027-01-31) — reserved dead stub; deletion at expiry if unadopted (DR-7 module-intent gate)
+/**
+ * Builds a `git push --force-with-lease=<ref>:<sha>` with an explicit SHA. A bare
+ * `--force-with-lease` leases against the local remote-tracking ref, which can be stale. The
+ * explicit SHA comes from `assess_stack` or from a fresh `git ls-remote`, so the push fails when
+ * the remote moved. The argv build is pure, and the git read sits behind an injectable runner.
+ * No production call site uses this module yet.
+ *
+ * RESERVED(issue: #1596, owner: exarchos, expires: 2027-01-31). If no caller adopts this stub
+ * before expiry, the module-intent gate fails until someone deletes it.
+ */
 
 import { execFileSync } from 'node:child_process';
 
-// ─── Validation ──────────────────────────────────────────────────────────────
-
 /**
- * Safe ref charset — mirrors the sanitizer used in `prepare-synthesis.ts` and
- * `extract-intent.ts`. Rejects shell-metacharacters and ref names that could
- * smuggle extra argv into the git invocation.
+ * Safe ref characters, the same set as the branch sanitizer in `prepare-synthesis.ts` and
+ * `extract-intent.ts`. It rejects shell metacharacters and refs that can add argv to the git call.
  */
 const SAFE_REF_RE = /^[a-zA-Z0-9/_.-]+$/;
 
@@ -51,16 +42,9 @@ function assertValidSha(sha: string): void {
   }
 }
 
-// ─── Pure argv construction ───────────────────────────────────────────────────
-
 /**
- * Build the `git push` argv for an explicit-SHA force-with-lease.
- *
- * Returns `['push', '--force-with-lease=<ref>:<expectedSha>', <remote>, <ref>]`.
- * NEVER emits a bare `--force-with-lease` — the whole point of this helper is to
- * anchor the lease to an observed remote SHA. Inputs are validated (non-empty,
- * sanitized ref, 40-hex SHA); bad input throws rather than degrading to an
- * un-anchored push.
+ * Returns `['push', '--force-with-lease=<ref>:<expectedSha>', <remote>, <ref>]`. It never emits a
+ * bare `--force-with-lease`. A bad ref, remote or SHA throws, so the push cannot lose its anchor.
  */
 export function buildForceWithLeaseArgs(
   ref: string,
@@ -73,12 +57,9 @@ export function buildForceWithLeaseArgs(
   return ['push', `--force-with-lease=${ref}:${expectedSha}`, remote, ref];
 }
 
-// ─── Git exec seam ─────────────────────────────────────────────────────────────
-
 /**
- * Injectable git runner: takes the argv (sans the `git` binary) and returns
- * stdout as a string. Defaults to a synchronous `execFileSync` with a 30s
- * ceiling and piped stdio — tests override it so they never hit a real remote.
+ * Injectable git runner. It takes the argv without the `git` binary and returns stdout. The default
+ * runs `execFileSync` with a 30-second timeout. Tests replace it, so they never reach a real remote.
  */
 export type RunGit = (args: readonly string[]) => string;
 
@@ -92,10 +73,8 @@ const defaultRunGit: RunGit = (args) =>
   });
 
 /**
- * Parse the leading 40-hex SHA from `git ls-remote --heads` output. ls-remote
- * prints `<sha>\t<ref>` lines; an empty/whitespace stdout means the branch is
- * absent on the remote — return `undefined` so the caller knows there is no SHA
- * to anchor a lease to.
+ * Returns the SHA on the first `<sha>\t<ref>` line of `git ls-remote --heads` output. It returns
+ * `undefined` when the output is blank, because the branch is absent on the remote.
  */
 export function parseLsRemoteSha(stdout: string): string | undefined {
   const firstLine = stdout.split('\n').find((line) => line.trim().length > 0);
@@ -105,10 +84,8 @@ export function parseLsRemoteSha(stdout: string): string | undefined {
 }
 
 /**
- * Read the current SHA of `<ref>` at `<remote>` via `git ls-remote --heads`.
- * Mirrors the `remoteBranchExists` pattern in `workflow/compensation.ts`.
- * Returns `undefined` when the branch is absent (empty stdout). The git exec is
- * injectable so tests stub the network read.
+ * Reads the current SHA of `<ref>` at `<remote>` with `git ls-remote --heads`. It returns
+ * `undefined` when the branch is absent.
  */
 export function readRemoteSha(
   ref: string,
@@ -121,30 +98,24 @@ export function readRemoteSha(
   return parseLsRemoteSha(stdout);
 }
 
-// ─── Expected-SHA resolution ───────────────────────────────────────────────────
-
-/** Where the resolved expected SHA came from — diagnostic for callers/tests. */
+/** The source of the resolved expected SHA. */
 export type ExpectedShaSource = 'observed' | 'ls-remote';
 
 export interface ResolveExpectedShaOptions {
-  /** Remote name; defaults to `origin`. */
+  /** Remote name. The default is `origin`. */
   readonly remote?: string;
   /**
-   * The SHA the shepherd loop last observed at the remote (via `assess_stack`).
-   * PREFERRED when present — it avoids a redundant network round-trip and uses
-   * the exact SHA the loop reasoned about.
+   * The remote SHA that the shepherd loop last saw through `assess_stack`. A valid value wins,
+   * because it is the SHA the loop used and it needs no network read.
    */
   readonly observedSha?: string | undefined;
-  /** Injectable git runner; defaults to a real `execFileSync`. */
+  /** Injectable git runner. The default runs `execFileSync`. */
   readonly runGit?: RunGit;
 }
 
 /**
- * Resolve the SHA to anchor the lease to. Prefers `observedSha` (the SHA the
- * shepherd loop last saw via `assess_stack`); falls back to a fresh
- * `git ls-remote` when absent. Returns `undefined` when neither yields a valid
- * SHA — the caller then knows it cannot build an explicit-SHA lease (and must
- * NOT silently degrade to a bare lease).
+ * Returns a valid `observedSha`, or else the SHA from a fresh `git ls-remote`. It returns
+ * `undefined` when neither gives a valid SHA. The caller must then not fall back to a bare lease.
  */
 export function resolveExpectedSha(
   ref: string,
@@ -158,8 +129,6 @@ export function resolveExpectedSha(
   return readRemoteSha(ref, remote, runGit);
 }
 
-// ─── Convenience: resolve + build ──────────────────────────────────────────────
-
 export interface BuildPushWithLeaseResult {
   /** The `git push` argv (sans the `git` binary). */
   readonly args: string[];
@@ -170,13 +139,8 @@ export interface BuildPushWithLeaseResult {
 }
 
 /**
- * Resolve the expected remote SHA (observed > fresh ls-remote), then build the
- * explicit-SHA force-with-lease argv. Returns `undefined` when no SHA can be
- * resolved — meaning an explicit-SHA lease cannot be built and the caller must
- * decide how to proceed rather than fall back to an un-anchored push.
- *
- * Kept pure-ish via the injectable `runGit` seam: with `observedSha` supplied,
- * no git process runs at all.
+ * Resolves the expected SHA with {@link resolveExpectedSha}, then builds the push argv. It returns
+ * `undefined` when no SHA resolves. A valid `observedSha` means that no git process runs.
  */
 export function buildPushWithLease(
   ref: string,

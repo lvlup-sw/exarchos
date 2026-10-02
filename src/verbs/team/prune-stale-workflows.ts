@@ -1,18 +1,8 @@
 /**
- * Stale-workflow pruning.
- *
- * Two layers in this module:
- *
- * 1. `selectPruneCandidates` (T7) — a pure function. No IO, no clock,
- *    no shell-outs. Takes an entry list and returns candidates + exclusions.
- *    Tests inject a deterministic `now`.
- *
- * 2. `handlePruneStaleWorkflows` (T3) — the orchestrate handler that
- *    composes the pure selector with real IO: `handleList`, `handleCancel`,
- *    a `ctx.eventStore` for emitting `workflow.pruned`, and the safeguard
- *    backends in `prune-safeguards.ts`. All IO seams are wrapped in a
- *    `PruneHandlerDeps` bundle that defaults to production implementations,
- *    so tests can pass stubs instead of shelling out to `gh`/`git`.
+ * Prunes stale workflows. `selectPruneCandidates` is pure: it takes the entry list and an injected
+ * `now`, and returns candidates and exclusions. `handlePruneStaleWorkflows` composes it with real IO:
+ * `handleList`, `handleCancel`, the event store for `workflow.pruned`, and the safeguards in
+ * `prune-safeguards.ts`. The IO seams sit in a `PruneHandlerDeps` bundle, so tests can pass stubs.
  */
 
 import * as path from 'node:path';
@@ -46,21 +36,15 @@ export interface WorkflowListEntry {
     lastActivityTimestamp: string;
   };
   /**
-   * C8 (#1117) — secondary staleness signal: ISO timestamp of the most-recent
-   * `workflow.transition` event for the workflow. Captures "stuck in phase X
-   * for N days" even when reads keep `lastActivityTimestamp` fresh. Optional
-   * for backward compatibility; legacy entries fall back to single-signal
-   * scoring on `_checkpoint.lastActivityTimestamp`.
+   * A second staleness signal: the ISO time of the latest `workflow.transition` event. It shows a
+   * workflow stuck in one phase while reads keep `lastActivityTimestamp` fresh. An entry without it
+   * uses only `_checkpoint.lastActivityTimestamp`.
    */
   phaseTransitionTimestamp?: string;
   /**
-   * C8 (#1117) — secondary staleness signal: ISO timestamp of the latest
-   * commit on the workflow's tracked branch (UTC seconds from
-   * `git log -1 --format=%ct`, converted to ISO). Absence of activity within
-   * the threshold window contributes a stale signal. Optional — workflows
-   * without a tracked branch (and absent-branch readers) leave this
-   * undefined; the selector treats undefined as "no evidence of branch
-   * progress" rather than penalising the workflow.
+   * A second staleness signal: the ISO time of the latest commit on the tracked branch, from
+   * `git log -1 --format=%ct`. It is undefined for a workflow with no tracked branch, and the selector
+   * then does not count it against the workflow.
    */
   branchActivityTimestamp?: string;
 }
@@ -89,13 +73,14 @@ export interface PruneCandidate {
 export interface PruneExclusion {
   featureId: string;
   /**
-   * Why the entry was excluded from prune candidates.
+   * Why the selector excluded the entry:
    * - `terminal`: the phase is terminal (completed or cancelled).
-   * - `fresh`: the staleness contract found the entry fresh.
+   * - `fresh`: the staleness contract says fresh.
    * - `oneshot-excluded`: `includeOneShot` is false and the entry is a oneshot.
    * - `phase-excluded`: the phase is in `phaseExclusions`.
    * - `workflow-type-not-in-topology`: the topology does not cover the workflow type.
-   * - `phase-not-in-topology`: the topology has no contract for the phase.
+   * - `phase-not-in-topology`: the topology has no contract for the phase. The selector skips the
+   *   entry, because the scorer throws on it and that throw stops the batch.
    */
   reason:
     | 'terminal'
@@ -112,25 +97,16 @@ export interface PruneSelection {
 }
 
 /**
- * Describes a `handleList` entry that failed structural validation. These
- * entries are excluded from prune selection entirely — the handler will
- * never consider them candidates, so a regressed `handleList` shape cannot
- * silently cause bulk-cancellation of active work (see T15 integration bug).
- *
- * `featureId` is optional because the entry may be missing that field —
- * it's the first thing we'd want to look up, so we include it when we have it.
+ * A `handleList` entry that failed structural validation. The selector does not see it. Outside the
+ * `include` mode, the handler does not prune it, so a changed `handleList` shape cannot cancel active
+ * work in bulk. `featureId` is optional, because the entry can lack it.
  */
 export interface PruneMalformedEntry {
   featureId?: string | undefined;
   reason: string;
 }
 
-/**
- * Compute minutes since a checkpoint's last activity.
- *
- * Pure helper — takes `now` as a parameter rather than calling
- * `Date.now()`, so callers (and tests) can inject a deterministic clock.
- */
+/** Minutes from a timestamp to `now`, with `now` injected for tests. A timestamp that does not parse gives 0. */
 function minutesSince(lastActivityTimestamp: string, now: Date): number {
   const last = new Date(lastActivityTimestamp).getTime();
   if (Number.isNaN(last)) return 0;
@@ -143,34 +119,17 @@ function isTerminalPhase(phase: string): boolean {
 }
 
 /**
- * Pure function: given a list of workflow entries, a typed `Topology`,
- * and a config, partition entries into prune candidates and exclusions
- * (with reasons).
+ * Partitions workflow entries into prune candidates and exclusions with reasons. The exclusion order
+ * is `terminal`, `phase-excluded`, `oneshot-excluded`, `workflow-type-not-in-topology`,
+ * `phase-not-in-topology`, then `fresh`.
+ * The staleness verdict comes from the typed `PhaseContract` of the topology, through
+ * `scoreEntryThroughTopology`. Per-phase thresholds come from the topology, not from this selector.
+ * The handler adds the second signal timestamps, and the selector converts each one to minutes.
  *
- * Exclusion precedence (highest first):
- *   1. terminal phase  → reason: 'terminal'
- *   2. phase exclusion → reason: 'phase-excluded'
- *   3. oneshot filter  → reason: 'oneshot-excluded' (only when `includeOneShot === false`)
- *   4. coverage        → reason: 'workflow-type-not-in-topology', then 'phase-not-in-topology'
- *   5. freshness       → reason: 'fresh'
- *
- * #1334 (β-07, v2.10.0-preview.1): the multi-signal staleness verdict is
- * now read off the typed `PhaseContract` declared on the topology, via
- * `scoreEntryThroughTopology`. The orchestrator-side
- * `phaseStale && (lastActivityStale || branchInactive)` heuristic was
- * not expressible by the typed contract's `freshnessRequires:
- * 'all' | 'any'` reducer, so DR-7 (#1332) hard-cut the untyped scorer
- * path and this layer now delegates verdicts to the contract instead.
- * Per-phase policy lives in `topology.yaml`, not in this selector.
- *
- * @param entries  Workflow summaries (typically from `handleList`).
- * @param topology Loaded topology with per-phase staleness contracts.
- * @param config   Phase-exclusion + oneshot toggle; all fields optional. Per-phase
- *                 staleness thresholds live in `topology.yaml` (`staleness` blocks
- *                 with `freshnessRequires`) — the selector reads them via
- *                 `scoreEntryThroughTopology` and does not accept a global
- *                 `thresholdMinutes` override.
- * @param now      Injectable clock for deterministic tests. Defaults to `new Date()`.
+ * @param entries  Workflow summaries, usually from `handleList`.
+ * @param topology The loaded topology with per-phase staleness contracts.
+ * @param config   The phase exclusions and the oneshot switch. All fields are optional.
+ * @param now      An injectable clock for tests. The default is `new Date()`.
  */
 export function selectPruneCandidates(
   entries: WorkflowListEntry[],
@@ -207,22 +166,11 @@ export function selectPruneCandidates(
       continue;
     }
 
-    // Sentry #1338 (HIGH): topology.yaml can rename or drop phases while
-    // active workflows still reference the old name; without this guard,
-    // `scoreEntryThroughTopology` throws on the first orphan-phase entry
-    // and crashes the entire batch. Pre-check the phase so we can return
-    // a structured `phase-not-in-topology` exclusion and continue with
-    // the rest of the workflows. DIM-7 resilience; INV-5b spec-aligned
-    // output contract (agent callers get structured results, not throws).
     if (topology.phases[entry.phase] === undefined) {
       excluded.push({ featureId: entry.featureId, reason: 'phase-not-in-topology' });
       continue;
     }
 
-    // #1334 (β-07): score through the typed phase contract. The handler
-    // pre-enriches entries with secondary signal timestamps so this layer
-    // only needs to convert each ISO timestamp into minutes-since-now and
-    // hand the resulting `StalenessState` to the contract reducer.
     const state: StalenessState = {
       lastActivityMinutes: minutesSince(
         entry._checkpoint.lastActivityTimestamp,
@@ -266,29 +214,14 @@ export function selectPruneCandidates(
   return { candidates, excluded };
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Handler (T3)
-// ═══════════════════════════════════════════════════════════════════════════
-
-// Window used when asking `hasRecentCommits`. The design locks this at 24h
-// for v1; expose it as a constant so tests can see the contract even though
-// the value isn't configurable through the public handler args yet.
+/** The commit window, in hours, for `hasRecentCommits`. The handler args cannot change it. */
 const RECENT_COMMITS_WINDOW_HOURS = 24;
 
 /**
- * Input args accepted by the handler. All fields optional with safe defaults:
- *   dryRun           → true   (refuses to mutate unless explicitly disabled)
- *   force            → false  (bypass safeguards)
- *   includeOneShot   → true
- *   now              → current time (injectable as ISO string for tests)
- *
- * NOTE — `thresholdMinutes` was REMOVED in the debloat wave (DR-9). Per-phase
- * staleness has lived exclusively in `topology.yaml` `staleness` blocks since
- * #1334 (v2.10.0-preview.1), so the field was accepted-but-ignored. A legacy
- * caller still passing it is rejected up front with an actionable removal error
- * at the `prune_stale_workflows` SCHEMA seam (registry.ts —
- * `.passthrough().superRefine`), so `parsed.data` never carries it into this
- * handler — INV-5b honest contract.
+ * The handler args. Each field is optional: `dryRun` defaults to true, `force` (skip the safeguards)
+ * to false, `includeOneShot` to true, and `now` to the current time.
+ * The `prune_stale_workflows` schema rejects a `thresholdMinutes` arg, because per-phase staleness
+ * lives in `topology.yaml`.
  */
 export interface PruneHandlerArgs {
   dryRun?: boolean;
@@ -312,21 +245,13 @@ export interface PruneHandlerDeps {
   readBranchName: (featureId: string, stateDir: string) => Promise<string | undefined>;
   safeguards: PruneSafeguards;
   /**
-   * C8 (#1117) — read the most-recent `workflow.transition` event timestamp
-   * for a workflow. Returns `undefined` when the event store has no transition
-   * events on that stream (or when querying fails). The handler enriches
-   * `WorkflowListEntry`s with this value so `selectPruneCandidates` can apply
-   * multi-signal staleness scoring without doing IO itself.
+   * Reads the time of the latest `workflow.transition` event of a workflow. It returns `undefined`
+   * when the stream has no transition event or the query fails.
    */
   readPhaseTransitionTimestamp: (featureId: string) => Promise<string | undefined>;
   /**
-   * C8 (#1117) — read the latest commit timestamp on a workflow's tracked
-   * branch as an ISO string. Returns `undefined` when:
-   *   - the workflow has no tracked branch
-   *   - `git log` fails (no remote, branch missing, git not installed)
-   * Workflows without a branch are not penalised: the selector treats
-   * `undefined` as "no evidence of branch progress" but the phase-transition
-   * gate prevents that from forcing a stale verdict on its own.
+   * Reads the time of the latest commit on the tracked branch as an ISO string. It returns
+   * `undefined` when the workflow has no tracked branch or `git log` fails.
    */
   readBranchActivityTimestamp: (
     branchName: string | undefined,
@@ -336,19 +261,12 @@ export interface PruneHandlerDeps {
 export interface PruneSkipped {
   featureId: string;
   /**
-   * Why this candidate was skipped rather than pruned.
-   * - `open-pr`              — safeguard: an open PR exists for the branch
-   * - `active-branch`        — safeguard: commits landed on the branch
-   *                            within the recency window
-   *                            (user-facing name from the prune-workflows
-   *                            skill and design doc; the implementation
-   *                            detail — a `git log --since` window — is
-   *                            on the `hasRecentCommits` backend)
-   * - `cancel-failed`        — `handleCancel` returned `success: false`
-   * - `event-append-failed`  — cancel succeeded but appending `workflow.pruned`
-   *                            to the event store threw; the workflow is
-   *                            cancelled on disk but NOT counted as pruned,
-   *                            because the audit trail is incomplete
+   * Why the handler skipped the candidate:
+   * - `open-pr`: a safeguard found an open PR for the branch.
+   * - `active-branch`: a safeguard found commits on the branch in the recency window.
+   * - `cancel-failed`: `handleCancel` returned `success: false`.
+   * - `event-append-failed`: the cancel succeeded, but the `workflow.pruned` append threw. The
+   *   workflow is cancelled but not counted as pruned, because the audit trail is incomplete.
    */
   reason: 'open-pr' | 'active-branch' | 'cancel-failed' | 'event-append-failed';
   message?: string;
@@ -370,10 +288,7 @@ export interface PruneDiagnosticEntry {
   reasons: string[];
 }
 
-/**
- * Diagnostics payload attached to every prune response (DR-3, DR-10).
- * Always present — `malformedCount === 0` when all entries are valid.
- */
+/** The diagnostics payload of a prune response. `malformedCount` is 0 when each entry is valid. */
 export interface PruneDiagnostics {
   malformedCount: number;
   malformedEntries: PruneDiagnosticEntry[];
@@ -385,28 +300,19 @@ export interface PruneHandlerResult {
   candidates: PruneCandidate[];
   skipped: PruneSkipped[];
   /**
-   * Only present in apply mode. Dry-run returns omit this field entirely
-   * rather than surfacing an empty array — it would misleadingly suggest
-   * "nothing was pruned" instead of "nothing could have been pruned because
-   * this was a preview". Matches the shape in the 2026-04-11 design.
+   * Present only in apply mode. A dry run omits it, because an empty array reads as "nothing was
+   * pruned" and not as "this was a preview".
    */
   pruned?: PrunePruned[];
   /**
-   * `handleList` entries that failed structural validation (missing
-   * `featureId`, `workflowType`, `phase`, or a parsable
-   * `_checkpoint.lastActivityTimestamp`). Present when at least one entry
-   * was rejected. Malformed entries are NEVER considered candidates or
-   * pruned — this is fail-closed behavior: if `handleList` regresses, we
-   * refuse to guess at identity/staleness rather than silently cancelling
-   * active workflows. Operators should see this field and fix the upstream
-   * shape.
+   * The `handleList` entries that failed structural validation: a missing `featureId`, `workflowType`,
+   * or `phase`, or a `_checkpoint.lastActivityTimestamp` that does not parse. It is present when the
+   * handler rejected at least one entry and the mode is not `skip`.
    */
   malformed?: PruneMalformedEntry[];
   /**
-   * Diagnostics payload (DR-3, DR-10). Present in 'report' (default) and
-   * 'include' modes. Omitted in 'skip' mode. When present,
-   * `malformedCount === 0` when all entries pass validation. Includes
-   * per-entry reasons and an advisory string when malformed entries exist.
+   * The diagnostics payload. It is present in the `report` (default) and `include` modes, and absent
+   * in the `skip` mode. It holds per-entry reasons, and an advisory when malformed entries exist.
    */
   diagnostics?: PruneDiagnostics;
   /** Present when candidates were truncated by maxBatchSize. */
@@ -415,17 +321,15 @@ export interface PruneHandlerResult {
   totalCandidates?: number;
 }
 
-/** Default branch-name reader: reads the state JSON and returns a top-level
- *  `branchName` field if present. Workflows without one get `undefined`,
- *  which short-circuits both safeguards in the handler. */
+/**
+ * Reads the top-level `branchName` of a workflow through `readStateFile`. It returns `undefined` when
+ * the field is absent or the read fails, and the handler then skips both safeguards.
+ */
 async function defaultReadBranchName(
   featureId: string,
   stateDir: string,
 ): Promise<string | undefined> {
   try {
-    // Read via readStateFile (#1504): backend (SoT) in production, on-disk file
-    // only on the no-backend (test/legacy) path. `branchName` rides the
-    // passthrough state schema, so it survives both reads.
     const stateFile = path.join(stateDir, `${featureId}.state.json`);
     const state = (await readStateFile(stateFile)) as unknown as Record<string, unknown>;
     const branchName = state.branchName;
@@ -436,14 +340,9 @@ async function defaultReadBranchName(
 }
 
 /**
- * C8 (#1117) — production reader for the latest `workflow.transition` event
- * timestamp on a stream. Returns `undefined` when the stream has no
- * transition events or when the query throws (a query failure is treated as
- * "no signal", matching the safeguard convention elsewhere in this module).
- *
- * The `EventStore.query` filter accepts a `type` and a `limit`; we ask only
- * for the most recent transition rather than scanning the full history. The
- * store returns events in stream order, so the last element is the newest.
+ * Builds the reader for the time of the latest `workflow.transition` event on a stream. It returns
+ * `undefined` when the stream has no transition event or the query throws. The store returns
+ * events in stream order, so the last event is the newest.
  */
 function makeReadPhaseTransitionTimestamp(
   ctx?: DispatchContext,
@@ -468,25 +367,14 @@ function makeReadPhaseTransitionTimestamp(
 }
 
 /**
- * C8 (#1117) — production reader for the latest commit timestamp on a
- * workflow's tracked branch. Reuses the `git log` shell-out pattern from
- * {@link defaultHasRecentCommits} in `prune-safeguards.ts` rather than
- * introducing a new VCS dependency. `--format=%ct` returns UTC seconds since
- * epoch, which we convert to an ISO timestamp so it composes with the other
- * signals.
- *
- * Returns `undefined` when:
- *   - `branchName` is absent or contains characters outside the safe
- *     git-ref alphabet
- *   - `git log` fails (unknown ref, git not installed, timeout)
+ * Reads the time of the latest commit on `refs/heads/<branchName>` with `git log -1 --format=%ct`, as
+ * an ISO string. It uses `execFile`, so the parallel readers of the handler do not block the event loop.
+ * It returns `undefined` for an absent branch name, a name outside the safe ref characters, or a git failure.
  */
 async function defaultReadBranchActivityTimestamp(
   branchName: string | undefined,
 ): Promise<string | undefined> {
   if (!branchName) return undefined;
-  // Same allowed-character guard `prune-safeguards.ts` uses before
-  // embedding the branch name in a shell argument. Refuse to run git
-  // against suspicious refs rather than passing them through.
   if (!/^[A-Za-z0-9/_.\-]+$/.test(branchName) || branchName.includes('..')) {
     return undefined;
   }
@@ -494,10 +382,6 @@ async function defaultReadBranchActivityTimestamp(
     const { execFile } = await import('node:child_process');
     const { promisify } = await import('node:util');
     const execFileAsync = promisify(execFile);
-    // execFile (not execSync) so that handlePruneStaleWorkflows's
-    // Promise.all over per-workflow readers does not block the event loop.
-    // Args are passed as an array — branchName is regex-validated above so
-    // shell metacharacters can't reach the spawned process either way.
     const { stdout } = await execFileAsync(
       'git',
       ['log', '-1', '--format=%ct', `refs/heads/${branchName}`],
@@ -531,19 +415,11 @@ function productionDeps(_ctx?: DispatchContext): PruneHandlerDeps {
 }
 
 /**
- * Narrow `handleList`'s opaque payload to the entry shape this module needs.
- *
- * Fail-closed validation (F1, shepherd iter 2): every entry must supply a
- * non-empty `featureId`, non-empty `workflowType`, string `phase`, and a
- * parsable `_checkpoint.lastActivityTimestamp`. Entries missing any of
- * those fields are moved to a separate `malformed` bucket and excluded
- * from selection entirely.
- *
- * Earlier revisions coerced missing fields with defaults (`new Date(0)`,
- * `'feature'`, `'unknown'`). That meant a single upstream regression in
- * `handleList` — which already happened once, see the T15 integration
- * test — could silently classify every active workflow as "maximally
- * stale" and bulk-cancel them in apply mode. We now refuse to guess.
+ * Narrows the `handleList` payload to the entry shape of this module. Each entry must have a non-empty
+ * `featureId` and `workflowType`, a string `phase`, and a `_checkpoint.lastActivityTimestamp` that parses.
+ * Other entries go to the `malformed` list. The function does not fill defaults, because one
+ * `handleList` change can then make each active workflow look stale and cancel it in apply mode.
+ * A timestamp that does not parse is malformed, because `minutesSince` gives 0 for it and the entry looks fresh.
  */
 function extractListEntries(result: ToolResult): {
   entries: WorkflowListEntry[];
@@ -563,9 +439,6 @@ function extractListEntries(result: ToolResult): {
     }
     const obj = raw as Record<string, unknown>;
 
-    // Capture featureId eagerly (even if invalid) so malformed reports can
-    // reference *which* entry failed — critical for operators debugging
-    // handleList regressions.
     const featureIdRaw = obj.featureId;
     const featureIdForReport =
       typeof featureIdRaw === 'string' && featureIdRaw.length > 0 ? featureIdRaw : undefined;
@@ -611,10 +484,6 @@ function extractListEntries(result: ToolResult): {
       });
       continue;
     }
-    // Reject unparsable ISO strings — `new Date("not-a-date").valueOf()`
-    // is NaN. If we accepted these, `minutesSince()` would return 0 via
-    // its own NaN guard and the entry would be classified as fresh, which
-    // is silent misclassification, not fail-closed.
     if (Number.isNaN(new Date(lastActivityTimestampRaw).valueOf())) {
       malformed.push({
         featureId: featureIdForReport,
@@ -638,45 +507,24 @@ function extractListEntries(result: ToolResult): {
 }
 
 /**
- * Orchestrate-action handler for `prune_stale_workflows`.
- *
- * Pipeline:
- *   1. `handleList` → flatten entries
- *   2. `selectPruneCandidates` (pure) → candidates
- *   3. If dryRun → return candidates only (pruned field omitted)
- *   4. Otherwise, for each candidate:
- *      a. Read branchName from state (undefined skips safeguards)
- *      b. Unless `force`, evaluate `hasOpenPR` → `hasRecentCommits` in order
- *      c. On approval, invoke `handleCancel`
- *      d. On successful cancel, emit `workflow.pruned` via `ctx.eventStore`
- *   5. Return `{ candidates, skipped, pruned }`
- *
- * Deps are injected (4th arg) for testability; production callers omit it
- * and get `productionDeps(ctx)` with real `handleList`, `handleCancel`, and
- * `gh`/`git`-backed safeguards.
+ * The safeguards in evaluation order, recorded on the audit event when `force` skips them. The names
+ * are the user-facing reason keys. The backend for `active-branch` is `hasRecentCommits`.
  */
-// All safeguards, in evaluation order, echoed on the audit event when
-// `force` bypasses them. The names here are the user-facing reason keys
-// (matching the `prune-workflows` skill and design doc); internal backends
-// may use different names (e.g. `hasRecentCommits` is the git-backed
-// implementation for `active-branch`).
 const ALL_SKIPPED_SAFEGUARDS = ['open-pr', 'active-branch'] as const;
 
 /**
- * Per-candidate classification returned by {@link prunePruneCandidate}. The
- * main loop consumes this into `skipped` / `pruned` result arrays; the shape
- * mirrors the union so double-accounting is structurally impossible.
+ * The outcome of one candidate from {@link prunePruneCandidate}: `skipped` or `pruned`. The union
+ * makes it impossible to count one candidate in both result lists.
  */
 type CandidateOutcome =
   | { kind: 'skipped'; entry: PruneSkipped }
   | { kind: 'pruned'; entry: PrunePruned };
 
 /**
- * Apply-mode body for a single prune candidate. Evaluates safeguards, calls
- * cancel, and emits the `workflow.pruned` audit event. Returns exactly one
- * `CandidateOutcome` — either `skipped` (with a reason) or `pruned`. HIGH-2
- * fix: event-append failure records a distinct `event-append-failed` reason
- * and does NOT also push onto `pruned`.
+ * Runs the apply-mode steps for one candidate: the safeguards, the cancel, and the `workflow.pruned`
+ * audit event. `force` skips the safeguards and records them on the event. A workflow with no branch
+ * name skips both safeguards. A failed cancel gives `cancel-failed`, and the batch continues.
+ * A failed append gives `event-append-failed` only, not `pruned`, because the audit trail is incomplete.
  */
 async function prunePruneCandidate(
   candidate: PruneCandidate,
@@ -687,9 +535,6 @@ async function prunePruneCandidate(
 ): Promise<CandidateOutcome> {
   const branchName = await deps.readBranchName(candidate.featureId, stateDir);
 
-  // Safeguard evaluation. `force` bypasses them entirely but records the
-  // marker list on the emitted event for audit. A missing branchName also
-  // short-circuits both checks (nothing to look up).
   if (!force && branchName !== undefined) {
     if (await deps.safeguards.hasOpenPR(candidate.featureId, branchName)) {
       return { kind: 'skipped', entry: { featureId: candidate.featureId, reason: 'open-pr' } };
@@ -702,8 +547,6 @@ async function prunePruneCandidate(
     }
   }
 
-  // Cancel. On failure, record in `skipped` and move on — partial batches
-  // are acceptable per design (risk #4 in the plan).
   const cancelResult = await deps.handleCancel(
     { featureId: candidate.featureId, reason: 'stale-prune' },
     stateDir,
@@ -719,11 +562,6 @@ async function prunePruneCandidate(
     };
   }
 
-  // Emit workflow.pruned audit event. If this throws, the cancel already
-  // landed on disk but the audit trail is incomplete — we classify the
-  // feature as `event-append-failed` and do NOT record it in `pruned`.
-  // Previously we did both, which meant a single feature could appear in
-  // two result arrays with contradictory semantics (HIGH-2).
   try {
     await eventStore.append(candidate.featureId, {
       type: 'workflow.pruned' as EventType,
@@ -755,21 +593,24 @@ async function prunePruneCandidate(
   };
 }
 
+/**
+ * The `prune_stale_workflows` handler. It lists workflows, adds the second staleness signals, selects
+ * candidates, and caps them at `maxBatchSize`, most stale first. A dry run returns the candidates without `pruned`.
+ * Apply mode runs the safeguards unless `force` is set, cancels each candidate that passes, and appends `workflow.pruned`.
+ * Apply mode needs the event store, so no cancel happens without an audit trail. With `requireDryRun`,
+ * it also needs a `prune.diagnostics` event on `_prune`, and a failed query skips that check.
+ *
+ * `malformedHandling` is `report` (the default), `include` (malformed entries with a `featureId` become
+ * candidates with infinite staleness), or `skip` (no diagnostics). The handler logs a warning for malformed
+ * entries, because all-malformed output looks the same as nothing to prune. With no loaded topology,
+ * it returns `{ aborted: true, reason: 'topology_not_loaded' }`. The diagnostics append is fire-and-forget.
+ */
 export async function handlePruneStaleWorkflows(
   args: PruneHandlerArgs,
   stateDir: string,
   ctx?: DispatchContext,
   deps: PruneHandlerDeps = productionDeps(ctx),
 ): Promise<ToolResult> {
-  // ─── DR-9: the REMOVED `thresholdMinutes` knob is rejected at the SCHEMA ────
-  // seam, not here. The `prune_stale_workflows` action schema (registry.ts) is
-  // `.passthrough().superRefine(...)`, so `dispatch()` / the CLI adapter reject
-  // a legacy `thresholdMinutes` with an actionable removal message BEFORE the
-  // handler runs — `parsed.data` can never carry the removed key into this
-  // function. `PruneHandlerArgs` no longer declares it, so a former in-handler
-  // `'thresholdMinutes' in args` guard was reachable only by a test casting
-  // past the type boundary (a vacuous gate). It was removed with its direct
-  // test; the dispatch-level test (`dispatch/core/dispatch.test.ts`) is the real arbiter.
   if (args.now !== undefined) {
     if (typeof args.now !== 'string' || Number.isNaN(new Date(args.now).valueOf())) {
       return {
@@ -785,15 +626,8 @@ export async function handlePruneStaleWorkflows(
   const dryRun = args.dryRun ?? true;
   const force = args.force ?? false;
   const now = args.now ? new Date(args.now) : new Date();
-  // Surviving prune config knobs (maxBatchSize / phaseExclusions /
-  // malformedHandling / requireDryRun). `staleAfterDays` was removed (DR-9).
   const pruneConfig = ctx?.projectConfig?.prune;
 
-  // Apply-mode precondition: we MUST have an eventStore to emit the
-  // `workflow.pruned` audit event. Silently no-opping on the append (the
-  // previous behavior via `ctx?.eventStore.append(...)`) would let the
-  // cancel land on disk while the audit trail stayed blank — a contract
-  // break. Return a structured error instead. (MEDIUM-1)
   if (!dryRun && !ctx?.eventStore) {
     return {
       success: false,
@@ -805,11 +639,6 @@ export async function handlePruneStaleWorkflows(
     };
   }
 
-  // requireDryRun enforcement (DR-4): when config requires a prior dry-run
-  // before apply mode, check the event store for a recent prune.diagnostics
-  // event. If none found, reject with a structured error. Skip enforcement
-  // when eventStore is unavailable (already guarded above) or when the
-  // eventStore lacks a `query` method (e.g., minimal test stubs).
   if (
     !dryRun &&
     pruneConfig?.requireDryRun === true &&
@@ -836,12 +665,9 @@ export async function handlePruneStaleWorkflows(
         };
       }
     } catch {
-      // If querying the event store fails, skip enforcement rather than
-      // blocking prune operations. The enforcement is best-effort.
     }
   }
 
-  // 1. Fetch the full workflow list.
   const listResult = await deps.handleList(stateDir);
   if (!listResult.success) {
     return {
@@ -854,11 +680,6 @@ export async function handlePruneStaleWorkflows(
   }
   const { entries, malformed } = extractListEntries(listResult);
 
-  // Loud warning when malformed entries are present: operators need to
-  // see this in logs, not just in the return shape. Failing closed means
-  // these entries won't be pruned — but if it's a systemic regression in
-  // `handleList`, *every* entry may be malformed and nothing will be
-  // pruned, which looks the same as "nothing to prune" unless we log.
   if (malformed.length > 0) {
     orchestrateLogger.warn(
       {
@@ -870,20 +691,11 @@ export async function handlePruneStaleWorkflows(
     );
   }
 
-  // Build diagnostics from the malformed entries (DR-3, DR-10). Each
-  // PruneMalformedEntry maps 1:1 to a PruneDiagnosticEntry — the per-entry
-  // reason string becomes the single element in a `reasons` array so the
-  // shape supports future multi-reason grouping without a breaking change.
   const diagnosticEntries: PruneDiagnosticEntry[] = malformed.map((m) => ({
     ...(m.featureId !== undefined ? { featureId: m.featureId } : {}),
     reasons: [m.reason],
   }));
 
-  // malformedHandling mode (DR-4). Controls how malformed entries interact
-  // with the candidate pipeline and response shape:
-  //   - 'report' (default): diagnostics surfaced, malformed excluded from candidates
-  //   - 'include': malformed entries promoted to candidates with stalenessMinutes=Infinity
-  //   - 'skip': malformed silently excluded, diagnostics omitted from response
   const malformedHandling = pruneConfig?.malformedHandling ?? 'report';
 
   let stalenessScope: StalenessScope;
@@ -908,11 +720,6 @@ export async function handlePruneStaleWorkflows(
     };
   }
 
-  // 1a. C8 (#1117): enrich each entry with secondary staleness signals
-  // BEFORE pure selection. The selector stays IO-free; the handler is the
-  // only layer that touches the event store / git. Failures on individual
-  // entries fall back to `undefined`, which the selector treats as "no
-  // evidence of progress" without bypassing the phase-stale gate.
   const enrichedEntries: WorkflowListEntry[] = await Promise.all(
     entries.map(async (entry) => {
       const [phaseTransitionTimestamp, branchName] = await Promise.all([
@@ -934,7 +741,7 @@ export async function handlePruneStaleWorkflows(
     }),
   );
 
-  // 2. Pure selection.
+
   const { candidates: selectedCandidates } = selectPruneCandidates(
     enrichedEntries,
     stalenessScope.topology,
@@ -948,7 +755,6 @@ export async function handlePruneStaleWorkflows(
     now,
   );
 
-  // 2a. malformedHandling='include': promote malformed entries to candidates
   let rawCandidates = selectedCandidates;
   if (malformedHandling === 'include' && malformed.length > 0) {
     const malformedCandidates: PruneCandidate[] = malformed
@@ -962,9 +768,6 @@ export async function handlePruneStaleWorkflows(
     rawCandidates = [...selectedCandidates, ...malformedCandidates];
   }
 
-  // 2b. maxBatchSize cap — sort by staleness descending (oldest first)
-  // and truncate to the configured limit. When truncated, add markers
-  // to the response so callers know the full scope.
   const maxBatchSize = pruneConfig?.maxBatchSize;
   const totalCandidates = rawCandidates.length;
   let candidates = rawCandidates;
@@ -972,14 +775,11 @@ export async function handlePruneStaleWorkflows(
 
   if (maxBatchSize !== undefined && rawCandidates.length > maxBatchSize) {
     truncated = true;
-    // Sort descending by stalenessMinutes (oldest/most stale first)
     candidates = [...rawCandidates]
       .sort((a, b) => b.stalenessMinutes - a.stalenessMinutes)
       .slice(0, maxBatchSize);
   }
 
-  // Build the diagnostics object — present in 'report' and 'include' modes,
-  // omitted in 'skip' mode.
   const diagnostics: PruneDiagnostics | undefined =
     malformedHandling === 'skip'
       ? undefined
@@ -996,10 +796,7 @@ export async function handlePruneStaleWorkflows(
             : {}),
         };
 
-  // Emit prune.diagnostics event. Always emitted when
-  // an eventStore is available and diagnostics are not suppressed — even
-  // when malformedCount is 0, so dashboards and audit queries can track
-  // that a prune evaluation ran.
+
   if (ctx?.eventStore && diagnostics) {
     await ctx.eventStore
       .append('_prune', {
@@ -1012,13 +809,10 @@ export async function handlePruneStaleWorkflows(
         },
       })
       .catch(() => {
-        // A failed diagnostics append must not affect the prune outcome.
+
       });
   }
 
-  // 3. Dry run short-circuit. Intentionally omit `pruned` — see type
-  // comment on PruneHandlerResult. Callers can distinguish dry-run from
-  // apply mode by the presence/absence of the field.
   if (dryRun) {
     const result = {
       candidates,
@@ -1030,10 +824,8 @@ export async function handlePruneStaleWorkflows(
     return { success: true, data: result };
   }
 
-  // 4. Apply mode: classify each candidate via the per-candidate helper.
   const skipped: PruneSkipped[] = [];
   const pruned: PrunePruned[] = [];
-  // Narrowed above — the early return guarantees `ctx.eventStore` exists.
   const eventStore = ctx!.eventStore!;
 
   for (const candidate of candidates) {

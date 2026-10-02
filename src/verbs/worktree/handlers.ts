@@ -1,19 +1,9 @@
-// ─── Worktree-lifecycle dispatch handlers (WLM foundation, task 008) ─────────
-//
-// The four composite ACTIONS that ride the existing visible tools (INV-5d — NO
-// new visible tool):
-//
-//   - `acquire_worktree`  (exarchos_orchestrate) — adopt-then-reserve composite.
-//   - `release_worktree`  (exarchos_orchestrate) — release the caller's claim.
-//   - `prune_worktrees`   (exarchos_orchestrate) — the GC (dry-run by default).
-//   - `worktrees`         (exarchos_view)        — read the worktrees@v1 fold.
-//
-// Every handler carries ZERO behavior of its own (INV-2): it constructs the
-// in-process {@link WorktreeManager} facade over `ctx.eventStore` and delegates.
-// Because both the CLI and MCP adapters dispatch through the same composite
-// router, the same DispatchContext + args project an identical ToolResult on
-// either surface.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Dispatch handlers for the worktree-lifecycle actions on `exarchos_orchestrate` and
+ * `exarchos_view`. They validate their arguments, then delegate to the {@link WorktreeManager},
+ * the merge serializer, or a reconciler. The CLI and MCP adapters share one composite router, so
+ * the same context and arguments give the same `ToolResult` on both.
+ */
 
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
@@ -48,37 +38,14 @@ import {
 } from '../../dispatch/core/economy.js';
 import type { QualityHintsConfig } from '../../workflow/capabilities/resolver.js';
 
-// ─── Shared helpers ──────────────────────────────────────────────────────────
-
-
-// ─── Worktree-lifecycle dispatch handlers (WLM foundation, task 008) ─────────
-//
-// The four composite ACTIONS that ride the existing visible tools (INV-5d — NO
-// new visible tool):
-//
-//   - `acquire_worktree`  (exarchos_orchestrate) — adopt-then-reserve composite.
-//   - `release_worktree`  (exarchos_orchestrate) — release the caller's claim.
-//   - `prune_worktrees`   (exarchos_orchestrate) — the GC (dry-run by default).
-//   - `worktrees`         (exarchos_view)        — read the worktrees@v1 fold.
-//
-// Every handler carries ZERO behavior of its own (INV-2): it constructs the
-// in-process {@link WorktreeManager} facade over `ctx.eventStore` and delegates.
-// Because both the CLI and MCP adapters dispatch through the same composite
-// router, the same DispatchContext + args project an identical ToolResult on
-// either surface.
-// ─────────────────────────────────────────────────────────────────────────────
-// ─── Shared helpers ──────────────────────────────────────────────────────────
-
 /**
- * Test/DI seam: subset of {@link WorktreeManagerDeps} a caller may thread
- * through args to make a dispatch deterministic (inject a fake git probe /
- * process source / git runner). Production callers omit every field, so the
- * manager wires the real OS-backed defaults. Kept OUT of the registry input
- * schema — these are never user-facing flags.
+ * Test seam: the subset of {@link WorktreeManagerDeps} that a caller can inject, such as a fake git
+ * probe or process source. Production callers omit it, so the manager uses the real defaults. The
+ * registry input schema does not expose these fields.
  */
 type InjectableDeps = Omit<WorktreeManagerDeps, 'eventStore'>;
 
-/** Build a {@link WorktreeManager} over the dispatch event store + opt-in deps. */
+/** Builds a {@link WorktreeManager} over the dispatch event store and the optional deps. */
 function buildManager(ctx: DispatchContext, deps?: InjectableDeps): WorktreeManager {
   return new WorktreeManager({ eventStore: ctx.eventStore, ...deps });
 }
@@ -98,41 +65,24 @@ function optionalBoolean(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
 }
 
-/** Parse a non-negative integer count from a number or numeric string (coerced flags). */
+/** Parses a non-negative integer from a number or a numeric string. */
 function optionalNonNegInt(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isInteger(value) && value >= 0) return value;
   if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value);
   return undefined;
 }
 
-/** Parse a positive integer count (>= 1) from a number or numeric string. */
+/** Parses a positive integer from a number or a numeric string. */
 function optionalPosInt(value: unknown): number | undefined {
   const n = optionalNonNegInt(value);
   return n !== undefined && n >= 1 ? n : undefined;
 }
 
 /**
- * Resolve the reserving process identity — **all-or-nothing**.
- *
- * A `(ownerPid, ownerStartedAt)` tuple must describe ONE real process, so the
- * two fields are accepted only together:
- *
- *   - **both** explicit → use them verbatim (the caller already knows the live
- *     owner, e.g. it is stamping on behalf of a child it spawned);
- *   - **neither** → derive BOTH from the CURRENT process — `process.pid` paired
- *     with that same PID's create-time via the injected {@link ProcessSource} —
- *     so the reservation heals correctly once this process dies (DR-3);
- *   - **exactly one** → REJECT. Pairing a lone `ownerStartedAt` with
- *     `process.pid`, or a lone `ownerPid` with a derived create-time, would
- *     persist a fingerprint NO real process ever had — a reservation that can
- *     never be matched against a live process (ownership corruption).
- *
- * A platform that cannot resolve the current process's create-time yields `null`
- * — NEVER the empty string `''` (DR-5). The reservation is still well-formed (it
- * just cannot defeat PID reuse), and `null` threads through the null-ready
- * `WorktreeReservedData.ownerStartedAt` instead of tripping the `''`-vs-`.min(1)`
- * invalid-raw-event class. An EXPLICIT owner override still demands a non-empty
- * create-time (a caller stamping on behalf of a child knows the real value).
+ * Resolves the reserving process identity. The caller passes both `ownerPid` and `ownerStartedAt`
+ * or neither, because one field alone gives a fingerprint that no real process had. With neither,
+ * it uses `process.pid` and its create time, so the reservation heals after this process dies. An
+ * unresolvable create time is `null`, never `''`. An explicit `ownerStartedAt` must not be empty.
  */
 function resolveOwner(
   rest: Record<string, unknown>,
@@ -143,7 +93,6 @@ function resolveOwner(
   const hasPid = rest.ownerPid !== undefined;
   const hasStartedAt = rest.ownerStartedAt !== undefined;
 
-  // Partial override → reject (the all-or-nothing contract).
   if (hasPid !== hasStartedAt) {
     return {
       ok: false,
@@ -168,20 +117,17 @@ function resolveOwner(
     return { ok: true, owner: { ownerPid: explicitPid, ownerStartedAt: explicitStartedAt } };
   }
 
-  // Neither explicit → derive BOTH from the current process. An unresolvable
-  // create-time resolves to `null` (never `''`, DR-5) via the pure seam.
   const ownerPid = process.pid;
   const ownerStartedAt = resolveStartedAt(processSource, ownerPid);
   return { ok: true, owner: { ownerPid, ownerStartedAt } };
 }
 
-// ─── acquire_worktree ────────────────────────────────────────────────────────
-
 /**
- * Adopt-then-reserve composite. First runs the harness-neutral adopt pass over
- * `repoRoot` so every on-disk worktree is tracked in `worktrees@v1`, then
- * reserves `worktreeId` for the live owner. Idempotent: a re-run re-adopts to a
- * no-op and re-reserves under the manager's per-call idempotency key.
+ * Runs the adopt pass over `repoRoot`, then reserves `worktreeId` for the live owner. When the
+ * adopt pass saw the target and reports it not mutable, it returns `WORKTREE_NOT_MUTABLE`, because
+ * a stale worktree can drop newly pushed files. The gate lookup uses the canonical id, because
+ * adopt stamps canonical ids and a Windows path can differ. The reservation keys on `worktreeId`
+ * as passed, so release and view stay consistent.
  */
 export async function handleAcquireWorktree(
   args: Record<string, unknown>,
@@ -203,27 +149,8 @@ export async function handleAcquireWorktree(
   const manager = buildManager(ctx, deps);
   const processSource = deps?.processSource ?? defaultProcessSource;
 
-  // Adopt-gate FIRST so an unadopted on-disk worktree is governed before the
-  // reservation lands (mirrors prune's step 0).
   const adoptResult = await manager.adopt(repoRoot);
 
-  // mutable-as-HARD-GATE (DR-1): reserving a worktree is a MUTATION intent, so
-  // REFUSE (structured error, not a mere report) when the adopt-gate's HEAD/
-  // ancestry re-verify says the target worktree is NOT mutable — a
-  // `stale-after-push` (behind upstream: committing could silently drop
-  // newly-pushed files) or `head-unresolved` worktree. The gate fires only when
-  // the adopt pass actually observed the target on disk (a report exists); a
-  // worktree not yet on disk carries no staleness evidence and reserves as before.
-  //
-  // adopt stamps CANONICAL worktreeIds (path.resolve → realpath → toPosix); the
-  // caller's arg is NOT guaranteed canonical (a win32 drive-relative / forward-
-  // slash path resolves differently), so canonicalize it the SAME way ONLY for
-  // this lookup — otherwise the `.find` misses adopt's entry on Windows and the
-  // hard gate silently skips, letting a stale worktree reserve (#1642 / DR-1).
-  // The reservation below still keys on the caller's `worktreeId` as-passed, so
-  // release / view (which use that raw key) stay consistent with acquire.
-  // Canonicalize lazily — only when adopt actually observed worktrees on disk —
-  // so the common "nothing adopted" path never pays a realpath() call.
   const canonicalIdForGate =
     adoptResult.worktrees.length > 0
       ? canonicalWorktreeId(worktreeId, deps?.realpath ?? defaultRealpath)
@@ -260,8 +187,6 @@ export async function handleAcquireWorktree(
   };
   const reserveResult = await manager.reserve(reserveInput);
 
-  // Exclusive ownership: the worktree is already reserved by a different live
-  // owner — reject the claim rather than fabricate a second concurrent owner.
   if (!reserveResult.reserved) {
     return {
       success: false,
@@ -287,17 +212,11 @@ export async function handleAcquireWorktree(
   };
 }
 
-// ─── release_worktree ────────────────────────────────────────────────────────
-
 /**
- * Release the CALLER's reservation: appends `worktree.released`. The caller's
- * process identity is resolved (or taken from an explicit owner override) and
- * passed to the manager, which REFUSES to release a worktree currently reserved
- * by a DIFFERENT live owner (a stale caller must not free someone else's live
- * claim — reaping a dead owner is `reconcile`'s job). An unknown / not-reserved
- * / dead-owner / same-owner `worktreeId` still emits a well-formed released
- * event (owner fields cleared) — a safe idempotent no-op when nothing live is
- * held.
+ * Releases the reservation of the caller with a `worktree.released` event. It refuses a worktree
+ * that a different live owner holds, because reaping a dead owner is the job of the reconcile pass.
+ * For an unknown, unreserved, dead-owner or same-owner worktree, it appends a released event with
+ * cleared owner fields.
  */
 export async function handleReleaseWorktree(
   args: Record<string, unknown>,
@@ -335,13 +254,11 @@ export async function handleReleaseWorktree(
   };
 }
 
-// ─── prune_worktrees ─────────────────────────────────────────────────────────
-
 /**
- * The fail-closed worktree GC. DRY-RUN by DEFAULT: omitting `dryRun` (or passing
- * `dryRun: true`) reports candidates + reclaimable bytes + grouped skip reasons
- * and deletes NOTHING. Only `dryRun: false` applies; orphan deletion needs the
- * explicit `pruneOrphans` + `yes` opt-in on top of an apply run.
+ * The fail-closed worktree GC. It is a dry run unless `dryRun` is `false`, and a dry run deletes
+ * nothing. Orphan deletion also needs `pruneOrphans` and `yes`. The dry-run default lives here, not
+ * on the schema, because the MCP registration flattener forbids different defaults on a shared
+ * field.
  */
 export async function handlePruneWorktrees(
   args: Record<string, unknown>,
@@ -354,10 +271,6 @@ export async function handlePruneWorktrees(
       repoRoot: 'string',
     });
   }
-  // INV-5c safe default: dry-run unless the caller EXPLICITLY opts out with
-  // `dryRun: false`. The Zod default lives here (not on the schema) because two
-  // sibling actions declare `dryRun` with no default and the MCP-registration
-  // flattener forbids divergent defaults across a shared field.
   const apply = optionalBoolean(args.dryRun) === false;
   const manager = buildManager(ctx, deps);
   const result = await manager.prune({
@@ -369,19 +282,11 @@ export async function handlePruneWorktrees(
   return { success: true, data: result };
 }
 
-// ─── worktrees (view) ────────────────────────────────────────────────────────
-
 /**
- * Read the `worktrees@v1` projection: fold the `worktrees` stream and return
- * the live governed-worktree set. Pure read — no adopt, no git probe, no
- * append.
- *
- * DR-3 bounded output: a DETERMINISTIC item cap replaces the old unbounded dump
- * when the caller omits `limit`, and a measured-size summary (counts by
- * lifecycle state + a small first page) replaces per-item detail if the capped
- * payload would still exceed the resolved `qualityHints.outputTokenThreshold`.
- * Fail-open: an unresolvable threshold degrades to the item cap. Below cap AND
- * threshold the payload is BYTE-IDENTICAL to the pre-DR-3 `{ worktrees, count }`.
+ * Returns the governed worktrees from the `worktrees@v1` projection, with no adopt, git probe or
+ * append. Without `limit`, it caps the items at `DEFAULT_VIEW_ITEM_CAP`. When the capped payload
+ * exceeds `qualityHints.outputTokenThreshold`, it returns counts by state and a first page. An
+ * unresolvable threshold falls back to the item cap.
  */
 export async function handleViewWorktrees(
   args: Record<string, unknown>,
@@ -402,7 +307,6 @@ export async function handleViewWorktrees(
   const config = ctx.config as QualityHintsConfig | undefined;
   const narrowHint = 'exarchos vw worktrees --limit 20 --offset 0';
 
-  // Measured-size summary guard (same fail-open threshold path as pipeline).
   const detailData = { worktrees, count: worktrees.length };
   const threshold = resolveOutputTokenThreshold(config);
   if (threshold !== null && estimateOutputTokens(detailData) > threshold) {
@@ -418,7 +322,6 @@ export async function handleViewWorktrees(
     };
   }
 
-  // Default cap truncated the inventory → advertise narrowing + echo the total.
   if (capTruncated) {
     return {
       success: true,
@@ -427,25 +330,18 @@ export async function handleViewWorktrees(
     };
   }
 
-  // Byte-identical to the pre-DR-3 payload below cap AND threshold.
   return {
     success: true,
     data: detailData,
   };
 }
 
-// ─── serialize_merge (WLM operational core, DR-7) ─────────────────────────────
-
 /**
- * Serialize an integration-branch merge behind the optimistic per-`integrationRef`
- * lease, then compose `merge_orchestrate` UNCHANGED. The lease (a
- * `worktree.merge_requested` / `worktree.merge_executed` pair on the singleton
- * `worktrees` stream) is the ONLY serialization — no flock, no `.lock` file. The
- * `deps` parameter is the test-only DI seam (injected sleep / process-table
- * probe / composed merge); production callers omit it so the serializer wires the
- * real OS-backed defaults. Validates the four required fields up front so a
- * malformed dispatch returns a structured `INVALID_INPUT` rather than reaching
- * the lease loop.
+ * Serializes an integration-branch merge behind a lease per `integrationRef`, then runs
+ * `merge_orchestrate`. The lease is a `worktree.merge_requested` and `worktree.merge_executed`
+ * pair on the `worktrees` stream. It is a dry run unless `dryRun` is `false`, and a dry run claims
+ * no lease and runs no merge. The default lives here for the reason in
+ * {@link handlePruneWorktrees}. Direct callers of `serializeMerge` pass their own `dryRun`.
  */
 export async function handleSerializeMerge(
   args: Record<string, unknown>,
@@ -486,14 +382,6 @@ export async function handleSerializeMerge(
       ? args.timeoutMs
       : undefined;
 
-  // INV-5c safe default: dry-run unless the caller EXPLICITLY opts out with
-  // `dryRun: false`. The default is applied HERE (the dispatch boundary) — NOT a
-  // Zod `.default()` on the schema — because the MCP-registration flattener
-  // forbids divergent defaults across the shared `dryRun` field. A dispatched
-  // `serialize_merge` that omits `dryRun` therefore claims NO lease and runs NO
-  // merge; only `dryRun: false` executes. (Direct in-process callers of
-  // `serializeMerge` — e.g. the launcher's `serializeIntegrationMerge` — carry
-  // their own explicit intent; see that caller.)
   const dryRun = optionalBoolean(args.dryRun) !== false;
 
   const input: SerializeMergeInput = {
@@ -509,15 +397,9 @@ export async function handleSerializeMerge(
   return serializeMerge(input, ctx, deps);
 }
 
-// ─── ps / wait (WLM operational core, DR-4 — read-only liveness surface) ──────
-
 /**
- * Test/DI seam for the worktree-lifecycle VIEW handlers (`ps` / `wait`),
- * threaded by {@link handleView} as its optional third argument. Extends the
- * manager-construction {@link InjectableDeps} (fake process-table source /
- * realpath) with the probe self-PID and the bounded-wait timing seams. Kept OUT
- * of the registry input schema — these are never user-facing flags; production
- * dispatch omits every field so the manager wires the real OS-backed defaults.
+ * Test seam for the `ps`, `wait` and `reconcile_worktrees` handlers. It adds the probe self-PID
+ * and the wait timing to {@link InjectableDeps}. Production dispatch omits every field.
  */
 export interface WorktreeViewDeps extends InjectableDeps {
   /** Probe self-PID whose FULL ancestry is excluded from occupancy. Defaults to `process.pid`. */
@@ -531,29 +413,15 @@ export interface WorktreeViewDeps extends InjectableDeps {
 }
 
 /**
- * `ps` — list the live serialized-merge set from `inFlightMerges` (an open
- * `worktree.merge_requested` with no paired `worktree.merge_executed`), the live
- * launcher-launch set from `worktrees` entries carrying a launch marker (an open
- * `launch.executing_started` with no paired `launch.executed`, DR-2), AND the
- * live `prune_worktrees` GC set from `inFlightPrunes` (an open
- * `prune.executing_started` with no paired `prune.executed`, DR-3 / INV-10) —
- * all WITHOUT a process scan: a pure fold of the `worktrees@v1` projection. Each
- * in-flight column reflects its liveness pair straight from events — in-flight
- * while started-without-terminal, and cleared the moment the terminal folds.
- *
- * A PURE READ on every path. The ground-truth process probe and the two
- * reconcilers that used to ride `probe: true` now answer on their own
- * orchestrate action — see {@link handleReconcileWorktrees} — so nothing here
- * appends, and the in-flight columns report exactly what the log says.
+ * `ps`: lists the in-flight merges, launches and prune passes from the `worktrees@v1` projection.
+ * An entry is in flight while its start event has no terminal event. It is a pure read with no
+ * process scan. {@link handleReconcileWorktrees} runs the process probe and the reconcilers.
  */
 export async function handleViewPs(
   args: Record<string, unknown>,
   ctx: DispatchContext,
   deps?: WorktreeViewDeps,
 ): Promise<ToolResult> {
-  // `buildManager` takes the manager-construction subset; the extra view-only
-  // seams (`selfPid` / timing) ride through by width subtyping and the manager
-  // ignores them — only `processTableSource` / `realpath` are consumed here.
   const manager = buildManager(ctx, deps);
   const inFlight = await manager.listInFlightMerges();
   const launches = await manager.listInFlightLaunches();
@@ -573,30 +441,14 @@ export async function handleViewPs(
 }
 
 /**
- * `reconcile_worktrees` — the three ground-truth reconcile passes, as an
- * `exarchos_orchestrate` action of their own.
- *
- * These ran under `ps probe: true` until the read side stopped carrying writes.
- * The move is not a re-annotation: the appends live in `verbs/` and are reached
- * from a manager method and two reconcilers, so calling the surface a view made
- * the effect unreadable from the surface that declared it. `ps` is now a pure
- * read, and every append below is declared by THIS action.
- *
- *   1. **Reservation reclaim** ({@link WorktreeManager.probeAndReclaim}, DR-5) —
- *      emits `worktree.released` (owner provably dead, path free) or
- *      `worktree.orphan_detected` (owner provably dead, path still occupied).
- *   2. **Phantom-launch heal** ({@link reconcileLaunches}, DR-6) — an in-flight
- *      `launch.executing_started` whose SUPERVISOR is provably dead (SIGKILL /
- *      host death, so no catchable teardown ever ran) is closed with the
- *      `launch.executed` terminal, so a launch phantom cannot survive forever.
- *   3. **Crash-mid-merge heal** ({@link reconcileMerges}, DR-3) — a stranded
- *      `worktree.merge_requested` whose holder is provably dead is freed with
- *      `worktree.merge_executed`.
- *
- * All three read the SAME injected ground-truth process table (undefined ⇒ the
- * real OS source) and FAIL CLOSED off it: a live or unprovable holder is left
- * in-flight. Idempotent — a second pass over an already-reconciled set finds
- * nothing to heal and appends nothing.
+ * `reconcile_worktrees`: runs three reconcile passes against one process table, the real OS table
+ * when none is injected:
+ *   1. {@link WorktreeManager.probeAndReclaim} appends `worktree.released` or
+ *      `worktree.orphan_detected` for a dead owner.
+ *   2. {@link reconcileLaunches} closes a launch whose supervisor is dead with `launch.executed`.
+ *   3. {@link reconcileMerges} frees a lease whose holder is dead with `worktree.merge_executed`.
+ * A live or unprovable holder stays in flight. The in-flight columns fold after the passes, so no
+ * entry reads as both in flight and reconciled.
  */
 export async function handleReconcileWorktrees(
   _args: Record<string, unknown>,
@@ -607,17 +459,8 @@ export async function handleReconcileWorktrees(
   const reclaim = await manager.probeAndReclaim(deps?.selfPid);
   const reconcile = await reconcileLaunches(ctx.eventStore, deps?.processTableSource);
   const mergeReconcile = await reconcileMerges(ctx.eventStore, deps?.processTableSource);
-  // Fold the in-flight columns AFTER the passes so the reported state is
-  // POST-reconcile. Folding first would let a phantom launch just healed by
-  // `reconcileLaunches`, or a crashed merge lease just freed by
-  // `reconcileMerges`, still read as in-flight — one response reporting the
-  // same entry as BOTH in-flight and reconciled.
   const launches = await manager.listInFlightLaunches();
   const inFlight = await manager.listInFlightMerges();
-  // The prune column is folded here too so every column in one response is
-  // POST-reconcile and mutually consistent. No prune reconciler runs on this
-  // pass today; folding it keeps the column symmetric with merge / launch and
-  // correct should one be added.
   const prunes = await manager.listInFlightPrunes();
   return {
     success: true,
@@ -635,7 +478,10 @@ export async function handleReconcileWorktrees(
   };
 }
 
-/** Structured (never-hang) bounded-wait timeout for {@link handleViewWait}. */
+/**
+ * Structured timeout result of the merge wait in {@link handleViewWait}. The error envelope has a
+ * fixed field set, so the payload goes in `data` with the stable `reason` discriminator.
+ */
 function waitTimeout(
   integrationRef: string,
   timeoutMs: number,
@@ -647,8 +493,6 @@ function waitTimeout(
       code: 'WAIT_TIMEOUT',
       message: `merge slot for integration ref '${integrationRef}' did not reach a terminal worktree.merge_executed within ${timeoutMs}ms`,
     },
-    // The error envelope has a fixed field set; the structured payload rides
-    // `data`, with `reason` the stable kebab discriminator callers match on.
     data: {
       reason: 'wait-timeout' as const,
       integrationRef,
@@ -662,7 +506,7 @@ function waitTimeout(
   };
 }
 
-/** Structured (never-hang) bounded-wait timeout for `until: 'idle'` (DR-3). */
+/** Structured timeout result of the `until: 'idle'` wait, in the same form as `waitTimeout`. */
 function idleTimeout(
   timeoutMs: number,
   holders: readonly InFlightPrune[],
@@ -673,8 +517,6 @@ function idleTimeout(
       code: 'WAIT_TIMEOUT',
       message: `worktree layer did not become prune-idle within ${timeoutMs}ms (${holders.length} in-flight prune pass${holders.length === 1 ? '' : 'es'} still running)`,
     },
-    // Same envelope convention as `waitTimeout`: the structured payload rides
-    // `data`, with `reason` the stable kebab discriminator callers match on.
     data: {
       reason: 'wait-idle-timeout' as const,
       timeoutMs,
@@ -688,21 +530,10 @@ function idleTimeout(
 }
 
 /**
- * `wait` — block until a worktree-layer condition is reached (DR-3/DR-4).
- * Caller-bounded, pure read: appends nothing, spins up NO background
- * interval/daemon, and NEVER hangs — a timeout always returns a STRUCTURED
- * result. Two modes, selected by `until` (default `'merge'`):
- *
- *   - `until: 'merge'` (default) — block until the serialized merge on
- *     `integrationRef` reaches its terminal `worktree.merge_executed` (DR-4).
- *     `integrationRef` is REQUIRED in this mode.
- *   - `until: 'idle'` — block until NO in-flight `prune_worktrees` GC pass
- *     remains, i.e. the prune terminal (`prune.executed`) has cleared every
- *     `inFlightPrunes` claim (DR-3 / INV-10). `integrationRef` is not consulted.
- *
- * Both modes fold `worktrees@v1` and, if the condition is not yet met,
- * bounded-poll the injected `sleep` seam under `timeoutMs`, re-folding each
- * iteration.
+ * `wait`: polls the `worktrees@v1` projection until a condition holds or `timeoutMs` passes. It
+ * appends nothing, starts no background timer, and returns a structured result on timeout.
+ * `until: 'merge'`, the default, waits for `worktree.merge_executed` on `integrationRef`, which it
+ * requires. `until: 'idle'` waits until no `prune_worktrees` pass is in flight.
  */
 export async function handleViewWait(
   args: Record<string, unknown>,
@@ -722,9 +553,6 @@ export async function handleViewWait(
       ? args.timeoutMs
       : DEFAULT_WAIT_TIMEOUT_MS;
 
-  // Pass `deps` through so injected DI seams (processTableSource / realpath /
-  // sleep / clock) are honored, matching handleViewPs — see the width-subtyping
-  // note there. Both modes share the same timing seam wiring.
   const manager = buildManager(ctx, deps);
   const timing = {
     timeoutMs,
@@ -744,7 +572,6 @@ export async function handleViewWait(
     return idleTimeout(timeoutMs, idle.holders);
   }
 
-  // Default `until: 'merge'` — the DR-4 serialized-merge terminal poll.
   const integrationRef = optionalString(args.integrationRef);
   if (!integrationRef) {
     return invalidInput('wait requires integrationRef: string', {
@@ -762,25 +589,14 @@ export async function handleViewWait(
 }
 
 /**
- * The WLM-6 worktree `until: merge|idle` wait kernel, ABSORBED as the WORKTREE
- * SCOPE of the generic `wait` verb (DR-5). The generic router in
- * `projections/views/lifecycle/wait.ts` delegates here whenever `until` is present; the
- * feature-scoped phase / status / operation predicates live in that module. This
- * is the SAME function as {@link handleViewWait} — re-exported under an
- * intention-revealing name for the generic router — so the frozen WLM-6
- * characterization/parity suites (which import `handleViewWait`) keep pinning the
- * unchanged worktree behavior.
+ * The worktree scope of the generic `wait` verb. The router in `projections/views/lifecycle/wait.ts`
+ * calls it when the request has no `phase`, `status` or `operation` predicate. It is the same
+ * function as {@link handleViewWait}, so the suites that import `handleViewWait` still cover it.
  */
 export const handleWorktreeUntilWait = handleViewWait;
 
 /**
- * The WLM-6 worktree liveness fold ({@link handleViewPs}), ABSORBED as the
- * WORKTREE SCOPE of the generic `ps` verb (DR-3, task 007). The scope-
- * parameterized router in `projections/views/lifecycle/ps.ts` delegates here whenever
- * `scope: 'worktree'` is selected — so the worktree fold (inFlightMerges /
- * launches / inFlightPrunes) is CONSUMED, never duplicated in the new module.
- * Re-exported under an intention-revealing name so the frozen WLM-6
- * characterization/parity/schema suites (which import `handleViewPs`) keep
- * pinning the unchanged worktree behavior directly.
+ * The worktree scope of the generic `ps` verb. The router in `projections/views/lifecycle/ps.ts`
+ * calls it for `scope: 'worktree'`. It is the same function as {@link handleViewPs}.
  */
 export const handleWorktreeScopePs = handleViewPs;

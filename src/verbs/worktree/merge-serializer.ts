@@ -1,36 +1,15 @@
-// ─── Integration-branch merge serializer (WLM operational core, DR-7) ────────
-//
-// `serialize_merge` is an OPTIMISTIC LEASE over the integration ref: it grants
-// at most ONE in-flight merge per `integrationRef` at a time, then composes
-// `merge_orchestrate` UNCHANGED for the actual git work. The lease itself IS the
-// serialization — there is NO flock, NO PID/`.lock` file, and NO advisory-lock
-// library (INV-1/INV-7): the right to merge lives EXCLUSIVELY in the event log,
-// folded by `worktrees@v1` into `inFlightMerges[integrationRef]`.
-//
-// The lease lifecycle is a two-event pair on the singleton `worktrees` stream
-// (DR-4), exactly mirroring the single-writer `reserve` pattern in `manager.ts`:
-//
-//   1. CLAIM (`worktree.merge_requested`) — committed through `decide` over
-//      `worktrees@v1` under `withStateRetry`. The slot-emptiness check lives
-//      INSIDE the decide closure so the OCC commit is gated on the exact folded
-//      tail: a racing claimant loses with `ConcurrencyError`, re-folds, sees the
-//      holder, and falls back to waiting. At most one claimant wins per ref.
-//
-//   2. RELEASE (`worktree.merge_executed`) — a PLAIN keyed append
-//      (`worktree.merge_executed:<operationId>`), NOT CAS-pinned to the claim's
-//      returned sequence. Other worktree events advance the stream while the
-//      merge runs, so pinning the release to the claim seq would be the
-//      idempotency trap that wedges every retry forever.
-//
-// Bounded-wait: when the slot is held, the lease waits under an explicit timeout
-// using the SHARED injected `sleep` seam from `git-retry.ts`, re-folding each
-// iteration. On expiry it returns a structured `merge-slot-timeout` error rather
-// than hanging. Each wait iteration probes the CURRENT holder's liveness via the
-// DR-5 process probe (`pure/probe.ts`): a holder whose `holderPid` /
-// `holderStartedAt` is provably dead is reclaimed inline — the lease emits the
-// terminal `worktree.merge_executed` ONCE under the holder's ORIGINAL
-// `operationId` — so a crashed holder never wastes the full timeout budget.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Merge serializer for an integration branch. `serialize_merge` is an optimistic lease that allows at most one in-flight merge per `integrationRef`.
+ * It then calls `merge_orchestrate` unchanged for the git work.
+ * The lease lives only in the event log, folded by `worktrees@v1` into `inFlightMerges`. There is no file lock and no PID file.
+ *
+ * The claim, `worktree.merge_requested`, commits through `decide` under `withStateRetry`, so at most one claimant wins per ref.
+ * The release, `worktree.merge_executed`, is a keyed append with no sequence pin, because other worktree events move the stream during the merge.
+ * When the slot is held, the lease waits under a timeout with the shared `sleep` seam, and returns `merge-slot-timeout` on expiry.
+ * Each wait probes the holder, and reclaims a holder that is provably dead.
+ *
+ * It uses the stream and reducer ids of `manager.ts`, and the side-effect import of `./projections/index.js` registers the reducer.
+ */
 
 import { randomUUID } from 'node:crypto';
 
@@ -46,12 +25,7 @@ import {
 } from '../merge/merge-orchestrate.js';
 import { defaultGitExec } from '../vcs/git-exec-default.js';
 import type { GitExec } from '../pure/merge-preflight.js';
-// WORKTREES_STREAM / WORKTREES_REDUCER are the singleton-stream + reducer ids
-// the manager's `reserve` writes through; importing them keeps the serializer
-// on the SAME stream and fold (and pulls in the DR-1 reducer self-registration).
 import { WORKTREES_STREAM, WORKTREES_REDUCER } from './manager.js';
-// Side-effect import: ensures the `worktrees@v1` reducer is registered with the
-// process-wide `defaultRegistry` so `decide` / `aggregateStream` can resolve it.
 import './projections/index.js';
 import type {
   WorktreesProjection,
@@ -68,15 +42,11 @@ import {
   type ProcessSource,
 } from './pure/process-identity.js';
 
-// ─── Tuning ──────────────────────────────────────────────────────────────────
-
 /** Default bounded-wait budget (ms) before a held slot yields `merge-slot-timeout`. */
 export const DEFAULT_MERGE_SLOT_TIMEOUT_MS = 30_000;
 
 /** Default poll interval (ms) between wait-for-slot re-folds. */
 export const DEFAULT_MERGE_SLOT_POLL_INTERVAL_MS = 200;
-
-// ─── Public input / dependency shapes ────────────────────────────────────────
 
 /** Caller-facing arguments for {@link serializeMerge}. */
 export interface SerializeMergeInput {
@@ -95,23 +65,13 @@ export interface SerializeMergeInput {
   /** Bounded-wait budget (ms). Defaults to {@link DEFAULT_MERGE_SLOT_TIMEOUT_MS}. */
   readonly timeoutMs?: number;
   /**
-   * DR-1 / INV-5c safe default: when `true` (the DEFAULT — see
-   * {@link handleSerializeMerge}), the serializer claims NO lease and runs NO
-   * merge; it reads the fresh integration head and returns the PLANNED effect.
-   * Only `false` claims the `worktree.merge_requested` lease and composes the
-   * real `merge_orchestrate`. Undefined here is treated as an apply run because
-   * the safe default is applied at the handler boundary (the dispatch seam),
-   * NOT the pure serializer — a direct in-process caller that omits `dryRun`
-   * has already made its intent explicit by calling `serializeMerge` directly.
+   * When `true`, the serializer claims no lease and runs no merge. It reads the integration head and returns the planned effect.
+   * Undefined means an apply run here. The handler boundary, {@link handleSerializeMerge}, makes dry run the default.
    */
   readonly dryRun?: boolean;
 }
 
-/**
- * Injected seams — every external effect (timing, process table, git, the
- * composed merge) is reachable here so the lease is deterministically testable
- * with zero OS / git access. Production callers omit every field.
- */
+/** Injected seams for timing, the process table, git and the merge, so tests need no OS or git. Production callers omit every field. */
 export interface SerializeMergeDeps {
   /** Bounded-wait sleep seam (SHARED with `git-retry.ts`). Defaults to {@link defaultSleep}. */
   readonly sleep?: SleepFn;
@@ -136,8 +96,6 @@ export interface SerializeMergeDeps {
   readonly readIntegrationHead?: (input: SerializeMergeInput) => string | null;
 }
 
-// ─── Default fresh-HEAD reader ───────────────────────────────────────────────
-
 function buildDefaultReadIntegrationHead(gitExec: GitExec): (input: SerializeMergeInput) => string | null {
   return (input) => {
     const repoRoot = input.repoRoot ?? process.cwd();
@@ -148,26 +106,17 @@ function buildDefaultReadIntegrationHead(gitExec: GitExec): (input: SerializeMer
   };
 }
 
-// ─── Holder liveness (DR-5 probe reuse) ──────────────────────────────────────
-
 /**
- * Is the current lease holder provably dead? Routes the holder's recorded
- * `holderPid` / `holderStartedAt` through the DR-5 {@link probeReservations}
- * probe — the SAME ground-truth liveness lens the manager uses for reservation
- * reaping. A holder with a null pid/create-time cannot be proven dead (the lease
- * pre-dates a holder fingerprint), so it is held, not reclaimed. Provably dead
- * means PID absent from a SUPPORTED process table OR present-with-mismatched
- * create-time (PID reuse). On an UNSUPPORTED table (off-Linux, no enumerator)
- * the probe yields `'unknown'` → `releasable === false`, so this returns `false`
- * and the holder is HELD, never reclaimed — fail closed (DR-7): the off-Linux
- * path must never steal a live holder's merge lease.
+ * Whether the lease holder is provably dead, through the same {@link probeReservations} probe that the manager uses for reservations.
+ * Provably dead means that the PID is absent from a supported process table, or that its create-time differs.
+ * It returns `false` for a holder with a null PID or create-time, and for an unsupported process table, so a live lease is never taken.
  */
 function isHolderProvablyDead(
   holder: InFlightMerge,
   source: ProcessTableSource,
 ): boolean {
   if (holder.holderPid === null || holder.holderStartedAt === null) {
-    return false; // no fingerprint to probe → fail closed (do not reclaim).
+    return false;
   }
   const [finding] = probeReservations(
     [
@@ -182,15 +131,11 @@ function isHolderProvablyDead(
   return finding?.releasable === true;
 }
 
-// ─── Lease appends (CLAIM / RELEASE / dead-holder reclaim) ───────────────────
-
 /**
- * Terminal `worktree.merge_executed` as a PLAIN keyed append — keyed by
- * `<eventType>:<operationId>` for idempotency, but NOT CAS-pinned to any prior
- * sequence. Used for BOTH the normal release (caller's own `operationId`) and
- * dead-holder reclamation (the holder's ORIGINAL `operationId`), so two racing
- * reclaimers converge on ONE release and the reducer's `operationId` guard
- * correlates the release to exactly the claim it terminates.
+ * Appends the terminal `worktree.merge_executed`, keyed by `<eventType>:<operationId>` and with no sequence pin.
+ * A sequence pin to the claim makes every retry fail, because other worktree events move the stream between claim and release.
+ * The normal release uses the caller `operationId`, and a reclaim uses the original holder `operationId`, so two racing reclaimers make one release.
+ * The payload has no `sourceBranch`, because the reducer matches the claim by `integrationRef` and `operationId`.
  */
 async function appendMergeExecuted(
   appender: AtomicAppender,
@@ -206,9 +151,6 @@ async function appendMergeExecuted(
     [
       {
         type: 'worktree.merge_executed',
-        // Schema-conformant payload (WorktreeMergeExecutedData): `status` is
-        // REQUIRED; `sourceBranch` is NOT part of the release contract (it lives
-        // on the CLAIM) and the reducer correlates by integrationRef+operationId.
         data: {
           integrationRef: merge.integrationRef,
           operationId: merge.operationId,
@@ -220,20 +162,14 @@ async function appendMergeExecuted(
       },
     ],
     `worktree.merge_executed:${merge.operationId}`,
-    // NOTE: no `options.expectedSequence` — a plain keyed append. The stream
-    // advances (other worktree events) between CLAIM and RELEASE, so pinning to
-    // the claim seq would wedge every retry forever (the idempotency trap).
   );
 }
 
 /**
- * Attempt the CLAIM under OCC. Returns `true` iff this call committed the
- * `worktree.merge_requested` event (won the slot). The slot-emptiness check is
- * INSIDE the decide closure, so the commit is gated on the exact folded tail: a
- * racing claimant loses the OCC commit, `withStateRetry` re-folds, the closure
- * now sees the holder and emits nothing (no-op). On persistent contention the
- * typed OCC/storage errors surface; the caller treats them as "not claimed" and
- * re-enters the wait loop.
+ * Tries the claim under optimistic concurrency. It returns `true` only when this call committed `worktree.merge_requested`.
+ * The empty-slot check is inside the `decide` closure, so a losing claimant re-folds, sees the holder, and emits nothing.
+ * `alwaysEnforceConsistency: false` keeps a no-op from throwing on an unrelated worktree append. The emit path still commits under the sequence check.
+ * After the retry budget, `ConcurrencyError` or `StorageBusyError` returns `false`, and other errors propagate.
  */
 async function tryClaim(
   appender: AtomicAppender,
@@ -250,9 +186,6 @@ async function tryClaim(
         WORKTREES_STREAM,
         WORKTREES_REDUCER,
         (state) => {
-          // Re-check slot emptiness INSIDE the closure (mirrors `reserve`). A
-          // holder present in THIS fold means a concurrent winner already
-          // claimed → emit nothing so the loser re-waits rather than double-claims.
           if (state.inFlightMerges[input.integrationRef] !== undefined) {
             return [];
           }
@@ -269,17 +202,11 @@ async function tryClaim(
             },
           ];
         },
-        // alwaysEnforceConsistency=false: a no-op (slot already held) must NOT
-        // throw on an unrelated concurrent worktree append; the emit path still
-        // commits under expectedSequence OCC — the single-writer guard.
         { operationId, alwaysEnforceConsistency: false },
       );
       claimed = result.kind !== 'no-op';
     });
   } catch (err) {
-    // Persistent OCC / substrate contention after the retry budget — treat as
-    // "did not claim" and let the outer loop re-fold + wait (respecting the
-    // deadline). Any other error is a genuine fault and propagates.
     if (err instanceof ConcurrencyError || err instanceof StorageBusyError) {
       return false;
     }
@@ -288,8 +215,7 @@ async function tryClaim(
   return claimed;
 }
 
-// ─── Structured timeout ──────────────────────────────────────────────────────
-
+/** Builds the `MERGE_SLOT_TIMEOUT` error. The details go in `data`, because the error envelope has a fixed field set, and callers match on `reason`. */
 function mergeSlotTimeout(
   input: SerializeMergeInput,
   timeoutMs: number,
@@ -301,8 +227,6 @@ function mergeSlotTimeout(
       code: 'MERGE_SLOT_TIMEOUT',
       message: `merge slot for integration ref '${input.integrationRef}' is held by a live process after ${timeoutMs}ms`,
     },
-    // Structured payload rides `data` (the error envelope has a fixed field
-    // set); `reason` is the stable kebab discriminator callers match on.
     data: {
       reason: 'merge-slot-timeout' as const,
       integrationRef: input.integrationRef,
@@ -320,14 +244,14 @@ function mergeSlotTimeout(
   };
 }
 
-// ─── The lease ───────────────────────────────────────────────────────────────
-
 /**
- * Serialize a `sourceBranch → integrationRef` merge behind a single-writer
- * optimistic lease, then compose `merge_orchestrate` UNCHANGED. Returns the
- * merge result (pass-through, annotated with the lease metadata) on success, or
- * a structured `merge-slot-timeout` error if the slot stays held by a live
- * process past the bounded-wait budget.
+ * Serializes a merge of `sourceBranch` into `integrationRef` behind the lease, then calls `merge_orchestrate`.
+ * On success it returns the merge result with the lease data under `serializedMerge`. The `merge.*` events stay the same as for a direct call.
+ * It returns `merge-slot-timeout` when a live holder keeps the slot past the budget.
+ *
+ * A dry run claims no lease, runs no merge and appends no event. It returns the planned effect with the integration head from `git rev-parse`.
+ * It passes its lease `operationId` to `merge_orchestrate`, so the single-writer guard there accepts the lease as its own.
+ * It releases in `finally` with status `failed` unless the merge succeeds. A failed release is ignored, and the dead-holder reclaim frees the slot after this process exits.
  */
 export async function serializeMerge(
   input: SerializeMergeInput,
@@ -343,16 +267,6 @@ export async function serializeMerge(
   const readIntegrationHead =
     deps.readIntegrationHead ?? buildDefaultReadIntegrationHead(defaultGitExec);
 
-  // ─── DR-1 / INV-5c dry-run short-circuit ──────────────────────────────────
-  //
-  // On a dry-run (`input.dryRun === true`) the lease is NOT claimed and
-  // `merge_orchestrate` is NOT run: append NO `worktree.merge_requested` /
-  // `worktree.merge_executed` events, and return the PLANNED effect instead —
-  // the merge params plus the freshly-read integration head. The head read is a
-  // pure `git rev-parse` (read-only, `null` on any failure), so a dry-run stays
-  // side-effect-free on the event log. The dispatch boundary
-  // (`handleSerializeMerge`) makes dry-run the DEFAULT; a direct caller passes
-  // `dryRun: false` (or leaves it undefined) to execute.
   if (input.dryRun === true) {
     const integrationHead = readIntegrationHead(input);
     return {
@@ -379,7 +293,6 @@ export async function serializeMerge(
   const timeoutMs = input.timeoutMs ?? DEFAULT_MERGE_SLOT_TIMEOUT_MS;
   const deadline = now() + timeoutMs;
 
-  // ─── 1+2. Wait for a free slot, then CLAIM it (loop until won or timeout) ──
   while (true) {
     const slot = await waitForFreeSlot({
       appender,
@@ -397,19 +310,11 @@ export async function serializeMerge(
     const claimed = await tryClaim(appender, input, operationId, selfPid, selfStartedAt);
     if (claimed) break;
 
-    // Lost the claim race (a concurrent winner took the slot) — re-enter the
-    // wait loop so we block on the new holder, unless the budget is spent.
     if (now() >= deadline) {
       return mergeSlotTimeout(input, timeoutMs, undefined);
     }
   }
 
-  // ─── 3+4. Re-read fresh integration HEAD, then compose merge_orchestrate ──
-  //
-  // We hold the lease. RELEASE in `finally` so a thrown / failed merge never
-  // wedges the slot (the dead-holder reclaim is only a crash safety net).
-  // `terminalStatus` records the truthful release disposition; it stays 'failed'
-  // if the merge throws (the honest terminal for a wedged-then-reclaimed slot).
   let terminalStatus: 'merged' | 'failed' = 'failed';
   try {
     const integrationHead = readIntegrationHead(input);
@@ -417,13 +322,8 @@ export async function serializeMerge(
       {
         featureId: input.featureId,
         sourceBranch: input.sourceBranch,
-        // `merge_orchestrate` calls the integration ref `targetBranch`.
         targetBranch: input.integrationRef,
         strategy: input.strategy,
-        // Thread OUR lease `operationId` so `merge_orchestrate`'s DR-2
-        // single-writer guard recognizes the folded lease as ours (matched by
-        // operationId) and proceeds, instead of treating our own just-claimed
-        // live lease as a foreign holder and failing closed.
         leaseOperationId: operationId,
         ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
         ...(input.repoRoot !== undefined ? { repoRoot: input.repoRoot } : {}),
@@ -431,9 +331,6 @@ export async function serializeMerge(
       ctx,
     );
 
-    // Pass the merge result through UNCHANGED in shape; annotate ONLY the
-    // serializer's own lease metadata under a dedicated key so the composed
-    // per-featureId `merge.*` events are byte-identical to a direct call.
     if (mergeResult.success) {
       terminalStatus = 'merged';
       return {
@@ -450,10 +347,6 @@ export async function serializeMerge(
     }
     return mergeResult;
   } finally {
-    // ─── 5. RELEASE — plain keyed append (NOT CAS-pinned to the claim seq) ──
-    // Best-effort: a failed release leaves a stuck slot the dead-holder
-    // reclaim path clears once this process exits; surfacing it here would
-    // mask the merge's own result/error.
     try {
       await appendMergeExecuted(
         appender,
@@ -461,12 +354,9 @@ export async function serializeMerge(
         { status: terminalStatus },
       );
     } catch {
-      /* best-effort release — see note above */
     }
   }
 }
-
-// ─── Wait-for-slot (with inline dead-holder reclamation) ─────────────────────
 
 interface WaitForFreeSlotArgs {
   readonly appender: AtomicAppender;
@@ -483,12 +373,9 @@ type WaitOutcome =
   | { readonly free: false; readonly holder: InFlightMerge };
 
 /**
- * Block until `inFlightMerges[integrationRef]` is clear, re-folding the
- * `worktrees@v1` projection each iteration. A provably-dead holder is reclaimed
- * inline (emit the terminal release under the holder's ORIGINAL operationId) and
- * the loop re-folds — so a crashed holder is freed without waiting out the
- * budget. A live (or unprovable) holder is waited on via the injected `sleep`
- * seam until the deadline, then surfaced for a structured timeout.
+ * Waits until `inFlightMerges[integrationRef]` is clear, and folds `worktrees@v1` again on each iteration.
+ * It reclaims a provably dead holder with a release under the original holder `operationId`, so a crashed holder does not use the budget.
+ * It waits on a live or unprovable holder until the deadline, then returns that holder.
  */
 async function waitForFreeSlot(args: WaitForFreeSlotArgs): Promise<WaitOutcome> {
   const { appender, input, deadline, now, sleep, pollIntervalMs, processTableSource } = args;
@@ -502,9 +389,6 @@ async function waitForFreeSlot(args: WaitForFreeSlotArgs): Promise<WaitOutcome> 
       return { free: true };
     }
 
-    // Dead-holder reclamation: probe the CURRENT holder's liveness and, if
-    // provably gone, emit its terminal release under its OWN operationId, then
-    // re-fold (the slot should now be clear).
     if (isHolderProvablyDead(holder, processTableSource)) {
       await appendMergeExecuted(
         appender,
@@ -518,7 +402,6 @@ async function waitForFreeSlot(args: WaitForFreeSlotArgs): Promise<WaitOutcome> 
       continue;
     }
 
-    // Live / unprovable holder — wait under the deadline.
     if (now() >= deadline) {
       return { free: false, holder };
     }
@@ -526,60 +409,23 @@ async function waitForFreeSlot(args: WaitForFreeSlotArgs): Promise<WaitOutcome> 
   }
 }
 
-// ─── Self create-time resolution ─────────────────────────────────────────────
-
 /**
- * Resolve the claiming process's create-time fingerprint via the injected
- * {@link ProcessSource}. A platform that cannot resolve it yields `null` — still
- * a well-formed claim; it just cannot defeat PID reuse for dead-holder probing.
- * Modeled as `null` (not `''`) so the emitted `holderStartedAt` stays schema-
- * valid (`z.string().min(1).nullable()`) rather than an out-of-contract empty
- * string that only the projection defensively normalized.
+ * Resolves the create-time of the claiming process through the injected {@link ProcessSource}.
+ * It returns `null` when the probe is not `present`. The claim is still valid, but it cannot detect PID reuse.
+ * It never returns an empty string, because the `holderStartedAt` schema accepts only a non-empty string or `null`.
  */
 function resolveSelfStartedAt(pid: number, source: ProcessSource): string | null {
   const probe = source.getStartTime(pid);
   return probe.status === 'present' ? probe.startedAt : null;
 }
 
-// ─── Crash-mid-merge recovery (DR-3): free a stranded dead-holder lease ───────
-//
-// A crash between the CLAIM (`worktree.merge_requested`) and the RELEASE
-// (`worktree.merge_executed`) leaves an unpaired lease on `integrationRef`. Two
-// production paths recover it — BOTH by freeing the dead slot (never by re-running
-// the crashed caller's merge: the caller is gone, and the `worktrees@v1`
-// {@link InFlightMerge} projection carries no `featureId`/`strategy`, so a re-merge
-// could not even be correctly attributed. The WLM re-drives an interrupted merge
-// the honest way — the orchestrator re-dispatches, which is a FRESH
-// `serialize_merge` on the ref that runs its own correctly-attributed merge):
-//
-//   1. INLINE, incidental — the next `serialize_merge` on the ref hits the
-//      dead-holder reclaim in {@link waitForFreeSlot}, freeing the slot before it
-//      claims (Task 006).
-//   2. EXPLICIT, on-demand — {@link reconcileMerges} folds EVERY in-flight lease
-//      and frees each provably-dead one, WITHOUT needing a subsequent merge. It is
-//      wired into the `ps --probe` reconcile pass (`handleViewPs`) alongside the
-//      reservation reconciler ({@link WorktreeManager.probeAndReclaim}) and the
-//      launch reconciler (`reconcileLaunches`) — the merge-lease third member of
-//      that trio, so a crashed lease can never fold as a permanent `ps` phantom.
-//
-// A prior standalone `resumeCrashedMerge` export lived here with zero production
-// callers and re-ran the crashed merge under the caller's `featureId`; it was
-// excised (WLM slice 3, DR-3) in favor of these two slot-freeing paths — the sound
-// and sufficient recovery.
-
-/** Outcome of a {@link reconcileMerges} pass (DR-3). */
+/** Outcome of a {@link reconcileMerges} pass. */
 export interface ReconcileMergesResult {
-  /**
-   * The `integrationRef`s whose stranded lease was reclaimed to a terminal
-   * `worktree.merge_executed` this pass (holder provably dead). Empty when no
-   * lease needed freeing.
-   */
+  /** The refs whose lease this pass released, because the holder is provably dead. */
   readonly reconciled: readonly string[];
   /**
-   * The `integrationRef`s left in-flight — the holder is live, its liveness is
-   * unprovable (`'unknown'` / unsupported table), OR its terminal append failed
-   * this pass (isolated so it does not sink the others; a later pass retries it).
-   * Fail closed: a live holder's active merge is never reclaimed away.
+   * The refs left in flight: the holder is live, its liveness is unprovable, or its terminal append failed.
+   * A failed append does not stop the pass, and a later pass tries it again.
    */
   readonly leftInFlight: readonly string[];
   /** Total in-flight merge leases probed this pass. */
@@ -587,23 +433,13 @@ export interface ReconcileMergesResult {
 }
 
 /**
- * Reconcile every stranded in-flight merge lease whose holder is provably dead to
- * a terminal `worktree.merge_executed` (DR-3) — the EXPLICIT on-demand counterpart
- * of the inline dead-holder reclaim in {@link waitForFreeSlot}, and the merge-lease
- * sibling of {@link WorktreeManager.probeAndReclaim} (reservations) and
- * `reconcileLaunches` (launches). Folds the `worktrees@v1` projection, probes each
- * holder through the SAME DR-5 liveness lens {@link isHolderProvablyDead} uses, and
- * for each provably-dead holder emits the terminal under its OWN `operationId` (a
- * keyed append, so a race with the inline reclaim converges on ONE release,
- * INV-8/13). Never re-runs the merge — freeing the slot for the next live claimant
- * is the recovery.
+ * Releases every in-flight merge lease whose holder is provably dead, after a crash between claim and release.
+ * It is the on-demand form of the inline reclaim in {@link waitForFreeSlot}. The `reconcile_worktrees` action calls it.
  *
- * On-demand only: registers NO timer / daemon — a single pure fold plus a
- * point-in-time process-table read. Idempotent across runs (once terminated the
- * lease is no longer in-flight). `source` is injected so the pass is testable with
- * a fake process table and zero OS access; it defaults to the real
- * {@link defaultProcessTableSource} (off-Linux `isSupported() === false` → every
- * holder reads `'unknown'` and NOTHING is reconciled: fail closed, DR-7/REV-H1).
+ * It appends the terminal event under the original holder `operationId`, so a race with the inline reclaim makes one release.
+ * It never runs the merge again, because the lease has no `featureId` or `strategy`. A new `serialize_merge` runs the merge.
+ * The appends run in sequence, because they all go to the singleton `worktrees` stream.
+ * On an unsupported process table, every holder reads `'unknown'` and nothing is released.
  */
 export async function reconcileMerges(
   eventStore: EventStore,
@@ -623,14 +459,6 @@ export async function reconcileMerges(
       leftInFlight.push(holder.integrationRef);
       continue;
     }
-    // Provably dead → the terminal will never be written by the crashed holder;
-    // emit it under the holder's ORIGINAL operationId (identical to the inline
-    // reclaim's release: status 'aborted', `dead-holder-reclaimed`). Isolate
-    // per-holder failure — a single append that retries out must NOT sink the
-    // pass; the failed ref is reported left-in-flight so a later pass retries it
-    // (the keyed terminal is idempotent, so a retry is safe). Kept SEQUENTIAL:
-    // every append lands on the singleton `worktrees` stream, whose in-process
-    // StreamLockManager already serializes same-stream appends (INV-7).
     try {
       await appendMergeExecuted(
         appender,

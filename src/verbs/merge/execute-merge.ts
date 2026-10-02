@@ -1,32 +1,11 @@
-// ─── handleExecuteMerge — orchestrate handler (T15, DR-MO-2) ───────────────
-//
-// Wraps the pure `executeMerge` (T08+T09+T10) with:
-//   • a local-git merge adapter via `buildLocalGitMergeAdapter` (#1194 —
-//     replaced the previous remote VcsProvider call so the recorded
-//     recovery point sha actually corresponds to a local ref the executor's
-//     INV-14 recovery (`git reset --keep`) can undo)
-//   • a `gitExec` adapter using `execFileSync` (120s timeout, matches
-//     post-merge.ts:48)
-//   • a `persistState` callback that updates the workflow state's
-//     `mergeOrchestrator` field (T01+T02 schema)
-//   • on `phase: 'completed'`, emits `merge.executed` to the workflow's
-//     event stream (stream id = featureId) carrying both the post-merge
-//     `mergeSha` and the pre-merge recovery point sha (the legacy
-//     `rollbackSha` event field — kept during the #1306 deprecation window)
-//
-// The merge adapter is injectable via `args.vcsMerge` so tests bypass real
-// git operations. Same for `gitExec` and `persistState`. In production,
-// the composite dispatcher (T20) constructs the defaults from `ctx.stateDir`
-// and the working tree.
-//
-// T16 extends this with the `phase: 'rolled-back'` branch: the pure executor
-// has already run the INV-14 recovery ladder (`git merge --abort` →
-// `git reset --keep <recoveryPointSha>`), so the handler emits the canonical
-// `merge.recovered` event (categorized reason: 'merge-failed' |
-// 'verification-failed' | 'timeout') and returns a structured error. (DR-2 /
-// task 006 retired the legacy `merge.rollback` write path — it stays
-// read-tolerant for replay but is no longer emitted here.)
-// ───────────────────────────────────────────────────────────────────────────
+/**
+ * The internal merge executor handler. It wraps the pure `executeMerge` with a local `git merge`
+ * adapter, a `gitExec` adapter, and a `persistState` callback for the `mergeOrchestrator` state field.
+ * Tests can inject each of the three through the input.
+ *
+ * The side-effect import of the merge-orchestrator projection registers `merge-orchestrator@v1`.
+ * `AtomicAppender.decide` resolves that reducer by id when it commits `merge.requested`.
+ */
 
 import { defaultGitExec } from '../vcs/git-exec-default.js';
 import * as path from 'node:path';
@@ -54,12 +33,7 @@ import {
   StorageBusyError,
 } from '../../events/index.js';
 import type { MergeOrchestratorState } from '../../projections/merge-orchestrator/index.js';
-// Side-effect import — registers `merge-orchestrator@v1` with `defaultRegistry`
-// so the Wave 3 primitive (`AtomicAppender.decide`) can resolve the reducer
-// by id at Phase A (`merge.requested`) commit time.
 import '../../projections/merge-orchestrator/index.js';
-
-// ─── Args schema ───────────────────────────────────────────────────────────
 
 export const HandleExecuteMergeArgsSchema = z.object({
   featureId: z.string().min(1),
@@ -72,8 +46,6 @@ export const HandleExecuteMergeArgsSchema = z.object({
 
 export type HandleExecuteMergeArgs = z.infer<typeof HandleExecuteMergeArgsSchema>;
 
-// ─── Internal types for DI overrides (tests use these) ─────────────────────
-
 interface VcsMergeAdapter {
   (args: {
     sourceBranch: string;
@@ -83,16 +55,9 @@ interface VcsMergeAdapter {
 }
 
 /**
- * Discriminated union over the three phase transitions the executor writes:
- *   • `executing`   — intermediate, BEFORE vcsMerge (T09)
- *   • `completed`   — terminal success, AFTER vcsMerge resolves (T27)
- *   • `rolled-back` — terminal failure, AFTER the INV-14 recovery ladder (T27)
- *
- * The terminal-phase shapes carry the result-specific fields (`mergeSha` /
- * `reason`) so a state file is self-describing without re-fetching the event
- * stream. Without these terminal writes, disk state would stay at
- * 'executing' indefinitely after a merge completes or rolls back, breaking
- * HSM exit guards and resume semantics.
+ * The three phases that the executor writes: `executing` before `vcsMerge`, `completed` after it
+ * resolves, and `rolled-back` after the recovery ladder. The terminal shapes carry `mergeSha` or
+ * `reason`, so the state file describes the result without the event stream.
  */
 export type ExecutorPersistStatePayload =
   | { phase: 'executing'; recoveryPointSha: string }
@@ -101,9 +66,9 @@ export type ExecutorPersistStatePayload =
       phase: 'rolled-back';
       recoveryPointSha: string;
       reason: 'merge-failed' | 'verification-failed' | 'timeout';
-      /** INV-14 recovery-outcome discriminator; absent on a clean recovery. */
+      /** The recovery fault. It is absent on a clean recovery. */
       recoveryError?: 'reset-keep-blocked' | 'reset-failed' | 'unexpected-mid-merge-drift';
-      /** Human-readable detail for `recoveryError`; absent on clean recovery. */
+      /** The text detail for `recoveryError`. It is absent on a clean recovery. */
       recoveryErrorDetail?: string;
     };
 
@@ -111,33 +76,22 @@ interface PersistStateCallback {
   (state: ExecutorPersistStatePayload): Promise<void> | void;
 }
 
-// Internal handler signature accepts the public args plus optional DI hooks.
-// The Zod schema above only validates externally-supplied fields; the DI
-// hooks are TypeScript-only (callers pass them in-process, never over the
-// wire).
+/** The public args plus in-process injection hooks. The Zod schema validates only the public fields. */
 export interface HandleExecuteMergeInput extends HandleExecuteMergeArgs {
   readonly vcsMerge?: VcsMergeAdapter;
   readonly gitExec?: GitExec;
   readonly persistState?: PersistStateCallback;
   /**
-   * #1308 T09 — bounded timeout-retry seams forwarded verbatim to the pure
-   * `executeMerge`. Both are test-only DI hooks (never supplied over the wire):
-   * `jitter` pins the backoff jitter for determinism, `sleep` skips the real
-   * wall-clock backoff. Production leaves them undefined → real Math.random
-   * jitter + real setTimeout sleep.
+   * Test hooks for the timeout retry, forwarded to the pure `executeMerge`. `jitter` fixes the
+   * backoff jitter and `sleep` skips the real delay. Production leaves both undefined.
    */
   readonly jitter?: () => number;
   readonly sleep?: (ms: number) => Promise<void>;
 }
 
-// ─── Default adapters ──────────────────────────────────────────────────────
-
-
 /**
- * Build the default `vcsMerge` adapter — a *local* `git merge` of source
- * into target. See `local-git-merge.ts` for the full contract; the executor
- * uses this adapter so the recorded `recoveryPointSha` actually corresponds to
- * a local ref the recovery `git reset --keep` can undo (#1194).
+ * Builds the default `vcsMerge` adapter: a local `git merge` of source into target. A local merge
+ * makes the recorded `recoveryPointSha` a local ref that `git reset --keep` can undo.
  */
 function buildDefaultVcsMerge(
   input: HandleExecuteMergeInput,
@@ -147,23 +101,11 @@ function buildDefaultVcsMerge(
 }
 
 /**
- * Build the default `persistState` callback. Reads the workflow state file
- * at `<stateDir>/<featureId>.state.json`, merges the supplied phase payload
- * into `mergeOrchestrator`, and writes back atomically.
- *
- * Shallow-merges (rather than replacing) the existing `mergeOrchestrator`
- * block so terminal-phase fields like `mergeSha` and `reason` ride alongside
- * the always-present `phase` + `recoveryPointSha`. This is intentionally
- * different from `merge-orchestrate.ts`'s `buildDefaultPersistState`, which
- * REPLACES the block on `aborted`: the executor progresses through
- * `executing` → `completed`/`rolled-back`, so merging preserves
- * `sourceBranch`/`targetBranch`/`taskId` written during `executing`. The
- * orchestrator's abort writes a fresh terminal record with no intermediate,
- * so replacement there prevents stale fields from a prior attempt.
- *
- * STATE_NOT_FOUND is treated as "first write" so a missing state file
- * (extremely rare in practice — workflow.started writes it — but possible
- * after a manual delete) does not crash the executor.
+ * Builds the default `persistState` callback. It reads `<stateDir>/<featureId>.state.json`, merges
+ * the payload into the existing `mergeOrchestrator` block, and writes the file with `expectedVersion`.
+ * It merges and does not replace the block, so fields from earlier phase writes stay.
+ * Without that version, `writeStateFile` skips its version check and `withStateRetry` has nothing to retry.
+ * A missing state file throws `StateStoreError`, and the callback does not invent a baseline.
  */
 function buildDefaultPersistState(
   featureId: string,
@@ -174,16 +116,7 @@ function buildDefaultPersistState(
 ): PersistStateCallback {
   return async (payload) => {
     const stateFile = path.join(stateDir, `${featureId}.state.json`);
-    // Let `StateStoreError(STATE_NOT_FOUND)` propagate — the executor's
-    // terminal event was already appended (event-first commit point), so
-    // a missing state file is a recovery scenario the caller must handle,
-    // not something to paper over with an invented baseline. Faking state
-    // here would land an incomplete record on disk and trip write-time
-    // schema validation anyway.
     const state = await readStateFile(stateFile);
-    // Capture CAS version before mutation so the write enforces optimistic
-    // concurrency. Without `expectedVersion`, `writeStateFile` skips the
-    // CAS check entirely, defeating the surrounding `withStateRetry`.
     const expectedVersion = (state as Record<string, unknown>)._version as number | undefined ?? 1;
     const next = {
       ...state,
@@ -199,13 +132,22 @@ function buildDefaultPersistState(
   };
 }
 
-// ─── Handler ───────────────────────────────────────────────────────────────
-
+/**
+ * Runs one merge and records its events. `decide` commits `merge.requested` before the git merge. It
+ * appends nothing when the projection phase is `requested`, `executed`, `recovering`, or `completed`.
+ * The `decide` call turns off the empty-write check, so a concurrent append does not fail that no-op path.
+ * The git merge runs outside the `decide` retry, so a lost race there does not run the merge again.
+ *
+ * A success appends `merge.executed`, then retries `merge.completed` in place, because this call owns completion.
+ * A rollback appends only `merge.recovered`. Each terminal event goes to the store before the state file write.
+ * Each direct append reads a fresh stream tail and has its own idempotency key, so a replay is a no-op.
+ * Other event types share the stream, so a sequence pin from an earlier append leaves the workflow in `executing`.
+ * A sequence conflict on the liveness or retry audit events does not stop the merge.
+ */
 export async function handleExecuteMerge(
   input: HandleExecuteMergeInput,
   ctx: DispatchContext,
 ): Promise<ToolResult> {
-  // Validate the externally-supplied args (DI hooks bypass the schema).
   const parsed = HandleExecuteMergeArgsSchema.safeParse({
     featureId: input.featureId,
     sourceBranch: input.sourceBranch,
@@ -225,12 +167,6 @@ export async function handleExecuteMerge(
   }
   const args = parsed.data;
 
-  // DR-2 — canonical liveness instance key for the merge surface. Stamped
-  // (additive) on both the `merge.executing_started` START and the
-  // `merge.executed` terminal so a uniform INV-10 liveness view can correlate
-  // the pair without merge-specific field knowledge. Prefer the task id; fall
-  // back to the `<sourceBranch>→<targetBranch>` pair for CLI direct-invocation
-  // (no task context), which uniquely identifies the merge in flight.
   const instanceId = args.taskId ?? `${args.sourceBranch}→${args.targetBranch}`;
 
   const gitExec = input.gitExec ?? defaultGitExec;
@@ -245,20 +181,6 @@ export async function handleExecuteMerge(
       ctx.stateDir,
     );
 
-  // #1309 — `merge.executing_started` liveness emission. Appended ONCE, after
-  // the pure executor has recorded the recovery point and BEFORE the first
-  // `vcsMerge` fires (the pure executor calls `persistState({phase:'executing',
-  // recoveryPointSha})` exactly once at that seam). Emitting from inside the
-  // `persistState` wrapper on the `executing` payload pins the liveness event to
-  // that precise lifecycle point so a long-running merge is observable as
-  // "started but not yet terminated" (INV-10), without touching the terminal
-  // emission path. The recovery-point sha rides on the payload, so the audit
-  // record carries the same anchor the terminal events report.
-  //
-  // Best-effort like `onRetryAttempt`: a lost sequence race on this audit append
-  // must NOT abort the merge (the merge attempt is the load-bearing action). The
-  // fresh-tail CAS + own idempotency key (`:merge.executing_started` suffix)
-  // make a crash-replay a clean no-op (project_cas_pin_idempotency_trap).
   const emitExecutingStarted = async (recoveryPointSha: string): Promise<void> => {
     const tailEventsStarted = await ctx.eventStore.query(args.featureId);
     const expectedSequenceStarted =
@@ -276,7 +198,6 @@ export async function handleExecuteMerge(
             targetBranch: args.targetBranch,
             recoveryPointSha,
             startedAt: new Date().toISOString(),
-            // DR-2 — canonical liveness instance key (additive).
             instanceId,
           },
         },
@@ -290,23 +211,12 @@ export async function handleExecuteMerge(
         },
       );
     } catch (err) {
-      // Swallow a lost sequence race (a concurrent writer advanced the tail) so
-      // the merge proceeds; the liveness record is best-effort observability.
       if (!(err instanceof SequenceConflictError)) {
         throw err;
       }
     }
   };
 
-  // T29: wrap every state write in `withStateRetry` so concurrent writers
-  // (e.g. another orchestrate handler updating the same workflow state file)
-  // don't fail this merge permanently on a single CAS conflict. Wraps both
-  // injected and default `persistState` so caller-supplied hooks share the
-  // same race-tolerance contract.
-  //
-  // #1309 — on the `executing` payload, emit the liveness event BEFORE the
-  // state write (and thus before the first `vcsMerge`). Guarded so it fires at
-  // most once across any `withStateRetry` re-attempts of the `executing` write.
   let executingStartedEmitted = false;
   const persistState: PersistStateCallback = async (state) => {
     if (state.phase === 'executing' && !executingStartedEmitted) {
@@ -318,25 +228,6 @@ export async function handleExecuteMerge(
     });
   };
 
-  // ─── Phase A — durable INTENT (Wave 4 / audit §F1.2) ─────────────────────
-  //
-  // Commit `merge.requested` PURELY under `withStateRetry` BEFORE the
-  // executor's `vcsMerge` side effect fires. The decide closure
-  // short-circuits idempotently when the merge-orchestrator projection
-  // already shows `requested` / `executed` / `recovering` / `completed`
-  // — covers both (a) replays of this same invocation under OCC retries,
-  // and (b) the orchestrator-already-emitted case (when `handleExecuteMerge`
-  // is invoked via `handleMergeOrchestrate` the orchestrator's own Phase A
-  // has already landed `merge.requested`; the executor sees
-  // `state.phase === 'requested'` and emits nothing).
-  //
-  // When invoked DIRECTLY (e.g., CLI `exarchos execute-merge`), no
-  // upstream orchestrator emitted the intent; this Phase A is the FIRST
-  // `merge.requested` for the stream.
-  //
-  // `vcsMerge` runs OUTSIDE this retry boundary so an OCC loss inside
-  // `decide` never re-fires the local git merge — the canonical
-  // process-manager anti-pattern guard from audit §F1.2.
   const requestedOperationId =
     args.taskId !== undefined
       ? `merge-requested:${args.featureId}:${args.taskId}`
@@ -370,15 +261,6 @@ export async function handleExecuteMerge(
             },
           ];
         },
-        // alwaysEnforceConsistency=false: the no-op branches above (state
-        // already requested/executed/recovering/completed) intentionally
-        // emit zero events. With the default-on tail re-read, a concurrent
-        // merge.executed landing between the read and our empty return
-        // would throw spurious ConcurrencyError on a path whose only job
-        // was to confirm "already done". Disabling the empty-write check
-        // makes the idempotent-recovery path safe under contention; the
-        // event-emitting branch is unaffected because it actually appends.
-        // Sentry #14058535/0.
         { operationId: requestedOperationId, alwaysEnforceConsistency: false },
       ),
     );
@@ -404,14 +286,6 @@ export async function handleExecuteMerge(
     throw err;
   }
 
-  // #1308 T09 — `merge.retry_attempt` audit emission. The pure executor invokes
-  // this once per bounded timeout-retry, BEFORE the re-attempt fires, so each
-  // retry leaves a durable audit record on the stream ahead of the terminal
-  // `merge.executed`/`merge.recovered` events. Each append reads the LIVE stream
-  // tail FRESH for its own `expectedSequence` and carries its OWN idempotency
-  // key (the `:${attempt}` suffix disambiguates the per-attempt rows so a
-  // crash-replay of a given retry dedups rather than colliding with sibling
-  // attempts — `project_cas_pin_idempotency_trap`).
   const onRetryAttempt = async (info: {
     attempt: number;
     delayMs: number;
@@ -443,10 +317,6 @@ export async function handleExecuteMerge(
         },
       );
     } catch (err) {
-      // A lost sequence race on the audit append must NOT abort the merge — the
-      // retry itself is the load-bearing action; the audit record is
-      // best-effort. Swallow the SequenceConflict (a concurrent writer advanced
-      // the tail) so the bounded-retry loop proceeds to its re-attempt.
       if (!(err instanceof SequenceConflictError)) {
         throw err;
       }
@@ -468,8 +338,6 @@ export async function handleExecuteMerge(
       ...(args.repoRoot !== undefined ? { repoRoot: args.repoRoot } : {}),
     });
   } catch (err) {
-    // T29: optimistic-concurrency exhaustion → structured STATE_CONFLICT
-    // ToolResult so callers see a categorized failure (not a raw exception).
     if (err instanceof VersionConflictError) {
       return {
         success: false,
@@ -479,9 +347,6 @@ export async function handleExecuteMerge(
         },
       };
     }
-    // Persisting the intermediate `executing` phase touches the state file;
-    // a missing/corrupt file there must surface as a categorized failure
-    // rather than masquerading as MERGE_FAILED.
     if (err instanceof StateStoreError) {
       return {
         success: false,
@@ -500,43 +365,12 @@ export async function handleExecuteMerge(
     };
   }
 
-  // Event-first commit point (#1109 §1): append the terminal event BEFORE
-  // mutating the state file. If append fails, the state file stays at
-  // `executing` and a subsequent reconcile/projection rebuild reflects only
-  // what the event store recorded — no silent state/event divergence. If
-  // the state write fails after a successful append, projection replay
-  // still reconstructs the terminal phase from the recorded event.
   if (result.phase === 'completed') {
-    // Direct stream append — NOT wrapped in `gate.executed`. The dedicated
-    // `merge.executed` schema (T03) lives at the top level so observability
-    // and HSM guards can match on it directly.
-    //
-    // #1303 — pass `idempotencyKey` (when taskId is present) and
-    // `expectedSequence` (CAS on the stream high-water mark) so the
-    // substrate guarantees added in #1259 / #1323 reach this surface:
-    //
-    //   • idempotency-key dedup makes crash-replay safe — a retry after a
-    //     mid-handler crash returns the original cached event rather than
-    //     appending a duplicate `merge.executed`.
-    //   • `expectedSequence` enforces optimistic concurrency at the
-    //     append-transaction level — two concurrent invocations against
-    //     the same stream cannot land overlapping sequences.
-    //
-    // The key shape `${streamId}:merge_orchestrate:${taskId}:${eventType}`
-    // matches the prefix produced by `next-actions-computer.ts` for the
-    // `merge_orchestrate` verb (extending it with the event-type segment so
-    // the three append sites in this orchestrator surface — preflight,
-    // executed, rollback — each have a distinct dedup key).
     const tailEventsExecuted = await ctx.eventStore.query(args.featureId);
     const expectedSequenceExecuted =
       tailEventsExecuted.length > 0
         ? Math.max(...tailEventsExecuted.map((e) => e.sequence))
         : 0;
-    // INV-8: always set an idempotency key so concurrent invocations
-    // without a `taskId` (e.g., CLI direct-invocation) dedup at the
-    // substrate's idempotency_claims row rather than racing to append.
-    // The helper falls back to a `featureId`-only key when `taskId` is
-    // absent.
     const appendOptionsExecuted: { idempotencyKey: string; expectedSequence: number } = {
       expectedSequence: expectedSequenceExecuted,
       idempotencyKey: buildMergeOrchestrateIdempotencyKey(
@@ -557,19 +391,12 @@ export async function handleExecuteMerge(
             strategy: args.strategy,
             mergeSha: result.mergeSha,
             rollbackSha: result.recoveryPointSha,
-            // DR-2 — canonical liveness instance key (additive), paired to the
-            // `merge.executing_started` START by the same value.
             instanceId,
           },
         },
         appendOptionsExecuted,
       );
     } catch (err) {
-      // SequenceConflict here means a concurrent invocation already
-      // advanced this stream past our observed tail. The other side will
-      // have appended the canonical `merge.executed` (its own idempotency
-      // key dedups its own retry) — surface a structured STATE_CONFLICT
-      // rather than letting a raw substrate error escape.
       if (err instanceof SequenceConflictError) {
         return {
           success: false,
@@ -582,36 +409,6 @@ export async function handleExecuteMerge(
       throw err;
     }
 
-    // Terminal lifecycle marker — append `merge.completed` immediately after
-    // `merge.executed` so the projection's `completed` phase is reachable.
-    // Distinct event from `merge.executed`: the side effect record vs. the
-    // lifecycle-terminated record. Future work may interpose post-merge
-    // verification between the two. Idempotency-key suffix `:merge.completed`
-    // keeps this dedup row separate from the executed/recovered rows on the
-    // same stream.
-    //
-    // CAS against a FRESH stream-tail read — the SAME high-water-mark idiom
-    // the `merge.executed` and `merge.recovered` sites use. We deliberately do
-    // NOT pin to the `merge.executed` sequence we just observed: a static pin
-    // strands the workflow permanently in `executing` (Sentry r3315312847).
-    // The featureId stream is shared across many event types, so any unrelated
-    // concurrent append between our two writes advances the tail past the pin.
-    // Log adjacency is not a projection invariant — the reducer folds
-    // `merge.completed` whenever it appears after `merge.executed`, regardless
-    // of intervening events.
-    //
-    // RETRY IN PLACE (Sentry r3329404869). Recovery cannot be delegated to the
-    // caller: `handleMergeOrchestrate` runs the executor OUTSIDE its retry
-    // boundary on purpose, so re-invoking it would re-fire the non-idempotent
-    // `vcsMerge` side effect. But this invocation just won the `merge.executed`
-    // CAS, so it is the canonical owner of completion and must drive the stream
-    // to its terminal phase itself. `withStateRetry` (which recognizes
-    // `SequenceConflictError`) re-reads the advanced tail and re-appends on a
-    // transient race; the idempotency key makes each attempt safe — a winner's
-    // `merge.completed` returns a cache-hit rather than a duplicate, ending the
-    // loop. The git merge already happened and is NOT re-run; only the terminal
-    // marker is retried. A losing `merge.executed` invocation, by contrast,
-    // returns STATE_CONFLICT above and defers completion to the winner.
     try {
       await withStateRetry(async () => {
         const tailEventsCompleted = await ctx.eventStore.query(args.featureId);
@@ -643,13 +440,6 @@ export async function handleExecuteMerge(
         );
       });
     } catch (err) {
-      // The transient sequence race did not clear within MAX_STATE_RETRIES
-      // attempts (substrate genuinely contended). `merge.executed` is already
-      // durable, so the stream still rebuilds to `executed` — it does NOT
-      // silently flip to a terminal phase — and a later re-dispatch can still
-      // complete it (the idempotency key keeps that safe). Surface a
-      // categorized STATE_CONFLICT rather than letting a raw substrate error
-      // escape — symmetric with the `merge.executed`/`merge.recovered` sites.
       if (err instanceof SequenceConflictError) {
         return {
           success: false,
@@ -662,34 +452,6 @@ export async function handleExecuteMerge(
       throw err;
     }
   } else {
-    // T16 — phase: 'rolled-back'. The pure executor already ran the INV-14
-    // recovery ladder (`git merge --abort` → `git reset --keep`, never
-    // `--hard`). Surface `recoveryError` + detail (when recovery was not clean)
-    // so consumers can detect an indeterminate worktree.
-    //
-    // DR-2 (task 006) — the legacy `merge.rollback` WRITE path is RETIRED. The
-    // recovery path now appends exactly ONE terminal event, the canonical
-    // `merge.recovered` (successor; fields `recoveryPointSha` /
-    // `recoveryErrorDetail`). `merge.rollback` is no longer emitted here — it is
-    // read-tolerant-but-not-emittable: its data schema + type-map entry stay so
-    // legacy event logs that already contain `merge.rollback` still fold to
-    // identical workflow state (INV-1 replay safety), but nothing writes it.
-    //
-    // The `merge-orchestrator@v1`, workflow-state, and rehydration projections
-    // and the HSM merge-pending-exit guard all fold `merge.recovered` to the
-    // same terminal state the legacy event drove, so retiring the write path is
-    // a behavioural no-op for the live path while remaining replay-safe for old
-    // streams.
-    //
-    // CAS HAZARD (project_cas_pin_idempotency_trap / PR #1492): the append reads
-    // the LIVE stream tail FRESH to compute its own `expectedSequence` and
-    // carries its OWN idempotency key (the trailing `:${eventType}` segment
-    // disambiguates), so a retried recovery is a clean no-op.
-    //
-    // #1303 (α-05): the append carries `idempotencyKey` + `expectedSequence` so
-    // the substrate guarantees from #1259 / #1323 reach the site.
-
-    // ── Canonical `merge.recovered` (fresh-tail CAS, own idempotency key) ──
     const tailEventsRecovered = await ctx.eventStore.query(args.featureId);
     const expectedSequenceRecovered =
       tailEventsRecovered.length > 0
@@ -714,9 +476,6 @@ export async function handleExecuteMerge(
             targetBranch: args.targetBranch,
             recoveryPointSha: result.recoveryPointSha,
             reason: result.reason,
-            // INV-14 discriminator under the CANONICAL field names
-            // (`recoveryError` enum + `recoveryErrorDetail` detail). Both
-            // absent on a clean recovery.
             ...(result.recoveryError !== undefined
               ? {
                   recoveryError: result.recoveryError,
@@ -743,9 +502,6 @@ export async function handleExecuteMerge(
     }
   }
 
-  // Persist terminal phase to workflow state. CAS exhaustion surfaces as
-  // STATE_CONFLICT — the event has already committed, so a projection
-  // rebuild can still recover the terminal phase even if this write fails.
   try {
     if (result.phase === 'completed') {
       await persistState({
@@ -772,11 +528,6 @@ export async function handleExecuteMerge(
         },
       };
     }
-    // Surface other StateStoreErrors (notably STATE_NOT_FOUND when the
-    // workflow's state file is missing) as structured failures. The
-    // terminal `merge.executed` / `merge.recovered` event has already been
-    // appended above, so projection rebuild can still recover the terminal
-    // phase from the event stream even if this write fails.
     if (err instanceof StateStoreError) {
       return {
         success: false,

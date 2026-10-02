@@ -1,23 +1,17 @@
-// ─── Prune Safeguards (DI-friendly) ─────────────────────────────────────────
-//
-// Production implementations for the open-PR and recent-commits safeguards
-// used by `handlePruneStaleWorkflows`. The open-PR check uses VcsProvider;
-// recent-commits uses `git log` via `execSync`. The handler takes these as
-// injectable deps so unit tests can swap stubs rather than shelling out.
-//
-// Isolation rationale: keeping the IO helpers in a separate module lets
-// `prune-stale-workflows.ts` stay focused on orchestration + pure-selection
-// composition, and makes the tests explicit about which IO is being bypassed.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Production open-PR and recent-commits safeguards for
+ * `handlePruneStaleWorkflows`. The open-PR check uses a `VcsProvider`, and the
+ * recent-commits check runs `git log`. The handler takes them as injected
+ * dependencies, so tests can use stubs and run no git or VCS commands.
+ */
 
 import { execSync } from 'node:child_process';
 import type { VcsProvider } from '../../vcs/provider.js';
 import { createVcsProvider } from '../../vcs/factory.js';
 
 /**
- * Pluggable safeguard backends. Both accept optional `branchName` so callers
- * can hand through `undefined` for pre-delegation workflows — the handler
- * short-circuits those checks rather than invoking the safeguard at all.
+ * Safeguard backends. Both accept an `undefined` branch name for a workflow
+ * that has no branch yet.
  */
 export interface PruneSafeguards {
   /** Returns true if there is an OPEN pull request whose head is `branchName`. */
@@ -26,12 +20,18 @@ export interface PruneSafeguards {
   hasRecentCommits: (branchName: string | undefined, windowHours: number) => Promise<boolean>;
 }
 
-/** Sanitize a branch name before embedding it in a shell argument. */
+/**
+ * True when a branch name holds only alphanumerics, `/`, `_`, `.`, and `-`, and
+ * no `..`. The shell command embeds the name, so only these names are safe.
+ */
 function isSafeBranchName(branch: string): boolean {
-  // Matches git's allowed ref characters: alphanumerics, slash, dash, dot, underscore.
   return /^[A-Za-z0-9/_.\-]+$/.test(branch) && !branch.includes('..');
 }
 
+/**
+ * Asks the provider for an open PR with `branchName` as its head. A provider
+ * failure returns false, so the prune can continue.
+ */
 async function defaultHasOpenPR(
   provider: VcsProvider,
   _featureId: string,
@@ -42,13 +42,14 @@ async function defaultHasOpenPR(
     const prs = await provider.listPrs({ head: branchName, state: 'open' });
     return prs.length > 0;
   } catch {
-    // When the provider fails, be conservative: report "no open PR" rather than
-    // blocking the prune. The handler's `force` flag is the escape hatch
-    // for environments where the VCS CLI is unavailable.
     return false;
   }
 }
 
+/**
+ * Runs `git log` on `origin/<branchName>` for the last `windowHours`. A missing
+ * remote branch or a git error returns false.
+ */
 async function defaultHasRecentCommits(
   branchName: string | undefined,
   windowHours: number,
@@ -65,18 +66,15 @@ async function defaultHasRecentCommits(
     ).trim();
     return output.length > 0;
   } catch {
-    // If the remote branch doesn't exist or git errors out, treat as no
-    // recent activity (conservative toward allowing prune; `force` is the
-    // override if the user wants to bypass both safeguards anyway).
     return false;
   }
 }
 
 /**
- * Build the default production safeguard bundle. Tests pass their own
- * `PruneSafeguards` object instead of calling this.
+ * Builds the production safeguards. When the caller passes a provider other
+ * than GitHub, the open-PR check always returns false.
  *
- * @param provider - Optional VcsProvider for testability. Falls back to createVcsProvider().
+ * @param provider - An optional `VcsProvider`. Without it, the first open-PR check calls `createVcsProvider()`.
  */
 export function defaultSafeguards(provider?: VcsProvider): PruneSafeguards {
   if (provider && provider.name !== 'github') {

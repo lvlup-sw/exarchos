@@ -1,21 +1,14 @@
-// ─── Dispatch Guard ──────────────────────────────────────────────────────────
-//
-// Pre-delegation guards: branch ancestry validation and worktree assertions.
-// Pure functions with injected dependencies — no side-effects (the guard
-// primitives themselves remain side-effect-free; the orchestration helper
-// `probeStashAndEmit` emits a single event and has its EventStore +
-// DispatchContext threaded via arguments).
-//
-// `dispatch.preflight` is NOT emitted here. The delegation handler runs the
-// guards itself so it can record the outcome of each one regardless of which
-// short-circuits, and emits the single summary from there; the aggregating
-// helper that used to live beside these primitives duplicated that emission
-// and no shipped caller invoked it.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Guards that run before delegation: branch ancestry, the current branch, and
+ * the main worktree.
+ *
+ * The guards take their dependencies as arguments and have no side effects.
+ * Only `probeStashAndEmit` appends an event. This module does not emit
+ * `dispatch.preflight`. The delegation handler runs each guard and emits that
+ * summary itself.
+ */
 
 import type { EventStore } from '../../events/store.js';
-
-// ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface AncestryResult {
   readonly passed: boolean;
@@ -25,11 +18,9 @@ export interface AncestryResult {
   readonly missing?: string[];
   readonly error?: string;
   /**
-   * Operator-facing remediation hint (#1212 / DR-6). Populated by callers
-   * that have enough context to spell out the recovery command (e.g.,
-   * `mergePreflight` knows the source/target branch pair and links to the
-   * merge-orchestrator runbook). `validateBranchAncestry` itself does not
-   * set this — it has no remediation context for the various callers.
+   * A remediation hint for the operator. A caller with enough context sets it.
+   * For example, `mergePreflight` names the branch pair and the runbook.
+   * `validateBranchAncestry` does not set it.
    */
   readonly hint?: string;
 }
@@ -44,34 +35,21 @@ export interface CurrentBranchProtectionResult {
   readonly blocked: boolean;
   readonly reason?: 'current-branch-protected';
   readonly currentBranch?: string;
-  /**
-   * Operator-facing remediation hint (#1190). Present when `blocked: true`
-   * so callers don't need to consult external docs to recover. Omitted
-   * when `blocked: false` (no remediation needed).
-   */
+  /** A remediation hint for the operator. It is present only when `blocked` is true. */
   readonly hint?: string;
 }
 
 export type GitExec = (args: readonly string[]) => string;
 
-/**
- * Branches that dispatch must never run *from*. The guard refuses
- * `prepare_delegation` when HEAD points at any of these — you must
- * check out a feature branch first.
- */
+/** Branches that dispatch must never run from. The guard refuses when HEAD is on one of them. */
 const PROTECTED_CURRENT_BRANCHES: ReadonlySet<string> = new Set(['main', 'master']);
 
-// ─── Branch Ancestry Validation ─────────────────────────────────────────────
-
 /**
- * Validates that all required upstream branches are ancestors of the
- * integration branch.
+ * Checks that each required upstream branch is an ancestor of the integration
+ * branch, with `git merge-base --is-ancestor`.
  *
- * Uses `git merge-base --is-ancestor <upstream> <integration>`:
- *   - exit 0 → upstream IS an ancestor (passed)
- *   - non-zero → upstream is NOT an ancestor (missing)
- *
- * DR-10: Never throws — returns structured error on git failures.
+ * Exit code 1 marks the upstream as missing. Any other git failure returns a
+ * `git-error` result. The function never throws.
  */
 export async function validateBranchAncestry(
   integrationBranch: string,
@@ -88,12 +66,10 @@ export async function validateBranchAncestry(
     try {
       gitExec(['merge-base', '--is-ancestor', upstream, integrationBranch]);
     } catch (err) {
-      // Distinguish ancestry-missing (exit code 1) from git errors
       const e = err as Error & { status?: number };
       if (e.status === 1) {
         missing.push(upstream);
       } else {
-        // DR-10: git command failure — return structured error, never throw
         return {
           passed: false,
           blocked: true,
@@ -116,17 +92,12 @@ export async function validateBranchAncestry(
   return { passed: true, checks: ['ancestry'] };
 }
 
-// ─── Current Branch ─────────────────────────────────────────────────────────
-
 /**
- * Resolve the current checked-out branch via `git rev-parse --abbrev-ref
- * HEAD`. Returns `null` on any git failure — callers treat absence as a
- * non-signal, not as a block.
+ * Returns the current branch from `git rev-parse --abbrev-ref HEAD`.
  *
- * On detached HEAD, `git rev-parse --abbrev-ref HEAD` returns the literal
- * string "HEAD". Collapse that to `null` so downstream guards (protected-
- * branch refusal, prepare-delegation fallback) treat it as "no current
- * branch" rather than a branch literally named "HEAD".
+ * A git failure returns `null`, and callers do not treat it as a block. A
+ * detached HEAD prints the literal `HEAD`, so the function also returns `null`
+ * for it. Then no guard reads it as a branch with the name `HEAD`.
  */
 export function getCurrentBranch(gitExec: GitExec): string | null {
   try {
@@ -139,14 +110,10 @@ export function getCurrentBranch(gitExec: GitExec): string | null {
 }
 
 /**
- * Refuse dispatch when HEAD is on a protected base branch (main / master).
- * Distinct from the ancestry check: ancestry tests "does integrationBranch
- * descend from main?" which trivially passes when integrationBranch IS
- * main. The stated "never dispatch from main" rule needs to inspect
- * current HEAD, not workflow-state metadata.
+ * Blocks dispatch when HEAD is on `main` or `master`.
  *
- * Accepts `null` (current branch unknown) and returns "not blocked" — the
- * absence of a signal is not grounds to escalate to a refusal.
+ * The ancestry check cannot do this, because it passes when the integration
+ * branch is `main`. A `null` branch is unknown and does not block.
  */
 export function assertCurrentBranchNotProtected(
   currentBranch: string | null,
@@ -162,13 +129,10 @@ export function assertCurrentBranchNotProtected(
   return { blocked: false };
 }
 
-// ─── Worktree Assertion ─────────────────────────────────────────────────────
-
 /**
- * Asserts whether the current working directory is the main worktree
- * (not a subagent worktree under `.claude/worktrees/`).
- *
- * DR-2: Subagent worktrees must not dispatch further subagents.
+ * Reports whether the working directory is the main worktree, not a subagent
+ * worktree under `.claude/worktrees/`. A subagent worktree must not dispatch
+ * more subagents.
  */
 export function assertMainWorktree(cwd?: string): WorktreeAssertionResult {
   const actual = cwd ?? process.cwd();
@@ -189,20 +153,13 @@ export interface ProbeStashAndEmitArgs {
 }
 
 /**
- * Probes `git stash list --no-color` from the worktree under dispatch.
- * If the list is non-empty, emits a single `stash.detected` advisory
- * event carrying the worktree path and the most-recent stash ref.
+ * Runs `git stash list --no-color` in the worktree. When the list is not
+ * empty, appends one advisory `stash.detected` event with the newest stash ref.
  *
- * Stash storage is shared across worktrees in the same repository
- * (`feedback_subagent_stash_hazard`), so any pre-existing entry raises
- * the risk that a sibling agent's WIP will be popped into the current
- * worktree. The event is advisory only — dispatch is not blocked. Git
- * failures are swallowed (no event emitted) so the probe never escalates
- * a transient `git` outage into a dispatch failure.
- *
- * The most-recent stash ref is parsed as the prefix of the first
- * non-empty output line up to the first `:`. Output convention:
- *   `stash@{0}: WIP on feature/x: 1234567 message`
+ * All worktrees of a repository share one stash, so an entry can bring the
+ * work of a sibling agent into this worktree. The event does not block
+ * dispatch. A git failure appends no event and does not fail dispatch. The
+ * ref is the first line of output up to its first `:`.
  */
 export async function probeStashAndEmit(
   args: ProbeStashAndEmitArgs,
@@ -211,8 +168,6 @@ export async function probeStashAndEmit(
   try {
     listing = args.gitExec(['stash', 'list', '--no-color']);
   } catch {
-    // Probe is advisory — never escalate a `git stash list` failure into
-    // a dispatch error. The absence of the event is the signal here.
     return;
   }
 

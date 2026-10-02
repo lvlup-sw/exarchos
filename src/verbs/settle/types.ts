@@ -1,16 +1,8 @@
-// ─── What `settle` takes and what it hands back ──────────────────────────────
-//
-// `settle` takes a COMPILED capsule and one batch of claims. It does not take a
-// workflow id and go looking for terms: the capsule carries the terms, pinned
-// at compile time, and adjudicating against anything else would defeat the
-// point of pinning them. The harness that ran the work is the one holding the
-// capsule it ran under.
-//
-// The receipt is the verdict plus the identity of what was settled. It is
-// returned on EVERY outcome, including a refusal, because a refused batch is
-// the caller's next input — it says which claim to fix — and an action that
-// answered a refusal with an error would make the reasons the caller's problem
-// to reconstruct.
+/**
+ * Input and receipt types for `settle`. It takes a compiled capsule and one batch of claims, not a
+ * workflow id. The capsule carries the terms that compile time pinned. The receipt returns on every
+ * outcome, a refusal included, because a refused batch tells the caller which claim to fix.
+ */
 
 import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
 import type { SettlementFinding, SettlementCensus, SettlementOutcome } from './adjudicate.js';
@@ -25,13 +17,9 @@ export interface SettledCapsuleIdentity {
 }
 
 /**
- * How one accepted claim's verification ran, as the settlement records it.
- *
- * `operationId` names the task-completion segment the task ran under, so a
- * caller can read that segment's own receipt back through `execute_intent`;
- * it is absent for a task the stream already showed complete, where nothing
- * ran. `bundleRefs` is the segment's run bundle, present when a segment ran
- * and committed a record.
+ * How the verification of one accepted claim ran. `operationId` names the task-completion segment,
+ * so a caller can read its receipt through `execute_intent`. It is absent when the stream already
+ * showed the task complete. `bundleRefs` is the run bundle of a segment that committed a record.
  */
 export interface SettlementVerificationTrace {
   readonly taskId: string;
@@ -69,16 +57,13 @@ export interface SettlementReceipt {
   readonly requestDigest: string;
   readonly tailSequence: number;
   /**
-   * How each accepted claim was verified. Empty on a batch adjudication
-   * refused or held before verification ran; optional for the reason
-   * `bundleRefs` is — a receipt replayed from a claim an older build wrote
-   * carries none.
+   * How each accepted claim was verified. It is empty when adjudication refused or held the batch
+   * before verification. It is optional for the same reason as `bundleRefs`.
    */
   readonly verification?: readonly SettlementVerificationTrace[];
   /**
-   * Optional even though every fresh settlement stamps it: a replay returns the
-   * receipt persisted in the operation claim, and requiring the field would
-   * turn a claim written by an older build into an adapter-level error.
+   * Every fresh settlement stamps it, but it stays optional. A replay returns the receipt stored in
+   * the operation claim, and a claim from an older build does not carry the field.
    */
   readonly bundleRefs?: readonly [BundleRefV1, ...BundleRefV1[]];
   /**

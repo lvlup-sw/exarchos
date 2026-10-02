@@ -1,62 +1,22 @@
-// ─── `settle` — the adjudication endpoint ────────────────────────────────────
-//
-// One call, one batch, one record. The harness has already run the work with no
-// governance calls in between; this is where the claims it returns are judged
-// against the capsule it ran under, and where that judgement becomes durable.
-//
-// The order is the point, and it is the executor's order for the same reason:
-// the adjudication interior is put in content-addressed custody FIRST, and only
-// then is the ledger record that names it committed. A bundle write that fails
-// therefore fails the whole settlement — no claim, no event — rather than
-// leaving a record the integrity oracle condemns on sight. A known violation is
-// not a degraded success.
-//
-// Four refusals happen BEFORE any effect, and each is a different question:
-//
-//   1. the request is malformed — a missing subject, two spellings of it that
-//      disagree, a missing or malformed batch id, no capsule named at all, or
-//      an accepted claim the task-completion segment cannot be compiled from;
-//   2. a submitted capsule is not a capsule — it fails the published contract;
-//   3. the capsule was never prepared — no `workflow.prepared` record exists
-//      for its version, or the submitted document is not the one the record
-//      pinned;
-//   4. the pinned capsule does not resolve — a dangling task reference, a
-//      dependency cycle, a required result nothing declares, a task naming a
-//      step its pinned definition lacks, a task with no verification terms.
-//
-// The third is what makes pinning real. Settlement adjudicates against the
-// capsule read back out of custody, never against a document the caller hands
-// in: a submitted capsule is only ever compared with the record, so the terms a
-// batch is judged by are the terms it was compiled under.
-//
-// A REFUSED BATCH IS STILL A SETTLEMENT. `outcome: 'rejected'` returns success
-// with the findings attached, and appends the record: the caller needs to know
-// which claim to fix, and the next call needs to be able to read that this
-// batch did not take. Only the refusals above answer with an error, and none of
-// them has adjudicated anything.
-//
-// A BATCH ADJUDICATION ACCEPTS IS THEN VERIFIED, task by task, and only a
-// verified task is accepted. Verification is the executor's own task-completion
-// segment — the ladder gates under the tier the capsule froze for the task,
-// then `task_complete` — compiled and run in-process against the worktree the
-// claim names, under an operation derived from the batch and the task. The
-// gate rows it leaves are the evidence the settlement resolves; the completion
-// fact it leaves is the one the primitive path leaves, from the same leaf, so
-// the projection moves for a settlement exactly as it moves for a
-// `task_complete`. A segment that halts is a `verification-failed` finding
-// against its task and the batch is rejected; the tasks whose segments
-// committed stay complete, as they would had an orchestrator completed them
-// one at a time. Nothing is verified for a batch adjudication already refuses
-// or holds: its findings come back first, and the corrected batch is verified.
-// The phase does not move: `transition` stays the caller's next call, with its
-// own guard and its own single writer.
-//
-// THE BATCH IS THE KEY. Transport is at least once; settlement is not. The
-// operation claim a settlement is recorded under is derived from the batch
-// identity, never supplied by the caller, so a harness resubmitting a batch
-// after a timeout reaches the verdict it already has instead of producing a
-// second one — and a correction of a rejected batch, submitted as a new batch
-// under the same pinned capsule, is a new settlement rather than a conflict.
+/**
+ * `settle`: the adjudication endpoint. One call judges one batch of claims
+ * against the capsule that the batch ran under, and records one verdict.
+ *
+ * The adjudication bundle goes into content-addressed custody first. Only then
+ * does the ledger record that names it commit. A failed bundle write fails the
+ * whole settlement, with no settlement claim and no settlement record.
+ *
+ * Settlement reads the pinned capsule back from custody. A submitted capsule is
+ * only compared with the record. A refused batch is still a settlement: it
+ * returns success with `outcome: 'rejected'` and appends the record.
+ *
+ * A batch that the shape pass settles is then verified task by task. A halted
+ * segment rejects the batch. Tasks whose segments committed stay complete.
+ *
+ * The operation claim derives from the batch identity, not from the caller. A
+ * resubmitted batch gets its existing verdict. A correction under a new
+ * `batchId` is a new settlement. Settlement does not move the phase.
+ */
 
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
@@ -123,20 +83,17 @@ const DEVIATION_PROPOSED_TYPE = 'deviation.proposed';
 const DEVIATION_DECIDED_TYPE = 'deviation.decided';
 
 /**
- * The round that decides a held batch's deviations. There is one, because a
- * decision covers every deviation the batch waits on: a batch decided is
- * settled or rejected, and a batch not yet decided is held, with nothing to
- * record for the waiting.
+ * The round that decides the deviations of a held batch. There is one round,
+ * because a decision covers every deviation that the batch waits on. A decided
+ * batch is settled or rejected.
  */
 const DECISION_ROUND = 1;
 
 /**
- * What settlement is wired with. `execute` is the executor's own collaborator
- * set — its runbook table, registry lookup, handler table — because a task's
- * verification IS the executor's task-completion segment, run through the
- * same code the public `execute_intent` runs it through. Required, not
- * defaulted: a settlement with nothing to run through would accept claims it
- * had not verified. `bundleStore` is the test seam it has always been.
+ * The collaborators of settlement. `execute` is the collaborator set of the
+ * executor, because task verification is the executor task-completion segment.
+ * It is required, so that settlement cannot accept a claim it did not verify.
+ * `bundleStore` is a test seam.
  */
 export interface SettleDeps {
   readonly execute: ExecuteIntentDeps;
@@ -161,18 +118,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * The operation claim one settlement is recorded under.
+ * The operation claim of one settlement. It covers only the subject and the
+ * settlement key `(capsuleVersion, batchId)` of one workflow.
  *
- * Over the subject and the settlement key — `(capsuleVersion, batchId)` of one
- * workflow — and nothing else. The rest of the capsule identity belongs in the
- * request digest instead: a submission reusing the key against different terms
- * has to meet the persisted claim and be refused, not mint a key of its own and
- * adjudicate the same batch a second time.
- *
- * The round that decides a held batch is its own claim on the same key, named
- * by the round: the submission's claim is the verdict that held the batch, and
- * the decision's claim is the verdict that closed it. The submitting round
- * keeps the key every settlement so far was claimed under.
+ * The rest of the capsule identity goes in the request digest. So a reuse of
+ * the key with different terms meets the persisted claim and is refused. The
+ * decision round adds its round number to get its own claim.
  */
 function settlementClaimKey(streamId: string, identity: SettledCapsuleIdentity, round = 0): string {
   const key = canonicalJson({
@@ -186,12 +137,9 @@ function settlementClaimKey(streamId: string, identity: SettledCapsuleIdentity, 
 }
 
 /**
- * The replay comparison key.
- *
- * Over the capsule IDENTITY plus the batch contents, not the whole capsule
- * document. Two calls submitting the same claims under the same compilation are
- * the same request. Canonical, so two encodings of one batch that differ only
- * by object key order are one request rather than a conflict.
+ * The replay comparison key, over the capsule identity and the batch contents.
+ * The encoding is canonical, so two encodings that differ only in key order
+ * are one request.
  */
 function requestDigestOf(
   streamId: string,
@@ -212,10 +160,9 @@ function decisionDigestOf(
 }
 
 /**
- * The id a deviation is proposed and decided under: derived from the batch it
- * belongs to and its own content, so the decision round can name it without
- * restating it, and the same deviation resubmitted in a new batch is a new
- * proposal rather than a decided one.
+ * The id of a deviation, derived from its batch and its content. The decision
+ * round names it without restating it. The same deviation in a new batch is a
+ * new proposal.
  */
 function deviationIdOf(identity: SettledCapsuleIdentity, deviation: ProposedDeviation): string {
   const key = canonicalJson({
@@ -250,12 +197,9 @@ type HeldBatchLookup =
   | { readonly kind: 'not-held'; readonly outcome: string };
 
 /**
- * The batch a decision round adjudicates: the one the submitting round held,
- * read back from the record it left and the bundle that record references.
- * A decision carries no claims, so the claims decided are the claims held —
- * nothing can be substituted under a decision. The submitting round's record
- * is the one with no round; a later record for the batch is a decision
- * already made, which the claim pre-flight has answered before this runs.
+ * The batch that a decision round adjudicates, read back from the record of the
+ * submitting round and its bundle. A decision carries no claims, so nothing can
+ * replace the held claims. The submitting record is the one with no round.
  */
 async function heldBatch(
   ctx: DispatchContext,
@@ -301,10 +245,8 @@ async function heldBatch(
   };
 }
 
+/** Wrap a receipt as a success. `ToolResult.data` is `unknown`, so no cast is necessary. */
 function receiptResult(receipt: SettlementReceipt): ToolResult {
-  // `ToolResult.data` is `unknown`, so the receipt goes across as itself. An
-  // assertion to a record here would have been a cast that proved nothing and
-  // cost a line on the type-debt baseline.
   return { success: true, data: receipt };
 }
 
@@ -320,14 +262,14 @@ function completedTaskIds(events: readonly { readonly type: string; readonly dat
 }
 
 /**
- * Bring the state document level with tasks the stream shows complete. The
- * transition guards read `state.tasks[].status` off the document, so a
- * completion fact on the stream admits nothing until the document says the
- * same. The composed leaf syncs the document as it leaves the fact; this is
- * for the paths that leave none — a task complete before the batch, and a
- * replay — where the fact is on the stream and the document may have been
- * left behind by a write that failed. A workflow with no document, or one
- * that does not list the task, is logged and left.
+ * Bring the state document level with the tasks that the stream shows complete.
+ * The transition guards read `state.tasks[].status` from the document, so a
+ * completion fact admits nothing until the document agrees.
+ *
+ * The composed leaf syncs the document when it leaves the fact. This function
+ * covers a task complete before the batch, and a replay after a failed write.
+ * The document is level when it lists every task as complete, or when it is
+ * missing. The function logs each other outcome.
  */
 async function bringDocumentLevel(
   stateDir: string,
@@ -347,7 +289,7 @@ async function bringDocumentLevel(
   return outcome;
 }
 
-/** The refusal a document that could not follow the facts earns. The facts stand. */
+/** The refusal when the state document cannot follow the facts. The facts stand. */
 function documentNotLevel(
   sync: Extract<TaskStatusSyncOutcome, { kind: 'failed' }>,
   what: string,
@@ -372,15 +314,13 @@ function evidenceKey(evidence: SettlementEvidence): string {
 }
 
 /**
- * Which of the batch's cited references resolve, decided once, ahead of
- * adjudication, and handed to the adjudicator as a predicate.
+ * The cited references of the batch that resolve, computed once before
+ * adjudication.
  *
  * A reference resolves when the stream holds an `admission.evidence-recorded`
- * row whose evidence id is the reference, whose requirement is the cited
- * kind's ladder requirement, and whose every named blob resolves under the
- * state directory's evidence store. That last clause is the rule the
- * durable-evidence ensure applies: a row naming a blob that is gone is not
- * evidence. The claim cites; it never carries.
+ * gate row with that evidence id and the ladder requirement of the cited kind.
+ * Each blob that the row names must also resolve in the evidence store. A row
+ * that names a missing blob is not evidence.
  */
 async function resolvedEvidence(
   ctx: DispatchContext,
@@ -424,28 +364,21 @@ async function resolvedEvidence(
 }
 
 /**
- * The operation one task's verification segment runs under.
- *
- * Derived from the settlement's own claim key and the task, so a resubmission
- * of the batch after a crash mid-verification reaches the segments that
- * already committed through their claims and re-runs only what did not — the
- * executor's crash-retry model, applied one level up. Hashed rather than
- * concatenated so the id stays inside the bound the executor accepts whatever
- * the task id's length.
+ * The operation for the verification segment of one task, derived from the
+ * settlement claim key and the task. After a crash, a resubmission reaches the
+ * committed segments through their claims and runs only the rest. The hash
+ * keeps the id inside the executor length bound.
  */
 function verificationOperationId(operationId: string, taskId: string): string {
   return `settle-task:${createHash('sha256').update(`${operationId}\u0000${taskId}`, 'utf8').digest('hex')}`;
 }
 
 /**
- * The intent arguments one accepted claim compiles to.
+ * The intent arguments for one accepted claim.
  *
- * The tier, the boundary flag and the base come from the CAPSULE, never from
- * the claim: they choose which gates run and what the diff is measured from,
- * and a runtime that could set them could choose its own judge. The worktree
- * and the branch come from the claim, because only the runtime knows where it
- * worked. The whole claim rides along as the completion's `result`, as on the
- * primitive path, so the fact the segment leaves carries the same provenance.
+ * The tier, the boundary flag and the base come from the capsule, never from the claim. They choose
+ * the gates and the start of the diff. The worktree and the branch come from the claim. The claim
+ * fields are the completion `result`, as on the `task_complete` path.
  */
 function verificationArgsOf(
   claim: SettlementClaim,
@@ -488,15 +421,12 @@ type VerificationRun =
   | { readonly kind: 'refused'; readonly result: ToolResult };
 
 /**
- * Run one task's verification through the executor, under the derived
- * operation, and read the segment's receipt back as a verification outcome.
+ * Run the verification of one task through the executor, and read the receipt
+ * as an outcome.
  *
- * Both executor outcomes carry a receipt, and both are answers: a committed
- * segment verified the task, a halted one names the leaf that stopped it. An
- * executor refusal with no receipt is not an answer about the task — the
- * derived operation already claimed under a different request means this
- * batch's claim for the task changed after its verification ran, which is the
- * settlement's own digest-mismatch refusal reached one level down.
+ * A committed segment verified the task. A halted segment names the leaf that
+ * stopped it. A refusal with no receipt is not an answer about the task. A
+ * digest mismatch means that the claim for the task changed after verification.
  */
 async function verifyTask(
   compiled: CompiledVerification,
@@ -637,6 +567,19 @@ function readDecisions(raw: unknown): SettlementDecision[] | string {
   return decisions;
 }
 
+/**
+ * Settle one batch, or decide the deviations of a held batch.
+ *
+ * Before any effect, it refuses a malformed request, and a capsule that is invalid, not prepared,
+ * unresolved, or without verification terms. Calls for one batch run one at a time in a process,
+ * and the commit serializes them across processes. On a race, the caller gets the receipt that
+ * `decideOnce` persisted. Every segment compiles before any runs, so a claim that cannot compile
+ * leaves the batch unclaimed. A task that the stream already shows complete passed its gates
+ * through `task_complete`, so settlement does not verify it again.
+ *
+ * The emitter-closure census does not read `decideOnce`, so an allowance row covers this append.
+ * The record is the last event, and the tail sequence comes from a read inside the write lock.
+ */
 export async function handleSettle(
   raw: Record<string, unknown>,
   stateDir: string,
@@ -655,9 +598,6 @@ export async function handleSettle(
     );
   }
 
-  // The capsule is named by version, and may also be submitted whole. A
-  // submitted document is parsed only so it can be compared with the record;
-  // it is never what the batch is adjudicated against.
   let submitted: ExarchosCapsuleV1 | undefined;
   if (raw.capsule !== undefined) {
     if (!isRecord(raw.capsule)) {
@@ -717,10 +657,6 @@ export async function handleSettle(
   }
   const capsule = pinned.capsule;
 
-  // Structure and resolvability are two questions, and a capsule can pass the
-  // first and fail the second. Resolved against the definition the record
-  // pinned, so a task naming a step that definition lacks is refused here
-  // rather than adjudicated as if the step existed.
   const references = resolveCapsuleReferences(capsule, { definition: pinned.definition });
   if (!references.ok) {
     return refused(
@@ -730,10 +666,6 @@ export async function handleSettle(
     );
   }
 
-  // A task settlement can adjudicate is a task settlement will verify, and
-  // verification runs under terms the capsule froze. A capsule that declares a
-  // result shape for a task and no terms for it cannot be applied — the terms
-  // are not inferred, because the tier chooses the gates.
   const verificationTerms = capsule.settlementContract.taskVerification ?? {};
   const untermed = Object.keys(capsule.contracts.taskResults).filter(
     (taskId) => verificationTerms[taskId] === undefined,
@@ -747,9 +679,6 @@ export async function handleSettle(
     );
   }
 
-  // A request carrying decisions is the round that decides a held batch. It
-  // carries the decisions and nothing else: the claims it decides are the
-  // ones the batch was held with, read back from the record below.
   const decisions = readDecisions(raw.decisions);
   if (typeof decisions === 'string') return invalid(decisions);
   const deciding = raw.decisions !== undefined;
@@ -781,13 +710,7 @@ export async function handleSettle(
     : requestDigestOf(streamId, identity, submittedClaims, submittedDeviations);
   const batchLabel = `batch '${identity.batchId}' of capsule v${identity.capsuleVersion}`;
 
-  // Serialized per batch so a concurrent resubmission waits and then finds the
-  // first call's claim in its own pre-flight, instead of both passing an empty
-  // lookup and both adjudicating. Within one process that closes the window; a
-  // second process is still serialized at the commit.
   return runExclusivePerOperation(operationId, async (): Promise<ToolResult> => {
-    // Replay pre-flight, ahead of every effect. The same batch with the same
-    // request returns the persisted verdict and adjudicates nothing.
     const claim = ctx.eventStore
       .getAppender()
       .ensureSqliteBackendSync()
@@ -804,9 +727,6 @@ export async function handleSettle(
                 'back under a new batchId.',
         );
       }
-      // A settled batch's replay brings the document level with the facts
-      // the first call left: a sync that failed after the verdict was
-      // durable is repaired here rather than left behind a receipt.
       if (claim.result.outcome === 'settled' && claim.result.acceptedTasks.length > 0) {
         const sync = await bringDocumentLevel(stateDir, streamId, claim.result.acceptedTasks);
         if (sync.kind === 'failed') {
@@ -841,8 +761,6 @@ export async function handleSettle(
       }
       claims = held.claims;
       deviations = held.deviations;
-      // The decision answers what the batch waits on: every pending deviation,
-      // by the id the held receipt named, and nothing the batch never proposed.
       const pending = new Map(pendingDeviationsOf(identity, deviations).map((p) => [p.deviationId, p]));
       const unknown = decisions.filter((decision) => !pending.has(decision.deviationId));
       if (unknown.length > 0) {
@@ -868,40 +786,23 @@ export async function handleSettle(
     const decided = (deviation: ProposedDeviation): 'accepted' | 'rejected' | undefined =>
       decidedOf.get(deviationIdOf(identity, deviation));
 
-    // Cited evidence is resolved once, here, and adjudicated as a predicate: an
-    // input to the verdict, not an effect, read after the pre-flight because a
-    // replay needs none of it.
     const resolved = await resolvedEvidence(ctx, stateDir, streamId, claims);
     const evidenceResolves = (evidence: SettlementEvidence): boolean => resolved.has(evidenceKey(evidence));
 
-    // The shape pass: is every claim one the capsule admits? Only a batch this
-    // pass would settle is verified; a batch it refuses or holds is recorded
-    // as such, with nothing run, so the caller sees the findings first.
     const shape = adjudicateSettlement(capsule, claims, deviations, { evidenceResolves, decided });
     let verdict = shape;
     const traces: SettlementVerificationTrace[] = [];
 
     if (shape.outcome === 'settled') {
       const byTask = new Map(claims.map((claim): [string, SettlementClaim] => [claim.taskId, claim]));
-      // The old path and this one meeting on one workflow: a task the stream
-      // already shows complete was completed by `task_complete`, which passed
-      // the gate it demands, and is accepted as it stands rather than
-      // verified a second time under an operation that could not leave the
-      // fact again.
       const completed = completedTaskIds(
         await ctx.eventStore.query(streamId, { type: 'task.completed' }),
       );
 
-      // Every segment is compiled before any runs, so a claim the segment
-      // cannot be built from refuses the call with nothing run — the batch
-      // stays unclaimed and the corrected claim resubmits under the same id.
       const compiled: CompiledVerification[] = [];
       const outcomes = new Map<string, TaskVerificationOutcome>();
       for (const taskId of shape.acceptedTasks) {
         if (completed.has(taskId)) {
-          // Accepted as it stands, and brought level on the document, which
-          // the leaf that left the fact may have failed to do. Refused
-          // before any effect if it cannot be.
           const sync = await bringDocumentLevel(stateDir, streamId, [taskId]);
           if (sync.kind === 'failed') {
             return documentNotLevel(
@@ -935,9 +836,6 @@ export async function handleSettle(
         traces.push(run.trace);
       }
 
-      // The final pass: the same adjudication, now with every accepted claim's
-      // verification beside it. A halted segment is a finding; the accepted
-      // set is what passed both.
       verdict = adjudicateSettlement(capsule, claims, deviations, {
         evidenceResolves,
         decided,
@@ -962,8 +860,6 @@ export async function handleSettle(
       decisions: [...decisions],
       ...(round > 0 ? { round } : {}),
       adjudicated: verdict.adjudicated,
-      // The bundle schema types the reference list as the plain array it
-      // parses to; the trace holds the executor's readonly tuple.
       verification: traces.map(({ bundleRefs, ...trace }) =>
         bundleRefs === undefined ? trace : { ...trace, bundleRefs: [...bundleRefs] },
       ),
@@ -974,10 +870,6 @@ export async function handleSettle(
     const artifactId = settlementBundleArtifactId(identity.batchId, identity.capsuleVersion);
     const outer = outerCorrelation(ctx);
 
-    // Findings by kind, in roster order, so two settlements reporting the same
-    // defects produce the same payload. Counting here rather than in the
-    // adjudicator keeps the verdict a statement about the batch and the payload a
-    // statement about the record.
     const countsByKind = new Map<string, number>();
     for (const finding of verdict.findings) {
       countsByKind.set(finding.kind, (countsByKind.get(finding.kind) ?? 0) + 1);
@@ -1003,32 +895,12 @@ export async function handleSettle(
       });
 
       return runWithDispatchContext(outer, async (): Promise<ToolResult> => {
-        // The payload version is the custody epoch: it says this row was written
-        // under the contract that requires a bundle reference, which is how the
-        // integrity sweep tells it from a row that settled before custody existed.
-        // Both fields come from the endpoint constant, so the writer, the
-        // schema and the integrity oracle cannot name three different things.
-        //
-        // A literal `type:` was measured here first, to see whether it would
-        // keep the append visible to the emitter-closure census. It does not:
-        // that census resolves `.append(...)` call sites, and this commit goes
-        // through `decideOnce`, which the scanner does not inspect at all. The
-        // append is therefore invisible to it whatever the discriminant is, so
-        // the literal bought nothing and cost the constant's guarantee. The
-        // invisibility is covered by an allowance row instead, which is the
-        // same route `orchestrate.intent_executed` takes for the same reason.
         const record = stampFromAmbient({
           type: EXECUTION_SETTLED_SETTLEMENT.type,
           data,
           timestamp: settledAt,
           schemaVersion: EXECUTION_SETTLED_SETTLEMENT.custodyFromSchemaVersion,
         });
-        // A held batch leaves what it waits on, one proposal per deviation,
-        // ahead of the record that holds it; a decision round leaves one
-        // decision per proposal ahead of the record that closes it. The
-        // record is last on either round, so its sequence is the receipt's
-        // tail. Only the submitting round proposes: a decision names
-        // proposals, it does not make them.
         const pending = verdict.outcome === 'deviation-pending' && !deciding
           ? pendingDeviationsOf(identity, deviations)
           : [];
@@ -1055,16 +927,9 @@ export async function handleSettle(
         const events = [...proposals, ...decidedRows, record];
 
         try {
-          // `decideOnce` RETURNS the claim's canonical result, which on a race is
-          // the winner's receipt rather than the one built here. Handing the
-          // caller the locally-built one would have them holding a receipt no
-          // claim records and no replay can reproduce.
           const persisted = await ctx.eventStore
             .getAppender()
             .decideOnce<SettlementReceipt>(operationId, requestDigest, (tx) => {
-              // Read inside the write lock, so the tail is the sequence this
-              // record lands on rather than whatever the stream held when the
-              // transaction opened — the segments' own rows are already below.
               const snapshot = tx.readStream(streamId);
               return {
                 streamId,

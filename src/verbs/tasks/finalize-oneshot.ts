@@ -1,22 +1,9 @@
-// ─── Finalize Oneshot Orchestrate Handler (T12) ────────────────────────────
-//
-// Resolves the oneshot workflow choice state at the end of the `implementing`
-// phase, transitioning to either `synthesize` (PR-based path) or `completed`
-// (direct-commit path) based on the synthesisOptedIn / synthesisOptedOut
-// guards declared in T9.
-//
-// Approach: evaluate the synthesisOptedIn guard directly against the loaded
-// state (the guard is pure — see workflow/guards.ts) to determine the
-// target phase, then call handleSet to drive the HSM transition. This keeps
-// the handler explicit about the choice and lets the state machine enforce
-// guard semantics on the actual transition.
-//
-// Why not retry-with-fallthrough? An "attempt synthesize, on guard-fail try
-// completed" approach would be more decoupled but produces a guard-failed
-// event in the audit log on every direct-commit path, polluting the stream
-// with diagnostic noise. Direct guard evaluation produces a single clean
-// transition event.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Resolves the oneshot choice state at the end of the `implementing` phase.
+ * The target is `synthesize` for the PR path or `completed` for the direct-commit path.
+ * The handler evaluates the `synthesisOptedIn` guard directly, then calls `handleSet` for the transition.
+ * A try-and-fall-through approach puts a guard-failed event in the log on each direct-commit path, so the handler does not use it.
+ */
 
 import * as path from 'node:path';
 
@@ -27,16 +14,18 @@ import { guards } from '../../workflow/guards.js';
 import { hydrateEventsFromStore } from '../../workflow/state-store.js';
 import { resolveOneshotState } from './oneshot-state.js';
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 export interface FinalizeOneshotArgs {
   readonly featureId: string;
   readonly stateDir: string;
   readonly eventStore: EventStore;
 }
 
-// ─── Handler ────────────────────────────────────────────────────────────────
-
+/**
+ * Finalizes a oneshot workflow. `resolveOneshotState` resolves the state from the state file or the event store and checks the workflow type.
+ * The handler loads `_events` from the event store, so the guard sees opt-in events that the state file does not hold yet.
+ * When that load fails, it keeps the events on the state, because `handleSet` loads them again before the transition.
+ * `handleSet` evaluates the transition guard again, so a change between the read and the transition cannot drive the wrong target.
+ */
 export async function handleFinalizeOneshot(
   args: FinalizeOneshotArgs,
 ): Promise<ToolResult> {
@@ -59,13 +48,6 @@ export async function handleFinalizeOneshot(
     };
   }
 
-  // ─── Read + validate current workflow state ───────────────────────────────
-  // The shared oneshot-state resolver (also used by request-synthesize) tries
-  // the state file first and falls back to materializing from the event store,
-  // so finalize_oneshot works identically whether the workflow is file-backed
-  // or purely event-sourced. It also owns the resolver-error translation, the
-  // empty-projection "no workflow exists" sentinel, and the oneshot
-  // workflow-type check (DR-10). This handler keeps its own phase gate below.
   const stateFile = path.join(stateDir, `${featureId}.state.json`);
   const resolved = await resolveOneshotState({
     stateFile,
@@ -80,7 +62,6 @@ export async function handleFinalizeOneshot(
 
   const state: Record<string, unknown> = resolved.state;
 
-  // ─── Verify current phase ─────────────────────────────────────────────────
   const currentPhase = state.phase;
   if (currentPhase !== 'implementing') {
     return {
@@ -92,33 +73,16 @@ export async function handleFinalizeOneshot(
     };
   }
 
-  // ─── Hydrate _events from the event store so the choice-state guards
-  //     observe the same view that the HSM will see during the actual
-  //     transition. Without this, an opt-in event appended after the state
-  //     file was last written would be invisible to the inline guard check.
   try {
     state._events = await hydrateEventsFromStore(featureId, eventStore);
   } catch {
-    // Best-effort: fall back to whatever events are already on the state.
-    // The HSM will re-hydrate when handleSet executes the transition, so
-    // any miss here is corrected before the actual phase change.
     state._events = state._events ?? [];
   }
 
-  // ─── Resolve target phase via the synthesisOptedIn guard ─────────────────
-  // Guards are pure — see workflow/guards.ts. We delegate to the guard
-  // rather than re-implementing the policy/event logic so any future
-  // change to the choice-state semantics happens in one place.
   const optedInResult = guards.synthesisOptedIn.evaluate(state);
   const targetPhase: 'synthesize' | 'completed' =
     optedInResult === true ? 'synthesize' : 'completed';
 
-  // ─── Drive the transition through handleSet ──────────────────────────────
-  // handleSet re-evaluates the corresponding HSM transition guard
-  // (synthesisOptedIn / synthesisOptedOut) against the current state, so a
-  // race that flips the policy or events between our read and the
-  // transition is caught at the state-machine boundary rather than
-  // silently driving an inconsistent target.
   const setResult = await handleSet(
     { featureId, phase: targetPhase },
     stateDir,

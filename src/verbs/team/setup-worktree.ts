@@ -1,8 +1,7 @@
-// ─── Setup Worktree Orchestrate Action ──────────────────────────────────────
-//
-// Port of scripts/setup-worktree.sh — atomic worktree creation with 5
-// validation steps: gitignore, branch, worktree, npm install, baseline tests.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * The `setup_worktree` orchestrate action. It creates a task worktree in five
+ * checked steps: gitignore entry, branch, worktree, install, and baseline tests.
+ */
 
 import { existsSync, appendFileSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -19,8 +18,6 @@ import {
   type WorktreeProvisionOutcome,
 } from '../../vcs/worktree-provisioner.js';
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 export interface SetupWorktreeArgs {
   readonly repoRoot: string;
   readonly taskId: string;
@@ -28,33 +25,26 @@ export interface SetupWorktreeArgs {
   readonly baseBranch?: string;
   readonly skipTests?: boolean;
   /**
-   * DR-3 (T-09, #1204): explicit branch override. When supplied, takes
-   * precedence over workflow-state and the legacy default. Lets callers
-   * override the planned branch without mutating workflow state.
+   * Explicit branch override. It takes precedence over the planned branch in
+   * workflow state and over the default, and it does not change workflow state.
    */
   readonly branch?: string;
   /**
-   * DR-3 (T-09, #1204): used by the composite adapter for `featureId`
-   * routing in the registry schema. Not consumed by the handler directly —
-   * the adapter pre-loads workflow state from this and threads it via the
-   * second positional argument.
+   * Read by the composite adapter, not by the handler. The adapter loads
+   * workflow state from it and passes that state as the second argument.
    */
   readonly featureId?: string;
 }
 
 /**
- * Minimal shape of the workflow state needed by the handler. The composite
- * adapter materializes the full WorkflowStateView and projects this subset;
- * tests can pass a literal without instantiating a projection.
+ * The subset of workflow state that the handler reads. Tests can pass a
+ * literal without a projection.
  */
 interface SetupWorktreeWorkflowState {
   readonly tasks?: ReadonlyArray<{ id: string; branch?: string }>;
   /**
-   * #1509/#1501: the workflow's integration branch. When present it is the
-   * authoritative base for subagent worktrees on the managed (non-native)
-   * path — mirrors `prepare_delegation`'s `synthesis.integrationBranch`
-   * derivation so both isolation paths uphold the same base-correctness
-   * guarantee across all six runtimes (INV-4).
+   * The integration branch of the workflow. When present and `baseBranch` is
+   * absent, it is the base for managed-path worktrees, as in `prepare_delegation`.
    */
   readonly synthesis?: { readonly integrationBranch?: string } | undefined;
 }
@@ -66,8 +56,6 @@ interface CheckResult {
   readonly status: CheckStatus;
   readonly detail?: string;
 }
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
 
 function gitExec(repoRoot: string, args: readonly string[]): string {
   return execFileSync('git', ['-C', repoRoot, ...args], {
@@ -118,31 +106,20 @@ function formatReport(
   return lines.join('\n');
 }
 
-// ─── Step Functions ─────────────────────────────────────────────────────────
-
-// DR-1 (T-07, #1203): direct-read the repo's `.gitignore`. The previous
-// implementation used `git check-ignore -q .worktrees/`, which honors any
-// ignore source (global excludes, .git/info/exclude, parent globs). When
-// a non-repo source matched, the function reported PASS without writing
-// to the repo file — a fresh clone or CI run then saw `.worktrees/` as
-// untracked, breaking subsequent `merge_orchestrate` preflights.
-//
-// New contract: PASS means "the repo's `.gitignore` lists `.worktrees/`."
-// The detail string reflects exactly which path the function took
-// (already present / added / created with entry).
-//
-// fix-007 (review #1213): orchestration-only — read/format helpers
-// extracted below so each concern (read vs error formatting vs control
-// flow) sits in its own function and stays easy to read in isolation.
+/**
+ * Make sure that the repository `.gitignore` lists `.worktrees/`. It reads the
+ * file directly, because `git check-ignore` also honors global and parent
+ * ignore sources that a fresh clone does not have.
+ *
+ * PASS means that the repository file lists the entry. The detail names the
+ * path taken. When the file has no trailing newline, the append adds one
+ * first, so the entry does not join the last line.
+ */
 function ensureGitignored(repoRoot: string): CheckResult {
   const gitignorePath = toPosix(join(repoRoot, '.gitignore'));
 
   let detail: 'already present' | 'added' | 'created with entry';
   let needsAppend: boolean;
-  // CodeRabbit #7: when the existing .gitignore lacks a trailing newline,
-  // a bare append produces `dist.worktrees/\n` (single concatenated line)
-  // instead of two distinct entries. Prepend a newline if needed so the
-  // boundary is preserved.
   let prependNewline = false;
 
   if (existsSync(gitignorePath)) {
@@ -177,15 +154,12 @@ function ensureGitignored(repoRoot: string): CheckResult {
   return { name: '.worktrees is gitignored', status: 'pass', detail };
 }
 
-/**
- * fix-007 (#1213): I/O wrapper that returns either the file contents or a
- * structured error. Centralizes the readFileSync try/catch so the
- * orchestrator can stay flat.
- */
+/** The file contents, or the read error. */
 type ReadGitignoreResult =
   | { kind: 'ok'; contents: string }
   | { kind: 'error'; err: unknown };
 
+/** Read `.gitignore` and return an error value instead of a throw. */
 function readGitignoreLines(gitignorePath: string): ReadGitignoreResult {
   try {
     return { kind: 'ok', contents: readFileSync(gitignorePath, 'utf-8') };
@@ -194,11 +168,7 @@ function readGitignoreLines(gitignorePath: string): ReadGitignoreResult {
   }
 }
 
-/**
- * fix-007 (#1213): single-source formatter for the gitignore-step CheckResult
- * `fail` shape. Keeps the `${prefix}: ${message}` convention in one place so
- * any future adjustment to the detail string lives in one function.
- */
+/** The `fail` result of the gitignore step, with a `${prefix}: ${message}` detail. */
 function formatGitignoreError(prefix: string, err: unknown): CheckResult {
   const message = err instanceof Error ? err.message : String(err);
   return {
@@ -209,9 +179,9 @@ function formatGitignoreError(prefix: string, err: unknown): CheckResult {
 }
 
 /**
- * Returns true if `contents` has a non-comment, non-negated line matching
- * `.worktrees` or `.worktrees/`. Comments (#) and negations (!) don't
- * count — those would not actually ignore the directory.
+ * Returns true if `contents` has a line that is exactly `.worktrees` or
+ * `.worktrees/`. Comment lines and negated lines do not ignore the directory,
+ * so they do not count.
  */
 function containsWorktreesEntry(contents: string): boolean {
   for (const rawLine of contents.split(/\r?\n/)) {
@@ -222,16 +192,6 @@ function containsWorktreesEntry(contents: string): boolean {
   return false;
 }
 
-// ─── DR-3 (T-09, #1204): branch-name resolution ─────────────────────────────
-//
-// Resolution priority:
-//   1. args.branch                              — explicit caller override
-//   2. workflow.tasks[id=<taskId>].branch       — planned branch from state
-//   3. `feature/<taskId>-<taskName>`            — legacy default
-//
-// Returns the resolved name plus a `source` tag used to annotate the
-// "Branch created" check detail. Pure: no I/O, easy to unit-test.
-
 type BranchSource = 'arg' | 'workflow state' | 'default';
 
 interface ResolvedBranch {
@@ -239,6 +199,11 @@ interface ResolvedBranch {
   readonly source: BranchSource;
 }
 
+/**
+ * Resolve the branch name in this order: `args.branch`, the planned branch of
+ * the task in workflow state, then `feature/<taskId>-<taskName>`. The `source`
+ * tag annotates the "Branch created" check.
+ */
 function resolveBranchName(
   args: SetupWorktreeArgs,
   workflowState?: SetupWorktreeWorkflowState,
@@ -253,24 +218,6 @@ function resolveBranchName(
   return { name: `feature/${args.taskId}-${args.taskName}`, source: 'default' };
 }
 
-// ─── Base-branch resolution (#1509 / #1501) ──────────────────────────────────
-//
-// The managed (non-native) worktree path previously hardcoded `?? 'main'` as
-// the base, silently branching every subagent worktree off `main` even on a
-// stacked / non-`main` integration branch — the same #1509/#1501 footgun the
-// native-isolation guard now blocks. Resolution mirrors `prepare_delegation`'s
-// integration-branch derivation so both paths uphold the same base-correctness
-// guarantee across all six runtimes (INV-4):
-//
-//   1. args.baseBranch                     — explicit caller override
-//   2. workflowState.synthesis.integrationBranch — the planned integration tip
-//   3. current HEAD                        — the orchestrator runs setup_worktree
-//                                            from the integration checkout, so
-//                                            HEAD *is* the tip when nothing more
-//                                            specific is supplied
-//   4. 'main'                              — legacy default (only when HEAD is
-//                                            unresolvable, e.g. detached + bare)
-
 type BaseBranchSource = 'arg' | 'workflow state' | 'HEAD' | 'default';
 
 interface ResolvedBase {
@@ -279,28 +226,30 @@ interface ResolvedBase {
 }
 
 /**
- * Best-effort current-branch detection. Returns the branch name, or the commit
- * SHA when detached, or `null` when neither resolves (e.g. an unborn HEAD).
- * Never throws — git failures collapse to `null` so resolution falls through to
- * the legacy default rather than aborting setup.
+ * Returns the current branch name, the commit SHA when HEAD is detached, or
+ * `null` when neither resolves. It does not throw, so a git failure falls
+ * through to the default base and does not stop setup.
  */
 function detectCurrentBranch(repoRoot: string): string | null {
   try {
     const ref = gitExec(repoRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
     if (ref && ref !== 'HEAD') return ref;
   } catch {
-    // fall through to SHA / null
   }
   try {
     const sha = gitExec(repoRoot, ['rev-parse', 'HEAD']).trim();
     if (sha) return sha;
   } catch {
-    // fall through to null
   }
   return null;
 }
 
-/** Pure base-branch resolution (priority order documented above). */
+/**
+ * Resolve the worktree base in this order: `args.baseBranch`, the integration
+ * branch in workflow state, the current HEAD, then `main`. The orchestrator runs
+ * setup from the integration checkout, so HEAD is the integration tip when
+ * nothing more specific is given.
+ */
 function resolveBaseBranch(
   args: SetupWorktreeArgs,
   workflowState: SetupWorktreeWorkflowState | undefined,
@@ -366,6 +315,10 @@ function createWorktreeCheck(
   return { name: 'Worktree created', status: 'pass', detail: `${worktreePath} already exists` };
 }
 
+/**
+ * Run the resolved install command in the worktree. A quote-aware tokenizer
+ * splits it, because a configured command can carry quoted arguments.
+ */
 function runInstallStep(worktreePath: string): CheckResult {
   const resolved = resolveTestRuntime(worktreePath);
 
@@ -377,9 +330,6 @@ function runInstallStep(worktreePath: string): CheckResult {
     };
   }
 
-  // Quote-aware tokenizer (config/override commands may carry quoted args
-  // like `"./bin/runner" install`). Detection-sourced commands work either
-  // way; using the same tokenizer everywhere keeps argv semantics aligned.
   let cmd: string;
   let cmdArgs: readonly string[];
   try {
@@ -411,6 +361,7 @@ function runInstallStep(worktreePath: string): CheckResult {
   }
 }
 
+/** Run the resolved test command in the worktree, split as in {@link runInstallStep}. */
 function runBaselineTests(worktreePath: string, skipTests: boolean): CheckResult {
   if (skipTests) {
     return { name: 'Baseline tests pass', status: 'skip', detail: '--skip-tests' };
@@ -426,7 +377,6 @@ function runBaselineTests(worktreePath: string, skipTests: boolean): CheckResult
     };
   }
 
-  // Quote-aware tokenizer — same rationale as runInstallStep.
   let cmd: string;
   let cmdArgs: readonly string[];
   try {
@@ -458,43 +408,34 @@ function runBaselineTests(worktreePath: string, skipTests: boolean): CheckResult
   }
 }
 
-// ─── DR-1: burst-stagger seam ────────────────────────────────────────────────
-//
-// Injected timing seams for the burst-creation stagger. `sleep`/`jitter`
-// default to the real implementations inside `git-retry.ts`; tests replace
-// them so the jitter window is asserted without wall-clock waits.
+/**
+ * Injected seams. Tests replace `sleep` and `jitter` to assert the stagger
+ * window without real waits.
+ */
 export interface SetupWorktreeSeams {
   /** Injected sleep for the burst stagger. Defaults to the real `setTimeout` sleep. */
   readonly sleep?: SleepFn;
   /** Injected signed-jitter source in `[-1, 1]`. Defaults to real `Math.random()`. */
   readonly jitter?: JitterFn;
   /**
-   * Injected VCS mutation owner seam for branch+worktree creation. Defaults to
-   * the durable {@link createOwnerBackedWorktreeProvisioner}; tests substitute
-   * an in-memory fake so branch/worktree creation is asserted without real git.
+   * The provisioner for branch and worktree creation. Defaults to
+   * {@link createOwnerBackedWorktreeProvisioner}. Tests pass an in-memory fake.
    */
   readonly provisioner?: WorktreeProvisioner;
 }
 
 /**
- * DR-1 burst predicate. A worktree creation is part of a *burst* when the
- * enclosing workflow is delegating more than one task — the delegate wave
- * dispatches those `setup_worktree` creations concurrently, so each one races
- * for `.git/index` at the same instant (thundering herd). A single-task (or
- * context-less) creation is never a burst, so it incurs no stagger. The
- * `tasks` list is exactly what the composite adapter already materializes from
- * workflow state, so this signal is live in production with no schema change.
+ * True when the workflow state lists more than one task. Delegation then runs
+ * the `setup_worktree` creations at the same time, and each one races for
+ * `.git/index`. A creation without workflow state is never a burst.
  */
 function isBurstCreation(workflowState?: SetupWorktreeWorkflowState): boolean {
   return (workflowState?.tasks?.length ?? 0) > 1;
 }
 
-// ─── Handler ────────────────────────────────────────────────────────────────
-
 /**
- * The memoized production provisioner. Constructed lazily so importing this
- * module has no side effects (no EventStore is opened until a real
- * `setup_worktree` runs). Tests never reach this — they inject `seams.provisioner`.
+ * The memoized production provisioner. It is built on first use, so an import
+ * of this module opens no EventStore.
  */
 let defaultProvisioner: WorktreeProvisioner | undefined;
 function getDefaultProvisioner(): WorktreeProvisioner {
@@ -503,22 +444,19 @@ function getDefaultProvisioner(): WorktreeProvisioner {
 }
 
 /**
- * Create a git worktree for a task. Branch+worktree creation routes through the
- * single typed {@link VcsMutationOwner} (via the injected {@link WorktreeProvisioner}
- * seam) so it is atomic-with-event, idempotent, and compensating — a duplicate
- * or interrupted `setup_worktree` can no longer create a duplicate worktree or
- * leave an event-less on-disk orphan. When the enclosing workflow is delegating
- * a burst of tasks ({@link isBurstCreation}), the creation is first staggered by
- * a bounded jittered delay (DR-1, via {@link burstStagger}) so parallel creations
- * don't thundering-herd the git index. The result is always a `Promise`; the
- * sole production caller (the composite `setup_worktree` adapter) already awaits.
+ * Create a git worktree for a task. The {@link WorktreeProvisioner} creates the
+ * branch and the worktree. A duplicate or interrupted call does not create a
+ * second worktree or leave an orphan without an event.
+ *
+ * In a burst ({@link isBurstCreation}), a jittered delay from
+ * {@link burstStagger} comes before any git change, so parallel creations do
+ * not collide on the git index.
  */
 export async function handleSetupWorktree(
   args: SetupWorktreeArgs,
   workflowState?: SetupWorktreeWorkflowState,
   seams: SetupWorktreeSeams = {},
 ): Promise<ToolResult> {
-  // Validate required args
   if (!args.repoRoot) {
     return {
       success: false,
@@ -538,9 +476,6 @@ export async function handleSetupWorktree(
     };
   }
 
-  // DR-1: at the creation seam, stagger burst-dispatched creations before any
-  // git mutation so they don't collide on `.git/index`. A single creation runs
-  // without stagger; a burst awaits the jittered delay first.
   if (isBurstCreation(workflowState)) {
     await burstStagger({ sleep: seams.sleep, jitter: seams.jitter });
   }
@@ -549,28 +484,20 @@ export async function handleSetupWorktree(
 }
 
 /**
- * The 5-step setup body (gitignore, branch, worktree, install, baseline tests).
- * Branch+worktree creation (steps 2+3) routes through the injected
- * {@link WorktreeProvisioner} — the single typed VCS mutation owner — so it is
- * atomic-with-event, idempotent, and compensating. The remaining steps
- * (gitignore/install/baseline) are unchanged. Async because the provisioner is
- * backed by the durable VCS-mutation EventStore.
+ * The five setup steps. The provisioner creates the branch and the worktree
+ * in one call, keyed on the worktree path, so a retry converges. The worktree
+ * directory is `<taskId>-<taskName>` whatever branch name resolves. Install and
+ * tests run only when the worktree is available.
  */
 async function runSetupWorktreeSteps(
   args: SetupWorktreeArgs,
   workflowState: SetupWorktreeWorkflowState | undefined,
   provisioner: WorktreeProvisioner,
 ): Promise<ToolResult> {
-  // #1509/#1501: resolve the worktree base from the integration tip, never a
-  // silent `main`, so managed-path worktrees match the native-isolation
-  // guarantee. See resolveBaseBranch for the priority order.
   const resolvedBase = resolveBaseBranch(args, workflowState, detectCurrentBranch(args.repoRoot));
   const baseBranch = resolvedBase.base;
   const skipTests = args.skipTests ?? false;
 
-  // DR-3 (T-09, #1204): resolve branch with priority args > state > default.
-  // Worktree directory still uses the legacy `<taskId>-<taskName>` layout —
-  // the override only changes the git-branch ref, not the on-disk path.
   const resolvedBranch = resolveBranchName(args, workflowState);
   const branchName = resolvedBranch.name;
   const worktreeName = `${args.taskId}-${args.taskName}`;
@@ -578,14 +505,8 @@ async function runSetupWorktreeSteps(
 
   const checks: CheckResult[] = [];
 
-  // Step 1: Ensure .worktrees is gitignored
   checks.push(ensureGitignored(args.repoRoot));
 
-  // Steps 2+3: Create branch + worktree atomically through the single typed
-  // VCS mutation owner. Idempotency (keyed on the worktree path) makes a
-  // duplicate request replay ONE creation; the durable intent-before-effect
-  // makes an interrupted run converge on retry instead of orphaning on-disk
-  // state with no event.
   const provision = await provisioner.provision({
     repoRoot: args.repoRoot,
     worktreePath,
@@ -597,7 +518,6 @@ async function runSetupWorktreeSteps(
   );
   checks.push(createWorktreeCheck(provision, worktreePath));
 
-  // Step 4: install (resolver-driven: picks npm/pnpm/yarn/bun based on lockfiles)
   const worktreeStep = checks[2];
   const worktreeReady = worktreeStep !== undefined && worktreeStep.status !== 'fail';
   if (worktreeReady) {
@@ -606,7 +526,6 @@ async function runSetupWorktreeSteps(
     checks.push({ name: 'install', status: 'skip', detail: 'worktree not available' });
   }
 
-  // Step 5: Baseline tests (only if worktree exists)
   if (worktreeReady) {
     checks.push(runBaselineTests(worktreePath, skipTests));
   } else {

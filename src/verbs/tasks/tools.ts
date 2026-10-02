@@ -1,4 +1,4 @@
-// ─── Task MCP Tool Handlers ─────────────────────────────────────────────────
+/** Handlers for the task verbs: claim, complete, and fail. */
 
 import { foldToTail } from '../../projections/fold-at-tail.js';
 import * as path from 'node:path';
@@ -13,8 +13,6 @@ import type { WorkflowState } from '../../workflow/types.js';
 import { logger } from '../../logger.js';
 import { getFullRegistry } from '../../registry.js';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
 
 const CLAIM_BASE_DELAY_MS = 50;
 
@@ -32,26 +30,11 @@ function alreadyClaimedResult(taskId: string): ToolResult {
   };
 }
 
-// ─── streamId ⇄ featureId ────────────────────────────────────────────────────
-//
-// The workflow event stream id IS the bare featureId — asserted across the
-// codebase (`next-actions-computer.ts` derives `const streamId =
-// state.featureId`; `operations-fold.ts` documents "surfaces where `streamId`
-// IS the featureId"). The task verbs nonetheless took `streamId` as a REQUIRED
-// parameter and did not accept `featureId` at all.
-//
-// The cost of that was not a wrong answer, it was a wrong QUESTION: an agent
-// holding the featureId — which is what every workflow surface, prompt and
-// playbook names — had no way to satisfy a schema asking for `streamId`, so it
-// asked the operator for a value it already had under another name. A required
-// parameter that the caller can only supply by knowing an internal identity
-// equation is a parameter that gets asked about.
-//
-// Both spellings are now accepted and exactly one is required. `streamId` still
-// wins when both are given, so no existing caller changes behaviour. This is
-// deliberately ONE resolver rather than a copy per verb — three copies of an
-// identity equation is the multiply-owned-representation defect DR-6 exists to
-// detect, and it is how the spellings would drift apart later.
+/**
+ * The task verbs accept `streamId` or `featureId`, because the workflow stream id is the bare feature id.
+ * One of them is required. `streamId` wins when both are present.
+ * One resolver serves each verb, so the two spellings cannot drift apart.
+ */
 export interface StreamIdentityArgs {
   readonly streamId?: string;
   readonly featureId?: string;
@@ -61,6 +44,7 @@ export type StreamIdentity =
   | { readonly ok: true; readonly streamId: string }
   | { readonly ok: false; readonly error: ToolResult };
 
+/** Resolves the stream id. The error message names both spellings and the relation between them. */
 export function resolveStreamIdentity(args: StreamIdentityArgs): StreamIdentity {
   const streamId = args.streamId ?? args.featureId;
   if (!streamId) {
@@ -70,8 +54,6 @@ export function resolveStreamIdentity(args: StreamIdentityArgs): StreamIdentity 
         success: false,
         error: {
           code: 'INVALID_INPUT',
-          // Names BOTH accepted spellings and the equation between them, so the
-          // remedy is readable off the error rather than inferred from source.
           message:
             'streamId is required (featureId is accepted as an alias — the ' +
             'workflow stream id is the bare featureId)',
@@ -82,21 +64,9 @@ export function resolveStreamIdentity(args: StreamIdentityArgs): StreamIdentity 
   return { ok: true, streamId };
 }
 
-// ─── Gate blocking-ness (DR-2) ──────────────────────────────────────────────
-
 /**
- * Is `gateName` a BLOCKING gate?
- *
- * Single source of truth: the tool registry's existing `action.gate` metadata,
- * keyed by the shared mechanical `gate.gateClass` (e.g. `check_static_analysis`
- * declares `{ blocking: true, dimension: 'D2', gateClass: 'static-analysis' }`).
- * Reading the declared model — rather than restating "which gates are
- * blocking" here — means a registry edit that flips a gate to advisory is
- * honoured automatically, and no parallel notion of blocking can drift.
- *
- * FAILS CLOSED: a gate class with no registration, or a registration that
- * omits `gate`, is treated as blocking. An unrecognised gate is the case where
- * we know least, so it gets the strongest protection.
+ * Whether `gateName` is a blocking gate, from the `action.gate` metadata of the registry, keyed by `gate.gateClass`.
+ * The function fails closed: a gate class with no registration is blocking.
  */
 export function isBlockingGate(gateName: string): boolean {
   for (const tool of getFullRegistry()) {
@@ -107,24 +77,17 @@ export function isBlockingGate(gateName: string): boolean {
   return true;
 }
 
-// ─── resetModuleEventStore (delegates to the shared materializer cache) ──────
-
 /**
- * Reset the shared materializer cache used by the task module. The
- * constructor-injection refactor (#1182) deleted the module-global
- * EventStore this used to also clear, but the materializer cache in
- * `projections/views/tools.ts` is still shared across tests in the same process and
- * needs to be cleared between cases for proper isolation. Per CR review
- * 4178011813 — a no-op shim was misleading; do the actual reset.
+ * Resets the materializer cache in `projections/views/tools.ts`.
+ * Tests in one process share that cache, so they call this function between cases.
  */
 export function resetModuleEventStore(): void {
   resetMaterializerCache();
 }
 
-// ─── handleTaskClaim ──────────────────────────────────────────────────────
-
 const MAX_CLAIM_RETRIES = 3;
 
+/** Claims a task. It makes up to `MAX_CLAIM_RETRIES` attempts in total, with exponential backoff and jitter after each sequence conflict. */
 export async function handleTaskClaim(
   args: {
     taskId: string;
@@ -158,10 +121,9 @@ export async function handleTaskClaim(
       return await attemptTaskClaim({ ...args, streamId }, stateDir, eventStore);
     } catch (err) {
       if (err instanceof SequenceConflictError) {
-        // Exponential backoff: baseDelay * 2^attempt + jitter
         const delay = CLAIM_BASE_DELAY_MS * Math.pow(2, attempt) + Math.random() * CLAIM_BASE_DELAY_MS;
         await sleep(delay);
-        continue; // Retry: re-query and re-check
+        continue;
       }
       return {
         success: false,
@@ -182,7 +144,11 @@ export async function handleTaskClaim(
   };
 }
 
-/** Attempt a single claim with optimistic concurrency via expectedSequence. */
+/**
+ * Attempts one claim, with `expectedSequence` as the optimistic-concurrency pin.
+ * The pin is the tail sequence of the fold, not an event count, because the two differ on a stream with gaps.
+ * With no view entry for the task, the function also reads the raw events. The view ignores a claim for an unassigned task.
+ */
 async function attemptTaskClaim(
   args: { taskId: string; agentId: string; streamId: string },
   stateDir: string,
@@ -192,14 +158,6 @@ async function attemptTaskClaim(
   const materializer = getOrCreateMaterializer(stateDir);
   const store = eventStore;
 
-  // Fold the task-detail view up to the stream's durable tail to check claim
-  // status. The CAS pin below MUST be the tail this decision was derived from,
-  // so it comes from the fold rather than being recomputed.
-  //
-  // A COUNT (`events.length`) is not a SEQUENCE. The two coincide only while
-  // the stream has no gaps, and the
-  // appender's OCC contract is stated in terms of the last event's sequence.
-  // A pruned or migrated stream would have silently pinned the wrong version.
   const { view, sequence: currentSequence } = await foldToTail<TaskDetailViewState>(
     store,
     materializer,
@@ -207,16 +165,11 @@ async function attemptTaskClaim(
     TASK_DETAIL_VIEW,
   );
 
-  // Check materialized view first (handles tasks with prior task.assigned event)
   const task = view.tasks[args.taskId];
   if (task && (task.status === 'claimed' || task.status === 'completed' || task.status === 'failed')) {
     return alreadyClaimedResult(args.taskId);
   }
 
-  // Fallback: check raw events for terminal task states without prior task.assigned
-  // (the view projection ignores claims for unassigned tasks). Bounded by the
-  // same tail the fold covers, so the two checks cannot disagree about which
-  // events they have seen.
   if (!task) {
     const events = await store.query(streamId);
     const isTerminal = events.some(
@@ -240,7 +193,6 @@ async function attemptTaskClaim(
     source: 'exarchos-mcp',
   };
 
-  // Validate agent event metadata before appending
   validateAgentEvent(claimEvent);
 
   const event = await store.append(
@@ -252,15 +204,26 @@ async function attemptTaskClaim(
   return { success: true, data: toEventAck(event) };
 }
 
-// ─── handleTaskComplete ───────────────────────────────────────────────────
-
-/** Why the state document was left as it was, in the words the log reports. */
+/** The log text for each reason that the sync skips the state document. A missing document logs at debug level, because a tracked workflow can have none. */
 const SYNC_SKIP_REASONS: Record<Extract<TaskStatusSyncOutcome, { kind: 'skipped' }>['reason'], string> = {
   'no-document': 'the workflow has no state document',
   'tasks-not-an-array': 'state.tasks is not an array',
   'tasks-not-found': 'task not found in state.tasks',
 };
 
+/**
+ * Records `task.completed` when the static-analysis gate passed for the task.
+ * Caller evidence never satisfies a blocking gate. For an advisory gate, it needs passing output and an operator capability.
+ * The transport puts that capability in the dispatch context, so the caller cannot assert it.
+ *
+ * The gate check reads only `gate.executed` events, which the gate runner writes from its evidence proof.
+ * An event names its task at `data.taskId`, or else at `data.details.taskId`. A `data.details` with no task id marks a project-wide gate.
+ * The task-completion runbook runs the tier-scaled kill probe before this step.
+ *
+ * The handler forwards `worktree` and `worktreePath` for the `mergePendingEntry` guard.
+ * After the append, it syncs the state document that the transition guards read. A failed sync returns `STATE_SYNC_FAILED`.
+ * A retry repairs it, because the task-keyed idempotency key returns the stored event.
+ */
 export async function handleTaskComplete(
   args: {
     taskId: string;
@@ -289,70 +252,23 @@ export async function handleTaskComplete(
 
   const store = eventStore;
 
-  // ─── DR-2: the governed cannot supply its own governance ─────────────────
-  //
-  // `evidence` has TWO distinct jobs, and only one of them is legitimate:
-  //
-  //   1. RECORD — provenance stamped onto `task.completed` (`data.evidence`
-  //      plus the `verified` flag). Unchanged below; a caller may always
-  //      describe how it verified its work.
-  //   2. GATE SATISFACTION — standing in for a gate that was never run.
-  //      This is the hole. `args.evidence` arrives FROM THE AGENT BEING
-  //      GOVERNED, so honouring it lets the subject of governance mint its
-  //      own proof of compliance.
-  //
-  // The rule: caller-supplied evidence can NEVER satisfy a BLOCKING gate, and
-  // for a non-blocking (advisory) gate it requires an explicit OPERATOR
-  // capability. Blocking-ness is read from the existing registry model
-  // (`action.gate.blocking`, keyed by `gate.gateClass`) rather than a second,
-  // drifting notion of "blocking" maintained here.
   const evidenceIsSubstantive =
     args.evidence?.passed === true && (args.evidence.output ?? '').trim().length > 0;
 
-  // The operator capability, taken from the SAME trust-tier mechanism that
-  // produces CAPABILITY_DENIED for shared-mutating actions: the ambient
-  // DispatchContext authorization. `identity.role` is derived by the
-  // transport (`deriveLocalOperatorIdentity` / `deriveMcpCallerIdentity`) and
-  // can never be self-asserted by the caller, which is exactly the property
-  // this check needs. A delegated agent is `role: 'agent'` and therefore
-  // cannot clear this bar no matter what it puts in `args.evidence`.
-  // Fails closed: no dispatch context (direct in-process call) ⇒ no operator.
   const authorization = getDispatchContext()?.authorization;
   const hasOperatorCapability =
     authorization !== undefined &&
     authorization.identity.role === 'operator' &&
     authorization.posture !== 'read-only';
 
-  /**
-   * May caller-supplied evidence stand in for `gateName`?
-   *
-   * Fails closed on every unknown: a gate absent from the registry, or one
-   * whose registration omits `blocking`, is treated as BLOCKING.
-   */
   const evidenceMaySatisfy = (gateName: string): boolean => {
     if (!evidenceIsSubstantive) return false;
     if (isBlockingGate(gateName)) return false;
     return hasOperatorCapability;
   };
 
-  // Gate enforcement (DR-1): `gate.executed` is THE gate-executed signal, and
-  // for every gate class the durable runner owns it has exactly ONE producer —
-  // `verbs/gates/gate-runner.ts` (`appendGateExecutedSignal`), which mints the
-  // row from the same persisted `admission.evidence-recorded` proof it just
-  // wrote. Before that unification the migrated producers appended ONLY the
-  // evidence record, so a legitimate `check_static_analysis` run could not be
-  // seen by the `task_complete` that followed it. Read one event type, one
-  // shape — do NOT teach this reader to also accept the proof record; the fix
-  // belongs at the producer.
   const gateEvents = await store.query(streamId, { type: 'gate.executed' });
 
-  // Tolerant Reader (#1189): taskId may live at `data.details.taskId`
-  // (canonical handler-emitted shape) or at `data.taskId` (operator-emitted
-  // shape, e.g. when satisfying a gate manually via exarchos_event append).
-  // Both shapes are valid per the GateExecutedData schema (which is not
-  // .strict()). If a top-level taskId is present, it is authoritative;
-  // otherwise fall back to the canonical details.taskId, with a missing
-  // taskId on the canonical path indicating a project-wide gate.
   const hasPassingGate = (gateName: string): boolean =>
     gateEvents.some((e) => {
       const d = e.data as Record<string, unknown> | undefined;
@@ -366,10 +282,6 @@ export async function handleTaskComplete(
     });
 
   const unmetGates: string[] = [];
-  // Static analysis is the one gate this action requires. The kill probe is
-  // tier-scaled and the tier is unknown here, so the task-completion runbook
-  // enforces it: the probe runs first, and a blocked verdict halts the segment
-  // before this step.
   if (!evidenceMaySatisfy('static-analysis') && !hasPassingGate('static-analysis')) {
     unmetGates.push('static-analysis');
   }
@@ -401,13 +313,6 @@ export async function handleTaskComplete(
     if (args.result.files) {
       data.files = args.result.files;
     }
-    // #1208 / DR-MO-1, DR-MO-2 — forward the worktree association so the
-    // rehydration projection's merge-pending detour fires (the HSM
-    // `mergePendingEntry` guard reads `data.worktree` / `data.worktreePath`
-    // on the latest task.completed). Pre-fix these fields were silently
-    // dropped here, so the auto-detour documented in
-    // `content/delivery/skills/delegate/SKILL.md` § "Worktree-Bearing Tasks" never
-    // triggered.
     if (typeof args.result.worktree === 'string' && args.result.worktree.length > 0) {
       data.worktree = args.result.worktree;
     }
@@ -419,7 +324,6 @@ export async function handleTaskComplete(
     }
   }
 
-  // Evidence storage: include evidence and set verified flag
   if (args.evidence) {
     data.evidence = args.evidence;
     data.verified = true;
@@ -433,25 +337,14 @@ export async function handleTaskComplete(
       data,
     }, { idempotencyKey: `${streamId}:task.completed:${args.taskId}` });
 
-    // Sync task status to the state document the transition guards read
-    // (e.g. allTasksComplete). One loop serves every writer of a completion
-    // fact — `settle` syncs its accepted tasks through the same one — so the
-    // compare-and-swap and its retry are decided in one place.
     const stateFile = path.join(stateDir, `${streamId}.state.json`);
     const sync = await markTasksCompleteInStateDocument(stateFile, [args.taskId]);
     if (sync.kind === 'skipped') {
-      // A workflow with no document is the ordinary case, not a warning: the
-      // document is the planner's stamp, and a tracked workflow may have none.
       const detail = { streamId: streamId, taskId: args.taskId, reason: sync.reason };
       const message = `task_complete state sync skipped: ${SYNC_SKIP_REASONS[sync.reason]}`;
       if (sync.reason === 'no-document') logger.debug(detail, message);
       else logger.warn(detail, message);
     } else if (sync.kind === 'failed') {
-      // The fact is durable and the document is not level with it, and the
-      // caller has to hear so: the guards read the document, so a completion
-      // returned as success here would be one that admits nothing. The
-      // task-keyed idempotency makes the retry the repair — the store returns
-      // the persisted row and the sync runs again.
       logger.warn(
         { streamId: streamId, taskId: args.taskId, attempt: sync.attempts, err: sync.error },
         'task_complete state sync failed',
@@ -481,8 +374,6 @@ export async function handleTaskComplete(
     };
   }
 }
-
-// ─── handleTaskFail ───────────────────────────────────────────────────────
 
 export async function handleTaskFail(
   args: {

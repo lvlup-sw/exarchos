@@ -1,21 +1,13 @@
-// ─── Worktree baseRef Resolution (#1509 / #1501) ─────────────────────────────
-//
-// Claude Code native `isolation: worktree` branches a subagent's worktree from
-// the repository's default branch (`origin/HEAD` → main) UNLESS the consumer's
-// settings set `worktree.baseRef: "head"`, which bases worktrees on local HEAD
-// (= the integration tip at dispatch time). Without it, every stacked-branch
-// delegation lands on a stale base missing all in-branch prerequisites.
-//
-// Exarchos ships as a binary + plugin and does not own a consumer's
-// `.claude/settings.json`, so it cannot set the value transparently. Instead,
-// `prepare_delegation` reads the effective value and BLOCKS dispatch (fail-loud)
-// when native isolation is requested without the pin in place.
-//
-// The reader is injectable so the resolution logic stays pure and unit-testable;
-// the default reader is the only impurity. Consumer files are resolved from
-// `process.cwd()` — never `import.meta.url` (plugin-mode module-relative
-// resolution silently fails). See docs/rca/2026-05-31-implementer-worktree-base.md.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Resolves the Claude Code `worktree.baseRef` setting for `prepare_delegation`.
+ *
+ * Native `isolation: worktree` branches a subagent worktree from `origin/HEAD`,
+ * unless `worktree.baseRef` is `"head"`. Without that value, a stacked
+ * delegation starts on a stale base. Exarchos does not own the consumer
+ * `.claude/settings.json`, so `prepare_delegation` blocks dispatch when the
+ * value is not `"head"`. Consumer files resolve from `process.cwd()`, not from
+ * `import.meta.url`, because module-relative paths fail in plugin mode.
+ */
 
 import { readFileSync } from 'node:fs';
 import os from 'node:os';
@@ -103,15 +95,13 @@ function readBaseRef(contents: string | null): BaseRefValue | null {
 }
 
 /**
- * Resolve the effective `worktree.baseRef` across the Claude Code settings
- * cascade in precedence order:
- *   1. `<cwd>/.claude/settings.local.json`  (personal project overrides)
- *   2. `<cwd>/.claude/settings.json`        (shared project settings)
- *   3. `<home>/.claude/settings.json`       (user settings)
+ * Resolves the effective `worktree.baseRef` from the settings files, in this order:
+ *   1. `<cwd>/.claude/settings.local.json`
+ *   2. `<cwd>/.claude/settings.json`
+ *   3. `<home>/.claude/settings.json`
  *
- * Enterprise-managed and CLI-argument overrides are not reachable from here;
- * the version-independent ancestry assert (Layer 3) covers that residual.
- * The first file to declare a valid `baseRef` wins.
+ * The first file with a valid `baseRef` supplies the value. This function
+ * cannot read enterprise-managed or command-line overrides.
  */
 export function resolveWorktreeBaseRef(
   options: ResolveWorktreeBaseRefOptions = {},
@@ -137,10 +127,9 @@ export function resolveWorktreeBaseRef(
 }
 
 /**
- * Assert that worktrees are pinned to local HEAD (`baseRef: "head"`). When they
- * are not — unset, `"fresh"`, or unparseable — return a blocking result with the
- * exact remediation so `prepare_delegation` can fail loud instead of silently
- * dispatching a native-isolation subagent onto `origin/HEAD` (main).
+ * Checks that worktrees base on local HEAD (`baseRef: "head"`). For any other
+ * value, or no value, it returns a blocking result with the exact remediation.
+ * Then `prepare_delegation` can stop instead of dispatching onto `origin/HEAD`.
  */
 export function assertWorktreeBaseRefPinned(
   options: ResolveWorktreeBaseRefOptions = {},

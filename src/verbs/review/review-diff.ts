@@ -1,36 +1,20 @@
-// ─── Review Diff Orchestrate Action ─────────────────────────────────────────
-//
-// Generates a context-efficient diff for code review by running git diff
-// and formatting output as structured markdown.
-// Replaces scripts/review-diff.sh with a TypeScript orchestrate handler.
-//
-// DR-7 (counts-not-transcripts): the raw diff is embedded AT MOST ONCE — in
-// `data.diff` — and capped to a bounded number of hunks / characters. The
-// markdown `data.report` carries the stat-summary + full file list + a steering
-// hint when the diff is truncated, but NEVER re-embeds the diff text (the old
-// double-embed: full diff in `data.diff` and again inside `data.report`).
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * `review_diff` orchestrate handler. It runs `git diff` and returns a capped diff plus a markdown
+ * report. The capped diff text appears only once, in `data.diff`. The report carries the stat
+ * summary, the full file list, and a steering hint when the diff is truncated.
+ */
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import type { ToolResult } from '../../format.js';
 
-// ─── Caps (counts-not-transcripts) ──────────────────────────────────────────
-
-/**
- * Bounds on the single embedded diff copy. A large diff is capped to the first
- * `maxHunks` hunks and, as a hard backstop against a single pathological hunk,
- * `maxChars` characters — whichever binds first. Exported so budget tests can
- * assert against the contract rather than magic numbers.
- */
+/** Caps on the embedded diff. The first cap that the diff reaches stops it. */
 export const REVIEW_DIFF_CAPS = {
   /** Maximum number of `@@` hunks embedded in `data.diff`. */
   maxHunks: 40,
   /** Hard character backstop on the embedded diff (bounds one huge hunk). */
   maxChars: 16_000,
 } as const;
-
-// ─── Types ──────────────────────────────────────────────────────────────────
 
 interface ReviewDiffArgs {
   readonly worktreePath?: string;
@@ -44,15 +28,9 @@ interface CappedDiff {
   readonly hunksReturned: number;
 }
 
-// ─── Diff Capping ────────────────────────────────────────────────────────────
-
 /**
- * Cap a unified diff to at most `maxHunks` hunks and `maxChars` characters.
- *
- * Counts-not-transcripts: the full per-file list + stat summary (carried by the
- * report) always names every changed file, so triage never loses "what changed"
- * even when the hunk transcript is truncated. The steering hint points at the
- * uncapped path (`git diff <base>...HEAD`).
+ * Caps a unified diff at `maxHunks` hunks and `maxChars` characters, newlines included. The report
+ * still names every changed file when the diff is truncated.
  */
 export function capDiff(diff: string): CappedDiff {
   if (diff.length === 0) {
@@ -76,7 +54,6 @@ export function capDiff(diff: string): CappedDiff {
       }
       hunksReturned += 1;
     }
-    // +1 for the rejoining newline.
     if (chars + line.length + 1 > REVIEW_DIFF_CAPS.maxChars) {
       truncated = true;
       break;
@@ -93,8 +70,6 @@ export function capDiff(diff: string): CappedDiff {
   };
 }
 
-// ─── Git Helpers ────────────────────────────────────────────────────────────
-
 /** Run a git command, returning stdout with leading/trailing newlines stripped. */
 function git(args: readonly string[], cwd: string): string {
   return execFileSync('git', [...args], {
@@ -106,8 +81,8 @@ function git(args: readonly string[], cwd: string): string {
 }
 
 /**
- * Run a git diff with three-dot notation first, falling back to two-dot
- * if the merge base is unavailable (e.g., shallow clone).
+ * Runs `git diff` with three-dot notation. If that fails, for example in a shallow clone with no
+ * merge base, it runs the two-dot form.
  */
 function gitDiffWithFallback(
   base: string,
@@ -121,8 +96,10 @@ function gitDiffWithFallback(
   }
 }
 
-// ─── Handler ────────────────────────────────────────────────────────────────
-
+/**
+ * Validates `worktreePath`, then diffs it against `baseBranch`, which defaults to `main`. An
+ * unknown base branch returns `DIFF_FAILED`, not a thrown error.
+ */
 export async function handleReviewDiff(
   args: ReviewDiffArgs,
   _stateDir: string,
@@ -130,7 +107,6 @@ export async function handleReviewDiff(
   const worktreePath = args.worktreePath ?? process.cwd();
   const baseBranch = args.baseBranch ?? 'main';
 
-  // Validate path exists and is a directory
   try {
     if (!fs.statSync(worktreePath).isDirectory()) {
       return {
@@ -151,7 +127,6 @@ export async function handleReviewDiff(
     };
   }
 
-  // Verify git repository
   try {
     git(['rev-parse', '--git-dir'], worktreePath);
   } catch {
@@ -164,10 +139,8 @@ export async function handleReviewDiff(
     };
   }
 
-  // Get current branch
   const currentBranch = git(['branch', '--show-current'], worktreePath);
 
-  // Get diff components — wrap in try-catch so unknown base branch returns structured error
   let stat: string;
   let nameOnly: string;
   let diff: string;
@@ -185,14 +158,12 @@ export async function handleReviewDiff(
     };
   }
 
-  // Parse file list
   const files = nameOnly
     .split('\n')
     .map((f) => f.trim())
     .filter((f) => f.length > 0);
   const filesChanged = files.length;
 
-  // Handle empty diff
   if (filesChanged === 0) {
     const report = [
       '## Review Diff',
@@ -217,17 +188,12 @@ export async function handleReviewDiff(
     };
   }
 
-  // Cap the diff to a bounded number of hunks / characters. The raw diff lives
-  // here — and ONLY here — so no hunk text is ever embedded more than once.
   const capped = capDiff(diff);
 
-  // Steering hint to the uncapped path when the transcript was truncated.
   const steering = capped.truncated
     ? `_Diff truncated: showing ${capped.hunksReturned} of ${capped.hunksTotal} hunks. Run \`git diff ${baseBranch}...HEAD\` in \`${worktreePath}\` for the full diff._`
     : undefined;
 
-  // Build markdown report — stat-summary + file list + steering, but NO embedded
-  // diff text (that would double-embed what already lives in `data.diff`).
   const fileList = files.map((f) => `- \`${f}\``).join('\n');
   const report = [
     '## Review Diff',

@@ -1,28 +1,12 @@
-// ─── Extract Intent (DR-1 #1593) ─────────────────────────────────────────────
-//
-// A transcript/diff-derived **intent** captured as workflow state so that
-// REVIEW (task 005) and PR-body generation (task 006) can later read it back.
-// This module WRITES the intent; downstream tasks READ it.
-//
-// Two pieces:
-//   1. `deriveIntent` — PURE: changed-file list (+ optional transcript) → the
-//      `WorkflowIntent` floor. No I/O, no `workflowType` parameter. The absence
-//      of a `workflowType` parameter is the structural guarantee of INV-6
-//      (workflow-agnosticism): the SAME derivation runs for feature / debug /
-//      refactor / oneshot with no type switch anywhere on the path.
-//   2. `persistIntent` — fail-soft persist via the CANONICAL state-patch surface
-//      (`handleUpdate` → exactly one `state.patched` event). Never throws; on
-//      any failure it returns `{ persisted: false, warning }` so review
-//      provisioning is never broken by a state-write hiccup.
-//
-// `changedFilesAgainstBase` mirrors the proven diff helper in
-// `prepare-synthesis.ts` (kept self-contained here — Bundle A's file is left
-// untouched to keep blast radius off it). The two now deliberately DIVERGE on
-// failure: intent is fail-SOFT (`[]` floor on git error — a degraded intent is
-// fine), whereas prepare-synthesis fails CLOSED (`null` → a blocking document
-// leg cannot be silently waived). Same shape, intentionally different failure
-// semantics — which is why the helper is not hoisted into one shared symbol.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Derives a workflow intent from the diff and an optional transcript, and stores it in workflow
+ * state for review and PR-body generation.
+ * `deriveIntent` is pure and has no `workflowType` parameter, so each workflow type uses the same derivation.
+ * `persistIntent` and `readIntent` are fail-soft, so a state failure cannot break review or PR creation.
+ *
+ * `changedFilesAgainstBase` mirrors the diff helper in `prepare-synthesis.ts`, but it returns `[]` on a git error.
+ * The `prepare-synthesis.ts` helper returns `null` and fails closed, so the two do not share one symbol.
+ */
 
 import { execFileSync } from 'node:child_process';
 import type { EventStore } from '../../events/store.js';
@@ -33,9 +17,7 @@ import { resolveWorkflowState } from '../resolve-state.js';
 
 export type { WorkflowIntent } from '../../workflow/schemas.js';
 
-// ─── Diff Helper (self-contained — mirrors prepare-synthesis.ts) ─────────────
-
-/** The default base branch, via origin/HEAD with a sanitizing fallback to `main`. */
+/** The default base branch from `origin/HEAD`. A git error, or a ref name outside a safe character set, gives `main`. */
 function detectDefaultBranch(cwd?: string): string {
   try {
     const ref = execFileSync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD'], {
@@ -45,7 +27,6 @@ function detectDefaultBranch(cwd?: string): string {
       ...(cwd ? { cwd } : {}),
     }).trim();
     const branch = ref.replace('refs/remotes/origin/', '');
-    // Sanitize to prevent command injection via crafted ref names.
     return /^[a-zA-Z0-9/_.-]+$/.test(branch) ? branch : 'main';
   } catch {
     return 'main';
@@ -72,15 +53,12 @@ export function changedFilesAgainstBase(cwd?: string): string[] {
   }
 }
 
-// ─── Pure Derivation ─────────────────────────────────────────────────────────
-
 /** Upper bound on the transcript-summary length (chars). */
 const TRANSCRIPT_SUMMARY_MAX = 280;
 
 /**
- * De-duped, sorted top-level surface prefixes of the changed files. The surface
- * is the first path segment (e.g. `servers/a/b.ts` → `servers`); a top-level
- * file with no slash (e.g. `README.md`) is its own surface.
+ * The sorted, distinct top-level surfaces of the changed files. A surface is the first path segment,
+ * so `servers/a/b.ts` gives `servers` and `README.md` gives `README.md`.
  */
 function surfacesOf(changedFiles: readonly string[]): string[] {
   const seen = new Set<string>();
@@ -109,12 +87,9 @@ function summarizeTranscript(transcript: string): string {
 }
 
 /**
- * Derive the `WorkflowIntent` floor from the cumulative changed-file list, with
- * optional transcript enrichment. PURE — no I/O, and (deliberately) NO
- * `workflowType` parameter: the same derivation holds for every workflow type
- * (INV-6). When a non-empty `transcript` is supplied the intent is enriched
- * (`source: 'diff+transcript'`, `transcriptSummary` set); otherwise it is the
- * diff-only floor (`source: 'diff'`, no `transcriptSummary`).
+ * Derives the `WorkflowIntent` floor from the changed-file list. It is pure and has no `workflowType`
+ * parameter, so each workflow type gets the same derivation. A non-empty `transcript` adds
+ * `transcriptSummary` and sets `source: 'diff+transcript'`. Otherwise `source` is `'diff'`.
  */
 export function deriveIntent(
   changedFiles: readonly string[],
@@ -146,14 +121,10 @@ export function deriveIntent(
   };
 }
 
-// ─── Fail-Soft Persist ───────────────────────────────────────────────────────
-
 /**
- * Persist the derived intent to `artifacts.intent` via the canonical state-patch
- * surface (`handleUpdate`), which emits exactly ONE `state.patched` event — no
- * custom event type. Fail-soft: on a non-success result or a thrown error this
- * returns `{ persisted: false, warning }` and NEVER throws, so a state-write
- * failure cannot break review provisioning.
+ * Stores the intent at `artifacts.intent` through `handleUpdate`, which emits one `state.patched` event.
+ * It never throws. A failure returns `{ persisted: false, warning }`, so a state-write failure cannot
+ * break review provisioning.
  */
 export async function persistIntent(
   featureId: string,
@@ -178,21 +149,11 @@ export async function persistIntent(
   }
 }
 
-// ─── Fail-Soft Read (DR-1 task 006) ──────────────────────────────────────────
-
 /**
- * Read the persisted `artifacts.intent` back from workflow state — the READ
- * counterpart of {@link persistIntent}. Resolves state via the canonical
- * {@link resolveWorkflowState} (SQLite event store is the source of truth) and
- * safe-parses `artifacts.intent` through {@link WorkflowIntentSchema}.
- *
- * FAIL-SOFT by design (DR-1 acceptance): returns `undefined` — never throws and
- * never surfaces an error envelope — when `featureId` is absent, no event store
- * is supplied, state is unreadable, the intent is absent, or it fails schema
- * validation. PR-body grounding (create_pr / validate_pr_body) consumes this and
- * degrades to its unchanged legacy behavior when the result is `undefined`, so a
- * state hiccup can never break PR creation or validation. No `workflowType`
- * branch (INV-6): the same read holds for every workflow type.
+ * Reads `artifacts.intent` back from workflow state through {@link resolveWorkflowState}, and parses
+ * it with {@link WorkflowIntentSchema}. It never throws. It returns `undefined` when `featureId` or
+ * the event store is absent, the state is not readable, or the intent is absent or not valid.
+ * PR-body grounding then keeps its default behavior, so a state failure cannot break PR creation.
  */
 export async function readIntent(
   featureId: string | undefined,
@@ -213,13 +174,9 @@ export async function readIntent(
   }
 }
 
-// ─── Intent Grounding Marker (DR-1 task 006) ─────────────────────────────────
-
 /**
- * Idempotency marker for the `## Intent` grounding section injected into a PR
- * body. An HTML comment so it renders invisibly on GitHub while remaining a
- * deterministic presence check for both the create_pr enrichment (don't
- * double-inject) and the validate_pr_body advisory (is the body grounded?).
+ * The idempotency marker of the `## Intent` section in a PR body. It is an HTML comment, so GitHub
+ * does not show it. `create_pr` and `validate_pr_body` use it as a presence check.
  */
 export const INTENT_GROUNDING_MARKER = '<!-- intent-grounded -->';
 
@@ -232,21 +189,16 @@ export function bodyHasIntentMarker(body: string): boolean {
 }
 
 /**
- * An intent is "meaningful" — worth grounding a PR body in — only when it
- * references at least one changed file. The empty/un-resolvable-diff floor
- * (`changedFiles.length === 0`) is NOT grounded; the body is left untouched.
- * Mirrors the `buildIntentGrounding` meaningfulness gate in prepare-review.ts
- * (task 005) so the grounded-PR and grounded-review paths agree on the floor.
+ * An intent is meaningful only when it names at least one changed file. The empty-diff floor does
+ * not ground a PR body. `buildIntentGrounding` in `prepare-review.ts` uses the same rule.
  */
 export function isMeaningfulIntent(intent: WorkflowIntent): boolean {
   return intent.changedFiles.length > 0;
 }
 
 /**
- * Build the deterministic `## Intent` grounding section appended to a PR body.
- * Pure — no `workflowType` branch. Carries surfaces, the human-floor summary,
- * the optional transcript line, and the idempotency marker so the section is
- * both human-readable and machine-detectable on a later validate pass.
+ * Builds the `## Intent` section for a PR body: the surfaces, the summary, the optional transcript
+ * line, and the idempotency marker. It has no `workflowType` branch.
  */
 export function buildIntentSection(intent: WorkflowIntent): string {
   const lines: string[] = ['## Intent', '', INTENT_GROUNDING_MARKER, ''];

@@ -1,17 +1,13 @@
-// ─── Check CodeRabbit Review State ──────────────────────────────────────────
-//
-// Queries CodeRabbit review state on PRs via VcsProvider. For each PR,
-// fetches review status, filters to CodeRabbit bot reviewers, and classifies:
-// approved -> pass, NONE -> pass, else -> fail.
-//
-// Migrated from direct `gh api` calls to VcsProvider.getReviewStatus().
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Reads the CodeRabbit review state of each PR through the `VcsProvider`. A PR
+ * passes when its last CodeRabbit review is approved, or when it has no
+ * CodeRabbit review. Any other state, or an API error, fails. An invalid PR
+ * number is skipped, and a skip is not a failure.
+ */
 
 import type { VcsProvider } from '../../vcs/provider.js';
 import { createVcsProvider } from '../../vcs/factory.js';
 import type { ToolResult } from '../../format.js';
-
-// ─── Types ─────────────────────────────────────────────────────────────────
 
 export interface CheckCoderabbitArgs {
   readonly owner: string;
@@ -31,8 +27,6 @@ interface CheckCoderabbitResult {
   readonly results: readonly PrReviewResult[];
 }
 
-// ─── Constants ──────────────────────────────────────────────────────────────
-
 const OWNER_REPO_RE = /^[a-zA-Z0-9._-]+$/;
 
 const CODERABBIT_LOGINS = new Set([
@@ -42,13 +36,10 @@ const CODERABBIT_LOGINS = new Set([
   'coderabbit-ai',
 ]);
 
-// ─── Handler ────────────────────────────────────────────────────────────────
-
 export async function handleCheckCoderabbit(
   args: CheckCoderabbitArgs,
   provider?: VcsProvider,
 ): Promise<ToolResult> {
-  // Validate owner
   if (!args.owner || !OWNER_REPO_RE.test(args.owner)) {
     return {
       success: false,
@@ -56,7 +47,6 @@ export async function handleCheckCoderabbit(
     };
   }
 
-  // Validate repo
   if (!args.repo || !OWNER_REPO_RE.test(args.repo)) {
     return {
       success: false,
@@ -64,7 +54,6 @@ export async function handleCheckCoderabbit(
     };
   }
 
-  // Validate prNumbers
   if (!args.prNumbers || args.prNumbers.length === 0) {
     return {
       success: false,
@@ -76,7 +65,6 @@ export async function handleCheckCoderabbit(
   const results: PrReviewResult[] = [];
 
   for (const pr of args.prNumbers) {
-    // Skip invalid PR numbers
     if (!Number.isInteger(pr) || pr <= 0) {
       results.push({ pr, state: 'INVALID_PR', verdict: 'skip' });
       continue;
@@ -85,7 +73,6 @@ export async function handleCheckCoderabbit(
     try {
       const reviewStatus = await vcs.getReviewStatus(String(pr));
 
-      // Filter to CodeRabbit reviewers
       const coderabbitReviewers = reviewStatus.reviewers.filter(
         (r) => CODERABBIT_LOGINS.has(r.login),
       );
@@ -95,7 +82,6 @@ export async function handleCheckCoderabbit(
         continue;
       }
 
-      // Map reviewer state to review state string
       const latest = coderabbitReviewers[coderabbitReviewers.length - 1];
       if (latest === undefined) continue;
       const stateStr = latest.state === 'approved' ? 'APPROVED' :
@@ -109,10 +95,8 @@ export async function handleCheckCoderabbit(
     }
   }
 
-  // Compute overall pass (skip doesn't count as fail)
   const allPassed = results.every((r) => r.verdict !== 'fail');
 
-  // Build markdown report
   const lines: string[] = [];
   lines.push('## CodeRabbit Review Status');
   lines.push('');
